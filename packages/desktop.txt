@@ -9,6 +9,9 @@
 # Hyprland
 hyprland
 
+# Desktop shell
+noctalia
+
 # Wayland / X11 compatibility
 xorg-x11-server-Xwayland
 wayland-utils
