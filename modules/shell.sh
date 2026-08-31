@@ -130,6 +130,15 @@ deploy_starship_config() {
     info "Starship configuration linked."
 }
 
+deploy_kitty_config() {
+    local source="$SCRIPT_DIR/dotfiles/kitty/kitty.conf"
+    local destination="$TARGET_HOME/.config/kitty/kitty.conf"
+
+    ensure_symlink "$source" "$destination"
+
+    info "Kitty configuration linked."
+}
+
 configure_shell() {
     if [[ "${SHELL:-}" != "zsh" ]]; then
         die "Unsupported shell profile: ${SHELL:-<unset>}"
@@ -142,6 +151,7 @@ configure_shell() {
     configure_zsh_plugins
     deploy_zsh_config
     deploy_starship_config
+    deploy_kitty_config
     configure_default_shell
 
     if [[ "${PROMPT:-}" == "starship" ]]; then
