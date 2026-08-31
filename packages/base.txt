@@ -1,0 +1,68 @@
+# packages/base.txt
+#
+# Core Fedora workstation packages.
+# Keep this list limited to packages required regardless of hardware profile.
+#
+# Project-specific compilers, SDKs and runtimes do NOT belong here.
+# Those will be managed through Nix/devenv.
+
+# Core system utilities
+curl
+wget
+git
+rsync
+unzip
+zip
+tar
+
+# Shell / terminal utilities
+zsh
+fzf
+zoxide
+ripgrep
+fd-find
+bat
+jq
+tree
+
+# System inspection
+htop
+btop
+fastfetch
+lm_sensors
+pciutils
+usbutils
+
+# Networking
+NetworkManager
+NetworkManager-wifi
+NetworkManager-tui
+bind-utils
+iproute
+iputils
+
+# Security / authentication
+polkit
+gnome-keyring
+
+# Desktop/system integration
+dbus
+accountsservice
+xdg-user-dirs
+
+# Storage / filesystem support
+udisks2
+gvfs
+gvfs-mtp
+gvfs-smb
+ntfs-3g
+exfatprogs
+
+# Audio foundation
+pipewire
+pipewire-pulseaudio
+wireplumber
+
+# Archive support
+p7zip
+p7zip-plugins
