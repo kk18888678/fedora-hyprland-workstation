@@ -1,0 +1,41 @@
+# Fedora Hyprland Workstation
+# Starship prompt configuration
+
+# Keep the prompt responsive.
+command_timeout = 1000
+
+# Insert a blank line between commands.
+add_newline = true
+
+format = """
+$directory\
+$git_branch\
+$git_status\
+$nix_shell\
+$container\
+$line_break\
+$character"""
+
+[directory]
+truncation_length = 4
+truncate_to_repo = false
+
+[git_branch]
+symbol = " "
+format = "on [$symbol$branch]($style) "
+
+[git_status]
+format = "([$all_status$ahead_behind]($style) )"
+
+[nix_shell]
+symbol = "❄ "
+format = "via [$symbol$name]($style) "
+
+[container]
+symbol = "⬢ "
+format = "in [$symbol$name]($style) "
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
+vimcmd_symbol = "[❮](bold green)"

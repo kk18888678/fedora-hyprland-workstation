@@ -121,6 +121,15 @@ deploy_zsh_config() {
     info "Zsh configuration linked."
 }
 
+deploy_starship_config() {
+    local source="$SCRIPT_DIR/dotfiles/starship/starship.toml"
+    local destination="$TARGET_HOME/.config/starship.toml"
+
+    ensure_symlink "$source" "$destination"
+
+    info "Starship configuration linked."
+}
+
 configure_shell() {
     if [[ "${SHELL:-}" != "zsh" ]]; then
         die "Unsupported shell profile: ${SHELL:-<unset>}"
@@ -132,6 +141,7 @@ configure_shell() {
     install_oh_my_zsh
     configure_zsh_plugins
     deploy_zsh_config
+    deploy_starship_config
     configure_default_shell
 
     if [[ "${PROMPT:-}" == "starship" ]]; then
