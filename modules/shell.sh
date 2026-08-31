@@ -112,6 +112,15 @@ configure_default_shell() {
 # Main entry point
 ###############################################################################
 
+deploy_zsh_config() {
+    local source="$SCRIPT_DIR/dotfiles/zsh/.zshrc"
+    local destination="$TARGET_HOME/.zshrc"
+
+    ensure_symlink "$source" "$destination"
+
+    info "Zsh configuration linked."
+}
+
 configure_shell() {
     if [[ "${SHELL:-}" != "zsh" ]]; then
         die "Unsupported shell profile: ${SHELL:-<unset>}"
@@ -122,6 +131,7 @@ configure_shell() {
 
     install_oh_my_zsh
     configure_zsh_plugins
+    deploy_zsh_config
     configure_default_shell
 
     if [[ "${PROMPT:-}" == "starship" ]]; then

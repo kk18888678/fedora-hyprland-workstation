@@ -16,6 +16,7 @@ zip
 tar
 
 # Shell / terminal utilities
+neovim
 zsh
 fzf
 zoxide
