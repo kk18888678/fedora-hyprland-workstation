@@ -1,0 +1,30 @@
+-- Keyboard, pointer and touchpad configuration.
+
+hl.config({
+    input = {
+        kb_layout = "us",
+        kb_options = "",
+
+        numlock_by_default = true,
+
+        repeat_delay = 250,
+        repeat_rate = 35,
+
+        accel_profile = "flat",
+
+        touchpad = {
+            natural_scroll = true,
+            disable_while_typing = true,
+            clickfinger_behavior = true,
+            scroll_factor = 0.5,
+        },
+
+        special_fallthrough = true,
+        follow_mouse = 1,
+    },
+})
+
+-- Three-finger horizontal swipe switches workspaces.
+hl.exec_cmd(
+    'hyprctl keyword gesture "3, horizontal, workspace"'
+)
