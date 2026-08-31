@@ -17,7 +17,6 @@ for _, item in ipairs(environment) do
 end
 
 local exec_once = {
-    "hyprpolkitagent",
     "gnome-keyring-daemon --start --components=secrets",
     "dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP",
     "systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP",
@@ -27,6 +26,9 @@ hl.on("hyprland.start", function()
     for _, command in ipairs(exec_once) do
         hl.exec_cmd(command)
     end
+
+    -- Fedora packages hyprpolkitagent as a systemd/D-Bus user service.
+    -- Do not manually launch /usr/libexec/hyprpolkitagent here.
 
     -- Noctalia is installed and enabled by the workstation profile.
     hl.exec_cmd("noctalia")
