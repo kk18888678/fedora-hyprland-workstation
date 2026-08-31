@@ -101,7 +101,6 @@ validate_desktop_environment() {
         hyprctl
         kitty
         thunar
-        hyprpolkitagent
     )
 
     local command_name
@@ -109,6 +108,14 @@ validate_desktop_environment() {
     for command_name in "${commands[@]}"; do
         validate_required_command "$command_name" || failed=1
     done
+
+    # Fedora installs hyprpolkitagent as a libexec binary with systemd/D-Bus
+    # user-service integration rather than as a command in the user's PATH.
+    validate_required_file /usr/libexec/hyprpolkitagent ||
+        failed=1
+
+    validate_required_file /usr/lib/systemd/user/hyprpolkitagent.service ||
+        failed=1
 
     validate_required_file \
         "$TARGET_HOME/.config/hypr/hyprland.lua" ||
@@ -125,6 +132,9 @@ validate_desktop_environment() {
         fi
 
         validate_required_file /etc/greetd/config.toml ||
+            failed=1
+
+        validate_required_file /var/lib/noctalia-greeter ||
             failed=1
     fi
 
