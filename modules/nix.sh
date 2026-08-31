@@ -14,6 +14,16 @@ load_nix_environment() {
         # shellcheck source=/dev/null
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
     fi
+
+    if [[ -d "$TARGET_HOME/.nix-profile/bin" ]]; then
+        case ":$PATH:" in
+            *":$TARGET_HOME/.nix-profile/bin:"*)
+                ;;
+            *)
+                export PATH="$TARGET_HOME/.nix-profile/bin:$PATH"
+                ;;
+        esac
+    fi
 }
 
 install_nix_package_manager() {
@@ -93,7 +103,8 @@ EOF
 
 enable_nix_daemon() {
     if systemctl list-unit-files nix-daemon.service \
-        --no-legend 2>/dev/null | grep -q '^nix-daemon.service'; then
+        --no-legend 2>/dev/null |
+        grep -q '^nix-daemon.service'; then
 
         info "Enabling Nix daemon."
 
@@ -116,6 +127,8 @@ install_devenv() {
     info "Installing devenv."
 
     nix profile install nixpkgs#devenv
+
+    load_nix_environment
 
     if ! command_exists devenv; then
         die "devenv installation could not be validated."
