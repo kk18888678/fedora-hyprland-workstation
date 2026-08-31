@@ -5,18 +5,25 @@
 # Nix
 ###############################################################################
 
-# Multi-user Nix installation.
-#
-# Source the daemon environment first, then explicitly expose the user's
-# Nix profile. This ensures applications installed with `nix profile`
-# such as devenv are available in every interactive Zsh session.
+# Fedora Nix environment.
+if [[ -e /etc/profile.d/nix-daemon.sh ]]; then
+    source /etc/profile.d/nix-daemon.sh
+fi
 
+# Compatibility with an existing upstream multi-user Nix installation.
 if [[ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
     source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
 fi
 
+# Applications installed with `nix profile install`, such as devenv.
 if [[ -d "$HOME/.nix-profile/bin" ]]; then
-    export PATH="$HOME/.nix-profile/bin:$PATH"
+    case ":$PATH:" in
+        *":$HOME/.nix-profile/bin:"*)
+            ;;
+        *)
+            export PATH="$HOME/.nix-profile/bin:$PATH"
+            ;;
+    esac
 fi
 
 ###############################################################################
