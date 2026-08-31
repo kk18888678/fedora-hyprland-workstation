@@ -2,19 +2,32 @@
 
 # Nix and devenv configuration for Fedora Hyprland Workstation.
 #
-# Fedora owns the operating system and desktop.
+# Fedora owns the Nix installation and daemon.
 # Nix/devenv own project development environments.
+#
+# Fedora 44 provides native nix and nix-daemon packages, so we deliberately
+# avoid the upstream curl-based Nix installer.
 
 nix_installed() {
-    [[ -x /nix/var/nix/profiles/default/bin/nix ]]
+    package_installed nix &&
+        command_exists nix
 }
 
 load_nix_environment() {
+    # Fedora's nix-daemon package provides this profile script.
+    if [[ -e /etc/profile.d/nix-daemon.sh ]]; then
+        # shellcheck source=/dev/null
+        source /etc/profile.d/nix-daemon.sh
+    fi
+
+    # Keep compatibility with upstream Nix installations if this repository
+    # is ever used on a system that already has one.
     if [[ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
         # shellcheck source=/dev/null
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
     fi
 
+    # Applications installed with `nix profile install` live here.
     if [[ -d "$TARGET_HOME/.nix-profile/bin" ]]; then
         case ":$PATH:" in
             *":$TARGET_HOME/.nix-profile/bin:"*)
@@ -27,61 +40,18 @@ load_nix_environment() {
 }
 
 install_nix_package_manager() {
-    if nix_installed; then
-        info "Nix already installed."
-        load_nix_environment
-        return 0
-    fi
+    info "Installing Fedora Nix packages."
 
-    local installer_url
-    local installer
-    local temp_dir
+    install_dnf_packages \
+        nix \
+        nix-daemon
 
-    installer_url="https://nixos.org/nix/install"
-
-    temp_dir="$(mktemp -d)"
-    installer="$temp_dir/install-nix.sh"
-
-    info "Downloading official Nix installer."
-
-    if ! curl \
-        --fail \
-        --location \
-        --show-error \
-        --silent \
-        --output "$installer" \
-        "$installer_url"; then
-        rm -rf "$temp_dir"
-        die "Failed to download the Nix installer."
-    fi
-
-    [[ -s "$installer" ]] || {
-        rm -rf "$temp_dir"
-        die "Downloaded Nix installer is empty."
-    }
-
-    if ! head -n 1 "$installer" | grep -q '^#!'; then
-        rm -rf "$temp_dir"
-        die "Downloaded Nix installer does not appear to be a shell script."
-    fi
-
-    chmod 0700 "$installer"
-
-    info "Installing Nix in multi-user mode."
-
-    if ! /bin/bash "$installer" --daemon --yes; then
-        rm -rf "$temp_dir"
-        die "Nix installation failed."
-    fi
-
-    rm -rf "$temp_dir"
+    nix_installed ||
+        die "Fedora Nix installation could not be validated."
 
     load_nix_environment
 
-    nix_installed ||
-        die "Nix installation completed but Nix could not be detected."
-
-    info "Nix installation validated."
+    info "Fedora Nix installation validated."
 }
 
 configure_nix_features() {
@@ -90,41 +60,46 @@ configure_nix_features() {
 
     ensure_directory "$config_dir"
 
-    info "Configuring Nix."
+    info "Configuring Nix user features."
 
     cat > "$config_file" <<'EOF'
 experimental-features = nix-command flakes
-auto-optimise-store = true
 warn-dirty = false
 EOF
 
-    info "Nix configuration complete."
+    info "Nix user configuration complete."
 }
 
 enable_nix_daemon() {
-    if systemctl list-unit-files nix-daemon.service \
+    if ! systemctl list-unit-files nix-daemon.service \
         --no-legend 2>/dev/null |
         grep -q '^nix-daemon.service'; then
 
-        info "Enabling Nix daemon."
-
-        sudo systemctl enable --now nix-daemon.service
-    else
         die "nix-daemon.service was not found."
     fi
+
+    info "Enabling Nix daemon."
+
+    sudo systemctl enable --now nix-daemon.service
+
+    if ! systemctl is-active --quiet nix-daemon.service; then
+        die "nix-daemon.service is not active."
+    fi
+
+    info "Nix daemon is active."
 }
 
 install_devenv() {
     load_nix_environment
+
+    require_command nix
 
     if command_exists devenv; then
         info "devenv already installed."
         return 0
     fi
 
-    require_command nix
-
-    info "Installing devenv."
+    info "Installing devenv through the Nix user profile."
 
     nix profile install nixpkgs#devenv
 
@@ -146,11 +121,14 @@ validate_nix_environment() {
     command_exists devenv ||
         die "devenv command is unavailable."
 
-    nix --version >/dev/null ||
-        die "Nix validation failed."
+    nix --version >/dev/null 2>&1 ||
+        die "Nix failed to execute."
 
-    devenv version >/dev/null ||
-        die "devenv validation failed."
+    devenv version >/dev/null 2>&1 ||
+        die "devenv failed to execute."
+
+    systemctl is-active --quiet nix-daemon.service ||
+        die "Nix daemon is not active."
 
     info "Nix development environment validated."
 }
