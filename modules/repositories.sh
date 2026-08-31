@@ -39,14 +39,19 @@ copr_enabled() {
     repo_fragment="${copr/\//:}"
 
     grep -Rqs \
-        "copr.*${repo_fragment}" \
+        "$repo_fragment" \
         /etc/yum.repos.d/_copr:* 2>/dev/null
 }
 
 enable_copr() {
     local copr="$1"
 
-    info "Ensuring COPR is enabled: $copr"
+    if copr_enabled "$copr"; then
+        info "COPR already enabled: $copr"
+        return 0
+    fi
+
+    info "Enabling COPR: $copr"
 
     sudo dnf copr enable -y "$copr"
 }
