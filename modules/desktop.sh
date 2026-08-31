@@ -102,6 +102,28 @@ configure_noctalia_greeter_state() {
     info "Noctalia greeter state directory configured."
 }
 
+validate_greeter_configuration() {
+    if ! is_true "${INSTALL_GREETER:-false}"; then
+        return 0
+    fi
+
+    command_exists noctalia-greeter-session ||
+        die "Required greeter command not found: noctalia-greeter-session"
+
+    [[ -f /etc/greetd/config.toml ]] ||
+        die "greetd configuration was not created."
+
+    [[ -d /var/lib/noctalia-greeter ]] ||
+        die "Noctalia greeter state directory was not created."
+
+    systemctl list-unit-files greetd.service \
+        --no-legend 2>/dev/null |
+        grep -q '^greetd.service' ||
+        die "greetd.service was not found."
+
+    info "Greeter configuration validated."
+}
+
 enable_greetd() {
     if ! is_true "${INSTALL_GREETER:-false}"; then
         return 0
@@ -151,6 +173,8 @@ configure_graphical_target() {
     info "Setting graphical.target as the default system target."
 
     sudo systemctl set-default graphical.target
+
+    info "graphical.target configured."
 }
 
 validate_hyprland_desktop() {
@@ -159,7 +183,6 @@ validate_hyprland_desktop() {
         hyprctl
         kitty
         thunar
-        hyprpolkitagent
     )
 
     local command_name
@@ -168,6 +191,14 @@ validate_hyprland_desktop() {
         command_exists "$command_name" ||
             die "Required desktop command not found: $command_name"
     done
+
+    # Fedora installs hyprpolkitagent as a libexec binary with systemd/D-Bus
+    # user-service integration rather than as a command in the user's PATH.
+    [[ -x /usr/libexec/hyprpolkitagent ]] ||
+        die "Fedora hyprpolkitagent executable was not found."
+
+    [[ -f /usr/lib/systemd/user/hyprpolkitagent.service ]] ||
+        die "Fedora hyprpolkitagent user service was not found."
 
     [[ -f "$TARGET_HOME/.config/hypr/hyprland.lua" ]] ||
         die "Hyprland configuration was not deployed correctly."
@@ -182,18 +213,22 @@ install_desktop() {
 
     info "Configuring Hyprland desktop."
 
+    # Prepare the desktop without changing the machine's boot/login path.
     deploy_hyprland_config
     validate_noctalia
 
     install_noctalia_greeter
     configure_greetd
     configure_noctalia_greeter_state
-    enable_greetd
 
-    enable_desktop_services
-    configure_graphical_target
-
+    # Desktop-critical validation must succeed before activation.
     validate_hyprland_desktop
+    validate_greeter_configuration
+
+    # Activation happens only after the desktop has passed validation.
+    enable_desktop_services
+    enable_greetd
+    configure_graphical_target
 
     info "Hyprland desktop configuration complete."
 }
