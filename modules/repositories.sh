@@ -13,6 +13,9 @@
 #       Required because Fedora 44 does not currently provide the Hyprland
 #       compositor and related desktop packages we require.
 #
+#   atim/starship COPR
+#       Officially documented Fedora package source for Starship.
+#
 #   RPM Fusion Free / Nonfree
 #       Used for multimedia and hardware-related packages where Fedora's
 #       repositories intentionally do not provide them.
@@ -110,6 +113,9 @@ configure_repositories() {
 
     # Hyprland package source.
     enable_copr "lionheartp/Hyprland"
+
+    # Starship package source.
+    enable_copr "atim/starship"
 
     # Multimedia and hardware ecosystem.
     install_rpmfusion
