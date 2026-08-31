@@ -1,0 +1,63 @@
+# packages/desktop.txt
+#
+# Hyprland desktop and Wayland integration packages.
+#
+# Keep this manifest focused on the graphical desktop itself.
+# Applications, development toolchains and hardware-specific drivers
+# belong in separate manifests.
+
+# Hyprland
+hyprland
+
+# Wayland / X11 compatibility
+xorg-x11-server-Xwayland
+wayland-utils
+
+# Desktop portals
+xdg-desktop-portal
+xdg-desktop-portal-gtk
+xdg-desktop-portal-hyprland
+
+# Authentication / privilege prompts
+hyprpolkitagent
+
+# Display manager / greeter foundation
+greetd
+
+# Terminal
+kitty
+
+# File manager
+thunar
+thunar-archive-plugin
+thunar-volman
+tumbler
+
+# Clipboard
+wl-clipboard
+
+# Screenshots / screen selection
+grim
+slurp
+
+# Desktop controls
+pavucontrol
+playerctl
+brightnessctl
+
+# Power integration
+power-profiles-daemon
+upower
+
+# Appearance / GTK configuration
+nwg-look
+
+# Qt / Wayland integration
+qt6-qtwayland
+
+# Notifications / desktop utilities
+libnotify
+
+# Fonts
+google-noto-sans-fonts
+google-noto-emoji-fonts
