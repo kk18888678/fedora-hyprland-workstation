@@ -20,9 +20,8 @@ validate_noctalia() {
         return 0
     fi
 
-    if ! command_exists noctalia; then
+    command_exists noctalia ||
         die "Noctalia is enabled by the profile but is not installed."
-    fi
 
     info "Noctalia installation validated."
 }
@@ -43,6 +42,18 @@ install_noctalia_greeter() {
     info "Noctalia greeter installed."
 }
 
+validate_greetd_user() {
+    if ! getent passwd greetd >/dev/null 2>&1; then
+        die "Fedora greetd service user was not found."
+    fi
+
+    if ! getent group greetd >/dev/null 2>&1; then
+        die "Fedora greetd service group was not found."
+    fi
+
+    info "greetd service account validated."
+}
+
 configure_greetd() {
     if ! is_true "${INSTALL_GREETER:-false}"; then
         return 0
@@ -56,6 +67,8 @@ configure_greetd() {
     [[ -n "$greeter_session" ]] ||
         die "Could not determine noctalia-greeter-session path."
 
+    validate_greetd_user
+
     info "Configuring greetd."
 
     sudo install -d -m 0755 /etc/greetd
@@ -66,10 +79,27 @@ vt = 1
 
 [default_session]
 command = "$greeter_session"
-user = "greeter"
+user = "greetd"
 EOF
 
     info "greetd configured."
+}
+
+configure_noctalia_greeter_state() {
+    if ! is_true "${INSTALL_GREETER:-false}"; then
+        return 0
+    fi
+
+    info "Configuring Noctalia greeter state directory."
+
+    sudo install \
+        -d \
+        -m 0750 \
+        -o greetd \
+        -g greetd \
+        /var/lib/noctalia-greeter
+
+    info "Noctalia greeter state directory configured."
 }
 
 enable_greetd() {
@@ -157,6 +187,7 @@ install_desktop() {
 
     install_noctalia_greeter
     configure_greetd
+    configure_noctalia_greeter_state
     enable_greetd
 
     enable_desktop_services
