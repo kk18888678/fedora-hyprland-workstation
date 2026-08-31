@@ -90,6 +90,7 @@ install_manifest() {
 install_packages() {
     local base_manifest="$SCRIPT_DIR/packages/base.txt"
     local desktop_manifest="$SCRIPT_DIR/packages/desktop.txt"
+    local media_manifest="$SCRIPT_DIR/packages/media.txt"
 
     info "Installing base workstation packages."
     install_manifest "$base_manifest"
@@ -100,6 +101,9 @@ install_packages() {
     else
         die "Unsupported desktop profile: ${DESKTOP:-<unset>}"
     fi
+
+    info "Installing media packages."
+    install_manifest "$media_manifest"
 
     info "Host package installation complete."
 }
