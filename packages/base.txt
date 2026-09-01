@@ -27,19 +27,13 @@ jq
 tree
 starship
 
-# System inspection
-htop
-btop
+# System info
 fastfetch
-lm_sensors
-pciutils
-usbutils
 
 # Networking
 NetworkManager
 NetworkManager-wifi
 NetworkManager-tui
-bind-utils
 iproute
 iputils
 

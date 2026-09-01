@@ -87,12 +87,18 @@ install_manifest() {
 
 install_packages() {
     local base_manifest="$SCRIPT_DIR/packages/base.txt"
+    local diagnostics_manifest="$SCRIPT_DIR/packages/diagnostics.txt"
     local desktop_manifest="$SCRIPT_DIR/packages/desktop.txt"
     local media_manifest="$SCRIPT_DIR/packages/media.txt"
 
     info "Installing base workstation packages."
     if ! install_manifest "$base_manifest"; then
         record_required "packages" "base" "Base workstation packages could not be installed."
+    fi
+
+    info "Installing system diagnostics packages."
+    if ! install_manifest "$diagnostics_manifest"; then
+        record_required "packages" "diagnostics" "System diagnostics packages could not be installed."
     fi
 
     if [[ "${DESKTOP:-}" == "hyprland" ]]; then

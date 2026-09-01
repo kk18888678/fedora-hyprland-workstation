@@ -1,0 +1,33 @@
+# packages/diagnostics.txt
+#
+# System, hardware, storage, process and network diagnostic utilities.
+#
+# Keep this manifest focused on diagnosing the workstation itself.
+
+# Hardware & sensors
+smartmontools
+nvme-cli
+inxi
+lm_sensors
+pciutils
+usbutils
+
+# Process & system diagnostics
+htop
+btop
+iotop-c
+sysstat
+lsof
+strace
+
+# Filesystem & storage inspection
+duf
+ncdu
+btrfs-progs
+dosfstools
+e2fsprogs
+
+# Network diagnostics
+ethtool
+iperf3
+bind-utils
