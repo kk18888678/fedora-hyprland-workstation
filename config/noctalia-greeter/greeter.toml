@@ -1,0 +1,15 @@
+# Managed by fedora-hyprland-workstation.
+#
+# This is the Noctalia Greeter admin config deployed to
+# /var/lib/noctalia-greeter/greeter.toml (owned by greetd).
+#
+# Only login-screen settings belong here. Do not copy this into the
+# user's Hyprland session configuration.
+#
+# Omitted keys use upstream greeter defaults. Sync/UI state lives in
+# sync.toml and is not managed by this repository.
+
+[cursor]
+theme = "Adwaita"
+size = 24
+path = "/usr/share/icons"

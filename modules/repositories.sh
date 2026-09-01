@@ -53,7 +53,8 @@ enable_copr() {
 
     info "Enabling COPR: $copr"
 
-    sudo dnf copr enable -y "$copr"
+    run_with_retry "dnf copr enable $copr" \
+        sudo dnf copr enable -y "$copr"
 }
 
 ###############################################################################
@@ -79,8 +80,10 @@ install_rpmfusion() {
     if ! rpmfusion_free_installed; then
         info "Installing RPM Fusion Free repository."
 
-        sudo dnf install -y \
-            "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm"
+        run_with_retry "RPM Fusion Free" \
+            sudo dnf install -y \
+            "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm" ||
+            die "Failed to install RPM Fusion Free."
     else
         info "RPM Fusion Free repository already installed."
     fi
@@ -88,8 +91,10 @@ install_rpmfusion() {
     if ! rpmfusion_nonfree_installed; then
         info "Installing RPM Fusion Nonfree repository."
 
-        sudo dnf install -y \
-            "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm"
+        run_with_retry "RPM Fusion Nonfree" \
+            sudo dnf install -y \
+            "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm" ||
+            die "Failed to install RPM Fusion Nonfree."
     else
         info "RPM Fusion Nonfree repository already installed."
     fi
@@ -114,13 +119,16 @@ configure_repositories() {
     info "Configuring Fedora package repositories."
 
     # `dnf copr` is provided by dnf-plugins-core.
-    install_dnf_packages dnf-plugins-core
+    install_dnf_packages dnf-plugins-core ||
+        die "dnf-plugins-core is required to enable COPR repositories."
 
     # Hyprland package source.
-    enable_copr "lionheartp/Hyprland"
+    enable_copr "lionheartp/Hyprland" ||
+        die "Required COPR could not be enabled: lionheartp/Hyprland"
 
     # Starship package source.
-    enable_copr "atim/starship"
+    enable_copr "atim/starship" ||
+        die "Required COPR could not be enabled: atim/starship"
 
     # Multimedia and hardware ecosystem.
     install_rpmfusion
@@ -128,9 +136,11 @@ configure_repositories() {
     # Refresh metadata after repository changes.
     info "Refreshing repository metadata."
 
-    sudo dnf makecache --refresh
+    run_with_retry "dnf makecache after repositories" dnf_makecache ||
+        die "Could not refresh DNF metadata after enabling repositories."
 
     validate_repository_configuration
 
     info "Repository configuration complete."
+    record_success "configure_repositories"
 }

@@ -6,8 +6,9 @@
 #
 #   packages/base.txt
 #   packages/desktop.txt
+#   packages/media.txt
 #
-# Additional manifests can be added later for media, NVIDIA, gaming, etc.
+# Additional manifests can be added later for NVIDIA, gaming, etc.
 
 ###############################################################################
 # Manifest helpers
@@ -36,12 +37,6 @@ read_package_manifest() {
 ###############################################################################
 # Package validation
 ###############################################################################
-
-package_available() {
-    local package="$1"
-
-    dnf -q repoquery --available "$package" >/dev/null 2>&1
-}
 
 validate_manifest_packages() {
     local manifest="$1"
@@ -80,7 +75,8 @@ install_manifest() {
         return 0
     fi
 
-    install_dnf_packages "${packages[@]}"
+    install_dnf_packages "${packages[@]}" ||
+        die "Failed to install packages from $(basename "$manifest")"
 }
 
 ###############################################################################
@@ -106,4 +102,5 @@ install_packages() {
     install_manifest "$media_manifest"
 
     info "Host package installation complete."
+    record_success "install_packages"
 }

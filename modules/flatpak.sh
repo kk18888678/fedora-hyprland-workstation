@@ -18,10 +18,10 @@ install_flatpak_package() {
 
     info "Installing Flatpak."
 
-    install_dnf_packages flatpak
+    install_dnf_packages flatpak || return 1
 
     if ! command_exists flatpak; then
-        die "Flatpak was installed but the flatpak command was not found."
+        return 1
     fi
 
     info "Flatpak installation validated."
@@ -40,27 +40,19 @@ configure_flathub() {
 
     info "Adding Flathub remote."
 
-    sudo flatpak remote-add \
+    run_with_retry "flatpak remote-add flathub" \
+        sudo flatpak remote-add \
         --system \
         --if-not-exists \
         flathub \
-        https://flathub.org/repo/flathub.flatpakrepo
+        https://flathub.org/repo/flathub.flatpakrepo ||
+        return 1
 
     if ! flathub_configured; then
-        die "Flathub configuration could not be validated."
+        return 1
     fi
 
     info "Flathub configured."
-}
-
-validate_flatpak_configuration() {
-    command_exists flatpak ||
-        die "Flatpak command is unavailable."
-
-    flathub_configured ||
-        die "Flathub remote is not configured."
-
-    info "Flatpak configuration validated."
 }
 
 configure_flatpak() {
@@ -71,9 +63,16 @@ configure_flatpak() {
 
     info "Configuring Flatpak."
 
-    install_flatpak_package
-    configure_flathub
-    validate_flatpak_configuration
+    if ! install_flatpak_package; then
+        record_critical "flatpak" "install" "Flatpak package could not be installed." 0
+        return 0
+    fi
+
+    if ! configure_flathub; then
+        record_critical "flatpak" "flathub" "Flathub remote could not be configured." 0
+        return 0
+    fi
 
     info "Flatpak configuration complete."
+    record_success "flatpak"
 }

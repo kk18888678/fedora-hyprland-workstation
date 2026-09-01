@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
 # Hyprland desktop configuration for Fedora Hyprland Workstation.
+#
+# Graphical login activation (greetd enable + graphical.target) is a
+# separate final phase. This module prepares and validates the desktop
+# without switching a live SSH session onto a greeter.
 
 deploy_hyprland_config() {
     local source="$SCRIPT_DIR/dotfiles/hypr"
@@ -14,16 +18,20 @@ deploy_hyprland_config() {
     info "Hyprland configuration linked."
 }
 
-validate_noctalia() {
-    if ! is_true "${INSTALL_NOCTALIA:-false}"; then
-        info "Noctalia disabled by profile."
-        return 0
-    fi
-
-    command_exists noctalia ||
-        die "Noctalia is enabled by the profile but is not installed."
-
-    info "Noctalia installation validated."
+install_noctalia_shell() {
+    case "${DESKTOP_SHELL:-}" in
+        noctalia)
+            if ! is_true "${INSTALL_NOCTALIA:-false}"; then
+                die "DESKTOP_SHELL=noctalia requires INSTALL_NOCTALIA=true."
+            fi
+            ;;
+        omarchy)
+            die "The omarchy desktop shell is not implemented yet."
+            ;;
+        *)
+            die "Unsupported DESKTOP_SHELL: ${DESKTOP_SHELL:-<unset>}"
+            ;;
+    esac
 }
 
 install_noctalia_greeter() {
@@ -34,7 +42,8 @@ install_noctalia_greeter() {
 
     info "Installing Noctalia greeter."
 
-    install_dnf_packages noctalia-greeter
+    install_dnf_packages noctalia-greeter ||
+        die "noctalia-greeter package could not be installed."
 
     command_exists noctalia-greeter-session ||
         die "noctalia-greeter-session was not found after installation."
@@ -73,7 +82,7 @@ configure_greetd() {
 
     sudo install -d -m 0755 /etc/greetd
 
-    sudo tee "$greetd_config" >/dev/null <<EOF
+    install_root_file_from_stdin "$greetd_config" 0644 root root <<EOF
 [terminal]
 vt = 1
 
@@ -90,6 +99,10 @@ configure_noctalia_greeter_state() {
         return 0
     fi
 
+    local dest="/var/lib/noctalia-greeter"
+    local greeter_toml="$dest/greeter.toml"
+    local managed="$SCRIPT_DIR/config/noctalia-greeter/greeter.toml"
+
     info "Configuring Noctalia greeter state directory."
 
     sudo install \
@@ -97,43 +110,15 @@ configure_noctalia_greeter_state() {
         -m 0750 \
         -o greetd \
         -g greetd \
-        /var/lib/noctalia-greeter
+        "$dest"
+
+    [[ -f "$managed" ]] ||
+        die "Managed greeter config is missing: $managed"
+
+    # Login-screen cursor only. Do not change the user Hyprland cursor.
+    install_root_file "$managed" "$greeter_toml" 0644 greetd greetd
 
     info "Noctalia greeter state directory configured."
-}
-
-validate_greeter_configuration() {
-    if ! is_true "${INSTALL_GREETER:-false}"; then
-        return 0
-    fi
-
-    command_exists noctalia-greeter-session ||
-        die "Required greeter command not found: noctalia-greeter-session"
-
-    [[ -f /etc/greetd/config.toml ]] ||
-        die "greetd configuration was not created."
-
-    [[ -d /var/lib/noctalia-greeter ]] ||
-        die "Noctalia greeter state directory was not created."
-
-    systemctl list-unit-files greetd.service \
-        --no-legend 2>/dev/null |
-        grep -q '^greetd.service' ||
-        die "greetd.service was not found."
-
-    info "Greeter configuration validated."
-}
-
-enable_greetd() {
-    if ! is_true "${INSTALL_GREETER:-false}"; then
-        return 0
-    fi
-
-    info "Enabling greetd."
-
-    sudo systemctl enable greetd.service
-
-    info "greetd enabled."
 }
 
 enable_desktop_services() {
@@ -164,6 +149,18 @@ enable_desktop_services() {
     info "Desktop services configured."
 }
 
+enable_greetd() {
+    if ! is_true "${INSTALL_GREETER:-false}"; then
+        return 0
+    fi
+
+    info "Enabling greetd for the next boot (not replacing the current session)."
+
+    sudo systemctl enable greetd.service
+
+    info "greetd enabled."
+}
+
 configure_graphical_target() {
     if ! is_true "${ENABLE_GRAPHICAL_TARGET:-false}"; then
         info "Graphical target unchanged by profile."
@@ -177,35 +174,7 @@ configure_graphical_target() {
     info "graphical.target configured."
 }
 
-validate_hyprland_desktop() {
-    local required_commands=(
-        Hyprland
-        hyprctl
-        kitty
-        thunar
-    )
-
-    local command_name
-
-    for command_name in "${required_commands[@]}"; do
-        command_exists "$command_name" ||
-            die "Required desktop command not found: $command_name"
-    done
-
-    # Fedora installs hyprpolkitagent as a libexec binary with systemd/D-Bus
-    # user-service integration rather than as a command in the user's PATH.
-    [[ -x /usr/libexec/hyprpolkitagent ]] ||
-        die "Fedora hyprpolkitagent executable was not found."
-
-    [[ -f /usr/lib/systemd/user/hyprpolkitagent.service ]] ||
-        die "Fedora hyprpolkitagent user service was not found."
-
-    [[ -f "$TARGET_HOME/.config/hypr/hyprland.lua" ]] ||
-        die "Hyprland configuration was not deployed correctly."
-
-    info "Hyprland desktop validation complete."
-}
-
+# Prepare desktop files and packages. Do not enable greetd here.
 install_desktop() {
     if [[ "${DESKTOP:-}" != "hyprland" ]]; then
         die "Unsupported desktop profile: ${DESKTOP:-<unset>}"
@@ -213,22 +182,48 @@ install_desktop() {
 
     info "Configuring Hyprland desktop."
 
-    # Prepare the desktop without changing the machine's boot/login path.
+    install_noctalia_shell
     deploy_hyprland_config
-    validate_noctalia
-
     install_noctalia_greeter
     configure_greetd
     configure_noctalia_greeter_state
-
-    # Desktop-critical validation must succeed before activation.
-    validate_hyprland_desktop
-    validate_greeter_configuration
-
-    # Activation happens only after the desktop has passed validation.
     enable_desktop_services
+
+    validate_hyprland_desktop ||
+        die "Hyprland desktop validation failed before activation."
+
+    validate_greeter_configuration ||
+        die "Greeter validation failed before activation."
+
+    info "Hyprland desktop configuration complete (activation deferred)."
+    record_success "install_desktop"
+}
+
+# Final controlled activation. Never use enable --now on greetd.
+activate_graphical_session() {
+    if (( ACTIVATION_BLOCKED != 0 )); then
+        record_critical \
+            "activation" \
+            "skipped" \
+            "Earlier critical failure blocked graphical login activation." \
+            1
+        return 0
+    fi
+
+    info "Validating desktop stack before graphical activation."
+
+    validate_hyprland_desktop ||
+        die "Refusing to activate graphical login: Hyprland validation failed."
+
+    validate_greeter_configuration ||
+        die "Refusing to activate graphical login: greeter validation failed."
+
     enable_greetd
     configure_graphical_target
 
-    info "Hyprland desktop configuration complete."
+    validate_graphical_activation ||
+        die "Graphical activation could not be validated."
+
+    info "Graphical login activation complete."
+    record_success "activate_graphical_session"
 }

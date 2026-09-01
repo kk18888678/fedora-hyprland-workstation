@@ -44,10 +44,11 @@ install_nix_package_manager() {
 
     install_dnf_packages \
         nix \
-        nix-daemon
+        nix-daemon ||
+        return 1
 
     nix_installed ||
-        die "Fedora Nix installation could not be validated."
+        return 1
 
     load_nix_environment
 
@@ -57,15 +58,18 @@ install_nix_package_manager() {
 configure_nix_features() {
     local config_dir="$TARGET_HOME/.config/nix"
     local config_file="$config_dir/nix.conf"
+    local temp_file
 
     ensure_directory "$config_dir"
 
     info "Configuring Nix user features."
 
-    cat > "$config_file" <<'EOF'
+    temp_file="$(mktemp)"
+    cat >"$temp_file" <<'EOF'
 experimental-features = nix-command flakes
 warn-dirty = false
 EOF
+    mv "$temp_file" "$config_file"
 
     info "Nix user configuration complete."
 }
@@ -75,7 +79,7 @@ enable_nix_daemon() {
         --no-legend 2>/dev/null |
         grep -q '^nix-daemon.service'; then
 
-        die "nix-daemon.service was not found."
+        return 1
     fi
 
     info "Enabling Nix daemon."
@@ -83,7 +87,7 @@ enable_nix_daemon() {
     sudo systemctl enable --now nix-daemon.service
 
     if ! systemctl is-active --quiet nix-daemon.service; then
-        die "nix-daemon.service is not active."
+        return 1
     fi
 
     info "Nix daemon is active."
@@ -92,45 +96,24 @@ enable_nix_daemon() {
 install_devenv() {
     load_nix_environment
 
-    require_command nix
+    command_exists nix || return 1
 
     if command_exists devenv; then
         info "devenv already installed."
         return 0
     fi
 
-    info "Installing devenv through the Nix user profile."
+    load_pinned_versions
 
-    nix profile install nixpkgs#devenv
+    info "Installing devenv from pinned nixpkgs ${NIXPKGS_REV}."
+
+    run_with_retry "nix profile install devenv" \
+        nix profile install "$DEVENV_NIX_INSTALL_SPEC" ||
+        return 1
 
     load_nix_environment
 
-    if ! command_exists devenv; then
-        die "devenv installation could not be validated."
-    fi
-
-    info "devenv installation validated."
-}
-
-validate_nix_environment() {
-    load_nix_environment
-
-    command_exists nix ||
-        die "Nix command is unavailable."
-
-    command_exists devenv ||
-        die "devenv command is unavailable."
-
-    nix --version >/dev/null 2>&1 ||
-        die "Nix failed to execute."
-
-    devenv version >/dev/null 2>&1 ||
-        die "devenv failed to execute."
-
-    systemctl is-active --quiet nix-daemon.service ||
-        die "Nix daemon is not active."
-
-    info "Nix development environment validated."
+    command_exists devenv
 }
 
 install_nix() {
@@ -141,11 +124,23 @@ install_nix() {
 
     info "Configuring Nix development environment."
 
-    install_nix_package_manager
+    if ! install_nix_package_manager; then
+        record_critical "nix" "packages" "Fedora Nix packages could not be installed." 0
+        return 0
+    fi
+
     configure_nix_features
-    enable_nix_daemon
-    install_devenv
-    validate_nix_environment
+
+    if ! enable_nix_daemon; then
+        record_critical "nix" "daemon" "nix-daemon.service is not active." 0
+        return 0
+    fi
+
+    if ! install_devenv; then
+        record_critical "nix" "devenv" "Pinned devenv install failed." 0
+        return 0
+    fi
 
     info "Nix development environment complete."
+    record_success "nix"
 }

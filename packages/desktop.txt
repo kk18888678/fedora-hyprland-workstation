@@ -64,3 +64,6 @@ libnotify
 # Fonts
 google-noto-sans-fonts
 google-noto-emoji-fonts
+
+# Login-screen cursor (Noctalia greeter). Session cursor is unchanged.
+adwaita-cursor-theme

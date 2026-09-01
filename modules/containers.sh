@@ -26,40 +26,21 @@ install_container_packages() {
     install_dnf_packages "${packages[@]}"
 }
 
-validate_container_commands() {
-    local commands=(
-        podman
-        buildah
-        skopeo
-        podman-compose
-    )
-
-    local command_name
-
-    for command_name in "${commands[@]}"; do
-        command_exists "$command_name" ||
-            die "Required container command not found: $command_name"
-    done
-
-    info "Container commands validated."
-}
-
-validate_rootless_subids() {
-    local subuid_entry
-    local subgid_entry
-
-    subuid_entry="$(grep -E "^${TARGET_USER}:" /etc/subuid || true)"
-    subgid_entry="$(grep -E "^${TARGET_USER}:" /etc/subgid || true)"
-
-    if [[ -z "$subuid_entry" ]]; then
-        die "No subordinate UID range found for $TARGET_USER in /etc/subuid."
+ensure_rootless_subids() {
+    if ! grep -qE "^${TARGET_USER}:" /etc/subuid; then
+        info "Adding subordinate UID range for $TARGET_USER."
+        sudo usermod --add-subuids 100000-165535 "$TARGET_USER" ||
+            return 1
     fi
 
-    if [[ -z "$subgid_entry" ]]; then
-        die "No subordinate GID range found for $TARGET_USER in /etc/subgid."
+    if ! grep -qE "^${TARGET_USER}:" /etc/subgid; then
+        info "Adding subordinate GID range for $TARGET_USER."
+        sudo usermod --add-subgids 100000-165535 "$TARGET_USER" ||
+            return 1
     fi
 
-    info "Rootless subordinate UID/GID ranges validated."
+    grep -qE "^${TARGET_USER}:" /etc/subuid &&
+        grep -qE "^${TARGET_USER}:" /etc/subgid
 }
 
 configure_rootless_storage() {
@@ -76,20 +57,28 @@ enable_podman_socket() {
 
         info "Enabling Podman user socket."
 
-        systemctl --user enable --now podman.socket ||
-            warn "Could not start the Podman user socket in the current session."
+        if ! systemctl --user enable podman.socket; then
+            record_deferred \
+                "containers" \
+                "podman.socket" \
+                "Could not enable the Podman user socket in this session."
+            return 0
+        fi
+
+        # Starting the socket can fail over SSH without a lingering user
+        # manager. Enable-for-next-session is enough; do not fail the host.
+        if ! systemctl --user start podman.socket; then
+            record_deferred \
+                "containers" \
+                "podman.socket" \
+                "Podman user socket could not be started in the current session."
+        fi
     else
-        warn "podman.socket user unit was not found."
+        record_deferred \
+            "containers" \
+            "podman.socket" \
+            "podman.socket user unit was not found."
     fi
-}
-
-validate_podman() {
-    info "Validating Podman."
-
-    podman info >/dev/null ||
-        die "Podman rootless validation failed."
-
-    info "Podman validated."
 }
 
 configure_containers() {
@@ -100,12 +89,32 @@ configure_containers() {
 
     info "Configuring container environment."
 
-    install_container_packages
-    validate_container_commands
-    validate_rootless_subids
+    if ! install_container_packages; then
+        record_critical "containers" "packages" "Container packages could not be installed." 0
+        return 0
+    fi
+
+    local command_name
+    for command_name in podman buildah skopeo podman-compose; do
+        if ! command_exists "$command_name"; then
+            record_critical "containers" "$command_name" "Required container command is missing." 0
+            return 0
+        fi
+    done
+
+    if ! ensure_rootless_subids; then
+        record_critical "containers" "subids" "Could not ensure /etc/subuid and /etc/subgid ranges." 0
+        return 0
+    fi
+
     configure_rootless_storage
     enable_podman_socket
-    validate_podman
+
+    if ! podman info >/dev/null 2>&1; then
+        record_critical "containers" "podman info" "Rootless Podman validation failed." 0
+        return 0
+    fi
 
     info "Container environment configured."
+    record_success "containers"
 }

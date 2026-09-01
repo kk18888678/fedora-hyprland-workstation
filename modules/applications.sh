@@ -44,7 +44,7 @@ EOF
     rm -f "$temp_file"
 
     if ! cursor_repo_configured; then
-        die "Cursor repository configuration could not be validated."
+        return 1
     fi
 
     info "Cursor repository configured."
@@ -56,22 +56,40 @@ install_cursor() {
         return 0
     fi
 
-    configure_cursor_repository
+    if ! configure_cursor_repository; then
+        record_deferred \
+            "applications" \
+            "cursor" \
+            "Cursor RPM repository could not be configured."
+        return 0
+    fi
 
     if package_installed cursor; then
         info "Cursor already installed."
+        record_success "cursor"
         return 0
     fi
 
     info "Installing Cursor."
 
-    install_dnf_packages cursor
+    if ! install_dnf_packages cursor; then
+        record_deferred \
+            "applications" \
+            "cursor" \
+            "Cursor package could not be installed."
+        return 0
+    fi
 
     if ! package_installed cursor; then
-        die "Cursor installation could not be validated."
+        record_deferred \
+            "applications" \
+            "cursor" \
+            "Cursor was not present after installation."
+        return 0
     fi
 
     info "Cursor installation validated."
+    record_success "cursor"
 }
 
 install_applications() {

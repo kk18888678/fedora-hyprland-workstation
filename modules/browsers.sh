@@ -3,10 +3,10 @@
 # Browser installation for Fedora Hyprland Workstation.
 #
 # Browser policy:
-#   Chromium      Fedora repository
-#   Ulaa          Official Ulaa Linux installer
-#   Brave Origin  Official Brave RPM repository
-#   Firefox       Fedora repository
+#   Chromium      Mandatory when enabled (Fedora repository)
+#   Ulaa          Deferred on Fedora (official installer is Debian/apt)
+#   Brave Origin  Optional
+#   Firefox       Optional
 #
 # Every browser is controlled by the active installation profile.
 
@@ -18,13 +18,16 @@ install_chromium() {
 
     info "Installing Chromium."
 
-    install_dnf_packages chromium
+    if ! install_dnf_packages chromium; then
+        die "Chromium installation failed."
+    fi
 
     if ! rpm -q chromium >/dev/null 2>&1; then
         die "Chromium installation could not be validated."
     fi
 
     info "Chromium installation validated."
+    record_success "chromium"
 }
 
 ulaa_installed() {
@@ -46,57 +49,16 @@ install_ulaa() {
 
     if ulaa_installed; then
         info "Ulaa already installed."
+        record_success "ulaa"
         return 0
     fi
 
-    local installer_url
-    local installer
-    local temp_dir
-
-    installer_url="https://ulaa.com/release/linux/stable/install-ulaa-browser.sh?isDownload=true"
-
-    temp_dir="$(mktemp -d)"
-    installer="$temp_dir/install-ulaa-browser.sh"
-
-    info "Downloading official Ulaa installer."
-
-    if ! curl \
-        --fail \
-        --location \
-        --show-error \
-        --silent \
-        --output "$installer" \
-        "$installer_url"; then
-        rm -rf "$temp_dir"
-        die "Failed to download the Ulaa installer."
-    fi
-
-    if [[ ! -s "$installer" ]]; then
-        rm -rf "$temp_dir"
-        die "Downloaded Ulaa installer is empty."
-    fi
-
-    if ! head -n 1 "$installer" | grep -q '^#!'; then
-        rm -rf "$temp_dir"
-        die "Downloaded Ulaa installer does not appear to be a shell script."
-    fi
-
-    chmod 0700 "$installer"
-
-    info "Running official Ulaa installer."
-
-    if ! /bin/bash "$installer"; then
-        rm -rf "$temp_dir"
-        die "Ulaa installer failed."
-    fi
-
-    rm -rf "$temp_dir"
-
-    if ! ulaa_installed; then
-        die "Ulaa installation completed but the browser could not be detected."
-    fi
-
-    info "Ulaa installation validated."
+    # The official Ulaa Linux installer assumes Debian/Ubuntu/apt.
+    # Do not install apt, fake dpkg layouts, or convert Debian packages.
+    record_deferred \
+        "browsers" \
+        "ulaa" \
+        "Official Ulaa installer is Debian/apt-based and is not supported on Fedora."
 }
 
 brave_origin_repo_installed() {
@@ -111,7 +73,8 @@ configure_brave_origin_repository() {
 
     info "Adding official Brave RPM repository."
 
-    sudo dnf config-manager addrepo \
+    run_with_retry "Brave repository" \
+        sudo dnf config-manager addrepo \
         --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 }
 
@@ -121,17 +84,34 @@ install_brave_origin() {
         return 0
     fi
 
-    configure_brave_origin_repository
+    if ! configure_brave_origin_repository; then
+        record_deferred \
+            "browsers" \
+            "brave-origin" \
+            "Brave RPM repository could not be added."
+        return 0
+    fi
 
     info "Installing Brave Origin."
 
-    install_dnf_packages brave-origin
+    if ! install_dnf_packages brave-origin; then
+        record_deferred \
+            "browsers" \
+            "brave-origin" \
+            "brave-origin package could not be installed."
+        return 0
+    fi
 
     if ! rpm -q brave-origin >/dev/null 2>&1; then
-        die "Brave Origin installation could not be validated."
+        record_deferred \
+            "browsers" \
+            "brave-origin" \
+            "brave-origin was not present after installation."
+        return 0
     fi
 
     info "Brave Origin installation validated."
+    record_success "brave-origin"
 }
 
 install_firefox() {
@@ -142,18 +122,33 @@ install_firefox() {
 
     info "Installing Firefox."
 
-    install_dnf_packages firefox
+    if ! install_dnf_packages firefox; then
+        record_deferred \
+            "browsers" \
+            "firefox" \
+            "Firefox package could not be installed."
+        return 0
+    fi
 
     if ! rpm -q firefox >/dev/null 2>&1; then
-        die "Firefox installation could not be validated."
+        record_deferred \
+            "browsers" \
+            "firefox" \
+            "Firefox was not present after installation."
+        return 0
     fi
 
     info "Firefox installation validated."
+    record_success "firefox"
 }
 
 configure_default_browser() {
     if ! is_true "${BROWSER_CHROMIUM:-false}"; then
         info "Chromium disabled; default browser configuration skipped."
+        return 0
+    fi
+
+    if ! package_installed chromium; then
         return 0
     fi
 
@@ -173,30 +168,6 @@ configure_default_browser() {
     info "Default browser configured."
 }
 
-validate_browser_configuration() {
-    if is_true "${BROWSER_CHROMIUM:-false}"; then
-        rpm -q chromium >/dev/null 2>&1 ||
-            die "Chromium validation failed."
-    fi
-
-    if is_true "${BROWSER_ULAA:-false}"; then
-        ulaa_installed ||
-            die "Ulaa validation failed."
-    fi
-
-    if is_true "${BROWSER_BRAVE_ORIGIN:-false}"; then
-        rpm -q brave-origin >/dev/null 2>&1 ||
-            die "Brave Origin validation failed."
-    fi
-
-    if is_true "${BROWSER_FIREFOX:-false}"; then
-        rpm -q firefox >/dev/null 2>&1 ||
-            die "Firefox validation failed."
-    fi
-
-    info "Browser configuration validated."
-}
-
 install_browsers() {
     info "Configuring web browsers."
 
@@ -206,7 +177,6 @@ install_browsers() {
     install_firefox
 
     configure_default_browser
-    validate_browser_configuration
 
     info "Browser configuration complete."
 }

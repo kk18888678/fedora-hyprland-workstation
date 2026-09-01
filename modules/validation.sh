@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 
-# Final workstation validation.
+# Authoritative workstation validation.
 #
 # This module must not install packages or modify configuration.
-# Its purpose is to verify that the requested workstation profile
-# was successfully applied.
+# Callers decide whether a failed check is fatal.
 
 validate_required_command() {
     local command_name="$1"
@@ -22,6 +21,17 @@ validate_required_file() {
 
     if [[ ! -e "$path" ]]; then
         error "Missing required file: $path"
+        return 1
+    fi
+
+    return 0
+}
+
+validate_required_executable() {
+    local path="$1"
+
+    if [[ ! -x "$path" ]]; then
+        error "Missing required executable: $path"
         return 1
     fi
 
@@ -86,7 +96,7 @@ validate_shell_environment() {
     return "$failed"
 }
 
-validate_desktop_environment() {
+validate_hyprland_desktop() {
     local failed=0
 
     if [[ "${DESKTOP:-}" != "hyprland" ]]; then
@@ -96,46 +106,118 @@ validate_desktop_environment() {
 
     info "Validating Hyprland desktop."
 
-    local commands=(
-        Hyprland
-        hyprctl
-        kitty
-        thunar
-    )
-
     local command_name
-
-    for command_name in "${commands[@]}"; do
+    for command_name in Hyprland hyprctl kitty thunar; do
         validate_required_command "$command_name" || failed=1
     done
 
     # Fedora installs hyprpolkitagent as a libexec binary with systemd/D-Bus
     # user-service integration rather than as a command in the user's PATH.
-    validate_required_file /usr/libexec/hyprpolkitagent ||
+    validate_required_executable /usr/libexec/hyprpolkitagent ||
         failed=1
 
     validate_required_file /usr/lib/systemd/user/hyprpolkitagent.service ||
+        failed=1
+
+    validate_required_executable /usr/libexec/xdg-desktop-portal-hyprland ||
+        failed=1
+
+    validate_required_file /usr/lib/systemd/user/xdg-desktop-portal-hyprland.service ||
         failed=1
 
     validate_required_file \
         "$TARGET_HOME/.config/hypr/hyprland.lua" ||
         failed=1
 
-    if is_true "${INSTALL_NOCTALIA:-false}"; then
+    if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]] ||
+        is_true "${INSTALL_NOCTALIA:-false}"; then
         validate_required_command noctalia || failed=1
     fi
+
+    return "$failed"
+}
+
+validate_greeter_configuration() {
+    local failed=0
+    local greetd_config="/etc/greetd/config.toml"
+    local greeter_toml="/var/lib/noctalia-greeter/greeter.toml"
+
+    if ! is_true "${INSTALL_GREETER:-false}"; then
+        return 0
+    fi
+
+    info "Validating greeter configuration."
+
+    validate_required_command noctalia-greeter-session || failed=1
+
+    if ! getent passwd greetd >/dev/null 2>&1; then
+        error "Fedora greetd service user was not found."
+        failed=1
+    fi
+
+    validate_required_file "$greetd_config" || failed=1
+
+    if [[ -f "$greetd_config" ]]; then
+        grep -q 'user = "greetd"' "$greetd_config" || {
+            error "greetd configuration must use user = \"greetd\"."
+            failed=1
+        }
+
+        grep -q 'noctalia-greeter-session' "$greetd_config" || {
+            error "greetd configuration must launch noctalia-greeter-session."
+            failed=1
+        }
+    fi
+
+    if [[ ! -d /var/lib/noctalia-greeter ]]; then
+        error "Noctalia greeter state directory was not created."
+        failed=1
+    fi
+
+    # The directory is 0750 greetd:greetd; inspect contents via sudo.
+    if ! sudo test -f "$greeter_toml"; then
+        error "Missing required file: $greeter_toml"
+        failed=1
+    elif ! sudo grep -q 'theme = "Adwaita"' "$greeter_toml"; then
+        error "Greeter cursor theme is not Adwaita."
+        failed=1
+    fi
+
+    if ! package_installed adwaita-cursor-theme; then
+        error "adwaita-cursor-theme is not installed."
+        failed=1
+    fi
+
+    systemctl list-unit-files greetd.service \
+        --no-legend 2>/dev/null |
+        grep -q '^greetd.service' || {
+        error "greetd.service was not found."
+        failed=1
+    }
+
+    return "$failed"
+}
+
+validate_graphical_activation() {
+    local failed=0
 
     if is_true "${INSTALL_GREETER:-false}"; then
         if ! systemctl is-enabled greetd.service >/dev/null 2>&1; then
             error "greetd.service is not enabled."
             failed=1
         fi
+    fi
 
-        validate_required_file /etc/greetd/config.toml ||
-            failed=1
+    if is_true "${ENABLE_GRAPHICAL_TARGET:-false}"; then
+        local target
 
-        validate_required_file /var/lib/noctalia-greeter ||
+        if ! target="$(systemctl get-default)"; then
+            error "Could not read the default systemd target."
             failed=1
+        elif [[ "$target" != "graphical.target" ]]; then
+            error "Default system target is not graphical.target (got ${target})."
+            failed=1
+        fi
     fi
 
     return "$failed"
@@ -153,43 +235,24 @@ validate_browser_environment() {
         fi
     fi
 
-    if is_true "${BROWSER_ULAA:-false}"; then
-        if ! ulaa_installed; then
-            error "Ulaa is not installed."
-            failed=1
-        fi
-    fi
-
-    if is_true "${BROWSER_BRAVE_ORIGIN:-false}"; then
-        if ! package_installed brave-origin; then
-            error "Brave Origin is not installed."
-            failed=1
-        fi
-    fi
-
-    if is_true "${BROWSER_FIREFOX:-false}"; then
-        if ! package_installed firefox; then
-            error "Firefox is not installed."
-            failed=1
-        fi
-    fi
-
     return "$failed"
 }
 
 validate_application_environment() {
-    local failed=0
+    if ! is_true "${CURSOR:-false}"; then
+        return 0
+    fi
 
     info "Validating workstation applications."
 
-    if is_true "${CURSOR:-false}"; then
-        if ! package_installed cursor; then
-            error "Cursor package is not installed."
-            failed=1
-        fi
+    if ! package_installed cursor; then
+        record_deferred \
+            "validation" \
+            "cursor" \
+            "Cursor is enabled by the profile but is not installed."
     fi
 
-    return "$failed"
+    return 0
 }
 
 validate_flatpak_environment() {
@@ -200,8 +263,8 @@ validate_flatpak_environment() {
     info "Validating Flatpak."
 
     if ! command_exists flatpak; then
-        error "Flatpak command is unavailable."
-        return 1
+        record_critical "validation" "flatpak" "Flatpak command is unavailable." 0
+        return 0
     fi
 
     if ! flatpak remote-list \
@@ -209,8 +272,8 @@ validate_flatpak_environment() {
         --columns=name 2>/dev/null |
         grep -Fxq "flathub"; then
 
-        error "System Flathub remote is not configured."
-        return 1
+        record_critical "validation" "flathub" "System Flathub remote is not configured." 0
+        return 0
     fi
 
     return 0
@@ -226,85 +289,56 @@ validate_nix_development_environment() {
     load_nix_environment
 
     if ! command_exists nix; then
-        error "Nix command is unavailable."
-        return 1
+        record_critical "validation" "nix" "Nix command is unavailable." 0
+        return 0
     fi
 
     if ! command_exists devenv; then
-        error "devenv command is unavailable."
-        return 1
+        record_critical "validation" "devenv" "devenv command is unavailable." 0
+        return 0
     fi
 
     if ! nix --version >/dev/null 2>&1; then
-        error "Nix failed to execute."
-        return 1
+        record_critical "validation" "nix" "Nix failed to execute." 0
+        return 0
     fi
 
     if ! devenv version >/dev/null 2>&1; then
-        error "devenv failed to execute."
-        return 1
+        record_critical "validation" "devenv" "devenv failed to execute." 0
+        return 0
     fi
 
     return 0
 }
 
 validate_container_environment() {
-    local failed=0
-
     if ! is_true "${PODMAN:-false}"; then
         return 0
     fi
 
     info "Validating container environment."
 
-    local commands=(
-        podman
-        buildah
-        skopeo
-        podman-compose
-    )
-
     local command_name
-
-    for command_name in "${commands[@]}"; do
-        validate_required_command "$command_name" || failed=1
+    for command_name in podman buildah skopeo podman-compose; do
+        if ! command_exists "$command_name"; then
+            record_critical "validation" "$command_name" "Required container command is missing." 0
+            return 0
+        fi
     done
 
     if ! grep -qE "^${TARGET_USER}:" /etc/subuid; then
-        error "No subordinate UID range exists for $TARGET_USER."
-        failed=1
-    fi
-
-    if ! grep -qE "^${TARGET_USER}:" /etc/subgid; then
-        error "No subordinate GID range exists for $TARGET_USER."
-        failed=1
-    fi
-
-    if ! podman info >/dev/null 2>&1; then
-        error "Rootless Podman validation failed."
-        failed=1
-    fi
-
-    return "$failed"
-}
-
-validate_system_target() {
-    if ! is_true "${ENABLE_GRAPHICAL_TARGET:-false}"; then
+        record_critical "validation" "subuid" "No subordinate UID range exists for $TARGET_USER." 0
         return 0
     fi
 
-    info "Validating default system target."
+    if ! grep -qE "^${TARGET_USER}:" /etc/subgid; then
+        record_critical "validation" "subgid" "No subordinate GID range exists for $TARGET_USER." 0
+        return 0
+    fi
 
-    local target
-
-    target="$(
-        systemctl get-default 2>/dev/null ||
-            true
-    )"
-
-    if [[ "$target" != "graphical.target" ]]; then
-        error "Default system target is not graphical.target."
-        return 1
+    if ! podman info >/dev/null 2>&1; then
+        record_critical "validation" "podman info" "Rootless Podman validation failed." 0
+        return 0
     fi
 
     return 0
@@ -315,37 +349,39 @@ validate_system() {
 
     printf '\n'
     printf '%s\n' "------------------------------------------------------------"
-    printf '%s\n' "Final workstation validation"
+    printf '%s\n' "Workstation validation"
     printf '%s\n' "------------------------------------------------------------"
 
     validate_base_environment || failed=1
     validate_shell_environment || failed=1
-    validate_desktop_environment || failed=1
+    validate_hyprland_desktop || failed=1
+    validate_greeter_configuration || failed=1
     validate_browser_environment || failed=1
-    validate_application_environment || failed=1
-    validate_flatpak_environment || failed=1
-    validate_nix_development_environment || failed=1
-    validate_container_environment || failed=1
-    validate_system_target || failed=1
+    validate_application_environment
+    validate_flatpak_environment
+    validate_nix_development_environment
+    validate_container_environment
 
     printf '\n'
 
     if (( failed != 0 )); then
-        error "Workstation validation failed."
+        record_critical \
+            "validation" \
+            "desktop" \
+            "Critical desktop/shell validation failed." \
+            1
         return 1
     fi
 
-    info "All workstation validation checks passed."
+    info "Critical desktop validation checks passed."
+    record_success "validate_system"
 
     printf '\n'
     printf 'Profile       : %s\n' "${PROFILE_NAME:-unknown}"
     printf 'Desktop       : %s\n' "${DESKTOP:-unknown}"
+    printf 'Desktop shell : %s\n' "${DESKTOP_SHELL:-unknown}"
     printf 'Shell         : %s\n' "${SHELL:-unknown}"
     printf 'GPU profile   : %s\n' "${GPU:-unknown}"
-    printf 'Cursor        : %s\n' "${CURSOR:-false}"
-    printf 'Nix/devenv    : %s\n' "${NIX:-false}"
-    printf 'Podman        : %s\n' "${PODMAN:-false}"
-    printf 'Flatpak       : %s\n' "${FLATPAK:-false}"
     printf '\n'
 
     return 0

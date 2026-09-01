@@ -77,11 +77,132 @@ require_command() {
 }
 
 ###############################################################################
+# Retry (transient network / repository operations only)
+###############################################################################
+
+# Override in tests: RETRY_BACKOFF_SECONDS=(0 0)
+RETRY_BACKOFF_SECONDS=(2 5 10)
+
+run_with_retry() {
+    local description="$1"
+    shift
+
+    local delays=("${RETRY_BACKOFF_SECONDS[@]}")
+    local max_attempts=$((${#delays[@]} + 1))
+    local attempt=1
+    local delay
+
+    while true; do
+        if "$@"; then
+            return 0
+        fi
+
+        if (( attempt >= max_attempts )); then
+            error "Giving up after ${max_attempts} attempts: $description"
+            return 1
+        fi
+
+        delay="${delays[$((attempt - 1))]}"
+        warn "Attempt ${attempt}/${max_attempts} failed: ${description}. Retrying in ${delay}s."
+        sleep "$delay"
+        attempt=$((attempt + 1))
+    done
+}
+
+###############################################################################
+# Sudo keepalive
+###############################################################################
+
+SUDO_KEEPALIVE_PID=""
+
+stop_sudo_keepalive() {
+    if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
+        kill "$SUDO_KEEPALIVE_PID" >/dev/null 2>&1 || true
+        wait "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+        SUDO_KEEPALIVE_PID=""
+    fi
+}
+
+require_sudo() {
+    info "Validating sudo access."
+
+    sudo -v ||
+        die "sudo authentication failed."
+
+    # Refresh the timestamp for the life of this installer. Do not
+    # embed a password and do not weaken sudoers.
+    (
+        while true; do
+            sleep 60
+            sudo -n true || exit 1
+        done
+    ) >/dev/null 2>&1 &
+
+    SUDO_KEEPALIVE_PID=$!
+}
+
+###############################################################################
+# Atomic privileged file install
+###############################################################################
+
+install_root_file_from_stdin() {
+    local destination="$1"
+    local mode="$2"
+    local owner="$3"
+    local group="$4"
+    local temp_file
+
+    temp_file="$(mktemp)"
+
+    cat >"$temp_file"
+
+    sudo install -D -m "$mode" -o "$owner" -g "$group" \
+        "$temp_file" "$destination"
+
+    rm -f "$temp_file"
+}
+
+install_root_file() {
+    local source="$1"
+    local destination="$2"
+    local mode="$3"
+    local owner="$4"
+    local group="$5"
+
+    [[ -f "$source" ]] ||
+        die "Managed file is missing: $source"
+
+    sudo install -D -m "$mode" -o "$owner" -g "$group" \
+        "$source" "$destination"
+}
+
+###############################################################################
 # Package helpers
 ###############################################################################
 
 package_installed() {
     rpm -q "$1" >/dev/null 2>&1
+}
+
+# DNF5 repoquery can exit 0 with empty output for an unknown name.
+package_available() {
+    local package="$1"
+    local output
+
+    output="$(
+        dnf -q repoquery --available --qf '%{name}' "$package" 2>/dev/null ||
+            true
+    )"
+
+    [[ -n "$output" ]]
+}
+
+dnf_makecache() {
+    sudo dnf makecache --refresh
+}
+
+dnf_install() {
+    sudo dnf install -y "$@"
 }
 
 install_dnf_packages() {
@@ -102,7 +223,7 @@ install_dnf_packages() {
 
     info "Installing ${#missing[@]} package(s): ${missing[*]}"
 
-    sudo dnf install -y "${missing[@]}"
+    run_with_retry "dnf install ${missing[*]}" dnf_install "${missing[@]}"
 }
 
 ###############################################################################
@@ -156,6 +277,66 @@ ensure_symlink() {
 }
 
 ###############################################################################
+# Pinned versions
+###############################################################################
+
+load_pinned_versions() {
+    local versions_file="$SCRIPT_DIR/config/versions.conf"
+
+    [[ -f "$versions_file" ]] ||
+        die "Pinned versions file is missing: $versions_file"
+
+    # shellcheck source=/dev/null
+    source "$versions_file"
+}
+
+###############################################################################
+# Pinned git clones (first install only)
+###############################################################################
+
+clone_pinned_git() {
+    local url="$1"
+    local destination="$2"
+    local commit="$3"
+    local label="$4"
+    local temp_dir
+
+    if [[ -d "$destination/.git" ]]; then
+        info "$label already installed."
+        return 0
+    fi
+
+    if [[ -e "$destination" ]]; then
+        die "Existing non-Git path found at $destination"
+    fi
+
+    require_command git
+
+    temp_dir="$(mktemp -d)"
+
+    info "Cloning $label at $commit"
+
+    mkdir -p "$temp_dir/src"
+    git -C "$temp_dir/src" init -q
+    git -C "$temp_dir/src" remote add origin "$url"
+
+    if ! run_with_retry "git fetch $label" \
+        git -C "$temp_dir/src" fetch --depth 1 origin "$commit"; then
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    git -C "$temp_dir/src" checkout --detach FETCH_HEAD || {
+        rm -rf "$temp_dir"
+        return 1
+    }
+
+    ensure_directory "$(dirname "$destination")"
+    mv "$temp_dir/src" "$destination"
+    rm -rf "$temp_dir"
+}
+
+###############################################################################
 # Profile validation
 ###############################################################################
 
@@ -169,6 +350,15 @@ validate_profile() {
     [[ -n "${DESKTOP:-}" ]] ||
         die "DESKTOP is not defined."
 
+    [[ "${DESKTOP}" == "hyprland" ]] ||
+        die "Unsupported desktop: ${DESKTOP}. Only hyprland is implemented."
+
+    [[ -n "${DESKTOP_SHELL:-}" ]] ||
+        die "DESKTOP_SHELL is not defined."
+
+    [[ "${DESKTOP_SHELL}" == "noctalia" ]] ||
+        die "Unsupported DESKTOP_SHELL: ${DESKTOP_SHELL}. Only noctalia is implemented (omarchy is reserved)."
+
     [[ -n "${SHELL:-}" ]] ||
         die "SHELL is not defined."
 
@@ -181,6 +371,7 @@ validate_profile() {
         BROWSER_ULAA
         BROWSER_BRAVE_ORIGIN
         BROWSER_FIREFOX
+        CURSOR
         BLUETOOTH
         GAMING
         FLATPAK
@@ -216,6 +407,9 @@ validate_fedora() {
 
     [[ -n "${VERSION_ID:-}" ]] ||
         die "Could not determine Fedora version."
+
+    [[ "${VERSION_ID}" == "44" ]] ||
+        die "Unsupported Fedora version: ${VERSION_ID}. This installer targets Fedora 44."
 
     info "Detected Fedora ${VERSION_ID}."
 }
@@ -259,7 +453,9 @@ prepare_system() {
 
     info "Refreshing Fedora package metadata."
 
-    sudo dnf makecache --refresh
+    run_with_retry "dnf makecache --refresh" dnf_makecache ||
+        die "Could not refresh DNF metadata."
 
     info "System preparation complete."
+    record_success "prepare_system"
 }

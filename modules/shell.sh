@@ -20,23 +20,19 @@ install_oh_my_zsh() {
         return 0
     fi
 
+    load_pinned_versions
+
     if [[ -d "$omz_dir/.git" ]]; then
         info "Oh My Zsh already installed."
         return 0
     fi
 
-    if [[ -e "$omz_dir" ]]; then
-        die "Existing non-Git path found at $omz_dir"
-    fi
-
-    require_command git
-
-    info "Installing Oh My Zsh."
-
-    git clone \
-        --depth=1 \
-        https://github.com/ohmyzsh/ohmyzsh.git \
-        "$omz_dir"
+    clone_pinned_git \
+        "$OH_MY_ZSH_URL" \
+        "$omz_dir" \
+        "$OH_MY_ZSH_COMMIT" \
+        "Oh My Zsh" ||
+        die "Oh My Zsh clone failed."
 }
 
 ###############################################################################
@@ -46,6 +42,7 @@ install_oh_my_zsh() {
 install_zsh_plugin() {
     local repository="$1"
     local directory_name="$2"
+    local commit="$3"
 
     local custom_dir="${ZSH_CUSTOM:-$TARGET_HOME/.oh-my-zsh/custom}"
     local destination="$custom_dir/plugins/$directory_name"
@@ -55,18 +52,12 @@ install_zsh_plugin() {
         return 0
     fi
 
-    if [[ -e "$destination" ]]; then
-        die "Existing non-Git plugin path found: $destination"
-    fi
-
-    ensure_directory "$(dirname "$destination")"
-
-    info "Installing Zsh plugin: $directory_name"
-
-    git clone \
-        --depth=1 \
+    clone_pinned_git \
         "$repository" \
-        "$destination"
+        "$destination" \
+        "$commit" \
+        "Zsh plugin $directory_name" ||
+        die "Zsh plugin clone failed: $directory_name"
 }
 
 configure_zsh_plugins() {
@@ -74,13 +65,17 @@ configure_zsh_plugins() {
         return 0
     fi
 
-    install_zsh_plugin \
-        "https://github.com/zsh-users/zsh-autosuggestions.git" \
-        "zsh-autosuggestions"
+    load_pinned_versions
 
     install_zsh_plugin \
-        "https://github.com/zsh-users/zsh-syntax-highlighting.git" \
-        "zsh-syntax-highlighting"
+        "$ZSH_AUTOSUGGESTIONS_URL" \
+        "zsh-autosuggestions" \
+        "$ZSH_AUTOSUGGESTIONS_COMMIT"
+
+    install_zsh_plugin \
+        "$ZSH_SYNTAX_HIGHLIGHTING_URL" \
+        "zsh-syntax-highlighting" \
+        "$ZSH_SYNTAX_HIGHLIGHTING_COMMIT"
 }
 
 ###############################################################################
@@ -163,4 +158,5 @@ configure_shell() {
     fi
 
     info "Zsh environment configured."
+    record_success "configure_shell"
 }

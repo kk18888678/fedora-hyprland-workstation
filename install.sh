@@ -96,16 +96,14 @@ printf 'Home    : %s\n' "$TARGET_HOME"
 printf 'GPU     : %s\n' "$GPU"
 printf '\n'
 
-# Validate sudo before we start making changes.
-printf 'Checking sudo access...\n'
-sudo -v
-
 ###############################################################################
 # Modules
 ###############################################################################
 
 MODULES=(
     common
+    status
+    state
     repositories
     packages
     shell
@@ -129,6 +127,47 @@ for module in "${MODULES[@]}"; do
 done
 
 ###############################################################################
+# Lifecycle
+###############################################################################
+
+on_interrupt() {
+    error "Installer interrupted."
+    error "Rerunning the same command is safe and will reconcile state."
+    ACTIVATION_BLOCKED=1
+    record_critical "installer" "interrupt" "Received SIGINT/SIGTERM." 1
+    exit 1
+}
+
+on_exit() {
+    local code=$?
+
+    stop_sudo_keepalive
+
+    if (( code != 0 )) && [[ ${#INSTALL_CRITICAL[@]} -eq 0 ]]; then
+        record_critical \
+            "installer" \
+            "exit" \
+            "Installer exited with status ${code}." \
+            1
+    fi
+
+    if [[ ${SUMMARY_PRINTED:-0} -eq 0 ]]; then
+        print_installer_summary
+    fi
+
+    finalize_installer_state "$(installer_exit_code)"
+    exit "$(installer_exit_code)"
+}
+
+trap on_interrupt INT TERM
+trap on_exit EXIT
+
+require_sudo
+init_installer_state
+
+exec > >(tee -a "$INSTALL_LOG_FILE") 2>&1
+
+###############################################################################
 # Installation
 ###############################################################################
 
@@ -136,14 +175,18 @@ run_step() {
     local description="$1"
     local function_name="$2"
 
+    CURRENT_STAGE="$function_name"
+
     printf '\n'
     printf '==> %s\n' "$description"
+    journal_stage "$function_name" "start"
 
     if ! declare -F "$function_name" >/dev/null; then
         die "Installer function not found: $function_name"
     fi
 
     "$function_name"
+    journal_stage "$function_name" "done"
 }
 
 run_step "Preparing Fedora" prepare_system
@@ -157,13 +200,4 @@ run_step "Installing Hyprland desktop" install_desktop
 run_step "Installing Nix and devenv support" install_nix
 run_step "Configuring containers" configure_containers
 run_step "Validating workstation" validate_system
-
-printf '\n'
-printf '============================================================\n'
-printf 'Installation completed successfully.\n'
-printf 'Profile: %s\n' "$PROFILE_NAME"
-printf '============================================================\n'
-printf '\n'
-printf 'Reboot when ready:\n'
-printf '    systemctl reboot\n'
-printf '\n'
+run_step "Activating graphical login" activate_graphical_session
