@@ -27,7 +27,7 @@ Re-run the same command after a network drop, sudo timeout, or reboot. Desired s
 - Chromium (required when enabled). Brave Origin and Firefox are optional. **Ulaa is deferred on Fedora** (the upstream Linux installer is Debian/apt).
 - Flatpak + Flathub, Fedora Nix + devenv, rootless Podman
 
-Graphical login is enabled only after desktop and greeter validation. `greetd` is enabled for the **next boot** (`systemctl enable`, not `enable --now`) so an SSH install is not replaced by a greeter mid-run.
+Graphical login is enabled only after **login-stack** validation (Hyprland, Noctalia, greetd, polkit, portals). A missing Chromium, Nix, or Podman install is a required-workstation failure (exit 1) and does **not** block greetd. `greetd` is enabled for the **next boot** (`systemctl enable`, not `enable --now`) so an SSH install is not replaced by a greeter mid-run.
 
 ## Profiles
 
@@ -44,7 +44,7 @@ Both set `DESKTOP=hyprland` and `DESKTOP_SHELL=noctalia`. Additional shells (for
 | --- | --- |
 | 0 | Success |
 | 2 | Completed with deferred optional work |
-| 1 | Critical failure (graphical activation skipped when the login stack is unsafe) |
+| 1 | Required component failed. Graphical activation is skipped only when the login stack is unsafe. |
 
 ## Local tests
 

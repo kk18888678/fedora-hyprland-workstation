@@ -227,14 +227,18 @@ needed_functions=(
     configure_containers
     validate_system
     activate_graphical_session
-    run_with_retry
+    run_classified_step
     record_deferred
-    record_critical
+    record_required
+    record_activation_failure
     installer_exit_code
     clone_pinned_git
     validate_hyprland_desktop
     validate_greeter_configuration
     validate_graphical_activation
+    validate_login_stack
+    validate_workstation_environment
+    activate_graphical_session
 )
 
 defined="$(
@@ -318,10 +322,21 @@ echo "exit-success=$(installer_exit_code)"
 
 record_deferred "browsers" "ulaa" "unsupported"
 echo "exit-deferred=$(installer_exit_code)"
+echo "deferred-blocked=$ACTIVATION_BLOCKED"
 
-record_critical "desktop" "hyprland" "missing" 1
-echo "exit-critical=$(installer_exit_code)"
-echo "activation-blocked=$ACTIVATION_BLOCKED"
+record_required "browsers" "chromium" "missing"
+echo "exit-required=$(installer_exit_code)"
+echo "required-blocked=$ACTIVATION_BLOCKED"
+
+record_required "nix" "devenv" "missing"
+echo "nix-blocked=$ACTIVATION_BLOCKED"
+
+record_required "containers" "podman" "missing"
+echo "podman-blocked=$ACTIVATION_BLOCKED"
+
+record_activation_failure "desktop" "hyprland" "missing"
+echo "exit-login=$(installer_exit_code)"
+echo "login-blocked=$ACTIVATION_BLOCKED"
 
 packages=()
 while IFS= read -r package; do
@@ -367,22 +382,177 @@ else
     fail "deferred exit code"
 fi
 
-if printf '%s\n' "$helper_output" | grep -q 'exit-critical=1'; then
-    pass "exit code 1 for critical"
+if printf '%s\n' "$helper_output" | grep -q 'deferred-blocked=0'; then
+    pass "deferred failure does not block activation"
 else
-    fail "critical exit code"
+    fail "deferred activation blocking"
 fi
 
-if printf '%s\n' "$helper_output" | grep -q 'activation-blocked=1'; then
-    pass "critical failure blocks activation"
+if printf '%s\n' "$helper_output" | grep -q 'exit-required=1'; then
+    pass "exit code 1 for required non-login failure"
 else
-    fail "activation blocking"
+    fail "required exit code"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'required-blocked=0'; then
+    pass "missing Chromium does not set ACTIVATION_BLOCKED"
+else
+    fail "Chromium must not block activation"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'nix-blocked=0'; then
+    pass "missing Nix/devenv does not set ACTIVATION_BLOCKED"
+else
+    fail "Nix must not block activation"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'podman-blocked=0'; then
+    pass "missing Podman does not set ACTIVATION_BLOCKED"
+else
+    fail "Podman must not block activation"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'exit-login=1'; then
+    pass "exit code 1 for login-critical failure"
+else
+    fail "login-critical exit code"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'login-blocked=1'; then
+    pass "Hyprland validation failure sets ACTIVATION_BLOCKED=1"
+else
+    fail "Hyprland must block activation"
 fi
 
 if printf '%s\n' "$helper_output" | grep -q 'manifest-cursor-ok'; then
     pass "desktop manifest parsing"
 else
     fail "desktop manifest parsing: $helper_output"
+fi
+
+###############################################################################
+# Orchestration: non-login failures cannot skip safe activation
+###############################################################################
+
+section "Activation orchestration"
+
+orch_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="/tmp"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/desktop.sh"
+
+validate_hyprland_desktop() { return 0; }
+validate_greeter_configuration() { return 0; }
+enable_greetd() { :; }
+configure_graphical_target() { :; }
+validate_graphical_activation() { return 0; }
+
+unexpected_podman() { return 9; }
+
+run_classified_step workstation "podman" unexpected_podman
+echo "after-unexpected-blocked=$ACTIVATION_BLOCKED"
+echo "after-unexpected-exit=$(installer_exit_code)"
+
+run_classified_step login "activate" activate_graphical_session
+echo "after-podman-activation=$GRAPHICAL_ACTIVATION_STATE"
+echo "after-podman-blocked=$ACTIVATION_BLOCKED"
+echo "after-podman-exit=$(installer_exit_code)"
+EOS
+)"
+
+if printf '%s\n' "$orch_output" | grep -q 'after-unexpected-blocked=0'; then
+    pass "uncaught Podman failure does not set ACTIVATION_BLOCKED"
+else
+    fail "uncaught Podman blocked activation: $orch_output"
+fi
+
+if printf '%s\n' "$orch_output" | grep -q 'after-unexpected-exit=1'; then
+    pass "uncaught required non-login failure produces exit code 1"
+else
+    fail "uncaught non-login exit code: $orch_output"
+fi
+
+if printf '%s\n' "$orch_output" | grep -q 'after-podman-activation=completed'; then
+    pass "required non-login failure still permits activate_graphical_session"
+else
+    fail "activation skipped after Podman failure: $orch_output"
+fi
+
+greeter_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="/tmp"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/desktop.sh"
+
+INSTALL_GREETER=true
+ENABLE_GRAPHICAL_TARGET=true
+
+validate_hyprland_desktop() { return 0; }
+validate_greeter_configuration() { return 1; }
+
+activate_graphical_session
+echo "greeter-blocked=$ACTIVATION_BLOCKED"
+echo "greeter-activation=$GRAPHICAL_ACTIVATION_STATE"
+echo "greeter-exit=$(installer_exit_code)"
+EOS
+)"
+
+if printf '%s\n' "$greeter_output" | grep -q 'greeter-blocked=1'; then
+    pass "greetd/Noctalia greeter validation failure sets ACTIVATION_BLOCKED=1"
+else
+    fail "greeter must block activation: $greeter_output"
+fi
+
+if printf '%s\n' "$greeter_output" | grep -q 'greeter-activation=skipped'; then
+    pass "activation is skipped when ACTIVATION_BLOCKED=1"
+else
+    fail "activation not skipped: $greeter_output"
+fi
+
+skip_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="/tmp"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/desktop.sh"
+
+enabled=0
+enable_greetd() { enabled=1; }
+configure_graphical_target() { enabled=1; }
+
+ACTIVATION_BLOCKED=1
+activate_graphical_session
+echo "skip-enable=$enabled"
+echo "skip-state=$GRAPHICAL_ACTIVATION_STATE"
+EOS
+)"
+
+if printf '%s\n' "$skip_output" | grep -q 'skip-enable=0' &&
+    printf '%s\n' "$skip_output" | grep -q 'skip-state=skipped'; then
+    pass "blocked activation does not enable greetd"
+else
+    fail "blocked activation still enabled greetd: $skip_output"
 fi
 
 ###############################################################################
