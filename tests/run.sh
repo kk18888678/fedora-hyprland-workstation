@@ -267,9 +267,10 @@ needed_functions=(
     install_cursor
     install_kate
     install_media_applications
-    install_localsend
     install_antigravity
     configure_flatpak
+    install_flatpak_applications
+    install_localsend
     install_desktop
     install_nix
     configure_containers
@@ -840,7 +841,8 @@ section "Pins"
 source "$ROOT/config/versions.conf"
 
 for var in OH_MY_ZSH_COMMIT ZSH_AUTOSUGGESTIONS_COMMIT \
-    ZSH_SYNTAX_HIGHLIGHTING_COMMIT NIXPKGS_REV DEVENV_NIX_INSTALL_SPEC; do
+    ZSH_SYNTAX_HIGHLIGHTING_COMMIT NIXPKGS_REV DEVENV_NIX_INSTALL_SPEC \
+    ANTIGRAVITY_VERSION ANTIGRAVITY_URL ANTIGRAVITY_SHA512; do
     if [[ -n "${!var:-}" ]]; then
         pass "pin $var"
     else
@@ -852,6 +854,34 @@ if [[ "$DEVENV_NIX_INSTALL_SPEC" == *nixpkgs#devenv && "$DEVENV_NIX_INSTALL_SPEC
     fail "devenv install spec is unpinned nixpkgs#devenv"
 else
     pass "devenv install spec is pinned"
+fi
+
+if [[ "$ANTIGRAVITY_URL" =~ ^https:// ]]; then
+    pass "ANTIGRAVITY_URL is HTTPS"
+else
+    fail "ANTIGRAVITY_URL is not HTTPS: $ANTIGRAVITY_URL"
+fi
+
+if [[ "$ANTIGRAVITY_SHA512" =~ ^[0-9a-f]{128}$ ]]; then
+    pass "ANTIGRAVITY_SHA512 is valid 128-character hex"
+else
+    fail "ANTIGRAVITY_SHA512 is not valid sha512: $ANTIGRAVITY_SHA512"
+fi
+
+# Ensure media-tools devenv declares all 9 audited tools
+for tool in ffmpeg mediainfo mkvtoolnix gpac ccextractor bento4 "shaka-packager" "dovi-tool" "n-m3u8dl-re"; do
+    if grep -qF "$tool" "$ROOT/environments/media-tools/devenv.nix"; then
+        pass "media-tools provides $tool"
+    else
+        fail "media-tools missing $tool"
+    fi
+done
+
+# Ensure no credentials or auth state files are tracked in Git
+if git -C "$ROOT" ls-files | grep -E '(\.auth|\.token|jetski_state|settings\.json|credentials|\.db|\.key|\.pem)'; then
+    fail "sensitive or authentication file tracked in git"
+else
+    pass "no authentication or secret files tracked in git"
 fi
 
 ###############################################################################
