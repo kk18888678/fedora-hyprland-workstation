@@ -181,7 +181,7 @@ install_root_file() {
 ###############################################################################
 
 package_installed() {
-    rpm -q "$1" >/dev/null 2>&1
+    rpm -q "$1" >/dev/null 2>&1 || rpm -q --whatprovides "$1" >/dev/null 2>&1
 }
 
 # DNF5 repoquery can exit 0 with empty output for an unknown name.
@@ -193,6 +193,13 @@ package_available() {
         dnf -q repoquery --available --qf '%{name}' "$package" 2>/dev/null ||
             true
     )"
+
+    if [[ -z "$output" ]]; then
+        output="$(
+            dnf -q repoquery --available --whatprovides "$package" --qf '%{name}' 2>/dev/null ||
+                true
+        )"
+    fi
 
     [[ -n "$output" ]]
 }

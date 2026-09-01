@@ -202,6 +202,7 @@ validate_base_environment() {
     local commands=(
         git
         curl
+        wget
         zsh
         starship
         fzf
@@ -209,6 +210,7 @@ validate_base_environment() {
         nvim
         kitty
         thunar
+        7z
     )
 
     local command_name

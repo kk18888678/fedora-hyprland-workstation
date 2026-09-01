@@ -8,7 +8,7 @@
 
 # Core system utilities
 curl
-wget
+wget2-wget
 git
 rsync
 unzip
@@ -66,5 +66,5 @@ pipewire-pulseaudio
 wireplumber
 
 # Archive support
-p7zip
-p7zip-plugins
+7zip
+7zip-standalone

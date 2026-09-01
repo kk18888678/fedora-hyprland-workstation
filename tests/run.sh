@@ -124,7 +124,7 @@ section "Package manifests"
 assert_not_in_manifest() {
     local name="$1"
 
-    if grep -vE '^\s*#' "$ROOT"/packages/*.txt | grep -qw "$name"; then
+    if grep -h -vE '^\s*#' "$ROOT"/packages/*.txt | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -qx "$name"; then
         fail "forbidden package present: $name"
     else
         pass "forbidden package absent: $name"
@@ -135,7 +135,7 @@ assert_in_manifest() {
     local file="$1"
     local name="$2"
 
-    if grep -vE '^\s*#' "$ROOT/$file" | grep -qw "$name"; then
+    if grep -h -vE '^\s*#' "$ROOT/$file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -qx "$name"; then
         pass "$name in $file"
     else
         fail "$name missing from $file"
@@ -143,6 +143,12 @@ assert_in_manifest() {
 }
 
 assert_not_in_manifest mesa-vdpau-drivers
+assert_not_in_manifest p7zip
+assert_not_in_manifest p7zip-plugins
+assert_not_in_manifest wget
+assert_in_manifest packages/base.txt wget2-wget
+assert_in_manifest packages/base.txt 7zip
+assert_in_manifest packages/base.txt 7zip-standalone
 assert_in_manifest packages/desktop.txt hyprland
 assert_in_manifest packages/desktop.txt noctalia
 assert_in_manifest packages/desktop.txt greetd
@@ -355,6 +361,61 @@ else
     echo "manifest-cursor-missing"
     exit 1
 fi
+
+# Package helpers and manifest validation
+if package_installed wget2-wget; then
+    echo "pkg-installed-wget2-ok"
+fi
+
+if package_installed 7zip; then
+    echo "pkg-installed-7zip-ok"
+fi
+
+if package_installed 7zip-standalone; then
+    echo "pkg-installed-7zip-sa-ok"
+fi
+
+if package_installed wget; then
+    echo "pkg-installed-wget-cap-ok"
+fi
+
+if ! package_installed nonexistent-pkg-fake; then
+    echo "pkg-installed-nonexistent-fail-ok"
+fi
+
+if package_available wget2-wget; then
+    echo "pkg-avail-wget2-ok"
+fi
+
+if package_available 7zip; then
+    echo "pkg-avail-7zip-ok"
+fi
+
+if package_available 7zip-standalone; then
+    echo "pkg-avail-7zip-sa-ok"
+fi
+
+if package_available wget; then
+    echo "pkg-avail-wget-cap-ok"
+fi
+
+if ! package_available nonexistent-pkg-fake; then
+    echo "pkg-avail-nonexistent-fail-ok"
+fi
+
+if validate_manifest_packages "$SCRIPT_DIR/packages/base.txt"; then
+    echo "validate-base-manifest-ok"
+fi
+
+tmp_manifest="$(mktemp)"
+echo "nonexistent-pkg-fake" > "$tmp_manifest"
+if ! validate_manifest_packages "$tmp_manifest" 2>/dev/null; then
+    echo "validate-invalid-manifest-rejected-ok"
+fi
+if ! install_manifest "$tmp_manifest" 2>/dev/null; then
+    echo "install-invalid-manifest-rejected-ok"
+fi
+rm -f "$tmp_manifest"
 EOS
 )"
 
@@ -428,6 +489,84 @@ if printf '%s\n' "$helper_output" | grep -q 'manifest-cursor-ok'; then
     pass "desktop manifest parsing"
 else
     fail "desktop manifest parsing: $helper_output"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-installed-wget2-ok'; then
+    pass "package_installed wget2-wget"
+else
+    fail "package_installed wget2-wget"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-installed-7zip-ok'; then
+    pass "package_installed 7zip"
+else
+    fail "package_installed 7zip"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-installed-7zip-sa-ok'; then
+    pass "package_installed 7zip-standalone"
+else
+    fail "package_installed 7zip-standalone"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-installed-wget-cap-ok'; then
+    pass "package_installed resolves wget capability"
+else
+    fail "package_installed resolves wget capability"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-installed-nonexistent-fail-ok'; then
+    pass "package_installed rejects nonexistent package"
+else
+    fail "package_installed rejects nonexistent package"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-wget2-ok'; then
+    pass "package_available wget2-wget"
+else
+    fail "package_available wget2-wget"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-7zip-ok'; then
+    pass "package_available 7zip"
+else
+    fail "package_available 7zip"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-7zip-sa-ok'; then
+    pass "package_available 7zip-standalone"
+else
+    fail "package_available 7zip-standalone"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-wget-cap-ok'; then
+    pass "package_available resolves wget capability"
+else
+    fail "package_available resolves wget capability"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-nonexistent-fail-ok'; then
+    pass "package_available rejects nonexistent package"
+else
+    fail "package_available rejects nonexistent package"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'validate-base-manifest-ok'; then
+    pass "validate_manifest_packages succeeds on base.txt"
+else
+    fail "validate_manifest_packages fails on base.txt"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'validate-invalid-manifest-rejected-ok'; then
+    pass "validate_manifest_packages rejects nonexistent package"
+else
+    fail "validate_manifest_packages does not reject nonexistent package"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'install-invalid-manifest-rejected-ok'; then
+    pass "install_manifest rejects invalid manifest"
+else
+    fail "install_manifest does not reject invalid manifest"
 fi
 
 ###############################################################################

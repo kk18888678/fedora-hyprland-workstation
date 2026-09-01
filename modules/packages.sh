@@ -54,6 +54,8 @@ validate_manifest_packages() {
             return 1
         fi
     done < <(read_package_manifest "$manifest")
+
+    return 0
 }
 
 ###############################################################################
@@ -65,7 +67,7 @@ install_manifest() {
     local packages=()
     local package
 
-    validate_manifest_packages "$manifest"
+    validate_manifest_packages "$manifest" || return 1
 
     while IFS= read -r package; do
         packages+=("$package")
