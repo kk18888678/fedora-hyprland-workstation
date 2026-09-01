@@ -184,6 +184,7 @@ run_classified_step workstation "Configuring Zsh environment" configure_shell
 run_classified_step workstation "Installing browsers" install_browsers
 run_classified_step optional "Installing workstation applications" install_applications
 run_classified_step workstation "Configuring Flatpak" configure_flatpak
+run_classified_step optional "Installing Flatpak applications" install_flatpak_applications
 run_classified_step login "Installing Hyprland desktop" install_desktop
 run_classified_step workstation "Installing Nix and devenv support" install_nix
 run_classified_step workstation "Configuring containers" configure_containers

@@ -76,3 +76,59 @@ configure_flatpak() {
     info "Flatpak configuration complete."
     record_success "flatpak"
 }
+
+install_localsend() {
+    if ! is_true "${LOCALSEND:-false}"; then
+        info "LocalSend disabled by profile."
+        return 0
+    fi
+
+    if ! is_true "${FLATPAK:-false}"; then
+        record_deferred \
+            "flatpak" \
+            "localsend" \
+            "LocalSend requires Flatpak, but Flatpak is disabled by profile."
+        return 0
+    fi
+
+    if ! command_exists flatpak; then
+        record_deferred \
+            "flatpak" \
+            "localsend" \
+            "Flatpak command is unavailable."
+        return 0
+    fi
+
+    if flatpak list --app --columns=application 2>/dev/null | grep -Fxq "org.localsend.localsend_app"; then
+        info "LocalSend Flatpak already installed."
+        record_success "localsend"
+        return 0
+    fi
+
+    info "Installing LocalSend from Flathub."
+
+    if ! run_with_retry "flatpak install localsend" \
+        flatpak install -y flathub org.localsend.localsend_app; then
+        record_deferred \
+            "flatpak" \
+            "localsend" \
+            "LocalSend Flatpak could not be installed."
+        return 0
+    fi
+
+    info "LocalSend installation validated."
+    record_success "localsend"
+}
+
+install_flatpak_applications() {
+    if ! is_true "${FLATPAK:-false}"; then
+        info "Flatpak applications disabled (FLATPAK=false)."
+        return 0
+    fi
+
+    info "Installing Flatpak applications."
+
+    install_localsend
+
+    info "Flatpak application installation complete."
+}
