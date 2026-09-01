@@ -11,6 +11,10 @@ Provides specialized media processing and inspection utilities without polluting
 - `mkvtoolnix`: Matroska multiplexing and extraction (`mkvmerge`, `mkvextract`, `mkvinfo`)
 - `gpac`: MP4Box container manipulation and ISO media processing
 - `ccextractor`: Closed caption and subtitle extraction
+- `bento4`: Fast MP4 multiplexing, fragmentation, and DRM tooling (`mp4dump`, `mp4fragment`, `mp4split`)
+- `shaka-packager`: DASH/HLS packaging, encryption, and streaming manifest generation
+- `dovi-tool`: Dolby Vision RPU extraction, editing, and injection (`dovi_tool`)
+- `n-m3u8dl-re`: Cross-platform CLI DASH/HLS/MSS stream downloader (`N_m3u8DL-RE`)
 
 ## Usage
 
