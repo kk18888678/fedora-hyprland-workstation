@@ -358,7 +358,7 @@ validate_diagnostics_environment() {
         sensors
         htop
         btop
-        iotop-c
+        iotop
         iostat
         lsof
         strace

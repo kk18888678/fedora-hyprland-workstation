@@ -77,6 +77,38 @@ require_command() {
 }
 
 ###############################################################################
+# Timeout & Bounded Execution
+###############################################################################
+
+TIMEOUT_METADATA_SECONDS=300       # 5 minutes: dnf makecache, repoquery, repo add
+TIMEOUT_PACKAGE_SECONDS=900        # 15 minutes: dnf install transaction, copr enable
+TIMEOUT_DOWNLOAD_SECONDS=300       # 5 minutes: direct curl/wget downloads
+TIMEOUT_GIT_SECONDS=300            # 5 minutes: git clone / fetch
+TIMEOUT_FLATPAK_SECONDS=600        # 10 minutes: Flatpak remote-add and package installs
+TIMEOUT_NIX_SECONDS=600            # 10 minutes: Nix profile install and package evaluation
+
+run_with_timeout() {
+    local timeout_seconds="$1"
+    local description="$2"
+    shift 2
+
+    if ! command_exists timeout || (( timeout_seconds <= 0 )); then
+        "$@"
+        return $?
+    fi
+
+    local status=0
+    timeout --kill-after=10s "${timeout_seconds}s" "$@" || status=$?
+
+    if (( status == 124 || status == 137 )); then
+        error "Operation timed out after ${timeout_seconds}s: ${description}"
+        return 124
+    fi
+
+    return "$status"
+}
+
+###############################################################################
 # Retry (transient network / repository operations only)
 ###############################################################################
 
@@ -91,15 +123,18 @@ run_with_retry() {
     local max_attempts=$((${#delays[@]} + 1))
     local attempt=1
     local delay
+    local status=0
 
     while true; do
         if "$@"; then
             return 0
+        else
+            status=$?
         fi
 
         if (( attempt >= max_attempts )); then
             error "Giving up after ${max_attempts} attempts: $description"
-            return 1
+            return "$status"
         fi
 
         delay="${delays[$((attempt - 1))]}"
@@ -190,13 +225,15 @@ package_available() {
     local output
 
     output="$(
-        dnf -q repoquery --available --qf '%{name}' "$package" 2>/dev/null ||
+        run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery $package" \
+            dnf -q repoquery --available --qf '%{name}' "$package" 2>/dev/null ||
             true
     )"
 
     if [[ -z "$output" ]]; then
         output="$(
-            dnf -q repoquery --available --whatprovides "$package" --qf '%{name}' 2>/dev/null ||
+            run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery whatprovides $package" \
+                dnf -q repoquery --available --whatprovides "$package" --qf '%{name}' 2>/dev/null ||
                 true
         )"
     fi
@@ -205,11 +242,13 @@ package_available() {
 }
 
 dnf_makecache() {
-    sudo dnf makecache --refresh
+    run_with_timeout "$TIMEOUT_METADATA_SECONDS" "dnf makecache" \
+        sudo dnf makecache --refresh
 }
 
 dnf_install() {
-    sudo dnf install -y "$@"
+    run_with_timeout "$TIMEOUT_PACKAGE_SECONDS" "dnf install $*" \
+        sudo dnf install -y "$@"
 }
 
 install_dnf_packages() {
@@ -328,6 +367,7 @@ clone_pinned_git() {
     git -C "$temp_dir/src" remote add origin "$url"
 
     if ! run_with_retry "git fetch $label" \
+        run_with_timeout "$TIMEOUT_GIT_SECONDS" "git fetch $label" \
         git -C "$temp_dir/src" fetch --depth 1 origin "$commit"; then
         rm -rf "$temp_dir"
         return 1

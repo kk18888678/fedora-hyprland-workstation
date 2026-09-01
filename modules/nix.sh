@@ -119,6 +119,7 @@ install_devenv() {
     info "Installing devenv from pinned nixpkgs ${NIXPKGS_REV}."
 
     run_with_retry "nix profile install devenv" \
+        run_with_timeout "$TIMEOUT_NIX_SECONDS" "nix profile install devenv" \
         nix profile install "$DEVENV_NIX_INSTALL_SPEC" ||
         return 1
 

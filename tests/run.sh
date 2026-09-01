@@ -277,6 +277,7 @@ needed_functions=(
     validate_system
     activate_graphical_session
     run_classified_step
+    run_with_timeout
     record_deferred
     record_required
     record_activation_failure
@@ -479,6 +480,18 @@ if package_available inxi; then
     echo "pkg-avail-inxi-ok"
 fi
 
+if package_available iotop-c; then
+    echo "pkg-avail-iotop-c-ok"
+fi
+
+if grep -Fxq "iotop-c" "$SCRIPT_DIR/packages/diagnostics.txt"; then
+    echo "iotop-c-in-manifest-ok"
+fi
+
+if grep -Fq "iotop" "$SCRIPT_DIR/modules/validation.sh" && ! grep -Fq "iotop-c" "$SCRIPT_DIR/modules/validation.sh"; then
+    echo "iotop-cmd-in-validation-ok"
+fi
+
 if grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$SCRIPT_DIR/dotfiles/zsh/.zshrc"; then
     echo "zshrc-local-bin-path-ok"
 fi
@@ -657,6 +670,24 @@ else
     fail "package_available inxi"
 fi
 
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-iotop-c-ok'; then
+    pass "package_available iotop-c"
+else
+    fail "package_available iotop-c"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'iotop-c-in-manifest-ok'; then
+    pass "packages/diagnostics.txt contains package iotop-c"
+else
+    fail "packages/diagnostics.txt missing package iotop-c"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'iotop-cmd-in-validation-ok'; then
+    pass "modules/validation.sh validates command iotop, not iotop-c"
+else
+    fail "modules/validation.sh must validate command iotop, not iotop-c"
+fi
+
 if printf '%s\n' "$helper_output" | grep -q 'zshrc-local-bin-path-ok'; then
     pass "zshrc exports ~/.local/bin in PATH"
 else
@@ -691,6 +722,137 @@ if printf '%s\n' "$helper_output" | grep -q 'install-invalid-manifest-rejected-o
     pass "install_manifest rejects invalid manifest"
 else
     fail "install_manifest does not reject invalid manifest"
+fi
+
+###############################################################################
+# Timeout & Hang resilience
+###############################################################################
+
+section "Timeout & hang resilience"
+
+timeout_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+# 1. run_with_timeout terminates sleeping child and returns 124
+start_time=$(date +%s)
+status=0
+run_with_timeout 1 "sleep test" sleep 10 || status=$?
+end_time=$(date +%s)
+elapsed=$((end_time - start_time))
+
+if (( status == 124 )) && (( elapsed < 5 )); then
+    echo "timeout-terminated-ok"
+fi
+
+# 2. Check no orphan sleep child is left running
+sleep_count=$(pgrep -f "sleep 10" 2>/dev/null | wc -l || true)
+if (( sleep_count == 0 )); then
+    echo "timeout-no-orphan-ok"
+fi
+
+# 3. run_with_retry retries a timed-out command
+RETRY_BACKOFF_SECONDS=(0 0)
+retry_test_script="$(mktemp)"
+cat > "$retry_test_script" << 'SCRIPT'
+#!/usr/bin/env bash
+count_file="$1"
+count=0
+if [[ -f "$count_file" ]]; then
+    count=$(cat "$count_file")
+fi
+count=$((count + 1))
+echo "$count" > "$count_file"
+if (( count < 3 )); then
+    sleep 5
+fi
+exit 0
+SCRIPT
+chmod +x "$retry_test_script"
+
+count_file="$(mktemp)"
+echo 0 > "$count_file"
+
+retry_timeout_status=0
+run_with_retry "flaky timeout command" run_with_timeout 1 "flaky timeout attempt" "$retry_test_script" "$count_file" || retry_timeout_status=$?
+
+final_count=$(cat "$count_file")
+if (( retry_timeout_status == 0 )) && (( final_count == 3 )); then
+    echo "retry-on-timeout-ok"
+fi
+rm -f "$retry_test_script" "$count_file"
+
+# 4. Timeout in non-login stage produces exit code 1 without blocking activation
+ACTIVATION_BLOCKED=0
+timed_out_stage() {
+    run_with_timeout 1 "non-login hang" sleep 5
+}
+
+run_classified_step workstation "Simulated hanging workstation stage" timed_out_stage || true
+echo "workstation-timeout-blocked=$ACTIVATION_BLOCKED"
+echo "workstation-timeout-exit=$(installer_exit_code)"
+
+# 5. Timeout in login-critical stage produces exit code 1 and blocks activation
+ACTIVATION_BLOCKED=0
+login_hang_stage() {
+    run_with_timeout 1 "login-critical hang" sleep 5
+}
+
+run_classified_step login "Simulated hanging login stage" login_hang_stage || true
+echo "login-timeout-blocked=$ACTIVATION_BLOCKED"
+echo "login-timeout-exit=$(installer_exit_code)"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$timeout_output" | grep -q 'timeout-terminated-ok'; then
+    pass "run_with_timeout terminates hung command and returns exit code 124"
+else
+    fail "run_with_timeout termination failed: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'timeout-no-orphan-ok'; then
+    pass "no orphan processes remain after timeout"
+else
+    fail "orphan process detected after timeout: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'retry-on-timeout-ok'; then
+    pass "run_with_retry retries timed-out operations"
+else
+    fail "run_with_retry did not retry on timeout: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'workstation-timeout-blocked=0'; then
+    pass "workstation operation timeout does not block graphical activation"
+else
+    fail "workstation operation timeout blocked graphical activation: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'workstation-timeout-exit=1'; then
+    pass "workstation operation timeout produces exit code 1"
+else
+    fail "workstation operation timeout exit code: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'login-timeout-blocked=1'; then
+    pass "login-critical operation timeout blocks graphical activation"
+else
+    fail "login-critical operation timeout did not block activation: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'login-timeout-exit=1'; then
+    pass "login-critical operation timeout produces exit code 1"
+else
+    fail "login-critical operation timeout exit code: $timeout_output"
 fi
 
 ###############################################################################

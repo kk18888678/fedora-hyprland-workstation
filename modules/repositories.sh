@@ -54,6 +54,7 @@ enable_copr() {
     info "Enabling COPR: $copr"
 
     run_with_retry "dnf copr enable $copr" \
+        run_with_timeout "$TIMEOUT_PACKAGE_SECONDS" "dnf copr enable $copr" \
         sudo dnf copr enable -y "$copr"
 }
 
@@ -81,6 +82,7 @@ install_rpmfusion() {
         info "Installing RPM Fusion Free repository."
 
         run_with_retry "RPM Fusion Free" \
+            run_with_timeout "$TIMEOUT_PACKAGE_SECONDS" "install RPM Fusion Free" \
             sudo dnf install -y \
             "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm" ||
             record_required "repositories" "rpmfusion-free" "Failed to install RPM Fusion Free."
@@ -92,6 +94,7 @@ install_rpmfusion() {
         info "Installing RPM Fusion Nonfree repository."
 
         run_with_retry "RPM Fusion Nonfree" \
+            run_with_timeout "$TIMEOUT_PACKAGE_SECONDS" "install RPM Fusion Nonfree" \
             sudo dnf install -y \
             "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm" ||
             record_required "repositories" "rpmfusion-nonfree" "Failed to install RPM Fusion Nonfree."
@@ -105,7 +108,7 @@ install_rpmfusion() {
 ###############################################################################
 
 validate_repository_configuration() {
-    if ! dnf repolist --enabled >/dev/null; then
+    if ! run_with_timeout "$TIMEOUT_METADATA_SECONDS" "dnf repolist" dnf repolist --enabled >/dev/null; then
         record_required "repositories" "repolist" "DNF repository validation failed."
         return 1
     fi

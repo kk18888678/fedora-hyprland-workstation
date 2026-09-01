@@ -41,6 +41,7 @@ configure_flathub() {
     info "Adding Flathub remote."
 
     run_with_retry "flatpak remote-add flathub" \
+        run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak remote-add flathub" \
         sudo flatpak remote-add \
         --system \
         --if-not-exists \
@@ -108,6 +109,7 @@ install_localsend() {
     info "Installing LocalSend from Flathub."
 
     if ! run_with_retry "flatpak install localsend" \
+        run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak install localsend" \
         flatpak install -y flathub org.localsend.localsend_app; then
         record_deferred \
             "flatpak" \

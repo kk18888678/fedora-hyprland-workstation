@@ -205,6 +205,7 @@ install_antigravity() {
     local staging_tarball="$staging_dir/agy.tar.gz"
 
     if ! run_with_retry "download Antigravity CLI" \
+        run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download Antigravity CLI" \
         curl -fsSL -o "$staging_tarball" "$ANTIGRAVITY_URL"; then
         rm -rf "$staging_dir"
         record_deferred "applications" "antigravity" "Failed to download Antigravity CLI package."
