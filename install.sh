@@ -75,6 +75,9 @@ command -v dnf >/dev/null 2>&1 ||
 command -v sudo >/dev/null 2>&1 ||
     die "sudo was not found."
 
+command -v timeout >/dev/null 2>&1 ||
+    die "timeout (GNU coreutils) was not found."
+
 TARGET_USER="$USER"
 TARGET_HOME="$HOME"
 
@@ -130,18 +133,33 @@ done
 # Lifecycle
 ###############################################################################
 
+cleanup_installer_children() {
+    stop_sudo_keepalive
+
+    if [[ -n "${ACTIVE_TIMEOUT_PID:-}" ]]; then
+        kill -TERM "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        wait "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        ACTIVE_TIMEOUT_PID=""
+    fi
+
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -P "$$" 2>/dev/null || true
+    fi
+}
+
 on_interrupt() {
     error "Installer interrupted."
     error "Rerunning the same command is safe and will reconcile state."
+    cleanup_installer_children
     ACTIVATION_BLOCKED=1
     record_critical "installer" "interrupt" "Received SIGINT/SIGTERM." 1
-    exit 1
+    exit 130
 }
 
 on_exit() {
     local code=$?
 
-    stop_sudo_keepalive
+    cleanup_installer_children
 
     if (( code != 0 )) &&
         [[ ${#INSTALL_LOGIN_FAILURES[@]} -eq 0 ]] &&

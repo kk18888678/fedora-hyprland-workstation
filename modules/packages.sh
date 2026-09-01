@@ -41,6 +41,7 @@ read_package_manifest() {
 validate_manifest_packages() {
     local manifest="$1"
     local package
+    local avail_status=0
 
     info "Validating package manifest: $(basename "$manifest")"
 
@@ -49,8 +50,14 @@ validate_manifest_packages() {
             continue
         fi
 
-        if ! package_available "$package"; then
-            error "Required package is not available: $package"
+        avail_status=0
+        package_available "$package" || avail_status=$?
+
+        if (( avail_status == 2 )); then
+            error "Package repository query failed or timed out for: $package"
+            return 1
+        elif (( avail_status == 1 )); then
+            error "Required package is not available in repositories: $package"
             return 1
         fi
     done < <(read_package_manifest "$manifest")

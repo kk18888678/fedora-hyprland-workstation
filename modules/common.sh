@@ -87,18 +87,28 @@ TIMEOUT_GIT_SECONDS=300            # 5 minutes: git clone / fetch
 TIMEOUT_FLATPAK_SECONDS=600        # 10 minutes: Flatpak remote-add and package installs
 TIMEOUT_NIX_SECONDS=600            # 10 minutes: Nix profile install and package evaluation
 
+ACTIVE_TIMEOUT_PID=""
+
 run_with_timeout() {
     local timeout_seconds="$1"
     local description="$2"
     shift 2
 
-    if ! command_exists timeout || (( timeout_seconds <= 0 )); then
-        "$@"
-        return $?
+    if ! command_exists timeout; then
+        error "Required safety utility 'timeout' is not available for: ${description}"
+        return 127
+    fi
+
+    if (( timeout_seconds <= 0 )); then
+        error "Invalid non-positive timeout (${timeout_seconds}s) for: ${description}"
+        return 1
     fi
 
     local status=0
-    timeout --kill-after=10s "${timeout_seconds}s" "$@" || status=$?
+    timeout --kill-after=10s "${timeout_seconds}s" "$@" &
+    ACTIVE_TIMEOUT_PID=$!
+    wait "$ACTIVE_TIMEOUT_PID" || status=$?
+    ACTIVE_TIMEOUT_PID=""
 
     if (( status == 124 || status == 137 )); then
         error "Operation timed out after ${timeout_seconds}s: ${description}"
@@ -219,26 +229,49 @@ package_installed() {
     rpm -q "$1" >/dev/null 2>&1 || rpm -q --whatprovides "$1" >/dev/null 2>&1
 }
 
-# DNF5 repoquery can exit 0 with empty output for an unknown name.
+# Returns 0 if package is found available in repositories.
+# Returns 1 if repoquery succeeds cleanly but package does not exist.
+# Returns 2 if repoquery times out or encounters a repository/metadata error.
 package_available() {
     local package="$1"
-    local output
+    local output=""
+    local status=0
 
     output="$(
         run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery $package" \
-            dnf -q repoquery --available --qf '%{name}' "$package" 2>/dev/null ||
-            true
-    )"
+            dnf -q repoquery --available --qf '%{name}' "$package" 2>/dev/null
+    )" || status=$?
 
-    if [[ -z "$output" ]]; then
-        output="$(
-            run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery whatprovides $package" \
-                dnf -q repoquery --available --whatprovides "$package" --qf '%{name}' 2>/dev/null ||
-                true
-        )"
+    if (( status == 124 )); then
+        error "Package availability query timed out for '$package'."
+        return 2
+    elif (( status != 0 )); then
+        error "Package availability query failed for '$package' (status $status)."
+        return 2
     fi
 
-    [[ -n "$output" ]]
+    if [[ -n "$output" ]]; then
+        return 0
+    fi
+
+    output="$(
+        run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery whatprovides $package" \
+            dnf -q repoquery --available --whatprovides "$package" --qf '%{name}' 2>/dev/null
+    )" || status=$?
+
+    if (( status == 124 )); then
+        error "Package provides query timed out for '$package'."
+        return 2
+    elif (( status != 0 )); then
+        error "Package provides query failed for '$package' (status $status)."
+        return 2
+    fi
+
+    if [[ -n "$output" ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 dnf_makecache() {

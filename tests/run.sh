@@ -323,6 +323,12 @@ else
     pass "greetd user is used, not greeter"
 fi
 
+if grep -q 'command -v timeout' "$ROOT/install.sh"; then
+    pass "install.sh enforces timeout capability preflight check"
+else
+    fail "install.sh missing timeout preflight check"
+fi
+
 ###############################################################################
 # Helpers: retry / status / manifests
 ###############################################################################
@@ -753,7 +759,7 @@ if (( status == 124 )) && (( elapsed < 5 )); then
 fi
 
 # 2. Check no orphan sleep child is left running
-sleep_count=$(pgrep -f "sleep 10" 2>/dev/null | wc -l || true)
+sleep_count=$(pgrep -x sleep 2>/dev/null | wc -l || true)
 if (( sleep_count == 0 )); then
     echo "timeout-no-orphan-ok"
 fi
@@ -789,7 +795,59 @@ if (( retry_timeout_status == 0 )) && (( final_count == 3 )); then
 fi
 rm -f "$retry_test_script" "$count_file"
 
-# 4. Timeout in non-login stage produces exit code 1 without blocking activation
+# 4. Missing timeout command fails closed with 127
+missing_timeout_status=0
+(
+    PATH=""
+    run_with_timeout 5 "missing timeout check" true || exit $?
+) 2>/dev/null || missing_timeout_status=$?
+
+if (( missing_timeout_status == 127 )); then
+    echo "timeout-missing-fail-closed-ok"
+fi
+
+# 5. Invalid non-positive timeout fails closed with nonzero status
+invalid_timeout_status=0
+run_with_timeout 0 "invalid timeout check" true 2>/dev/null || invalid_timeout_status=$?
+
+if (( invalid_timeout_status != 0 )); then
+    echo "timeout-invalid-fail-closed-ok"
+fi
+
+# 6. package_available distinguishes available (0), unavailable (1), and timeout/error (2)
+pkg_avail_ok_status=0
+package_available kate || pkg_avail_ok_status=$?
+if (( pkg_avail_ok_status == 0 )); then
+    echo "pkg-avail-status-0-ok"
+fi
+
+pkg_unavail_status=0
+package_available nonexistent-pkg-fake-name-xyz || pkg_unavail_status=$?
+if (( pkg_unavail_status == 1 )); then
+    echo "pkg-unavail-status-1-ok"
+fi
+
+# Mock timeout in package_available
+TIMEOUT_METADATA_SECONDS=1
+pkg_timeout_script="$(mktemp)"
+cat > "$pkg_timeout_script" << 'MOCK'
+#!/usr/bin/env bash
+sleep 5
+MOCK
+chmod +x "$pkg_timeout_script"
+
+pkg_timeout_status=0
+(
+    run_with_timeout() { return 124; }
+    package_available fake-pkg-timed-out || exit $?
+) 2>/dev/null || pkg_timeout_status=$?
+
+if (( pkg_timeout_status == 2 )); then
+    echo "pkg-timeout-status-2-ok"
+fi
+rm -f "$pkg_timeout_script"
+
+# 7. Timeout in non-login stage produces exit code 1 without blocking activation
 ACTIVATION_BLOCKED=0
 timed_out_stage() {
     run_with_timeout 1 "non-login hang" sleep 5
@@ -799,7 +857,7 @@ run_classified_step workstation "Simulated hanging workstation stage" timed_out_
 echo "workstation-timeout-blocked=$ACTIVATION_BLOCKED"
 echo "workstation-timeout-exit=$(installer_exit_code)"
 
-# 5. Timeout in login-critical stage produces exit code 1 and blocks activation
+# 8. Timeout in login-critical stage produces exit code 1 and blocks activation
 ACTIVATION_BLOCKED=0
 login_hang_stage() {
     run_with_timeout 1 "login-critical hang" sleep 5
@@ -808,6 +866,59 @@ login_hang_stage() {
 run_classified_step login "Simulated hanging login stage" login_hang_stage || true
 echo "login-timeout-blocked=$ACTIVATION_BLOCKED"
 echo "login-timeout-exit=$(installer_exit_code)"
+
+# 9. Real SIGINT interrupt and process cleanup test
+sigint_test_script="$(mktemp)"
+cat > "$sigint_test_script" << 'SCRIPT'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$1"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+cleanup_installer_children() {
+    stop_sudo_keepalive
+    if [[ -n "${ACTIVE_TIMEOUT_PID:-}" ]]; then
+        kill -TERM "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        wait "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        ACTIVE_TIMEOUT_PID=""
+    fi
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -P "$$" 2>/dev/null || true
+    fi
+}
+
+on_interrupt() {
+    cleanup_installer_children
+    exit 130
+}
+
+trap on_interrupt INT TERM
+
+run_with_timeout 30 "sigint test long sleep" sleep 30
+SCRIPT
+chmod +x "$sigint_test_script"
+
+set -m
+"$sigint_test_script" "$SCRIPT_DIR" 2>/dev/null &
+CHILD_INSTALLER_PID=$!
+set +m
+sleep 0.3
+
+# Send SIGINT to the running child installer script
+kill -INT "$CHILD_INSTALLER_PID" 2>/dev/null || true
+child_exit_code=0
+wait "$CHILD_INSTALLER_PID" 2>/dev/null || child_exit_code=$?
+
+sleep 0.2
+orphaned_sleep=$(pgrep -x sleep 2>/dev/null || true)
+
+if (( child_exit_code == 130 )) && [[ -z "$orphaned_sleep" ]]; then
+    echo "sigint-cleanup-process-tree-ok"
+fi
+rm -f "$sigint_test_script"
 
 rm -rf "$TARGET_HOME"
 EOS
@@ -829,6 +940,36 @@ if printf '%s\n' "$timeout_output" | grep -q 'retry-on-timeout-ok'; then
     pass "run_with_retry retries timed-out operations"
 else
     fail "run_with_retry did not retry on timeout: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'timeout-missing-fail-closed-ok'; then
+    pass "run_with_timeout fails closed when timeout utility is missing (127)"
+else
+    fail "run_with_timeout did not fail closed on missing timeout: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'timeout-invalid-fail-closed-ok'; then
+    pass "run_with_timeout fails closed on non-positive timeout values"
+else
+    fail "run_with_timeout did not fail closed on invalid timeout: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'pkg-avail-status-0-ok'; then
+    pass "package_available returns 0 for available packages"
+else
+    fail "package_available status 0 failed: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'pkg-unavail-status-1-ok'; then
+    pass "package_available returns 1 for cleanly absent packages"
+else
+    fail "package_available status 1 failed: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'pkg-timeout-status-2-ok'; then
+    pass "package_available returns 2 on repository timeout/failure"
+else
+    fail "package_available status 2 failed: $timeout_output"
 fi
 
 if printf '%s\n' "$timeout_output" | grep -q 'workstation-timeout-blocked=0'; then
@@ -853,6 +994,12 @@ if printf '%s\n' "$timeout_output" | grep -q 'login-timeout-exit=1'; then
     pass "login-critical operation timeout produces exit code 1"
 else
     fail "login-critical operation timeout exit code: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'sigint-cleanup-process-tree-ok'; then
+    pass "SIGINT terminates active operation, cleans process tree, and preserves parent shell"
+else
+    fail "SIGINT process tree cleanup failed: $timeout_output"
 fi
 
 ###############################################################################
