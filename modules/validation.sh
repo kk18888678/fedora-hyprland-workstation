@@ -177,6 +177,21 @@ validate_browser_environment() {
     return "$failed"
 }
 
+validate_application_environment() {
+    local failed=0
+
+    info "Validating workstation applications."
+
+    if is_true "${CURSOR:-false}"; then
+        if ! package_installed cursor; then
+            error "Cursor package is not installed."
+            failed=1
+        fi
+    fi
+
+    return "$failed"
+}
+
 validate_flatpak_environment() {
     if ! is_true "${FLATPAK:-false}"; then
         return 0
@@ -307,6 +322,7 @@ validate_system() {
     validate_shell_environment || failed=1
     validate_desktop_environment || failed=1
     validate_browser_environment || failed=1
+    validate_application_environment || failed=1
     validate_flatpak_environment || failed=1
     validate_nix_development_environment || failed=1
     validate_container_environment || failed=1
@@ -326,6 +342,7 @@ validate_system() {
     printf 'Desktop       : %s\n' "${DESKTOP:-unknown}"
     printf 'Shell         : %s\n' "${SHELL:-unknown}"
     printf 'GPU profile   : %s\n' "${GPU:-unknown}"
+    printf 'Cursor        : %s\n' "${CURSOR:-false}"
     printf 'Nix/devenv    : %s\n' "${NIX:-false}"
     printf 'Podman        : %s\n' "${PODMAN:-false}"
     printf 'Flatpak       : %s\n' "${FLATPAK:-false}"
