@@ -86,6 +86,10 @@ required_paths=(
     packages/base.txt
     packages/desktop.txt
     packages/media.txt
+    packages/diagnostics.txt
+    environments/media-tools/devenv.nix
+    environments/media-tools/devenv.yaml
+    environments/media-tools/README.md
     profiles/vm.conf
     profiles/workstation.conf
     modules/common.sh
@@ -142,10 +146,27 @@ assert_in_manifest() {
     fi
 }
 
+# Legacy/incompatible Fedora packages
 assert_not_in_manifest mesa-vdpau-drivers
 assert_not_in_manifest p7zip
 assert_not_in_manifest p7zip-plugins
 assert_not_in_manifest wget
+
+# Project development toolchains forbidden from Fedora host manifests
+assert_not_in_manifest pyenv
+assert_not_in_manifest nvm
+assert_not_in_manifest rustup
+assert_not_in_manifest docker-ce
+assert_not_in_manifest docker
+assert_not_in_manifest nodejs
+assert_not_in_manifest npm
+assert_not_in_manifest rustc
+assert_not_in_manifest cargo
+assert_not_in_manifest golang
+assert_not_in_manifest gradle
+assert_not_in_manifest maven
+assert_not_in_manifest dotnet-sdk
+
 assert_in_manifest packages/base.txt wget2-wget
 assert_in_manifest packages/base.txt 7zip
 assert_in_manifest packages/base.txt 7zip-standalone
@@ -157,6 +178,21 @@ assert_in_manifest packages/desktop.txt xdg-desktop-portal-hyprland
 assert_in_manifest packages/desktop.txt adwaita-cursor-theme
 assert_in_manifest packages/base.txt zsh
 assert_in_manifest packages/base.txt starship
+assert_in_manifest packages/media.txt mediainfo
+assert_in_manifest packages/media.txt mkvtoolnix
+assert_in_manifest packages/diagnostics.txt smartmontools
+assert_in_manifest packages/diagnostics.txt nvme-cli
+assert_in_manifest packages/diagnostics.txt inxi
+assert_in_manifest packages/diagnostics.txt lm_sensors
+assert_in_manifest packages/diagnostics.txt htop
+assert_in_manifest packages/diagnostics.txt btop
+assert_in_manifest packages/diagnostics.txt iotop-c
+assert_in_manifest packages/diagnostics.txt sysstat
+assert_in_manifest packages/diagnostics.txt lsof
+assert_in_manifest packages/diagnostics.txt strace
+assert_in_manifest packages/diagnostics.txt duf
+assert_in_manifest packages/diagnostics.txt ncdu
+assert_in_manifest packages/diagnostics.txt btrfs-progs
 
 if grep -vE '^\s*#' "$ROOT"/packages/base.txt | grep -qw chromium; then
     fail "chromium belongs in the browser module, not base.txt"
@@ -179,7 +215,8 @@ check_profile() {
     local required=(
         PROFILE_NAME GPU DESKTOP DESKTOP_SHELL SHELL PROMPT
         OH_MY_ZSH BROWSER_CHROMIUM BROWSER_ULAA BROWSER_BRAVE_ORIGIN
-        BROWSER_FIREFOX CURSOR BLUETOOTH GAMING FLATPAK NIX PODMAN
+        BROWSER_FIREFOX CURSOR KATE MEDIA_APPLICATIONS ANTIGRAVITY LOCALSEND
+        BLUETOOTH GAMING FLATPAK NIX PODMAN
         NVIDIA ROCM ENABLE_GRAPHICAL_TARGET INSTALL_GREETER INSTALL_NOCTALIA
     )
 
@@ -227,6 +264,11 @@ needed_functions=(
     configure_shell
     install_browsers
     install_applications
+    install_cursor
+    install_kate
+    install_media_applications
+    install_localsend
+    install_antigravity
     configure_flatpak
     install_desktop
     install_nix
@@ -243,6 +285,7 @@ needed_functions=(
     validate_greeter_configuration
     validate_graphical_activation
     validate_login_stack
+    validate_diagnostics_environment
     validate_workstation_environment
     activate_graphical_session
 )
@@ -407,6 +450,38 @@ if validate_manifest_packages "$SCRIPT_DIR/packages/base.txt"; then
     echo "validate-base-manifest-ok"
 fi
 
+if validate_manifest_packages "$SCRIPT_DIR/packages/diagnostics.txt"; then
+    echo "validate-diagnostics-manifest-ok"
+fi
+
+if validate_manifest_packages "$SCRIPT_DIR/packages/media.txt"; then
+    echo "validate-media-manifest-ok"
+fi
+
+if package_available kate; then
+    echo "pkg-avail-kate-ok"
+fi
+
+if package_available mediainfo; then
+    echo "pkg-avail-mediainfo-ok"
+fi
+
+if package_available mkvtoolnix; then
+    echo "pkg-avail-mkvtoolnix-ok"
+fi
+
+if package_available smartmontools; then
+    echo "pkg-avail-smartmontools-ok"
+fi
+
+if package_available inxi; then
+    echo "pkg-avail-inxi-ok"
+fi
+
+if grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$SCRIPT_DIR/dotfiles/zsh/.zshrc"; then
+    echo "zshrc-local-bin-path-ok"
+fi
+
 tmp_manifest="$(mktemp)"
 echo "nonexistent-pkg-fake" > "$tmp_manifest"
 if ! validate_manifest_packages "$tmp_manifest" 2>/dev/null; then
@@ -551,10 +626,58 @@ else
     fail "package_available rejects nonexistent package"
 fi
 
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-kate-ok'; then
+    pass "package_available kate"
+else
+    fail "package_available kate"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-mediainfo-ok'; then
+    pass "package_available mediainfo"
+else
+    fail "package_available mediainfo"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-mkvtoolnix-ok'; then
+    pass "package_available mkvtoolnix"
+else
+    fail "package_available mkvtoolnix"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-smartmontools-ok'; then
+    pass "package_available smartmontools"
+else
+    fail "package_available smartmontools"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'pkg-avail-inxi-ok'; then
+    pass "package_available inxi"
+else
+    fail "package_available inxi"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'zshrc-local-bin-path-ok'; then
+    pass "zshrc exports ~/.local/bin in PATH"
+else
+    fail "zshrc missing ~/.local/bin in PATH"
+fi
+
 if printf '%s\n' "$helper_output" | grep -q 'validate-base-manifest-ok'; then
     pass "validate_manifest_packages succeeds on base.txt"
 else
     fail "validate_manifest_packages fails on base.txt"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'validate-diagnostics-manifest-ok'; then
+    pass "validate_manifest_packages succeeds on diagnostics.txt"
+else
+    fail "validate_manifest_packages fails on diagnostics.txt"
+fi
+
+if printf '%s\n' "$helper_output" | grep -q 'validate-media-manifest-ok'; then
+    pass "validate_manifest_packages succeeds on media.txt"
+else
+    fail "validate_manifest_packages fails on media.txt"
 fi
 
 if printf '%s\n' "$helper_output" | grep -q 'validate-invalid-manifest-rejected-ok'; then

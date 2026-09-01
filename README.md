@@ -27,7 +27,34 @@ Re-run the same command after a network drop, sudo timeout, or reboot. Desired s
 - Chromium (required when enabled). Brave Origin and Firefox are optional. **Ulaa is deferred on Fedora** (the upstream Linux installer is Debian/apt).
 - Flatpak + Flathub, Fedora Nix + devenv, rootless Podman
 
-Graphical login is enabled only after **login-stack** validation (Hyprland, Noctalia, greetd, polkit, portals). A missing Chromium, Nix, or Podman install is a required-workstation failure (exit 1) and does **not** block greetd. `greetd` is enabled for the **next boot** (`systemctl enable`, not `enable --now`) so an SSH install is not replaced by a greeter mid-run.
+## Target Architecture
+
+The workstation maintains a strict separation of concerns:
+
+- **Fedora Host**: Operating system, kernel, drivers, systemd, PipeWire, desktop session (Hyprland + Noctalia + greetd), portals, fonts, system diagnostics, media codecs, normal GUI applications, Podman runtime, and base Nix installation.
+- **Nix + devenv**: Reproducible development platforms, compilers, SDKs, project runtimes, language servers, and specialized CLI tooling.
+- **Podman**: Isolated development services, databases, and containerized dependencies.
+- **Git**: Reproducible desired state.
+
+## Package Manifests
+
+- `packages/base.txt`: Core OS utilities, shells, archive tools, networking, and audio foundations.
+- `packages/desktop.txt`: Hyprland, Noctalia desktop shell, greetd, portals, terminal, file manager, and fonts.
+- `packages/media.txt`: Codecs, GStreamer plugins, VA-API acceleration, MPV, FFmpeg, MediaInfo, and MKVToolNix CLI.
+- `packages/diagnostics.txt`: Hardware, sensor, storage, process, and network diagnostics (`smartmontools`, `nvme-cli`, `inxi`, `htop`, `btop`, `iotop-c`, `sysstat`, `lsof`, `strace`, `duf`, `ncdu`, `btrfs-progs`).
+
+## Workstation Applications
+
+- **Kate**: Full-featured graphical text and code editor (Fedora official repositories).
+- **Neovim**: Terminal code editor.
+- **Cursor**: Official vendor RPM repository.
+- **Media Applications**: OBS Studio, MKVToolNix GUI, VLC.
+- **Antigravity CLI (`agy`)**: Integrated user path with non-blocking activation safety.
+- **LocalSend**: Flathub Flatpak.
+
+## Environments
+
+- `environments/media-tools/`: Reproducible Nix/devenv environment for specialized media packaging tools (`gpac`, `ccextractor`, `mediainfo`, `ffmpeg`, `mkvtoolnix`).
 
 ## Profiles
 
@@ -51,3 +78,4 @@ Both set `DESKTOP=hyprland` and `DESKTOP_SHELL=noctalia`. Additional shells (for
 ```bash
 ./tests/run.sh
 ```
+
