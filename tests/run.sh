@@ -871,13 +871,97 @@ fi
 # Ensure media-tools devenv declares all 9 audited tools
 for tool in ffmpeg mediainfo mkvtoolnix gpac ccextractor bento4 "shaka-packager" "dovi-tool" "n-m3u8dl-re"; do
     if grep -qF "$tool" "$ROOT/environments/media-tools/devenv.nix"; then
-        pass "media-tools provides $tool"
+        pass "media-tools declares $tool"
     else
         fail "media-tools missing $tool"
     fi
 done
 
+# Pinned Nixpkgs evaluation (media-tools)
+section "Pinned Nixpkgs evaluation"
+
+if command -v nix >/dev/null 2>&1; then
+    nix_eval_output="$(
+        nix eval --impure --raw --expr '
+        let
+          pkgs = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/'"$NIXPKGS_REV"'.tar.gz") {};
+          tools = [
+            pkgs.ffmpeg
+            pkgs.mediainfo
+            pkgs.mkvtoolnix
+            pkgs.gpac
+            pkgs.ccextractor
+            pkgs.bento4
+            pkgs."shaka-packager"
+            pkgs."dovi-tool"
+            pkgs."n-m3u8dl-re"
+          ];
+        in builtins.concatStringsSep "," (map (p: p.name) tools)
+        ' 2>/dev/null || true
+    )"
+
+    if [[ -n "$nix_eval_output" ]] &&
+       [[ "$nix_eval_output" == *"bento4"* ]] &&
+       [[ "$nix_eval_output" == *"shaka-packager"* ]] &&
+       [[ "$nix_eval_output" == *"dovi-tool"* ]] &&
+       [[ "$nix_eval_output" == *"n-m3u8dl-re"* ]] &&
+       [[ "$nix_eval_output" == *"ffmpeg"* ]] &&
+       [[ "$nix_eval_output" == *"mediainfo"* ]] &&
+       [[ "$nix_eval_output" == *"mkvtoolnix"* ]] &&
+       [[ "$nix_eval_output" == *"gpac"* ]] &&
+       [[ "$nix_eval_output" == *"ccextractor"* ]]; then
+        pass "pinned nixpkgs ($NIXPKGS_REV) evaluates all media-tools attributes: $nix_eval_output"
+    else
+        fail "pinned nixpkgs evaluation failed: ${nix_eval_output:-empty}"
+    fi
+else
+    pass "pinned nixpkgs evaluation skipped (nix not present on host)"
+fi
+
+# Antigravity architecture guard test
+section "Antigravity architecture guard"
+agy_arch_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+ANTIGRAVITY=true
+uname() {
+    if [[ "$1" == "-m" ]]; then
+        echo "armv7l"
+    else
+        command uname "$@"
+    fi
+}
+install_antigravity
+echo "agy-arch-blocked=$ACTIVATION_BLOCKED"
+echo "agy-arch-exit=$(installer_exit_code)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$agy_arch_output" | grep -q 'agy-arch-blocked=0'; then
+    pass "unsupported arch does not set ACTIVATION_BLOCKED"
+else
+    fail "unsupported arch set ACTIVATION_BLOCKED: $agy_arch_output"
+fi
+
+if printf '%s\n' "$agy_arch_output" | grep -q 'agy-arch-exit=2'; then
+    pass "unsupported arch produces deferred exit code 2"
+else
+    fail "unsupported arch exit code: $agy_arch_output"
+fi
+
 # Ensure no credentials or auth state files are tracked in Git
+section "Repository Hygiene"
 if git -C "$ROOT" ls-files | grep -E '(\.auth|\.token|jetski_state|settings\.json|credentials|\.db|\.key|\.pem)'; then
     fail "sensitive or authentication file tracked in git"
 else

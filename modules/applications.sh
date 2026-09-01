@@ -167,7 +167,15 @@ install_antigravity() {
         return 0
     fi
 
-    local target_bin="$TARGET_HOME/.local/bin/agy"
+    local arch
+    arch="$(uname -m)"
+    if [[ "$arch" != "x86_64" && "$arch" != "amd64" ]]; then
+        record_deferred "applications" "antigravity" "Antigravity CLI pinned package is x86_64; unsupported architecture: $arch."
+        return 0
+    fi
+
+    local target_dir="$TARGET_HOME/.local/bin"
+    local target_bin="$target_dir/agy"
 
     if [[ -x "$target_bin" ]] || command_exists agy; then
         info "Antigravity CLI (agy) already installed."
@@ -187,7 +195,7 @@ install_antigravity() {
         return 0
     }
 
-    ensure_directory "$TARGET_HOME/.local/bin"
+    ensure_directory "$target_dir"
 
     info "Provisioning Antigravity CLI (${ANTIGRAVITY_VERSION:-pinned})."
 
@@ -233,8 +241,22 @@ install_antigravity() {
         return 0
     fi
 
-    install -m 0755 "$extracted_binary" "$target_bin"
+    local staging_target="$target_dir/.agy.tmp.$$"
+    rm -f "$staging_target"
+
+    if ! install -m 0755 "$extracted_binary" "$staging_target"; then
+        rm -rf "$staging_dir" "$staging_target"
+        record_deferred "applications" "antigravity" "Failed to stage Antigravity executable to $staging_target."
+        return 0
+    fi
+
     rm -rf "$staging_dir"
+
+    if ! mv -f "$staging_target" "$target_bin"; then
+        rm -f "$staging_target"
+        record_deferred "applications" "antigravity" "Failed to atomically move Antigravity executable into place."
+        return 0
+    fi
 
     if [[ ! -x "$target_bin" ]]; then
         record_deferred "applications" "antigravity" "Antigravity CLI binary was not executable after installation."
