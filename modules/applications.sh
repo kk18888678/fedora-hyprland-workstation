@@ -161,67 +161,88 @@ install_media_applications() {
     done
 }
 
-install_localsend() {
-    if ! is_true "${LOCALSEND:-false}"; then
-        info "LocalSend disabled by profile."
-        return 0
-    fi
-
-    if ! is_true "${FLATPAK:-false}"; then
-        record_deferred \
-            "applications" \
-            "localsend" \
-            "LocalSend requires Flatpak, but Flatpak is disabled by profile."
-        return 0
-    fi
-
-    if ! command_exists flatpak; then
-        record_deferred \
-            "applications" \
-            "localsend" \
-            "Flatpak command is unavailable."
-        return 0
-    fi
-
-    if flatpak list --app --columns=application 2>/dev/null | grep -Fxq "org.localsend.localsend_app"; then
-        info "LocalSend Flatpak already installed."
-        record_success "localsend"
-        return 0
-    fi
-
-    info "Installing LocalSend from Flathub."
-
-    if ! run_with_retry "flatpak install localsend" \
-        flatpak install -y flathub org.localsend.localsend_app; then
-        record_deferred \
-            "applications" \
-            "localsend" \
-            "LocalSend Flatpak could not be installed."
-        return 0
-    fi
-
-    info "LocalSend installation validated."
-    record_success "localsend"
-}
-
 install_antigravity() {
     if ! is_true "${ANTIGRAVITY:-false}"; then
         info "Antigravity CLI disabled by profile."
         return 0
     fi
 
-    ensure_directory "$TARGET_HOME/.local/bin"
+    local target_bin="$TARGET_HOME/.local/bin/agy"
 
-    if [[ -x "$TARGET_HOME/.local/bin/agy" ]] || command_exists agy; then
-        info "Antigravity CLI (agy) found."
+    if [[ -x "$target_bin" ]] || command_exists agy; then
+        info "Antigravity CLI (agy) already installed."
         record_success "antigravity"
         return 0
     fi
 
-    record_deferred \
-        "applications" \
-        "antigravity" \
-        "Antigravity CLI (agy) executable not found in $TARGET_HOME/.local/bin/agy."
+    load_pinned_versions
+
+    [[ -n "${ANTIGRAVITY_URL:-}" ]] || {
+        record_deferred "applications" "antigravity" "ANTIGRAVITY_URL is not defined in config/versions.conf."
+        return 0
+    }
+
+    [[ -n "${ANTIGRAVITY_SHA512:-}" ]] || {
+        record_deferred "applications" "antigravity" "ANTIGRAVITY_SHA512 is not defined in config/versions.conf."
+        return 0
+    }
+
+    ensure_directory "$TARGET_HOME/.local/bin"
+
+    info "Provisioning Antigravity CLI (${ANTIGRAVITY_VERSION:-pinned})."
+
+    local staging_dir
+    staging_dir="$(mktemp -d)"
+
+    local staging_tarball="$staging_dir/agy.tar.gz"
+
+    if ! run_with_retry "download Antigravity CLI" \
+        curl -fsSL -o "$staging_tarball" "$ANTIGRAVITY_URL"; then
+        rm -rf "$staging_dir"
+        record_deferred "applications" "antigravity" "Failed to download Antigravity CLI package."
+        return 0
+    fi
+
+    local actual_sha512
+    actual_sha512="$(sha512sum "$staging_tarball" | cut -d' ' -f1 || true)"
+
+    if [[ "$actual_sha512" != "$ANTIGRAVITY_SHA512" ]]; then
+        rm -rf "$staging_dir"
+        record_deferred "applications" "antigravity" "Antigravity CLI checksum mismatch: expected $ANTIGRAVITY_SHA512, got ${actual_sha512:-none}."
+        return 0
+    fi
+
+    info "Antigravity CLI package checksum verified."
+
+    if ! tar -xzf "$staging_tarball" -C "$staging_dir"; then
+        rm -rf "$staging_dir"
+        record_deferred "applications" "antigravity" "Failed to extract Antigravity CLI archive."
+        return 0
+    fi
+
+    local extracted_binary=""
+    if [[ -f "$staging_dir/antigravity" ]]; then
+        extracted_binary="$staging_dir/antigravity"
+    elif [[ -f "$staging_dir/agy" ]]; then
+        extracted_binary="$staging_dir/agy"
+    fi
+
+    if [[ -z "$extracted_binary" || ! -f "$extracted_binary" ]]; then
+        rm -rf "$staging_dir"
+        record_deferred "applications" "antigravity" "Could not find executable binary in extracted Antigravity archive."
+        return 0
+    fi
+
+    install -m 0755 "$extracted_binary" "$target_bin"
+    rm -rf "$staging_dir"
+
+    if [[ ! -x "$target_bin" ]]; then
+        record_deferred "applications" "antigravity" "Antigravity CLI binary was not executable after installation."
+        return 0
+    fi
+
+    info "Antigravity CLI (${ANTIGRAVITY_VERSION:-pinned}) provisioned successfully."
+    record_success "antigravity"
 }
 
 install_applications() {
@@ -230,7 +251,6 @@ install_applications() {
     install_cursor
     install_kate
     install_media_applications
-    install_localsend
     install_antigravity
 
     info "Workstation application installation complete."
