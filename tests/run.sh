@@ -747,22 +747,33 @@ source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/status.sh"
 
-# 1. run_with_timeout terminates sleeping child and returns 124
+# 1 & 2. run_with_timeout terminates sleeping child and returns 124, child PID is gone
+test_cmd_pid_file="$(mktemp)"
+child_runner="$(mktemp)"
+cat > "$child_runner" << 'RUNNER'
+#!/usr/bin/env bash
+echo "$$" > "$1"
+exec sleep 10
+RUNNER
+chmod +x "$child_runner"
+
 start_time=$(date +%s)
 status=0
-run_with_timeout 1 "sleep test" sleep 10 || status=$?
+run_with_timeout 1 "sleep test" "$child_runner" "$test_cmd_pid_file" || status=$?
 end_time=$(date +%s)
 elapsed=$((end_time - start_time))
+
+tracked_timeout_pid="$(cat "$test_cmd_pid_file" 2>/dev/null || true)"
 
 if (( status == 124 )) && (( elapsed < 5 )); then
     echo "timeout-terminated-ok"
 fi
 
-# 2. Check no orphan sleep child is left running
-sleep_count=$(pgrep -x sleep 2>/dev/null | wc -l || true)
-if (( sleep_count == 0 )); then
-    echo "timeout-no-orphan-ok"
+sleep 0.2
+if [[ -n "$tracked_timeout_pid" ]] && ! kill -0 "$tracked_timeout_pid" 2>/dev/null; then
+    echo "timeout-tracked-child-dead-ok"
 fi
+rm -f "$child_runner" "$test_cmd_pid_file"
 
 # 3. run_with_retry retries a timed-out command
 RETRY_BACKOFF_SECONDS=(0 0)
@@ -867,16 +878,20 @@ run_classified_step login "Simulated hanging login stage" login_hang_stage || tr
 echo "login-timeout-blocked=$ACTIVATION_BLOCKED"
 echo "login-timeout-exit=$(installer_exit_code)"
 
-# 9. Real SIGINT interrupt and process cleanup test
+# 9. Real SIGINT interrupt and process cleanup test with full install.sh on_exit semantics
+sigint_pid_file="$(mktemp)"
 sigint_test_script="$(mktemp)"
 cat > "$sigint_test_script" << 'SCRIPT'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 SCRIPT_DIR="$1"
+PID_FILE="$2"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/status.sh"
+
+INTERRUPTED_SIGNAL=0
 
 cleanup_installer_children() {
     stop_sudo_keepalive
@@ -891,21 +906,58 @@ cleanup_installer_children() {
 }
 
 on_interrupt() {
+    local sig="${1:-INT}"
     cleanup_installer_children
-    exit 130
+    ACTIVATION_BLOCKED=1
+    record_critical "installer" "interrupt" "Received signal $sig." 1
+
+    if [[ "$sig" == "TERM" ]]; then
+        INTERRUPTED_SIGNAL=143
+        exit 143
+    else
+        INTERRUPTED_SIGNAL=130
+        exit 130
+    fi
 }
 
-trap on_interrupt INT TERM
+on_exit() {
+    local code=$?
+    cleanup_installer_children
 
-run_with_timeout 30 "sigint test long sleep" sleep 30
+    local final_code
+    if (( INTERRUPTED_SIGNAL != 0 )); then
+        final_code="$INTERRUPTED_SIGNAL"
+    elif (( code >= 128 )); then
+        final_code="$code"
+    else
+        final_code="$(installer_exit_code)"
+    fi
+    exit "$final_code"
+}
+
+trap 'on_interrupt INT' INT
+trap 'on_interrupt TERM' TERM
+trap on_exit EXIT
+
+worker_script="$(mktemp)"
+cat > "$worker_script" << 'WORKER'
+#!/usr/bin/env bash
+echo "$$" > "$1"
+exec sleep 30
+WORKER
+chmod +x "$worker_script"
+
+run_with_timeout 30 "sigint test long sleep" "$worker_script" "$PID_FILE"
 SCRIPT
 chmod +x "$sigint_test_script"
 
 set -m
-"$sigint_test_script" "$SCRIPT_DIR" 2>/dev/null &
+"$sigint_test_script" "$SCRIPT_DIR" "$sigint_pid_file" 2>/dev/null &
 CHILD_INSTALLER_PID=$!
 set +m
-sleep 0.3
+sleep 0.4
+
+tracked_worker_pid="$(cat "$sigint_pid_file" 2>/dev/null || true)"
 
 # Send SIGINT to the running child installer script
 kill -INT "$CHILD_INSTALLER_PID" 2>/dev/null || true
@@ -913,12 +965,14 @@ child_exit_code=0
 wait "$CHILD_INSTALLER_PID" 2>/dev/null || child_exit_code=$?
 
 sleep 0.2
-orphaned_sleep=$(pgrep -x sleep 2>/dev/null || true)
-
-if (( child_exit_code == 130 )) && [[ -z "$orphaned_sleep" ]]; then
-    echo "sigint-cleanup-process-tree-ok"
+if (( child_exit_code == 130 )); then
+    echo "sigint-exit-130-ok"
 fi
-rm -f "$sigint_test_script"
+
+if [[ -n "$tracked_worker_pid" ]] && ! kill -0 "$tracked_worker_pid" 2>/dev/null; then
+    echo "sigint-tracked-worker-dead-ok"
+fi
+rm -f "$sigint_test_script" "$sigint_pid_file"
 
 rm -rf "$TARGET_HOME"
 EOS
@@ -930,8 +984,8 @@ else
     fail "run_with_timeout termination failed: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'timeout-no-orphan-ok'; then
-    pass "no orphan processes remain after timeout"
+if printf '%s\n' "$timeout_output" | grep -q 'timeout-tracked-child-dead-ok'; then
+    pass "no orphan processes remain after timeout (tracked child PID terminated)"
 else
     fail "orphan process detected after timeout: $timeout_output"
 fi
@@ -996,10 +1050,16 @@ else
     fail "login-critical operation timeout exit code: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'sigint-cleanup-process-tree-ok'; then
-    pass "SIGINT terminates active operation, cleans process tree, and preserves parent shell"
+if printf '%s\n' "$timeout_output" | grep -q 'sigint-exit-130-ok'; then
+    pass "SIGINT preserves final exit status 130 through EXIT trap finalization"
 else
-    fail "SIGINT process tree cleanup failed: $timeout_output"
+    fail "SIGINT final exit status 130 failed: $timeout_output"
+fi
+
+if printf '%s\n' "$timeout_output" | grep -q 'sigint-tracked-worker-dead-ok'; then
+    pass "SIGINT cleans tracked child process without killing parent test shell"
+else
+    fail "SIGINT child process cleanup failed: $timeout_output"
 fi
 
 ###############################################################################

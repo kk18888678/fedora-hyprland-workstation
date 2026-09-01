@@ -133,6 +133,8 @@ done
 # Lifecycle
 ###############################################################################
 
+INTERRUPTED_SIGNAL=0
+
 cleanup_installer_children() {
     stop_sudo_keepalive
 
@@ -148,18 +150,35 @@ cleanup_installer_children() {
 }
 
 on_interrupt() {
-    error "Installer interrupted."
+    local sig="${1:-INT}"
+    error "Installer interrupted ($sig)."
     error "Rerunning the same command is safe and will reconcile state."
     cleanup_installer_children
     ACTIVATION_BLOCKED=1
-    record_critical "installer" "interrupt" "Received SIGINT/SIGTERM." 1
-    exit 130
+    record_critical "installer" "interrupt" "Received signal $sig." 1
+
+    if [[ "$sig" == "TERM" ]]; then
+        INTERRUPTED_SIGNAL=143
+        exit 143
+    else
+        INTERRUPTED_SIGNAL=130
+        exit 130
+    fi
 }
 
 on_exit() {
     local code=$?
 
     cleanup_installer_children
+
+    local final_code
+    if (( INTERRUPTED_SIGNAL != 0 )); then
+        final_code="$INTERRUPTED_SIGNAL"
+    elif (( code >= 128 )); then
+        final_code="$code"
+    else
+        final_code="$(installer_exit_code)"
+    fi
 
     if (( code != 0 )) &&
         [[ ${#INSTALL_LOGIN_FAILURES[@]} -eq 0 ]] &&
@@ -174,11 +193,12 @@ on_exit() {
         print_installer_summary
     fi
 
-    finalize_installer_state "$(installer_exit_code)"
-    exit "$(installer_exit_code)"
+    finalize_installer_state "$final_code"
+    exit "$final_code"
 }
 
-trap on_interrupt INT TERM
+trap 'on_interrupt INT' INT
+trap 'on_interrupt TERM' TERM
 trap on_exit EXIT
 
 require_sudo
