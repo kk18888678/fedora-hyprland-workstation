@@ -42,22 +42,40 @@ install_noctalia_greeter() {
 
     info "Installing Noctalia greeter."
 
-    install_dnf_packages noctalia-greeter ||
-        die "noctalia-greeter package could not be installed."
+    install_dnf_packages noctalia-greeter || {
+        record_activation_failure \
+            "desktop" \
+            "noctalia-greeter" \
+            "noctalia-greeter package could not be installed."
+        return 1
+    }
 
-    command_exists noctalia-greeter-session ||
-        die "noctalia-greeter-session was not found after installation."
+    command_exists noctalia-greeter-session || {
+        record_activation_failure \
+            "desktop" \
+            "noctalia-greeter-session" \
+            "noctalia-greeter-session was not found after installation."
+        return 1
+    }
 
     info "Noctalia greeter installed."
 }
 
 validate_greetd_user() {
     if ! getent passwd greetd >/dev/null 2>&1; then
-        die "Fedora greetd service user was not found."
+        record_activation_failure \
+            "desktop" \
+            "greetd-user" \
+            "Fedora greetd service user was not found."
+        return 1
     fi
 
     if ! getent group greetd >/dev/null 2>&1; then
-        die "Fedora greetd service group was not found."
+        record_activation_failure \
+            "desktop" \
+            "greetd-group" \
+            "Fedora greetd service group was not found."
+        return 1
     fi
 
     info "greetd service account validated."
@@ -73,8 +91,13 @@ configure_greetd() {
 
     greeter_session="$(command -v noctalia-greeter-session)"
 
-    [[ -n "$greeter_session" ]] ||
-        die "Could not determine noctalia-greeter-session path."
+    [[ -n "$greeter_session" ]] || {
+        record_activation_failure \
+            "desktop" \
+            "greetd-command" \
+            "Could not determine noctalia-greeter-session path."
+        return 1
+    }
 
     validate_greetd_user
 
@@ -142,7 +165,10 @@ enable_desktop_services() {
             grep -q '^bluetooth.service'; then
             sudo systemctl enable bluetooth.service
         else
-            die "Bluetooth is enabled by the profile but bluetooth.service was not found."
+            record_required \
+                "desktop" \
+                "bluetooth" \
+                "Bluetooth is enabled by the profile but bluetooth.service was not found."
         fi
     fi
 
@@ -189,11 +215,21 @@ install_desktop() {
     configure_noctalia_greeter_state
     enable_desktop_services
 
-    validate_hyprland_desktop ||
-        die "Hyprland desktop validation failed before activation."
+    validate_hyprland_desktop || {
+        record_activation_failure \
+            "desktop" \
+            "hyprland" \
+            "Hyprland desktop validation failed before activation."
+        return 1
+    }
 
-    validate_greeter_configuration ||
-        die "Greeter validation failed before activation."
+    validate_greeter_configuration || {
+        record_activation_failure \
+            "desktop" \
+            "greeter" \
+            "Greeter validation failed before activation."
+        return 1
+    }
 
     info "Hyprland desktop configuration complete (activation deferred)."
     record_success "install_desktop"
@@ -202,28 +238,44 @@ install_desktop() {
 # Final controlled activation. Never use enable --now on greetd.
 activate_graphical_session() {
     if (( ACTIVATION_BLOCKED != 0 )); then
-        record_critical \
-            "activation" \
-            "skipped" \
-            "Earlier critical failure blocked graphical login activation." \
-            1
+        GRAPHICAL_ACTIVATION_STATE="skipped"
+        info "Skipping graphical activation; the login stack is unsafe."
         return 0
     fi
 
     info "Validating desktop stack before graphical activation."
 
-    validate_hyprland_desktop ||
-        die "Refusing to activate graphical login: Hyprland validation failed."
+    if ! validate_hyprland_desktop; then
+        GRAPHICAL_ACTIVATION_STATE="skipped"
+        record_activation_failure \
+            "activation" \
+            "hyprland" \
+            "Refusing to activate graphical login: Hyprland validation failed."
+        return 0
+    fi
 
-    validate_greeter_configuration ||
-        die "Refusing to activate graphical login: greeter validation failed."
+    if ! validate_greeter_configuration; then
+        GRAPHICAL_ACTIVATION_STATE="skipped"
+        record_activation_failure \
+            "activation" \
+            "greeter" \
+            "Refusing to activate graphical login: greeter validation failed."
+        return 0
+    fi
 
     enable_greetd
     configure_graphical_target
 
-    validate_graphical_activation ||
-        die "Graphical activation could not be validated."
+    if ! validate_graphical_activation; then
+        GRAPHICAL_ACTIVATION_STATE="skipped"
+        record_activation_failure \
+            "activation" \
+            "systemd" \
+            "Graphical activation could not be validated."
+        return 0
+    fi
 
+    GRAPHICAL_ACTIVATION_STATE="completed"
     info "Graphical login activation complete."
     record_success "activate_graphical_session"
 }

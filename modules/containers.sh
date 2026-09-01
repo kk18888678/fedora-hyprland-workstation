@@ -90,20 +90,20 @@ configure_containers() {
     info "Configuring container environment."
 
     if ! install_container_packages; then
-        record_critical "containers" "packages" "Container packages could not be installed." 0
+        record_required "containers" "packages" "Container packages could not be installed."
         return 0
     fi
 
     local command_name
     for command_name in podman buildah skopeo podman-compose; do
         if ! command_exists "$command_name"; then
-            record_critical "containers" "$command_name" "Required container command is missing." 0
+            record_required "containers" "$command_name" "Required container command is missing."
             return 0
         fi
     done
 
     if ! ensure_rootless_subids; then
-        record_critical "containers" "subids" "Could not ensure /etc/subuid and /etc/subgid ranges." 0
+        record_required "containers" "subids" "Could not ensure /etc/subuid and /etc/subgid ranges."
         return 0
     fi
 
@@ -111,7 +111,7 @@ configure_containers() {
     enable_podman_socket
 
     if ! podman info >/dev/null 2>&1; then
-        record_critical "containers" "podman info" "Rootless Podman validation failed." 0
+        record_required "containers" "podman info" "Rootless Podman validation failed."
         return 0
     fi
 

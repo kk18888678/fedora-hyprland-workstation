@@ -143,12 +143,13 @@ on_exit() {
 
     stop_sudo_keepalive
 
-    if (( code != 0 )) && [[ ${#INSTALL_CRITICAL[@]} -eq 0 ]]; then
-        record_critical \
+    if (( code != 0 )) &&
+        [[ ${#INSTALL_LOGIN_FAILURES[@]} -eq 0 ]] &&
+        [[ ${#INSTALL_REQUIRED_FAILURES[@]} -eq 0 ]]; then
+        record_activation_failure \
             "installer" \
             "exit" \
-            "Installer exited with status ${code}." \
-            1
+            "Installer exited with status ${code}."
     fi
 
     if [[ ${SUMMARY_PRINTED:-0} -eq 0 ]]; then
@@ -169,35 +170,23 @@ exec > >(tee -a "$INSTALL_LOG_FILE") 2>&1
 
 ###############################################################################
 # Installation
+#
+# abort        : preconditions; a failure stops the installer
+# login        : unsafe login stack must not activate greetd
+# workstation  : required profile features; cannot skip safe activation
+# optional     : deferred; exit code 2
 ###############################################################################
 
-run_step() {
-    local description="$1"
-    local function_name="$2"
-
-    CURRENT_STAGE="$function_name"
-
-    printf '\n'
-    printf '==> %s\n' "$description"
-    journal_stage "$function_name" "start"
-
-    if ! declare -F "$function_name" >/dev/null; then
-        die "Installer function not found: $function_name"
-    fi
-
-    "$function_name"
-    journal_stage "$function_name" "done"
-}
-
-run_step "Preparing Fedora" prepare_system
-run_step "Configuring repositories" configure_repositories
-run_step "Installing host packages" install_packages
-run_step "Configuring Zsh environment" configure_shell
-run_step "Installing browsers" install_browsers
-run_step "Installing workstation applications" install_applications
-run_step "Configuring Flatpak" configure_flatpak
-run_step "Installing Hyprland desktop" install_desktop
-run_step "Installing Nix and devenv support" install_nix
-run_step "Configuring containers" configure_containers
-run_step "Validating workstation" validate_system
-run_step "Activating graphical login" activate_graphical_session
+run_classified_step abort "Preparing Fedora" prepare_system
+run_classified_step workstation "Configuring repositories" configure_repositories
+run_classified_step workstation "Installing host packages" install_packages
+run_classified_step workstation "Configuring Zsh environment" configure_shell
+run_classified_step workstation "Installing browsers" install_browsers
+run_classified_step optional "Installing workstation applications" install_applications
+run_classified_step workstation "Configuring Flatpak" configure_flatpak
+run_classified_step login "Installing Hyprland desktop" install_desktop
+run_classified_step workstation "Installing Nix and devenv support" install_nix
+run_classified_step workstation "Configuring containers" configure_containers
+run_classified_step login "Validating graphical login stack" validate_login_stack
+run_classified_step login "Activating graphical login" activate_graphical_session
+run_classified_step workstation "Validating workstation capabilities" validate_workstation_environment

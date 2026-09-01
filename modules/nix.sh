@@ -125,19 +125,19 @@ install_nix() {
     info "Configuring Nix development environment."
 
     if ! install_nix_package_manager; then
-        record_critical "nix" "packages" "Fedora Nix packages could not be installed." 0
+        record_required "nix" "packages" "Fedora Nix packages could not be installed."
         return 0
     fi
 
     configure_nix_features
 
     if ! enable_nix_daemon; then
-        record_critical "nix" "daemon" "nix-daemon.service is not active." 0
+        record_required "nix" "daemon" "nix-daemon.service is not active."
         return 0
     fi
 
     if ! install_devenv; then
-        record_critical "nix" "devenv" "Pinned devenv install failed." 0
+        record_required "nix" "devenv" "Pinned devenv install failed."
         return 0
     fi
 

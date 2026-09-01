@@ -32,7 +32,8 @@ install_oh_my_zsh() {
         "$omz_dir" \
         "$OH_MY_ZSH_COMMIT" \
         "Oh My Zsh" ||
-        die "Oh My Zsh clone failed."
+        record_required "shell" "oh-my-zsh" "Oh My Zsh clone failed."
+        return 0
 }
 
 ###############################################################################
@@ -57,7 +58,8 @@ install_zsh_plugin() {
         "$destination" \
         "$commit" \
         "Zsh plugin $directory_name" ||
-        die "Zsh plugin clone failed: $directory_name"
+        record_required "shell" "$directory_name" "Zsh plugin clone failed."
+        return 0
 }
 
 configure_zsh_plugins() {
@@ -89,7 +91,8 @@ configure_default_shell() {
     zsh_path="$(command -v zsh)"
 
     [[ -n "$zsh_path" ]] ||
-        die "Could not determine Zsh path."
+        record_required "shell" "zsh" "Could not determine Zsh path."
+        return 0
 
     current_shell="$(getent passwd "$TARGET_USER" | cut -d: -f7)"
 
@@ -151,7 +154,8 @@ configure_shell() {
 
     if [[ "${PROMPT:-}" == "starship" ]]; then
         if ! command_exists starship; then
-            die "Starship is required by the profile but is not installed."
+            record_required "shell" "starship" "Starship is required by the profile but is not installed."
+            return 0
         fi
     else
         die "Unsupported prompt: ${PROMPT:-<unset>}"

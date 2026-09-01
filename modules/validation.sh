@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-# Authoritative workstation validation.
+# Authoritative validation.
 #
-# This module must not install packages or modify configuration.
-# Callers decide whether a failed check is fatal.
+# Login-stack checks may set ACTIVATION_BLOCKED.
+# Workstation checks record required/deferred failures only.
 
 validate_required_command() {
     local command_name="$1"
@@ -38,64 +38,6 @@ validate_required_executable() {
     return 0
 }
 
-validate_base_environment() {
-    local failed=0
-
-    info "Validating base workstation environment."
-
-    local commands=(
-        git
-        curl
-        zsh
-        starship
-        fzf
-        zoxide
-        nvim
-        kitty
-    )
-
-    local command_name
-
-    for command_name in "${commands[@]}"; do
-        validate_required_command "$command_name" || failed=1
-    done
-
-    return "$failed"
-}
-
-validate_shell_environment() {
-    local failed=0
-    local expected_shell
-    local actual_shell
-
-    info "Validating shell environment."
-
-    expected_shell="$(command -v zsh)"
-
-    actual_shell="$(
-        getent passwd "$TARGET_USER" |
-            cut -d: -f7
-    )"
-
-    if [[ "$actual_shell" != "$expected_shell" ]]; then
-        error "Default shell mismatch."
-        error "Expected: $expected_shell"
-        error "Actual:   $actual_shell"
-        failed=1
-    fi
-
-    validate_required_file "$TARGET_HOME/.zshrc" || failed=1
-    validate_required_file "$TARGET_HOME/.config/starship.toml" || failed=1
-    validate_required_file "$TARGET_HOME/.config/kitty/kitty.conf" || failed=1
-
-    if is_true "${OH_MY_ZSH:-false}"; then
-        validate_required_file "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh" ||
-            failed=1
-    fi
-
-    return "$failed"
-}
-
 validate_hyprland_desktop() {
     local failed=0
 
@@ -104,10 +46,10 @@ validate_hyprland_desktop() {
         return 1
     fi
 
-    info "Validating Hyprland desktop."
+    info "Validating Hyprland login/session compositor."
 
     local command_name
-    for command_name in Hyprland hyprctl kitty thunar; do
+    for command_name in Hyprland hyprctl; do
         validate_required_command "$command_name" || failed=1
     done
 
@@ -152,6 +94,11 @@ validate_greeter_configuration() {
 
     if ! getent passwd greetd >/dev/null 2>&1; then
         error "Fedora greetd service user was not found."
+        failed=1
+    fi
+
+    if ! getent group greetd >/dev/null 2>&1; then
+        error "Fedora greetd service group was not found."
         failed=1
     fi
 
@@ -223,14 +170,104 @@ validate_graphical_activation() {
     return "$failed"
 }
 
-validate_browser_environment() {
+validate_login_stack() {
     local failed=0
 
-    info "Validating browser environment."
+    printf '\n'
+    printf '%s\n' "------------------------------------------------------------"
+    printf '%s\n' "Login stack validation"
+    printf '%s\n' "------------------------------------------------------------"
 
-    if is_true "${BROWSER_CHROMIUM:-false}"; then
-        if ! package_installed chromium; then
-            error "Chromium package is not installed."
+    validate_hyprland_desktop || failed=1
+    validate_greeter_configuration || failed=1
+
+    if (( failed != 0 )); then
+        record_activation_failure \
+            "validation" \
+            "login-stack" \
+            "Hyprland/greetd login stack is unsafe to activate."
+        return 0
+    fi
+
+    info "Login stack validation passed."
+    record_success "validate_login_stack"
+    return 0
+}
+
+validate_base_environment() {
+    local failed=0
+
+    info "Validating workstation CLI environment."
+
+    local commands=(
+        git
+        curl
+        zsh
+        starship
+        fzf
+        zoxide
+        nvim
+        kitty
+        thunar
+    )
+
+    local command_name
+
+    for command_name in "${commands[@]}"; do
+        if ! validate_required_command "$command_name"; then
+            record_required "validation" "$command_name" "Required workstation command is missing."
+            failed=1
+        fi
+    done
+
+    return "$failed"
+}
+
+validate_shell_environment() {
+    local failed=0
+    local expected_shell
+    local actual_shell
+
+    info "Validating shell environment."
+
+    expected_shell="$(command -v zsh || true)"
+
+    if [[ -z "$expected_shell" ]]; then
+        record_required "validation" "zsh" "Zsh is not installed."
+        return 1
+    fi
+
+    actual_shell="$(
+        getent passwd "$TARGET_USER" |
+            cut -d: -f7
+    )"
+
+    if [[ "$actual_shell" != "$expected_shell" ]]; then
+        record_required \
+            "validation" \
+            "shell" \
+            "Default shell is ${actual_shell:-unknown}, expected ${expected_shell}."
+        failed=1
+    fi
+
+    if ! validate_required_file "$TARGET_HOME/.zshrc"; then
+        record_required "validation" "zshrc" "Zsh configuration was not deployed."
+        failed=1
+    fi
+
+    if ! validate_required_file "$TARGET_HOME/.config/starship.toml"; then
+        record_required "validation" "starship.toml" "Starship configuration was not deployed."
+        failed=1
+    fi
+
+    if ! validate_required_file "$TARGET_HOME/.config/kitty/kitty.conf"; then
+        record_required "validation" "kitty.conf" "Kitty configuration was not deployed."
+        failed=1
+    fi
+
+    if is_true "${OH_MY_ZSH:-false}"; then
+        if ! validate_required_file "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh"; then
+            record_required "validation" "oh-my-zsh" "Oh My Zsh is not installed."
             failed=1
         fi
     fi
@@ -238,12 +275,27 @@ validate_browser_environment() {
     return "$failed"
 }
 
+validate_browser_environment() {
+    if ! is_true "${BROWSER_CHROMIUM:-false}"; then
+        return 0
+    fi
+
+    info "Validating Chromium."
+
+    if ! package_installed chromium; then
+        record_required "validation" "chromium" "Chromium package is not installed."
+        return 1
+    fi
+
+    return 0
+}
+
 validate_application_environment() {
     if ! is_true "${CURSOR:-false}"; then
         return 0
     fi
 
-    info "Validating workstation applications."
+    info "Validating optional workstation applications."
 
     if ! package_installed cursor; then
         record_deferred \
@@ -263,8 +315,8 @@ validate_flatpak_environment() {
     info "Validating Flatpak."
 
     if ! command_exists flatpak; then
-        record_critical "validation" "flatpak" "Flatpak command is unavailable." 0
-        return 0
+        record_required "validation" "flatpak" "Flatpak command is unavailable."
+        return 1
     fi
 
     if ! flatpak remote-list \
@@ -272,8 +324,8 @@ validate_flatpak_environment() {
         --columns=name 2>/dev/null |
         grep -Fxq "flathub"; then
 
-        record_critical "validation" "flathub" "System Flathub remote is not configured." 0
-        return 0
+        record_required "validation" "flathub" "System Flathub remote is not configured."
+        return 1
     fi
 
     return 0
@@ -289,23 +341,23 @@ validate_nix_development_environment() {
     load_nix_environment
 
     if ! command_exists nix; then
-        record_critical "validation" "nix" "Nix command is unavailable." 0
-        return 0
+        record_required "validation" "nix" "Nix command is unavailable."
+        return 1
     fi
 
     if ! command_exists devenv; then
-        record_critical "validation" "devenv" "devenv command is unavailable." 0
-        return 0
+        record_required "validation" "devenv" "devenv command is unavailable."
+        return 1
     fi
 
     if ! nix --version >/dev/null 2>&1; then
-        record_critical "validation" "nix" "Nix failed to execute." 0
-        return 0
+        record_required "validation" "nix" "Nix failed to execute."
+        return 1
     fi
 
     if ! devenv version >/dev/null 2>&1; then
-        record_critical "validation" "devenv" "devenv failed to execute." 0
-        return 0
+        record_required "validation" "devenv" "devenv failed to execute."
+        return 1
     fi
 
     return 0
@@ -321,60 +373,44 @@ validate_container_environment() {
     local command_name
     for command_name in podman buildah skopeo podman-compose; do
         if ! command_exists "$command_name"; then
-            record_critical "validation" "$command_name" "Required container command is missing." 0
-            return 0
+            record_required "validation" "$command_name" "Required container command is missing."
+            return 1
         fi
     done
 
     if ! grep -qE "^${TARGET_USER}:" /etc/subuid; then
-        record_critical "validation" "subuid" "No subordinate UID range exists for $TARGET_USER." 0
-        return 0
+        record_required "validation" "subuid" "No subordinate UID range exists for $TARGET_USER."
+        return 1
     fi
 
     if ! grep -qE "^${TARGET_USER}:" /etc/subgid; then
-        record_critical "validation" "subgid" "No subordinate GID range exists for $TARGET_USER." 0
-        return 0
+        record_required "validation" "subgid" "No subordinate GID range exists for $TARGET_USER."
+        return 1
     fi
 
     if ! podman info >/dev/null 2>&1; then
-        record_critical "validation" "podman info" "Rootless Podman validation failed." 0
-        return 0
+        record_required "validation" "podman info" "Rootless Podman validation failed."
+        return 1
     fi
 
     return 0
 }
 
-validate_system() {
-    local failed=0
-
+validate_workstation_environment() {
     printf '\n'
     printf '%s\n' "------------------------------------------------------------"
-    printf '%s\n' "Workstation validation"
+    printf '%s\n' "Workstation capability validation"
     printf '%s\n' "------------------------------------------------------------"
 
-    validate_base_environment || failed=1
-    validate_shell_environment || failed=1
-    validate_hyprland_desktop || failed=1
-    validate_greeter_configuration || failed=1
-    validate_browser_environment || failed=1
-    validate_application_environment
-    validate_flatpak_environment
-    validate_nix_development_environment
-    validate_container_environment
+    validate_base_environment || true
+    validate_shell_environment || true
+    validate_browser_environment || true
+    validate_application_environment || true
+    validate_flatpak_environment || true
+    validate_nix_development_environment || true
+    validate_container_environment || true
 
-    printf '\n'
-
-    if (( failed != 0 )); then
-        record_critical \
-            "validation" \
-            "desktop" \
-            "Critical desktop/shell validation failed." \
-            1
-        return 1
-    fi
-
-    info "Critical desktop validation checks passed."
-    record_success "validate_system"
+    info "Workstation capability validation complete."
 
     printf '\n'
     printf 'Profile       : %s\n' "${PROFILE_NAME:-unknown}"
@@ -385,4 +421,10 @@ validate_system() {
     printf '\n'
 
     return 0
+}
+
+# Kept for callers/tests that still use the old name.
+validate_system() {
+    validate_login_stack
+    validate_workstation_environment
 }

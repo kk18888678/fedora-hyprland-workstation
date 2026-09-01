@@ -19,11 +19,13 @@ install_chromium() {
     info "Installing Chromium."
 
     if ! install_dnf_packages chromium; then
-        die "Chromium installation failed."
+        record_required "browsers" "chromium" "Chromium installation failed."
+        return 0
     fi
 
     if ! rpm -q chromium >/dev/null 2>&1; then
-        die "Chromium installation could not be validated."
+        record_required "browsers" "chromium" "Chromium installation could not be validated."
+        return 0
     fi
 
     info "Chromium installation validated."

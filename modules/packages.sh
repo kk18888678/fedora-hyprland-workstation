@@ -50,7 +50,8 @@ validate_manifest_packages() {
         fi
 
         if ! package_available "$package"; then
-            die "Required package is not available: $package"
+            error "Required package is not available: $package"
+            return 1
         fi
     done < <(read_package_manifest "$manifest")
 }
@@ -75,8 +76,7 @@ install_manifest() {
         return 0
     fi
 
-    install_dnf_packages "${packages[@]}" ||
-        die "Failed to install packages from $(basename "$manifest")"
+    install_dnf_packages "${packages[@]}"
 }
 
 ###############################################################################
@@ -89,18 +89,28 @@ install_packages() {
     local media_manifest="$SCRIPT_DIR/packages/media.txt"
 
     info "Installing base workstation packages."
-    install_manifest "$base_manifest"
+    if ! install_manifest "$base_manifest"; then
+        record_required "packages" "base" "Base workstation packages could not be installed."
+    fi
 
     if [[ "${DESKTOP:-}" == "hyprland" ]]; then
         info "Installing Hyprland desktop packages."
-        install_manifest "$desktop_manifest"
+        if ! install_manifest "$desktop_manifest"; then
+            record_activation_failure \
+                "packages" \
+                "desktop" \
+                "Hyprland desktop packages could not be installed."
+        fi
     else
         die "Unsupported desktop profile: ${DESKTOP:-<unset>}"
     fi
 
     info "Installing media packages."
-    install_manifest "$media_manifest"
+    if ! install_manifest "$media_manifest"; then
+        record_required "packages" "media" "Media packages could not be installed."
+    fi
 
     info "Host package installation complete."
     record_success "install_packages"
+    return 0
 }

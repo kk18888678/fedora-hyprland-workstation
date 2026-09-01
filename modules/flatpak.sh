@@ -64,12 +64,12 @@ configure_flatpak() {
     info "Configuring Flatpak."
 
     if ! install_flatpak_package; then
-        record_critical "flatpak" "install" "Flatpak package could not be installed." 0
+        record_required "flatpak" "install" "Flatpak package could not be installed."
         return 0
     fi
 
     if ! configure_flathub; then
-        record_critical "flatpak" "flathub" "Flathub remote could not be configured." 0
+        record_required "flatpak" "flathub" "Flathub remote could not be configured."
         return 0
     fi
 
