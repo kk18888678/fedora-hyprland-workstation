@@ -110,6 +110,7 @@ MODULES=(
     packages
     shell
     browsers
+    applications
     flatpak
     desktop
     nix
@@ -150,6 +151,7 @@ run_step "Configuring repositories" configure_repositories
 run_step "Installing host packages" install_packages
 run_step "Configuring Zsh environment" configure_shell
 run_step "Installing browsers" install_browsers
+run_step "Installing workstation applications" install_applications
 run_step "Configuring Flatpak" configure_flatpak
 run_step "Installing Hyprland desktop" install_desktop
 run_step "Installing Nix and devenv support" install_nix
