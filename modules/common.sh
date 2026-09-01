@@ -379,6 +379,10 @@ validate_profile() {
         BROWSER_BRAVE_ORIGIN
         BROWSER_FIREFOX
         CURSOR
+        KATE
+        MEDIA_APPLICATIONS
+        ANTIGRAVITY
+        LOCALSEND
         BLUETOOTH
         GAMING
         FLATPAK

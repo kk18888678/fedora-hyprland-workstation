@@ -92,10 +92,146 @@ install_cursor() {
     record_success "cursor"
 }
 
+install_kate() {
+    if ! is_true "${KATE:-false}"; then
+        info "Kate editor disabled by profile."
+        return 0
+    fi
+
+    if package_installed kate; then
+        info "Kate already installed."
+        record_success "kate"
+        return 0
+    fi
+
+    info "Installing Kate graphical editor from Fedora official repositories."
+
+    if ! install_dnf_packages kate; then
+        record_deferred \
+            "applications" \
+            "kate" \
+            "Kate package could not be installed."
+        return 0
+    fi
+
+    if ! package_installed kate; then
+        record_deferred \
+            "applications" \
+            "kate" \
+            "Kate was not present after installation."
+        return 0
+    fi
+
+    info "Kate installation validated."
+    record_success "kate"
+}
+
+install_media_applications() {
+    if ! is_true "${MEDIA_APPLICATIONS:-false}"; then
+        info "Media applications disabled by profile."
+        return 0
+    fi
+
+    local media_apps=(
+        obs-studio
+        mkvtoolnix-gui
+        vlc
+    )
+
+    info "Installing graphical media applications."
+
+    if ! install_dnf_packages "${media_apps[@]}"; then
+        record_deferred \
+            "applications" \
+            "media-apps" \
+            "One or more media applications could not be installed."
+        return 0
+    fi
+
+    local app
+    for app in "${media_apps[@]}"; do
+        if package_installed "$app"; then
+            record_success "$app"
+        else
+            record_deferred \
+                "applications" \
+                "$app" \
+                "$app was not present after installation."
+        fi
+    done
+}
+
+install_localsend() {
+    if ! is_true "${LOCALSEND:-false}"; then
+        info "LocalSend disabled by profile."
+        return 0
+    fi
+
+    if ! is_true "${FLATPAK:-false}"; then
+        record_deferred \
+            "applications" \
+            "localsend" \
+            "LocalSend requires Flatpak, but Flatpak is disabled by profile."
+        return 0
+    fi
+
+    if ! command_exists flatpak; then
+        record_deferred \
+            "applications" \
+            "localsend" \
+            "Flatpak command is unavailable."
+        return 0
+    fi
+
+    if flatpak list --app --columns=application 2>/dev/null | grep -Fxq "org.localsend.localsend_app"; then
+        info "LocalSend Flatpak already installed."
+        record_success "localsend"
+        return 0
+    fi
+
+    info "Installing LocalSend from Flathub."
+
+    if ! run_with_retry "flatpak install localsend" \
+        flatpak install -y flathub org.localsend.localsend_app; then
+        record_deferred \
+            "applications" \
+            "localsend" \
+            "LocalSend Flatpak could not be installed."
+        return 0
+    fi
+
+    info "LocalSend installation validated."
+    record_success "localsend"
+}
+
+install_antigravity() {
+    if ! is_true "${ANTIGRAVITY:-false}"; then
+        info "Antigravity CLI disabled by profile."
+        return 0
+    fi
+
+    ensure_directory "$TARGET_HOME/.local/bin"
+
+    if [[ -x "$TARGET_HOME/.local/bin/agy" ]] || command_exists agy; then
+        info "Antigravity CLI (agy) found."
+        record_success "antigravity"
+        return 0
+    fi
+
+    record_deferred \
+        "applications" \
+        "antigravity" \
+        "Antigravity CLI (agy) executable not found in $TARGET_HOME/.local/bin/agy."
+}
+
 install_applications() {
     info "Installing workstation applications."
 
     install_cursor
+    install_kate
+    install_media_applications
+    install_localsend
+    install_antigravity
 
     info "Workstation application installation complete."
 }
