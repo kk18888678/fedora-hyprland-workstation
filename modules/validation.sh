@@ -293,20 +293,89 @@ validate_browser_environment() {
 }
 
 validate_application_environment() {
-    if ! is_true "${CURSOR:-false}"; then
-        return 0
+    info "Validating workstation applications."
+
+    if is_true "${CURSOR:-false}"; then
+        if ! package_installed cursor; then
+            record_deferred \
+                "validation" \
+                "cursor" \
+                "Cursor is enabled by the profile but is not installed."
+        fi
     fi
 
-    info "Validating optional workstation applications."
+    if is_true "${KATE:-false}"; then
+        if ! package_installed kate; then
+            record_deferred \
+                "validation" \
+                "kate" \
+                "Kate is enabled by the profile but is not installed."
+        fi
+    fi
 
-    if ! package_installed cursor; then
-        record_deferred \
-            "validation" \
-            "cursor" \
-            "Cursor is enabled by the profile but is not installed."
+    if is_true "${MEDIA_APPLICATIONS:-false}"; then
+        local app
+        for app in obs-studio mkvtoolnix-gui vlc; do
+            if ! package_installed "$app"; then
+                record_deferred \
+                    "validation" \
+                    "$app" \
+                    "$app is enabled by the profile but is not installed."
+            fi
+        done
+    fi
+
+    if is_true "${LOCALSEND:-false}"; then
+        if ! flatpak list --app --columns=application 2>/dev/null | grep -Fxq "org.localsend.localsend_app"; then
+            record_deferred \
+                "validation" \
+                "localsend" \
+                "LocalSend Flatpak is enabled by the profile but is not installed."
+        fi
+    fi
+
+    if is_true "${ANTIGRAVITY:-false}"; then
+        if [[ ! -x "$TARGET_HOME/.local/bin/agy" ]] && ! command_exists agy; then
+            record_deferred \
+                "validation" \
+                "antigravity" \
+                "Antigravity CLI (agy) is enabled by profile but executable was not found."
+        fi
     fi
 
     return 0
+}
+
+validate_diagnostics_environment() {
+    local failed=0
+
+    info "Validating system diagnostics utilities."
+
+    local commands=(
+        smartctl
+        nvme
+        inxi
+        sensors
+        htop
+        btop
+        iotop-c
+        iostat
+        lsof
+        strace
+        duf
+        ncdu
+    )
+
+    local command_name
+
+    for command_name in "${commands[@]}"; do
+        if ! validate_required_command "$command_name"; then
+            record_required "validation" "$command_name" "Diagnostic command is missing: $command_name"
+            failed=1
+        fi
+    done
+
+    return "$failed"
 }
 
 validate_flatpak_environment() {
@@ -405,6 +474,7 @@ validate_workstation_environment() {
     printf '%s\n' "------------------------------------------------------------"
 
     validate_base_environment || true
+    validate_diagnostics_environment || true
     validate_shell_environment || true
     validate_browser_environment || true
     validate_application_environment || true

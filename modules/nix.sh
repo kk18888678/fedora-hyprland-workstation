@@ -37,6 +37,17 @@ load_nix_environment() {
                 ;;
         esac
     fi
+
+    # User local binaries (such as agy)
+    if [[ -d "$TARGET_HOME/.local/bin" ]]; then
+        case ":$PATH:" in
+            *":$TARGET_HOME/.local/bin:"*)
+                ;;
+            *)
+                export PATH="$TARGET_HOME/.local/bin:$PATH"
+                ;;
+        esac
+    fi
 }
 
 install_nix_package_manager() {

@@ -26,6 +26,17 @@ if [[ -d "$HOME/.nix-profile/bin" ]]; then
     esac
 fi
 
+# User local binaries (such as agy, local scripts).
+if [[ -d "$HOME/.local/bin" ]]; then
+    case ":$PATH:" in
+        *":$HOME/.local/bin:"*)
+            ;;
+        *)
+            export PATH="$HOME/.local/bin:$PATH"
+            ;;
+    esac
+fi
+
 ###############################################################################
 # Oh My Zsh
 ###############################################################################

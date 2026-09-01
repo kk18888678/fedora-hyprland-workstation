@@ -31,9 +31,10 @@ install_oh_my_zsh() {
         "$OH_MY_ZSH_URL" \
         "$omz_dir" \
         "$OH_MY_ZSH_COMMIT" \
-        "Oh My Zsh" ||
+        "Oh My Zsh" || {
         record_required "shell" "oh-my-zsh" "Oh My Zsh clone failed."
         return 0
+    }
 }
 
 ###############################################################################
@@ -57,9 +58,10 @@ install_zsh_plugin() {
         "$repository" \
         "$destination" \
         "$commit" \
-        "Zsh plugin $directory_name" ||
+        "Zsh plugin $directory_name" || {
         record_required "shell" "$directory_name" "Zsh plugin clone failed."
         return 0
+    }
 }
 
 configure_zsh_plugins() {
@@ -90,9 +92,10 @@ configure_default_shell() {
 
     zsh_path="$(command -v zsh)"
 
-    [[ -n "$zsh_path" ]] ||
+    [[ -n "$zsh_path" ]] || {
         record_required "shell" "zsh" "Could not determine Zsh path."
         return 0
+    }
 
     current_shell="$(getent passwd "$TARGET_USER" | cut -d: -f7)"
 
