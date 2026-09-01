@@ -16,6 +16,7 @@ for _, module in ipairs({
     "windowrules",
     "animations",
     "themes.theme",
+    "noctalia",
 }) do
     package.loaded[module] = nil
 end
@@ -62,3 +63,9 @@ hl.config({
 
     group = colors.group,
 })
+
+-- Safely apply Noctalia dynamic theme template when generated
+local ok, noctalia = pcall(require, "noctalia")
+if ok and type(noctalia) == "table" and type(noctalia.apply_theme) == "function" then
+    pcall(noctalia.apply_theme)
+end
