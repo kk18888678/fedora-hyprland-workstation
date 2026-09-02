@@ -433,10 +433,6 @@ validate_application_environment() {
         record_deferred "validation" "workstation-hotkeys" "Workstation hotkeys utility was not installed."
     fi
 
-    if [[ -f "$SCRIPT_DIR/bin/workstation-launcher" ]] && ! command_exists workstation-launcher && [[ ! -x "/usr/local/bin/workstation-launcher" ]]; then
-        record_deferred "validation" "workstation-launcher" "Workstation launcher utility was not installed."
-    fi
-
     return 0
 }
 

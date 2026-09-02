@@ -24,11 +24,6 @@ local exec_once = {
 }
 
 hl.on("hyprland.start", function()
-    -- Initial persistent workspaces (1, 2, 3) available on any connected display
-    for _, ws in ipairs({ 1, 2, 3 }) do
-        hl.exec_cmd(string.format('hyprctl keyword workspace "%d, persistent:true"', ws))
-    end
-
     for _, command in ipairs(exec_once) do
         hl.exec_cmd(command)
     end

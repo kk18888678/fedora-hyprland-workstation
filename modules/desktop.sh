@@ -523,43 +523,6 @@ install_workstation_hotkeys() {
     record_success "workstation-hotkeys"
 }
 
-install_workstation_launcher() {
-    local bin_source="$SCRIPT_DIR/bin/workstation-launcher"
-    local desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-launcher.desktop"
-
-    local bin_target="${LAUNCHER_BIN_DIR:-/usr/local/bin}/workstation-launcher"
-    local desktop_target="${LAUNCHER_APPS_DIR:-/usr/local/share/applications}/workstation-launcher.desktop"
-
-    if [[ -f "$bin_source" ]]; then
-        info "Installing workstation-launcher command to $bin_target."
-        if [[ "$bin_target" == /usr/* || "$bin_target" == /etc/* ]]; then
-            sudo mkdir -p "$(dirname "$bin_target")"
-            sudo cp "$bin_source" "$bin_target"
-            sudo chmod 0755 "$bin_target"
-        else
-            mkdir -p "$(dirname "$bin_target")"
-            cp "$bin_source" "$bin_target"
-            chmod 0755 "$bin_target"
-        fi
-    fi
-
-    if [[ -f "$desktop_source" ]]; then
-        info "Installing workstation-launcher desktop entry to $desktop_target."
-        if [[ "$desktop_target" == /usr/* || "$desktop_target" == /etc/* ]]; then
-            sudo mkdir -p "$(dirname "$desktop_target")"
-            sudo cp "$desktop_source" "$desktop_target"
-            sudo chmod 0644 "$desktop_target"
-        else
-            mkdir -p "$(dirname "$desktop_target")"
-            cp "$desktop_source" "$desktop_target"
-            chmod 0644 "$desktop_target"
-        fi
-    fi
-
-    info "Workstation launcher installed."
-    record_success "workstation-launcher"
-}
-
 converge_gtk_bookmarks_file() {
     local bookmark_file="$1"
     local home_dir="${2:-$TARGET_HOME}"
@@ -656,7 +619,6 @@ install_desktop() {
     install_rose_pine_gtk_theme
     converge_gtk_bookmarks
     install_workstation_hotkeys
-    install_workstation_launcher
     install_noctalia_greeter
     configure_greetd
     configure_noctalia_greeter_state
