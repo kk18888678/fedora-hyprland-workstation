@@ -95,7 +95,7 @@ run_as_target_user() {
 
     # 1. If caller is already actually running as TARGET_USER (effective UID matches target UID)
     if [[ -n "$target_uid" ]] && (( effective_uid == target_uid )); then
-        HOME="$target_home" USER="$target_user" LC_ALL=C "$@"
+        HOME="$target_home" USER="$target_user" "$@"
         return $?
     fi
 
@@ -106,20 +106,20 @@ run_as_target_user() {
             current_login="$(id -un 2>/dev/null || true)"
         fi
         if [[ -n "$current_login" && "$current_login" == "$target_user" ]]; then
-            HOME="$target_home" USER="$target_user" LC_ALL=C "$@"
+            HOME="$target_home" USER="$target_user" "$@"
             return $?
         fi
     fi
 
     # 2. If caller is root, perform genuine user switch via sudo
     if (( effective_uid == 0 )); then
-        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" LC_ALL=C "$@"
+        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
         return $?
     fi
 
     # 3. If caller is a different non-root user, perform privilege switch if sudo is available
     if command_exists sudo; then
-        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" LC_ALL=C "$@"
+        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
         return $?
     fi
 

@@ -205,15 +205,15 @@ configure_user_directories() {
         done < "$user_dirs_file"
 
         # Now that all existing configured directories exist on disk, run xdg-user-dirs-update
-        # to populate any missing standard keys without reassigning existing custom paths.
-        if ! run_as_target_user xdg-user-dirs-update; then
+        # with LC_ALL=C to populate any missing standard keys without reassigning existing custom paths.
+        if ! run_as_target_user env LC_ALL=C xdg-user-dirs-update; then
             record_deferred "shell" "xdg-user-dirs" "Failed to update user directories configuration as $TARGET_USER."
             return 0
         fi
     else
         # FRESH USER: No existing ~/.config/user-dirs.dirs.
-        # Execute xdg-user-dirs-update as TARGET_USER to establish standard English baseline.
-        if ! run_as_target_user xdg-user-dirs-update; then
+        # Execute xdg-user-dirs-update with LC_ALL=C as TARGET_USER to establish standard English baseline.
+        if ! run_as_target_user env LC_ALL=C xdg-user-dirs-update; then
             record_deferred "shell" "xdg-user-dirs" "Failed to execute xdg-user-dirs-update as $TARGET_USER."
             return 0
         fi

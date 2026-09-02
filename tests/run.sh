@@ -1372,9 +1372,21 @@ source "$SCRIPT_DIR/modules/status.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/shell.sh"
 
+env() {
+    while [[ $# -gt 0 && "$1" == *=* ]]; do
+        export "$1"
+        shift
+    done
+    "$@"
+}
+
 sudo() {
-    if [[ "$1" == "-u" ]]; then shift 2; fi
-    if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do export "$1"; shift; done; fi
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "-u" ]]; then shift 2; continue; fi
+        if [[ "$1" == "env" ]]; then shift; continue; fi
+        if [[ "$1" == *=* ]]; then export "$1"; shift; continue; fi
+        break
+    done
     "$@"
 }
 
@@ -1533,8 +1545,12 @@ source "$SCRIPT_DIR/modules/status.sh"
 source "$SCRIPT_DIR/modules/shell.sh"
 
 sudo() {
-    if [[ "$1" == "-u" ]]; then shift 2; fi
-    if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do export "$1"; shift; done; fi
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "-u" ]]; then shift 2; continue; fi
+        if [[ "$1" == "env" ]]; then shift; continue; fi
+        if [[ "$1" == *=* ]]; then export "$1"; shift; continue; fi
+        break
+    done
     "$@"
 }
 
@@ -1583,9 +1599,21 @@ source "$SCRIPT_DIR/modules/status.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/shell.sh"
 
+env() {
+    while [[ $# -gt 0 && "$1" == *=* ]]; do
+        export "$1"
+        shift
+    done
+    "$@"
+}
+
 sudo() {
-    if [[ "$1" == "-u" ]]; then shift 2; fi
-    if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do export "$1"; shift; done; fi
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "-u" ]]; then shift 2; continue; fi
+        if [[ "$1" == "env" ]]; then shift; continue; fi
+        if [[ "$1" == *=* ]]; then export "$1"; shift; continue; fi
+        break
+    done
     "$@"
 }
 
@@ -1634,38 +1662,39 @@ sudo_invocations=()
 sudo() {
     sudo_invocations+=("SUDO: $*")
     while [[ $# -gt 0 ]]; do
-        if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do shift; done; "$@"; return 0; fi
-        shift
+        if [[ "$1" == "-u" ]]; then shift 2; continue; fi
+        if [[ "$1" == "env" ]]; then shift; continue; fi
+        if [[ "$1" == *=* ]]; then export "$1"; shift; continue; fi
+        break
     done
+    "$@"
 }
 
-# 1. Test root -> TARGET_USER invokes real sudo user switching
+# 1. Test root -> TARGET_USER invokes real sudo user switching without injecting LC_ALL=C
 OVERRIDE_EUID=0
 USER="root"
 run_as_target_user echo "root-switch" >/dev/null || true
 echo "test1_sudo=${sudo_invocations[0]:-none}"
 
-# 2. Test already TARGET_USER (UID matches TARGET_UID) does not invoke sudo
+# 2. Test already TARGET_USER (UID matches TARGET_UID) executes directly and preserves caller locale
 sudo_invocations=()
 OVERRIDE_EUID=1000
 USER="mockuser"
 cmd_executed=0
-my_test_cmd() { cmd_executed=1; }
-run_as_target_user my_test_cmd
+cmd_locale=""
+my_test_cmd() {
+    cmd_executed=1
+    cmd_locale="${LC_ALL:-unset}"
+}
+LC_ALL="en_US.UTF-8" run_as_target_user my_test_cmd
 echo "test2_sudo_count=${#sudo_invocations[@]}"
 echo "test2_executed=$cmd_executed"
+echo "test2_locale=$cmd_locale"
 
-# 3. Test different non-root user + sudo available performs real user switching
+# 3. Test different non-root user + sudo available performs real user switching without injecting LC_ALL=C
 sudo_invocations=()
 OVERRIDE_EUID=1001
 USER="otheruser"
-sudo() {
-    sudo_invocations+=("SUDO_OTHER: $*")
-    while [[ $# -gt 0 ]]; do
-        if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do shift; done; "$@"; return 0; fi
-        shift
-    done
-}
 other_cmd_executed=0
 other_cmd() { other_cmd_executed=1; }
 run_as_target_user other_cmd
@@ -1703,22 +1732,23 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'test1_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser LC_ALL=C echo root-switch'; then
-    pass "root -> TARGET_USER invokes real sudo user switching"
+if printf '%s\n' "$target_user_test_output" | grep -q 'test1_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser echo root-switch'; then
+    pass "root -> TARGET_USER invokes real sudo user switching with target HOME and USER (without global LC_ALL=C)"
 else
     fail "root -> TARGET_USER did not invoke sudo: $target_user_test_output"
 fi
 
 if printf '%s\n' "$target_user_test_output" | grep -q 'test2_sudo_count=0' &&
-   printf '%s\n' "$target_user_test_output" | grep -q 'test2_executed=1'; then
-    pass "already TARGET_USER executes directly without unnecessary sudo"
+   printf '%s\n' "$target_user_test_output" | grep -q 'test2_executed=1' &&
+   printf '%s\n' "$target_user_test_output" | grep -q 'test2_locale=en_US.UTF-8'; then
+    pass "already TARGET_USER executes directly and preserves inherited locale"
 else
-    fail "already TARGET_USER failed direct execution: $target_user_test_output"
+    fail "already TARGET_USER failed direct execution or locale inheritance: $target_user_test_output"
 fi
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'test3_sudo=SUDO_OTHER: -u mockuser env HOME=.* USER=mockuser LC_ALL=C other_cmd' &&
+if printf '%s\n' "$target_user_test_output" | grep -q 'test3_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser other_cmd' &&
    printf '%s\n' "$target_user_test_output" | grep -q 'test3_executed=1'; then
-    pass "different non-root user + sudo performs real user switching"
+    pass "different non-root user + sudo performs real user switching (without global LC_ALL=C)"
 else
     fail "different non-root user + sudo failed: $target_user_test_output"
 fi
@@ -1775,6 +1805,11 @@ sudo() {
         done
     fi
     executed_cmds+=("$*")
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "env" ]]; then shift; continue; fi
+        if [[ "$1" == *=* ]]; then export "$1"; shift; continue; fi
+        break
+    done
     "$@"
 }
 
@@ -1816,6 +1851,12 @@ if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'executed-user=xdgtester
     pass "configure_user_directories switches process user to TARGET_USER"
 else
     fail "configure_user_directories did not switch to TARGET_USER: $xdg_privilege_switch_test"
+fi
+
+if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'cmds=.*env LC_ALL=C xdg-user-dirs-update'; then
+    pass "xdg-user-dirs-update is explicitly invoked with LC_ALL=C at call site"
+else
+    fail "xdg-user-dirs-update missing LC_ALL=C at call site: $xdg_privilege_switch_test"
 fi
 
 if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'all-eight-exist=1'; then
