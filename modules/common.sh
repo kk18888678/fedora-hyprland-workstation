@@ -84,17 +84,48 @@ run_as_target_user() {
     [[ -n "$target_user" ]] || die "TARGET_USER is not defined."
     [[ -n "$target_home" ]] || die "TARGET_HOME is not defined."
 
-    if [[ "$effective_uid" -eq 0 ]]; then
-        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
-    elif [[ -n "${USER:-}" && "$USER" != "$target_user" ]]; then
-        if command_exists sudo; then
-            sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
-        else
-            HOME="$target_home" USER="$target_user" "$@"
-        fi
-    else
-        HOME="$target_home" USER="$target_user" "$@"
+    local target_uid=""
+    if [[ -n "${OVERRIDE_TARGET_UID:-}" ]]; then
+        target_uid="$OVERRIDE_TARGET_UID"
+    elif command_exists id; then
+        target_uid="$(id -u "$target_user" 2>/dev/null || true)"
+    elif command_exists getent; then
+        target_uid="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f3 || true)"
     fi
+
+    # 1. If caller is already actually running as TARGET_USER (effective UID matches target UID)
+    if [[ -n "$target_uid" ]] && (( effective_uid == target_uid )); then
+        HOME="$target_home" USER="$target_user" "$@"
+        return $?
+    fi
+
+    # If target_uid is unknown but effective user is not root and genuine login identity matches
+    if [[ -z "$target_uid" && "$effective_uid" -ne 0 ]]; then
+        local current_login=""
+        if command_exists id; then
+            current_login="$(id -un 2>/dev/null || true)"
+        fi
+        if [[ -n "$current_login" && "$current_login" == "$target_user" ]]; then
+            HOME="$target_home" USER="$target_user" "$@"
+            return $?
+        fi
+    fi
+
+    # 2. If caller is root, perform genuine user switch via sudo
+    if (( effective_uid == 0 )); then
+        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
+        return $?
+    fi
+
+    # 3. If caller is a different non-root user, perform privilege switch if sudo is available
+    if command_exists sudo; then
+        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
+        return $?
+    fi
+
+    # 4. Fail closed: genuine user transition required but impossible
+    error "Cannot execute command as target user '$target_user': process UID ($effective_uid) does not match target UID (${target_uid:-unknown}) and sudo is unavailable."
+    return 1
 }
 
 ###############################################################################

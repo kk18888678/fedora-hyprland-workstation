@@ -1520,33 +1520,122 @@ set -Eeuo pipefail
 SCRIPT_DIR="$HELPER_ROOT"
 TARGET_USER="mockuser"
 TARGET_HOME="$(mktemp -d)"
+OVERRIDE_TARGET_UID=1000
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/status.sh"
 
+sudo_invocations=()
 sudo() {
-    echo "SUDO_INVOKED: $*"
+    sudo_invocations+=("SUDO: $*")
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do shift; done; "$@"; return 0; fi
+        shift
+    done
 }
 
-# 1. Test run_as_target_user when EUID=0 (root context)
+# 1. Test root -> TARGET_USER invokes real sudo user switching
 OVERRIDE_EUID=0
 USER="root"
-run_as_target_user xdg-user-dirs-update
+run_as_target_user echo "root-switch" >/dev/null || true
+echo "test1_sudo=${sudo_invocations[0]:-none}"
 
-# 2. Test run_as_target_user when caller user differs from TARGET_USER
+# 2. Test already TARGET_USER (UID matches TARGET_UID) does not invoke sudo
+sudo_invocations=()
 OVERRIDE_EUID=1000
-USER="calleruser"
-run_as_target_user xdg-user-dirs-update
+USER="mockuser"
+cmd_executed=0
+my_test_cmd() { cmd_executed=1; }
+run_as_target_user my_test_cmd
+echo "test2_sudo_count=${#sudo_invocations[@]}"
+echo "test2_executed=$cmd_executed"
+
+# 3. Test different non-root user + sudo available performs real user switching
+sudo_invocations=()
+OVERRIDE_EUID=1001
+USER="otheruser"
+sudo() {
+    sudo_invocations+=("SUDO_OTHER: $*")
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do shift; done; "$@"; return 0; fi
+        shift
+    done
+}
+other_cmd_executed=0
+other_cmd() { other_cmd_executed=1; }
+run_as_target_user other_cmd
+echo "test3_sudo=${sudo_invocations[0]:-none}"
+echo "test3_executed=$other_cmd_executed"
+
+# 4 & 5. Test different non-root user + NO sudo DOES NOT execute command and returns nonzero
+unset -f sudo
+command_exists() {
+    if [[ "$1" == "sudo" ]]; then
+        return 1
+    fi
+    command -v "$1" >/dev/null 2>&1
+}
+no_sudo_executed=0
+no_sudo_cmd() { no_sudo_executed=1; }
+no_sudo_status=0
+OVERRIDE_EUID=1001
+USER="otheruser"
+run_as_target_user no_sudo_cmd >/dev/null 2>&1 || no_sudo_status=$?
+echo "test4_executed=$no_sudo_executed"
+echo "test5_status=$no_sudo_status"
+
+# 6. Test USER environment spoofing (UID 1001 claims USER="mockuser" when no sudo)
+spoofed_executed=0
+spoofed_cmd() { spoofed_executed=1; }
+spoofed_status=0
+OVERRIDE_EUID=1001
+USER="mockuser" # Spoofed USER environment variable!
+run_as_target_user spoofed_cmd >/dev/null 2>&1 || spoofed_status=$?
+echo "test6_executed=$spoofed_executed"
+echo "test6_status=$spoofed_status"
 
 rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'SUDO_INVOKED: -u mockuser env HOME=.* USER=mockuser xdg-user-dirs-update'; then
-    pass "run_as_target_user genuinely invokes sudo -u TARGET_USER with target HOME and USER when running as root"
+if printf '%s\n' "$target_user_test_output" | grep -q 'test1_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser echo root-switch'; then
+    pass "root -> TARGET_USER invokes real sudo user switching"
 else
-    fail "run_as_target_user failed root sudo switch: $target_user_test_output"
+    fail "root -> TARGET_USER did not invoke sudo: $target_user_test_output"
+fi
+
+if printf '%s\n' "$target_user_test_output" | grep -q 'test2_sudo_count=0' &&
+   printf '%s\n' "$target_user_test_output" | grep -q 'test2_executed=1'; then
+    pass "already TARGET_USER executes directly without unnecessary sudo"
+else
+    fail "already TARGET_USER failed direct execution: $target_user_test_output"
+fi
+
+if printf '%s\n' "$target_user_test_output" | grep -q 'test3_sudo=SUDO_OTHER: -u mockuser env HOME=.* USER=mockuser other_cmd' &&
+   printf '%s\n' "$target_user_test_output" | grep -q 'test3_executed=1'; then
+    pass "different non-root user + sudo performs real user switching"
+else
+    fail "different non-root user + sudo failed: $target_user_test_output"
+fi
+
+if printf '%s\n' "$target_user_test_output" | grep -q 'test4_executed=0'; then
+    pass "different non-root user without sudo DOES NOT execute command"
+else
+    fail "different non-root user without sudo executed command: $target_user_test_output"
+fi
+
+if printf '%s\n' "$target_user_test_output" | grep -qE 'test5_status=[1-9]'; then
+    pass "different non-root user without sudo returns nonzero failure"
+else
+    fail "different non-root user without sudo returned zero: $target_user_test_output"
+fi
+
+if printf '%s\n' "$target_user_test_output" | grep -q 'test6_executed=0' &&
+   printf '%s\n' "$target_user_test_output" | grep -qE 'test6_status=[1-9]'; then
+    pass "USER environment spoofing cannot trick helper into treating caller as TARGET_USER"
+else
+    fail "USER environment spoofing bypassed user verification: $target_user_test_output"
 fi
 
 xdg_privilege_switch_test="$(
@@ -1555,6 +1644,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$HELPER_ROOT"
 TARGET_USER="xdgtester"
 TARGET_HOME="$(mktemp -d)"
+OVERRIDE_TARGET_UID=1000
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
