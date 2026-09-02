@@ -154,6 +154,29 @@ else
     pass "foot.ini does not use unsupported scrollback-lines in [main]"
 fi
 
+if grep -q "show-urls-launch=Control+Shift+u" "$ROOT/dotfiles/foot/foot.ini"; then
+    fail "foot.ini overrides show-urls-launch with Control+Shift+u which conflicts with standard unicode-input"
+else
+    pass "foot.ini avoids keybinding conflict between show-urls-launch and standard unicode-input"
+fi
+
+# Opportunistic foot --check-config validation if foot binary is present
+if command -v foot >/dev/null 2>&1; then
+    foot_chk_tmp="$(mktemp -d)"
+    mkdir -p "$foot_chk_tmp/foot/themes"
+    cp "$ROOT/dotfiles/foot/foot.ini" "$foot_chk_tmp/foot/foot.ini"
+    cp "$ROOT/dotfiles/foot/themes/rose-pine-moon.ini" "$foot_chk_tmp/foot/themes/rose-pine-moon.ini"
+    sed -i "s|include=.*|include=$foot_chk_tmp/foot/themes/rose-pine-moon.ini|" "$foot_chk_tmp/foot/foot.ini"
+    foot_chk_status=0
+    foot_chk_out="$(foot -C -c "$foot_chk_tmp/foot/foot.ini" 2>&1)" || foot_chk_status=$?
+    rm -rf "$foot_chk_tmp"
+    if (( foot_chk_status == 0 )); then
+        pass "foot --check-config validates managed foot.ini with zero errors"
+    else
+        fail "foot --check-config failed on foot.ini: $foot_chk_out"
+    fi
+fi
+
 if grep -q "Hack Nerd Font" "$ROOT/dotfiles/foot/foot.ini" &&
    grep -q "rose-pine-moon.ini" "$ROOT/dotfiles/foot/foot.ini"; then
     pass "foot.ini configures Hack Nerd Font and references Rosé Pine Moon theme"
@@ -165,6 +188,51 @@ if [[ -f "$ROOT/dotfiles/foot/themes/rose-pine-moon.ini" ]]; then
     pass "dotfiles/foot/themes/rose-pine-moon.ini exists"
 else
     fail "dotfiles/foot/themes/rose-pine-moon.ini is missing"
+fi
+
+# Foot launcher visibility and desktop entry override tests
+if [[ -f "$ROOT/config/desktop-entries/footclient.desktop" ]] &&
+   grep -q "NoDisplay=true" "$ROOT/config/desktop-entries/footclient.desktop" &&
+   [[ -f "$ROOT/config/desktop-entries/foot-server.desktop" ]] &&
+   grep -q "NoDisplay=true" "$ROOT/config/desktop-entries/foot-server.desktop"; then
+    pass "managed desktop overrides exist and specify NoDisplay=true for Foot Client and Server"
+else
+    fail "managed foot desktop entry overrides missing or lack NoDisplay=true"
+fi
+
+foot_deploy_test="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="desktest"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/filesystem.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/shell.sh"
+
+deploy_foot_config
+
+client_deployed="$([[ -L "$TARGET_HOME/.local/share/applications/footclient.desktop" ]] && echo 1 || echo 0)"
+server_deployed="$([[ -L "$TARGET_HOME/.local/share/applications/foot-server.desktop" ]] && echo 1 || echo 0)"
+normal_foot_visible="$([[ ! -f "$TARGET_HOME/.local/share/applications/foot.desktop" ]] && echo 1 || echo 0)"
+
+echo "client_deployed=$client_deployed"
+echo "server_deployed=$server_deployed"
+echo "normal_foot_visible=$normal_foot_visible"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$foot_deploy_test" | grep -q 'client_deployed=1' &&
+   printf '%s\n' "$foot_deploy_test" | grep -q 'server_deployed=1' &&
+   printf '%s\n' "$foot_deploy_test" | grep -q 'normal_foot_visible=1'; then
+    pass "deploy_foot_config deploys client/server NoDisplay overrides while keeping normal Foot visible"
+else
+    fail "deploy_foot_config desktop override deployment failed: $foot_deploy_test"
 fi
 
 if [[ -f "$ROOT/dotfiles/kitty/themes/rose-pine-moon.conf" ]]; then

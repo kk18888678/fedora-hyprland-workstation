@@ -158,6 +158,20 @@ deploy_foot_config() {
         ensure_symlink "$theme_source" "$theme_destination"
     fi
 
+    # Deploy user desktop entry overrides to hide auxiliary Foot Client and Server launchers
+    local apps_dir="$TARGET_HOME/.local/share/applications"
+    ensure_directory "$apps_dir"
+
+    local client_override="$SCRIPT_DIR/config/desktop-entries/footclient.desktop"
+    local server_override="$SCRIPT_DIR/config/desktop-entries/foot-server.desktop"
+
+    if [[ -f "$client_override" ]]; then
+        ensure_symlink "$client_override" "$apps_dir/footclient.desktop"
+    fi
+    if [[ -f "$server_override" ]]; then
+        ensure_symlink "$server_override" "$apps_dir/foot-server.desktop"
+    fi
+
     info "Foot configuration linked."
 }
 
