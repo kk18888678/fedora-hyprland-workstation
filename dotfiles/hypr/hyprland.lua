@@ -12,6 +12,7 @@ for _, module in ipairs({
     "monitors",
     "startup",
     "inputs",
+    "keybindings_manifest",
     "keybind",
     "windowrules",
     "animations",
