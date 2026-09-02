@@ -2206,6 +2206,255 @@ else
     fail "unsupported arch exit code: $agy_arch_output"
 fi
 
+section "Installer Concurrency & Locking"
+
+lock_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/state.sh"
+
+test_lock_dir="$(mktemp -d)"
+XDG_RUNTIME_DIR="$test_lock_dir"
+
+acquire_installer_lock
+echo "lock1_acquired=1"
+
+# Attempt concurrent acquisition in subshell
+concurrent_status=0
+(
+    acquire_installer_lock 2>/dev/null || exit 1
+) || concurrent_status=$?
+echo "concurrent_rejected=$concurrent_status"
+
+release_installer_lock
+echo "lock1_released=1"
+
+# Re-acquire after release
+reacquire_status=0
+acquire_installer_lock || reacquire_status=$?
+echo "reacquire_ok=$([[ $reacquire_status -eq 0 ]] && echo 1 || echo 0)"
+release_installer_lock
+
+rm -rf "$test_lock_dir" "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$lock_test_output" | grep -q 'lock1_acquired=1' &&
+   printf '%s\n' "$lock_test_output" | grep -q 'concurrent_rejected=1' &&
+   printf '%s\n' "$lock_test_output" | grep -q 'reacquire_ok=1'; then
+    pass "installer concurrency lock prevents simultaneous runs and releases cleanly"
+else
+    fail "installer concurrency lock failed: $lock_test_output"
+fi
+
+section "Verified Supply-Chain Artifact Provisioning"
+
+artifact_prov_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+test_sandbox="$(mktemp -d)"
+test_payload="$test_sandbox/bin_content"
+printf '#!/bin/sh\necho test-bin\n' > "$test_payload"
+chmod +x "$test_payload"
+
+correct_sha512="$(sha512sum "$test_payload" | cut -d' ' -f1)"
+wrong_sha512="00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+RETRY_BACKOFF_SECONDS=()
+timeout() {
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" =~ ^--kill-after= || "$1" =~ ^[0-9]+s?$ ]]; then
+            shift
+            continue
+        fi
+        break
+    done
+    "$@"
+}
+
+# Mock curl to copy local payload
+curl() {
+    local out_file=""
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "-o" ]]; then
+            out_file="$2"
+            shift 2
+            continue
+        fi
+        shift
+    done
+    cp "$test_payload" "$out_file"
+}
+
+# 1. Successful verified binary provision
+test_dest="$test_sandbox/installed_bin"
+status_ok=0
+provision_verified_binary "https://example.com/bin" "$correct_sha512" "$test_dest" "test_bin" false || status_ok=$?
+echo "prov_ok=$([[ $status_ok -eq 0 && -x "$test_dest" ]] && echo 1 || echo 0)"
+
+# 2. Checksum mismatch fails closed
+test_bad_dest="$test_sandbox/bad_bin"
+status_bad=0
+provision_verified_binary "https://example.com/bin" "$wrong_sha512" "$test_bad_dest" "bad_bin" false >/dev/null 2>&1 || status_bad=$?
+echo "mismatch_rejected=$([[ $status_bad -ne 0 && ! -e "$test_bad_dest" ]] && echo 1 || echo 0)"
+
+# 3. Non-HTTPS URL rejected
+test_insecure_dest="$test_sandbox/insecure_bin"
+status_insecure=0
+provision_verified_binary "http://insecure.example.com/bin" "$correct_sha512" "$test_insecure_dest" "insecure_bin" false >/dev/null 2>&1 || status_insecure=$?
+echo "insecure_rejected=$([[ $status_insecure -ne 0 && ! -e "$test_insecure_dest" ]] && echo 1 || echo 0)"
+
+rm -rf "$test_sandbox" "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$artifact_prov_output" | grep -q 'prov_ok=1'; then
+    pass "provision_verified_binary successfully verifies and deploys executable"
+else
+    fail "provision_verified_binary failed successful deploy: $artifact_prov_output"
+fi
+
+if printf '%s\n' "$artifact_prov_output" | grep -q 'mismatch_rejected=1'; then
+    pass "provision_verified_binary rejects checksum mismatch and does not install"
+else
+    fail "provision_verified_binary failed to reject checksum mismatch: $artifact_prov_output"
+fi
+
+if printf '%s\n' "$artifact_prov_output" | grep -q 'insecure_rejected=1'; then
+    pass "provision_verified_binary rejects insecure non-HTTPS download URLs"
+else
+    fail "provision_verified_binary accepted non-HTTPS URL: $artifact_prov_output"
+fi
+
+section "User Nix Configuration Preservation"
+
+nix_conf_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/nix.sh"
+
+mkdir -p "$TARGET_HOME/.config/nix"
+cat > "$TARGET_HOME/.config/nix/nix.conf" <<'EOF'
+# Custom user nix configuration
+trusted-users = root alice
+substituters = https://cache.nixos.org https://custom-cache.org
+EOF
+
+configure_nix_features
+
+user_custom_ok=$([[ $(grep -c 'trusted-users = root alice' "$TARGET_HOME/.config/nix/nix.conf") -eq 1 ]] && echo 1 || echo 0)
+features_added=$([[ $(grep -c 'experimental-features = nix-command flakes' "$TARGET_HOME/.config/nix/nix.conf") -eq 1 ]] && echo 1 || echo 0)
+warn_dirty_added=$([[ $(grep -c 'warn-dirty = false' "$TARGET_HOME/.config/nix/nix.conf") -eq 1 ]] && echo 1 || echo 0)
+
+echo "user_custom_ok=$user_custom_ok"
+echo "features_added=$features_added"
+echo "warn_dirty_added=$warn_dirty_added"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$nix_conf_output" | grep -q 'user_custom_ok=1' &&
+   printf '%s\n' "$nix_conf_output" | grep -q 'features_added=1' &&
+   printf '%s\n' "$nix_conf_output" | grep -q 'warn_dirty_added=1'; then
+    pass "configure_nix_features preserves existing user nix.conf settings while ensuring required flags"
+else
+    fail "configure_nix_features mutated or wiped user nix.conf: $nix_conf_output"
+fi
+
+section "Platform Architecture Guard & Preflight Validation"
+
+arch_guard_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+# Mock unsupported architecture
+uname() {
+    if [[ "$1" == "-m" ]]; then
+        echo "i686"
+    else
+        command uname "$@"
+    fi
+}
+
+arch_rejected=0
+( validate_fedora >/dev/null 2>&1 ) || arch_rejected=$?
+echo "arch_rejected=$([[ $arch_rejected -ne 0 ]] && echo 1 || echo 0)"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$arch_guard_output" | grep -q 'arch_rejected=1'; then
+    pass "validate_fedora fails closed on unsupported 32-bit architecture"
+else
+    fail "validate_fedora accepted unsupported architecture: $arch_guard_output"
+fi
+
+section "Path & Symlink Safety Invariants"
+
+path_safety_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+empty_dir_rejected=0
+( ensure_directory "" >/dev/null 2>&1 ) || empty_dir_rejected=$?
+
+empty_symlink_rejected=0
+( ensure_symlink "" "$TARGET_HOME/link" >/dev/null 2>&1 ) || empty_symlink_rejected=$?
+
+echo "empty_dir_rejected=$([[ $empty_dir_rejected -ne 0 ]] && echo 1 || echo 0)"
+echo "empty_symlink_rejected=$([[ $empty_symlink_rejected -ne 0 ]] && echo 1 || echo 0)"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$path_safety_output" | grep -q 'empty_dir_rejected=1' &&
+   printf '%s\n' "$path_safety_output" | grep -q 'empty_symlink_rejected=1'; then
+    pass "ensure_directory and ensure_symlink fail closed on empty path parameters"
+else
+    fail "path safety helpers accepted empty paths: $path_safety_output"
+fi
+
 # Ensure no credentials or auth state files are tracked in Git
 section "Repository Hygiene"
 if git -C "$ROOT" ls-files | grep -E '(\.auth|\.token|jetski_state|settings\.json|credentials|\.db|\.key|\.pem)'; then
