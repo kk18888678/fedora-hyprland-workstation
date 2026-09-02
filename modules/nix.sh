@@ -69,18 +69,24 @@ install_nix_package_manager() {
 configure_nix_features() {
     local config_dir="$TARGET_HOME/.config/nix"
     local config_file="$config_dir/nix.conf"
-    local temp_file
 
     ensure_directory "$config_dir"
 
     info "Configuring Nix user features."
 
-    temp_file="$(mktemp)"
-    cat >"$temp_file" <<'EOF'
+    if [[ -f "$config_file" ]]; then
+        if ! grep -q 'experimental-features' "$config_file"; then
+            printf '\nexperimental-features = nix-command flakes\n' >> "$config_file"
+        fi
+        if ! grep -q 'warn-dirty' "$config_file"; then
+            printf 'warn-dirty = false\n' >> "$config_file"
+        fi
+    else
+        cat >"$config_file" <<'EOF'
 experimental-features = nix-command flakes
 warn-dirty = false
 EOF
-    mv "$temp_file" "$config_file"
+    fi
 
     info "Nix user configuration complete."
 }
