@@ -173,22 +173,7 @@ on_exit() {
     cleanup_installer_children
 
     local final_code
-    if (( INTERRUPTED_SIGNAL != 0 )); then
-        final_code="$INTERRUPTED_SIGNAL"
-    elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
-        final_code="$code"
-    else
-        final_code="$(installer_exit_code)"
-    fi
-
-    if (( code != 0 )) && (( code < 128 )) &&
-        [[ ${#INSTALL_LOGIN_FAILURES[@]} -eq 0 ]] &&
-        [[ ${#INSTALL_REQUIRED_FAILURES[@]} -eq 0 ]]; then
-        record_activation_failure \
-            "installer" \
-            "exit" \
-            "Installer exited with status ${code}."
-    fi
+    final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
 
     if [[ ${SUMMARY_PRINTED:-0} -eq 0 ]]; then
         print_installer_summary

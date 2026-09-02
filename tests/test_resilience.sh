@@ -317,50 +317,7 @@ fi
 
 section "Installer Exit Semantics and SIGPIPE Resilience"
 
-# 1. Reproduce SIGPIPE condition under pipefail and verify installer exit is 2 when only optional work (N_m3u8DL-RE) is deferred
-sigpipe_exit_output="$(
-    bash -s <<'EOS'
-set -Eeuo pipefail
-SCRIPT_DIR="$HELPER_ROOT"
-TARGET_USER="tester"
-TARGET_HOME="$(mktemp -d)"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/modules/common.sh"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/modules/status.sh"
-
-# Simulate an internal pipeline producing a subshell SIGPIPE (141)
-( seq 1 10000 | head -n 1 >/dev/null ) || true
-
-# Record only the optional N_m3u8DL-RE deferral
-record_deferred "applications" "N_m3u8DL-RE" "Checksum mismatch"
-
-# Simulate on_exit logic
-INTERRUPTED_SIGNAL=0
-code=141
-
-if (( INTERRUPTED_SIGNAL != 0 )); then
-    final_code="$INTERRUPTED_SIGNAL"
-elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
-    final_code="$code"
-else
-    final_code="$(installer_exit_code)"
-fi
-
-echo "sigpipe-exit-code=$final_code"
-echo "activation-blocked=$ACTIVATION_BLOCKED"
-rm -rf "$TARGET_HOME"
-EOS
-)"
-
-if printf '%s\n' "$sigpipe_exit_output" | grep -q 'sigpipe-exit-code=2' &&
-   printf '%s\n' "$sigpipe_exit_output" | grep -q 'activation-blocked=0'; then
-    pass "Internal pipeline SIGPIPE does not override exit code 2 on deferred-only work"
-else
-    fail "Internal pipeline SIGPIPE corrupted exit status: $sigpipe_exit_output"
-fi
-
-# 2. Clean success returns 0
+# 1. Clean successful run returns exit code 0
 clean_exit_output="$(
     bash -s <<'EOS'
 set -Eeuo pipefail
@@ -372,20 +329,9 @@ source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/status.sh"
 
-record_success "hyprland"
-record_success "foot"
-
 INTERRUPTED_SIGNAL=0
 code=0
-
-if (( INTERRUPTED_SIGNAL != 0 )); then
-    final_code="$INTERRUPTED_SIGNAL"
-elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
-    final_code="$code"
-else
-    final_code="$(installer_exit_code)"
-fi
-
+final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
 echo "clean-exit-code=$final_code"
 rm -rf "$TARGET_HOME"
 EOS
@@ -394,10 +340,38 @@ EOS
 if printf '%s\n' "$clean_exit_output" | grep -q 'clean-exit-code=0'; then
     pass "Clean successful run returns exit code 0"
 else
-    fail "Clean successful run did not return 0: $clean_exit_output"
+    fail "Clean exit code failed: $clean_exit_output"
 fi
 
-# 3. Required failure returns 1
+# 2. Deferred-only completion returns exit code 2 on clean completion (code 0)
+deferred_exit_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+record_deferred "applications" "N_m3u8DL-RE" "Checksum mismatch"
+
+INTERRUPTED_SIGNAL=0
+code=0
+final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "deferred-exit-code=$final_code"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$deferred_exit_output" | grep -q 'deferred-exit-code=2'; then
+    pass "Deferred-only completion returns exit code 2 on clean completion"
+else
+    fail "Deferred exit code failed: $deferred_exit_output"
+fi
+
+# 3. Classified required failure returns 1
 required_exit_output="$(
     bash -s <<'EOS'
 set -Eeuo pipefail
@@ -412,28 +386,20 @@ source "$SCRIPT_DIR/modules/status.sh"
 record_required "packages" "dnf" "Failed to install required package"
 
 INTERRUPTED_SIGNAL=0
-code=1
-
-if (( INTERRUPTED_SIGNAL != 0 )); then
-    final_code="$INTERRUPTED_SIGNAL"
-elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
-    final_code="$code"
-else
-    final_code="$(installer_exit_code)"
-fi
-
+code=0
+final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
 echo "required-exit-code=$final_code"
 rm -rf "$TARGET_HOME"
 EOS
 )"
 
 if printf '%s\n' "$required_exit_output" | grep -q 'required-exit-code=1'; then
-    pass "Required failure returns exit code 1"
+    pass "Classified required failure returns exit code 1"
 else
     fail "Required failure did not return 1: $required_exit_output"
 fi
 
-# 4. External SIGINT/SIGTERM returns 130/143 and blocks activation
+# 4. Explicitly trapped external signals preserve signal status (130, 143, 129, 131)
 external_sig_output="$(
     bash -s <<'EOS'
 set -Eeuo pipefail
@@ -445,45 +411,88 @@ source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/status.sh"
 
-# Simulate SIGINT
+# Simulate SIGINT (130)
 INTERRUPTED_SIGNAL=130
-ACTIVATION_BLOCKED=1
-
 code=130
-if (( INTERRUPTED_SIGNAL != 0 )); then
-    final_code="$INTERRUPTED_SIGNAL"
-elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
-    final_code="$code"
-else
-    final_code="$(installer_exit_code)"
-fi
+sigint_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "sigint-exit-code=$sigint_code"
 
-echo "sigint-exit-code=$final_code"
-echo "sigint-blocked=$ACTIVATION_BLOCKED"
-
-# Simulate SIGTERM
+# Simulate SIGTERM (143)
 INTERRUPTED_SIGNAL=143
-ACTIVATION_BLOCKED=1
 code=143
-if (( INTERRUPTED_SIGNAL != 0 )); then
-    final_code="$INTERRUPTED_SIGNAL"
-elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
-    final_code="$code"
-else
-    final_code="$(installer_exit_code)"
-fi
+sigterm_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "sigterm-exit-code=$sigterm_code"
 
-echo "sigterm-exit-code=$final_code"
-echo "sigterm-blocked=$ACTIVATION_BLOCKED"
+# Simulate SIGHUP (129)
+INTERRUPTED_SIGNAL=129
+code=129
+sighup_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "sighup-exit-code=$sighup_code"
+
+# Simulate SIGQUIT (131)
+INTERRUPTED_SIGNAL=131
+code=131
+sigquit_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "sigquit-exit-code=$sigquit_code"
+
 rm -rf "$TARGET_HOME"
 EOS
 )"
 
 if printf '%s\n' "$external_sig_output" | grep -q 'sigint-exit-code=130' &&
-   printf '%s\n' "$external_sig_output" | grep -q 'sigint-blocked=1' &&
    printf '%s\n' "$external_sig_output" | grep -q 'sigterm-exit-code=143' &&
-   printf '%s\n' "$external_sig_output" | grep -q 'sigterm-blocked=1'; then
-    pass "External SIGINT (130) and SIGTERM (143) preserve signal codes and block activation"
+   printf '%s\n' "$external_sig_output" | grep -q 'sighup-exit-code=129' &&
+   printf '%s\n' "$external_sig_output" | grep -q 'sigquit-exit-code=131'; then
+    pass "Explicitly trapped external signals (130, 143, 129, 131) preserve signal exit codes"
 else
     fail "External signals not handled correctly: $external_sig_output"
+fi
+
+# 5. Negative regression: unexpected/unclassified fatal status (141, 137, non-zero) cannot become 0 or 2
+unexpected_status_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+# Case A: Unexpected 141 (SIGPIPE) when deferred-only work is present -> MUST return 1, NOT 2 or 0
+record_deferred "applications" "N_m3u8DL-RE" "Checksum mismatch"
+INTERRUPTED_SIGNAL=0
+code=141
+unexpected_141_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "unexpected_141_code=$unexpected_141_code"
+
+# Case B: Unexpected 137 (SIGKILL) with clean state -> MUST return 1, NOT 0
+INSTALL_LOGIN_FAILURES=()
+INSTALL_REQUIRED_FAILURES=()
+INSTALL_DEFERRED=()
+INTERRUPTED_SIGNAL=0
+code=137
+unexpected_137_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "unexpected_137_code=$unexpected_137_code"
+
+# Case C: Unclassified nonzero command failure (e.g. exit 1) -> MUST return 1
+INSTALL_LOGIN_FAILURES=()
+INSTALL_REQUIRED_FAILURES=()
+INSTALL_DEFERRED=()
+INTERRUPTED_SIGNAL=0
+code=1
+unclassified_nonzero_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+echo "unclassified_nonzero_code=$unclassified_nonzero_code"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_code=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_137_code=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'unclassified_nonzero_code=1'; then
+    pass "Unexpected fatal status (141, 137, unclassified nonzero) fails closed as exit code 1"
+else
+    fail "Unexpected status did not fail closed: $unexpected_status_output"
 fi

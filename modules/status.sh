@@ -102,6 +102,33 @@ installer_exit_code() {
     printf '0'
 }
 
+resolve_installer_exit_code() {
+    local raw_code="${1:-0}"
+    local interrupted_signal="${2:-0}"
+
+    # 1. Explicitly trapped external signal has authoritative priority and retains conventional 128+signal exit status
+    if (( interrupted_signal != 0 )); then
+        printf '%s' "$interrupted_signal"
+        return
+    fi
+
+    # 2. If an unclassified nonzero error or unexpected fatal signal occurred (raw_code != 0),
+    # it must NEVER silently resolve to 0 (success) or 2 (deferred-only).
+    if (( raw_code != 0 )); then
+        if [[ ${#INSTALL_LOGIN_FAILURES[@]} -eq 0 ]] && [[ ${#INSTALL_REQUIRED_FAILURES[@]} -eq 0 ]]; then
+            record_activation_failure \
+                "installer" \
+                "exit" \
+                "Installer terminated unexpectedly with status ${raw_code}."
+        fi
+        printf '1'
+        return
+    fi
+
+    # 3. Clean termination (raw_code == 0): evaluate recorded outcomes
+    installer_exit_code
+}
+
 print_installer_summary() {
     local item
     local exit_code
