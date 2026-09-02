@@ -364,6 +364,9 @@ install_dnf_packages() {
 ensure_directory() {
     local directory="$1"
 
+    [[ -n "$directory" ]] ||
+        die "ensure_directory called with empty path."
+
     if [[ ! -d "$directory" ]]; then
         mkdir -p "$directory"
     fi
@@ -376,6 +379,12 @@ ensure_directory() {
 ensure_symlink() {
     local source="$1"
     local destination="$2"
+
+    [[ -n "$source" ]] ||
+        die "Symlink source is empty."
+
+    [[ -n "$destination" ]] ||
+        die "Symlink destination is empty."
 
     [[ -e "$source" || -L "$source" ]] ||
         die "Symlink source does not exist: $source"
@@ -391,7 +400,7 @@ ensure_symlink() {
             return 0
         fi
 
-        rm "$destination"
+        rm -f "$destination"
 
     elif [[ -e "$destination" ]]; then
         local backup
@@ -419,6 +428,178 @@ load_pinned_versions() {
 
     # shellcheck source=/dev/null
     source "$versions_file"
+}
+
+###############################################################################
+# Verified Artifact Provisioning
+###############################################################################
+
+download_and_verify_artifact() {
+    local url="$1"
+    local expected_sha512="$2"
+    local output_file="$3"
+    local label="$4"
+
+    [[ -n "$url" ]] || {
+        error "Download URL is required for $label."
+        return 1
+    }
+
+    [[ "$url" =~ ^https:// ]] || {
+        error "Refusing non-HTTPS download URL for ${label}: $url"
+        return 1
+    }
+
+    [[ -n "$expected_sha512" ]] || {
+        error "Expected SHA-512 checksum is required for $label."
+        return 1
+    }
+
+    info "Downloading $label."
+
+    if ! run_with_retry "download $label" \
+        run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download $label" \
+        curl -fsSL -o "$output_file" "$url"; then
+        error "Failed to download $label from $url."
+        return 1
+    fi
+
+    local actual_sha512
+    actual_sha512="$(sha512sum "$output_file" | cut -d' ' -f1 || true)"
+
+    if [[ "$actual_sha512" != "$expected_sha512" ]]; then
+        error "Checksum mismatch for ${label}: expected ${expected_sha512}, got ${actual_sha512:-none}."
+        return 1
+    fi
+
+    info "Checksum verified for $label."
+    return 0
+}
+
+provision_verified_binary() {
+    local url="$1"
+    local expected_sha512="$2"
+    local destination="$3"
+    local label="$4"
+    local as_root="${5:-false}"
+
+    local staging_dir
+    staging_dir="$(mktemp -d)"
+    local staging_file="$staging_dir/$(basename "$destination")"
+
+    if ! download_and_verify_artifact "$url" "$expected_sha512" "$staging_file" "$label"; then
+        rm -rf "$staging_dir"
+        return 1
+    fi
+
+    ensure_directory "$(dirname "$destination")"
+
+    if is_true "$as_root"; then
+        sudo install -D -m 0755 "$staging_file" "$destination"
+    else
+        install -D -m 0755 "$staging_file" "$destination"
+    fi
+
+    rm -rf "$staging_dir"
+
+    if [[ ! -x "$destination" ]]; then
+        error "$label was not executable after installation at $destination."
+        return 1
+    fi
+
+    info "$label installed successfully."
+    return 0
+}
+
+provision_verified_archive() {
+    local url="$1"
+    local expected_sha512="$2"
+    local destination="$3"
+    local binary_subpath="$4"
+    local label="$5"
+    local as_root="${6:-false}"
+
+    local staging_dir
+    staging_dir="$(mktemp -d)"
+    local staging_archive="$staging_dir/archive"
+
+    if ! download_and_verify_artifact "$url" "$expected_sha512" "$staging_archive" "$label"; then
+        rm -rf "$staging_dir"
+        return 1
+    fi
+
+    local extracted_dir="$staging_dir/extracted"
+    mkdir -p "$extracted_dir"
+
+    if [[ "$url" == *.zip ]]; then
+        if ! (7z x -y "$staging_archive" -o"$extracted_dir" >/dev/null 2>&1 || unzip -q -o "$staging_archive" -d "$extracted_dir" >/dev/null 2>&1); then
+            rm -rf "$staging_dir"
+            error "Failed to extract ZIP archive for $label."
+            return 1
+        fi
+    else
+        if ! tar -xzf "$staging_archive" -C "$extracted_dir"; then
+            rm -rf "$staging_dir"
+            error "Failed to extract tarball for $label."
+            return 1
+        fi
+    fi
+
+    # Find matching binaries
+    local found_binaries=()
+    local bin_file
+    if [[ -n "$binary_subpath" && -f "$extracted_dir/$binary_subpath" ]]; then
+        found_binaries+=("$extracted_dir/$binary_subpath")
+    else
+        while IFS= read -r bin_file; do
+            if [[ -f "$bin_file" && -x "$bin_file" ]]; then
+                found_binaries+=("$bin_file")
+            fi
+        done < <(find "$extracted_dir" -type f \( -name "${binary_subpath:-*}" \) 2>/dev/null)
+    fi
+
+    if [[ ${#found_binaries[@]} -eq 0 ]]; then
+        while IFS= read -r bin_file; do
+            if [[ -f "$bin_file" && -x "$bin_file" ]]; then
+                found_binaries+=("$bin_file")
+            fi
+        done < <(find "$extracted_dir" -type f 2>/dev/null)
+    fi
+
+    if [[ ${#found_binaries[@]} -eq 0 ]]; then
+        rm -rf "$staging_dir"
+        error "Could not find any executable binary matching '${binary_subpath}' in extracted archive for $label."
+        return 1
+    fi
+
+    if [[ -d "$destination" || "$destination" == */ ]]; then
+        ensure_directory "$destination"
+        for bin_file in "${found_binaries[@]}"; do
+            if is_true "$as_root"; then
+                sudo install -m 0755 "$bin_file" "$destination/$(basename "$bin_file")"
+            else
+                install -m 0755 "$bin_file" "$destination/$(basename "$bin_file")"
+            fi
+        done
+    else
+        ensure_directory "$(dirname "$destination")"
+        local primary_bin="${found_binaries[0]}"
+        if is_true "$as_root"; then
+            sudo install -D -m 0755 "$primary_bin" "$destination"
+        else
+            install -D -m 0755 "$primary_bin" "$destination"
+        fi
+    fi
+
+    rm -rf "$staging_dir"
+
+    if [[ -f "$destination" && ! -x "$destination" ]]; then
+        error "$label was not executable after installation at $destination."
+        return 1
+    fi
+
+    info "$label provisioned successfully."
+    return 0
 }
 
 ###############################################################################
@@ -547,7 +728,12 @@ validate_fedora() {
     [[ "${VERSION_ID}" == "44" ]] ||
         die "Unsupported Fedora version: ${VERSION_ID}. This installer targets Fedora 44."
 
-    info "Detected Fedora ${VERSION_ID}."
+    local host_arch
+    host_arch="$(uname -m)"
+    [[ "$host_arch" == "x86_64" || "$host_arch" == "amd64" ]] ||
+        die "Unsupported host architecture: ${host_arch}. This installer targets x86_64."
+
+    info "Detected Fedora ${VERSION_ID} (${host_arch})."
 }
 
 ###############################################################################
@@ -586,6 +772,8 @@ prepare_system() {
     require_command rpm
     require_command sudo
     require_command systemctl
+    require_command curl
+    require_command tar
 
     info "Refreshing Fedora package metadata."
 

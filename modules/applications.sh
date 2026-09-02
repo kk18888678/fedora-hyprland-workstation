@@ -250,33 +250,11 @@ install_media_utilities() {
     else
         if [[ -n "${DOVI_TOOL_URL:-}" && -n "${DOVI_TOOL_SHA512:-}" ]]; then
             info "Provisioning dovi_tool (${DOVI_TOOL_VERSION:-pinned})."
-            local staging_dir staging_tarball actual_sha512
-            staging_dir="$(mktemp -d)"
-            staging_tarball="$staging_dir/dovi_tool.tar.gz"
-
-            if run_with_retry "download dovi_tool" \
-                run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download dovi_tool" \
-                curl -fsSL -o "$staging_tarball" "$DOVI_TOOL_URL"; then
-                actual_sha512="$(sha512sum "$staging_tarball" | cut -d' ' -f1 || true)"
-                if [[ "$actual_sha512" == "$DOVI_TOOL_SHA512" ]]; then
-                    if tar -xzf "$staging_tarball" -C "$staging_dir" && [[ -f "$staging_dir/dovi_tool" ]]; then
-                        sudo install -m 0755 "$staging_dir/dovi_tool" "$target_dir/dovi_tool"
-                        if [[ -x "$target_dir/dovi_tool" ]]; then
-                            info "dovi_tool provisioned successfully."
-                            record_success "dovi_tool"
-                        else
-                            record_deferred "applications" "dovi_tool" "dovi_tool binary not executable after install."
-                        fi
-                    else
-                        record_deferred "applications" "dovi_tool" "Failed to extract dovi_tool."
-                    fi
-                else
-                    record_deferred "applications" "dovi_tool" "dovi_tool checksum mismatch."
-                fi
+            if provision_verified_archive "$DOVI_TOOL_URL" "$DOVI_TOOL_SHA512" "$target_dir/dovi_tool" "dovi_tool" "dovi_tool" true; then
+                record_success "dovi_tool"
             else
-                record_deferred "applications" "dovi_tool" "Failed to download dovi_tool."
+                record_deferred "applications" "dovi_tool" "Failed to download, verify, or extract dovi_tool."
             fi
-            rm -rf "$staging_dir"
         fi
     fi
 
@@ -287,33 +265,11 @@ install_media_utilities() {
     else
         if [[ -n "${N_M3U8DL_RE_URL:-}" && -n "${N_M3U8DL_RE_SHA512:-}" ]]; then
             info "Provisioning N_m3u8DL-RE (${N_M3U8DL_RE_VERSION:-pinned})."
-            local staging_dir staging_tarball actual_sha512
-            staging_dir="$(mktemp -d)"
-            staging_tarball="$staging_dir/m3u8.tar.gz"
-
-            if run_with_retry "download N_m3u8DL-RE" \
-                run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download N_m3u8DL-RE" \
-                curl -fsSL -o "$staging_tarball" "$N_M3U8DL_RE_URL"; then
-                actual_sha512="$(sha512sum "$staging_tarball" | cut -d' ' -f1 || true)"
-                if [[ "$actual_sha512" == "$N_M3U8DL_RE_SHA512" ]]; then
-                    if tar -xzf "$staging_tarball" -C "$staging_dir" && [[ -f "$staging_dir/N_m3u8DL-RE" ]]; then
-                        sudo install -m 0755 "$staging_dir/N_m3u8DL-RE" "$target_dir/N_m3u8DL-RE"
-                        if [[ -x "$target_dir/N_m3u8DL-RE" ]]; then
-                            info "N_m3u8DL-RE provisioned successfully."
-                            record_success "N_m3u8DL-RE"
-                        else
-                            record_deferred "applications" "N_m3u8DL-RE" "N_m3u8DL-RE binary not executable after install."
-                        fi
-                    else
-                        record_deferred "applications" "N_m3u8DL-RE" "Failed to extract N_m3u8DL-RE."
-                    fi
-                else
-                    record_deferred "applications" "N_m3u8DL-RE" "N_m3u8DL-RE checksum mismatch."
-                fi
+            if provision_verified_archive "$N_M3U8DL_RE_URL" "$N_M3U8DL_RE_SHA512" "$target_dir/N_m3u8DL-RE" "N_m3u8DL-RE" "N_m3u8DL-RE" true; then
+                record_success "N_m3u8DL-RE"
             else
-                record_deferred "applications" "N_m3u8DL-RE" "Failed to download N_m3u8DL-RE."
+                record_deferred "applications" "N_m3u8DL-RE" "Failed to download, verify, or extract N_m3u8DL-RE."
             fi
-            rm -rf "$staging_dir"
         fi
     fi
 
@@ -324,29 +280,11 @@ install_media_utilities() {
     else
         if [[ -n "${SHAKA_PACKAGER_URL:-}" && -n "${SHAKA_PACKAGER_SHA512:-}" ]]; then
             info "Provisioning Shaka Packager (${SHAKA_PACKAGER_VERSION:-pinned})."
-            local staging_dir staging_bin actual_sha512
-            staging_dir="$(mktemp -d)"
-            staging_bin="$staging_dir/packager"
-
-            if run_with_retry "download Shaka Packager" \
-                run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download Shaka Packager" \
-                curl -fsSL -o "$staging_bin" "$SHAKA_PACKAGER_URL"; then
-                actual_sha512="$(sha512sum "$staging_bin" | cut -d' ' -f1 || true)"
-                if [[ "$actual_sha512" == "$SHAKA_PACKAGER_SHA512" ]]; then
-                    sudo install -m 0755 "$staging_bin" "$target_dir/packager"
-                    if [[ -x "$target_dir/packager" ]]; then
-                        info "Shaka Packager provisioned successfully."
-                        record_success "packager"
-                    else
-                        record_deferred "applications" "packager" "Shaka Packager binary not executable after install."
-                    fi
-                else
-                    record_deferred "applications" "packager" "Shaka Packager checksum mismatch."
-                fi
+            if provision_verified_binary "$SHAKA_PACKAGER_URL" "$SHAKA_PACKAGER_SHA512" "$target_dir/packager" "Shaka Packager" true; then
+                record_success "packager"
             else
-                record_deferred "applications" "packager" "Failed to download Shaka Packager."
+                record_deferred "applications" "packager" "Failed to download, verify, or install Shaka Packager."
             fi
-            rm -rf "$staging_dir"
         fi
     fi
 
@@ -357,33 +295,11 @@ install_media_utilities() {
     else
         if [[ -n "${CCEXTRACTOR_URL:-}" && -n "${CCEXTRACTOR_SHA512:-}" ]]; then
             info "Provisioning CCExtractor (${CCEXTRACTOR_VERSION:-pinned})."
-            local staging_dir staging_tarball actual_sha512
-            staging_dir="$(mktemp -d)"
-            staging_tarball="$staging_dir/ccextractor.tar.gz"
-
-            if run_with_retry "download CCExtractor" \
-                run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download CCExtractor" \
-                curl -fsSL -o "$staging_tarball" "$CCEXTRACTOR_URL"; then
-                actual_sha512="$(sha512sum "$staging_tarball" | cut -d' ' -f1 || true)"
-                if [[ "$actual_sha512" == "$CCEXTRACTOR_SHA512" ]]; then
-                    if tar -xzf "$staging_tarball" -C "$staging_dir" && [[ -f "$staging_dir/ccextractor" ]]; then
-                        sudo install -m 0755 "$staging_dir/ccextractor" "$target_dir/ccextractor"
-                        if [[ -x "$target_dir/ccextractor" ]]; then
-                            info "CCExtractor provisioned successfully."
-                            record_success "ccextractor"
-                        else
-                            record_deferred "applications" "ccextractor" "CCExtractor binary not executable after install."
-                        fi
-                    else
-                        record_deferred "applications" "ccextractor" "Failed to extract CCExtractor."
-                    fi
-                else
-                    record_deferred "applications" "ccextractor" "CCExtractor checksum mismatch."
-                fi
+            if provision_verified_archive "$CCEXTRACTOR_URL" "$CCEXTRACTOR_SHA512" "$target_dir/ccextractor" "ccextractor" "CCExtractor" true; then
+                record_success "ccextractor"
             else
-                record_deferred "applications" "ccextractor" "Failed to download CCExtractor."
+                record_deferred "applications" "ccextractor" "Failed to download, verify, or extract CCExtractor."
             fi
-            rm -rf "$staging_dir"
         fi
     fi
 
@@ -394,41 +310,11 @@ install_media_utilities() {
     else
         if [[ -n "${BENTO4_URL:-}" && -n "${BENTO4_SHA512:-}" ]]; then
             info "Provisioning Bento4 tools (${BENTO4_VERSION:-pinned})."
-            local staging_dir staging_zip actual_sha512
-            staging_dir="$(mktemp -d)"
-            staging_zip="$staging_dir/bento4.zip"
-
-            if run_with_retry "download Bento4" \
-                run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download Bento4" \
-                curl -fsSL -o "$staging_zip" "$BENTO4_URL"; then
-                actual_sha512="$(sha512sum "$staging_zip" | cut -d' ' -f1 || true)"
-                if [[ "$actual_sha512" == "$BENTO4_SHA512" ]]; then
-                    if (7z x -y "$staging_zip" -o"$staging_dir" >/dev/null 2>&1 || unzip -q -o "$staging_zip" -d "$staging_dir" >/dev/null 2>&1); then
-                        local bin_file
-                        local installed_any=0
-                        while IFS= read -r bin_file; do
-                            if [[ -f "$bin_file" && -x "$bin_file" ]]; then
-                                sudo install -m 0755 "$bin_file" "$target_dir/$(basename "$bin_file")"
-                                installed_any=1
-                            fi
-                        done < <(find "$staging_dir" -type f -path '*/bin/*' 2>/dev/null)
-
-                        if (( installed_any == 1 )) && [[ -x "$target_dir/mp4dump" ]]; then
-                            info "Bento4 tools provisioned successfully."
-                            record_success "bento4"
-                        else
-                            record_deferred "applications" "bento4" "Bento4 binaries not found in archive."
-                        fi
-                    else
-                        record_deferred "applications" "bento4" "Failed to extract Bento4 archive."
-                    fi
-                else
-                    record_deferred "applications" "bento4" "Bento4 checksum mismatch."
-                fi
+            if provision_verified_archive "$BENTO4_URL" "$BENTO4_SHA512" "$target_dir" "mp4dump" "Bento4" true; then
+                record_success "bento4"
             else
-                record_deferred "applications" "bento4" "Failed to download Bento4."
+                record_deferred "applications" "bento4" "Failed to download, verify, or extract Bento4."
             fi
-            rm -rf "$staging_dir"
         fi
     fi
 }
@@ -506,73 +392,11 @@ install_antigravity() {
 
     info "Provisioning Antigravity CLI (${ANTIGRAVITY_VERSION:-pinned})."
 
-    local staging_dir
-    staging_dir="$(mktemp -d)"
-
-    local staging_tarball="$staging_dir/agy.tar.gz"
-
-    if ! run_with_retry "download Antigravity CLI" \
-        run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download Antigravity CLI" \
-        curl -fsSL -o "$staging_tarball" "$ANTIGRAVITY_URL"; then
-        rm -rf "$staging_dir"
-        record_deferred "applications" "antigravity" "Failed to download Antigravity CLI package."
-        return 0
+    if provision_verified_archive "$ANTIGRAVITY_URL" "$ANTIGRAVITY_SHA512" "$target_bin" "agy" "Antigravity CLI" false; then
+        record_success "antigravity"
+    else
+        record_deferred "applications" "antigravity" "Failed to download, verify, or provision Antigravity CLI."
     fi
-
-    local actual_sha512
-    actual_sha512="$(sha512sum "$staging_tarball" | cut -d' ' -f1 || true)"
-
-    if [[ "$actual_sha512" != "$ANTIGRAVITY_SHA512" ]]; then
-        rm -rf "$staging_dir"
-        record_deferred "applications" "antigravity" "Antigravity CLI checksum mismatch: expected $ANTIGRAVITY_SHA512, got ${actual_sha512:-none}."
-        return 0
-    fi
-
-    info "Antigravity CLI package checksum verified."
-
-    if ! tar -xzf "$staging_tarball" -C "$staging_dir"; then
-        rm -rf "$staging_dir"
-        record_deferred "applications" "antigravity" "Failed to extract Antigravity CLI archive."
-        return 0
-    fi
-
-    local extracted_binary=""
-    if [[ -f "$staging_dir/antigravity" ]]; then
-        extracted_binary="$staging_dir/antigravity"
-    elif [[ -f "$staging_dir/agy" ]]; then
-        extracted_binary="$staging_dir/agy"
-    fi
-
-    if [[ -z "$extracted_binary" || ! -f "$extracted_binary" ]]; then
-        rm -rf "$staging_dir"
-        record_deferred "applications" "antigravity" "Could not find executable binary in extracted Antigravity archive."
-        return 0
-    fi
-
-    local staging_target="$target_dir/.agy.tmp.$$"
-    rm -f "$staging_target"
-
-    if ! install -m 0755 "$extracted_binary" "$staging_target"; then
-        rm -rf "$staging_dir" "$staging_target"
-        record_deferred "applications" "antigravity" "Failed to stage Antigravity executable to $staging_target."
-        return 0
-    fi
-
-    rm -rf "$staging_dir"
-
-    if ! mv -f "$staging_target" "$target_bin"; then
-        rm -f "$staging_target"
-        record_deferred "applications" "antigravity" "Failed to atomically move Antigravity executable into place."
-        return 0
-    fi
-
-    if [[ ! -x "$target_bin" ]]; then
-        record_deferred "applications" "antigravity" "Antigravity CLI binary was not executable after installation."
-        return 0
-    fi
-
-    info "Antigravity CLI (${ANTIGRAVITY_VERSION:-pinned}) provisioned successfully."
-    record_success "antigravity"
 }
 
 install_applications() {
