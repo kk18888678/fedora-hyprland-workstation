@@ -158,6 +158,8 @@ configure_user_directories() {
     fi
 
     local user_dirs_config_dir="$TARGET_HOME/.config"
+    local user_dirs_file="$user_dirs_config_dir/user-dirs.dirs"
+
     if [[ ! -d "$user_dirs_config_dir" ]]; then
         if ! run_as_target_user mkdir -p "$user_dirs_config_dir"; then
             record_deferred "shell" "xdg-user-dirs" "Failed to create user configuration directory: $user_dirs_config_dir."
@@ -165,27 +167,58 @@ configure_user_directories() {
         fi
     fi
 
-    # Execute xdg-user-dirs-update with effective user TARGET_USER and HOME=$TARGET_HOME
-    if ! run_as_target_user xdg-user-dirs-update; then
-        record_deferred "shell" "xdg-user-dirs" "Failed to execute xdg-user-dirs-update as $TARGET_USER."
-        return 0
-    fi
-
-    # Ensure the standard directories referenced by user-dirs.dirs actually exist on disk with TARGET_USER ownership.
-    # Existing customized directories in ~/.config/user-dirs.dirs are preserved and created without renaming.
-    local user_dirs_file="$user_dirs_config_dir/user-dirs.dirs"
     if [[ -f "$user_dirs_file" ]]; then
-        local line
-        while IFS= read -r line; do
-            if [[ "$line" =~ ^[[:space:]]*XDG_[A-Z]+_DIR=\"?([^\"]+)\"? ]]; then
-                local dir_path="${BASH_REMATCH[1]}"
-                dir_path="${dir_path/\$HOME/$TARGET_HOME}"
+        # EXISTING USER: Read and preserve existing configuration before any update tooling runs.
+        # Safely parse user-dirs.dirs line by line without eval or sourcing.
+        local line key raw_val dir_path
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            # Ignore empty lines and comments
+            [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+            # Strict syntax matching: only the eight valid standard XDG directory keys
+            if [[ "$line" =~ ^[[:space:]]*(XDG_(DESKTOP|DOWNLOAD|TEMPLATES|PUBLICSHARE|DOCUMENTS|MUSIC|PICTURES|VIDEOS)_DIR)=[\"\']?([^\"\'\`\$]+|\$HOME/[^\"\'\`\$]*)[\"\']?[[:space:]]*$ ]]; then
+                key="${BASH_REMATCH[1]}"
+                raw_val="${BASH_REMATCH[3]}"
+
+                # Prevent arbitrary command execution or parameter expansion
+                if [[ "$raw_val" == *'`'* || "$raw_val" == *'$('* || "$raw_val" == *'${'* ]]; then
+                    continue
+                fi
+
+                # Expand supported forms: $HOME/... or absolute /...
+                if [[ "$raw_val" == '$HOME'* ]]; then
+                    dir_path="${TARGET_HOME}${raw_val#\$HOME}"
+                elif [[ "$raw_val" == /* ]]; then
+                    dir_path="$raw_val"
+                else
+                    continue
+                fi
+
+                # Create the configured custom directory as TARGET_USER before xdg-user-dirs-update can reset it
                 if [[ -n "$dir_path" && ! -d "$dir_path" ]]; then
-                    run_as_target_user mkdir -p "$dir_path"
+                    if ! run_as_target_user mkdir -p "$dir_path"; then
+                        record_deferred "shell" "xdg-user-dirs" "Failed to create configured XDG directory: $dir_path."
+                        return 0
+                    fi
                 fi
             fi
         done < "$user_dirs_file"
+
+        # Now that all existing configured directories exist on disk, run xdg-user-dirs-update
+        # to populate any missing standard keys without reassigning existing custom paths.
+        if ! run_as_target_user xdg-user-dirs-update; then
+            record_deferred "shell" "xdg-user-dirs" "Failed to update user directories configuration as $TARGET_USER."
+            return 0
+        fi
     else
+        # FRESH USER: No existing ~/.config/user-dirs.dirs.
+        # Execute xdg-user-dirs-update as TARGET_USER to establish standard English baseline.
+        if ! run_as_target_user xdg-user-dirs-update; then
+            record_deferred "shell" "xdg-user-dirs" "Failed to execute xdg-user-dirs-update as $TARGET_USER."
+            return 0
+        fi
+
+        # Ensure all standard baseline directories exist on disk with TARGET_USER ownership.
         local standard_dirs=(
             "$TARGET_HOME/Desktop"
             "$TARGET_HOME/Documents"
@@ -199,7 +232,10 @@ configure_user_directories() {
         local sdir
         for sdir in "${standard_dirs[@]}"; do
             if [[ ! -d "$sdir" ]]; then
-                run_as_target_user mkdir -p "$sdir"
+                if ! run_as_target_user mkdir -p "$sdir"; then
+                    record_deferred "shell" "xdg-user-dirs" "Failed to create standard directory: $sdir."
+                    return 0
+                fi
             fi
         done
     fi
