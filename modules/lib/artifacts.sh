@@ -114,7 +114,8 @@ provision_verified_archive() {
     local extracted_dir="$staging_dir/extracted"
     mkdir -p "$extracted_dir"
 
-    # 1. Structural pre-extraction inspection & link-type/target validation BEFORE extraction
+    # 1. Structural pre-extraction inspection: accept ONLY regular files and directories.
+    # Reject all symbolic links, hard links, and special filesystem entry types before extraction.
     if [[ "$url" == *.zip ]]; then
         if ! command_exists unzip; then
             rm -rf "$staging_dir"
@@ -140,58 +141,17 @@ provision_verified_archive() {
             local type_char="${line:0:1}"
             case "$type_char" in
                 -) # Regular file
-                    local file_path
-                    file_path="$(echo "$line" | awk '{ $1=$2=$3=$4=$5=$6=$7=$8=""; print substr($0,9) }')"
-                    file_path="${file_path#./}"
-                    if ! validate_path_components "$file_path" || ! normalize_archive_path "" "$file_path" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "ZIP archive for $label contains forbidden regular file path: $file_path"
-                        return 1
-                    fi
                     ((entry_count++)) || true
                     ;;
                 d) # Directory
-                    local dir_path
-                    dir_path="$(echo "$line" | awk '{ $1=$2=$3=$4=$5=$6=$7=$8=""; print substr($0,9) }')"
-                    dir_path="${dir_path#./}"
-                    dir_path="${dir_path%/}"
-                    if [[ -n "$dir_path" ]] && ( ! validate_path_components "$dir_path" || ! normalize_archive_path "" "$dir_path" >/dev/null ); then
-                        rm -rf "$staging_dir"
-                        error "ZIP archive for $label contains forbidden directory path: $dir_path"
-                        return 1
-                    fi
                     ((entry_count++)) || true
                     ;;
-                l) # Symlink
-                    local symlink_name
-                    symlink_name="$(echo "$line" | awk '{ $1=$2=$3=$4=$5=$6=$7=$8=""; print substr($0,9) }')"
-                    symlink_name="${symlink_name#./}"
-                    if ! validate_path_components "$symlink_name" || ! normalize_archive_path "" "$symlink_name" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "ZIP archive for $label contains forbidden symlink path: $symlink_name"
-                        return 1
-                    fi
-
-                    local symlink_target
-                    if ! symlink_target="$(unzip -p "$staging_archive" "$symlink_name" 2>/dev/null)"; then
-                        rm -rf "$staging_dir"
-                        error "ZIP archive for $label has unreadable symlink target for: $symlink_name"
-                        return 1
-                    fi
-
-                    local link_dir=""
-                    if [[ "$symlink_name" == */* ]]; then
-                        link_dir="${symlink_name%/*}"
-                    fi
-
-                    if ! normalize_archive_path "$link_dir" "$symlink_target" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "ZIP archive for $label contains escaping symlink before extraction: $symlink_name -> $symlink_target"
-                        return 1
-                    fi
-                    ((entry_count++)) || true
+                l) # Symbolic link rejected
+                    rm -rf "$staging_dir"
+                    error "ZIP archive for $label contains symbolic link before extraction (symbolic links are disallowed): $line"
+                    return 1
                     ;;
-                *)
+                *) # Special or unsupported entry types rejected
                     rm -rf "$staging_dir"
                     error "ZIP archive for $label contains unsupported/special entry type '$type_char': $line"
                     return 1
@@ -204,6 +164,28 @@ provision_verified_archive() {
             error "ZIP archive for $label is empty or produced no inspectable members."
             return 1
         fi
+
+        # Validate pure member paths from unzip -Z1
+        local members_listing
+        if ! members_listing="$(unzip -Z1 "$staging_archive" 2>/dev/null)"; then
+            rm -rf "$staging_dir"
+            error "ZIP archive member path listing failed for $label."
+            return 1
+        fi
+
+        local member
+        while IFS= read -r member; do
+            [[ -n "$member" ]] || continue
+            local clean="${member#./}"
+            clean="${clean%/}"
+            [[ -n "$clean" ]] || continue
+
+            if ! validate_path_components "$clean" || ! normalize_archive_path "" "$clean" >/dev/null; then
+                rm -rf "$staging_dir"
+                error "ZIP archive for $label contains forbidden member path: $member"
+                return 1
+            fi
+        done <<< "$members_listing"
 
         # 2. Extract into staging directory
         if ! unzip -q -o "$staging_archive" -d "$extracted_dir" 2>/dev/null; then
@@ -218,8 +200,9 @@ provision_verified_archive() {
             return 1
         fi
 
-        local raw_listing
-        if ! raw_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+        # Check entry modes: reject symlinks, hardlinks, and special entries
+        local verbose_listing
+        if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
             rm -rf "$staging_dir"
             error "Archive structural inspection failed for $label (tar listing error)."
             return 1
@@ -233,77 +216,20 @@ provision_verified_archive() {
             local type_char="${line:0:1}"
             case "$type_char" in
                 -) # Regular file
-                    local file_path
-                    file_path="$(echo "$line" | awk '{ $1=$2=$3=$4=$5=""; print substr($0,6) }')"
-                    file_path="${file_path#./}"
-                    if ! validate_path_components "$file_path" || ! normalize_archive_path "" "$file_path" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "Tarball for $label contains forbidden regular file path: $file_path"
-                        return 1
-                    fi
                     ((entry_count++)) || true
                     ;;
                 d) # Directory
-                    local dir_path
-                    dir_path="$(echo "$line" | awk '{ $1=$2=$3=$4=$5=""; print substr($0,6) }')"
-                    dir_path="${dir_path#./}"
-                    dir_path="${dir_path%/}"
-                    if [[ -n "$dir_path" ]] && ( ! validate_path_components "$dir_path" || ! normalize_archive_path "" "$dir_path" >/dev/null ); then
-                        rm -rf "$staging_dir"
-                        error "Tarball for $label contains forbidden directory path: $dir_path"
-                        return 1
-                    fi
                     ((entry_count++)) || true
                     ;;
-                l) # Symbolic link
-                    local rest
-                    rest="$(echo "$line" | awk '{ $1=$2=$3=$4=$5=""; print substr($0,6) }')"
-                    local link_name="${rest%% -> *}"
-                    local link_target="${rest#* -> }"
-                    link_name="${link_name#./}"
-
-                    if ! validate_path_components "$link_name" || ! normalize_archive_path "" "$link_name" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "Tarball for $label contains forbidden symlink path: $link_name"
-                        return 1
-                    fi
-
-                    local link_dir=""
-                    if [[ "$link_name" == */* ]]; then
-                        link_dir="${link_name%/*}"
-                    fi
-
-                    if ! normalize_archive_path "$link_dir" "$link_target" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "Tarball for $label contains escaping symlink before extraction: $link_name -> $link_target"
-                        return 1
-                    fi
-                    ((entry_count++)) || true
+                l) # Symbolic link rejected
+                    rm -rf "$staging_dir"
+                    error "Tarball for $label contains symbolic link before extraction (symbolic links are disallowed): $line"
+                    return 1
                     ;;
-                h) # Hard link
-                    local rest
-                    rest="$(echo "$line" | awk '{ $1=$2=$3=$4=$5=""; print substr($0,6) }')"
-                    local link_name="${rest%% link to *}"
-                    local link_target="${rest#* link to }"
-                    link_name="${link_name#./}"
-
-                    if ! validate_path_components "$link_name" || ! normalize_archive_path "" "$link_name" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "Tarball for $label contains forbidden hardlink path: $link_name"
-                        return 1
-                    fi
-
-                    local link_dir=""
-                    if [[ "$link_name" == */* ]]; then
-                        link_dir="${link_name%/*}"
-                    fi
-
-                    if ! normalize_archive_path "$link_dir" "$link_target" >/dev/null && ! normalize_archive_path "" "$link_target" >/dev/null; then
-                        rm -rf "$staging_dir"
-                        error "Tarball for $label contains escaping hardlink before extraction: $link_name link to $link_target"
-                        return 1
-                    fi
-                    ((entry_count++)) || true
+                h) # Hard link rejected
+                    rm -rf "$staging_dir"
+                    error "Tarball for $label contains hard link before extraction (hard links are disallowed): $line"
+                    return 1
                     ;;
                 *) # Special entry types: character/block devices, fifos, sockets, or unrecognized
                     rm -rf "$staging_dir"
@@ -311,13 +237,35 @@ provision_verified_archive() {
                     return 1
                     ;;
             esac
-        done <<< "$raw_listing"
+        done <<< "$verbose_listing"
 
         if (( entry_count == 0 )); then
             rm -rf "$staging_dir"
             error "Tarball for $label is empty or produced no inspectable members."
             return 1
         fi
+
+        # Validate pure member paths from tar -tf
+        local members_listing
+        if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+            rm -rf "$staging_dir"
+            error "Tarball member path listing failed for $label."
+            return 1
+        fi
+
+        local member
+        while IFS= read -r member; do
+            [[ -n "$member" ]] || continue
+            local clean="${member#./}"
+            clean="${clean%/}"
+            [[ -n "$clean" ]] || continue
+
+            if ! validate_path_components "$clean" || ! normalize_archive_path "" "$clean" >/dev/null; then
+                rm -rf "$staging_dir"
+                error "Tarball for $label contains forbidden member path: $member"
+                return 1
+            fi
+        done <<< "$members_listing"
 
         # 2. Extract into staging directory
         if ! tar -xf "$staging_archive" -C "$extracted_dir" --no-same-owner 2>/dev/null; then
@@ -327,24 +275,13 @@ provision_verified_archive() {
         fi
     fi
 
-    # 3. Post-extraction link safety validation (defense-in-depth with boundary-aware containment)
+    # 3. Post-extraction symlink validation (defense-in-depth: any symlink appearing is rejected)
     local symlink_file
     while IFS= read -r symlink_file; do
         [[ -n "$symlink_file" ]] || continue
-        local target
-        target="$(readlink "$symlink_file")"
-        if [[ "$target" == /* || "$target" =~ ^[a-zA-Z]: ]]; then
-            rm -rf "$staging_dir"
-            error "Archive for $label contains unsafe absolute symlink after extraction: $symlink_file -> $target"
-            return 1
-        fi
-        local resolved
-        resolved="$(cd -- "$(dirname -- "$symlink_file")" 2>/dev/null && realpath -m -- "$target" 2>/dev/null || true)"
-        if [[ -z "$resolved" || ( "$resolved" != "$extracted_dir" && "$resolved" != "$extracted_dir/"* ) ]]; then
-            rm -rf "$staging_dir"
-            error "Archive for $label contains symlink escaping staging: $symlink_file -> $target"
-            return 1
-        fi
+        rm -rf "$staging_dir"
+        error "Archive for $label contained unexpected symbolic link after extraction: $symlink_file"
+        return 1
     done < <(find "$extracted_dir" -type l 2>/dev/null)
 
     # 4. Deterministic expected member resolution

@@ -286,97 +286,93 @@ valid_status=0
 provision_verified_archive "https://example.com/valid.tar.gz" "$valid_hash" "$valid_dest" "my_tool" "valid_tool" false || valid_status=$?
 echo "test1_valid_archive_ok=$([[ $valid_status -eq 0 && -x "$valid_dest" ]] && echo 1 || echo 0)"
 
-# 2. Safe internal relative symlink in tar -> PASS
-mkdir -p "$fixture_dir/safe_sym_src/bin"
-printf '#!/bin/sh\necho real-target\n' > "$fixture_dir/safe_sym_src/bin/real_tool"
-chmod +x "$fixture_dir/safe_sym_src/bin/real_tool"
-ln -s "real_tool" "$fixture_dir/safe_sym_src/bin/sym_tool"
-tar -czf "$fixture_dir/safe_sym.tar.gz" -C "$fixture_dir/safe_sym_src" bin
-safe_sym_hash="$(sha512sum "$fixture_dir/safe_sym.tar.gz" | cut -d' ' -f1)"
+# 2. TAR symlink with ordinary filename -> REJECTED BEFORE EXTRACTION
+sentinel_sym="$fixture_dir/sentinel_sym_plain"
+rm -f "$sentinel_sym"
+mkdir -p "$fixture_dir/sym_plain_src"
+printf '#!/bin/sh\necho file\n' > "$fixture_dir/sym_plain_src/file"
+ln -s "file" "$fixture_dir/sym_plain_src/sym_plain"
+tar -czf "$fixture_dir/sym_plain.tar.gz" -C "$fixture_dir/sym_plain_src" file sym_plain
+sym_plain_hash="$(sha512sum "$fixture_dir/sym_plain.tar.gz" | cut -d' ' -f1)"
 
-current_payload_file="$fixture_dir/safe_sym.tar.gz"
-safe_sym_dest="$fixture_dir/installed_safe_sym/real_tool"
-safe_sym_status=0
-provision_verified_archive "https://example.com/safe_sym.tar.gz" "$safe_sym_hash" "$safe_sym_dest" "bin/real_tool" "safe_sym_tool" false || safe_sym_status=$?
-echo "test2_safe_internal_symlink_ok=$([[ $safe_sym_status -eq 0 && -x "$safe_sym_dest" ]] && echo 1 || echo 0)"
-
-# 3. Absolute symlink target -> FAIL BEFORE EXTRACTION (sentinel not touched)
-sentinel_abs="$fixture_dir/sentinel_abs_target"
-rm -f "$sentinel_abs"
-mkdir -p "$fixture_dir/abs_sym_src"
-ln -s "$sentinel_abs" "$fixture_dir/abs_sym_src/sym_abs"
-tar -czf "$fixture_dir/abs_sym.tar.gz" -C "$fixture_dir/abs_sym_src" sym_abs
-abs_sym_hash="$(sha512sum "$fixture_dir/abs_sym.tar.gz" | cut -d' ' -f1)"
-
-current_payload_file="$fixture_dir/abs_sym.tar.gz"
-abs_sym_dest="$fixture_dir/installed_abs_sym/sym_abs"
-abs_sym_status=0
+current_payload_file="$fixture_dir/sym_plain.tar.gz"
+sym_plain_dest="$fixture_dir/installed_sym_plain/file"
+sym_plain_status=0
 (
-    provision_verified_archive "https://example.com/abs_sym.tar.gz" "$abs_sym_hash" "$abs_sym_dest" "sym_abs" "abs_sym_test" false >/dev/null 2>&1
-) || abs_sym_status=$?
-echo "test3_abs_symlink_rejected_before_extraction=$([[ $abs_sym_status -ne 0 && ! -e "$abs_sym_dest" && ! -e "$sentinel_abs" ]] && echo 1 || echo 0)"
+    provision_verified_archive "https://example.com/sym_plain.tar.gz" "$sym_plain_hash" "$sym_plain_dest" "file" "sym_plain_test" false >/dev/null 2>&1
+) || sym_plain_status=$?
+echo "test2_tar_symlink_plain_rejected=$([[ $sym_plain_status -ne 0 && ! -e "$sym_plain_dest" && ! -e "$sentinel_sym" ]] && echo 1 || echo 0)"
 
-# 4. Relative symlink escaping archive root -> FAIL BEFORE EXTRACTION
-sentinel_rel="$fixture_dir/sentinel_rel_target"
-rm -f "$sentinel_rel"
-mkdir -p "$fixture_dir/esc_sym_src/sub"
-ln -s "../../sentinel_rel_target" "$fixture_dir/esc_sym_src/sub/sym_esc"
-tar -czf "$fixture_dir/esc_sym.tar.gz" -C "$fixture_dir/esc_sym_src" sub
-esc_sym_hash="$(sha512sum "$fixture_dir/esc_sym.tar.gz" | cut -d' ' -f1)"
+# 3. TAR symlink whose filename contains " -> " -> REJECTED BEFORE EXTRACTION
+sentinel_arrow="$fixture_dir/sentinel_sym_arrow"
+rm -f "$sentinel_arrow"
+mkdir -p "$fixture_dir/sym_arrow_src"
+printf '#!/bin/sh\necho file\n' > "$fixture_dir/sym_arrow_src/file"
+ln -s "file" "$fixture_dir/sym_arrow_src/sym -> trick"
+tar -czf "$fixture_dir/sym_arrow.tar.gz" -C "$fixture_dir/sym_arrow_src" file "sym -> trick"
+sym_arrow_hash="$(sha512sum "$fixture_dir/sym_arrow.tar.gz" | cut -d' ' -f1)"
 
-current_payload_file="$fixture_dir/esc_sym.tar.gz"
-esc_sym_dest="$fixture_dir/installed_esc_sym/sym_esc"
-esc_sym_status=0
+current_payload_file="$fixture_dir/sym_arrow.tar.gz"
+sym_arrow_dest="$fixture_dir/installed_sym_arrow/file"
+sym_arrow_status=0
 (
-    provision_verified_archive "https://example.com/esc_sym.tar.gz" "$esc_sym_hash" "$esc_sym_dest" "sub/sym_esc" "esc_sym_test" false >/dev/null 2>&1
-) || esc_sym_status=$?
-echo "test4_esc_symlink_rejected_before_extraction=$([[ $esc_sym_status -ne 0 && ! -e "$esc_sym_dest" && ! -e "$sentinel_rel" ]] && echo 1 || echo 0)"
+    provision_verified_archive "https://example.com/sym_arrow.tar.gz" "$sym_arrow_hash" "$sym_arrow_dest" "file" "sym_arrow_test" false >/dev/null 2>&1
+) || sym_arrow_status=$?
+echo "test3_tar_symlink_arrow_name_rejected=$([[ $sym_arrow_status -ne 0 && ! -e "$sym_arrow_dest" && ! -e "$sentinel_arrow" ]] && echo 1 || echo 0)"
 
-# 5. Safe internal hardlink in tar -> PASS
-mkdir -p "$fixture_dir/safe_hard_src/bin"
-printf '#!/bin/sh\necho hard-target\n' > "$fixture_dir/safe_hard_src/bin/tool_real"
-chmod +x "$fixture_dir/safe_hard_src/bin/tool_real"
-ln "$fixture_dir/safe_hard_src/bin/tool_real" "$fixture_dir/safe_hard_src/bin/tool_hard"
-tar -czf "$fixture_dir/safe_hard.tar.gz" -C "$fixture_dir/safe_hard_src" bin
-safe_hard_hash="$(sha512sum "$fixture_dir/safe_hard.tar.gz" | cut -d' ' -f1)"
+# 4. TAR hardlink with ordinary filename -> REJECTED BEFORE EXTRACTION
+sentinel_hard="$fixture_dir/sentinel_hard_plain"
+rm -f "$sentinel_hard"
+mkdir -p "$fixture_dir/hard_plain_src"
+printf '#!/bin/sh\necho file\n' > "$fixture_dir/hard_plain_src/file"
+ln "$fixture_dir/hard_plain_src/file" "$fixture_dir/hard_plain_src/hard_plain"
+tar -czf "$fixture_dir/hard_plain.tar.gz" -C "$fixture_dir/hard_plain_src" file hard_plain
+hard_plain_hash="$(sha512sum "$fixture_dir/hard_plain.tar.gz" | cut -d' ' -f1)"
 
-current_payload_file="$fixture_dir/safe_hard.tar.gz"
-safe_hard_dest="$fixture_dir/installed_safe_hard/tool_real"
-safe_hard_status=0
-provision_verified_archive "https://example.com/safe_hard.tar.gz" "$safe_hard_hash" "$safe_hard_dest" "bin/tool_real" "safe_hard_test" false || safe_hard_status=$?
-echo "test5_safe_hardlink_ok=$([[ $safe_hard_status -eq 0 && -x "$safe_hard_dest" ]] && echo 1 || echo 0)"
-
-# 6. Absolute/escaping hardlink -> FAIL BEFORE EXTRACTION
-mkdir -p "$fixture_dir/esc_hard_src"
-printf '#!/bin/sh\necho evil\n' > "$fixture_dir/esc_hard_src/tool_source"
-# Create archive and transform hardlink path to escape
-tar -czf "$fixture_dir/esc_hard.tar.gz" -C "$fixture_dir/esc_hard_src" --transform 's|tool_source|../../outside_hard|' tool_source 2>/dev/null || true
-esc_hard_hash="$(sha512sum "$fixture_dir/esc_hard.tar.gz" | cut -d' ' -f1)"
-
-current_payload_file="$fixture_dir/esc_hard.tar.gz"
-esc_hard_dest="$fixture_dir/installed_esc_hard/tool"
-esc_hard_status=0
+current_payload_file="$fixture_dir/hard_plain.tar.gz"
+hard_plain_dest="$fixture_dir/installed_hard_plain/file"
+hard_plain_status=0
 (
-    provision_verified_archive "https://example.com/esc_hard.tar.gz" "$esc_hard_hash" "$esc_hard_dest" "tool" "esc_hard_test" false >/dev/null 2>&1
-) || esc_hard_status=$?
-echo "test6_esc_hardlink_rejected_before_extraction=$([[ $esc_hard_status -ne 0 && ! -e "$esc_hard_dest" ]] && echo 1 || echo 0)"
+    provision_verified_archive "https://example.com/hard_plain.tar.gz" "$hard_plain_hash" "$hard_plain_dest" "file" "hard_plain_test" false >/dev/null 2>&1
+) || hard_plain_status=$?
+echo "test4_tar_hardlink_plain_rejected=$([[ $hard_plain_status -ne 0 && ! -e "$hard_plain_dest" && ! -e "$sentinel_hard" ]] && echo 1 || echo 0)"
 
-# 7. Chained link escape -> FAIL BEFORE EXTRACTION
-mkdir -p "$fixture_dir/chained_src/sub"
-ln -s "sub/link_b" "$fixture_dir/chained_src/link_a"
-ln -s "../../outside_target" "$fixture_dir/chained_src/sub/link_b"
-tar -czf "$fixture_dir/chained.tar.gz" -C "$fixture_dir/chained_src" link_a sub
-chained_hash="$(sha512sum "$fixture_dir/chained.tar.gz" | cut -d' ' -f1)"
+# 5. TAR hardlink whose filename contains " link to " -> REJECTED BEFORE EXTRACTION
+sentinel_hardlink_to="$fixture_dir/sentinel_hard_linkto"
+rm -f "$sentinel_hardlink_to"
+mkdir -p "$fixture_dir/hard_linkto_src"
+printf '#!/bin/sh\necho file\n' > "$fixture_dir/hard_linkto_src/file"
+ln "$fixture_dir/hard_linkto_src/file" "$fixture_dir/hard_linkto_src/hard link to trick"
+tar -czf "$fixture_dir/hard_linkto.tar.gz" -C "$fixture_dir/hard_linkto_src" file "hard link to trick"
+hard_linkto_hash="$(sha512sum "$fixture_dir/hard_linkto.tar.gz" | cut -d' ' -f1)"
 
-current_payload_file="$fixture_dir/chained.tar.gz"
-chained_dest="$fixture_dir/installed_chained/link_a"
-chained_status=0
+current_payload_file="$fixture_dir/hard_linkto.tar.gz"
+hard_linkto_dest="$fixture_dir/installed_hard_linkto/file"
+hard_linkto_status=0
 (
-    provision_verified_archive "https://example.com/chained.tar.gz" "$chained_hash" "$chained_dest" "link_a" "chained_test" false >/dev/null 2>&1
-) || chained_status=$?
-echo "test7_chained_escape_rejected_before_extraction=$([[ $chained_status -ne 0 && ! -e "$chained_dest" ]] && echo 1 || echo 0)"
+    provision_verified_archive "https://example.com/hard_linkto.tar.gz" "$hard_linkto_hash" "$hard_linkto_dest" "file" "hard_linkto_test" false >/dev/null 2>&1
+) || hard_linkto_status=$?
+echo "test5_tar_hardlink_linkto_name_rejected=$([[ $hard_linkto_status -ne 0 && ! -e "$hard_linkto_dest" && ! -e "$sentinel_hardlink_to" ]] && echo 1 || echo 0)"
 
-# 8. Member traversal (../) -> FAIL BEFORE EXTRACTION
+# 6. ZIP symlink -> REJECTED BEFORE EXTRACTION
+sentinel_zip_sym="$fixture_dir/sentinel_zip_sym"
+rm -f "$sentinel_zip_sym"
+mkdir -p "$fixture_dir/zip_sym_src"
+printf '#!/bin/sh\necho zip-file\n' > "$fixture_dir/zip_sym_src/real_zip_file"
+chmod +x "$fixture_dir/zip_sym_src/real_zip_file"
+ln -s "real_zip_file" "$fixture_dir/zip_sym_src/sym_zip"
+(cd "$fixture_dir/zip_sym_src" && zip -y -r "$fixture_dir/sym.zip" real_zip_file sym_zip >/dev/null)
+zip_sym_hash="$(sha512sum "$fixture_dir/sym.zip" | cut -d' ' -f1)"
+
+current_payload_file="$fixture_dir/sym.zip"
+zip_sym_dest="$fixture_dir/installed_zip_sym/real_zip_file"
+zip_sym_status=0
+(
+    provision_verified_archive "https://example.com/sym.zip" "$zip_sym_hash" "$zip_sym_dest" "real_zip_file" "zip_sym_test" false >/dev/null 2>&1
+) || zip_sym_status=$?
+echo "test6_zip_symlink_rejected=$([[ $zip_sym_status -ne 0 && ! -e "$zip_sym_dest" && ! -e "$sentinel_zip_sym" ]] && echo 1 || echo 0)"
+
+# 7. Member traversal (../) -> FAIL BEFORE EXTRACTION
 mkdir -p "$fixture_dir/traversal_src"
 printf 'malicious\n' > "$fixture_dir/traversal_src/evil"
 tar -czf "$fixture_dir/traversal.tar.gz" -C "$fixture_dir/traversal_src" --transform 's|^|../|' evil 2>/dev/null || true
@@ -388,9 +384,9 @@ traversal_status=0
 (
     provision_verified_archive "https://example.com/traversal.tar.gz" "$traversal_hash" "$traversal_dest" "evil" "evil_tool" false >/dev/null 2>&1
 ) || traversal_status=$?
-echo "test8_member_traversal_rejected_before_extraction=$([[ $traversal_status -ne 0 && ! -e "$traversal_dest" ]] && echo 1 || echo 0)"
+echo "test7_member_traversal_rejected_before_extraction=$([[ $traversal_status -ne 0 && ! -e "$traversal_dest" ]] && echo 1 || echo 0)"
 
-# 9. Expected member containing harmless ".." inside filename -> PASS
+# 8. Expected member containing harmless ".." inside filename -> PASS
 mkdir -p "$fixture_dir/dotdot_src/bin"
 printf '#!/bin/sh\necho dotdot-tool\n' > "$fixture_dir/dotdot_src/bin/my..tool.v2"
 chmod +x "$fixture_dir/dotdot_src/bin/my..tool.v2"
@@ -401,16 +397,16 @@ current_payload_file="$fixture_dir/dotdot.tar.gz"
 dotdot_dest="$fixture_dir/installed_dotdot/my..tool.v2"
 dotdot_status=0
 provision_verified_archive "https://example.com/dotdot.tar.gz" "$dotdot_hash" "$dotdot_dest" "bin/my..tool.v2" "dotdot_test" false || dotdot_status=$?
-echo "test9_dotdot_in_name_ok=$([[ $dotdot_status -eq 0 && "$("$dotdot_dest")" == "dotdot-tool" ]] && echo 1 || echo 0)"
+echo "test8_dotdot_in_name_ok=$([[ $dotdot_status -eq 0 && "$("$dotdot_dest")" == "dotdot-tool" ]] && echo 1 || echo 0)"
 
-# 10. Expected member containing real ".." path component -> FAIL
+# 9. Expected member containing real ".." path component -> FAIL
 real_dotdot_status=0
 (
     provision_verified_archive "https://example.com/valid.tar.gz" "$valid_hash" "$fixture_dir/installed_real_dotdot/tool" "bin/../my_tool" "real_dotdot_test" false >/dev/null 2>&1
 ) || real_dotdot_status=$?
-echo "test10_real_dotdot_component_rejected=$([[ $real_dotdot_status -ne 0 ]] && echo 1 || echo 0)"
+echo "test9_real_dotdot_component_rejected=$([[ $real_dotdot_status -ne 0 ]] && echo 1 || echo 0)"
 
-# 11. Malformed/uninspectable link metadata or corrupt archive -> FAIL CLOSED
+# 10. Malformed/uninspectable link metadata or corrupt archive -> FAIL CLOSED
 printf 'NOT_A_VALID_TAR_BYTES' > "$fixture_dir/corrupt.tar.gz"
 corrupt_hash="$(sha512sum "$fixture_dir/corrupt.tar.gz" | cut -d' ' -f1)"
 
@@ -420,51 +416,22 @@ corrupt_status=0
 (
     provision_verified_archive "https://example.com/corrupt.tar.gz" "$corrupt_hash" "$corrupt_dest" "tool" "corrupt_test" false >/dev/null 2>&1
 ) || corrupt_status=$?
-echo "test11_corrupt_listing_rejected=$([[ $corrupt_status -ne 0 && ! -e "$corrupt_dest" ]] && echo 1 || echo 0)"
+echo "test10_corrupt_listing_rejected=$([[ $corrupt_status -ne 0 && ! -e "$corrupt_dest" ]] && echo 1 || echo 0)"
 
-# 12. ZIP pre-extraction: safe internal symlink in ZIP -> PASS
-mkdir -p "$fixture_dir/zip_safe_src/bin"
-printf '#!/bin/sh\necho zip-tool\n' > "$fixture_dir/zip_safe_src/bin/real_zip_tool"
-chmod +x "$fixture_dir/zip_safe_src/bin/real_zip_tool"
-ln -s "real_zip_tool" "$fixture_dir/zip_safe_src/bin/sym_zip_tool"
-(cd "$fixture_dir/zip_safe_src" && zip -y -r "$fixture_dir/safe_sym.zip" bin >/dev/null)
-zip_safe_hash="$(sha512sum "$fixture_dir/safe_sym.zip" | cut -d' ' -f1)"
+# 11. Safe regular-file ZIP archive -> PASS
+mkdir -p "$fixture_dir/valid_zip_src/bin"
+printf '#!/bin/sh\necho valid-zip-tool\n' > "$fixture_dir/valid_zip_src/bin/real_zip_bin"
+chmod +x "$fixture_dir/valid_zip_src/bin/real_zip_bin"
+(cd "$fixture_dir/valid_zip_src" && zip -y -r "$fixture_dir/valid_zip.zip" bin >/dev/null)
+valid_zip_hash="$(sha512sum "$fixture_dir/valid_zip.zip" | cut -d' ' -f1)"
 
-current_payload_file="$fixture_dir/safe_sym.zip"
-zip_safe_dest="$fixture_dir/installed_zip_safe/real_zip_tool"
-zip_safe_status=0
-provision_verified_archive "https://example.com/safe_sym.zip" "$zip_safe_hash" "$zip_safe_dest" "bin/real_zip_tool" "zip_safe_test" false || zip_safe_status=$?
-echo "test12_zip_safe_symlink_ok=$([[ $zip_safe_status -eq 0 && -x "$zip_safe_dest" ]] && echo 1 || echo 0)"
+current_payload_file="$fixture_dir/valid_zip.zip"
+valid_zip_dest="$fixture_dir/installed_valid_zip/real_zip_bin"
+valid_zip_status=0
+provision_verified_archive "https://example.com/valid_zip.zip" "$valid_zip_hash" "$valid_zip_dest" "bin/real_zip_bin" "valid_zip_test" false || valid_zip_status=$?
+echo "test11_valid_zip_ok=$([[ $valid_zip_status -eq 0 && -x "$valid_zip_dest" ]] && echo 1 || echo 0)"
 
-# 13. ZIP pre-extraction: absolute symlink target in ZIP -> FAIL BEFORE EXTRACTION
-mkdir -p "$fixture_dir/zip_abs_src"
-ln -s "/etc/shadow" "$fixture_dir/zip_abs_src/sym_abs"
-(cd "$fixture_dir/zip_abs_src" && zip -y -r "$fixture_dir/abs_sym.zip" sym_abs >/dev/null)
-zip_abs_hash="$(sha512sum "$fixture_dir/abs_sym.zip" | cut -d' ' -f1)"
-
-current_payload_file="$fixture_dir/abs_sym.zip"
-zip_abs_dest="$fixture_dir/installed_zip_abs/sym_abs"
-zip_abs_status=0
-(
-    provision_verified_archive "https://example.com/abs_sym.zip" "$zip_abs_hash" "$zip_abs_dest" "sym_abs" "zip_abs_test" false >/dev/null 2>&1
-) || zip_abs_status=$?
-echo "test13_zip_abs_symlink_rejected_before_extraction=$([[ $zip_abs_status -ne 0 && ! -e "$zip_abs_dest" ]] && echo 1 || echo 0)"
-
-# 14. ZIP pre-extraction: escaping relative symlink in ZIP -> FAIL BEFORE EXTRACTION
-mkdir -p "$fixture_dir/zip_esc_src/sub"
-ln -s "../../outside_zip" "$fixture_dir/zip_esc_src/sub/sym_esc"
-(cd "$fixture_dir/zip_esc_src" && zip -y -r "$fixture_dir/esc_sym.zip" sub >/dev/null)
-zip_esc_hash="$(sha512sum "$fixture_dir/esc_sym.zip" | cut -d' ' -f1)"
-
-current_payload_file="$fixture_dir/esc_sym.zip"
-zip_esc_dest="$fixture_dir/installed_zip_esc/sym_esc"
-zip_esc_status=0
-(
-    provision_verified_archive "https://example.com/esc_sym.zip" "$zip_esc_hash" "$zip_esc_dest" "sub/sym_esc" "zip_esc_test" false >/dev/null 2>&1
-) || zip_esc_status=$?
-echo "test14_zip_esc_symlink_rejected_before_extraction=$([[ $zip_esc_status -ne 0 && ! -e "$zip_esc_dest" ]] && echo 1 || echo 0)"
-
-# 15. Ambiguous duplicate basenames -> FAIL
+# 12. Ambiguous duplicate member basenames -> FAIL
 mkdir -p "$fixture_dir/ambig_src/dir_a" "$fixture_dir/ambig_src/dir_b"
 printf '#!/bin/sh\necho tool-a\n' > "$fixture_dir/ambig_src/dir_a/tool"
 printf '#!/bin/sh\necho tool-b\n' > "$fixture_dir/ambig_src/dir_b/tool"
@@ -478,9 +445,9 @@ ambig_status=0
 (
     provision_verified_archive "https://example.com/ambig.tar.gz" "$ambig_hash" "$ambig_dest" "tool" "ambig_test" false >/dev/null 2>&1
 ) || ambig_status=$?
-echo "test15_ambiguous_rejected=$([[ $ambig_status -ne 0 && ! -e "$ambig_dest" ]] && echo 1 || echo 0)"
+echo "test12_ambiguous_rejected=$([[ $ambig_status -ne 0 && ! -e "$ambig_dest" ]] && echo 1 || echo 0)"
 
-# 16. Multi-binary set all present -> PASS
+# 13. Multi-binary set all present -> PASS
 mkdir -p "$fixture_dir/multi_src/bin"
 printf '#!/bin/sh\necho tool1\n' > "$fixture_dir/multi_src/bin/tool1"
 printf '#!/bin/sh\necho tool2\n' > "$fixture_dir/multi_src/bin/tool2"
@@ -493,9 +460,9 @@ current_payload_file="$fixture_dir/multi.tar.gz"
 multi_dest_dir="$fixture_dir/installed_multi"
 multi_status=0
 provision_verified_archive "https://example.com/multi.tar.gz" "$multi_hash" "$multi_dest_dir" "bin/tool1 bin/tool2 bin/tool3" "multi_test" false || multi_status=$?
-echo "test16_multi_all_present_ok=$([[ $multi_status -eq 0 && -x "$multi_dest_dir/tool1" && -x "$multi_dest_dir/tool2" && -x "$multi_dest_dir/tool3" ]] && echo 1 || echo 0)"
+echo "test13_multi_all_present_ok=$([[ $multi_status -eq 0 && -x "$multi_dest_dir/tool1" && -x "$multi_dest_dir/tool2" && -x "$multi_dest_dir/tool3" ]] && echo 1 || echo 0)"
 
-# 17. Partial multi-binary set -> FAIL BEFORE installation
+# 14. Partial multi-binary set -> FAIL BEFORE installation
 mkdir -p "$fixture_dir/partial_src/bin"
 printf '#!/bin/sh\necho tool1\n' > "$fixture_dir/partial_src/bin/tool1"
 printf '#!/bin/sh\necho tool2\n' > "$fixture_dir/partial_src/bin/tool2"
@@ -509,7 +476,7 @@ partial_status=0
 (
     provision_verified_archive "https://example.com/partial.tar.gz" "$partial_hash" "$partial_dest_dir" "bin/tool1 bin/tool2 bin/tool3_missing" "partial_test" false >/dev/null 2>&1
 ) || partial_status=$?
-echo "test17_partial_set_rejected_cleanly=$([[ $partial_status -ne 0 && ! -e "$partial_dest_dir/tool1" && ! -e "$partial_dest_dir/tool2" ]] && echo 1 || echo 0)"
+echo "test14_partial_set_rejected_cleanly=$([[ $partial_status -ne 0 && ! -e "$partial_dest_dir/tool1" && ! -e "$partial_dest_dir/tool2" ]] && echo 1 || echo 0)"
 
 rm -rf "$fixture_dir" "$TARGET_HOME"
 EOS
@@ -521,97 +488,79 @@ else
     fail "provision_verified_archive failed on valid archive: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test2_safe_internal_symlink_ok=1'; then
-    pass "provision_verified_archive accepts safe internal relative symlinks in tarball"
+if printf '%s\n' "$archive_safety_output" | grep -q 'test2_tar_symlink_plain_rejected=1'; then
+    pass "provision_verified_archive rejects ordinary TAR symlinks before extraction"
 else
-    fail "provision_verified_archive failed on safe internal symlink in tarball: $archive_safety_output"
+    fail "provision_verified_archive failed to reject ordinary TAR symlink: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test3_abs_symlink_rejected_before_extraction=1'; then
-    pass "provision_verified_archive rejects absolute symlink targets before tar extraction"
+if printf '%s\n' "$archive_safety_output" | grep -q 'test3_tar_symlink_arrow_name_rejected=1'; then
+    pass "provision_verified_archive rejects TAR symlink whose filename contains ' -> ' before extraction"
 else
-    fail "provision_verified_archive failed to reject absolute symlink before tar extraction: $archive_safety_output"
+    fail "provision_verified_archive failed to reject TAR symlink with ' -> ': $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test4_esc_symlink_rejected_before_extraction=1'; then
-    pass "provision_verified_archive rejects escaping relative symlinks before tar extraction"
+if printf '%s\n' "$archive_safety_output" | grep -q 'test4_tar_hardlink_plain_rejected=1'; then
+    pass "provision_verified_archive rejects ordinary TAR hardlinks before extraction"
 else
-    fail "provision_verified_archive failed to reject escaping symlink before tar extraction: $archive_safety_output"
+    fail "provision_verified_archive failed to reject ordinary TAR hardlink: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test5_safe_hardlink_ok=1'; then
-    pass "provision_verified_archive accepts safe internal hardlinks in tarball"
+if printf '%s\n' "$archive_safety_output" | grep -q 'test5_tar_hardlink_linkto_name_rejected=1'; then
+    pass "provision_verified_archive rejects TAR hardlink whose filename contains ' link to ' before extraction"
 else
-    fail "provision_verified_archive failed on safe internal hardlink in tarball: $archive_safety_output"
+    fail "provision_verified_archive failed to reject TAR hardlink with ' link to ': $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test6_esc_hardlink_rejected_before_extraction=1'; then
-    pass "provision_verified_archive rejects absolute/escaping hardlinks before tar extraction"
+if printf '%s\n' "$archive_safety_output" | grep -q 'test6_zip_symlink_rejected=1'; then
+    pass "provision_verified_archive rejects ZIP symlinks before extraction"
 else
-    fail "provision_verified_archive failed to reject escaping hardlink before tar extraction: $archive_safety_output"
+    fail "provision_verified_archive failed to reject ZIP symlink: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test7_chained_escape_rejected_before_extraction=1'; then
-    pass "provision_verified_archive rejects chained link escapes before tar extraction"
-else
-    fail "provision_verified_archive failed to reject chained link escape: $archive_safety_output"
-fi
-
-if printf '%s\n' "$archive_safety_output" | grep -q 'test8_member_traversal_rejected_before_extraction=1'; then
+if printf '%s\n' "$archive_safety_output" | grep -q 'test7_member_traversal_rejected_before_extraction=1'; then
     pass "provision_verified_archive rejects member traversal (../) before tar extraction"
 else
     fail "provision_verified_archive failed to reject member traversal: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test9_dotdot_in_name_ok=1'; then
+if printf '%s\n' "$archive_safety_output" | grep -q 'test8_dotdot_in_name_ok=1'; then
     pass "provision_verified_archive accepts harmless '..' within member filenames"
 else
     fail "provision_verified_archive rejected harmless '..' within filename: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test10_real_dotdot_component_rejected=1'; then
+if printf '%s\n' "$archive_safety_output" | grep -q 'test9_real_dotdot_component_rejected=1'; then
     pass "provision_verified_archive rejects declared members with real '..' path components"
 else
     fail "provision_verified_archive accepted declared member with '..' component: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test11_corrupt_listing_rejected=1'; then
+if printf '%s\n' "$archive_safety_output" | grep -q 'test10_corrupt_listing_rejected=1'; then
     pass "provision_verified_archive fails closed on corrupt or uninspectable archive metadata"
 else
     fail "provision_verified_archive failed to reject corrupt listing: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test12_zip_safe_symlink_ok=1'; then
-    pass "provision_verified_archive accepts safe internal relative symlinks in ZIP archives"
+if printf '%s\n' "$archive_safety_output" | grep -q 'test11_valid_zip_ok=1'; then
+    pass "provision_verified_archive accepts safe regular-file ZIP archives"
 else
-    fail "provision_verified_archive failed on safe internal symlink in ZIP: $archive_safety_output"
+    fail "provision_verified_archive failed on safe regular-file ZIP archive: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test13_zip_abs_symlink_rejected_before_extraction=1'; then
-    pass "provision_verified_archive rejects absolute symlinks in ZIP before extraction"
-else
-    fail "provision_verified_archive failed to reject absolute symlink in ZIP: $archive_safety_output"
-fi
-
-if printf '%s\n' "$archive_safety_output" | grep -q 'test14_zip_esc_symlink_rejected_before_extraction=1'; then
-    pass "provision_verified_archive rejects escaping relative symlinks in ZIP before extraction"
-else
-    fail "provision_verified_archive failed to reject escaping symlink in ZIP: $archive_safety_output"
-fi
-
-if printf '%s\n' "$archive_safety_output" | grep -q 'test15_ambiguous_rejected=1'; then
+if printf '%s\n' "$archive_safety_output" | grep -q 'test12_ambiguous_rejected=1'; then
     pass "provision_verified_archive fails closed on ambiguous duplicate member basenames"
 else
     fail "provision_verified_archive failed to reject ambiguous member: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test16_multi_all_present_ok=1'; then
+if printf '%s\n' "$archive_safety_output" | grep -q 'test13_multi_all_present_ok=1'; then
     pass "provision_verified_archive validates and installs all members of a multi-binary set"
 else
     fail "provision_verified_archive failed on multi-binary set: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test17_partial_set_rejected_cleanly=1'; then
+if printf '%s\n' "$archive_safety_output" | grep -q 'test14_partial_set_rejected_cleanly=1'; then
     pass "provision_verified_archive fails closed before installation if any member of a multi-binary set is missing"
 else
     fail "provision_verified_archive partially installed incomplete multi-binary set: $archive_safety_output"
