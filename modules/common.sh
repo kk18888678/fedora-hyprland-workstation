@@ -148,11 +148,6 @@ prepare_system() {
     require_command stat
     require_command flock
 
-    info "Refreshing Fedora package metadata."
-
-    run_with_retry "dnf makecache --refresh" dnf_makecache ||
-        die "Could not refresh DNF metadata."
-
     info "System preparation complete."
     record_success "prepare_system"
 }

@@ -366,6 +366,29 @@ echo "repo_stage_res=$repo_stage_res"
 echo "repo_stage_makecache_called=$makecache_called"
 echo "repo_stage_has_required_fail=${#INSTALL_REQUIRED_FAILURES[@]}"
 
+# 10. configure_repositories ordering: converge_chatgpt_gpg_key runs FIRST before package operations and metadata refresh
+call_order=()
+converge_chatgpt_gpg_key() { call_order+=("converge_chatgpt"); return 0; }
+install_dnf_packages() { call_order+=("install_dnf_packages"); return 0; }
+enable_copr() { call_order+=("enable_copr"); return 0; }
+install_rpmfusion() { call_order+=("install_rpmfusion"); return 0; }
+dnf_makecache() { call_order+=("dnf_makecache"); return 0; }
+validate_repository_configuration() { call_order+=("validate_repos"); return 0; }
+
+configure_repositories
+echo "first_operation=${call_order[0]:-none}"
+echo "full_call_sequence=${call_order[*]}"
+
+# 11. prepare_system does not perform premature dnf_makecache
+prep_makecache_called=0
+dnf_makecache() { prep_makecache_called=1; return 0; }
+validate_profile() { return 0; }
+validate_fedora() { return 0; }
+validate_target_user() { return 0; }
+require_command() { return 0; }
+prepare_system
+echo "prep_makecache_called=$prep_makecache_called"
+
 rm -rf "$mock_repos" "$empty_pki" "$staging_pki" "$wrong_pki" "$TARGET_HOME"
 EOS
 )"
@@ -432,6 +455,18 @@ if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_makecache_call
     pass "configure_repositories stops and skips metadata refresh when ChatGPT GPG convergence fails"
 else
     fail "configure_repositories did not skip metadata refresh on GPG failure: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'first_operation=converge_chatgpt'; then
+    pass "configure_repositories establishes ChatGPT GPG trust BEFORE package installations and metadata refresh"
+else
+    fail "configure_repositories did not run ChatGPT GPG convergence first: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'prep_makecache_called=0'; then
+    pass "prepare_system does not perform premature global DNF metadata refresh"
+else
+    fail "prepare_system invoked premature dnf_makecache: $chatgpt_gpg_test_output"
 fi
 
 section "N_m3u8DL-RE Prerelease Policy"

@@ -104,6 +104,129 @@ install_rpmfusion() {
 }
 
 ###############################################################################
+# Third-party repository key convergence (ChatGPT)
+###############################################################################
+
+CHATGPT_EXPECTED_GPG_FINGERPRINT="3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4"
+
+is_chatgpt_configured() {
+    local repo_dir="${OVERRIDE_YUM_REPOS_DIR:-/etc/yum.repos.d}"
+    local f
+    if [[ -d "$repo_dir" ]]; then
+        for f in "$repo_dir"/*; do
+            if [[ -f "$f" ]] && [[ "$f" == */chatgpt* || "$f" == */openai* ]]; then
+                return 0
+            fi
+        done
+    fi
+    if declare -F package_installed >/dev/null && package_installed chatgpt; then
+        return 0
+    fi
+    return 1
+}
+
+is_rpm_gpg_key_imported() {
+    local expected_fp="$1"
+    local upper_expected_fp
+    upper_expected_fp="$(printf '%s' "$expected_fp" | tr '[:lower:]' '[:upper:]')"
+
+    # Verification of installed OpenPGP identity requires gpg capability
+    if ! command -v gpg >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Export installed public-key material from RPM database (%{DESCRIPTION} provides ASCII-armored OpenPGP blocks)
+    local gpg_dump
+    gpg_dump="$(rpm -qa "gpg-pubkey*" --qf '%{DESCRIPTION}\n' 2>/dev/null)" || gpg_dump=""
+    if [[ -z "$gpg_dump" ]]; then
+        return 1
+    fi
+
+    # Derive complete 40-hex OpenPGP fingerprints directly from exported key blocks
+    local actual_fps
+    actual_fps="$(gpg --with-colons --show-keys <<< "$gpg_dump" 2>/dev/null | awk -F: '$1=="fpr"{print toupper($10)}')" || actual_fps=""
+    if [[ -z "$actual_fps" ]]; then
+        return 1
+    fi
+
+    while IFS= read -r fpr; do
+        if [[ "$fpr" == "$upper_expected_fp" ]]; then
+            return 0
+        fi
+    done <<< "$actual_fps"
+
+    return 1
+}
+
+converge_chatgpt_gpg_key() {
+    local expected_fp="$CHATGPT_EXPECTED_GPG_FINGERPRINT"
+    local pki_dir="${OVERRIDE_RPM_GPG_DIR:-/etc/pki/rpm-gpg}"
+
+    # 1. If ChatGPT repository is not configured on this host, absence of key is a safe no-op
+    if ! is_chatgpt_configured; then
+        return 0
+    fi
+
+    # 2. Once repository is configured, expected key file MUST exist on disk
+    local key_file=""
+    local candidate
+    for candidate in \
+        "$pki_dir/RPM-GPG-KEY-chatgpt-${expected_fp}.asc" \
+        "$pki_dir/RPM-GPG-KEY-chatgpt"*; do
+        if [[ -f "$candidate" ]]; then
+            key_file="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$key_file" || ! -f "$key_file" ]]; then
+        error "ChatGPT repository is configured but official GPG key file is missing in $pki_dir."
+        return 1
+    fi
+
+    # 3. GPG verification capability MUST be available to inspect fingerprint
+    if ! command -v gpg >/dev/null 2>&1; then
+        error "gpg command unavailable to verify official ChatGPT repository GPG key."
+        return 1
+    fi
+
+    # 4. Extract and strictly verify OpenPGP fingerprint
+    local actual_fp
+    actual_fp="$(
+        gpg --with-colons --show-keys "$key_file" 2>/dev/null |
+        awk -F: '$1=="fpr"{print toupper($10); exit}'
+    )"
+
+    if [[ -z "$actual_fp" ]]; then
+        error "Could not read OpenPGP fingerprint from ChatGPT key file: $key_file"
+        return 1
+    fi
+
+    if [[ "$actual_fp" != "$expected_fp" ]]; then
+        error "ChatGPT repository GPG key fingerprint mismatch!"
+        error "Expected : $expected_fp"
+        error "Found    : $actual_fp (in $key_file)"
+        error "Refusing to import untrusted repository key."
+        return 1
+    fi
+
+    # 5. Meaningful Idempotency: inspect if the verified key is already trusted in RPM keyring
+    if is_rpm_gpg_key_imported "$expected_fp"; then
+        info "Official ChatGPT repository GPG key ($expected_fp) is already trusted in RPM keyring."
+        return 0
+    fi
+
+    # 6. Import verified key into RPM keyring
+    if ! sudo rpm --import "$key_file"; then
+        error "Failed to import verified ChatGPT GPG key ($expected_fp) into RPM keyring."
+        return 1
+    fi
+
+    info "Verified and imported official ChatGPT repository OpenPGP key ($expected_fp)."
+    return 0
+}
+
+###############################################################################
 # Repository validation
 ###############################################################################
 
@@ -122,6 +245,13 @@ validate_repository_configuration() {
 
 configure_repositories() {
     info "Configuring Fedora package repositories."
+
+    # 1. Establish third-party repository GPG key trust FIRST before any DNF package operations or metadata refresh
+    if ! converge_chatgpt_gpg_key; then
+        record_required "repositories" "chatgpt-gpg" "Failed to converge official ChatGPT repository GPG key."
+        warn "Skipping repository metadata refresh because unverified repository key failed to converge."
+        return 0
+    fi
 
     # `dnf copr` is provided by dnf-plugins-core.
     install_dnf_packages dnf-plugins-core ||
@@ -148,15 +278,6 @@ configure_repositories() {
 
     # Multimedia and hardware ecosystem.
     install_rpmfusion
-
-    # Converge official third-party repository keys (e.g. ChatGPT) if repository is configured
-    if declare -F converge_chatgpt_gpg_key >/dev/null; then
-        if ! converge_chatgpt_gpg_key; then
-            record_required "repositories" "chatgpt-gpg" "Failed to converge official ChatGPT repository GPG key."
-            warn "Skipping repository metadata refresh because unverified repository key failed to converge."
-            return 0
-        fi
-    fi
 
     # Refresh metadata after repository changes.
     info "Refreshing repository metadata."
