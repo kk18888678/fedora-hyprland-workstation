@@ -137,6 +137,7 @@ INTERRUPTED_SIGNAL=0
 
 cleanup_installer_children() {
     stop_sudo_keepalive
+    release_installer_lock
 
     if [[ -n "${ACTIVE_TIMEOUT_PID:-}" ]]; then
         kill -TERM "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
@@ -201,6 +202,7 @@ trap 'on_interrupt INT' INT
 trap 'on_interrupt TERM' TERM
 trap on_exit EXIT
 
+acquire_installer_lock
 require_sudo
 init_installer_state
 

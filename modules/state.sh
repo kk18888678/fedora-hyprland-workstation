@@ -84,4 +84,39 @@ status=${exit_code}
 activation_blocked=${ACTIVATION_BLOCKED:-0}
 EOF
     fi
+
+    release_installer_lock
 }
+
+INSTALLER_LOCK_FD=200
+INSTALLER_LOCK_FILE=""
+
+acquire_installer_lock() {
+    if ! command_exists flock; then
+        warn "flock utility not found; concurrency protection disabled."
+        return 0
+    fi
+
+    local lock_dir="${XDG_RUNTIME_DIR:-/run/user/${EUID}}"
+    if [[ ! -d "$lock_dir" || ! -w "$lock_dir" ]]; then
+        lock_dir="${TMPDIR:-/tmp}"
+    fi
+
+    INSTALLER_LOCK_FILE="${lock_dir}/fedora-hyprland-workstation-${EUID}.lock"
+
+    eval "exec ${INSTALLER_LOCK_FD}>\"\$INSTALLER_LOCK_FILE\""
+
+    if ! flock -n "$INSTALLER_LOCK_FD"; then
+        die "Another instance of the installer is currently running. Refusing concurrent execution."
+    fi
+
+    printf '%s\n' "$$" >&"$INSTALLER_LOCK_FD" 2>/dev/null || true
+}
+
+release_installer_lock() {
+    if [[ -n "${INSTALLER_LOCK_FD:-}" ]]; then
+        flock -u "$INSTALLER_LOCK_FD" 2>/dev/null || true
+        eval "exec ${INSTALLER_LOCK_FD}>&-" 2>/dev/null || true
+    fi
+}
+
