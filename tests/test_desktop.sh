@@ -72,6 +72,88 @@ else
     fail "dotfiles/foot/foot.ini is missing"
 fi
 
+# Semantic INI validation of foot.ini
+foot_ini_valid="$(
+    bash -s -- "$ROOT/dotfiles/foot/foot.ini" <<'EOS'
+set -Eeuo pipefail
+ini_file="$1"
+
+current_section="<global>"
+declare -A section_keys
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+    # Trim leading/trailing whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+    if [[ "$line" =~ ^\[([a-zA-Z0-9_-]+)\]$ ]]; then
+        current_section="${BASH_REMATCH[1]}"
+        continue
+    fi
+
+    if [[ "$line" =~ ^([a-zA-Z0-9_-]+)=(.*)$ ]]; then
+        key="${BASH_REMATCH[1]}"
+        val="${BASH_REMATCH[2]}"
+
+        case "$current_section" in
+            "<global>")
+                if [[ "$key" != "include" ]]; then
+                    echo "Invalid global key: $key"
+                    exit 1
+                fi
+                ;;
+            "main")
+                if [[ "$key" != "font" && "$key" != "pad" ]]; then
+                    echo "Invalid key under [main]: $key"
+                    exit 1
+                fi
+                ;;
+            "scrollback")
+                if [[ "$key" != "lines" && "$key" != "multiplier" && "$key" != "indicator-position" && "$key" != "indicator-format" ]]; then
+                    echo "Invalid key under [scrollback]: $key"
+                    exit 1
+                fi
+                ;;
+            "cursor")
+                if [[ "$key" != "style" && "$key" != "blink" && "$key" != "blink-rate" && "$key" != "beam-thickness" && "$key" != "underline-thickness" ]]; then
+                    echo "Invalid key under [cursor]: $key"
+                    exit 1
+                fi
+                ;;
+            "mouse")
+                if [[ "$key" != "hide-when-typing" && "$key" != "alternate-scroll-mode" ]]; then
+                    echo "Invalid key under [mouse]: $key"
+                    exit 1
+                fi
+                ;;
+            "key-bindings")
+                ;;
+            *)
+                echo "Unrecognized section: $current_section"
+                exit 1
+                ;;
+        esac
+    fi
+done < "$ini_file"
+
+echo "VALID"
+EOS
+)"
+
+if [[ "$foot_ini_valid" == "VALID" ]]; then
+    pass "foot.ini adheres strictly to official Foot configuration section and option schema"
+else
+    fail "foot.ini semantic validation failed: $foot_ini_valid"
+fi
+
+if grep -q "scrollback-lines" "$ROOT/dotfiles/foot/foot.ini"; then
+    fail "foot.ini contains obsolete or unsupported scrollback-lines key"
+else
+    pass "foot.ini does not use unsupported scrollback-lines in [main]"
+fi
+
 if grep -q "Hack Nerd Font" "$ROOT/dotfiles/foot/foot.ini" &&
    grep -q "rose-pine-moon.ini" "$ROOT/dotfiles/foot/foot.ini"; then
     pass "foot.ini configures Hack Nerd Font and references Rosé Pine Moon theme"
@@ -156,6 +238,82 @@ install_rose_pine_gtk_theme
 gtk_skip_ok=1
 echo "gtk-skip-ok=$gtk_skip_ok"
 
+# Helper to build mock tarball and compute sha512
+build_mock_tar() {
+    local src_dir="$1"
+    local out_tar="$2"
+    tar -czf "$out_tar" -C "$src_dir" .
+    sha512sum "$out_tar" | awk '{print $1}'
+}
+
+# Negative Test 1: Archive with escaping symlink
+rm -rf "$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk"
+mock1="$(mktemp -d)"
+mkdir -p "$mock1/gtk3/rose-pine-moon-gtk/gtk-3.0"
+touch "$mock1/gtk3/rose-pine-moon-gtk/index.theme"
+touch "$mock1/gtk3/rose-pine-moon-gtk/gtk-3.0/gtk.css"
+ln -s "../../../../../etc/shadow" "$mock1/gtk3/rose-pine-moon-gtk/escape_link"
+tar1="$(mktemp --suffix=.tar.gz)"
+hash1="$(build_mock_tar "$mock1" "$tar1")"
+
+download_and_verify_artifact() { cp "$tar1" "$3"; }
+ROSE_PINE_GTK_URL="https://example.com/gtk3.tar.gz"
+ROSE_PINE_GTK_SHA512="$hash1"
+install_rose_pine_gtk_theme
+escape_rejected=$([[ ! -d "$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk" ]] && echo 1 || echo 0)
+echo "symlink-escape-rejected=$escape_rejected"
+rm -rf "$mock1" "$tar1"
+
+# Negative Test 2: Archive with hardlink
+mock2="$(mktemp -d)"
+mkdir -p "$mock2/gtk3/rose-pine-moon-gtk/gtk-3.0"
+touch "$mock2/gtk3/rose-pine-moon-gtk/index.theme"
+touch "$mock2/gtk3/rose-pine-moon-gtk/gtk-3.0/gtk.css"
+ln "$mock2/gtk3/rose-pine-moon-gtk/index.theme" "$mock2/gtk3/rose-pine-moon-gtk/hardlink_file"
+tar2="$(mktemp --suffix=.tar.gz)"
+hash2="$(build_mock_tar "$mock2" "$tar2")"
+
+ROSE_PINE_GTK_SHA512="$hash2"
+download_and_verify_artifact() { cp "$tar2" "$3"; }
+install_rose_pine_gtk_theme
+hardlink_rejected=$([[ ! -d "$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk" ]] && echo 1 || echo 0)
+echo "hardlink-rejected=$hardlink_rejected"
+rm -rf "$mock2" "$tar2"
+
+# Negative Test 3: Archive missing Moon theme index.theme
+mock3="$(mktemp -d)"
+mkdir -p "$mock3/gtk3/rose-pine-dawn-gtk/gtk-3.0"
+touch "$mock3/gtk3/rose-pine-dawn-gtk/index.theme"
+touch "$mock3/gtk3/rose-pine-dawn-gtk/gtk-3.0/gtk.css"
+tar3="$(mktemp --suffix=.tar.gz)"
+hash3="$(build_mock_tar "$mock3" "$tar3")"
+
+ROSE_PINE_GTK_SHA512="$hash3"
+download_and_verify_artifact() { cp "$tar3" "$3"; }
+install_rose_pine_gtk_theme
+missing_payload_rejected=$([[ ! -d "$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk" ]] && echo 1 || echo 0)
+echo "missing-payload-rejected=$missing_payload_rejected"
+rm -rf "$mock3" "$tar3"
+
+# Positive Test: Valid archive with safe relative symlinks and valid Moon theme
+mock4="$(mktemp -d)"
+mkdir -p "$mock4/gtk3/rose-pine-moon-gtk/gtk-3.0"
+mkdir -p "$mock4/gtk3/rose-pine-moon-gtk/gtk-3.20"
+mkdir -p "$mock4/gtk3/rose-pine-moon-gtk/assets"
+touch "$mock4/gtk3/rose-pine-moon-gtk/index.theme"
+touch "$mock4/gtk3/rose-pine-moon-gtk/gtk-3.0/gtk.css"
+touch "$mock4/gtk3/rose-pine-moon-gtk/gtk-3.20/gtk.css"
+ln -s "../assets" "$mock4/gtk3/rose-pine-moon-gtk/gtk-3.20/assets"
+tar4="$(mktemp --suffix=.tar.gz)"
+hash4="$(build_mock_tar "$mock4" "$tar4")"
+
+ROSE_PINE_GTK_SHA512="$hash4"
+download_and_verify_artifact() { cp "$tar4" "$3"; }
+install_rose_pine_gtk_theme
+valid_installed=$([[ -f "$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk/index.theme" ]] && echo 1 || echo 0)
+echo "valid-installed=$valid_installed"
+rm -rf "$mock4" "$tar4"
+
 rm -rf "$TARGET_HOME" "$FONTS_INSTALL_DIR"
 EOS
 )"
@@ -170,4 +328,28 @@ if printf '%s\n' "$desktop_theme_test_output" | grep -q 'gtk-skip-ok=1'; then
     pass "install_rose_pine_gtk_theme detects existing theme installation idempotently"
 else
     fail "install_rose_pine_gtk_theme idempotency failed: $desktop_theme_test_output"
+fi
+
+if printf '%s\n' "$desktop_theme_test_output" | grep -q 'symlink-escape-rejected=1'; then
+    pass "install_rose_pine_gtk_theme rejects archives with escaping symlinks before extraction"
+else
+    fail "install_rose_pine_gtk_theme did not reject escaping symlink: $desktop_theme_test_output"
+fi
+
+if printf '%s\n' "$desktop_theme_test_output" | grep -q 'hardlink-rejected=1'; then
+    pass "install_rose_pine_gtk_theme rejects archives with hardlink entries"
+else
+    fail "install_rose_pine_gtk_theme did not reject hardlink: $desktop_theme_test_output"
+fi
+
+if printf '%s\n' "$desktop_theme_test_output" | grep -q 'missing-payload-rejected=1'; then
+    pass "install_rose_pine_gtk_theme defers cleanly when required Moon theme payload is missing"
+else
+    fail "install_rose_pine_gtk_theme did not reject missing Moon payload: $desktop_theme_test_output"
+fi
+
+if printf '%s\n' "$desktop_theme_test_output" | grep -q 'valid-installed=1'; then
+    pass "install_rose_pine_gtk_theme successfully verifies and installs valid GTK theme payload"
+else
+    fail "install_rose_pine_gtk_theme failed on valid payload: $desktop_theme_test_output"
 fi
