@@ -24,8 +24,9 @@ Re-run the same command after a network drop, sudo timeout, or reboot. Desired s
 
 - Fedora 44 + Hyprland + Noctalia + noctalia-greeter (`greetd` user, not `greeter`)
 - Zsh, Oh My Zsh, Starship, fzf, zoxide
-- Chromium (required when enabled). Brave Origin and Firefox are optional. **Ulaa is deferred on Fedora** (the upstream Linux installer is Debian/apt).
+- Chromium (required when enabled), Brave Origin, Firefox, and Ulaa (via Flathub Flatpak)
 - Flatpak + Flathub, Fedora Nix + devenv, rootless Podman
+- Host-global media utilities (`mpv`, `ffmpeg`, `mediainfo`, `mkvmerge`, `MP4Box`, `ccextractor`, `mp4dump`, `packager`, `dovi_tool`, `N_m3u8DL-RE`)
 
 ## Target Architecture
 
@@ -35,6 +36,11 @@ The workstation maintains a strict separation of concerns:
 - **Nix + devenv**: Reproducible development platforms, compilers, SDKs, project runtimes, language servers, and specialized CLI tooling.
 - **Podman**: Isolated development services, databases, and containerized dependencies.
 - **Git**: Reproducible desired state.
+
+See detailed engineering documentation:
+- [Architecture & Ownership](docs/ARCHITECTURE.md)
+- [Safety & Privilege Model](docs/SAFETY.md)
+- [Release & Supply-Chain Policy](docs/RELEASE-POLICY.md)
 
 ## Package Manifests
 
@@ -46,15 +52,13 @@ The workstation maintains a strict separation of concerns:
 ## Workstation Applications
 
 - **Kate**: Full-featured graphical text and code editor (Fedora official repositories).
-- **Neovim**: Terminal code editor.
-- **Cursor**: Official vendor RPM repository.
+- **Neovim**: Terminal code editor with managed configuration.
+- **Cursor**: Official vendor RPM repository with Wayland Ozone flag integration.
+- **ChatGPT**: Official vendor RPM repository.
 - **Media Applications**: OBS Studio, MKVToolNix GUI, VLC.
+- **Media CLI Utilities**: Host-global tools (`dovi_tool`, `N_m3u8DL-RE`, `packager`, `ccextractor`, `mp4dump`, `ffmpeg`, `mediainfo`, `mkvmerge`, `MP4Box`).
 - **Antigravity CLI (`agy`)**: Integrated user path with non-blocking activation safety.
-- **LocalSend**: Flathub Flatpak.
-
-## Environments
-
-- `environments/media-tools/`: Reproducible Nix/devenv environment for specialized media packaging tools (`gpac`, `ccextractor`, `mediainfo`, `ffmpeg`, `mkvtoolnix`).
+- **LocalSend & Ulaa**: Flathub Flatpaks.
 
 ## Profiles
 
