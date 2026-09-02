@@ -61,10 +61,10 @@ hl.window_rule({
     no_initial_focus = true,
 })
 
--- Workstation hotkeys cheatsheet window
+-- Workstation hotkeys and launcher floating helper windows
 hl.window_rule({
     match = {
-        class = "^(workstation-hotkeys)$",
+        class = "^(workstation-hotkeys|workstation-launcher)$",
     },
     float = true,
     center = true,

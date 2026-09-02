@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Application Launcher
+Comment=Launch applications with keyboard shortcut discoverability
+Exec=workstation-launcher
+Icon=system-search
+Terminal=false
+Type=Application
+Categories=System;Utility;
