@@ -10,6 +10,7 @@ package.path = table.concat({
 -- This ensures bindings, rules and other configuration are re-registered.
 for _, module in ipairs({
     "monitors",
+    "workspaces",
     "startup",
     "inputs",
     "keybindings_manifest",
@@ -23,6 +24,7 @@ for _, module in ipairs({
 end
 
 require("monitors")
+require("workspaces")
 require("startup")
 require("inputs")
 require("keybind")
