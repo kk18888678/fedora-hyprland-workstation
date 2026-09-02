@@ -466,8 +466,6 @@ install_media_applications() {
                 "$app was not present after installation."
         fi
     done
-
-    install_media_utilities
 }
 
 install_antigravity() {
@@ -584,6 +582,7 @@ install_applications() {
     install_kate
     install_chatgpt
     install_media_applications
+    install_media_utilities
     install_antigravity
 
     info "Workstation application installation complete."

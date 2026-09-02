@@ -351,28 +351,28 @@ validate_application_environment() {
                     "$app is enabled by the profile but is not installed."
             fi
         done
-
-        local media_cmds=(
-            ffmpeg
-            ffprobe
-            mediainfo
-            mkvmerge
-            MP4Box
-            ccextractor
-            mp4dump
-            packager
-            dovi_tool
-            N_m3u8DL-RE
-        )
-        for cmd in "${media_cmds[@]}"; do
-            if ! command_exists "$cmd" && [[ ! -x "/usr/local/bin/$cmd" ]]; then
-                record_deferred \
-                    "validation" \
-                    "$cmd" \
-                    "Media utility command is missing: $cmd"
-            fi
-        done
     fi
+
+    local media_cmds=(
+        ffmpeg
+        ffprobe
+        mediainfo
+        mkvmerge
+        MP4Box
+        ccextractor
+        mp4dump
+        packager
+        dovi_tool
+        N_m3u8DL-RE
+    )
+    for cmd in "${media_cmds[@]}"; do
+        if ! command_exists "$cmd" && [[ ! -x "/usr/local/bin/$cmd" ]]; then
+            record_deferred \
+                "validation" \
+                "$cmd" \
+                "Media utility command is missing: $cmd"
+        fi
+    done
 
     if is_true "${LOCALSEND:-false}"; then
         if ! flatpak list --app --columns=application 2>/dev/null | grep -Fxq "org.localsend.localsend_app"; then

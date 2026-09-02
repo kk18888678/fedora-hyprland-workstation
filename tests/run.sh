@@ -249,10 +249,16 @@ check_profile() {
         pass "$file DESKTOP_SHELL=noctalia"
     fi
 
-    if [[ "$BROWSER_ULAA" != "false" ]]; then
-        fail "$file should keep Ulaa disabled on Fedora"
+    if [[ "$BROWSER_ULAA" != "true" ]]; then
+        fail "$file BROWSER_ULAA is not true"
     else
-        pass "$file Ulaa disabled"
+        pass "$file BROWSER_ULAA=true"
+    fi
+
+    if [[ "$CHATGPT" != "true" ]]; then
+        fail "$file CHATGPT is not true"
+    else
+        pass "$file CHATGPT=true"
     fi
 }
 
@@ -1476,6 +1482,127 @@ if printf '%s\n' "$media_resilience_output" | grep -q 'media-exit=2'; then
     pass "Media applications failure produces deferred exit code 2"
 else
     fail "Media applications failure did not produce exit code 2: $media_resilience_output"
+fi
+
+media_cli_decoupling_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+CURSOR=false
+KATE=false
+CHATGPT=false
+ANTIGRAVITY=false
+MEDIA_APPLICATIONS=false
+
+media_cli_ran=0
+install_media_utilities() {
+    media_cli_ran=1
+}
+
+install_applications
+echo "cli-ran-when-gui-disabled=$media_cli_ran"
+
+MEDIA_APPLICATIONS=true
+install_media_applications() {
+    record_deferred "applications" "media-apps" "GUI media app failure"
+}
+media_cli_ran_after_gui_fail=0
+install_media_utilities() {
+    media_cli_ran_after_gui_fail=1
+}
+
+install_applications
+echo "cli-ran-after-gui-fail=$media_cli_ran_after_gui_fail"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$media_cli_decoupling_output" | grep -q 'cli-ran-when-gui-disabled=1'; then
+    pass "MEDIA_APPLICATIONS=false does not suppress install_media_utilities"
+else
+    fail "MEDIA_APPLICATIONS=false suppressed install_media_utilities: $media_cli_decoupling_output"
+fi
+
+if printf '%s\n' "$media_cli_decoupling_output" | grep -q 'cli-ran-after-gui-fail=1'; then
+    pass "GUI media app failure does not prevent install_media_utilities"
+else
+    fail "GUI media app failure prevented install_media_utilities: $media_cli_decoupling_output"
+fi
+
+media_cli_failure_resilience="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+# Simulate media utility download failure
+run_with_retry() { return 1; }
+install_media_utilities
+echo "cli-fail-blocked=$ACTIVATION_BLOCKED"
+echo "cli-fail-exit=$(installer_exit_code)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$media_cli_failure_resilience" | grep -q 'cli-fail-blocked=0'; then
+    pass "Media CLI failure does not set ACTIVATION_BLOCKED"
+else
+    fail "Media CLI failure set ACTIVATION_BLOCKED: $media_cli_failure_resilience"
+fi
+
+if printf '%s\n' "$media_cli_failure_resilience" | grep -q 'cli-fail-exit=2'; then
+    pass "Media CLI failure produces deferred exit code 2"
+else
+    fail "Media CLI failure did not produce exit code 2: $media_cli_failure_resilience"
+fi
+
+media_validation_decoupling="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/validation.sh"
+
+MEDIA_APPLICATIONS=false
+CURSOR=false
+CHATGPT=false
+KATE=false
+LOCALSEND=false
+ANTIGRAVITY=false
+
+command_exists() { return 1; }
+validate_application_environment
+echo "validation-def-count=$(grep -c 'Media utility command is missing' <(printf '%s\n' "${INSTALL_DEFERRED[@]}") || true)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$media_validation_decoupling" | grep -qE 'validation-def-count=[1-9]'; then
+    pass "Media CLI validation runs independently of MEDIA_APPLICATIONS=false"
+else
+    fail "Media CLI validation did not run when MEDIA_APPLICATIONS=false: $media_validation_decoupling"
 fi
 
 # Antigravity architecture guard test
