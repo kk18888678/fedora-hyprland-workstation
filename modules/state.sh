@@ -91,23 +91,78 @@ EOF
 INSTALLER_LOCK_FD=200
 INSTALLER_LOCK_FILE=""
 
-acquire_installer_lock() {
-    if ! command_exists flock; then
-        warn "flock utility not found; concurrency protection disabled."
+get_installer_lock_path() {
+    local uid="${OVERRIDE_EUID:-${EUID:-$(id -u)}}"
+    local runtime_dir=""
+
+    # 1. Prefer verified XDG_RUNTIME_DIR if safe and non-symlink
+    if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "${XDG_RUNTIME_DIR}" && ! -L "${XDG_RUNTIME_DIR}" && -w "${XDG_RUNTIME_DIR}" ]]; then
+        runtime_dir="${XDG_RUNTIME_DIR}"
+    # 2. Prefer standard systemd /run/user/$uid if safe and non-symlink
+    elif [[ -d "/run/user/${uid}" && ! -L "/run/user/${uid}" && -w "/run/user/${uid}" ]]; then
+        runtime_dir="/run/user/${uid}"
+    fi
+
+    if [[ -n "$runtime_dir" ]]; then
+        printf '%s/fedora-hyprland-workstation.lock\n' "$runtime_dir"
         return 0
     fi
 
-    local lock_dir="${XDG_RUNTIME_DIR:-/run/user/${EUID}}"
-    if [[ ! -d "$lock_dir" || ! -w "$lock_dir" ]]; then
-        lock_dir="${TMPDIR:-/tmp}"
+    # 3. Fallback: secure, private per-user directory in /tmp
+    local fallback_base="/tmp"
+    local fallback_dir="${fallback_base}/.fhw-lock-${uid}"
+
+    if [[ -L "$fallback_dir" ]]; then
+        error "Insecure symlink detected at lock directory: $fallback_dir"
+        return 1
     fi
 
-    INSTALLER_LOCK_FILE="${lock_dir}/fedora-hyprland-workstation-${EUID}.lock"
+    if [[ ! -d "$fallback_dir" ]]; then
+        if ! mkdir -m 0700 "$fallback_dir" 2>/dev/null; then
+            error "Failed to create secure lock directory: $fallback_dir"
+            return 1
+        fi
+    fi
+
+    # Verify directory type and reject symlinks
+    if [[ -L "$fallback_dir" || ! -d "$fallback_dir" ]]; then
+        error "Lock directory $fallback_dir is invalid or a symlink."
+        return 1
+    fi
+
+    # Ensure permissions are strictly private (0700)
+    chmod 0700 "$fallback_dir" 2>/dev/null || true
+
+    # Verify directory ownership if stat is available
+    if command_exists stat; then
+        local dir_owner
+        dir_owner="$(stat -c '%u' "$fallback_dir" 2>/dev/null || true)"
+        if [[ -n "$dir_owner" && "$dir_owner" != "$uid" && "$uid" != "0" ]]; then
+            error "Lock directory $fallback_dir is owned by UID $dir_owner, expected UID $uid."
+            return 1
+        fi
+    fi
+
+    printf '%s/installer.lock\n' "$fallback_dir"
+    return 0
+}
+
+acquire_installer_lock() {
+    if ! command_exists flock; then
+        die "Required locking utility 'flock' was not found. Concurrency protection cannot be established; refusing to proceed."
+    fi
+
+    local lock_file
+    if ! lock_file="$(get_installer_lock_path)" || [[ -z "$lock_file" ]]; then
+        die "Could not determine safe lock file location. Refusing to proceed without concurrency protection."
+    fi
+
+    INSTALLER_LOCK_FILE="$lock_file"
 
     eval "exec ${INSTALLER_LOCK_FD}>\"\$INSTALLER_LOCK_FILE\""
 
     if ! flock -n "$INSTALLER_LOCK_FD"; then
-        die "Another instance of the installer is currently running. Refusing concurrent execution."
+        die "Another instance of the installer is currently running (locked at $INSTALLER_LOCK_FILE). Refusing concurrent execution."
     fi
 
     printf '%s\n' "$$" >&"$INSTALLER_LOCK_FD" 2>/dev/null || true
@@ -119,4 +174,5 @@ release_installer_lock() {
         eval "exec ${INSTALLER_LOCK_FD}>&-" 2>/dev/null || true
     fi
 }
+
 
