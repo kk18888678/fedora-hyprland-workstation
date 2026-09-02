@@ -342,3 +342,39 @@ if printf '%s\n' "$dnf_distinguish_test_output" | grep -q 'timeout-query-status=
 else
     fail "package_available failed to distinguish contention from unavailable: $dnf_distinguish_test_output"
 fi
+
+# 7. Process-table fallback results are labeled as concurrent processes (not lock holders)
+dnf_proc_fallback_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/execution.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/packages.sh"
+
+# Mock ps to return concurrent process
+ps() {
+    cat <<'EOF'
+12345 /usr/bin/dnf5 makecache
+EOF
+}
+
+diag="$(detect_dnf_lock_diagnostics "")"
+echo "header=$(awk 'NR==1{print}' <<< "$diag")"
+echo "has_pid=$(grep -c 'PID 12345: /usr/bin/dnf5 makecache' <<< "$diag" || true)"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$dnf_proc_fallback_output" | grep -q 'header=CONCURRENT_PROCS' &&
+   printf '%s\n' "$dnf_proc_fallback_output" | grep -q 'has_pid=1'; then
+    pass "Process-table fallback is accurately categorized as concurrent processes (not assumed lock holders)"
+else
+    fail "Process table fallback diagnostic failed: $dnf_proc_fallback_output"
+fi

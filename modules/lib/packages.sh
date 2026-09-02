@@ -6,11 +6,12 @@ package_installed() {
     rpm -q "$1" >/dev/null 2>&1 || rpm -q --whatprovides "$1" >/dev/null 2>&1
 }
 
-detect_dnf_lock_holders() {
+detect_dnf_lock_diagnostics() {
     local log_file="${1:-}"
-    local holders=()
+    local lock_holders=()
+    local concurrent_procs=()
 
-    # 1. First extract lock holder processes directly reported by DNF if present in output log
+    # 1. First extract verified lock holder processes directly reported by DNF in output log
     if [[ -n "$log_file" && -f "$log_file" ]]; then
         local in_lock_block=0
         while IFS= read -r line || [[ -n "$line" ]]; do
@@ -20,7 +21,7 @@ detect_dnf_lock_holders() {
             fi
             if (( in_lock_block == 1 )); then
                 if [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.+)$ ]]; then
-                    holders+=("PID ${BASH_REMATCH[1]}: ${BASH_REMATCH[2]}")
+                    lock_holders+=("PID ${BASH_REMATCH[1]}: ${BASH_REMATCH[2]}")
                 elif [[ -n "$line" && ! "$line" =~ ^[[:space:]] ]]; then
                     in_lock_block=0
                 fi
@@ -28,21 +29,45 @@ detect_dnf_lock_holders() {
         done < "$log_file"
     fi
 
-    # 2. If no holders parsed from output, inspect process table for concurrent dnf/rpm processes
-    if [[ ${#holders[@]} -eq 0 ]] && command_exists ps; then
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            [[ -n "$line" ]] || continue
-            local pid cmd
-            pid="$(awk '{print $1}' <<< "$line")"
-            cmd="$(cut -d' ' -f2- <<< "$line")"
-            if [[ "$pid" != "$$" && "$pid" != "${ACTIVE_TIMEOUT_PID:-}" ]]; then
-                holders+=("PID ${pid}: ${cmd}")
-            fi
-        done < <(ps -eo pid,args --no-headers 2>/dev/null | grep -E '\b(dnf|dnf5|rpm|rpmbuild|packagekitd)\b' | grep -v 'grep' || true)
+    if [[ ${#lock_holders[@]} -gt 0 ]]; then
+        printf 'LOCK_HOLDERS\n'
+        printf '%s\n' "${lock_holders[@]}"
+        return 0
     fi
 
-    if [[ ${#holders[@]} -gt 0 ]]; then
-        printf '%s\n' "${holders[@]}"
+    # 2. Process-table fallback: inspect for concurrent dnf/rpm processes without fragile pipes
+    if command -v ps >/dev/null 2>&1; then
+        local ps_out
+        ps_out="$(ps -eo pid,args --no-headers 2>/dev/null)" || ps_out=""
+        if [[ -n "$ps_out" ]]; then
+            while IFS= read -r proc_line || [[ -n "$proc_line" ]]; do
+                [[ -n "$proc_line" ]] || continue
+                local pid cmd
+                read -r pid cmd <<< "$proc_line"
+                if [[ "$pid" != "$$" && "$pid" != "${ACTIVE_TIMEOUT_PID:-}" ]]; then
+                    if [[ "$cmd" =~ (^|[[:space:]/])(dnf|dnf5|rpm|rpmbuild|packagekitd)([[:space:]]|$) ]]; then
+                        concurrent_procs+=("PID ${pid}: ${cmd}")
+                    fi
+                fi
+            done <<< "$ps_out"
+        fi
+    fi
+
+    if [[ ${#concurrent_procs[@]} -gt 0 ]]; then
+        printf 'CONCURRENT_PROCS\n'
+        printf '%s\n' "${concurrent_procs[@]}"
+        return 0
+    fi
+
+    return 0
+}
+
+detect_dnf_lock_holders() {
+    local log_file="${1:-}"
+    local diag
+    diag="$(detect_dnf_lock_diagnostics "$log_file")"
+    if [[ -n "$diag" ]]; then
+        sed -E '1{/^(LOCK_HOLDERS|CONCURRENT_PROCS)$/d}' <<< "$diag"
     fi
 }
 
@@ -64,27 +89,49 @@ run_dnf_command() {
     fi
 
     if (( status == 124 )); then
-        local lock_holders
-        lock_holders="$(detect_dnf_lock_holders "$log_tmp")"
-        if [[ -n "$lock_holders" ]]; then
+        local diag
+        diag="$(detect_dnf_lock_diagnostics "$log_tmp")"
+        local header
+        header="$(awk 'NR==1{print}' <<< "$diag")"
+        local body
+        body="$(sed -E '1{/^(LOCK_HOLDERS|CONCURRENT_PROCS)$/d}' <<< "$diag")"
+
+        if [[ "$header" == "LOCK_HOLDERS" && -n "$body" ]]; then
             error "DNF operation timed out after ${timeout_seconds}s due to package manager lock contention for: ${description}"
-            error "Active package manager process(es):"
+            error "Active package manager lock holder(s):"
             while IFS= read -r holder; do
                 error "  - $holder"
-            done <<< "$lock_holders"
+            done <<< "$body"
+        elif [[ "$header" == "CONCURRENT_PROCS" && -n "$body" ]]; then
+            error "DNF operation timed out after ${timeout_seconds}s for: ${description}"
+            error "Concurrent package manager process(es):"
+            while IFS= read -r proc; do
+                error "  - $proc"
+            done <<< "$body"
         else
             error "DNF operation timed out after ${timeout_seconds}s for: ${description}"
         fi
         rm -f "$log_tmp"
         return 124
     elif (( status != 0 )); then
-        local lock_holders
-        lock_holders="$(detect_dnf_lock_holders "$log_tmp")"
-        if [[ -n "$lock_holders" ]]; then
+        local diag
+        diag="$(detect_dnf_lock_diagnostics "$log_tmp")"
+        local header
+        header="$(awk 'NR==1{print}' <<< "$diag")"
+        local body
+        body="$(sed -E '1{/^(LOCK_HOLDERS|CONCURRENT_PROCS)$/d}' <<< "$diag")"
+
+        if [[ "$header" == "LOCK_HOLDERS" && -n "$body" ]]; then
             warn "DNF operation encountered lock contention for: ${description}"
+            warn "Active package manager lock holder(s):"
             while IFS= read -r holder; do
                 warn "  - $holder"
-            done <<< "$lock_holders"
+            done <<< "$body"
+        elif [[ "$header" == "CONCURRENT_PROCS" && -n "$body" ]]; then
+            warn "DNF operation encountered error (${status}) with concurrent package manager process(es):"
+            while IFS= read -r proc; do
+                warn "  - $proc"
+            done <<< "$body"
         fi
     fi
 
