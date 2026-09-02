@@ -61,4 +61,14 @@ hl.window_rule({
     no_initial_focus = true,
 })
 
+-- Workstation hotkeys cheatsheet window
+hl.window_rule({
+    match = {
+        class = "^(workstation-hotkeys)$",
+    },
+    float = true,
+    center = true,
+    size = "760 560",
+})
+
 return true

@@ -19,6 +19,7 @@ run_suite "$ROOT/tests/test_applications.sh"
 run_suite "$ROOT/tests/test_supply_chain.sh"
 run_suite "$ROOT/tests/test_xdg.sh"
 run_suite "$ROOT/tests/test_desktop.sh"
+run_suite "$ROOT/tests/test_hotkeys.sh"
 run_suite "$ROOT/tests/test_validation.sh"
 run_suite "$ROOT/tests/test_resilience.sh"
 

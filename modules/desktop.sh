@@ -389,6 +389,43 @@ install_rose_pine_gtk_theme() {
     record_success "rose-pine-gtk"
 }
 
+install_workstation_hotkeys() {
+    local bin_source="$SCRIPT_DIR/bin/workstation-hotkeys"
+    local desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-hotkeys.desktop"
+
+    local bin_target="${HOTKEYS_BIN_DIR:-/usr/local/bin}/workstation-hotkeys"
+    local desktop_target="${HOTKEYS_APPS_DIR:-/usr/local/share/applications}/workstation-hotkeys.desktop"
+
+    if [[ -f "$bin_source" ]]; then
+        info "Installing workstation-hotkeys command to $bin_target."
+        if [[ "$bin_target" == /usr/* || "$bin_target" == /etc/* ]]; then
+            sudo mkdir -p "$(dirname "$bin_target")"
+            sudo cp "$bin_source" "$bin_target"
+            sudo chmod 0755 "$bin_target"
+        else
+            mkdir -p "$(dirname "$bin_target")"
+            cp "$bin_source" "$bin_target"
+            chmod 0755 "$bin_target"
+        fi
+    fi
+
+    if [[ -f "$desktop_source" ]]; then
+        info "Installing workstation-hotkeys desktop entry to $desktop_target."
+        if [[ "$desktop_target" == /usr/* || "$desktop_target" == /etc/* ]]; then
+            sudo mkdir -p "$(dirname "$desktop_target")"
+            sudo cp "$desktop_source" "$desktop_target"
+            sudo chmod 0644 "$desktop_target"
+        else
+            mkdir -p "$(dirname "$desktop_target")"
+            cp "$desktop_source" "$desktop_target"
+            chmod 0644 "$desktop_target"
+        fi
+    fi
+
+    info "Workstation hotkeys installed."
+    record_success "workstation-hotkeys"
+}
+
 # Prepare desktop files and packages. Do not enable greetd here.
 install_desktop() {
     if [[ "${DESKTOP:-}" != "hyprland" ]]; then
@@ -401,6 +438,7 @@ install_desktop() {
     deploy_hyprland_config
     install_hack_nerd_font
     install_rose_pine_gtk_theme
+    install_workstation_hotkeys
     install_noctalia_greeter
     configure_greetd
     configure_noctalia_greeter_state

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Workstation Hotkeys & Keyboard Shortcuts Reference
+# If not running in an interactive terminal, launch in a dedicated floating terminal.
+if [[ ! -t 1 ]]; then
+    if command -v foot >/dev/null 2>&1; then
+        exec foot --app-id=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
+    elif command -v kitty >/dev/null 2>&1; then
+        exec kitty --class=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
+    else
+        notify-send "Hotkeys" "No supported terminal found to display hotkeys." 2>/dev/null || true
+        exit 1
+    fi
+fi
+
+# ANSI color codes based on Rosé Pine Moon palette
+C_RESET=$'\033[0m'
+C_BOLD=$'\033[1m'
+C_DIM=$'\033[2m'
+C_FOAM=$'\033[38;2;156;207;216m'     # #9ccfd8
+C_GOLD=$'\033[38;2;246;193;119m'     # #f6c177
+C_IRIS=$'\033[38;2;196;167;231m'     # #c4a7e7
+C_TEXT=$'\033[38;2;224;222;244m'     # #e0def4
+C_MUTED=$'\033[38;2;110;106;134m'    # #6e6a86
+
+render_hotkeys() {
+    cat <<HOTKEYS_CONTENT
+
+${C_BOLD}${C_IRIS} Fedora Hyprland Workstation — Keyboard Shortcuts ${C_RESET}
+${C_MUTED}───────────────────────────────────────────────────────────────────${C_RESET}
+
+${C_BOLD}${C_FOAM}Applications & Launchers${C_RESET}
+  ${C_BOLD}${C_GOLD}SUPER + RETURN${C_RESET}                     Open Terminal (${C_TEXT}kitty${C_RESET})
+  ${C_BOLD}${C_GOLD}SUPER + E${C_RESET}                          Open File Manager (${C_TEXT}thunar${C_RESET})
+  ${C_BOLD}${C_GOLD}SUPER + D${C_RESET}                          Open Application Launcher
+  ${C_BOLD}${C_GOLD}SUPER + K${C_RESET}                          Open this Hotkeys Reference
+  ${C_BOLD}${C_GOLD}SUPER + T${C_RESET}                          Open Desktop Settings
+  ${C_BOLD}${C_GOLD}SUPER + L${C_RESET}                          Lock Screen
+
+${C_BOLD}${C_FOAM}Window Management${C_RESET}
+  ${C_BOLD}${C_GOLD}SUPER + Q${C_RESET}                          Close Active Window
+  ${C_BOLD}${C_GOLD}SUPER + W${C_RESET}                          Toggle Floating Window
+  ${C_BOLD}${C_GOLD}SUPER + F${C_RESET}                          Toggle Fullscreen Window
+  ${C_BOLD}${C_GOLD}ALT + Tab${C_RESET}                          Cycle Window Focus
+
+${C_BOLD}${C_FOAM}Window Focus & Resizing${C_RESET}
+  ${C_BOLD}${C_GOLD}SUPER + Left / Right / Up / Down${C_RESET}   Focus Window in Direction
+  ${C_BOLD}${C_GOLD}SUPER + SHIFT + Left/Right/Up/Down${C_RESET} Resize Active Window (±30px)
+
+${C_BOLD}${C_FOAM}Workspaces${C_RESET}
+  ${C_BOLD}${C_GOLD}SUPER + 1 .. 9, 0${C_RESET}                  Switch to Workspace 1–10
+  ${C_BOLD}${C_GOLD}SUPER + SHIFT + 1 .. 9, 0${C_RESET}           Move Window to Workspace 1–10
+  ${C_BOLD}${C_GOLD}SUPER + CTRL + Left / Right${C_RESET}        Previous / Next Workspace
+  ${C_BOLD}${C_GOLD}3-Finger Horizontal Swipe${C_RESET}          Switch Workspaces (Touchpad)
+
+${C_BOLD}${C_FOAM}Mouse Controls${C_RESET}
+  ${C_BOLD}${C_GOLD}SUPER + Left Mouse Drag${C_RESET}            Move Floating Window
+  ${C_BOLD}${C_GOLD}SUPER + Right Mouse Drag${C_RESET}           Resize Floating Window
+
+${C_BOLD}${C_FOAM}Audio & Media Controls${C_RESET}
+  ${C_BOLD}${C_GOLD}Play / Pause Key${C_RESET}                   Toggle Play / Pause (${C_TEXT}playerctl${C_RESET})
+  ${C_BOLD}${C_GOLD}Next / Prev Track${C_RESET}                  Next / Previous Track (${C_TEXT}playerctl${C_RESET})
+  ${C_BOLD}${C_GOLD}Volume Up / Down${C_RESET}                   Adjust Volume (${C_TEXT}wpctl 5%${C_RESET})
+  ${C_BOLD}${C_GOLD}Mute Key${C_RESET}                           Toggle Audio Mute (${C_TEXT}wpctl${C_RESET})
+
+${C_MUTED}───────────────────────────────────────────────────────────────────${C_RESET}
+${C_DIM}Press ${C_BOLD}q${C_RESET}${C_DIM}, ${C_BOLD}Esc${C_RESET}${C_DIM}, or ${C_BOLD}Ctrl+C${C_RESET}${C_DIM} to close.${C_RESET}
+HOTKEYS_CONTENT
+}
+
+if command -v less >/dev/null 2>&1; then
+    render_hotkeys | less -R -F -X
+else
+    render_hotkeys
+    read -r -n 1 -s _ || true
+fi

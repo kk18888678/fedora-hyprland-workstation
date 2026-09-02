@@ -10,6 +10,7 @@ local KEY = {
     EXPLORER = ("%s + E"):format(mainMod),
 
     LAUNCHER = ("%s + D"):format(mainMod),
+    HOTKEYS = ("%s + K"):format(mainMod),
     LOCK = ("%s + L"):format(mainMod),
     SETTINGS = ("%s + T"):format(mainMod),
 
@@ -46,6 +47,12 @@ hl.bind(
     KEY.EXPLORER,
     hl.dsp.exec_cmd(EXPLORER),
     { description = "File manager" }
+)
+
+hl.bind(
+    KEY.HOTKEYS,
+    hl.dsp.exec_cmd("workstation-hotkeys"),
+    { description = "Hotkeys help" }
 )
 
 -- Noctalia

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Hotkeys
+GenericName=Keyboard Shortcuts
+Comment=Workstation Keyboard Shortcuts Reference
+Exec=workstation-hotkeys
+Icon=input-keyboard
+Terminal=false
+Type=Application
+Categories=Utility;Documentation;
+Keywords=hotkeys;keybinds;shortcuts;help;keyboard;

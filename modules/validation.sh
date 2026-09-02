@@ -429,6 +429,10 @@ validate_application_environment() {
         fi
     fi
 
+    if [[ -f "$SCRIPT_DIR/bin/workstation-hotkeys" ]] && ! command_exists workstation-hotkeys && [[ ! -x "/usr/local/bin/workstation-hotkeys" ]]; then
+        record_deferred "validation" "workstation-hotkeys" "Workstation hotkeys utility was not installed."
+    fi
+
     return 0
 }
 
