@@ -34,6 +34,7 @@ For software installed directly from upstream release assets rather than Fedora 
 | **zsh-syntax-highlighting** | Git commit `2fc57d6` | `github.com/zsh-users/zsh-syntax-highlighting` | Git commit hash |
 | **devenv** | `nixos-26.05` commit `c5c4a43` | `github.com/NixOS/nixpkgs` | Nix commit hash |
 | **Antigravity CLI** | `1.1.23` | Google Cloud Storage | SHA-512 |
+| **ChatGPT** | `26.831.21537-1` | `persistent.oaistatic.com` | SHA-512 (Official bootstrap RPM) |
 | **CCExtractor** | `0.96.6` | `github.com/CCExtractor/ccextractor` | SHA-512 |
 | **Bento4** | `1.6.0-641` | `bok.net/Bento4` | SHA-512 |
 | **Shaka Packager** | `3.9.3` | `github.com/shaka-project/shaka-packager` | SHA-512 |

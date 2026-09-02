@@ -123,15 +123,24 @@ install_chatgpt() {
         return 0
     fi
 
+    load_pinned_versions
+
     local arch
     arch="$(uname -m)"
+    local bootstrap_url=""
+    local expected_sha512=""
     local rpm_arch=""
+
     case "$arch" in
         x86_64|amd64)
             rpm_arch="x86_64"
+            bootstrap_url="${CHATGPT_X86_64_URL:-}"
+            expected_sha512="${CHATGPT_X86_64_SHA512:-}"
             ;;
         aarch64|arm64)
             rpm_arch="aarch64"
+            bootstrap_url="${CHATGPT_AARCH64_URL:-}"
+            expected_sha512="${CHATGPT_AARCH64_SHA512:-}"
             ;;
         *)
             record_deferred "applications" "chatgpt" "ChatGPT official RPM unsupported architecture: $arch."
@@ -139,33 +148,37 @@ install_chatgpt() {
             ;;
     esac
 
-    local bootstrap_url="https://persistent.oaistatic.com/codex-app-prod/linux/rpm/latest/chatgpt.${rpm_arch}.rpm"
-
-    info "Installing official OpenAI ChatGPT desktop application via official RPM bootstrap ($rpm_arch)."
-
-    local temp_dir
-    temp_dir="$(mktemp -d)"
-    local temp_rpm="$temp_dir/chatgpt.rpm"
-
-    if ! run_with_retry "download ChatGPT bootstrap RPM" \
-        run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download ChatGPT bootstrap RPM" \
-        curl -fsSL -o "$temp_rpm" "$bootstrap_url"; then
-        rm -rf "$temp_dir"
-        record_deferred "applications" "chatgpt" "Failed to download official OpenAI ChatGPT bootstrap RPM from $bootstrap_url."
+    if [[ -z "$bootstrap_url" || -z "$expected_sha512" ]]; then
+        record_deferred "applications" "chatgpt" "ChatGPT pinned version metadata missing for architecture: $rpm_arch."
         return 0
     fi
 
+    info "Installing official OpenAI ChatGPT desktop application (${CHATGPT_VERSION:-pinned}, $rpm_arch)."
+
+    local staging_dir
+    staging_dir="$(mktemp -d)"
+    local staging_rpm="$staging_dir/chatgpt.rpm"
+
+    # 1. Download and verify cryptographic checksum before invoking package manager
+    if ! download_and_verify_artifact "$bootstrap_url" "$expected_sha512" "$staging_rpm" "ChatGPT"; then
+        rm -rf "$staging_dir"
+        record_deferred "applications" "chatgpt" "Failed to download or verify official OpenAI ChatGPT RPM checksum."
+        return 0
+    fi
+
+    # 2. Only after cryptographic checksum verification succeeds, invoke DNF to install the verified RPM
     # Installing the official RPM establishes OpenAI's signed package repository for future DNF upgrades
     if ! run_with_retry "install ChatGPT RPM" \
         run_with_timeout "$TIMEOUT_PACKAGE_SECONDS" "install ChatGPT RPM" \
-        sudo dnf install -y "$temp_rpm"; then
-        rm -rf "$temp_dir"
-        record_deferred "applications" "chatgpt" "Failed to install official OpenAI ChatGPT RPM package."
+        sudo dnf install -y "$staging_rpm"; then
+        rm -rf "$staging_dir"
+        record_deferred "applications" "chatgpt" "Failed to install verified OpenAI ChatGPT RPM package."
         return 0
     fi
 
-    rm -rf "$temp_dir"
+    rm -rf "$staging_dir"
 
+    # 3. Validate package installation
     if ! package_installed chatgpt; then
         record_deferred "applications" "chatgpt" "ChatGPT was not detected after installation."
         return 0

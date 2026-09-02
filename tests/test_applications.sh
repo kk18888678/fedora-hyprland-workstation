@@ -43,10 +43,11 @@ fi
 
 section "ChatGPT Official Bootstrap RPM Integration"
 
-if grep -q "https://persistent.oaistatic.com/codex-app-prod/linux/rpm/latest/chatgpt" "$ROOT/modules/applications.sh"; then
-    pass "applications.sh uses official OpenAI bootstrap RPM URL"
+if grep -q "CHATGPT_X86_64_URL" "$ROOT/modules/applications.sh" &&
+   grep -q "CHATGPT_X86_64_SHA512" "$ROOT/modules/applications.sh"; then
+    pass "applications.sh uses pinned OpenAI bootstrap RPM URL and SHA-512"
 else
-    fail "applications.sh missing official OpenAI bootstrap RPM URL"
+    fail "applications.sh missing pinned OpenAI bootstrap RPM metadata"
 fi
 
 if grep -q "chatgpt.repo" "$ROOT/modules/applications.sh"; then
@@ -85,10 +86,26 @@ install_called=0
 install_chatgpt
 echo "idempotent_when_installed=$([[ $download_called -eq 0 && $install_called -eq 0 ]] && echo 1 || echo 0)"
 
-# 3. Not installed invokes bootstrap download and dnf install
+# 3. Checksum mismatch fails before DNF is ever called
 package_installed() { return 1; }
-download_called=0
-install_called=0
+dnf_called_on_mismatch=0
+sudo() { dnf_called_on_mismatch=1; }
+download_and_verify_artifact() {
+    # Simulate checksum mismatch
+    return 1
+}
+install_chatgpt
+echo "mismatch_dnf_prevented=$([[ $dnf_called_on_mismatch -eq 0 ]] && echo 1 || echo 0)"
+echo "mismatch_deferred=$(grep -c 'Failed to download or verify official OpenAI ChatGPT RPM checksum' <(printf '%s\n' "${INSTALL_DEFERRED[@]}") || true)"
+
+# 4. Valid checksum executes DNF installation and succeeds
+package_installed() { return 1; }
+dnf_called_on_valid=0
+download_and_verify_artifact() {
+    local out="$3"
+    touch "$out"
+    return 0
+}
 run_with_retry() {
     shift
     "$@"
@@ -97,23 +114,14 @@ run_with_timeout() {
     shift 2
     "$@"
 }
-curl() {
-    download_called=1
-    local out=""
-    while [[ $# -gt 0 ]]; do
-        if [[ "$1" == "-o" ]]; then out="$2"; shift 2; continue; fi
-        shift
-    done
-    touch "$out"
-}
 sudo() {
-    install_called=1
+    dnf_called_on_valid=1
     if [[ "$*" =~ dnf\ install\ -y ]]; then
         package_installed() { return 0; }
     fi
 }
 install_chatgpt
-echo "bootstrap_invoked=$([[ $download_called -eq 1 && $install_called -eq 1 ]] && echo 1 || echo 0)"
+echo "valid_dnf_invoked=$([[ $dnf_called_on_valid -eq 1 ]] && echo 1 || echo 0)"
 
 rm -rf "$TARGET_HOME"
 EOS
@@ -131,10 +139,17 @@ else
     fail "install_chatgpt attempted redundant installation when already installed: $chatgpt_behavior_output"
 fi
 
-if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'bootstrap_invoked=1'; then
-    pass "install_chatgpt downloads official RPM and delegates repository establishment to dnf install"
+if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'mismatch_dnf_prevented=1' &&
+   printf '%s\n' "$chatgpt_behavior_output" | grep -q 'mismatch_deferred=1'; then
+    pass "install_chatgpt prevents DNF invocation and records deferred on checksum mismatch"
 else
-    fail "install_chatgpt failed bootstrap execution: $chatgpt_behavior_output"
+    fail "install_chatgpt did not isolate checksum mismatch from DNF: $chatgpt_behavior_output"
+fi
+
+if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'valid_dnf_invoked=1'; then
+    pass "install_chatgpt verifies checksum before invoking DNF for official RPM installation"
+else
+    fail "install_chatgpt failed valid bootstrap execution: $chatgpt_behavior_output"
 fi
 
 section "N_m3u8DL-RE Prerelease Policy"
@@ -198,43 +213,94 @@ SCRIPT_DIR="$HELPER_ROOT"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/scripts/check-updates.sh"
 
-# Test prerelease tags
-p1=0; is_prerelease_tag "v0.6.0-beta" || p1=$?
-p2=0; is_prerelease_tag "1.0.0-beta" || p2=$?
-p3=0; is_prerelease_tag "v1.0.0-rc1" || p3=$?
-p4=0; is_prerelease_tag "preview-2026" || p4=$?
-p5=0; is_prerelease_tag "v1.0.0-dev" || p5=$?
-p6=0; is_prerelease_tag "nightly-20260901" || p6=$?
+# 1. Prerelease tags rejected
+p_alpha=0; is_prerelease_tag "v1.0.0-alpha" || p_alpha=$?
+p_beta1=0; is_prerelease_tag "1.0.0-beta" || p_beta1=$?
+p_beta2=0; is_prerelease_tag "v0.6.0-beta" || p_beta2=$?
+p_rc1=0; is_prerelease_tag "v1.0.0-rc1" || p_rc1=$?
+p_rc2=0; is_prerelease_tag "v1.0.0-rc.2" || p_rc2=$?
+p_preview=0; is_prerelease_tag "v1.0.0-preview" || p_preview=$?
+p_pre1=0; is_prerelease_tag "v1.0.0-pre" || p_pre1=$?
+p_pre2=0; is_prerelease_tag "v1.0.0-pre1" || p_pre2=$?
+p_dev=0; is_prerelease_tag "v1.0.0-dev" || p_dev=$?
+p_nightly=0; is_prerelease_tag "v1.0.0-nightly" || p_nightly=$?
+p_snapshot=0; is_prerelease_tag "v1.0.0-snapshot" || p_snapshot=$?
 
-# Test stable tags
-s1=0; is_prerelease_tag "2.3.3" && s1=1 || true
-s2=0; is_prerelease_tag "v0.96.6" && s2=1 || true
-s3=0; is_prerelease_tag "v3.9.3" && s3=1 || true
+# 2. Standard stable versions accepted
+s_v1=0; is_prerelease_tag "v1.0.0" && s_v1=1 || true
+s_v2=0; is_prerelease_tag "2.3.3" && s_v2=1 || true
+s_v3=0; is_prerelease_tag "v0.96.6" && s_v3=1 || true
+s_v4=0; is_prerelease_tag "v3.9.3" && s_v4=1 || true
+s_v5=0; is_prerelease_tag "1.6.0-641" && s_v5=1 || true
 
-echo "p1=$p1"
-echo "p2=$p2"
-echo "p3=$p3"
-echo "p4=$p4"
-echo "p5=$p5"
-echo "p6=$p6"
-echo "s1=$s1"
-echo "s2=$s2"
-echo "s3=$s3"
+# 3. Regression test: words containing 'pre' or 'dev' as substring of unrelated words are NOT false positives
+r_precise=0; is_prerelease_tag "v1.0.0-precise" && r_precise=1 || true
+r_compress=0; is_prerelease_tag "v2.0-compress" && r_compress=1 || true
+r_develop=0; is_prerelease_tag "v1.0.0-develop" && r_develop=1 || true
+r_device=0; is_prerelease_tag "v1.0.0-device" && r_device=1 || true
+r_predict=0; is_prerelease_tag "v1.0.0-prediction" && r_predict=1 || true
+r_express=0; is_prerelease_tag "express-1.0" && r_express=1 || true
+
+echo "p_alpha=$p_alpha"
+echo "p_beta1=$p_beta1"
+echo "p_beta2=$p_beta2"
+echo "p_rc1=$p_rc1"
+echo "p_rc2=$p_rc2"
+echo "p_preview=$p_preview"
+echo "p_pre1=$p_pre1"
+echo "p_pre2=$p_pre2"
+echo "p_dev=$p_dev"
+echo "p_nightly=$p_nightly"
+echo "p_snapshot=$p_snapshot"
+echo "s_v1=$s_v1"
+echo "s_v2=$s_v2"
+echo "s_v3=$s_v3"
+echo "s_v4=$s_v4"
+echo "s_v5=$s_v5"
+echo "r_precise=$r_precise"
+echo "r_compress=$r_compress"
+echo "r_develop=$r_develop"
+echo "r_device=$r_device"
+echo "r_predict=$r_predict"
+echo "r_express=$r_express"
 EOS
 )"
 
-if printf '%s\n' "$prerelease_check_output" | grep -q 'p1=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p2=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p3=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p4=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p5=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p6=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 's1=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 's2=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 's3=0'; then
-    pass "is_prerelease_tag correctly rejects beta, rc, preview, dev, nightly and accepts stable versions"
+if printf '%s\n' "$prerelease_check_output" | grep -q 'p_alpha=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_beta1=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_beta2=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_rc1=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_rc2=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_preview=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_pre1=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_pre2=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_dev=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_nightly=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'p_snapshot=0'; then
+    pass "is_prerelease_tag correctly rejects alpha, beta, rc, preview, pre, dev, nightly, and snapshot tokens"
 else
-    fail "is_prerelease_tag classification failed: $prerelease_check_output"
+    fail "is_prerelease_tag failed to reject prerelease token: $prerelease_check_output"
+fi
+
+if printf '%s\n' "$prerelease_check_output" | grep -q 's_v1=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 's_v2=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 's_v3=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 's_v4=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 's_v5=0'; then
+    pass "is_prerelease_tag correctly accepts standard stable version tags"
+else
+    fail "is_prerelease_tag rejected valid stable tag: $prerelease_check_output"
+fi
+
+if printf '%s\n' "$prerelease_check_output" | grep -q 'r_precise=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'r_compress=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'r_develop=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'r_device=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'r_predict=0' &&
+   printf '%s\n' "$prerelease_check_output" | grep -q 'r_express=0'; then
+    pass "is_prerelease_tag avoids false positives on words containing 'pre' or 'dev' substrings (precise, develop, device, etc.)"
+else
+    fail "is_prerelease_tag false positive on boundary regression word: $prerelease_check_output"
 fi
 
 section "Cursor Window Controls and Wayland Integration"

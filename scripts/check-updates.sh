@@ -34,8 +34,10 @@ is_prerelease_tag() {
     local lower
     lower="$(printf '%s\n' "$tag" | tr '[:upper:]' '[:lower:]')"
 
-    # Reject prerelease markers in tag name even if upstream API reports prerelease=false
-    if [[ "$lower" =~ (alpha|beta|rc[0-9]*|preview|pre|nightly|dev|snapshot) ]]; then
+    # Match conventional boundary-aware prerelease tokens:
+    # Delimiter or digit transition followed by keyword and delimiter, digits, or end of string.
+    local token_pattern='(^|[^a-z0-9]|[0-9])(alpha|beta|rc|preview|pre|nightly|dev|snapshot)([0-9._+-]|$)'
+    if [[ "$lower" =~ $token_pattern ]]; then
         return 0
     fi
     return 1

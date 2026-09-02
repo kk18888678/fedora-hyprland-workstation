@@ -16,6 +16,11 @@ pins=(
     ANTIGRAVITY_VERSION
     ANTIGRAVITY_URL
     ANTIGRAVITY_SHA512
+    CHATGPT_VERSION
+    CHATGPT_X86_64_URL
+    CHATGPT_X86_64_SHA512
+    CHATGPT_AARCH64_URL
+    CHATGPT_AARCH64_SHA512
     CCEXTRACTOR_VERSION
     CCEXTRACTOR_URL
     CCEXTRACTOR_SHA512
@@ -40,6 +45,18 @@ for p in "${pins[@]}"; do
         fail "missing pin $p"
     fi
 done
+
+if [[ "$CHATGPT_X86_64_SHA512" =~ ^[a-f0-9]{128}$ ]]; then
+    pass "CHATGPT_X86_64_SHA512 is valid 128-character hex"
+else
+    fail "CHATGPT_X86_64_SHA512 format invalid"
+fi
+
+if [[ "$CHATGPT_AARCH64_SHA512" =~ ^[a-f0-9]{128}$ ]]; then
+    pass "CHATGPT_AARCH64_SHA512 is valid 128-character hex"
+else
+    fail "CHATGPT_AARCH64_SHA512 format invalid"
+fi
 
 if [[ "$DOVI_TOOL_SHA512" =~ ^[a-f0-9]{128}$ ]]; then
     pass "DOVI_TOOL_SHA512 is valid 128-character hex"
