@@ -179,42 +179,72 @@ OVERRIDE_RPM_GPG_DIR="$empty_pki"
 # 1. Full-fingerprint RPM-keyring identity verification (is_rpm_gpg_key_imported)
 # Case A: Exact full fingerprint matching -> 0 (trusted)
 rpm() {
-    if [[ "$*" =~ --qf\ %\{VERSION\} ]]; then
-        echo "3bfa0e4ae8b8cc16a2d9ba684a3b4a566c4660e4"
+    if [[ "$*" =~ --qf\ %\{DESCRIPTION\} ]]; then
+        cat <<'EOF'
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+mQINBGeGrzsBEAC4UV5Ij9oz6h6abEKIRoiezttFfnLhwOAfE9tWtfIFMRmhY91u
+-----END PGP PUBLIC KEY BLOCK-----
+EOF
         return 0
     fi
     command rpm "$@"
+}
+gpg() {
+    cat <<EOF
+pub:u:4096:1:1234567890:1234567890::u:::scESC::::::23::
+fpr:::::::::${EXPECTED_FP}:
+uid:u::::1234567890::1234567890::Codex Linux Repository:::
+EOF
 }
 full_match_res=0
 is_rpm_gpg_key_imported "$EXPECTED_FP" || full_match_res=$?
 echo "full_match_status=$full_match_res"
 
 # Case B: Same final 8 hex digits but different full fingerprint -> 1 (NOT trusted)
-rpm() {
-    if [[ "$*" =~ --qf\ %\{VERSION\} ]]; then
-        echo "111122223333444455556666777788886c4660e4"
-        return 0
-    fi
-    if [[ "$*" =~ gpg-pubkey- ]]; then
-        return 1
-    fi
-    command rpm "$@"
+gpg() {
+    cat <<EOF
+pub:u:4096:1:1234567890:1234567890::u:::scESC::::::23::
+fpr:::::::::111122223333444455556666777788886C4660E4:
+uid:u::::1234567890::1234567890::Colliding Suffix Key:::
+EOF
 }
 suffix_mismatch_res=0
 is_rpm_gpg_key_imported "$EXPECTED_FP" || suffix_mismatch_res=$?
 echo "suffix_mismatch_status=$suffix_mismatch_res"
 
-# Case C: Absent key in RPM database -> 1 (NOT trusted)
-rpm() {
-    if [[ "$*" =~ --qf\ %\{VERSION\} ]]; then
-        echo "36f612dcf27f7d1a48a835e4dbfcf71c6d9f90a6"
-        return 0
-    fi
+# Case C: Unrelated installed key -> 1 (NOT trusted)
+gpg() {
+    cat <<EOF
+pub:u:4096:1:1234567890:1234567890::u:::scESC::::::23::
+fpr:::::::::36F612DCF27F7D1A48A835E4DBFCF71C6D9F90A6:
+uid:u::::1234567890::1234567890::Fedora Linux Primary Key:::
+EOF
+}
+unrelated_key_res=0
+is_rpm_gpg_key_imported "$EXPECTED_FP" || unrelated_key_res=$?
+echo "unrelated_key_status=$unrelated_key_res"
+
+# Case D: Malformed / unparseable key material in RPM keyring -> 1 (NOT trusted)
+gpg() {
     return 1
+}
+malformed_key_res=0
+is_rpm_gpg_key_imported "$EXPECTED_FP" || malformed_key_res=$?
+echo "malformed_key_status=$malformed_key_res"
+
+# Case E: Absent key in RPM database -> 1 (NOT trusted)
+rpm() {
+    if [[ "$*" =~ --qf\ %\{DESCRIPTION\} ]]; then
+        return 0 # empty output
+    fi
+    command rpm "$@"
 }
 absent_key_res=0
 is_rpm_gpg_key_imported "$EXPECTED_FP" || absent_key_res=$?
 echo "absent_key_status=$absent_key_res"
+
+# Unset test gpg/rpm mocks before convergence tests
+unset -f gpg rpm
 
 # 2. Unconfigured repository: absence of key is safe no-op (status 0, no import)
 package_installed() { return 1; }
@@ -342,8 +372,10 @@ EOS
 
 if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'full_match_status=0' &&
    printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'suffix_mismatch_status=1' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'unrelated_key_status=1' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'malformed_key_status=1' &&
    printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'absent_key_status=1'; then
-    pass "is_rpm_gpg_key_imported validates exact full fingerprint and rejects 8-char suffix collisions"
+    pass "is_rpm_gpg_key_imported validates exact full fingerprint from OpenPGP blocks and rejects mismatches/malformed data"
 else
     fail "is_rpm_gpg_key_imported full-fingerprint test failed: $chatgpt_gpg_test_output"
 fi
