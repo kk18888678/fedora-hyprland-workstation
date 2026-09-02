@@ -91,60 +91,112 @@ EOF
 INSTALLER_LOCK_FD=200
 INSTALLER_LOCK_FILE=""
 
-get_installer_lock_path() {
-    local uid="${OVERRIDE_EUID:-${EUID:-$(id -u)}}"
-    local runtime_dir=""
+validate_lock_directory() {
+    local candidate="$1"
+    local uid="$2"
 
-    # 1. Prefer verified XDG_RUNTIME_DIR if safe and non-symlink
-    if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "${XDG_RUNTIME_DIR}" && ! -L "${XDG_RUNTIME_DIR}" && -w "${XDG_RUNTIME_DIR}" ]]; then
-        runtime_dir="${XDG_RUNTIME_DIR}"
-    # 2. Prefer standard systemd /run/user/$uid if safe and non-symlink
-    elif [[ -d "/run/user/${uid}" && ! -L "/run/user/${uid}" && -w "/run/user/${uid}" ]]; then
-        runtime_dir="/run/user/${uid}"
+    [[ -n "$candidate" ]] || return 1
+
+    # 1. Absolute path check
+    [[ "$candidate" == /* ]] || {
+        warn "Lock directory candidate is not an absolute path: $candidate"
+        return 1
+    }
+
+    # 2. Must exist and be a real directory
+    [[ -d "$candidate" ]] || return 1
+
+    # 3. Must not be a symlink
+    [[ ! -L "$candidate" ]] || {
+        warn "Lock directory candidate is a symlink: $candidate"
+        return 1
+    }
+
+    # 4. Must be writable by current process
+    [[ -w "$candidate" ]] || {
+        warn "Lock directory candidate is not writable: $candidate"
+        return 1
+    }
+
+    # 5. Metadata verification requires stat
+    if ! command_exists stat; then
+        error "Required metadata utility 'stat' was not found; cannot verify lock directory safety."
+        return 1
     fi
 
-    if [[ -n "$runtime_dir" ]]; then
-        printf '%s/fedora-hyprland-workstation.lock\n' "$runtime_dir"
+    # 6. Ownership verification
+    local owner
+    owner="$(stat -c '%u' "$candidate" 2>/dev/null || true)"
+    if [[ -z "$owner" ]]; then
+        warn "Could not determine owner for lock directory candidate: $candidate"
+        return 1
+    fi
+
+    if [[ "$owner" != "$uid" && "$uid" != "0" ]]; then
+        warn "Lock directory candidate $candidate is owned by UID $owner, expected UID $uid."
+        return 1
+    fi
+
+    # 7. Permission policy verification (reject group/world write)
+    local perm
+    perm="$(stat -c '%a' "$candidate" 2>/dev/null || true)"
+    if [[ -z "$perm" ]]; then
+        warn "Could not determine permissions for lock directory candidate: $candidate"
+        return 1
+    fi
+
+    local mode_dec=$(( 8#$perm ))
+    if (( (mode_dec & 8#022) != 0 )); then
+        warn "Lock directory candidate $candidate has unsafe group/world writable permissions: $perm"
+        return 1
+    fi
+
+    return 0
+}
+
+get_installer_lock_path() {
+    local uid="${OVERRIDE_EUID:-${EUID:-$(id -u)}}"
+
+    if ! command_exists stat; then
+        error "Required metadata utility 'stat' is missing; cannot establish lock directory safety."
+        return 1
+    fi
+
+    # 1. Candidate: XDG_RUNTIME_DIR
+    if [[ -n "${XDG_RUNTIME_DIR:-}" ]] && validate_lock_directory "${XDG_RUNTIME_DIR}" "$uid"; then
+        printf '%s/fedora-hyprland-workstation.lock\n' "${XDG_RUNTIME_DIR}"
         return 0
     fi
 
-    # 3. Fallback: secure, private per-user directory in /tmp
-    local fallback_base="/tmp"
-    local fallback_dir="${fallback_base}/.fhw-lock-${uid}"
+    # 2. Candidate: /run/user/$uid
+    if validate_lock_directory "/run/user/${uid}" "$uid"; then
+        printf '/run/user/%s/fedora-hyprland-workstation.lock\n' "$uid"
+        return 0
+    fi
+
+    # 3. Candidate: private fallback in /tmp
+    local fallback_dir="/tmp/.fhw-lock-${uid}"
 
     if [[ -L "$fallback_dir" ]]; then
-        error "Insecure symlink detected at lock directory: $fallback_dir"
+        error "Refusing lock fallback directory that exists as a symlink: $fallback_dir"
         return 1
     fi
 
     if [[ ! -d "$fallback_dir" ]]; then
         if ! mkdir -m 0700 "$fallback_dir" 2>/dev/null; then
-            error "Failed to create secure lock directory: $fallback_dir"
+            error "Failed to create private lock directory: $fallback_dir"
             return 1
         fi
     fi
 
-    # Verify directory type and reject symlinks
-    if [[ -L "$fallback_dir" || ! -d "$fallback_dir" ]]; then
-        error "Lock directory $fallback_dir is invalid or a symlink."
-        return 1
+    if validate_lock_directory "$fallback_dir" "$uid"; then
+        chmod 0700 "$fallback_dir" 2>/dev/null || true
+        printf '%s/installer.lock\n' "$fallback_dir"
+        return 0
     fi
 
-    # Ensure permissions are strictly private (0700)
-    chmod 0700 "$fallback_dir" 2>/dev/null || true
-
-    # Verify directory ownership if stat is available
-    if command_exists stat; then
-        local dir_owner
-        dir_owner="$(stat -c '%u' "$fallback_dir" 2>/dev/null || true)"
-        if [[ -n "$dir_owner" && "$dir_owner" != "$uid" && "$uid" != "0" ]]; then
-            error "Lock directory $fallback_dir is owned by UID $dir_owner, expected UID $uid."
-            return 1
-        fi
-    fi
-
-    printf '%s/installer.lock\n' "$fallback_dir"
-    return 0
+    error "Could not establish a safe, verified lock directory for UID $uid."
+    return 1
 }
 
 acquire_installer_lock() {

@@ -145,6 +145,8 @@ prepare_system() {
     require_command systemctl
     require_command curl
     require_command tar
+    require_command stat
+    require_command flock
 
     info "Refreshing Fedora package metadata."
 
