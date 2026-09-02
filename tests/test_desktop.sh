@@ -421,3 +421,131 @@ if printf '%s\n' "$desktop_theme_test_output" | grep -q 'valid-installed=1'; the
 else
     fail "install_rose_pine_gtk_theme failed on valid payload: $desktop_theme_test_output"
 fi
+
+section "GTK Places Bookmarks Convergence & Safety"
+
+bookmarks_test_output="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$1"
+TARGET_USER="bmtest"
+TARGET_HOME="$(mktemp -d)"
+OVERRIDE_TARGET_UID=1000
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/desktop.sh"
+
+env() {
+    while [[ $# -gt 0 && "$1" == *=* ]]; do
+        export "$1"
+        shift
+    done
+    "$@"
+}
+
+sudo() {
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "-u" ]]; then shift 2; continue; fi
+        if [[ "$1" == "env" ]]; then shift; continue; fi
+        if [[ "$1" == *=* ]]; then export "$1"; shift; continue; fi
+        break
+    done
+    "$@"
+}
+
+# Test 1: Empty initial state -> initializes exact baseline in both gtk-3.0 and gtk-4.0
+converge_gtk_bookmarks "$TARGET_HOME"
+
+gtk3_bm="$TARGET_HOME/.config/gtk-3.0/bookmarks"
+gtk4_bm="$TARGET_HOME/.config/gtk-4.0/bookmarks"
+
+empty_init_ok=0
+if [[ -f "$gtk3_bm" && -f "$gtk4_bm" ]]; then
+    expected_content="$(cat << EOF
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Music
+file://${TARGET_HOME}/Videos
+EOF
+)"
+    if cmp -s "$gtk3_bm" <(printf '%s\n' "$expected_content") &&
+       cmp -s "$gtk4_bm" <(printf '%s\n' "$expected_content"); then
+        empty_init_ok=1
+    fi
+fi
+echo "empty-init-ok=$empty_init_ok"
+
+# Test 2: Rerun idempotency on fully initialized bookmarks
+mtime_before="$(stat -c %Y "$gtk3_bm")"
+converge_gtk_bookmarks "$TARGET_HOME"
+mtime_after="$(stat -c %Y "$gtk3_bm")"
+idempotent_ok=$([[ "$mtime_before" == "$mtime_after" ]] && echo 1 || echo 0)
+echo "idempotent-ok=$idempotent_ok"
+
+# Test 3: Partially initialized bookmarks with custom user folder and remote URI
+cat << EOF > "$gtk3_bm"
+file://${TARGET_HOME}/Projects Code Repository
+smb://nas.local/share Network Share
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Music
+EOF
+
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+
+partial_preserved_ok=0
+# Verify that custom Projects and SMB were preserved, and missing Downloads, Pictures, Videos were appended
+if grep -q "file://${TARGET_HOME}/Projects Code Repository" "$gtk3_bm" &&
+   grep -q "smb://nas.local/share Network Share" "$gtk3_bm" &&
+   grep -q "file://${TARGET_HOME}/Documents" "$gtk3_bm" &&
+   grep -q "file://${TARGET_HOME}/Downloads" "$gtk3_bm" &&
+   grep -q "file://${TARGET_HOME}/Pictures" "$gtk3_bm" &&
+   grep -q "file://${TARGET_HOME}/Music" "$gtk3_bm" &&
+   grep -q "file://${TARGET_HOME}/Videos" "$gtk3_bm"; then
+    # Verify no duplicate entries
+    num_docs="$(grep -c "file://${TARGET_HOME}/Documents" "$gtk3_bm" || true)"
+    num_music="$(grep -c "file://${TARGET_HOME}/Music" "$gtk3_bm" || true)"
+    if [[ "$num_docs" -eq 1 && "$num_music" -eq 1 ]]; then
+        partial_preserved_ok=1
+    fi
+fi
+echo "partial-preserved-ok=$partial_preserved_ok"
+
+# Test 4: Rerun on custom bookmarks causes zero changes
+mtime_c1="$(stat -c %Y "$gtk3_bm")"
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+mtime_c2="$(stat -c %Y "$gtk3_bm")"
+custom_idempotent_ok=$([[ "$mtime_c1" == "$mtime_c2" ]] && echo 1 || echo 0)
+echo "custom-idempotent-ok=$custom_idempotent_ok"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'empty-init-ok=1'; then
+    pass "converge_gtk_bookmarks initializes baseline GTK3 and GTK4 bookmarks in exact desired order"
+else
+    fail "converge_gtk_bookmarks empty init failed: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'idempotent-ok=1'; then
+    pass "converge_gtk_bookmarks is fully idempotent on satisfied bookmarks"
+else
+    fail "converge_gtk_bookmarks idempotency failed: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'partial-preserved-ok=1'; then
+    pass "converge_gtk_bookmarks preserves existing custom paths, remote URIs, and labels without duplicates"
+else
+    fail "converge_gtk_bookmarks failed to preserve custom/partial bookmarks: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'custom-idempotent-ok=1'; then
+    pass "converge_gtk_bookmarks is fully idempotent after custom bookmark convergence"
+else
+    fail "converge_gtk_bookmarks failed custom idempotency: $bookmarks_test_output"
+fi

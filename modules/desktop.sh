@@ -18,6 +18,21 @@ deploy_hyprland_config() {
     info "Hyprland configuration linked."
 }
 
+deploy_noctalia_config() {
+    local source="$SCRIPT_DIR/config/noctalia"
+    local destination="$TARGET_HOME/.config/noctalia"
+
+    if [[ -d "$source" ]]; then
+        ensure_directory "$destination"
+        for file in "$source"/*.toml; do
+            [[ -f "$file" ]] || continue
+            local target="$destination/$(basename "$file")"
+            ensure_symlink "$file" "$target"
+        done
+        info "Noctalia configuration deployed."
+    fi
+}
+
 install_noctalia_shell() {
     case "${DESKTOP_SHELL:-}" in
         noctalia)
@@ -508,6 +523,124 @@ install_workstation_hotkeys() {
     record_success "workstation-hotkeys"
 }
 
+install_workstation_launcher() {
+    local bin_source="$SCRIPT_DIR/bin/workstation-launcher"
+    local desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-launcher.desktop"
+
+    local bin_target="${LAUNCHER_BIN_DIR:-/usr/local/bin}/workstation-launcher"
+    local desktop_target="${LAUNCHER_APPS_DIR:-/usr/local/share/applications}/workstation-launcher.desktop"
+
+    if [[ -f "$bin_source" ]]; then
+        info "Installing workstation-launcher command to $bin_target."
+        if [[ "$bin_target" == /usr/* || "$bin_target" == /etc/* ]]; then
+            sudo mkdir -p "$(dirname "$bin_target")"
+            sudo cp "$bin_source" "$bin_target"
+            sudo chmod 0755 "$bin_target"
+        else
+            mkdir -p "$(dirname "$bin_target")"
+            cp "$bin_source" "$bin_target"
+            chmod 0755 "$bin_target"
+        fi
+    fi
+
+    if [[ -f "$desktop_source" ]]; then
+        info "Installing workstation-launcher desktop entry to $desktop_target."
+        if [[ "$desktop_target" == /usr/* || "$desktop_target" == /etc/* ]]; then
+            sudo mkdir -p "$(dirname "$desktop_target")"
+            sudo cp "$desktop_source" "$desktop_target"
+            sudo chmod 0644 "$desktop_target"
+        else
+            mkdir -p "$(dirname "$desktop_target")"
+            cp "$desktop_source" "$desktop_target"
+            chmod 0644 "$desktop_target"
+        fi
+    fi
+
+    info "Workstation launcher installed."
+    record_success "workstation-launcher"
+}
+
+converge_gtk_bookmarks_file() {
+    local bookmark_file="$1"
+    local home_dir="${2:-$TARGET_HOME}"
+
+    local dir
+    dir="$(dirname "$bookmark_file")"
+    ensure_directory "$dir"
+
+    local default_uris=(
+        "file://${home_dir}/Documents"
+        "file://${home_dir}/Downloads"
+        "file://${home_dir}/Pictures"
+        "file://${home_dir}/Music"
+        "file://${home_dir}/Videos"
+    )
+
+    # Fresh/empty file: write default baseline in exact desired order
+    if [[ ! -f "$bookmark_file" || ! -s "$bookmark_file" ]]; then
+        local tmp
+        tmp="$(mktemp)"
+        for uri in "${default_uris[@]}"; do
+            printf '%s\n' "$uri" >> "$tmp"
+        done
+        run_as_target_user mv "$tmp" "$bookmark_file"
+        run_as_target_user chmod 0644 "$bookmark_file"
+        return 0
+    fi
+
+    # Existing file: read lines and URIs while preserving custom labels and remote protocols
+    local existing_lines=()
+    local existing_uris=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -n "$line" ]] || continue
+        existing_lines+=("$line")
+        local uri
+        uri="$(awk '{print $1}' <<< "$line")"
+        existing_uris+=("$uri")
+    done < "$bookmark_file"
+
+    local missing_defaults=()
+    for def_uri in "${default_uris[@]}"; do
+        local found=0
+        for ex_uri in "${existing_uris[@]}"; do
+            if [[ "$ex_uri" == "$def_uri" ]]; then
+                found=1
+                break
+            fi
+        done
+        if (( found == 0 )); then
+            missing_defaults+=("$def_uri")
+        fi
+    done
+
+    # Fully idempotent when all defaults are satisfied
+    if [[ ${#missing_defaults[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    # Append missing defaults preserving existing order, custom paths, and labels
+    local tmp
+    tmp="$(mktemp)"
+    for line in "${existing_lines[@]}"; do
+        printf '%s\n' "$line" >> "$tmp"
+    done
+    for def_uri in "${missing_defaults[@]}"; do
+        printf '%s\n' "$def_uri" >> "$tmp"
+    done
+
+    run_as_target_user mv "$tmp" "$bookmark_file"
+    run_as_target_user chmod 0644 "$bookmark_file"
+}
+
+converge_gtk_bookmarks() {
+    local home_dir="${1:-$TARGET_HOME}"
+
+    info "Converging GTK Places bookmarks."
+    converge_gtk_bookmarks_file "$home_dir/.config/gtk-3.0/bookmarks" "$home_dir"
+    converge_gtk_bookmarks_file "$home_dir/.config/gtk-4.0/bookmarks" "$home_dir"
+    record_success "gtk-bookmarks"
+}
+
 # Prepare desktop files and packages. Do not enable greetd here.
 install_desktop() {
     if [[ "${DESKTOP:-}" != "hyprland" ]]; then
@@ -518,9 +651,12 @@ install_desktop() {
 
     install_noctalia_shell
     deploy_hyprland_config
+    deploy_noctalia_config
     install_hack_nerd_font
     install_rose_pine_gtk_theme
+    converge_gtk_bookmarks
     install_workstation_hotkeys
+    install_workstation_launcher
     install_noctalia_greeter
     configure_greetd
     configure_noctalia_greeter_state
