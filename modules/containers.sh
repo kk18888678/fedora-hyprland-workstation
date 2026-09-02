@@ -53,7 +53,7 @@ configure_rootless_storage() {
 
 enable_podman_socket() {
     if systemctl --user list-unit-files podman.socket \
-        --no-legend 2>/dev/null | grep -q '^podman.socket'; then
+        --no-legend 2>/dev/null | grep '^podman.socket' >/dev/null 2>&1; then
 
         info "Enabling Podman user socket."
 

@@ -140,7 +140,7 @@ validate_greeter_configuration() {
 
     systemctl list-unit-files greetd.service \
         --no-legend 2>/dev/null |
-        grep -q '^greetd.service' || {
+        grep '^greetd.service' >/dev/null 2>&1 || {
         error "greetd.service was not found."
         failed=1
     }
@@ -335,7 +335,7 @@ validate_browser_environment() {
     if is_true "${BROWSER_ULAA:-false}"; then
         info "Validating Ulaa Flatpak."
 
-        if ! flatpak list --app --columns=application 2>/dev/null | grep -Fxq "com.ulaa.Ulaa"; then
+        if ! flatpak list --app --columns=application 2>/dev/null | grep -Fx "com.ulaa.Ulaa" >/dev/null 2>&1; then
             record_deferred "validation" "ulaa" "Ulaa Flatpak is enabled by the profile but is not installed."
         fi
     fi
@@ -412,7 +412,7 @@ validate_application_environment() {
     done
 
     if is_true "${LOCALSEND:-false}"; then
-        if ! flatpak list --app --columns=application 2>/dev/null | grep -Fxq "org.localsend.localsend_app"; then
+        if ! flatpak list --app --columns=application 2>/dev/null | grep -Fx "org.localsend.localsend_app" >/dev/null 2>&1; then
             record_deferred \
                 "validation" \
                 "localsend" \
@@ -483,7 +483,7 @@ validate_flatpak_environment() {
     if ! flatpak remote-list \
         --system \
         --columns=name 2>/dev/null |
-        grep -Fxq "flathub"; then
+        grep -Fx "flathub" >/dev/null 2>&1; then
 
         record_required "validation" "flathub" "System Flathub remote is not configured."
         return 1

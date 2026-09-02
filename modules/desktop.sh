@@ -420,7 +420,7 @@ install_rose_pine_gtk_theme() {
     fi
 
     local theme_src
-    theme_src="$(find "$extracted_dir" -maxdepth 3 -type d -name "rose-pine-moon-gtk" 2>/dev/null | head -n 1 || true)"
+    theme_src="$(find "$extracted_dir" -maxdepth 3 -type d -name "rose-pine-moon-gtk" 2>/dev/null | awk 'NR==1{print}' || true)"
     if [[ -z "$theme_src" || ! -d "$theme_src" || ! -f "$theme_src/index.theme" ]]; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "rose-pine-gtk" "Rosé Pine Moon GTK theme directory not found after extraction."

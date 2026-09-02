@@ -65,7 +65,7 @@ check_github_latest() {
     fi
 
     local latest_tag
-    latest_tag="$(printf '%s\n' "$release_json" | grep -m1 '"tag_name":' | cut -d'"' -f4 || true)"
+    latest_tag="$(printf '%s\n' "$release_json" | awk -F'"' '/"tag_name":/{print $4; exit}' || true)"
 
     if [[ -n "$latest_tag" ]]; then
         if is_prerelease_tag "$latest_tag"; then

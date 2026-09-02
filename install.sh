@@ -158,13 +158,13 @@ on_interrupt() {
     ACTIVATION_BLOCKED=1
     record_critical "installer" "interrupt" "Received signal $sig." 1
 
-    if [[ "$sig" == "TERM" ]]; then
-        INTERRUPTED_SIGNAL=143
-        exit 143
-    else
-        INTERRUPTED_SIGNAL=130
-        exit 130
-    fi
+    case "$sig" in
+        TERM) INTERRUPTED_SIGNAL=143 ;;
+        HUP)  INTERRUPTED_SIGNAL=129 ;;
+        QUIT) INTERRUPTED_SIGNAL=131 ;;
+        *)    INTERRUPTED_SIGNAL=130 ;;
+    esac
+    exit "$INTERRUPTED_SIGNAL"
 }
 
 on_exit() {
@@ -175,13 +175,13 @@ on_exit() {
     local final_code
     if (( INTERRUPTED_SIGNAL != 0 )); then
         final_code="$INTERRUPTED_SIGNAL"
-    elif (( code >= 128 )); then
+    elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
         final_code="$code"
     else
         final_code="$(installer_exit_code)"
     fi
 
-    if (( code != 0 )) &&
+    if (( code != 0 )) && (( code < 128 )) &&
         [[ ${#INSTALL_LOGIN_FAILURES[@]} -eq 0 ]] &&
         [[ ${#INSTALL_REQUIRED_FAILURES[@]} -eq 0 ]]; then
         record_activation_failure \
@@ -200,6 +200,8 @@ on_exit() {
 
 trap 'on_interrupt INT' INT
 trap 'on_interrupt TERM' TERM
+trap 'on_interrupt HUP' HUP
+trap 'on_interrupt QUIT' QUIT
 trap on_exit EXIT
 
 acquire_installer_lock

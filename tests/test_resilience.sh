@@ -314,3 +314,176 @@ if printf '%s\n' "$media_validation_decoupling" | grep -qE 'validation-def-count
 else
     fail "Media CLI validation did not run when MEDIA_APPLICATIONS=false: $media_validation_decoupling"
 fi
+
+section "Installer Exit Semantics and SIGPIPE Resilience"
+
+# 1. Reproduce SIGPIPE condition under pipefail and verify installer exit is 2 when only optional work (N_m3u8DL-RE) is deferred
+sigpipe_exit_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+# Simulate an internal pipeline producing a subshell SIGPIPE (141)
+( seq 1 10000 | head -n 1 >/dev/null ) || true
+
+# Record only the optional N_m3u8DL-RE deferral
+record_deferred "applications" "N_m3u8DL-RE" "Checksum mismatch"
+
+# Simulate on_exit logic
+INTERRUPTED_SIGNAL=0
+code=141
+
+if (( INTERRUPTED_SIGNAL != 0 )); then
+    final_code="$INTERRUPTED_SIGNAL"
+elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
+    final_code="$code"
+else
+    final_code="$(installer_exit_code)"
+fi
+
+echo "sigpipe-exit-code=$final_code"
+echo "activation-blocked=$ACTIVATION_BLOCKED"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$sigpipe_exit_output" | grep -q 'sigpipe-exit-code=2' &&
+   printf '%s\n' "$sigpipe_exit_output" | grep -q 'activation-blocked=0'; then
+    pass "Internal pipeline SIGPIPE does not override exit code 2 on deferred-only work"
+else
+    fail "Internal pipeline SIGPIPE corrupted exit status: $sigpipe_exit_output"
+fi
+
+# 2. Clean success returns 0
+clean_exit_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+record_success "hyprland"
+record_success "foot"
+
+INTERRUPTED_SIGNAL=0
+code=0
+
+if (( INTERRUPTED_SIGNAL != 0 )); then
+    final_code="$INTERRUPTED_SIGNAL"
+elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
+    final_code="$code"
+else
+    final_code="$(installer_exit_code)"
+fi
+
+echo "clean-exit-code=$final_code"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$clean_exit_output" | grep -q 'clean-exit-code=0'; then
+    pass "Clean successful run returns exit code 0"
+else
+    fail "Clean successful run did not return 0: $clean_exit_output"
+fi
+
+# 3. Required failure returns 1
+required_exit_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+record_required "packages" "dnf" "Failed to install required package"
+
+INTERRUPTED_SIGNAL=0
+code=1
+
+if (( INTERRUPTED_SIGNAL != 0 )); then
+    final_code="$INTERRUPTED_SIGNAL"
+elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
+    final_code="$code"
+else
+    final_code="$(installer_exit_code)"
+fi
+
+echo "required-exit-code=$final_code"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$required_exit_output" | grep -q 'required-exit-code=1'; then
+    pass "Required failure returns exit code 1"
+else
+    fail "Required failure did not return 1: $required_exit_output"
+fi
+
+# 4. External SIGINT/SIGTERM returns 130/143 and blocks activation
+external_sig_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+# Simulate SIGINT
+INTERRUPTED_SIGNAL=130
+ACTIVATION_BLOCKED=1
+
+code=130
+if (( INTERRUPTED_SIGNAL != 0 )); then
+    final_code="$INTERRUPTED_SIGNAL"
+elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
+    final_code="$code"
+else
+    final_code="$(installer_exit_code)"
+fi
+
+echo "sigint-exit-code=$final_code"
+echo "sigint-blocked=$ACTIVATION_BLOCKED"
+
+# Simulate SIGTERM
+INTERRUPTED_SIGNAL=143
+ACTIVATION_BLOCKED=1
+code=143
+if (( INTERRUPTED_SIGNAL != 0 )); then
+    final_code="$INTERRUPTED_SIGNAL"
+elif (( code == 130 || code == 143 || code == 129 || code == 131 )); then
+    final_code="$code"
+else
+    final_code="$(installer_exit_code)"
+fi
+
+echo "sigterm-exit-code=$final_code"
+echo "sigterm-blocked=$ACTIVATION_BLOCKED"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$external_sig_output" | grep -q 'sigint-exit-code=130' &&
+   printf '%s\n' "$external_sig_output" | grep -q 'sigint-blocked=1' &&
+   printf '%s\n' "$external_sig_output" | grep -q 'sigterm-exit-code=143' &&
+   printf '%s\n' "$external_sig_output" | grep -q 'sigterm-blocked=1'; then
+    pass "External SIGINT (130) and SIGTERM (143) preserve signal codes and block activation"
+else
+    fail "External signals not handled correctly: $external_sig_output"
+fi

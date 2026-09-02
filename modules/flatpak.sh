@@ -100,7 +100,7 @@ install_localsend() {
         return 0
     fi
 
-    if flatpak list --app --columns=application 2>/dev/null | grep -Fxq "org.localsend.localsend_app"; then
+    if flatpak list --app --columns=application 2>/dev/null | grep -Fx "org.localsend.localsend_app" >/dev/null 2>&1; then
         info "LocalSend Flatpak already installed."
         record_success "localsend"
         return 0
@@ -144,7 +144,7 @@ install_ulaa() {
         return 0
     fi
 
-    if flatpak list --app --columns=application 2>/dev/null | grep -Fxq "com.ulaa.Ulaa"; then
+    if flatpak list --app --columns=application 2>/dev/null | grep -Fx "com.ulaa.Ulaa" >/dev/null 2>&1; then
         info "Ulaa Flatpak already installed."
         record_success "ulaa"
         return 0
@@ -162,7 +162,7 @@ install_ulaa() {
         return 0
     fi
 
-    if ! flatpak list --app --columns=application 2>/dev/null | grep -Fxq "com.ulaa.Ulaa"; then
+    if ! flatpak list --app --columns=application 2>/dev/null | grep -Fx "com.ulaa.Ulaa" >/dev/null 2>&1; then
         record_deferred \
             "flatpak" \
             "ulaa" \
