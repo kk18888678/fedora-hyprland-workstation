@@ -44,7 +44,6 @@ gnome-keyring
 # Desktop/system integration
 dbus
 accountsservice
-xdg-user-dirs
 
 # Storage / filesystem support
 udisks2

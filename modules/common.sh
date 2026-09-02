@@ -76,6 +76,27 @@ require_command() {
         die "Required command not found: $command_name"
 }
 
+run_as_target_user() {
+    local target_user="${TARGET_USER:-}"
+    local target_home="${TARGET_HOME:-}"
+    local effective_uid="${OVERRIDE_EUID:-$EUID}"
+
+    [[ -n "$target_user" ]] || die "TARGET_USER is not defined."
+    [[ -n "$target_home" ]] || die "TARGET_HOME is not defined."
+
+    if [[ "$effective_uid" -eq 0 ]]; then
+        sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
+    elif [[ -n "${USER:-}" && "$USER" != "$target_user" ]]; then
+        if command_exists sudo; then
+            sudo -u "$target_user" env HOME="$target_home" USER="$target_user" "$@"
+        else
+            HOME="$target_home" USER="$target_user" "$@"
+        fi
+    else
+        HOME="$target_home" USER="$target_user" "$@"
+    fi
+}
+
 ###############################################################################
 # Timeout & Bounded Execution
 ###############################################################################

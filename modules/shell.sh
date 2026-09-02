@@ -158,15 +158,20 @@ configure_user_directories() {
     fi
 
     local user_dirs_config_dir="$TARGET_HOME/.config"
-    ensure_directory "$user_dirs_config_dir"
+    if [[ ! -d "$user_dirs_config_dir" ]]; then
+        if ! run_as_target_user mkdir -p "$user_dirs_config_dir"; then
+            record_deferred "shell" "xdg-user-dirs" "Failed to create user configuration directory: $user_dirs_config_dir."
+            return 0
+        fi
+    fi
 
-    # Execute xdg-user-dirs-update strictly in the target user's context with HOME=$TARGET_HOME
-    if ! HOME="$TARGET_HOME" USER="$TARGET_USER" xdg-user-dirs-update; then
-        record_deferred "shell" "xdg-user-dirs" "Failed to execute xdg-user-dirs-update."
+    # Execute xdg-user-dirs-update with effective user TARGET_USER and HOME=$TARGET_HOME
+    if ! run_as_target_user xdg-user-dirs-update; then
+        record_deferred "shell" "xdg-user-dirs" "Failed to execute xdg-user-dirs-update as $TARGET_USER."
         return 0
     fi
 
-    # Ensure the standard directories referenced by user-dirs.dirs actually exist on disk.
+    # Ensure the standard directories referenced by user-dirs.dirs actually exist on disk with TARGET_USER ownership.
     # Existing customized directories in ~/.config/user-dirs.dirs are preserved and created without renaming.
     local user_dirs_file="$user_dirs_config_dir/user-dirs.dirs"
     if [[ -f "$user_dirs_file" ]]; then
@@ -176,7 +181,7 @@ configure_user_directories() {
                 local dir_path="${BASH_REMATCH[1]}"
                 dir_path="${dir_path/\$HOME/$TARGET_HOME}"
                 if [[ -n "$dir_path" && ! -d "$dir_path" ]]; then
-                    ensure_directory "$dir_path"
+                    run_as_target_user mkdir -p "$dir_path"
                 fi
             fi
         done < "$user_dirs_file"
@@ -193,7 +198,9 @@ configure_user_directories() {
         )
         local sdir
         for sdir in "${standard_dirs[@]}"; do
-            ensure_directory "$sdir"
+            if [[ ! -d "$sdir" ]]; then
+                run_as_target_user mkdir -p "$sdir"
+            fi
         done
     fi
 

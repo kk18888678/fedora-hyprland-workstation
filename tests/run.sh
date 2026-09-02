@@ -235,6 +235,12 @@ assert_in_manifest packages/diagnostics.txt duf
 assert_in_manifest packages/diagnostics.txt ncdu
 assert_in_manifest packages/diagnostics.txt btrfs-progs
 
+if grep -h -vE '^\s*#' "$ROOT/packages/base.txt" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -qx "xdg-user-dirs"; then
+    fail "xdg-user-dirs should not be duplicated in packages/base.txt"
+else
+    pass "xdg-user-dirs not duplicated in packages/base.txt"
+fi
+
 if grep -vE '^\s*#' "$ROOT"/packages/base.txt | grep -qw chromium; then
     fail "chromium belongs in the browser module, not base.txt"
 else
@@ -331,6 +337,7 @@ needed_functions=(
     activate_graphical_session
     run_classified_step
     run_with_timeout
+    run_as_target_user
     record_deferred
     record_required
     record_activation_failure
@@ -1363,6 +1370,21 @@ source "$SCRIPT_DIR/modules/status.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/shell.sh"
 
+# Mock sudo to transparently handle user/env in test sandbox
+sudo() {
+    if [[ "$1" == "-u" ]]; then
+        shift 2
+    fi
+    if [[ "$1" == "env" ]]; then
+        shift
+        while [[ $# -gt 0 && "$1" == *=* ]]; do
+            export "$1"
+            shift
+        done
+    fi
+    "$@"
+}
+
 # 1. Fresh user initialization test
 configure_user_directories
 
@@ -1457,6 +1479,12 @@ source "$SCRIPT_DIR/modules/status.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/shell.sh"
 
+sudo() {
+    if [[ "$1" == "-u" ]]; then shift 2; fi
+    if [[ "$1" == "env" ]]; then shift; while [[ $# -gt 0 && "$1" == *=* ]]; do export "$1"; shift; done; fi
+    "$@"
+}
+
 # Simulate xdg-user-dirs-update failure
 xdg-user-dirs-update() { return 1; }
 configure_user_directories
@@ -1476,6 +1504,130 @@ if printf '%s\n' "$xdg_failure_test_output" | grep -q 'fail-exit=2'; then
     pass "XDG user directory failure produces deferred exit code 2"
 else
     fail "XDG user directory failure did not produce exit code 2: $xdg_failure_test_output"
+fi
+
+section "Target User Execution & Privilege Handling"
+
+if grep -q "run_as_target_user" "$ROOT/modules/common.sh"; then
+    pass "common.sh defines run_as_target_user"
+else
+    fail "common.sh missing run_as_target_user"
+fi
+
+target_user_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="mockuser"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+sudo() {
+    echo "SUDO_INVOKED: $*"
+}
+
+# 1. Test run_as_target_user when EUID=0 (root context)
+OVERRIDE_EUID=0
+USER="root"
+run_as_target_user xdg-user-dirs-update
+
+# 2. Test run_as_target_user when caller user differs from TARGET_USER
+OVERRIDE_EUID=1000
+USER="calleruser"
+run_as_target_user xdg-user-dirs-update
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$target_user_test_output" | grep -q 'SUDO_INVOKED: -u mockuser env HOME=.* USER=mockuser xdg-user-dirs-update'; then
+    pass "run_as_target_user genuinely invokes sudo -u TARGET_USER with target HOME and USER when running as root"
+else
+    fail "run_as_target_user failed root sudo switch: $target_user_test_output"
+fi
+
+xdg_privilege_switch_test="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="xdgtester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/shell.sh"
+
+executed_as_user=""
+executed_home=""
+executed_cmds=()
+
+sudo() {
+    if [[ "$1" == "-u" ]]; then
+        executed_as_user="$2"
+        shift 2
+    fi
+    if [[ "$1" == "env" ]]; then
+        shift
+        while [[ $# -gt 0 && "$1" == *=* ]]; do
+            if [[ "$1" == HOME=* ]]; then
+                executed_home="${1#HOME=}"
+            fi
+            shift
+        done
+    fi
+    executed_cmds+=("$*")
+    "$@"
+}
+
+xdg-user-dirs-update() {
+    cat > "$TARGET_HOME/.config/user-dirs.dirs" <<'UDIRS'
+XDG_DESKTOP_DIR="$HOME/Desktop"
+XDG_DOWNLOAD_DIR="$HOME/Downloads"
+XDG_TEMPLATES_DIR="$HOME/Templates"
+XDG_PUBLICSHARE_DIR="$HOME/Public"
+XDG_DOCUMENTS_DIR="$HOME/Documents"
+XDG_MUSIC_DIR="$HOME/Music"
+XDG_PICTURES_DIR="$HOME/Pictures"
+XDG_VIDEOS_DIR="$HOME/Videos"
+UDIRS
+}
+
+# Simulate root installer execution
+OVERRIDE_EUID=0
+USER="root"
+configure_user_directories
+
+echo "executed-user=$executed_as_user"
+echo "executed-home=$executed_home"
+echo "cmds=${executed_cmds[*]}"
+
+all_eight_exist=1
+for d in Desktop Documents Downloads Music Pictures Public Templates Videos; do
+    if [[ ! -d "$TARGET_HOME/$d" ]]; then
+        all_eight_exist=0
+    fi
+done
+echo "all-eight-exist=$all_eight_exist"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'executed-user=xdgtester'; then
+    pass "configure_user_directories switches process user to TARGET_USER"
+else
+    fail "configure_user_directories did not switch to TARGET_USER: $xdg_privilege_switch_test"
+fi
+
+if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'all-eight-exist=1'; then
+    pass "all 8 standard XDG user directories created via TARGET_USER execution"
+else
+    fail "XDG user directories missing after target user execution: $xdg_privilege_switch_test"
 fi
 
 section "Neovim Default Configuration"
