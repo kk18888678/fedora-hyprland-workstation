@@ -36,6 +36,12 @@ pins=(
     N_M3U8DL_RE_VERSION
     N_M3U8DL_RE_URL
     N_M3U8DL_RE_SHA512
+    ROSE_PINE_GTK_VERSION
+    ROSE_PINE_GTK_URL
+    ROSE_PINE_GTK_SHA512
+    HACK_NERD_FONT_VERSION
+    HACK_NERD_FONT_URL
+    HACK_NERD_FONT_SHA512
 )
 
 for p in "${pins[@]}"; do
@@ -86,6 +92,18 @@ if [[ "$N_M3U8DL_RE_SHA512" =~ ^[a-f0-9]{128}$ ]]; then
     pass "N_M3U8DL_RE_SHA512 is valid 128-character hex"
 else
     fail "N_M3U8DL_RE_SHA512 format invalid"
+fi
+
+if [[ "$ROSE_PINE_GTK_SHA512" =~ ^[a-f0-9]{128}$ ]]; then
+    pass "ROSE_PINE_GTK_SHA512 is valid 128-character hex"
+else
+    fail "ROSE_PINE_GTK_SHA512 format invalid"
+fi
+
+if [[ "$HACK_NERD_FONT_SHA512" =~ ^[a-f0-9]{128}$ ]]; then
+    pass "HACK_NERD_FONT_SHA512 is valid 128-character hex"
+else
+    fail "HACK_NERD_FONT_SHA512 format invalid"
 fi
 
 section "Path Component and Containment Primitives"

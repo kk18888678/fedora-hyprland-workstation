@@ -29,8 +29,9 @@ gnome-keyring-pam
 # Display manager / greeter foundation
 greetd
 
-# Terminal
+# Terminals
 kitty
+foot
 
 # File manager & storage integration
 thunar

@@ -137,7 +137,39 @@ deploy_kitty_config() {
 
     ensure_symlink "$source" "$destination"
 
+    local theme_source="$SCRIPT_DIR/dotfiles/kitty/themes/rose-pine-moon.conf"
+    local theme_destination="$TARGET_HOME/.config/kitty/themes/rose-pine-moon.conf"
+    if [[ -f "$theme_source" ]]; then
+        ensure_symlink "$theme_source" "$theme_destination"
+    fi
+
     info "Kitty configuration linked."
+}
+
+deploy_foot_config() {
+    local source="$SCRIPT_DIR/dotfiles/foot/foot.ini"
+    local destination="$TARGET_HOME/.config/foot/foot.ini"
+
+    ensure_symlink "$source" "$destination"
+
+    local theme_source="$SCRIPT_DIR/dotfiles/foot/themes/rose-pine-moon.ini"
+    local theme_destination="$TARGET_HOME/.config/foot/themes/rose-pine-moon.ini"
+    if [[ -f "$theme_source" ]]; then
+        ensure_symlink "$theme_source" "$theme_destination"
+    fi
+
+    info "Foot configuration linked."
+}
+
+deploy_qt6ct_config() {
+    local theme_source="$SCRIPT_DIR/dotfiles/qt6ct/colors/rose-pine-moon.conf"
+    local theme_destination="$TARGET_HOME/.config/qt6ct/colors/rose-pine-moon.conf"
+
+    if [[ -f "$theme_source" ]]; then
+        ensure_symlink "$theme_source" "$theme_destination"
+    fi
+
+    info "Qt6ct configuration linked."
 }
 
 deploy_nvim_config() {
@@ -351,7 +383,9 @@ configure_shell() {
     deploy_zsh_config
     deploy_starship_config
     deploy_kitty_config
+    deploy_foot_config
     deploy_nvim_config
+    deploy_qt6ct_config
     configure_user_directories
     configure_default_shell
 

@@ -200,6 +200,195 @@ configure_graphical_target() {
     info "graphical.target configured."
 }
 
+install_hack_nerd_font() {
+    load_pinned_versions
+
+    local fonts_dir="${FONTS_INSTALL_DIR:-/usr/local/share/fonts/HackNerdFont}"
+    if [[ -d "$fonts_dir" && -f "$fonts_dir/HackNerdFont-Regular.ttf" ]]; then
+        info "Hack Nerd Font already installed."
+        record_success "hack-nerd-font"
+        return 0
+    fi
+
+    if [[ -z "${HACK_NERD_FONT_URL:-}" || -z "${HACK_NERD_FONT_SHA512:-}" ]]; then
+        record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font version metadata missing."
+        return 0
+    fi
+
+    info "Installing Hack Nerd Font (${HACK_NERD_FONT_VERSION:-pinned})."
+
+    local staging_dir
+    staging_dir="$(mktemp -d)"
+    local staging_archive="$staging_dir/hack.tar.xz"
+
+    if ! download_and_verify_artifact "$HACK_NERD_FONT_URL" "$HACK_NERD_FONT_SHA512" "$staging_archive" "Hack Nerd Font"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "hack-nerd-font" "Failed to download or verify Hack Nerd Font archive."
+        return 0
+    fi
+
+    local extracted_dir="$staging_dir/extracted"
+    mkdir -p "$extracted_dir"
+
+    # Pre-extraction structural validation
+    local verbose_listing
+    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font archive inspection failed."
+        return 0
+    fi
+
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        local type_char="${line:0:1}"
+        case "$type_char" in
+            -|d) ;;
+            *)
+                rm -rf "$staging_dir"
+                record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font archive contains unsupported entry type '$type_char'."
+                return 0
+                ;;
+        esac
+    done <<< "$verbose_listing"
+
+    local members_listing
+    if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font archive member listing failed."
+        return 0
+    fi
+
+    local member
+    while IFS= read -r member; do
+        [[ -n "$member" ]] || continue
+        if ! validate_path_components "$member" || ! normalize_archive_path "" "$member" >/dev/null; then
+            rm -rf "$staging_dir"
+            record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font archive contains forbidden member path: $member"
+            return 0
+        fi
+    done <<< "$members_listing"
+
+    if ! tar -xf "$staging_archive" -C "$extracted_dir"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "hack-nerd-font" "Failed to extract Hack Nerd Font archive."
+        return 0
+    fi
+
+    if [[ "$fonts_dir" == /usr/* || "$fonts_dir" == /etc/* ]]; then
+        sudo mkdir -p "$fonts_dir"
+        sudo cp -r "$extracted_dir"/* "$fonts_dir/"
+        sudo chmod 0755 "$fonts_dir"
+        sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+    else
+        mkdir -p "$fonts_dir"
+        cp -r "$extracted_dir"/* "$fonts_dir/"
+        chmod 0755 "$fonts_dir"
+        chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+    fi
+
+    rm -rf "$staging_dir"
+
+    if command_exists fc-cache; then
+        fc-cache -f >/dev/null 2>&1 || true
+    fi
+
+    info "Hack Nerd Font installed successfully."
+    record_success "hack-nerd-font"
+}
+
+install_rose_pine_gtk_theme() {
+    load_pinned_versions
+
+    local theme_dest="$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk"
+    if [[ -d "$theme_dest" && -f "$theme_dest/index.theme" && -f "$theme_dest/gtk-3.0/gtk.css" ]]; then
+        info "Rosé Pine Moon GTK theme already installed."
+        record_success "rose-pine-gtk"
+        return 0
+    fi
+
+    if [[ -z "${ROSE_PINE_GTK_URL:-}" || -z "${ROSE_PINE_GTK_SHA512:-}" ]]; then
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme version metadata missing."
+        return 0
+    fi
+
+    info "Installing Rosé Pine Moon GTK theme (${ROSE_PINE_GTK_VERSION:-pinned})."
+
+    local staging_dir
+    staging_dir="$(mktemp -d)"
+    local staging_archive="$staging_dir/theme.tar.gz"
+
+    if ! download_and_verify_artifact "$ROSE_PINE_GTK_URL" "$ROSE_PINE_GTK_SHA512" "$staging_archive" "Rosé Pine GTK theme"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Failed to download or verify Rosé Pine GTK theme archive."
+        return 0
+    fi
+
+    local extracted_dir="$staging_dir/extracted"
+    mkdir -p "$extracted_dir"
+
+    local members_listing
+    if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive member listing failed."
+        return 0
+    fi
+
+    local member
+    while IFS= read -r member; do
+        [[ -n "$member" ]] || continue
+        if ! validate_path_components "$member" || ! normalize_archive_path "" "$member" >/dev/null; then
+            rm -rf "$staging_dir"
+            record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive contains forbidden member path: $member"
+            return 0
+        fi
+    done <<< "$members_listing"
+
+    if ! tar -xzf "$staging_archive" -C "$extracted_dir"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Failed to extract Rosé Pine GTK theme archive."
+        return 0
+    fi
+
+    local theme_src
+    theme_src="$(find "$extracted_dir" -maxdepth 3 -type d -name "rose-pine-moon-gtk" 2>/dev/null | head -n 1 || true)"
+
+    if [[ -z "$theme_src" || ! -f "$theme_src/index.theme" ]]; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine Moon GTK theme directory not found in extracted archive."
+        return 0
+    fi
+
+    local symlink_escape=0
+    local symlink_file target_resolved
+    while IFS= read -r -d '' symlink_file; do
+        target_resolved="$(readlink -f "$symlink_file" 2>/dev/null || true)"
+        if [[ "$target_resolved" != "$theme_src"* && "$target_resolved" != "$extracted_dir"* ]]; then
+            symlink_escape=1
+            break
+        fi
+    done < <(find "$theme_src" -type l -print0)
+
+    if (( symlink_escape != 0 )); then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive contains escaping symbolic link."
+        return 0
+    fi
+
+    run_as_target_user mkdir -p "$TARGET_HOME/.local/share/themes"
+    run_as_target_user rm -rf "$theme_dest"
+    if ! run_as_target_user cp -a "$theme_src" "$theme_dest"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Failed to install Rosé Pine GTK theme to $theme_dest."
+        return 0
+    fi
+
+    rm -rf "$staging_dir"
+
+    info "Rosé Pine Moon GTK theme installed successfully."
+    record_success "rose-pine-gtk"
+}
+
 # Prepare desktop files and packages. Do not enable greetd here.
 install_desktop() {
     if [[ "${DESKTOP:-}" != "hyprland" ]]; then
@@ -210,6 +399,8 @@ install_desktop() {
 
     install_noctalia_shell
     deploy_hyprland_config
+    install_hack_nerd_font
+    install_rose_pine_gtk_theme
     install_noctalia_greeter
     configure_greetd
     configure_noctalia_greeter_state

@@ -270,6 +270,22 @@ validate_shell_environment() {
         failed=1
     fi
 
+    if [[ -f "$SCRIPT_DIR/dotfiles/kitty/themes/rose-pine-moon.conf" ]] && ! validate_required_file "$TARGET_HOME/.config/kitty/themes/rose-pine-moon.conf"; then
+        record_deferred "validation" "kitty-theme" "Kitty Rosé Pine Moon theme was not deployed."
+    fi
+
+    if [[ -f "$SCRIPT_DIR/dotfiles/foot/foot.ini" ]] && ! validate_required_file "$TARGET_HOME/.config/foot/foot.ini"; then
+        record_deferred "validation" "foot.ini" "Foot configuration was not deployed."
+    fi
+
+    if [[ -f "$SCRIPT_DIR/dotfiles/foot/themes/rose-pine-moon.ini" ]] && ! validate_required_file "$TARGET_HOME/.config/foot/themes/rose-pine-moon.ini"; then
+        record_deferred "validation" "foot-theme" "Foot Rosé Pine Moon theme was not deployed."
+    fi
+
+    if [[ -f "$SCRIPT_DIR/dotfiles/qt6ct/colors/rose-pine-moon.conf" ]] && ! validate_required_file "$TARGET_HOME/.config/qt6ct/colors/rose-pine-moon.conf"; then
+        record_deferred "validation" "qt6ct-colors" "Qt6ct Rosé Pine Moon color scheme was not deployed."
+    fi
+
     if ! validate_required_file "$TARGET_HOME/.config/nvim/init.lua"; then
         record_required "validation" "nvim/init.lua" "Neovim configuration was not deployed."
         failed=1
