@@ -331,7 +331,8 @@ source "$SCRIPT_DIR/modules/status.sh"
 
 INTERRUPTED_SIGNAL=0
 code=0
-final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+final_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" final_code
 echo "clean-exit-code=$final_code"
 rm -rf "$TARGET_HOME"
 EOS
@@ -359,7 +360,8 @@ record_deferred "applications" "N_m3u8DL-RE" "Checksum mismatch"
 
 INTERRUPTED_SIGNAL=0
 code=0
-final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+final_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" final_code
 echo "deferred-exit-code=$final_code"
 rm -rf "$TARGET_HOME"
 EOS
@@ -387,7 +389,8 @@ record_required "packages" "dnf" "Failed to install required package"
 
 INTERRUPTED_SIGNAL=0
 code=0
-final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+final_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" final_code
 echo "required-exit-code=$final_code"
 rm -rf "$TARGET_HOME"
 EOS
@@ -414,25 +417,29 @@ source "$SCRIPT_DIR/modules/status.sh"
 # Simulate SIGINT (130)
 INTERRUPTED_SIGNAL=130
 code=130
-sigint_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+sigint_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" sigint_code
 echo "sigint-exit-code=$sigint_code"
 
 # Simulate SIGTERM (143)
 INTERRUPTED_SIGNAL=143
 code=143
-sigterm_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+sigterm_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" sigterm_code
 echo "sigterm-exit-code=$sigterm_code"
 
 # Simulate SIGHUP (129)
 INTERRUPTED_SIGNAL=129
 code=129
-sighup_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+sighup_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" sighup_code
 echo "sighup-exit-code=$sighup_code"
 
 # Simulate SIGQUIT (131)
 INTERRUPTED_SIGNAL=131
 code=131
-sigquit_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+sigquit_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" sigquit_code
 echo "sigquit-exit-code=$sigquit_code"
 
 rm -rf "$TARGET_HOME"
@@ -448,7 +455,7 @@ else
     fail "External signals not handled correctly: $external_sig_output"
 fi
 
-# 5. Negative regression: unexpected/unclassified fatal status (141, 137, non-zero) cannot become 0 or 2
+# 5. Negative regression: unexpected/unclassified fatal status (141, 137, non-zero) fails closed and mutates caller shell state persistently
 unexpected_status_output="$(
     bash -s <<'EOS'
 set -Eeuo pipefail
@@ -460,39 +467,63 @@ source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/status.sh"
 
-# Case A: Unexpected 141 (SIGPIPE) when deferred-only work is present -> MUST return 1, NOT 2 or 0
+# Case A: Unexpected 141 (SIGPIPE) with deferred work -> MUST return 1, persistently record login-critical failure, and block activation
 record_deferred "applications" "N_m3u8DL-RE" "Checksum mismatch"
 INTERRUPTED_SIGNAL=0
 code=141
-unexpected_141_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+unexpected_141_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" unexpected_141_code
 echo "unexpected_141_code=$unexpected_141_code"
+echo "unexpected_141_failures=${#INSTALL_LOGIN_FAILURES[@]}"
+echo "unexpected_141_blocked=$ACTIVATION_BLOCKED"
 
-# Case B: Unexpected 137 (SIGKILL) with clean state -> MUST return 1, NOT 0
+# Case B: Unexpected 137 (SIGKILL) with clean state -> MUST return 1 and record failure in caller
 INSTALL_LOGIN_FAILURES=()
 INSTALL_REQUIRED_FAILURES=()
 INSTALL_DEFERRED=()
+ACTIVATION_BLOCKED=0
 INTERRUPTED_SIGNAL=0
 code=137
-unexpected_137_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+unexpected_137_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" unexpected_137_code
 echo "unexpected_137_code=$unexpected_137_code"
+echo "unexpected_137_failures=${#INSTALL_LOGIN_FAILURES[@]}"
 
-# Case C: Unclassified nonzero command failure (e.g. exit 1) -> MUST return 1
+# Case C: Unclassified nonzero command failure (e.g. exit 1) -> MUST return 1 and record failure in caller
 INSTALL_LOGIN_FAILURES=()
 INSTALL_REQUIRED_FAILURES=()
 INSTALL_DEFERRED=()
+ACTIVATION_BLOCKED=0
 INTERRUPTED_SIGNAL=0
 code=1
-unclassified_nonzero_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+unclassified_nonzero_code=0
+resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" unclassified_nonzero_code
 echo "unclassified_nonzero_code=$unclassified_nonzero_code"
+echo "unclassified_failures=${#INSTALL_LOGIN_FAILURES[@]}"
+
+# Case D: Regression test proving subshell $(...) command substitution loses state mutations
+INSTALL_LOGIN_FAILURES=()
+ACTIVATION_BLOCKED=0
+# If accidentally invoked via subshell:
+subshell_result="$(resolve_installer_exit_code 141 0)"
+echo "subshell_returned=$subshell_result"
+echo "subshell_caller_lost_failures=${#INSTALL_LOGIN_FAILURES[@]}"
+echo "subshell_caller_lost_blocked=$ACTIVATION_BLOCKED"
 
 rm -rf "$TARGET_HOME"
 EOS
 )"
 
 if printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_code=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_failures=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_blocked=1' &&
    printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_137_code=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'unclassified_nonzero_code=1'; then
-    pass "Unexpected fatal status (141, 137, unclassified nonzero) fails closed as exit code 1"
+   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_137_failures=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'unclassified_nonzero_code=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'unclassified_failures=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'subshell_caller_lost_failures=0' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'subshell_caller_lost_blocked=0'; then
+    pass "Unexpected fatal status (141, 137, unclassified nonzero) fails closed with persistent caller shell mutations"
 else
-    fail "Unexpected status did not fail closed: $unexpected_status_output"
+    fail "Unexpected status did not fail closed or persist mutations: $unexpected_status_output"
 fi

@@ -87,46 +87,49 @@ die() {
     exit 1
 }
 
-installer_exit_code() {
-    if [[ ${#INSTALL_LOGIN_FAILURES[@]} -gt 0 ]] ||
-        [[ ${#INSTALL_REQUIRED_FAILURES[@]} -gt 0 ]]; then
-        printf '1'
-        return
-    fi
-
-    if [[ ${#INSTALL_DEFERRED[@]} -gt 0 ]]; then
-        printf '2'
-        return
-    fi
-
-    printf '0'
-}
-
 resolve_installer_exit_code() {
-    local raw_code="${1:-0}"
-    local interrupted_signal="${2:-0}"
+    local _raw_code="${1:-0}"
+    local _interrupted_sig="${2:-0}"
+    local _out_var="${3:-}"
+
+    local _resolved_status=0
 
     # 1. Explicitly trapped external signal has authoritative priority and retains conventional 128+signal exit status
-    if (( interrupted_signal != 0 )); then
-        printf '%s' "$interrupted_signal"
-        return
-    fi
-
-    # 2. If an unclassified nonzero error or unexpected fatal signal occurred (raw_code != 0),
-    # it must NEVER silently resolve to 0 (success) or 2 (deferred-only).
-    if (( raw_code != 0 )); then
+    if (( _interrupted_sig != 0 )); then
+        _resolved_status="$_interrupted_sig"
+    elif (( _raw_code != 0 )); then
+        # 2. If an unclassified nonzero error or unexpected fatal signal occurred (raw_code != 0),
+        # it must NEVER silently resolve to 0 (success) or 2 (deferred-only).
         if [[ ${#INSTALL_LOGIN_FAILURES[@]} -eq 0 ]] && [[ ${#INSTALL_REQUIRED_FAILURES[@]} -eq 0 ]]; then
             record_activation_failure \
                 "installer" \
                 "exit" \
-                "Installer terminated unexpectedly with status ${raw_code}."
+                "Installer terminated unexpectedly with status ${_raw_code}."
         fi
-        printf '1'
-        return
+        _resolved_status=1
+    elif [[ ${#INSTALL_LOGIN_FAILURES[@]} -gt 0 ]] ||
+         [[ ${#INSTALL_REQUIRED_FAILURES[@]} -gt 0 ]]; then
+        # 3. Classified required or login-critical failure
+        _resolved_status=1
+    elif [[ ${#INSTALL_DEFERRED[@]} -gt 0 ]]; then
+        # 4. Deferred-only completion
+        _resolved_status=2
+    else
+        # 5. Clean successful completion
+        _resolved_status=0
     fi
 
-    # 3. Clean termination (raw_code == 0): evaluate recorded outcomes
-    installer_exit_code
+    if [[ -n "$_out_var" ]]; then
+        printf -v "$_out_var" '%s' "$_resolved_status"
+    else
+        printf '%s' "$_resolved_status"
+    fi
+}
+
+installer_exit_code() {
+    local code=0
+    resolve_installer_exit_code 0 0 code
+    printf '%s' "$code"
 }
 
 print_installer_summary() {

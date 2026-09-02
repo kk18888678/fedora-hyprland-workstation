@@ -172,8 +172,8 @@ on_exit() {
 
     cleanup_installer_children
 
-    local final_code
-    final_code="$(resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL")"
+    local final_code=0
+    resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" final_code
 
     if [[ ${SUMMARY_PRINTED:-0} -eq 0 ]]; then
         print_installer_summary
