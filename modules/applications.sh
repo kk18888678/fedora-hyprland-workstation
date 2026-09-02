@@ -310,7 +310,8 @@ install_media_utilities() {
     else
         if [[ -n "${BENTO4_URL:-}" && -n "${BENTO4_SHA512:-}" ]]; then
             info "Provisioning Bento4 tools (${BENTO4_VERSION:-pinned})."
-            if provision_verified_archive "$BENTO4_URL" "$BENTO4_SHA512" "$target_dir" "mp4dump" "Bento4" true; then
+            local bento4_tools="mp4dump mp4info mp4edit mp4extract mp4encrypt mp4decrypt mp4fragment mp4split mp4tag"
+            if provision_verified_archive "$BENTO4_URL" "$BENTO4_SHA512" "$target_dir" "$bento4_tools" "Bento4" true; then
                 record_success "bento4"
             else
                 record_deferred "applications" "bento4" "Failed to download, verify, or extract Bento4."
