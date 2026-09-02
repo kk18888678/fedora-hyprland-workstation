@@ -144,10 +144,6 @@ cleanup_installer_children() {
         wait "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
         ACTIVE_TIMEOUT_PID=""
     fi
-
-    if command -v pkill >/dev/null 2>&1; then
-        pkill -P "$$" 2>/dev/null || true
-    fi
 }
 
 on_interrupt() {

@@ -510,6 +510,85 @@ echo "subshell_returned=$subshell_result"
 echo "subshell_caller_lost_failures=${#INSTALL_LOGIN_FAILURES[@]}"
 echo "subshell_caller_lost_blocked=$ACTIVATION_BLOCKED"
 
+# Case E: Regression test: Real production execution with exec > >(tee ...) and on_exit trap
+# With old pkill -P "$$", tee was killed prematurely causing SIGPIPE (141) during summary print
+real_pipe_log="$TARGET_HOME/real_pipe_install.log"
+real_pipe_last_run="$TARGET_HOME/last-run"
+real_pipe_rc=0
+(
+    bash -s -- "$SCRIPT_DIR" "$TARGET_HOME" "$real_pipe_log" "$real_pipe_last_run" <<'CHILD_SCRIPT'
+set -Eeuo pipefail
+SCRIPT_DIR="$1"
+TARGET_HOME="$2"
+INSTALL_LOG_FILE="$3"
+LAST_RUN_FILE="$4"
+TARGET_USER="tester"
+PROFILE_NAME="vm"
+PROFILE="vm"
+DESKTOP="hyprland"
+DESKTOP_SHELL="noctalia"
+SHELL="zsh"
+GPU="virtio"
+INTERRUPTED_SIGNAL=0
+SUMMARY_PRINTED=0
+ACTIVATION_BLOCKED=0
+GRAPHICAL_ACTIVATION_STATE="completed"
+ENABLE_GRAPHICAL_TARGET=false
+ACTIVE_TIMEOUT_PID=""
+INSTALLER_STATE_ROOT="$TARGET_HOME"
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+stop_sudo_keepalive() { :; }
+release_installer_lock() { :; }
+finalize_installer_state() {
+    local exit_code="${1:-1}"
+    cat > "$LAST_RUN_FILE" <<EOF
+status=${exit_code}
+EOF
+}
+
+cleanup_installer_children() {
+    stop_sudo_keepalive
+    release_installer_lock
+
+    if [[ -n "${ACTIVE_TIMEOUT_PID:-}" ]]; then
+        kill -TERM "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        wait "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        ACTIVE_TIMEOUT_PID=""
+    fi
+}
+
+on_exit() {
+    local code=$?
+    cleanup_installer_children
+    local final_code=0
+    resolve_installer_exit_code "$code" "$INTERRUPTED_SIGNAL" final_code
+    if [[ ${SUMMARY_PRINTED:-0} -eq 0 ]]; then
+        print_installer_summary
+    fi
+    finalize_installer_state "$final_code"
+    exit "$final_code"
+}
+
+trap on_exit EXIT
+
+# Production process substitution logging redirection
+exec > >(tee -a "$INSTALL_LOG_FILE") 2>&1
+
+# Simulate a completed run with one deferred optional item
+record_deferred "applications" "N_m3u8DL-RE" "Skipping prerelease artifact."
+info "Workstation capability validation complete."
+CHILD_SCRIPT
+) || real_pipe_rc=$?
+
+echo "real_pipe_rc=$real_pipe_rc"
+echo "real_pipe_has_summary=$([[ -f "$real_pipe_log" ]] && grep -q 'Installation summary' "$real_pipe_log" && echo 1 || echo 0)"
+echo "real_pipe_last_run_status=$(grep 'status=' "$real_pipe_last_run" 2>/dev/null || echo 'status=none')"
+
 rm -rf "$TARGET_HOME"
 EOS
 )"
@@ -526,4 +605,12 @@ if printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_code=1' &
     pass "Unexpected fatal status (141, 137, unclassified nonzero) fails closed with persistent caller shell mutations"
 else
     fail "Unexpected status did not fail closed or persist mutations: $unexpected_status_output"
+fi
+
+if printf '%s\n' "$unexpected_status_output" | grep -q 'real_pipe_rc=2' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'real_pipe_has_summary=1' &&
+   printf '%s\n' "$unexpected_status_output" | grep -q 'real_pipe_last_run_status=status=2'; then
+    pass "Production logging pipeline and exit trap complete with deferred exit code 2 without SIGPIPE (141)"
+else
+    fail "Production logging pipeline failed: $unexpected_status_output"
 fi
