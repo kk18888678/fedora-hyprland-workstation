@@ -2,19 +2,29 @@
 
 Idempotent installer for a **Fedora 44** machine running **Hyprland** with the **Noctalia** desktop shell, `greetd`, and a standard workstation toolchain (Zsh, Nix/devenv, Podman, Flatpak, Chromium).
 
-## Usage
+## Prerequisites & Bootstrap
 
-Run as your normal user (not root):
+On a fresh or minimal Fedora installation (such as **Fedora Everything** or minimal netinst), install Git if it is not already present:
 
 ```bash
-git clone <repo>
-cd fedora-hyprland-workstation
-./install.sh --profile vm
+sudo dnf install -y git
 ```
 
-Physical hardware:
+The installer itself automatically verifies, bootstraps, and manages all subsequent required system utilities (`curl`, `jq`, `tar`, `dnf-plugins-core`, etc.) during its preflight stage.
+
+## Usage
+
+Clone the repository and run the installer as your **normal user** (not root):
 
 ```bash
+# Clone the installer-resilience branch
+git clone -b installer-resilience https://github.com/kk18888678/fedora-hyprland-workstation.git
+cd fedora-hyprland-workstation
+
+# For virtual machines (VirtIO GPU, no Bluetooth):
+./install.sh --profile vm
+
+# For physical hardware workstations:
 ./install.sh --profile workstation
 ```
 
