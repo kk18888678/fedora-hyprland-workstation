@@ -32,7 +32,8 @@ Configuration targets are strictly categorized:
 ### Prohibited Operations
 - **No recursive home chowning**: `chown -R` against `$TARGET_HOME` is prohibited.
 - **No blind deletions**: `rm -rf` against unvalidated or user-controlled paths is prohibited.
-- **Path guards**: `ensure_directory` and `ensure_symlink` require non-empty, validated paths.
+- **Path guards**: `ensure_directory` and `ensure_symlink` require non-empty, validated paths and fail closed on empty paths, root `/`, or relative `.` / `..`.
+- **Deterministic archive extraction**: Upstream archives must have explicitly declared binary members. Pre-extraction structural checks reject path traversal (`../`) and absolute paths (`/`). Post-extraction checks verify symlinks do not escape the staging sandbox. Unverified executable guessing or fallback is prohibited.
 
 ---
 
@@ -70,4 +71,4 @@ graph TD
 
 - **Bounded Execution**: Every network, package manager, and external download command is bounded via `run_with_timeout` with GNU `timeout --kill-after=10s`.
 - **Signal Trapping**: `SIGINT` (130) and `SIGTERM` (143) are captured via traps, terminating all tracked child processes, releasing the installer lock, and terminating cleanly.
-- **Concurrency Locking**: `install.sh` acquires an exclusive non-blocking `flock` on `/run/user/$EUID/fedora-hyprland-workstation-$EUID.lock`. If another installer process is active, it fails immediately with a clear error message. The lock is kernel-backed and automatically released if the process terminates or crashes.
+- **Concurrency Locking**: `install.sh` acquires an exclusive non-blocking `flock` on file descriptor 200 using `/run/user/$EUID/fedora-hyprland-workstation.lock` (or fallback private `0700` directory `/tmp/.fhw-lock-$EUID/installer.lock` with foreign ownership and symlink rejection). If another installer process is active or `flock` is unavailable, it fails closed immediately with a clear error message. The lock is kernel-backed and automatically released if the process terminates or crashes.

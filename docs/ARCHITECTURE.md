@@ -61,9 +61,14 @@ graph TD
 | Module | Purpose |
 | --- | --- |
 | `install.sh` | CLI entry point, argument parsing, lifecycle traps, lock management, orchestration. |
-| `modules/common.sh` | Shared utilities: logging, boolean checks, privilege transitions (`run_as_target_user`), bounded timeout execution (`run_with_timeout`), retries, verified artifact downloads, directory/symlink managers, and system preflight checks. |
+| `modules/common.sh` | Shared aggregator sourcing `modules/lib/*.sh` and running system pre-flight checks (`validate_profile`, `validate_fedora`, `validate_target_user`, `prepare_system`). |
+| `modules/lib/output.sh` | Terminal formatting and logging primitives (`info`, `warn`, `error`, `die`). |
+| `modules/lib/execution.sh` | Privilege transitions (`run_as_target_user`), timeouts (`run_with_timeout`), retries (`run_with_retry`), booleans, root file installation. |
+| `modules/lib/filesystem.sh` | Filesystem primitives with path guards and collision-safe backup handling (`ensure_directory`, `ensure_symlink`). |
+| `modules/lib/packages.sh` | DNF and RPM query and transaction wrappers (`package_installed`, `package_available`, `install_dnf_packages`). |
+| `modules/lib/artifacts.sh` | Cryptographic verification, HTTPS validation, deterministic archive structural inspection, and binary provisioning. |
 | `modules/status.sh` | Run outcome classification, failure recording, and human-readable summary generation. |
-| `modules/state.sh` | State directory initialization (`/var/lib/fedora-hyprland-workstation`), journaling, failure notes, and concurrency locking (`flock`). |
+| `modules/state.sh` | State directory initialization (`/var/lib/fedora-hyprland-workstation`), journaling, failure notes, and fail-closed concurrency locking (`flock`). |
 | `modules/repositories.sh` | Idempotent third-party repository configuration (COPRs: `lionheartp/Hyprland`, `atim/starship`; RPM Fusion Free & Nonfree). |
 | `modules/packages.sh` | Manifest-based package installation (`packages/*.txt`). |
 | `modules/shell.sh` | Zsh configuration, Oh My Zsh, plugins, Starship, Kitty, Neovim config, and standard XDG user directories initialization. |
@@ -74,6 +79,7 @@ graph TD
 | `modules/nix.sh` | Fedora Nix packages, `nix-daemon` service enablement, `nix.conf` user feature merge, and pinned `devenv` profile installation. |
 | `modules/containers.sh` | Podman, Buildah, Skopeo, rootless subuids/subgids configuration, and user socket enablement. |
 | `modules/validation.sh` | Comprehensive read-only validation for graphical login safety and workstation capabilities. |
+| `tests/run.sh` | Unified test entrypoint running isolated domain test suites (`tests/test_*.sh`). |
 
 ---
 
