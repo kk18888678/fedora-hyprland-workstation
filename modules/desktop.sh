@@ -324,8 +324,58 @@ install_rose_pine_gtk_theme() {
         return 0
     fi
 
-    local extracted_dir="$staging_dir/extracted"
-    mkdir -p "$extracted_dir"
+    # Pre-extraction safety validation: enumerate archive members and inspect entry types
+    local verbose_listing
+    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive inspection failed."
+        return 0
+    fi
+
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        local type_char="${line:0:1}"
+        case "$type_char" in
+            -|d)
+                ;;
+            l)
+                # Parse symlink path and target: '... path -> target'
+                if [[ "$line" =~ [[:space:]]([^[:space:]]+)[[:space:]]-\>[[:space:]]([^[:space:]]+) ]]; then
+                    local sym_path="${BASH_REMATCH[1]}"
+                    local sym_target="${BASH_REMATCH[2]}"
+
+                    # Reject absolute paths or targets
+                    if [[ "$sym_path" == /* || "$sym_target" == /* ]]; then
+                        rm -rf "$staging_dir"
+                        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK archive contains absolute symlink target: $sym_path -> $sym_target"
+                        return 0
+                    fi
+
+                    # Reject link targets attempting traversal outside archive root
+                    local sym_dir
+                    sym_dir="$(dirname "$sym_path")"
+                    local target_combined
+                    if [[ "$sym_dir" == "." ]]; then
+                        target_combined="$sym_target"
+                    else
+                        target_combined="$sym_dir/$sym_target"
+                    fi
+
+                    if ! normalize_archive_path "" "$target_combined" >/dev/null 2>&1; then
+                        rm -rf "$staging_dir"
+                        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK archive contains escaping symlink target: $sym_path -> $sym_target"
+                        return 0
+                    fi
+                fi
+                ;;
+            *)
+                rm -rf "$staging_dir"
+                record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK archive contains forbidden entry type '$type_char'."
+                return 0
+                ;;
+        esac
+    done <<< "$verbose_listing"
 
     local members_listing
     if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
@@ -334,31 +384,50 @@ install_rose_pine_gtk_theme() {
         return 0
     fi
 
+    local has_moon_index=0
+    local has_moon_gtk3=0
     local member
     while IFS= read -r member; do
         [[ -n "$member" ]] || continue
-        if ! validate_path_components "$member" || ! normalize_archive_path "" "$member" >/dev/null; then
+        if [[ "$member" == /* ]] || ! validate_path_components "$member" || ! normalize_archive_path "" "$member" >/dev/null 2>&1; then
             rm -rf "$staging_dir"
             record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive contains forbidden member path: $member"
             return 0
         fi
+
+        local clean_member="${member#./}"
+        if [[ "$clean_member" == "gtk3/rose-pine-moon-gtk/index.theme" ]]; then
+            has_moon_index=1
+        elif [[ "$clean_member" == "gtk3/rose-pine-moon-gtk/gtk-3.0/gtk.css" || "$clean_member" == "gtk3/rose-pine-moon-gtk/gtk-3.20/gtk.css" ]]; then
+            has_moon_gtk3=1
+        fi
     done <<< "$members_listing"
 
-    if ! tar -xzf "$staging_archive" -C "$extracted_dir"; then
+    if (( has_moon_index == 0 || has_moon_gtk3 == 0 )); then
         rm -rf "$staging_dir"
-        record_deferred "desktop" "rose-pine-gtk" "Failed to extract Rosé Pine GTK theme archive."
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine Moon GTK theme payload missing expected members in archive."
+        return 0
+    fi
+
+    local extracted_dir="$staging_dir/extracted"
+    mkdir -p "$extracted_dir"
+
+    # Extract only the required rose-pine-moon-gtk subtree
+    if ! tar --warning=no-unknown-keyword -xzf "$staging_archive" -C "$extracted_dir" 2>/dev/null; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Failed to extract Rosé Pine GTK theme archive subtree."
         return 0
     fi
 
     local theme_src
     theme_src="$(find "$extracted_dir" -maxdepth 3 -type d -name "rose-pine-moon-gtk" 2>/dev/null | head -n 1 || true)"
-
-    if [[ -z "$theme_src" || ! -f "$theme_src/index.theme" ]]; then
+    if [[ -z "$theme_src" || ! -d "$theme_src" || ! -f "$theme_src/index.theme" ]]; then
         rm -rf "$staging_dir"
-        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine Moon GTK theme directory not found in extracted archive."
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine Moon GTK theme directory not found after extraction."
         return 0
     fi
 
+    # Post-extraction verification: ensure no symlinks in the extracted tree resolve outside theme_src
     local symlink_escape=0
     local symlink_file target_resolved
     while IFS= read -r -d '' symlink_file; do
@@ -375,9 +444,22 @@ install_rose_pine_gtk_theme() {
         return 0
     fi
 
+    # Stage safely and atomically as TARGET_USER
     run_as_target_user mkdir -p "$TARGET_HOME/.local/share/themes"
+    local staging_target
+    staging_target="$(run_as_target_user mktemp -d "$TARGET_HOME/.local/share/themes/.rose-pine-moon-gtk.tmp.XXXXXX")"
+
+    if ! run_as_target_user cp -a "$theme_src"/* "$staging_target/"; then
+        run_as_target_user rm -rf "$staging_target"
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Failed to stage Rosé Pine GTK theme files."
+        return 0
+    fi
+
+    # Atomically replace destination
     run_as_target_user rm -rf "$theme_dest"
-    if ! run_as_target_user cp -a "$theme_src" "$theme_dest"; then
+    if ! run_as_target_user mv "$staging_target" "$theme_dest"; then
+        run_as_target_user rm -rf "$staging_target"
         rm -rf "$staging_dir"
         record_deferred "desktop" "rose-pine-gtk" "Failed to install Rosé Pine GTK theme to $theme_dest."
         return 0
