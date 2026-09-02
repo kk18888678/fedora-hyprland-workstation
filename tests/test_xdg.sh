@@ -296,3 +296,138 @@ if printf '%s\n' "$xdg_failure_test_output" | grep -q 'fail-exit=2'; then
 else
     fail "XDG user directory failure did not produce exit code 2: $xdg_failure_test_output"
 fi
+
+section "GTK / Thunar Places Bookmarks"
+
+gtk_bookmarks_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="xdgtester"
+TARGET_HOME="$(mktemp -d)"
+OVERRIDE_TARGET_UID=1000
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/shell.sh"
+
+env() {
+    while [[ $# -gt 0 && "$1" == *=* ]]; do
+        export "$1"
+        shift
+    done
+    "$@"
+}
+
+sudo() {
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "-u" ]]; then shift 2; continue; fi
+        if [[ "$1" == "env" ]]; then shift; continue; fi
+        if [[ "$1" == *=* ]]; then export "$1"; shift; continue; fi
+        break
+    done
+    "$@"
+}
+
+# Test 1: Fresh user initialization (missing file)
+configure_gtk_bookmarks
+
+bookmarks_file="$TARGET_HOME/.config/gtk-3.0/bookmarks"
+fresh_exists=$([[ -f "$bookmarks_file" ]] && echo 1 || echo 0)
+has_downloads=$(grep -c "file://$TARGET_HOME/Downloads" "$bookmarks_file" || true)
+has_documents=$(grep -c "file://$TARGET_HOME/Documents" "$bookmarks_file" || true)
+has_music=$(grep -c "file://$TARGET_HOME/Music" "$bookmarks_file" || true)
+has_pictures=$(grep -c "file://$TARGET_HOME/Pictures" "$bookmarks_file" || true)
+has_videos=$(grep -c "file://$TARGET_HOME/Videos" "$bookmarks_file" || true)
+has_desktop=$(grep -c "Desktop" "$bookmarks_file" || true)
+has_templates=$(grep -c "Templates" "$bookmarks_file" || true)
+has_public=$(grep -c "Public" "$bookmarks_file" || true)
+
+echo "fresh-exists=$fresh_exists"
+echo "has-downloads=$has_downloads"
+echo "has-documents=$has_documents"
+echo "has-music=$has_music"
+echo "has-pictures=$has_pictures"
+echo "has-videos=$has_videos"
+echo "has-desktop=$has_desktop"
+echo "has-templates=$has_templates"
+echo "has-public=$has_public"
+
+# Test 2: Rerun idempotency on already initialized file
+configure_gtk_bookmarks
+total_lines_after_rerun=$(wc -l < "$bookmarks_file" | tr -d ' ')
+echo "rerun-total-lines=$total_lines_after_rerun"
+
+# Test 3: Existing user with custom bookmark and one existing standard bookmark (e.g. Pictures)
+cat > "$bookmarks_file" <<BM
+file:///home/user/CustomProjects My Work
+file://$TARGET_HOME/Pictures
+BM
+
+# Provide a user-dirs.dirs mapping for custom paths
+mkdir -p "$TARGET_HOME/.config"
+cat > "$TARGET_HOME/.config/user-dirs.dirs" <<'UDIRS'
+XDG_DOWNLOAD_DIR="$HOME/MyDownloads"
+XDG_DOCUMENTS_DIR="$HOME/Documents"
+XDG_MUSIC_DIR="$HOME/Music"
+XDG_PICTURES_DIR="$HOME/Pictures"
+XDG_VIDEOS_DIR="$HOME/Videos"
+UDIRS
+
+configure_gtk_bookmarks
+
+# Check custom bookmark was preserved as first entry
+first_line=$(head -n 1 "$bookmarks_file")
+echo "first-line=$first_line"
+
+# Check Pictures is not duplicated
+pictures_count=$(grep -c "file://$TARGET_HOME/Pictures" "$bookmarks_file" || true)
+echo "pictures-count=$pictures_count"
+
+# Check custom downloads was added
+custom_dl_count=$(grep -c "file://$TARGET_HOME/MyDownloads" "$bookmarks_file" || true)
+echo "custom-dl-count=$custom_dl_count"
+
+# Ensure total lines = 6 (CustomProjects + Pictures + MyDownloads + Documents + Music + Videos)
+total_lines_merged=$(wc -l < "$bookmarks_file" | tr -d ' ')
+echo "merged-total-lines=$total_lines_merged"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'fresh-exists=1' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-downloads=1' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-documents=1' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-music=1' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-pictures=1' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-videos=1'; then
+    pass "fresh user creates all 5 standard bookmarks"
+else
+    fail "fresh user bookmarks creation failed: $gtk_bookmarks_test_output"
+fi
+
+if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-desktop=0' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-templates=0' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-public=0'; then
+    pass "Desktop, Templates, and Public are never bookmarked automatically"
+else
+    fail "unwanted directories were bookmarked: $gtk_bookmarks_test_output"
+fi
+
+if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'rerun-total-lines=5'; then
+    pass "repeated bookmark configuration is strictly idempotent"
+else
+    fail "bookmark configuration is not idempotent: $gtk_bookmarks_test_output"
+fi
+
+if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'first-line=file:///home/user/CustomProjects My Work' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'pictures-count=1' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'custom-dl-count=1' &&
+   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'merged-total-lines=6'; then
+    pass "existing custom bookmarks and order are preserved without duplicate standard entries"
+else
+    fail "bookmark merge failed: $gtk_bookmarks_test_output"
+fi

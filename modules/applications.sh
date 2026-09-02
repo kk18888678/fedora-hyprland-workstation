@@ -232,7 +232,7 @@ install_media_utilities() {
 
     load_pinned_versions
 
-    local target_dir="/usr/local/bin"
+    local target_dir="${MEDIA_TOOLS_DIR:-/usr/local/bin}"
 
     # 1. dovi_tool
     if [[ -x "$target_dir/dovi_tool" ]] || command_exists dovi_tool; then

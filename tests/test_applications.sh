@@ -160,6 +160,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$HELPER_ROOT"
 TARGET_USER="tester"
 TARGET_HOME="$(mktemp -d)"
+MEDIA_TOOLS_DIR="$(mktemp -d)"
+export MEDIA_TOOLS_DIR
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
@@ -191,7 +193,7 @@ echo "deferred_recorded=$(grep -c 'Skipping N_m3u8DL-RE' <(printf '%s\n' "${INST
 echo "activation_blocked=$ACTIVATION_BLOCKED"
 echo "exit_code=$(installer_exit_code)"
 
-rm -rf "$TARGET_HOME"
+rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR"
 EOS
 )"
 

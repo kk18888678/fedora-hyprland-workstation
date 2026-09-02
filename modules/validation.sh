@@ -291,6 +291,11 @@ validate_shell_environment() {
         record_deferred "validation" "xdg-user-dirs" "user-dirs.dirs was not generated."
     fi
 
+    local bookmarks_file="$TARGET_HOME/.config/gtk-3.0/bookmarks"
+    if [[ ! -f "$bookmarks_file" ]]; then
+        record_deferred "validation" "gtk-bookmarks" "GTK-3.0 bookmarks file was not generated: $bookmarks_file"
+    fi
+
     if is_true "${OH_MY_ZSH:-false}"; then
         if ! validate_required_file "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh"; then
             record_required "validation" "oh-my-zsh" "Oh My Zsh is not installed."

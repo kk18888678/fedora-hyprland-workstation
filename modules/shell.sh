@@ -242,6 +242,100 @@ configure_user_directories() {
 
     info "Standard XDG user directories configured."
     record_success "xdg-user-dirs"
+
+    configure_gtk_bookmarks
+}
+
+configure_gtk_bookmarks() {
+    info "Configuring standard GTK / Thunar bookmarks."
+
+    local gtk3_config_dir="$TARGET_HOME/.config/gtk-3.0"
+    local bookmarks_file="$gtk3_config_dir/bookmarks"
+    local user_dirs_file="$TARGET_HOME/.config/user-dirs.dirs"
+
+    if [[ ! -d "$gtk3_config_dir" ]]; then
+        if ! run_as_target_user mkdir -p "$gtk3_config_dir"; then
+            record_deferred "shell" "gtk-bookmarks" "Failed to create GTK-3.0 config directory: $gtk3_config_dir."
+            return 0
+        fi
+    fi
+
+    # Resolve standard paths using user-dirs.dirs or fallback to standard TARGET_HOME paths
+    local download_dir="$TARGET_HOME/Downloads"
+    local documents_dir="$TARGET_HOME/Documents"
+    local music_dir="$TARGET_HOME/Music"
+    local pictures_dir="$TARGET_HOME/Pictures"
+    local videos_dir="$TARGET_HOME/Videos"
+
+    if [[ -f "$user_dirs_file" ]]; then
+        local line k v
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
+            if [[ "$line" =~ ^[[:space:]]*(XDG_(DOWNLOAD|DOCUMENTS|MUSIC|PICTURES|VIDEOS)_DIR)=[\"\']?([^\"\'\`\$]+|\$HOME/[^\"\'\`\$]*)[\"\']?[[:space:]]*$ ]]; then
+                k="${BASH_REMATCH[1]}"
+                v="${BASH_REMATCH[3]}"
+                local resolved=""
+                if [[ "$v" == '$HOME'* ]]; then
+                    resolved="${TARGET_HOME}${v#\$HOME}"
+                elif [[ "$v" == /* ]]; then
+                    resolved="$v"
+                fi
+                if [[ -n "$resolved" ]]; then
+                    case "$k" in
+                        XDG_DOWNLOAD_DIR) download_dir="$resolved" ;;
+                        XDG_DOCUMENTS_DIR) documents_dir="$resolved" ;;
+                        XDG_MUSIC_DIR) music_dir="$resolved" ;;
+                        XDG_PICTURES_DIR) pictures_dir="$resolved" ;;
+                        XDG_VIDEOS_DIR) videos_dir="$resolved" ;;
+                    esac
+                fi
+            fi
+        done < "$user_dirs_file"
+    fi
+
+    # Standard bookmark URIs to ensure (DO NOT automatically bookmark Desktop, Templates, or Public)
+    local standard_uris=(
+        "file://$download_dir"
+        "file://$documents_dir"
+        "file://$music_dir"
+        "file://$pictures_dir"
+        "file://$videos_dir"
+    )
+
+    local existing_lines=()
+    if [[ -f "$bookmarks_file" ]]; then
+        local bline
+        while IFS= read -r bline || [[ -n "$bline" ]]; do
+            bline="${bline%$'\r'}"
+            [[ -n "$bline" ]] && existing_lines+=("$bline")
+        done < "$bookmarks_file"
+    fi
+
+    local final_lines=("${existing_lines[@]}")
+    local uri
+    for uri in "${standard_uris[@]}"; do
+        local found=0
+        local existing
+        for existing in "${existing_lines[@]}"; do
+            if [[ "$existing" == "$uri" || "$existing" == "$uri "* ]]; then
+                found=1
+                break
+            fi
+        done
+        if [[ $found -eq 0 ]]; then
+            final_lines+=("$uri")
+        fi
+    done
+
+    local content
+    content="$(printf '%s\n' "${final_lines[@]}")"
+    if ! run_as_target_user bash -c 'cat > "$1"' _ "$bookmarks_file" <<< "$content"; then
+        record_deferred "shell" "gtk-bookmarks" "Failed to write bookmarks file: $bookmarks_file."
+        return 0
+    fi
+
+    info "GTK / Thunar bookmarks configured."
+    record_success "gtk-bookmarks"
 }
 
 configure_shell() {
