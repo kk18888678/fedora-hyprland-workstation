@@ -130,16 +130,47 @@ is_chatgpt_configured() {
 }
 
 is_rpm_gpg_key_imported() {
-    local fp="$1"
-    local short_id="${fp: -8}"
-    local lower_short_id
-    lower_short_id="$(printf '%s' "$short_id" | tr '[:upper:]' '[:lower:]')"
-    if rpm -q "gpg-pubkey-${lower_short_id}" >/dev/null 2>&1; then
+    local expected_fp="$1"
+    local lower_fp
+    lower_fp="$(printf '%s' "$expected_fp" | tr '[:upper:]' '[:lower:]')"
+    local upper_fp
+    upper_fp="$(printf '%s' "$expected_fp" | tr '[:lower:]' '[:upper:]')"
+
+    # 1. Query RPM database for exact package name (RPM stores full lowercase 40-hex fingerprint in VERSION)
+    if rpm -q "gpg-pubkey-${lower_fp}" >/dev/null 2>&1; then
         return 0
     fi
-    if rpm -q gpg-pubkey --qf '%{VERSION}-%{RELEASE} %{SUMMARY}\n' 2>/dev/null | grep -qi "$lower_short_id"; then
-        return 0
+
+    # 2. Query RPM VERSION fields for exact 40-character fingerprint match
+    local imported_versions
+    imported_versions="$(rpm -qa "gpg-pubkey*" --qf '%{VERSION}\n' 2>/dev/null)" || imported_versions=""
+    if [[ -n "$imported_versions" ]]; then
+        while IFS= read -r ver; do
+            local ver_upper
+            ver_upper="$(printf '%s' "$ver" | tr '[:lower:]' '[:upper:]')"
+            if [[ "$ver_upper" == "$upper_fp" ]]; then
+                return 0
+            fi
+        done <<< "$imported_versions"
     fi
+
+    # 3. Export armored public key blocks from RPM and inspect full OpenPGP fingerprints via gpg
+    if command -v gpg >/dev/null 2>&1; then
+        local gpg_dump
+        gpg_dump="$(rpm -qa "gpg-pubkey*" --qf '%{DESCRIPTION}\n' 2>/dev/null)" || gpg_dump=""
+        if [[ -n "$gpg_dump" ]]; then
+            local actual_fps
+            actual_fps="$(gpg --with-colons --show-keys <<< "$gpg_dump" 2>/dev/null | awk -F: '$1=="fpr"{print toupper($10)}')" || actual_fps=""
+            if [[ -n "$actual_fps" ]]; then
+                while IFS= read -r fpr; do
+                    if [[ "$fpr" == "$upper_fp" ]]; then
+                        return 0
+                    fi
+                done <<< "$actual_fps"
+            fi
+        fi
+    fi
+
     return 1
 }
 

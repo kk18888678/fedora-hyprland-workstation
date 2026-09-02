@@ -153,6 +153,8 @@ configure_repositories() {
     if declare -F converge_chatgpt_gpg_key >/dev/null; then
         if ! converge_chatgpt_gpg_key; then
             record_required "repositories" "chatgpt-gpg" "Failed to converge official ChatGPT repository GPG key."
+            warn "Skipping repository metadata refresh because unverified repository key failed to converge."
+            return 0
         fi
     fi
 
