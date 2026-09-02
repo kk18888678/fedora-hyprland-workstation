@@ -115,41 +115,78 @@ provision_verified_archive() {
     mkdir -p "$extracted_dir"
 
     # 1. Structural pre-extraction inspection against directory traversal / absolute paths
+    local archive_members=()
     if [[ "$url" == *.zip ]]; then
-        local zip_members=()
-        if command_exists unzip; then
-            mapfile -t zip_members < <(unzip -Z1 "$staging_archive" 2>/dev/null || true)
-        elif command_exists 7z; then
-            mapfile -t zip_members < <(7z l -ba -slt "$staging_archive" 2>/dev/null | grep '^Path = ' | sed 's/^Path = //' || true)
+        if ! command_exists unzip; then
+            rm -rf "$staging_dir"
+            error "Required archive inspection tool 'unzip' is not installed for $label."
+            return 1
         fi
 
-        local member
-        for member in "${zip_members[@]}"; do
-            if [[ "$member" == /* || "$member" == *../* || "$member" == *..\\* || "$member" == *.. ]]; then
+        local raw_listing
+        if ! raw_listing="$(unzip -Z1 "$staging_archive" 2>/dev/null)"; then
+            rm -rf "$staging_dir"
+            error "Archive structural inspection failed for $label (unzip listing error)."
+            return 1
+        fi
+
+        mapfile -t archive_members <<< "$raw_listing"
+    else
+        if ! command_exists tar; then
+            rm -rf "$staging_dir"
+            error "Required archive inspection tool 'tar' is not installed for $label."
+            return 1
+        fi
+
+        local raw_listing
+        if ! raw_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+            rm -rf "$staging_dir"
+            error "Archive structural inspection failed for $label (tar listing error)."
+            return 1
+        fi
+
+        mapfile -t archive_members <<< "$raw_listing"
+    fi
+
+    if [[ ${#archive_members[@]} -eq 0 || -z "${archive_members[0]:-}" ]]; then
+        rm -rf "$staging_dir"
+        error "Archive for $label is empty or produced no inspectable members."
+        return 1
+    fi
+
+    local member
+    for member in "${archive_members[@]}"; do
+        [[ -n "$member" ]] || continue
+
+        # Reject absolute paths (leading slash or Windows drive letter)
+        if [[ "$member" == /* || "$member" == [a-zA-Z]:* ]]; then
+            rm -rf "$staging_dir"
+            error "Archive for $label contains forbidden absolute path: $member"
+            return 1
+        fi
+
+        # Component-level traversal check (split on / and \)
+        local clean_member="${member//\\//}"
+        local parts=()
+        IFS='/' read -ra parts <<< "$clean_member"
+        local part
+        for part in "${parts[@]}"; do
+            if [[ "$part" == ".." ]]; then
                 rm -rf "$staging_dir"
-                error "Archive for $label contains forbidden path or traversal: $member"
+                error "Archive for $label contains forbidden directory traversal component (..): $member"
                 return 1
             fi
         done
+    done
 
-        if ! (7z x -y "$staging_archive" -o"$extracted_dir" >/dev/null 2>&1 || unzip -q -o "$staging_archive" -d "$extracted_dir" >/dev/null 2>&1); then
+    # 2. Extract into staging directory
+    if [[ "$url" == *.zip ]]; then
+        if ! unzip -q -o "$staging_archive" -d "$extracted_dir" 2>/dev/null; then
             rm -rf "$staging_dir"
             error "Failed to extract ZIP archive for $label."
             return 1
         fi
     else
-        local tar_members=()
-        mapfile -t tar_members < <(tar -tf "$staging_archive" 2>/dev/null || true)
-
-        local member
-        for member in "${tar_members[@]}"; do
-            if [[ "$member" == /* || "$member" == *../* || "$member" == *.. ]]; then
-                rm -rf "$staging_dir"
-                error "Archive for $label contains forbidden path or traversal: $member"
-                return 1
-            fi
-        done
-
         if ! tar -xf "$staging_archive" -C "$extracted_dir" --no-same-owner 2>/dev/null; then
             rm -rf "$staging_dir"
             error "Failed to extract tarball for $label."
@@ -157,62 +194,84 @@ provision_verified_archive() {
         fi
     fi
 
-    # 2. Post-extraction symlink safety validation
+    # 3. Post-extraction link safety validation
     local symlink_file
     while IFS= read -r symlink_file; do
-        if [[ -L "$symlink_file" ]]; then
-            local target
-            target="$(readlink "$symlink_file")"
-            if [[ "$target" == /* ]]; then
-                rm -rf "$staging_dir"
-                error "Archive for $label contains unsafe absolute symlink: $symlink_file -> $target"
-                return 1
-            fi
-            local resolved
-            resolved="$(cd -- "$(dirname -- "$symlink_file")" 2>/dev/null && realpath -m -- "$target" 2>/dev/null || true)"
-            if [[ -n "$resolved" && "$resolved" != "$extracted_dir"* ]]; then
-                rm -rf "$staging_dir"
-                error "Archive for $label contains symlink escaping staging: $symlink_file -> $target"
-                return 1
-            fi
+        [[ -n "$symlink_file" ]] || continue
+        local target
+        target="$(readlink "$symlink_file")"
+        if [[ "$target" == /* || "$target" == [a-zA-Z]:* ]]; then
+            rm -rf "$staging_dir"
+            error "Archive for $label contains unsafe absolute symlink: $symlink_file -> $target"
+            return 1
+        fi
+        local resolved
+        resolved="$(cd -- "$(dirname -- "$symlink_file")" 2>/dev/null && realpath -m -- "$target" 2>/dev/null || true)"
+        if [[ -z "$resolved" || "$resolved" != "$extracted_dir"* ]]; then
+            rm -rf "$staging_dir"
+            error "Archive for $label contains symlink escaping staging: $symlink_file -> $target"
+            return 1
         fi
     done < <(find "$extracted_dir" -type l 2>/dev/null)
 
-    # 3. Explicit expected member resolution (deterministic, NO guessing or fallback to 'any executable')
+    # 4. Deterministic expected member resolution
     read -r -a expected_members <<< "$expected_members_arg"
-    local found_binaries=()
+    local resolved_binaries=()
     local exp_member
 
     for exp_member in "${expected_members[@]}"; do
-        local candidate=""
+        if [[ "$exp_member" == /* || "$exp_member" == *..* ]]; then
+            rm -rf "$staging_dir"
+            error "Declared expected member for $label contains invalid path components: $exp_member"
+            return 1
+        fi
 
-        # Check exact relative path inside extracted tree
+        local candidate=""
+        # Exact relative path inside extracted tree
         if [[ -f "$extracted_dir/$exp_member" ]]; then
             candidate="$extracted_dir/$exp_member"
         else
-            # Search for exact member match in nested directory
-            candidate="$(find "$extracted_dir" -type f -name "$(basename "$exp_member")" 2>/dev/null | head -n 1 || true)"
+            # Search for subpath or basename matches
+            local matches=()
+            if [[ "$exp_member" == */* ]]; then
+                mapfile -t matches < <(find "$extracted_dir" -type f -path "*/$exp_member" 2>/dev/null)
+            else
+                mapfile -t matches < <(find "$extracted_dir" -type f -name "$exp_member" 2>/dev/null)
+            fi
+
+            if [[ ${#matches[@]} -eq 0 ]]; then
+                rm -rf "$staging_dir"
+                error "Archive for $label is missing declared binary member: $exp_member (0 matches found in archive tree)."
+                return 1
+            elif [[ ${#matches[@]} -gt 1 ]]; then
+                rm -rf "$staging_dir"
+                error "Archive for $label has ambiguous binary member: $exp_member (${#matches[@]} matches found: ${matches[*]}); refusing nondeterministic selection."
+                return 1
+            else
+                candidate="${matches[0]}"
+            fi
         fi
 
         if [[ -z "$candidate" || ! -f "$candidate" ]]; then
             rm -rf "$staging_dir"
-            error "Archive for $label is missing declared binary member: $exp_member"
+            error "Declared binary member for $label could not be resolved as a regular file: $exp_member"
             return 1
         fi
 
-        found_binaries+=("$candidate")
+        resolved_binaries+=("$candidate")
     done
 
-    if [[ ${#found_binaries[@]} -eq 0 ]]; then
+    if [[ ${#resolved_binaries[@]} -ne ${#expected_members[@]} ]]; then
         rm -rf "$staging_dir"
-        error "No declared binaries found in archive for $label."
+        error "Could not resolve all declared binary members for $label (${#resolved_binaries[@]}/${#expected_members[@]} resolved)."
         return 1
     fi
 
-    # 4. Install binaries
-    if [[ -d "$destination" || "$destination" == */ ]]; then
+    # 5. Install binaries (only after all declared members are verified)
+    if [[ -d "$destination" || "$destination" == */ || ${#resolved_binaries[@]} -gt 1 ]]; then
         ensure_directory "$destination"
-        for bin_file in "${found_binaries[@]}"; do
+        local bin_file
+        for bin_file in "${resolved_binaries[@]}"; do
             local dest_file="$destination/$(basename "$bin_file")"
             if is_true "$as_root"; then
                 sudo install -m 0755 "$bin_file" "$dest_file"
@@ -227,7 +286,7 @@ provision_verified_archive() {
         done
     else
         ensure_directory "$(dirname "$destination")"
-        local primary_bin="${found_binaries[0]}"
+        local primary_bin="${resolved_binaries[0]}"
         if is_true "$as_root"; then
             sudo install -D -m 0755 "$primary_bin" "$destination"
         else

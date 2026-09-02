@@ -310,7 +310,7 @@ install_media_utilities() {
     else
         if [[ -n "${BENTO4_URL:-}" && -n "${BENTO4_SHA512:-}" ]]; then
             info "Provisioning Bento4 tools (${BENTO4_VERSION:-pinned})."
-            local bento4_tools="mp4dump mp4info mp4edit mp4extract mp4encrypt mp4decrypt mp4fragment mp4split mp4tag"
+            local bento4_tools="bin/mp4dump bin/mp4info bin/mp4edit bin/mp4extract bin/mp4encrypt bin/mp4decrypt bin/mp4fragment bin/mp4split bin/mp4tag"
             if provision_verified_archive "$BENTO4_URL" "$BENTO4_SHA512" "$target_dir" "$bento4_tools" "Bento4" true; then
                 record_success "bento4"
             else
