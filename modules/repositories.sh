@@ -226,6 +226,16 @@ converge_chatgpt_gpg_key() {
     return 0
 }
 
+check_repository_trust() {
+    if is_chatgpt_configured; then
+        if ! is_rpm_gpg_key_imported "$CHATGPT_EXPECTED_GPG_FINGERPRINT"; then
+            error "Repository trust check failed: ChatGPT repository is configured but official OpenPGP key ($CHATGPT_EXPECTED_GPG_FINGERPRINT) is not trusted in RPM keyring."
+            return 1
+        fi
+    fi
+    return 0
+}
+
 ###############################################################################
 # Repository validation
 ###############################################################################

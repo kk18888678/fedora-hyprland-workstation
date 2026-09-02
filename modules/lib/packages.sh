@@ -76,6 +76,13 @@ run_dnf_command() {
     local description="$2"
     shift 2
 
+    if declare -F check_repository_trust >/dev/null; then
+        if ! check_repository_trust; then
+            error "Refusing DNF operation: repository trust is not converged for: ${description}"
+            return 1
+        fi
+    fi
+
     local log_tmp
     log_tmp="$(mktemp)"
     local status=0
@@ -143,6 +150,13 @@ package_available() {
     local package="$1"
     local output=""
     local status=0
+
+    if declare -F check_repository_trust >/dev/null; then
+        if ! check_repository_trust; then
+            error "Package availability query blocked: repository trust is not converged for '$package'."
+            return 2
+        fi
+    fi
 
     output="$(
         run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery $package" \

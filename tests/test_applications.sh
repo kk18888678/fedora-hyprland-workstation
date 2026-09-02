@@ -67,6 +67,8 @@ source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/status.sh"
 # shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/repositories.sh"
+# shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/applications.sh"
 
 # 1. Disabled profile performs no mutations
@@ -120,6 +122,7 @@ sudo() {
         package_installed() { return 0; }
     fi
 }
+converge_chatgpt_gpg_key() { return 0; }
 install_chatgpt
 echo "valid_dnf_invoked=$([[ $dnf_called_on_valid -eq 1 ]] && echo 1 || echo 0)"
 
@@ -467,6 +470,168 @@ if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'prep_makecache_called=0';
     pass "prepare_system does not perform premature global DNF metadata refresh"
 else
     fail "prepare_system invoked premature dnf_makecache: $chatgpt_gpg_test_output"
+fi
+
+section "Post-Bootstrap Repository Trust Gating & DNF Invariant"
+
+post_bootstrap_gate_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/repositories.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+EXPECTED_FP="3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4"
+mock_repos="$(mktemp -d)"
+OVERRIDE_YUM_REPOS_DIR="$mock_repos"
+mock_pki="$(mktemp -d)"
+OVERRIDE_RPM_GPG_DIR="$mock_pki"
+
+# 1. State 1: Clean machine - repo absent, package absent -> DNF permitted
+package_installed() { return 1; }
+s1_trust=0
+check_repository_trust || s1_trust=$?
+echo "s1_trust=$s1_trust"
+
+# 2. State 4: Clean install -> bootstrap RPM installed -> repo created -> key convergence FAILS
+# install_chatgpt must record required failure and subsequent DNF must be blocked
+CHATGPT=true
+CHATGPT_X86_64_URL="https://example.com/chatgpt.rpm"
+CHATGPT_X86_64_SHA512="dummy"
+CHATGPT_VERSION="pinned"
+uname() { echo "x86_64"; }
+download_and_verify_artifact() { touch "$3"; return 0; }
+
+# Mock DNF execution in run_dnf_command
+dnf_ran=0
+run_with_timeout() {
+    shift 2
+    dnf_ran=1
+    "$@"
+}
+
+# When RPM is installed, simulate it creating repo on disk
+sudo() {
+    if [[ "$*" =~ dnf\ install.*chatgpt\.rpm ]]; then
+        touch "$mock_repos/chatgpt.repo"
+        return 0
+    fi
+    return 0
+}
+is_rpm_gpg_key_imported() { return 1; }
+converge_chatgpt_gpg_key() { return 1; } # simulate trust convergence failure
+
+INSTALL_REQUIRED_FAILURES=()
+INSTALL_DEFERRED=()
+s4_chatgpt_rc=0
+install_chatgpt || s4_chatgpt_rc=$?
+
+echo "s4_chatgpt_rc=$s4_chatgpt_rc"
+echo "s4_has_required_fail=${#INSTALL_REQUIRED_FAILURES[@]}"
+echo "s4_has_deferred_fail=${#INSTALL_DEFERRED[@]}"
+
+# Now verify subsequent DNF is blocked by check_repository_trust / run_dnf_command
+s4_dnf_rc=0
+dnf_ran=0
+run_dnf_command 10 "install media apps" sudo dnf install -y mpv || s4_dnf_rc=$?
+echo "s4_dnf_rc=$s4_dnf_rc"
+echo "s4_dnf_ran=$dnf_ran"
+
+s4_pkg_avail_rc=0
+package_available "mpv" || s4_pkg_avail_rc=$?
+echo "s4_pkg_avail_rc=$s4_pkg_avail_rc"
+
+# 3. State 3: Clean install -> bootstrap RPM installed -> repo created -> key convergence SUCCEEDS
+converge_chatgpt_gpg_key() { return 0; }
+is_rpm_gpg_key_imported() { return 0; }
+package_installed() {
+    if [[ "$1" == "chatgpt" ]]; then return 0; fi
+    return 1
+}
+
+s3_trust=0
+check_repository_trust || s3_trust=$?
+echo "s3_trust=$s3_trust"
+
+s3_dnf_rc=0
+dnf_ran=0
+run_dnf_command 10 "install media apps" sudo dnf install -y mpv || s3_dnf_rc=$?
+echo "s3_dnf_rc=$s3_dnf_rc"
+echo "s3_dnf_ran=$dnf_ran"
+
+# 4. State 5: Existing repo + valid trust -> idempotent and DNF permitted
+is_rpm_gpg_key_imported() { return 0; }
+s5_trust=0
+check_repository_trust || s5_trust=$?
+echo "s5_trust=$s5_trust"
+
+# 5. State 6: Existing repo + invalid trust -> check_repository_trust fails closed
+is_rpm_gpg_key_imported() { return 1; }
+s6_trust=0
+check_repository_trust || s6_trust=$?
+echo "s6_trust=$s6_trust"
+
+# 6. State 2 / Case A: Bootstrap failure before repo creation (e.g. checksum mismatch)
+rm -f "$mock_repos/chatgpt.repo"
+package_installed() { return 1; }
+download_and_verify_artifact() { return 1; } # checksum mismatch
+INSTALL_REQUIRED_FAILURES=()
+INSTALL_DEFERRED=()
+s2_chatgpt_rc=0
+install_chatgpt || s2_chatgpt_rc=$?
+echo "s2_chatgpt_rc=$s2_chatgpt_rc"
+echo "s2_has_required_fail=${#INSTALL_REQUIRED_FAILURES[@]}"
+echo "s2_has_deferred_fail=${#INSTALL_DEFERRED[@]}"
+s2_trust=0
+check_repository_trust || s2_trust=$?
+echo "s2_trust=$s2_trust"
+
+rm -rf "$mock_repos" "$mock_pki" "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's1_trust=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_chatgpt_rc=1' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_has_required_fail=1' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_has_deferred_fail=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_dnf_rc=1' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_dnf_ran=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_pkg_avail_rc=2'; then
+    pass "Post-bootstrap trust convergence failure records required failure and strictly blocks subsequent DNF operations"
+else
+    fail "Post-bootstrap trust failure did not fail closed or gate DNF: $post_bootstrap_gate_output"
+fi
+
+if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's3_trust=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's3_dnf_rc=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's3_dnf_ran=1'; then
+    pass "Successful post-bootstrap trust convergence establishes trust and permits subsequent DNF operations"
+else
+    fail "Successful post-bootstrap trust convergence failed: $post_bootstrap_gate_output"
+fi
+
+if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's5_trust=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's6_trust=1'; then
+    pass "check_repository_trust validates converged keyring state (permits trusted, rejects unconverged)"
+else
+    fail "check_repository_trust state evaluation failed: $post_bootstrap_gate_output"
+fi
+
+if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_chatgpt_rc=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_has_required_fail=0' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_has_deferred_fail=1' &&
+   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_trust=0'; then
+    pass "Bootstrap download/checksum failure before repo creation correctly records deferred without blocking general DNF"
+else
+    fail "Pre-repo bootstrap failure handling failed: $post_bootstrap_gate_output"
 fi
 
 section "N_m3u8DL-RE Prerelease Policy"

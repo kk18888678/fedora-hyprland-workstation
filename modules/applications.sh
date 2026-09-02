@@ -180,8 +180,8 @@ install_chatgpt() {
 
     # 3. Converge and import the official repository GPG key after fingerprint verification
     if ! converge_chatgpt_gpg_key; then
-        record_deferred "applications" "chatgpt" "Failed to converge official ChatGPT repository GPG key."
-        return 0
+        record_required "repositories" "chatgpt-gpg" "Failed to converge official ChatGPT repository GPG key after bootstrap installation."
+        return 1
     fi
 
     # 4. Validate package installation
