@@ -21,8 +21,10 @@ xdg-desktop-portal
 xdg-desktop-portal-gtk
 xdg-desktop-portal-hyprland
 
-# Authentication / privilege prompts
+# Authentication / privilege prompts / Secret Service
 hyprpolkitagent
+gnome-keyring
+gnome-keyring-pam
 
 # Display manager / greeter foundation
 greetd
@@ -52,11 +54,15 @@ brightnessctl
 power-profiles-daemon
 upower
 
-# Appearance / GTK configuration
+# Appearance / GTK themes & configuration
 nwg-look
+adw-gtk3-theme
+yaru-icon-theme
 
-# Qt / Wayland integration
+# Qt / Wayland integration & settings
+qt6-qtbase
 qt6-qtwayland
+qt6ct
 
 # Notifications / desktop utilities
 libnotify

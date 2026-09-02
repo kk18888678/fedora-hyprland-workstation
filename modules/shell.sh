@@ -140,6 +140,15 @@ deploy_kitty_config() {
     info "Kitty configuration linked."
 }
 
+deploy_nvim_config() {
+    local source="$SCRIPT_DIR/dotfiles/nvim/init.lua"
+    local destination="$TARGET_HOME/.config/nvim/init.lua"
+
+    ensure_symlink "$source" "$destination"
+
+    info "Neovim configuration linked."
+}
+
 configure_shell() {
     if [[ "${SHELL:-}" != "zsh" ]]; then
         die "Unsupported shell profile: ${SHELL:-<unset>}"
@@ -153,6 +162,7 @@ configure_shell() {
     deploy_zsh_config
     deploy_starship_config
     deploy_kitty_config
+    deploy_nvim_config
     configure_default_shell
 
     if [[ "${PROMPT:-}" == "starship" ]]; then

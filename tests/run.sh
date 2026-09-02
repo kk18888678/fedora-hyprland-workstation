@@ -87,9 +87,7 @@ required_paths=(
     packages/desktop.txt
     packages/media.txt
     packages/diagnostics.txt
-    environments/media-tools/devenv.nix
-    environments/media-tools/devenv.yaml
-    environments/media-tools/README.md
+    dotfiles/nvim/init.lua
     profiles/vm.conf
     profiles/workstation.conf
     modules/common.sh
@@ -174,12 +172,22 @@ assert_in_manifest packages/desktop.txt hyprland
 assert_in_manifest packages/desktop.txt noctalia
 assert_in_manifest packages/desktop.txt greetd
 assert_in_manifest packages/desktop.txt hyprpolkitagent
+assert_in_manifest packages/desktop.txt gnome-keyring
+assert_in_manifest packages/desktop.txt gnome-keyring-pam
 assert_in_manifest packages/desktop.txt xdg-desktop-portal-hyprland
 assert_in_manifest packages/desktop.txt adwaita-cursor-theme
+assert_in_manifest packages/desktop.txt adw-gtk3-theme
+assert_in_manifest packages/desktop.txt yaru-icon-theme
+assert_in_manifest packages/desktop.txt qt6-qtbase
+assert_in_manifest packages/desktop.txt qt6-qtwayland
+assert_in_manifest packages/desktop.txt qt6ct
+assert_in_manifest packages/desktop.txt nwg-look
 assert_in_manifest packages/base.txt zsh
 assert_in_manifest packages/base.txt starship
+assert_in_manifest packages/media.txt ffmpeg
 assert_in_manifest packages/media.txt mediainfo
 assert_in_manifest packages/media.txt mkvtoolnix
+assert_in_manifest packages/media.txt gpac
 assert_in_manifest packages/diagnostics.txt smartmontools
 assert_in_manifest packages/diagnostics.txt nvme-cli
 assert_in_manifest packages/diagnostics.txt inxi
@@ -215,7 +223,7 @@ check_profile() {
     local required=(
         PROFILE_NAME GPU DESKTOP DESKTOP_SHELL SHELL PROMPT
         OH_MY_ZSH BROWSER_CHROMIUM BROWSER_ULAA BROWSER_BRAVE_ORIGIN
-        BROWSER_FIREFOX CURSOR KATE MEDIA_APPLICATIONS ANTIGRAVITY LOCALSEND
+        BROWSER_FIREFOX CURSOR KATE CHATGPT MEDIA_APPLICATIONS ANTIGRAVITY LOCALSEND
         BLUETOOTH GAMING FLATPAK NIX PODMAN
         NVIDIA ROCM ENABLE_GRAPHICAL_TARGET INSTALL_GREETER INSTALL_NOCTALIA
     )
@@ -265,12 +273,17 @@ needed_functions=(
     install_browsers
     install_applications
     install_cursor
+    configure_cursor_flags
+    install_chatgpt
     install_kate
     install_media_applications
+    install_media_utilities
     install_antigravity
+    deploy_nvim_config
     configure_flatpak
     install_flatpak_applications
     install_localsend
+    install_ulaa
     install_desktop
     install_nix
     configure_containers
@@ -1209,9 +1222,33 @@ section "Pins"
 # shellcheck source=/dev/null
 source "$ROOT/config/versions.conf"
 
-for var in OH_MY_ZSH_COMMIT ZSH_AUTOSUGGESTIONS_COMMIT \
-    ZSH_SYNTAX_HIGHLIGHTING_COMMIT NIXPKGS_REV DEVENV_NIX_INSTALL_SPEC \
-    ANTIGRAVITY_VERSION ANTIGRAVITY_URL ANTIGRAVITY_SHA512; do
+pins=(
+    OH_MY_ZSH_COMMIT
+    ZSH_AUTOSUGGESTIONS_COMMIT
+    ZSH_SYNTAX_HIGHLIGHTING_COMMIT
+    NIXPKGS_REV
+    DEVENV_NIX_INSTALL_SPEC
+    ANTIGRAVITY_VERSION
+    ANTIGRAVITY_URL
+    ANTIGRAVITY_SHA512
+    CCEXTRACTOR_VERSION
+    CCEXTRACTOR_URL
+    CCEXTRACTOR_SHA512
+    BENTO4_VERSION
+    BENTO4_URL
+    BENTO4_SHA512
+    SHAKA_PACKAGER_VERSION
+    SHAKA_PACKAGER_URL
+    SHAKA_PACKAGER_SHA512
+    DOVI_TOOL_VERSION
+    DOVI_TOOL_URL
+    DOVI_TOOL_SHA512
+    N_M3U8DL_RE_VERSION
+    N_M3U8DL_RE_URL
+    N_M3U8DL_RE_SHA512
+)
+
+for var in "${pins[@]}"; do
     if [[ -n "${!var:-}" ]]; then
         pass "pin $var"
     else
@@ -1225,66 +1262,220 @@ else
     pass "devenv install spec is pinned"
 fi
 
-if [[ "$ANTIGRAVITY_URL" =~ ^https:// ]]; then
-    pass "ANTIGRAVITY_URL is HTTPS"
-else
-    fail "ANTIGRAVITY_URL is not HTTPS: $ANTIGRAVITY_URL"
-fi
+url_vars=(
+    ANTIGRAVITY_URL
+    CCEXTRACTOR_URL
+    BENTO4_URL
+    SHAKA_PACKAGER_URL
+    DOVI_TOOL_URL
+    N_M3U8DL_RE_URL
+)
 
-if [[ "$ANTIGRAVITY_SHA512" =~ ^[0-9a-f]{128}$ ]]; then
-    pass "ANTIGRAVITY_SHA512 is valid 128-character hex"
-else
-    fail "ANTIGRAVITY_SHA512 is not valid sha512: $ANTIGRAVITY_SHA512"
-fi
-
-# Ensure media-tools devenv declares all 9 audited tools
-for tool in ffmpeg mediainfo mkvtoolnix gpac ccextractor bento4 "shaka-packager" "dovi-tool" "n-m3u8dl-re"; do
-    if grep -qF "$tool" "$ROOT/environments/media-tools/devenv.nix"; then
-        pass "media-tools declares $tool"
+for uvar in "${url_vars[@]}"; do
+    if [[ "${!uvar}" =~ ^https:// ]]; then
+        pass "$uvar is HTTPS"
     else
-        fail "media-tools missing $tool"
+        fail "$uvar is not HTTPS: ${!uvar}"
     fi
 done
 
-# Pinned Nixpkgs evaluation (media-tools)
-section "Pinned Nixpkgs evaluation"
+sha_vars=(
+    ANTIGRAVITY_SHA512
+    CCEXTRACTOR_SHA512
+    BENTO4_SHA512
+    SHAKA_PACKAGER_SHA512
+    DOVI_TOOL_SHA512
+    N_M3U8DL_RE_SHA512
+)
 
-if command -v nix >/dev/null 2>&1; then
-    nix_eval_output="$(
-        nix eval --impure --raw --expr '
-        let
-          pkgs = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/'"$NIXPKGS_REV"'.tar.gz") {};
-          tools = [
-            pkgs.ffmpeg
-            pkgs.mediainfo
-            pkgs.mkvtoolnix
-            pkgs.gpac
-            pkgs.ccextractor
-            pkgs.bento4
-            pkgs."shaka-packager"
-            pkgs."dovi-tool"
-            pkgs."n-m3u8dl-re"
-          ];
-        in builtins.concatStringsSep "," (map (p: p.name) tools)
-        ' 2>/dev/null || true
-    )"
-
-    if [[ -n "$nix_eval_output" ]] &&
-       [[ "$nix_eval_output" == *"bento4"* ]] &&
-       [[ "$nix_eval_output" == *"shaka-packager"* ]] &&
-       [[ "$nix_eval_output" == *"dovi-tool"* ]] &&
-       [[ "$nix_eval_output" == *"n-m3u8dl-re"* ]] &&
-       [[ "$nix_eval_output" == *"ffmpeg"* ]] &&
-       [[ "$nix_eval_output" == *"mediainfo"* ]] &&
-       [[ "$nix_eval_output" == *"mkvtoolnix"* ]] &&
-       [[ "$nix_eval_output" == *"gpac"* ]] &&
-       [[ "$nix_eval_output" == *"ccextractor"* ]]; then
-        pass "pinned nixpkgs ($NIXPKGS_REV) evaluates all media-tools attributes: $nix_eval_output"
+for svar in "${sha_vars[@]}"; do
+    if [[ "${!svar}" =~ ^[0-9a-f]{128}$ ]]; then
+        pass "$svar is valid 128-character hex"
     else
-        fail "pinned nixpkgs evaluation failed: ${nix_eval_output:-empty}"
+        fail "$svar is not valid sha512: ${!svar}"
     fi
+done
+
+###############################################################################
+# Subsystem Tests
+###############################################################################
+
+section "Neovim Default Configuration"
+
+expected_nvim_content=$'vim.opt.number = true\nvim.opt.relativenumber = true\nvim.opt.ignorecase = true\nvim.opt.smartcase = true\nvim.opt.clipboard = \'unnamedplus\'\nvim.opt.undofile = true\nvim.opt.scrolloff = 8'
+
+actual_nvim_content="$(cat "$ROOT/dotfiles/nvim/init.lua" 2>/dev/null || true)"
+# Trim trailing whitespace/newlines for strict comparison
+actual_nvim_content_trimmed="$(printf '%s' "$actual_nvim_content" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+
+if [[ "$actual_nvim_content_trimmed" == "$expected_nvim_content" ]]; then
+    pass "Neovim init.lua content matches exact required baseline"
 else
-    pass "pinned nixpkgs evaluation skipped (nix not present on host)"
+    fail "Neovim init.lua content differs from required baseline"
+fi
+
+if grep -q "deploy_nvim_config" "$ROOT/modules/shell.sh"; then
+    pass "shell.sh defines and invokes deploy_nvim_config"
+else
+    fail "shell.sh missing deploy_nvim_config"
+fi
+
+if grep -q "nvim/init.lua" "$ROOT/modules/validation.sh"; then
+    pass "validation.sh validates Neovim config file"
+else
+    fail "validation.sh does not validate Neovim config"
+fi
+
+section "Host-Global Media Utilities"
+
+if [[ -d "$ROOT/environments/media-tools" ]]; then
+    fail "environments/media-tools should be removed"
+else
+    pass "environments/media-tools is removed"
+fi
+
+media_expected_tools=(ffmpeg ffprobe mediainfo mkvmerge MP4Box ccextractor mp4dump packager dovi_tool N_m3u8DL-RE)
+for mtool in "${media_expected_tools[@]}"; do
+    if grep -qF "$mtool" "$ROOT/modules/validation.sh"; then
+        pass "validation.sh checks media tool runtime command: $mtool"
+    else
+        fail "validation.sh missing runtime check for $mtool"
+    fi
+done
+
+section "Ulaa Browser Flatpak Integration"
+
+if grep -q "com.ulaa.Ulaa" "$ROOT/modules/flatpak.sh"; then
+    pass "flatpak.sh targets Flathub app ID com.ulaa.Ulaa"
+else
+    fail "flatpak.sh missing Flathub app ID com.ulaa.Ulaa"
+fi
+
+if grep -q "com.ulaa.Ulaa" "$ROOT/modules/validation.sh"; then
+    pass "validation.sh checks com.ulaa.Ulaa Flatpak"
+else
+    fail "validation.sh missing com.ulaa.Ulaa check"
+fi
+
+section "ChatGPT Desktop Application"
+
+if grep -q "https://persistent.oaistatic.com/codex-app-prod/linux/rpm" "$ROOT/modules/applications.sh"; then
+    pass "applications.sh configures official ChatGPT RPM repository"
+else
+    fail "applications.sh missing official ChatGPT RPM repository URL"
+fi
+
+if grep -q "install_dnf_packages chatgpt" "$ROOT/modules/applications.sh"; then
+    pass "applications.sh installs chatgpt package"
+else
+    fail "applications.sh missing chatgpt package installation"
+fi
+
+section "Cursor Window Controls and Wayland Integration"
+
+if grep -q -- "--ozone-platform=wayland" "$ROOT/modules/applications.sh" &&
+   grep -q -- "--enable-features=UseOzonePlatform" "$ROOT/modules/applications.sh"; then
+    pass "applications.sh configures Cursor Wayland Ozone flags"
+else
+    fail "applications.sh missing Cursor Wayland Ozone flags"
+fi
+
+if grep -q "cursor-flags.conf" "$ROOT/modules/validation.sh"; then
+    pass "validation.sh validates cursor-flags.conf"
+else
+    fail "validation.sh does not validate cursor-flags.conf"
+fi
+
+section "GNOME Keyring PAM Auto-Unlock"
+
+if grep -q "pam_gnome_keyring.so" "$ROOT/modules/validation.sh"; then
+    pass "validation.sh validates pam_gnome_keyring.so"
+else
+    fail "validation.sh does not validate pam_gnome_keyring.so"
+fi
+
+section "Appearance and Qt Settings"
+
+if grep -q "QT_QPA_PLATFORMTHEME,qt6ct" "$ROOT/dotfiles/hypr/startup.lua"; then
+    pass "startup.lua exports QT_QPA_PLATFORMTHEME,qt6ct"
+else
+    fail "startup.lua missing QT_QPA_PLATFORMTHEME,qt6ct"
+fi
+
+if git -C "$ROOT" ls-files | grep -q "dotfiles/hypr/noctalia.lua"; then
+    fail "untracked/dynamic noctalia.lua should not be tracked in git"
+else
+    pass "no dynamic noctalia.lua tracked in git"
+fi
+
+section "Resilience Semantics for Applications"
+
+chatgpt_resilience_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+CHATGPT=true
+configure_chatgpt_repository() { return 1; }
+install_chatgpt
+echo "chatgpt-blocked=$ACTIVATION_BLOCKED"
+echo "chatgpt-exit=$(installer_exit_code)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$chatgpt_resilience_output" | grep -q 'chatgpt-blocked=0'; then
+    pass "ChatGPT repository failure does not set ACTIVATION_BLOCKED"
+else
+    fail "ChatGPT repository failure set ACTIVATION_BLOCKED: $chatgpt_resilience_output"
+fi
+
+if printf '%s\n' "$chatgpt_resilience_output" | grep -q 'chatgpt-exit=2'; then
+    pass "ChatGPT failure produces deferred exit code 2"
+else
+    fail "ChatGPT failure did not produce exit code 2: $chatgpt_resilience_output"
+fi
+
+media_resilience_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+MEDIA_APPLICATIONS=true
+install_dnf_packages() { return 1; }
+install_media_applications
+echo "media-blocked=$ACTIVATION_BLOCKED"
+echo "media-exit=$(installer_exit_code)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$media_resilience_output" | grep -q 'media-blocked=0'; then
+    pass "Media applications failure does not set ACTIVATION_BLOCKED"
+else
+    fail "Media applications failure set ACTIVATION_BLOCKED: $media_resilience_output"
+fi
+
+if printf '%s\n' "$media_resilience_output" | grep -q 'media-exit=2'; then
+    pass "Media applications failure produces deferred exit code 2"
+else
+    fail "Media applications failure did not produce exit code 2: $media_resilience_output"
 fi
 
 # Antigravity architecture guard test

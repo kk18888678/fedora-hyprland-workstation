@@ -122,6 +122,58 @@ install_localsend() {
     record_success "localsend"
 }
 
+install_ulaa() {
+    if ! is_true "${BROWSER_ULAA:-false}"; then
+        info "Ulaa disabled by profile."
+        return 0
+    fi
+
+    if ! is_true "${FLATPAK:-false}"; then
+        record_deferred \
+            "flatpak" \
+            "ulaa" \
+            "Ulaa requires Flatpak, but Flatpak is disabled by profile."
+        return 0
+    fi
+
+    if ! command_exists flatpak; then
+        record_deferred \
+            "flatpak" \
+            "ulaa" \
+            "Flatpak command is unavailable."
+        return 0
+    fi
+
+    if flatpak list --app --columns=application 2>/dev/null | grep -Fxq "com.ulaa.Ulaa"; then
+        info "Ulaa Flatpak already installed."
+        record_success "ulaa"
+        return 0
+    fi
+
+    info "Installing Ulaa browser from Flathub."
+
+    if ! run_with_retry "flatpak install ulaa" \
+        run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak install ulaa" \
+        flatpak install -y flathub com.ulaa.Ulaa; then
+        record_deferred \
+            "flatpak" \
+            "ulaa" \
+            "Ulaa Flatpak could not be installed."
+        return 0
+    fi
+
+    if ! flatpak list --app --columns=application 2>/dev/null | grep -Fxq "com.ulaa.Ulaa"; then
+        record_deferred \
+            "flatpak" \
+            "ulaa" \
+            "Ulaa Flatpak was not present after installation."
+        return 0
+    fi
+
+    info "Ulaa Flatpak installation validated."
+    record_success "ulaa"
+}
+
 install_flatpak_applications() {
     if ! is_true "${FLATPAK:-false}"; then
         info "Flatpak applications disabled (FLATPAK=false)."
@@ -131,6 +183,7 @@ install_flatpak_applications() {
     info "Installing Flatpak applications."
 
     install_localsend
+    install_ulaa
 
     info "Flatpak application installation complete."
 }

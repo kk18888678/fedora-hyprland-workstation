@@ -9,6 +9,7 @@ mpv
 ffmpeg
 mediainfo
 mkvtoolnix
+gpac
 
 # GStreamer
 gstreamer1

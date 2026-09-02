@@ -71,6 +71,9 @@ validate_hyprland_desktop() {
         "$TARGET_HOME/.config/hypr/hyprland.lua" ||
         failed=1
 
+    validate_required_file /usr/lib64/security/pam_gnome_keyring.so ||
+        failed=1
+
     if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]] ||
         is_true "${INSTALL_NOCTALIA:-false}"; then
         validate_required_command noctalia || failed=1
@@ -267,6 +270,11 @@ validate_shell_environment() {
         failed=1
     fi
 
+    if ! validate_required_file "$TARGET_HOME/.config/nvim/init.lua"; then
+        record_required "validation" "nvim/init.lua" "Neovim configuration was not deployed."
+        failed=1
+    fi
+
     if is_true "${OH_MY_ZSH:-false}"; then
         if ! validate_required_file "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh"; then
             record_required "validation" "oh-my-zsh" "Oh My Zsh is not installed."
@@ -278,15 +286,21 @@ validate_shell_environment() {
 }
 
 validate_browser_environment() {
-    if ! is_true "${BROWSER_CHROMIUM:-false}"; then
-        return 0
+    if is_true "${BROWSER_CHROMIUM:-false}"; then
+        info "Validating Chromium."
+
+        if ! package_installed chromium; then
+            record_required "validation" "chromium" "Chromium package is not installed."
+            return 1
+        fi
     fi
 
-    info "Validating Chromium."
+    if is_true "${BROWSER_ULAA:-false}"; then
+        info "Validating Ulaa Flatpak."
 
-    if ! package_installed chromium; then
-        record_required "validation" "chromium" "Chromium package is not installed."
-        return 1
+        if ! flatpak list --app --columns=application 2>/dev/null | grep -Fxq "com.ulaa.Ulaa"; then
+            record_deferred "validation" "ulaa" "Ulaa Flatpak is enabled by the profile but is not installed."
+        fi
     fi
 
     return 0
@@ -301,6 +315,20 @@ validate_application_environment() {
                 "validation" \
                 "cursor" \
                 "Cursor is enabled by the profile but is not installed."
+        elif [[ ! -f "$TARGET_HOME/.config/cursor-flags.conf" ]]; then
+            record_deferred \
+                "validation" \
+                "cursor-flags" \
+                "Cursor flags configuration was not deployed."
+        fi
+    fi
+
+    if is_true "${CHATGPT:-false}"; then
+        if ! package_installed chatgpt; then
+            record_deferred \
+                "validation" \
+                "chatgpt" \
+                "ChatGPT is enabled by the profile but is not installed."
         fi
     fi
 
@@ -321,6 +349,27 @@ validate_application_environment() {
                     "validation" \
                     "$app" \
                     "$app is enabled by the profile but is not installed."
+            fi
+        done
+
+        local media_cmds=(
+            ffmpeg
+            ffprobe
+            mediainfo
+            mkvmerge
+            MP4Box
+            ccextractor
+            mp4dump
+            packager
+            dovi_tool
+            N_m3u8DL-RE
+        )
+        for cmd in "${media_cmds[@]}"; do
+            if ! command_exists "$cmd" && [[ ! -x "/usr/local/bin/$cmd" ]]; then
+                record_deferred \
+                    "validation" \
+                    "$cmd" \
+                    "Media utility command is missing: $cmd"
             fi
         done
     fi
