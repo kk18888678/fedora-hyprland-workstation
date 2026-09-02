@@ -45,7 +45,7 @@ configure_brave_origin_repository() {
     info "Adding official Brave RPM repository."
 
     run_with_retry "Brave repository" \
-        run_with_timeout "$TIMEOUT_METADATA_SECONDS" "add Brave repository" \
+        run_dnf_command "$TIMEOUT_METADATA_SECONDS" "add Brave repository" \
         sudo dnf config-manager addrepo \
         --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 }

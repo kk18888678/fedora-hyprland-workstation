@@ -180,3 +180,165 @@ check_profile() {
 
 check_profile "$ROOT/profiles/vm.conf"
 check_profile "$ROOT/profiles/workstation.conf"
+
+section "DNF Contention, Bounds, and Lock Diagnostics"
+
+# 1. Verification that --skip-file-locks is NEVER used anywhere in the codebase
+if grep -rn --exclude-dir='.git' --exclude='test_packages.sh' -- '--skip-file-locks' "$ROOT"; then
+    fail "forbidden flag --skip-file-locks found in codebase"
+else
+    pass "--skip-file-locks is never used"
+fi
+
+# 2. Verification that no code attempts to kill package manager processes or delete rpm/dnf lock files
+if grep -rnE --exclude-dir='.git' --exclude='test_packages.sh' '(pkill|killall|kill).*(dnf|rpm|packagekit)|rm.*(\.rpm\.lock|\.dnf\.lock|dnf.*/lock)' "$ROOT/modules"; then
+    fail "dangerous lock-killing or lock-deletion found in modules"
+else
+    pass "no dangerous lock-killing or lock-deletion logic in modules"
+fi
+
+# 3. Simulate DNF lock contention extraction from DNF output
+dnf_lock_holder_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/packages.sh"
+
+log_file="$TARGET_HOME/dnf_lock.log"
+cat <<'EOF' > "$log_file"
+Waiting for a lock on the system repository.
+The following processes are currently accessing it:
+27719 dnf list --available *nerd*font* *hack*
+28071 dnf info foot
+EOF
+
+holders="$(detect_dnf_lock_holders "$log_file")"
+echo "has_27719=$(grep -c 'PID 27719: dnf list --available \*nerd\*font\* \*hack\*' <<< "$holders" || true)"
+echo "has_28071=$(grep -c 'PID 28071: dnf info foot' <<< "$holders" || true)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$dnf_lock_holder_output" | grep -q 'has_27719=1' &&
+   printf '%s\n' "$dnf_lock_holder_output" | grep -q 'has_28071=1'; then
+    pass "detect_dnf_lock_holders extracts active lock-holder PIDs and commands from DNF output"
+else
+    fail "detect_dnf_lock_holders failed to parse lock output: $dnf_lock_holder_output"
+fi
+
+# 4. Simulate DNF operation where lock releases before timeout -> succeeds
+dnf_release_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/execution.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/packages.sh"
+
+status=0
+run_dnf_command 2 "mock dnf success" bash -c 'sleep 0.1; echo Complete!' >/dev/null 2>&1 || status=$?
+echo "release-status=$status"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$dnf_release_test_output" | grep -q 'release-status=0'; then
+    pass "DNF command that acquires lock before timeout completes successfully"
+else
+    fail "DNF lock release test failed: $dnf_release_test_output"
+fi
+
+# 5. Simulate DNF operation where lock never releases -> bounded failure with status 124
+dnf_unreleased_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/execution.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/packages.sh"
+
+status=0
+out="$(run_dnf_command 1 "mock dnf timeout" bash -c 'echo "Waiting for a lock on the system repository."; echo "The following processes are currently accessing it:"; echo "99999 /usr/bin/dnf install -y heavy-package"; sleep 10' 2>&1)" || status=$?
+echo "timeout-status=$status"
+echo "has_holder_diag=$(grep -c 'PID 99999: /usr/bin/dnf install -y heavy-package' <<< "$out" || true)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$dnf_unreleased_test_output" | grep -q 'timeout-status=124' &&
+   printf '%s\n' "$dnf_unreleased_test_output" | grep -q 'has_holder_diag=1'; then
+    pass "Unreleased lock contention fails in bounded time (status 124) with holder diagnostics"
+else
+    fail "Unreleased lock contention test failed: $dnf_unreleased_test_output"
+fi
+
+# 6. Distinguish lock contention / timeout from package unavailable
+dnf_distinguish_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/execution.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/lib/packages.sh"
+
+TIMEOUT_METADATA_SECONDS=1
+
+mock_bin="$(mktemp -d)"
+export PATH="$mock_bin:$PATH"
+
+# 1. Mock DNF that times out due to lock contention
+cat <<'EOF' > "$mock_bin/dnf"
+#!/usr/bin/env bash
+if [[ "$*" =~ timeout-pkg ]]; then
+    sleep 5
+    exit 0
+fi
+exit 0
+EOF
+chmod +x "$mock_bin/dnf"
+
+status=0
+package_available "timeout-pkg" >/dev/null 2>&1 || status=$?
+echo "timeout-query-status=$status"
+
+# 2. Mock DNF that returns cleanly with empty output (package cleanly absent)
+cat <<'EOF' > "$mock_bin/dnf"
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$mock_bin/dnf"
+
+status=0
+package_available "absent-pkg" >/dev/null 2>&1 || status=$?
+echo "empty-query-status=$status"
+
+rm -rf "$mock_bin" "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$dnf_distinguish_test_output" | grep -q 'timeout-query-status=2' &&
+   printf '%s\n' "$dnf_distinguish_test_output" | grep -q 'empty-query-status=1'; then
+    pass "package_available distinguishes timeout/contention (status 2) from package unavailable (status 1)"
+else
+    fail "package_available failed to distinguish contention from unavailable: $dnf_distinguish_test_output"
+fi
