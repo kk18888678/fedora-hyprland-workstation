@@ -113,11 +113,46 @@ install_cursor() {
 
 CHATGPT_EXPECTED_GPG_FINGERPRINT="3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4"
 
+is_chatgpt_configured() {
+    local repo_dir="${OVERRIDE_YUM_REPOS_DIR:-/etc/yum.repos.d}"
+    local f
+    if [[ -d "$repo_dir" ]]; then
+        for f in "$repo_dir"/*; do
+            if [[ -f "$f" ]] && [[ "$f" == */chatgpt* || "$f" == */openai* ]]; then
+                return 0
+            fi
+        done
+    fi
+    if declare -F package_installed >/dev/null && package_installed chatgpt; then
+        return 0
+    fi
+    return 1
+}
+
+is_rpm_gpg_key_imported() {
+    local fp="$1"
+    local short_id="${fp: -8}"
+    local lower_short_id
+    lower_short_id="$(printf '%s' "$short_id" | tr '[:upper:]' '[:lower:]')"
+    if rpm -q "gpg-pubkey-${lower_short_id}" >/dev/null 2>&1; then
+        return 0
+    fi
+    if rpm -q gpg-pubkey --qf '%{VERSION}-%{RELEASE} %{SUMMARY}\n' 2>/dev/null | grep -qi "$lower_short_id"; then
+        return 0
+    fi
+    return 1
+}
+
 converge_chatgpt_gpg_key() {
     local expected_fp="$CHATGPT_EXPECTED_GPG_FINGERPRINT"
     local pki_dir="${OVERRIDE_RPM_GPG_DIR:-/etc/pki/rpm-gpg}"
 
-    # Find the ChatGPT GPG key file in standard RPM GPG directory
+    # 1. If ChatGPT repository is not configured on this host, absence of key is a safe no-op
+    if ! is_chatgpt_configured; then
+        return 0
+    fi
+
+    # 2. Once repository is configured, expected key file MUST exist on disk
     local key_file=""
     local candidate
     for candidate in \
@@ -130,15 +165,17 @@ converge_chatgpt_gpg_key() {
     done
 
     if [[ -z "$key_file" || ! -f "$key_file" ]]; then
-        # Key file does not exist yet on disk
-        return 0
+        error "ChatGPT repository is configured but official GPG key file is missing in $pki_dir."
+        return 1
     fi
 
-    if ! command_exists gpg; then
-        warn "gpg command not available to verify ChatGPT repository key fingerprint."
-        return 0
+    # 3. GPG verification capability MUST be available to inspect fingerprint
+    if ! command -v gpg >/dev/null 2>&1; then
+        error "gpg command unavailable to verify official ChatGPT repository GPG key."
+        return 1
     fi
 
+    # 4. Extract and strictly verify OpenPGP fingerprint
     local actual_fp
     actual_fp="$(
         gpg --with-colons --show-keys "$key_file" 2>/dev/null |
@@ -158,7 +195,13 @@ converge_chatgpt_gpg_key() {
         return 1
     fi
 
-    # Key fingerprint is verified: import into RPM keyring idempotently
+    # 5. Meaningful Idempotency: inspect if the verified key is already trusted in RPM keyring
+    if is_rpm_gpg_key_imported "$expected_fp"; then
+        info "Official ChatGPT repository GPG key ($expected_fp) is already trusted in RPM keyring."
+        return 0
+    fi
+
+    # 6. Import verified key into RPM keyring
     if ! sudo rpm --import "$key_file"; then
         error "Failed to import verified ChatGPT GPG key ($expected_fp) into RPM keyring."
         return 1

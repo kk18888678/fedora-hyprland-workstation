@@ -149,9 +149,11 @@ configure_repositories() {
     # Multimedia and hardware ecosystem.
     install_rpmfusion
 
-    # Converge official third-party repository keys (e.g. ChatGPT) if present
+    # Converge official third-party repository keys (e.g. ChatGPT) if repository is configured
     if declare -F converge_chatgpt_gpg_key >/dev/null; then
-        converge_chatgpt_gpg_key || true
+        if ! converge_chatgpt_gpg_key; then
+            record_required "repositories" "chatgpt-gpg" "Failed to converge official ChatGPT repository GPG key."
+        fi
     fi
 
     # Refresh metadata after repository changes.

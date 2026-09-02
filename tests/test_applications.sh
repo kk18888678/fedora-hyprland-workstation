@@ -169,49 +169,48 @@ source "$SCRIPT_DIR/modules/applications.sh"
 
 EXPECTED_FP="3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4"
 
-# 1. Missing key file returns 0 safely (noop before bootstrap)
+mock_repos="$(mktemp -d)"
+OVERRIDE_YUM_REPOS_DIR="$mock_repos"
 empty_pki="$(mktemp -d)"
 OVERRIDE_RPM_GPG_DIR="$empty_pki"
+
+# 1. Unconfigured repository: absence of key is safe no-op (status 0, no import)
+package_installed() { return 1; }
 rpm_import_called=0
 sudo() {
     if [[ "$*" =~ rpm\ --import ]]; then rpm_import_called=1; fi
 }
-missing_res=0
-converge_chatgpt_gpg_key || missing_res=$?
-echo "missing_key_status=$missing_res"
-echo "missing_key_imported=$rpm_import_called"
+unconfigured_res=0
+converge_chatgpt_gpg_key || unconfigured_res=$?
+echo "unconfigured_status=$unconfigured_res"
+echo "unconfigured_imported=$rpm_import_called"
 
-# 2. Expected official key with valid fingerprint converges and imports
+# Now configure the repository (e.g. chatgpt.repo exists)
+touch "$mock_repos/chatgpt-test.repo"
+
+# 2. Configured repository + missing key file -> FAIL CLOSED (status 1)
+missing_key_res=0
+converge_chatgpt_gpg_key || missing_key_res=$?
+echo "missing_key_status=$missing_key_res"
+
+# 3. Configured repository + missing gpg verifier -> FAIL CLOSED (status 1)
 staging_pki="$(mktemp -d)"
 OVERRIDE_RPM_GPG_DIR="$staging_pki"
 key_file="$staging_pki/RPM-GPG-KEY-chatgpt-${EXPECTED_FP}.asc"
 touch "$key_file"
 
-# Mock gpg to return expected fingerprint
-gpg() {
-    cat <<EOF
-pub:u:4096:1:1234567890:1234567890::u:::scESC::::::23::
-fpr:::::::::${EXPECTED_FP}:
-uid:u::::1234567890::1234567890::Codex Linux Repository:::
-EOF
+command_exists() {
+    if [[ "$1" == "gpg" ]]; then return 1; fi
+    command -v "$1" >/dev/null 2>&1
 }
+missing_gpg_res=0
+converge_chatgpt_gpg_key || missing_gpg_res=$?
+echo "missing_gpg_status=$missing_gpg_res"
 
-rpm_import_called=0
-imported_file=""
-sudo() {
-    if [[ "$1" == "rpm" && "$2" == "--import" ]]; then
-        rpm_import_called=1
-        imported_file="$3"
-    fi
-}
+# Restore command_exists
+unset -f command_exists
 
-valid_res=0
-converge_chatgpt_gpg_key || valid_res=$?
-echo "valid_key_status=$valid_res"
-echo "valid_key_imported=$rpm_import_called"
-echo "valid_key_target=$([[ "$imported_file" == "$key_file" ]] && echo 1 || echo 0)"
-
-# 3. Wrong fingerprint is rejected (fail closed, no import)
+# 4. Configured repository + wrong fingerprint -> FAIL CLOSED (status 1, no import)
 wrong_pki="$(mktemp -d)"
 OVERRIDE_RPM_GPG_DIR="$wrong_pki"
 wrong_key_file="$wrong_pki/RPM-GPG-KEY-chatgpt-${EXPECTED_FP}.asc"
@@ -229,7 +228,7 @@ converge_chatgpt_gpg_key || wrong_res=$?
 echo "wrong_key_status=$wrong_res"
 echo "wrong_key_imported=$rpm_import_called"
 
-# 4. Idempotency test (second convergence succeeds identically)
+# 5. Configured repository + import failure -> FAIL CLOSED (status 1)
 OVERRIDE_RPM_GPG_DIR="$staging_pki"
 gpg() {
     cat <<EOF
@@ -238,29 +237,61 @@ fpr:::::::::${EXPECTED_FP}:
 uid:u::::1234567890::1234567890::Codex Linux Repository:::
 EOF
 }
+is_rpm_gpg_key_imported() { return 1; }
+sudo() {
+    if [[ "$*" =~ rpm\ --import ]]; then return 1; fi
+    command sudo "$@"
+}
+import_fail_res=0
+converge_chatgpt_gpg_key || import_fail_res=$?
+echo "import_fail_status=$import_fail_res"
+
+# 6. First successful convergence -> verifies and imports into RPM keyring
+rpm_import_called=0
+imported_file=""
+sudo() {
+    if [[ "$1" == "rpm" && "$2" == "--import" ]]; then
+        rpm_import_called=1
+        imported_file="$3"
+        return 0
+    fi
+}
+is_rpm_gpg_key_imported() { return 1; }
+valid_res=0
+converge_chatgpt_gpg_key || valid_res=$?
+echo "valid_key_status=$valid_res"
+echo "valid_key_imported=$rpm_import_called"
+echo "valid_key_target=$([[ "$imported_file" == "$key_file" ]] && echo 1 || echo 0)"
+
+# 7. Already-converged second invocation -> performs NO import and returns 0
+is_rpm_gpg_key_imported() { return 0; }
 rpm_import_called=0
 second_res=0
 converge_chatgpt_gpg_key || second_res=$?
 echo "second_run_status=$second_res"
 echo "second_run_imported=$rpm_import_called"
 
-rm -rf "$empty_pki" "$staging_pki" "$wrong_pki" "$TARGET_HOME"
+rm -rf "$mock_repos" "$empty_pki" "$staging_pki" "$wrong_pki" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_key_status=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_key_imported=0'; then
-    pass "converge_chatgpt_gpg_key handles missing key file safely before bootstrap"
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'unconfigured_status=0' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'unconfigured_imported=0'; then
+    pass "converge_chatgpt_gpg_key is safe no-op when ChatGPT repository is not configured"
 else
-    fail "converge_chatgpt_gpg_key failed missing key handling: $chatgpt_gpg_test_output"
+    fail "converge_chatgpt_gpg_key failed unconfigured repo no-op: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_status=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_imported=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_target=1'; then
-    pass "converge_chatgpt_gpg_key imports verified official OpenAI GPG key"
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_key_status=1'; then
+    pass "converge_chatgpt_gpg_key fails closed when configured repo is missing GPG key file"
 else
-    fail "converge_chatgpt_gpg_key failed valid key import: $chatgpt_gpg_test_output"
+    fail "converge_chatgpt_gpg_key did not fail on missing key file: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_gpg_status=1'; then
+    pass "converge_chatgpt_gpg_key fails closed when gpg verifier command is unavailable"
+else
+    fail "converge_chatgpt_gpg_key did not fail on missing gpg: $chatgpt_gpg_test_output"
 fi
 
 if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'wrong_key_status=1' &&
@@ -270,11 +301,25 @@ else
     fail "converge_chatgpt_gpg_key did not reject wrong fingerprint: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_status=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_imported=1'; then
-    pass "converge_chatgpt_gpg_key is idempotent on repeated runs"
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'import_fail_status=1'; then
+    pass "converge_chatgpt_gpg_key fails closed when rpm --import fails"
 else
-    fail "converge_chatgpt_gpg_key failed second-run idempotency: $chatgpt_gpg_test_output"
+    fail "converge_chatgpt_gpg_key did not fail on import error: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_status=0' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_imported=1' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_target=1'; then
+    pass "converge_chatgpt_gpg_key imports verified official OpenAI GPG key on first run"
+else
+    fail "converge_chatgpt_gpg_key failed valid key import: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_status=0' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_imported=0'; then
+    pass "converge_chatgpt_gpg_key avoids redundant import when key is already trusted in RPM keyring"
+else
+    fail "converge_chatgpt_gpg_key failed already-imported idempotency: $chatgpt_gpg_test_output"
 fi
 
 section "N_m3u8DL-RE Prerelease Policy"
