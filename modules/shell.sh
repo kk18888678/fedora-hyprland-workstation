@@ -149,6 +149,58 @@ deploy_nvim_config() {
     info "Neovim configuration linked."
 }
 
+configure_user_directories() {
+    info "Configuring standard XDG user directories."
+
+    if ! command_exists xdg-user-dirs-update; then
+        record_deferred "shell" "xdg-user-dirs" "xdg-user-dirs-update command not found."
+        return 0
+    fi
+
+    local user_dirs_config_dir="$TARGET_HOME/.config"
+    ensure_directory "$user_dirs_config_dir"
+
+    # Execute xdg-user-dirs-update strictly in the target user's context with HOME=$TARGET_HOME
+    if ! HOME="$TARGET_HOME" USER="$TARGET_USER" xdg-user-dirs-update; then
+        record_deferred "shell" "xdg-user-dirs" "Failed to execute xdg-user-dirs-update."
+        return 0
+    fi
+
+    # Ensure the standard directories referenced by user-dirs.dirs actually exist on disk.
+    # Existing customized directories in ~/.config/user-dirs.dirs are preserved and created without renaming.
+    local user_dirs_file="$user_dirs_config_dir/user-dirs.dirs"
+    if [[ -f "$user_dirs_file" ]]; then
+        local line
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*XDG_[A-Z]+_DIR=\"?([^\"]+)\"? ]]; then
+                local dir_path="${BASH_REMATCH[1]}"
+                dir_path="${dir_path/\$HOME/$TARGET_HOME}"
+                if [[ -n "$dir_path" && ! -d "$dir_path" ]]; then
+                    ensure_directory "$dir_path"
+                fi
+            fi
+        done < "$user_dirs_file"
+    else
+        local standard_dirs=(
+            "$TARGET_HOME/Desktop"
+            "$TARGET_HOME/Documents"
+            "$TARGET_HOME/Downloads"
+            "$TARGET_HOME/Music"
+            "$TARGET_HOME/Pictures"
+            "$TARGET_HOME/Public"
+            "$TARGET_HOME/Templates"
+            "$TARGET_HOME/Videos"
+        )
+        local sdir
+        for sdir in "${standard_dirs[@]}"; do
+            ensure_directory "$sdir"
+        done
+    fi
+
+    info "Standard XDG user directories configured."
+    record_success "xdg-user-dirs"
+}
+
 configure_shell() {
     if [[ "${SHELL:-}" != "zsh" ]]; then
         die "Unsupported shell profile: ${SHELL:-<unset>}"
@@ -163,6 +215,7 @@ configure_shell() {
     deploy_starship_config
     deploy_kitty_config
     deploy_nvim_config
+    configure_user_directories
     configure_default_shell
 
     if [[ "${PROMPT:-}" == "starship" ]]; then

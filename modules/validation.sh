@@ -275,6 +275,22 @@ validate_shell_environment() {
         failed=1
     fi
 
+    local user_dirs_file="$TARGET_HOME/.config/user-dirs.dirs"
+    if [[ -f "$user_dirs_file" ]]; then
+        local line
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*XDG_[A-Z]+_DIR=\"?([^\"]+)\"? ]]; then
+                local dir_path="${BASH_REMATCH[1]}"
+                dir_path="${dir_path/\$HOME/$TARGET_HOME}"
+                if [[ -n "$dir_path" && ! -d "$dir_path" ]]; then
+                    record_deferred "validation" "xdg-user-dirs" "XDG user directory is missing: $dir_path"
+                fi
+            fi
+        done < "$user_dirs_file"
+    else
+        record_deferred "validation" "xdg-user-dirs" "user-dirs.dirs was not generated."
+    fi
+
     if is_true "${OH_MY_ZSH:-false}"; then
         if ! validate_required_file "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh"; then
             record_required "validation" "oh-my-zsh" "Oh My Zsh is not installed."

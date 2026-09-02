@@ -31,3 +31,4 @@ e2fsprogs
 ethtool
 iperf3
 bind-utils
+nethogs

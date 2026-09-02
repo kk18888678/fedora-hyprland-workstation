@@ -164,6 +164,19 @@ assert_not_in_manifest golang
 assert_not_in_manifest gradle
 assert_not_in_manifest maven
 assert_not_in_manifest dotnet-sdk
+assert_not_in_manifest clang
+assert_not_in_manifest cmake
+assert_not_in_manifest meson
+assert_not_in_manifest ninja-build
+assert_not_in_manifest pkgconf
+assert_not_in_manifest rocm-opencl
+assert_not_in_manifest rocm-hip
+assert_not_in_manifest steam
+assert_not_in_manifest mangohud
+assert_not_in_manifest wine
+assert_not_in_manifest winetricks
+assert_not_in_manifest os-prober
+assert_not_in_manifest gnome-software
 
 assert_in_manifest packages/base.txt wget2-wget
 assert_in_manifest packages/base.txt 7zip
@@ -182,6 +195,25 @@ assert_in_manifest packages/desktop.txt qt6-qtbase
 assert_in_manifest packages/desktop.txt qt6-qtwayland
 assert_in_manifest packages/desktop.txt qt6ct
 assert_in_manifest packages/desktop.txt nwg-look
+assert_in_manifest packages/desktop.txt thunar
+assert_in_manifest packages/desktop.txt thunar-archive-plugin
+assert_in_manifest packages/desktop.txt thunar-volman
+assert_in_manifest packages/desktop.txt thunar-media-tags-plugin
+assert_in_manifest packages/desktop.txt file-roller
+assert_in_manifest packages/desktop.txt gvfs
+assert_in_manifest packages/desktop.txt gvfs-mtp
+assert_in_manifest packages/desktop.txt gvfs-smb
+assert_in_manifest packages/desktop.txt gvfs-afc
+assert_in_manifest packages/desktop.txt xdg-user-dirs
+assert_in_manifest packages/desktop.txt tumbler
+assert_in_manifest packages/desktop.txt ffmpegthumbnailer
+assert_in_manifest packages/desktop.txt poppler-glib
+assert_in_manifest packages/desktop.txt libgsf
+assert_in_manifest packages/desktop.txt libopenraw
+assert_in_manifest packages/desktop.txt gnome-disk-utility
+assert_in_manifest packages/desktop.txt gnome-calculator
+assert_in_manifest packages/desktop.txt loupe
+assert_in_manifest packages/desktop.txt dejavu-sans-fonts
 assert_in_manifest packages/base.txt zsh
 assert_in_manifest packages/base.txt starship
 assert_in_manifest packages/media.txt ffmpeg
@@ -198,6 +230,7 @@ assert_in_manifest packages/diagnostics.txt iotop-c
 assert_in_manifest packages/diagnostics.txt sysstat
 assert_in_manifest packages/diagnostics.txt lsof
 assert_in_manifest packages/diagnostics.txt strace
+assert_in_manifest packages/diagnostics.txt nethogs
 assert_in_manifest packages/diagnostics.txt duf
 assert_in_manifest packages/diagnostics.txt ncdu
 assert_in_manifest packages/diagnostics.txt btrfs-progs
@@ -286,6 +319,7 @@ needed_functions=(
     install_media_utilities
     install_antigravity
     deploy_nvim_config
+    configure_user_directories
     configure_flatpak
     install_flatpak_applications
     install_localsend
@@ -1302,9 +1336,147 @@ for svar in "${sha_vars[@]}"; do
     fi
 done
 
-###############################################################################
-# Subsystem Tests
-###############################################################################
+section "Standard XDG User Directories"
+
+if grep -q "configure_user_directories" "$ROOT/modules/shell.sh"; then
+    pass "shell.sh defines and invokes configure_user_directories"
+else
+    fail "shell.sh missing configure_user_directories"
+fi
+
+if grep -q "xdg-user-dirs" "$ROOT/modules/validation.sh"; then
+    pass "validation.sh validates XDG user directories"
+else
+    fail "validation.sh does not validate XDG user directories"
+fi
+
+xdg_init_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="xdgtester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/shell.sh"
+
+# 1. Fresh user initialization test
+configure_user_directories
+
+all_eight_exist=1
+for d in Desktop Documents Downloads Music Pictures Public Templates Videos; do
+    if [[ ! -d "$TARGET_HOME/$d" ]]; then
+        all_eight_exist=0
+    fi
+done
+echo "all-eight-exist=$all_eight_exist"
+echo "config-file-exists=$([[ -f "$TARGET_HOME/.config/user-dirs.dirs" ]] && echo 1 || echo 0)"
+
+# 2. Place a user file in Downloads
+echo "important document" > "$TARGET_HOME/Documents/important.txt"
+
+# 3. Custom directory preservation test
+cat > "$TARGET_HOME/.config/user-dirs.dirs" <<'UDIRS'
+XDG_DESKTOP_DIR="$HOME/MyDesktop"
+XDG_DOWNLOAD_DIR="$HOME/MyDownloads"
+XDG_TEMPLATES_DIR="$HOME/Templates"
+XDG_PUBLICSHARE_DIR="$HOME/Public"
+XDG_DOCUMENTS_DIR="$HOME/Documents"
+XDG_MUSIC_DIR="$HOME/MyMusic"
+XDG_PICTURES_DIR="$HOME/Pictures"
+XDG_VIDEOS_DIR="$HOME/Videos"
+UDIRS
+
+# Mock xdg-user-dirs-update so it preserves existing user-dirs.dirs
+xdg-user-dirs-update() { return 0; }
+configure_user_directories
+
+custom_dirs_exist=1
+for d in MyDesktop MyDownloads MyMusic; do
+    if [[ ! -d "$TARGET_HOME/$d" ]]; then
+        custom_dirs_exist=0
+    fi
+done
+echo "custom-dirs-exist=$custom_dirs_exist"
+
+# 4. Check user file was not touched
+echo "user-file-preserved=$([[ -f "$TARGET_HOME/Documents/important.txt" ]] && echo 1 || echo 0)"
+
+# 5. Idempotent rerun check
+configure_user_directories
+echo "idempotent-blocked=$ACTIVATION_BLOCKED"
+echo "idempotent-exit=$(installer_exit_code)"
+
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$xdg_init_test_output" | grep -q 'all-eight-exist=1'; then
+    pass "all 8 standard XDG user directories initialized for fresh user"
+else
+    fail "fresh XDG user directory initialization missing directories: $xdg_init_test_output"
+fi
+
+if printf '%s\n' "$xdg_init_test_output" | grep -q 'config-file-exists=1'; then
+    pass "user-dirs.dirs configuration file generated"
+else
+    fail "user-dirs.dirs configuration file missing: $xdg_init_test_output"
+fi
+
+if printf '%s\n' "$xdg_init_test_output" | grep -q 'custom-dirs-exist=1'; then
+    pass "existing custom XDG directory mappings are respected and preserved"
+else
+    fail "custom XDG directory mappings not preserved: $xdg_init_test_output"
+fi
+
+if printf '%s\n' "$xdg_init_test_output" | grep -q 'user-file-preserved=1'; then
+    pass "existing user files are never deleted or mutated"
+else
+    fail "existing user files were not preserved: $xdg_init_test_output"
+fi
+
+if printf '%s\n' "$xdg_init_test_output" | grep -q 'idempotent-blocked=0'; then
+    pass "rerunning XDG user directory initialization never blocks graphical activation"
+else
+    fail "rerunning XDG user directory initialization blocked activation: $xdg_init_test_output"
+fi
+
+xdg_failure_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="xdgtester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/shell.sh"
+
+# Simulate xdg-user-dirs-update failure
+xdg-user-dirs-update() { return 1; }
+configure_user_directories
+echo "fail-blocked=$ACTIVATION_BLOCKED"
+echo "fail-exit=$(installer_exit_code)"
+rm -rf "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$xdg_failure_test_output" | grep -q 'fail-blocked=0'; then
+    pass "XDG user directory failure does not set ACTIVATION_BLOCKED"
+else
+    fail "XDG user directory failure set ACTIVATION_BLOCKED: $xdg_failure_test_output"
+fi
+
+if printf '%s\n' "$xdg_failure_test_output" | grep -q 'fail-exit=2'; then
+    pass "XDG user directory failure produces deferred exit code 2"
+else
+    fail "XDG user directory failure did not produce exit code 2: $xdg_failure_test_output"
+fi
 
 section "Neovim Default Configuration"
 

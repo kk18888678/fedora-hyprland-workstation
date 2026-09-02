@@ -32,11 +32,24 @@ greetd
 # Terminal
 kitty
 
-# File manager
+# File manager & storage integration
 thunar
 thunar-archive-plugin
 thunar-volman
+thunar-media-tags-plugin
+file-roller
+gvfs
+gvfs-mtp
+gvfs-smb
+gvfs-afc
+xdg-user-dirs
+
+# Thumbnailing / media preview
 tumbler
+ffmpegthumbnailer
+poppler-glib
+libgsf
+libopenraw
 
 # Clipboard
 wl-clipboard
@@ -64,12 +77,16 @@ qt6-qtbase
 qt6-qtwayland
 qt6ct
 
-# Notifications / desktop utilities
+# Notifications / desktop utilities & basic apps
 libnotify
+gnome-disk-utility
+gnome-calculator
+loupe
 
 # Fonts
 google-noto-sans-fonts
 google-noto-emoji-fonts
+dejavu-sans-fonts
 
 # Login-screen cursor (Noctalia greeter). Session cursor is unchanged.
 adwaita-cursor-theme
