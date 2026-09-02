@@ -426,11 +426,19 @@ else
 fi
 
 if command -v noctalia >/dev/null 2>&1; then
-    if noctalia config validate "$noctalia_config" >/dev/null 2>&1; then
+    tmp_validate_home="$(mktemp -d)"
+    if HOME="$tmp_validate_home" noctalia config validate "$noctalia_config" >/dev/null 2>&1; then
         pass "noctalia config validate confirms config/noctalia/config.toml is strictly valid"
     else
         fail "noctalia config validate rejected config/noctalia/config.toml"
     fi
+    rm -rf "$tmp_validate_home"
+fi
+
+if ! grep -q '\[shell\.launcher\]' "$noctalia_config"; then
+    pass "noctalia config.toml excludes unneeded shell.launcher overrides"
+else
+    fail "noctalia config.toml contains unexpected shell.launcher overrides"
 fi
 
 section "Native Noctalia Launcher Integration & Hotkeys Reference"

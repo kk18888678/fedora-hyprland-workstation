@@ -5,7 +5,3 @@
 type = "workspaces"
 hide_when_empty = false
 show_labels = true
-
-[shell.launcher]
-show_app_actions = true
-show_app_origin_indicator = true
