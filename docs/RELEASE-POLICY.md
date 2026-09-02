@@ -10,7 +10,9 @@ The workstation provides a **cutting-edge, but not bleeding-edge** environment:
 
 - **Default Profiles**: Default profiles (`workstation`, `vm`) install **only** verified stable releases.
 - **Prohibited Sources**: Alpha, beta, release candidate (RC), nightly, development snapshot, and untagged git HEAD builds are prohibited from default installation paths.
-- **Explicit Upstream Exception**: If an upstream project tags all of its official public releases with a project-specific identifier (e.g. `v0.6.0-beta` in `N_m3u8DL-RE`), it is pinned to that specific tested release and documented explicitly.
+- **Explicit Documented Exceptions**:
+  - **Official OpenAI ChatGPT for Linux Public Preview**: Supported as official vendor desktop distribution with Fedora 43/44 support for workstation AI workflows. Future updates are managed by OpenAI's signed DNF repository.
+- **Prerelease Handling (e.g. N_m3u8DL-RE)**: If an upstream tool currently only provides prereleases (e.g. `0.6.0-beta`), metadata is tracked in `config/versions.conf` for update discovery, but provisioning is skipped during normal installation until a stable release is available.
 
 ---
 
@@ -36,7 +38,7 @@ For software installed directly from upstream release assets rather than Fedora 
 | **Bento4** | `1.6.0-641` | `bok.net/Bento4` | SHA-512 |
 | **Shaka Packager** | `3.9.3` | `github.com/shaka-project/shaka-packager` | SHA-512 |
 | **dovi_tool** | `2.3.3` | `github.com/quietvoid/dovi_tool` | SHA-512 |
-| **N_m3u8DL-RE** | `0.6.0-beta` | `github.com/nilaoda/N_m3u8DL-RE` | SHA-512 (Author release tag) |
+| **N_m3u8DL-RE** | `0.6.0-beta` (tracked) | `github.com/nilaoda/N_m3u8DL-RE` | SHA-512 (Tracked for update audit; skipped during install) |
 
 ---
 

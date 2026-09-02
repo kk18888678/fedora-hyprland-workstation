@@ -181,6 +181,12 @@ A project whose upstream labels all normal public releases with a prerelease-
 looking suffix must be treated as an explicit documented exception, not silently
 generalized into permission to consume prerelease software elsewhere.
 
+### Explicit Documented Exceptions
+
+- **Official OpenAI ChatGPT for Linux Public Preview**:
+  - Reason: Official vendor desktop application distributed by OpenAI with explicit Fedora 43/44 support, required for workstation AI workflows. Currently, no separate general-availability/stable Linux channel exists.
+  - Scope: Applies exclusively to the official OpenAI ChatGPT for Linux public preview; does not establish a general precedent for prerelease software elsewhere.
+
 ---
 
 # 4. Installation vs Update Discovery

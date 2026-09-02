@@ -29,6 +29,18 @@ printf '============================================================\n'
 printf 'Upstream Stable Release Audit\n'
 printf '============================================================\n\n'
 
+is_prerelease_tag() {
+    local tag="$1"
+    local lower
+    lower="$(printf '%s\n' "$tag" | tr '[:upper:]' '[:lower:]')"
+
+    # Reject prerelease markers in tag name even if upstream API reports prerelease=false
+    if [[ "$lower" =~ (alpha|beta|rc[0-9]*|preview|pre|nightly|dev|snapshot) ]]; then
+        return 0
+    fi
+    return 1
+}
+
 check_github_latest() {
     local project_label="$1"
     local repo_slug="$2"
@@ -54,6 +66,13 @@ check_github_latest() {
     latest_tag="$(printf '%s\n' "$release_json" | grep -m1 '"tag_name":' | cut -d'"' -f4 || true)"
 
     if [[ -n "$latest_tag" ]]; then
+        if is_prerelease_tag "$latest_tag"; then
+            printf '  Current pinned : %s\n' "$current_version"
+            printf '  Upstream latest: %s (PRERELEASE - rejected by stable policy)\n' "$latest_tag"
+            printf '  Status         : PRERELEASE IGNORED\n\n'
+            return 0
+        fi
+
         printf '  Current pinned : %s\n' "$current_version"
         printf '  Upstream latest: %s\n' "$latest_tag"
         if [[ "$latest_tag" =~ $current_version ]]; then

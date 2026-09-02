@@ -111,61 +111,9 @@ install_cursor() {
     record_success "cursor"
 }
 
-chatgpt_repo_file="/etc/yum.repos.d/chatgpt.repo"
-
-chatgpt_repo_configured() {
-    [[ -f "$chatgpt_repo_file" ]] &&
-        grep -Fq 'baseurl=https://persistent.oaistatic.com/codex-app-prod/linux/rpm' \
-            "$chatgpt_repo_file"
-}
-
-configure_chatgpt_repository() {
-    if chatgpt_repo_configured; then
-        info "ChatGPT repository already configured."
-        return 0
-    fi
-
-    info "Configuring official ChatGPT RPM repository."
-
-    local temp_file
-    temp_file="$(mktemp)"
-
-    cat >"$temp_file" <<'EOF'
-[chatgpt]
-name=ChatGPT
-baseurl=https://persistent.oaistatic.com/codex-app-prod/linux/rpm/$basearch
-enabled=1
-gpgcheck=1
-gpgkey=https://persistent.oaistatic.com/codex-app-prod/linux/rpm/RPM-GPG-KEY-chatgpt
-EOF
-
-    sudo install \
-        --owner=root \
-        --group=root \
-        --mode=0644 \
-        "$temp_file" \
-        "$chatgpt_repo_file"
-
-    rm -f "$temp_file"
-
-    if ! chatgpt_repo_configured; then
-        return 1
-    fi
-
-    info "ChatGPT repository configured."
-}
-
 install_chatgpt() {
     if ! is_true "${CHATGPT:-false}"; then
         info "ChatGPT disabled by profile."
-        return 0
-    fi
-
-    if ! configure_chatgpt_repository; then
-        record_deferred \
-            "applications" \
-            "chatgpt" \
-            "ChatGPT RPM repository could not be configured."
         return 0
     fi
 
@@ -175,21 +123,51 @@ install_chatgpt() {
         return 0
     fi
 
-    info "Installing ChatGPT desktop application."
+    local arch
+    arch="$(uname -m)"
+    local rpm_arch=""
+    case "$arch" in
+        x86_64|amd64)
+            rpm_arch="x86_64"
+            ;;
+        aarch64|arm64)
+            rpm_arch="aarch64"
+            ;;
+        *)
+            record_deferred "applications" "chatgpt" "ChatGPT official RPM unsupported architecture: $arch."
+            return 0
+            ;;
+    esac
 
-    if ! install_dnf_packages chatgpt; then
-        record_deferred \
-            "applications" \
-            "chatgpt" \
-            "ChatGPT package could not be installed."
+    local bootstrap_url="https://persistent.oaistatic.com/codex-app-prod/linux/rpm/latest/chatgpt.${rpm_arch}.rpm"
+
+    info "Installing official OpenAI ChatGPT desktop application via official RPM bootstrap ($rpm_arch)."
+
+    local temp_dir
+    temp_dir="$(mktemp -d)"
+    local temp_rpm="$temp_dir/chatgpt.rpm"
+
+    if ! run_with_retry "download ChatGPT bootstrap RPM" \
+        run_with_timeout "$TIMEOUT_DOWNLOAD_SECONDS" "download ChatGPT bootstrap RPM" \
+        curl -fsSL -o "$temp_rpm" "$bootstrap_url"; then
+        rm -rf "$temp_dir"
+        record_deferred "applications" "chatgpt" "Failed to download official OpenAI ChatGPT bootstrap RPM from $bootstrap_url."
         return 0
     fi
 
+    # Installing the official RPM establishes OpenAI's signed package repository for future DNF upgrades
+    if ! run_with_retry "install ChatGPT RPM" \
+        run_with_timeout "$TIMEOUT_PACKAGE_SECONDS" "install ChatGPT RPM" \
+        sudo dnf install -y "$temp_rpm"; then
+        rm -rf "$temp_dir"
+        record_deferred "applications" "chatgpt" "Failed to install official OpenAI ChatGPT RPM package."
+        return 0
+    fi
+
+    rm -rf "$temp_dir"
+
     if ! package_installed chatgpt; then
-        record_deferred \
-            "applications" \
-            "chatgpt" \
-            "ChatGPT was not present after installation."
+        record_deferred "applications" "chatgpt" "ChatGPT was not detected after installation."
         return 0
     fi
 
@@ -258,19 +236,15 @@ install_media_utilities() {
         fi
     fi
 
-    # 2. N_m3u8DL-RE
+    # 2. N_m3u8DL-RE (skipped during install: upstream only provides beta prereleases)
     if [[ -x "$target_dir/N_m3u8DL-RE" ]] || command_exists N_m3u8DL-RE; then
         info "N_m3u8DL-RE already installed."
         record_success "N_m3u8DL-RE"
     else
-        if [[ -n "${N_M3U8DL_RE_URL:-}" && -n "${N_M3U8DL_RE_SHA512:-}" ]]; then
-            info "Provisioning N_m3u8DL-RE (${N_M3U8DL_RE_VERSION:-pinned})."
-            if provision_verified_archive "$N_M3U8DL_RE_URL" "$N_M3U8DL_RE_SHA512" "$target_dir/N_m3u8DL-RE" "N_m3u8DL-RE" "N_m3u8DL-RE" true; then
-                record_success "N_m3u8DL-RE"
-            else
-                record_deferred "applications" "N_m3u8DL-RE" "Failed to download, verify, or extract N_m3u8DL-RE."
-            fi
-        fi
+        record_deferred \
+            "applications" \
+            "N_m3u8DL-RE" \
+            "Skipping N_m3u8DL-RE: upstream releases are currently prerelease (beta); no policy-compliant stable release available."
     fi
 
     # 3. Shaka Packager (packager)

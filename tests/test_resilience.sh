@@ -139,7 +139,8 @@ source "$SCRIPT_DIR/modules/status.sh"
 source "$SCRIPT_DIR/modules/applications.sh"
 
 CHATGPT=true
-configure_chatgpt_repository() { return 1; }
+package_installed() { return 1; }
+run_with_retry() { return 1; }
 install_chatgpt
 echo "chatgpt-blocked=$ACTIVATION_BLOCKED"
 echo "chatgpt-exit=$(installer_exit_code)"
@@ -148,9 +149,9 @@ EOS
 )"
 
 if printf '%s\n' "$chatgpt_resilience_output" | grep -q 'chatgpt-blocked=0'; then
-    pass "ChatGPT repository failure does not set ACTIVATION_BLOCKED"
+    pass "ChatGPT bootstrap failure does not set ACTIVATION_BLOCKED"
 else
-    fail "ChatGPT repository failure set ACTIVATION_BLOCKED: $chatgpt_resilience_output"
+    fail "ChatGPT bootstrap failure set ACTIVATION_BLOCKED: $chatgpt_resilience_output"
 fi
 
 if printf '%s\n' "$chatgpt_resilience_output" | grep -q 'chatgpt-exit=2'; then
