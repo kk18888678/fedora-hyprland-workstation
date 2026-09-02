@@ -152,6 +152,131 @@ else
     fail "install_chatgpt failed valid bootstrap execution: $chatgpt_behavior_output"
 fi
 
+section "ChatGPT Repository GPG Key Convergence"
+
+chatgpt_gpg_test_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+EXPECTED_FP="3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4"
+
+# 1. Missing key file returns 0 safely (noop before bootstrap)
+empty_pki="$(mktemp -d)"
+OVERRIDE_RPM_GPG_DIR="$empty_pki"
+rpm_import_called=0
+sudo() {
+    if [[ "$*" =~ rpm\ --import ]]; then rpm_import_called=1; fi
+}
+missing_res=0
+converge_chatgpt_gpg_key || missing_res=$?
+echo "missing_key_status=$missing_res"
+echo "missing_key_imported=$rpm_import_called"
+
+# 2. Expected official key with valid fingerprint converges and imports
+staging_pki="$(mktemp -d)"
+OVERRIDE_RPM_GPG_DIR="$staging_pki"
+key_file="$staging_pki/RPM-GPG-KEY-chatgpt-${EXPECTED_FP}.asc"
+touch "$key_file"
+
+# Mock gpg to return expected fingerprint
+gpg() {
+    cat <<EOF
+pub:u:4096:1:1234567890:1234567890::u:::scESC::::::23::
+fpr:::::::::${EXPECTED_FP}:
+uid:u::::1234567890::1234567890::Codex Linux Repository:::
+EOF
+}
+
+rpm_import_called=0
+imported_file=""
+sudo() {
+    if [[ "$1" == "rpm" && "$2" == "--import" ]]; then
+        rpm_import_called=1
+        imported_file="$3"
+    fi
+}
+
+valid_res=0
+converge_chatgpt_gpg_key || valid_res=$?
+echo "valid_key_status=$valid_res"
+echo "valid_key_imported=$rpm_import_called"
+echo "valid_key_target=$([[ "$imported_file" == "$key_file" ]] && echo 1 || echo 0)"
+
+# 3. Wrong fingerprint is rejected (fail closed, no import)
+wrong_pki="$(mktemp -d)"
+OVERRIDE_RPM_GPG_DIR="$wrong_pki"
+wrong_key_file="$wrong_pki/RPM-GPG-KEY-chatgpt-${EXPECTED_FP}.asc"
+touch "$wrong_key_file"
+gpg() {
+    cat <<EOF
+pub:u:4096:1:1234567890:1234567890::u:::scESC::::::23::
+fpr:::::::::1111222233334444555566667777888899990000:
+uid:u::::1234567890::1234567890::Malicious Untrusted Key:::
+EOF
+}
+rpm_import_called=0
+wrong_res=0
+converge_chatgpt_gpg_key || wrong_res=$?
+echo "wrong_key_status=$wrong_res"
+echo "wrong_key_imported=$rpm_import_called"
+
+# 4. Idempotency test (second convergence succeeds identically)
+OVERRIDE_RPM_GPG_DIR="$staging_pki"
+gpg() {
+    cat <<EOF
+pub:u:4096:1:1234567890:1234567890::u:::scESC::::::23::
+fpr:::::::::${EXPECTED_FP}:
+uid:u::::1234567890::1234567890::Codex Linux Repository:::
+EOF
+}
+rpm_import_called=0
+second_res=0
+converge_chatgpt_gpg_key || second_res=$?
+echo "second_run_status=$second_res"
+echo "second_run_imported=$rpm_import_called"
+
+rm -rf "$empty_pki" "$staging_pki" "$wrong_pki" "$TARGET_HOME"
+EOS
+)"
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_key_status=0' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_key_imported=0'; then
+    pass "converge_chatgpt_gpg_key handles missing key file safely before bootstrap"
+else
+    fail "converge_chatgpt_gpg_key failed missing key handling: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_status=0' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_imported=1' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_target=1'; then
+    pass "converge_chatgpt_gpg_key imports verified official OpenAI GPG key"
+else
+    fail "converge_chatgpt_gpg_key failed valid key import: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'wrong_key_status=1' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'wrong_key_imported=0'; then
+    pass "converge_chatgpt_gpg_key rejects key with mismatched fingerprint without importing"
+else
+    fail "converge_chatgpt_gpg_key did not reject wrong fingerprint: $chatgpt_gpg_test_output"
+fi
+
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_status=0' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_imported=1'; then
+    pass "converge_chatgpt_gpg_key is idempotent on repeated runs"
+else
+    fail "converge_chatgpt_gpg_key failed second-run idempotency: $chatgpt_gpg_test_output"
+fi
+
 section "N_m3u8DL-RE Prerelease Policy"
 
 n_m3u8dl_policy_output="$(

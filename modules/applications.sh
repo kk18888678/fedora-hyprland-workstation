@@ -111,6 +111,63 @@ install_cursor() {
     record_success "cursor"
 }
 
+CHATGPT_EXPECTED_GPG_FINGERPRINT="3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4"
+
+converge_chatgpt_gpg_key() {
+    local expected_fp="$CHATGPT_EXPECTED_GPG_FINGERPRINT"
+    local pki_dir="${OVERRIDE_RPM_GPG_DIR:-/etc/pki/rpm-gpg}"
+
+    # Find the ChatGPT GPG key file in standard RPM GPG directory
+    local key_file=""
+    local candidate
+    for candidate in \
+        "$pki_dir/RPM-GPG-KEY-chatgpt-${expected_fp}.asc" \
+        "$pki_dir/RPM-GPG-KEY-chatgpt"*; do
+        if [[ -f "$candidate" ]]; then
+            key_file="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$key_file" || ! -f "$key_file" ]]; then
+        # Key file does not exist yet on disk
+        return 0
+    fi
+
+    if ! command_exists gpg; then
+        warn "gpg command not available to verify ChatGPT repository key fingerprint."
+        return 0
+    fi
+
+    local actual_fp
+    actual_fp="$(
+        gpg --with-colons --show-keys "$key_file" 2>/dev/null |
+        awk -F: '$1=="fpr"{print toupper($10); exit}'
+    )"
+
+    if [[ -z "$actual_fp" ]]; then
+        error "Could not read OpenPGP fingerprint from ChatGPT key file: $key_file"
+        return 1
+    fi
+
+    if [[ "$actual_fp" != "$expected_fp" ]]; then
+        error "ChatGPT repository GPG key fingerprint mismatch!"
+        error "Expected : $expected_fp"
+        error "Found    : $actual_fp (in $key_file)"
+        error "Refusing to import untrusted repository key."
+        return 1
+    fi
+
+    # Key fingerprint is verified: import into RPM keyring idempotently
+    if ! sudo rpm --import "$key_file"; then
+        error "Failed to import verified ChatGPT GPG key ($expected_fp) into RPM keyring."
+        return 1
+    fi
+
+    info "Verified and imported official ChatGPT repository OpenPGP key ($expected_fp)."
+    return 0
+}
+
 install_chatgpt() {
     if ! is_true "${CHATGPT:-false}"; then
         info "ChatGPT disabled by profile."
@@ -169,7 +226,7 @@ install_chatgpt() {
     # 2. Only after cryptographic checksum verification succeeds, invoke DNF to install the verified RPM
     # Installing the official RPM establishes OpenAI's signed package repository for future DNF upgrades
     if ! run_with_retry "install ChatGPT RPM" \
-        run_with_timeout "$TIMEOUT_PACKAGE_SECONDS" "install ChatGPT RPM" \
+        run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "install ChatGPT RPM" \
         sudo dnf install -y "$staging_rpm"; then
         rm -rf "$staging_dir"
         record_deferred "applications" "chatgpt" "Failed to install verified OpenAI ChatGPT RPM package."
@@ -178,7 +235,13 @@ install_chatgpt() {
 
     rm -rf "$staging_dir"
 
-    # 3. Validate package installation
+    # 3. Converge and import the official repository GPG key after fingerprint verification
+    if ! converge_chatgpt_gpg_key; then
+        record_deferred "applications" "chatgpt" "Failed to converge official ChatGPT repository GPG key."
+        return 0
+    fi
+
+    # 4. Validate package installation
     if ! package_installed chatgpt; then
         record_deferred "applications" "chatgpt" "ChatGPT was not detected after installation."
         return 0
