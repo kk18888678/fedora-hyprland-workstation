@@ -17,8 +17,11 @@ source "$_LIB_DIR/filesystem.sh"
 source "$_LIB_DIR/packages.sh"
 # shellcheck source=/dev/null
 source "$_LIB_DIR/artifacts.sh"
+# shellcheck source=/dev/null
+source "$_LIB_DIR/release_policy.sh"
 
 unset _LIB_DIR
+
 
 ###############################################################################
 # Profile validation
