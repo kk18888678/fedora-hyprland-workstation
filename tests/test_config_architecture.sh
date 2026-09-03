@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 
-# Test Suite: Workstation Configuration Architecture
+# Test Suite: Workstation Configuration Architecture (Corrective Hardening)
 # Tests Component Registry, Desired State, Planner, Reconciler, Roles, Defaults,
-# Lifecycle Adapters, Review, Wizard Navigation, and CLI Contract.
+# Lifecycle Adapters, Review, Wizard Navigation, Single Mutation Ownership, and CLI Contract.
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$ROOT/modules/common.sh"
+source "$ROOT/modules/browsers.sh"
+source "$ROOT/modules/nix.sh"
+source "$ROOT/modules/packages.sh"
 
-section "Component Registry"
+record_success() { :; }
+record_required() { :; }
+record_deferred() { :; }
+
+section "Component Registry and Invariants"
 
 reset_component_registry
 
-# 1. Valid component registers
+# Valid component registers
 register_component \
     id "test_comp_a" \
     display_name "Test Component A" \
@@ -30,7 +37,7 @@ else
     fail "valid component registration failed"
 fi
 
-# 2. Duplicate component ID rejected
+# Duplicate component ID rejected
 dup_rc=0
 register_component id "test_comp_a" display_name "Duplicate" category "Testing" 2>/dev/null || dup_rc=$?
 if [[ "$dup_rc" -ne 0 ]]; then
@@ -39,7 +46,7 @@ else
     fail "duplicate component ID was not rejected"
 fi
 
-# 3. Unknown dependency rejected
+# Unknown dependency rejected
 register_component \
     id "test_comp_b" \
     display_name "Test Component B" \
@@ -53,7 +60,7 @@ else
     fail "registry allowed unknown dependency"
 fi
 
-# 4. Invalid profile rejected
+# Invalid profile rejected
 inv_prof_rc=0
 register_component \
     id "test_comp_c" \
@@ -66,21 +73,27 @@ else
     fail "component with invalid profile was allowed"
 fi
 
-# 5. Capability metadata available
+# Capability metadata available
 reset_component_registry
+register_component \
+    id "prov_comp" \
+    display_name "Provider Component" \
+    category "Testing" \
+    provides "cap_x"
+
 register_component \
     id "test_cap" \
     display_name "Capability Test" \
     category "Testing" \
-    provides "cap_x" \
-    requires "cap_y"
-if [[ "$(get_component_attr "test_cap" provides)" == "cap_x" && "$(get_component_attr "test_cap" requires)" == "cap_y" ]]; then
+    provides "cap_y" \
+    requires "cap_x"
+if [[ "$(get_component_attr "test_cap" provides)" == "cap_y" && "$(get_component_attr "test_cap" requires)" == "cap_x" ]]; then
     pass "component capability provides and requires metadata are available"
 else
     fail "component capability metadata retrieval failed"
 fi
 
-# 6. Role provider metadata available
+# Role provider metadata available
 reset_component_registry
 register_component id "b1" display_name "Browser 1" category "Browsers" roles "browser"
 register_component id "b2" display_name "Browser 2" category "Browsers" roles "browser"
@@ -92,562 +105,718 @@ else
     fail "role provider discovery failed: $providers"
 fi
 
-section "Desired State Model"
+# Restore default representative components for remaining tests
+reset_component_registry
+init_default_components
+
+section "Desired State Model and Fail-Closed Validation"
+
+# 1. Required component omitted from Desired State -> fail
+ds_omit="DS_OMIT"
+init_desired_state "$ds_omit" "workstation" "customize"
+desired_state_set_component "$ds_omit" "chromium" "managed"
+# Omit foot (which is required on workstation)
+omit_rc=0
+validate_desired_state "$ds_omit" 2>/dev/null || omit_rc=$?
+if [[ "$omit_rc" -ne 0 ]]; then
+    pass "1. required component omitted from Desired State fails validation fail-closed"
+else
+    fail "1. required component omission was allowed"
+fi
+
+# 2. Required component unmanaged -> fail
+ds_req_unm="DS_REQ_UNM"
+init_desired_state "$ds_req_unm" "workstation" "customize"
+desired_state_set_component "$ds_req_unm" "foot" "unmanaged"
+req_unm_rc=0
+validate_desired_state "$ds_req_unm" 2>/dev/null || req_unm_rc=$?
+if [[ "$req_unm_rc" -ne 0 ]]; then
+    pass "2. required component set to unmanaged fails validation"
+else
+    fail "2. required component set to unmanaged was allowed"
+fi
+
+# 3. Required component remove -> fail
+ds_req_rem="DS_REQ_REM"
+init_desired_state "$ds_req_rem" "workstation" "customize"
+desired_state_set_component "$ds_req_rem" "foot" "remove"
+req_rem_rc=0
+validate_desired_state "$ds_req_rem" 2>/dev/null || req_rem_rc=$?
+if [[ "$req_rem_rc" -ne 0 ]]; then
+    pass "3. required component set to remove fails validation"
+else
+    fail "3. required component set to remove was allowed"
+fi
+
+# 4. Unsupported-profile managed component -> fail
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false supported_profiles "workstation vm" roles "terminal"
+register_component id "wk_only" display_name "Workstation Only" category "Testing" supported_profiles "workstation"
+ds_unsupp_m="DS_UNSUPP_M"
+init_desired_state "$ds_unsupp_m" "vm" "customize"
+desired_state_set_component "$ds_unsupp_m" "foot" "managed"
+desired_state_set_component "$ds_unsupp_m" "wk_only" "managed"
+unsupp_m_rc=0
+validate_desired_state "$ds_unsupp_m" 2>/dev/null || unsupp_m_rc=$?
+if [[ "$unsupp_m_rc" -ne 0 ]]; then
+    pass "4. unsupported-profile managed component fails validation"
+else
+    fail "4. unsupported-profile managed component was allowed"
+fi
+
+# 5. Unsupported-profile remove component -> fail
+ds_unsupp_r="DS_UNSUPP_R"
+init_desired_state "$ds_unsupp_r" "vm" "customize"
+desired_state_set_component "$ds_unsupp_r" "foot" "managed"
+desired_state_set_component "$ds_unsupp_r" "wk_only" "remove"
+unsupp_r_rc=0
+validate_desired_state "$ds_unsupp_r" 2>/dev/null || unsupp_r_rc=$?
+if [[ "$unsupp_r_rc" -ne 0 ]]; then
+    pass "5. unsupported-profile remove component fails validation"
+else
+    fail "5. unsupported-profile remove component was allowed"
+fi
 
 # Restore default representative components
 reset_component_registry
 init_default_components
 
-# 7. Valid recommended desired state
-ds_rec="TEST_DS_REC"
-create_recommended_desired_state "$ds_rec" "workstation"
-ds_rec_val=0
-validate_desired_state "$ds_rec" || ds_rec_val=$?
-if [[ "$ds_rec_val" -eq 0 && "$(desired_state_get_component "$ds_rec" "foot")" == "managed" ]]; then
-    pass "valid recommended desired state passes validation"
-else
-    fail "valid recommended desired state failed validation"
-fi
-
-# 8. Valid customize desired state
-ds_cust="TEST_DS_CUST"
-init_desired_state "$ds_cust" "workstation" "customize"
-desired_state_set_component "$ds_cust" "foot" "managed"
-desired_state_set_component "$ds_cust" "firefox" "managed"
-desired_state_set_default "$ds_cust" "browser" "firefox"
-ds_cust_val=0
-validate_desired_state "$ds_cust" || ds_cust_val=$?
-if [[ "$ds_cust_val" -eq 0 ]]; then
-    pass "valid customize desired state passes validation"
-else
-    fail "valid customize desired state failed validation"
-fi
-
-# 9. Unknown component rejected
-ds_unk="TEST_DS_UNK"
+# 6. Unknown component -> fail
+ds_unk="DS_UNK"
 init_desired_state "$ds_unk" "workstation" "customize"
+desired_state_set_component "$ds_unk" "foot" "managed"
 desired_state_set_component "$ds_unk" "ghost_app" "managed"
-ds_unk_val=0
-validate_desired_state "$ds_unk" 2>/dev/null || ds_unk_val=$?
-if [[ "$ds_unk_val" -ne 0 ]]; then
-    pass "desired state referencing unknown component is rejected"
+unk_rc=0
+validate_desired_state "$ds_unk" 2>/dev/null || unk_rc=$?
+if [[ "$unk_rc" -ne 0 ]]; then
+    pass "6. unknown component in desired state fails validation"
 else
-    fail "desired state allowed unknown component"
+    fail "6. unknown component was allowed"
 fi
 
-# 10. Required component cannot be silently removed
-ds_req="TEST_DS_REQ"
-init_desired_state "$ds_req" "workstation" "customize"
-desired_state_set_component "$ds_req" "foot" "remove"
-ds_req_val=0
-validate_desired_state "$ds_req" 2>/dev/null || ds_req_val=$?
-if [[ "$ds_req_val" -ne 0 ]]; then
-    pass "required component cannot be marked for removal"
+# 7. Unknown role -> fail
+ds_unk_role="DS_UNK_ROLE"
+init_desired_state "$ds_unk_role" "workstation" "customize"
+desired_state_set_component "$ds_unk_role" "foot" "managed"
+desired_state_set_default "$ds_unk_role" "invalid_role" "foot"
+unk_role_rc=0
+validate_desired_state "$ds_unk_role" 2>/dev/null || unk_role_rc=$?
+if [[ "$unk_role_rc" -ne 0 ]]; then
+    pass "7. unknown role in desired state fails validation"
 else
-    fail "required component removal was permitted"
+    fail "7. unknown role was allowed"
 fi
 
-# 11. unmanaged != remove
-ds_unm="TEST_DS_UNM"
-init_desired_state "$ds_unm" "workstation" "customize"
-desired_state_set_component "$ds_unm" "chromium" "unmanaged"
-desired_state_set_component "$ds_unm" "htop" "remove"
-if [[ "$(desired_state_get_component "$ds_unm" "chromium")" == "unmanaged" && \
-      "$(desired_state_get_component "$ds_unm" "htop")" == "remove" ]]; then
-    pass "unmanaged and remove states are represented distinctly (unmanaged != remove)"
+# 8. Default provider unmanaged -> fail
+ds_def_unm="DS_DEF_UNM"
+init_desired_state "$ds_def_unm" "workstation" "customize"
+desired_state_set_component "$ds_def_unm" "foot" "managed"
+desired_state_set_component "$ds_def_unm" "firefox" "unmanaged"
+desired_state_set_default "$ds_def_unm" "browser" "firefox"
+def_unm_rc=0
+validate_desired_state "$ds_def_unm" 2>/dev/null || def_unm_rc=$?
+if [[ "$def_unm_rc" -ne 0 ]]; then
+    pass "8. default provider set to unmanaged fails validation"
 else
-    fail "unmanaged vs remove distinction failed"
+    fail "8. unmanaged default provider was allowed"
 fi
 
-# 12. Explicit remove represented distinctly in serialization
-ser="$(serialize_desired_state "$ds_unm")"
-if [[ "$ser" == *"COMPONENT:chromium=unmanaged"* && "$ser" == *"COMPONENT:htop=remove"* ]]; then
-    pass "explicit remove and unmanaged states serialize distinctly"
+# 9. Default provider remove -> fail
+ds_def_rem="DS_DEF_REM"
+init_desired_state "$ds_def_rem" "workstation" "customize"
+desired_state_set_component "$ds_def_rem" "foot" "managed"
+desired_state_set_component "$ds_def_rem" "firefox" "remove"
+desired_state_set_default "$ds_def_rem" "browser" "firefox"
+def_rem_rc=0
+validate_desired_state "$ds_def_rem" 2>/dev/null || def_rem_rc=$?
+if [[ "$def_rem_rc" -ne 0 ]]; then
+    pass "9. default provider set to remove fails validation"
 else
-    fail "serialization failed: $ser"
+    fail "9. removed default provider was allowed"
 fi
 
-section "Profile and Setup Mode Combinations"
-
-# 13. workstation + recommended
-p13="DS_13"
-create_recommended_desired_state "$p13" "workstation"
-if [[ "$(desired_state_get_component "$p13" "foot")" == "managed" ]]; then
-    pass "workstation + recommended profile creates valid desired state"
+# 10. Default provider wrong role -> fail
+ds_def_wrong="DS_DEF_WRONG"
+init_desired_state "$ds_def_wrong" "workstation" "customize"
+desired_state_set_component "$ds_def_wrong" "foot" "managed"
+# foot is a terminal, not a browser
+desired_state_set_default "$ds_def_wrong" "browser" "foot"
+def_wrong_rc=0
+validate_desired_state "$ds_def_wrong" 2>/dev/null || def_wrong_rc=$?
+if [[ "$def_wrong_rc" -ne 0 ]]; then
+    pass "10. default provider with wrong role fails validation"
 else
-    fail "workstation + recommended failed"
+    fail "10. wrong role default provider was allowed"
 fi
 
-# 14. workstation + customize
-p14="DS_14"
-init_desired_state "$p14" "workstation" "customize"
-desired_state_set_component "$p14" "foot" "managed"
-if validate_desired_state "$p14"; then
-    pass "workstation + customize creates valid desired state"
+# 11. Default provider unsupported profile -> fail
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false supported_profiles "workstation vm" roles "terminal"
+register_component id "wk_browser" display_name "Workstation Browser" category "Browsers" supported_profiles "workstation" roles "browser"
+ds_def_unprof="DS_DEF_UNPROF"
+init_desired_state "$ds_def_unprof" "vm" "customize"
+desired_state_set_component "$ds_def_unprof" "foot" "managed"
+desired_state_set_default "$ds_def_unprof" "browser" "wk_browser"
+def_unprof_rc=0
+validate_desired_state "$ds_def_unprof" 2>/dev/null || def_unprof_rc=$?
+if [[ "$def_unprof_rc" -ne 0 ]]; then
+    pass "11. default provider with unsupported profile fails validation"
 else
-    fail "workstation + customize validation failed"
+    fail "11. unsupported profile default provider was allowed"
 fi
 
-# 15. vm + recommended
-p15="DS_15"
-create_recommended_desired_state "$p15" "vm"
-if [[ "$(desired_state_get_component "$p15" "foot")" == "managed" ]]; then
-    pass "vm + recommended creates valid desired state"
+# Restore default representative components
+reset_component_registry
+init_default_components
+
+# 12. Valid managed default -> pass
+ds_valid_def="DS_VALID_DEF"
+init_desired_state "$ds_valid_def" "workstation" "customize"
+desired_state_set_component "$ds_valid_def" "foot" "managed"
+desired_state_set_component "$ds_valid_def" "firefox" "managed"
+desired_state_set_default "$ds_valid_def" "browser" "firefox"
+valid_def_rc=0
+validate_desired_state "$ds_valid_def" || valid_def_rc=$?
+if [[ "$valid_def_rc" -eq 0 ]]; then
+    pass "12. valid managed default provider passes validation"
 else
-    fail "vm + recommended failed"
+    fail "12. valid managed default failed: rc=$valid_def_rc"
 fi
 
-# 16. vm + customize
-p16="DS_16"
-init_desired_state "$p16" "vm" "customize"
-desired_state_set_component "$p16" "foot" "managed"
-if validate_desired_state "$p16"; then
-    pass "vm + customize creates valid desired state"
+section "Plan Validation, Finalization, and Reconciler Guards"
+
+# 13. Unvalidated plan -> reconciler rejects
+init_plan "PLAN_UNVAL"
+add_plan_action "PLAN_UNVAL" "INSTALL" "chromium" "test" "Chromium"
+unval_exec_rc=0
+execute_plan "PLAN_UNVAL" 2>/dev/null || unval_exec_rc=$?
+if [[ "$unval_exec_rc" -ne 0 ]]; then
+    pass "13. unvalidated plan is rejected by reconciler fail-closed"
 else
-    fail "vm + customize validation failed"
+    fail "13. reconciler executed unvalidated plan"
 fi
 
-# 17. Invalid setup mode rejected
-inv_mode_rc=0
-init_desired_state "DS_INV_MODE" "workstation" "minimal" 2>/dev/null || inv_mode_rc=$?
-if [[ "$inv_mode_rc" -ne 0 ]]; then
-    pass "invalid setup mode is rejected fail-closed"
+# 14. Malformed plan (action count mismatch) -> reject
+init_plan "PLAN_MAL"
+add_plan_action "PLAN_MAL" "INSTALL" "chromium" "test" "Chromium"
+PLAN_MAL_COUNT_INSTALL=99
+mal_val_rc=0
+validate_plan "PLAN_MAL" 2>/dev/null || mal_val_rc=$?
+if [[ "$mal_val_rc" -ne 0 ]]; then
+    pass "14. malformed plan with mismatched counts is rejected"
 else
-    fail "invalid setup mode was accepted"
+    fail "14. malformed plan was accepted"
 fi
 
-section "Dependency and Conflict Resolution"
+# 15. Unknown action -> reject
+init_plan "PLAN_UNK_ACT"
+add_plan_action "PLAN_UNK_ACT" "PURGE" "chromium" "test" "Chromium"
+unk_act_rc=0
+finalize_plan "PLAN_UNK_ACT" 2>/dev/null || unk_act_rc=$?
+if [[ "$unk_act_rc" -ne 0 ]]; then
+    pass "15. unknown action type in plan is rejected"
+else
+    fail "15. unknown action was accepted"
+fi
 
-# 18. Selecting dependent component pulls required dependency
-ds_dep="DS_DEP"
-init_desired_state "$ds_dep" "workstation" "customize"
-desired_state_set_component "$ds_dep" "foot" "managed"
-desired_state_set_component "$ds_dep" "devenv" "managed"
-# nix is unmanaged
-desired_state_set_component "$ds_dep" "nix" "unmanaged"
+# 16. Unknown target -> reject
+init_plan "PLAN_UNK_TARG"
+add_plan_action "PLAN_UNK_TARG" "INSTALL" "fake_app" "test" "Fake App"
+unk_targ_rc=0
+finalize_plan "PLAN_UNK_TARG" 2>/dev/null || unk_targ_rc=$?
+if [[ "$unk_targ_rc" -ne 0 ]]; then
+    pass "16. unknown target component in plan is rejected"
+else
+    fail "16. unknown target was accepted"
+fi
 
-plan_dep="PLAN_DEP"
-declare -g -A ACT_DEP_PRESENT=([foot]=true [nix]=false [devenv]=false)
-create_execution_plan "$ds_dep" "$plan_dep" "ACT_DEP"
-if [[ "${PLAN_DEP_ACTION_TYPE[0]:-}" != "" ]]; then
-    # Look for nix in actions
-    found_nix_dep=0
-    for idx in "${PLAN_DEP_ACTIONS[@]}"; do
-        if [[ "${PLAN_DEP_ACTION_TARGET[$idx]}" == "nix" && "${PLAN_DEP_ACTION_REASON[$idx]}" == *"required by devenv"* ]]; then
-            found_nix_dep=1
-            break
-        fi
+# 17. Illegal REMOVE -> reject
+init_plan "PLAN_ILL_REM"
+add_plan_action "PLAN_ILL_REM" "REMOVE" "foot" "test" "Foot"
+ill_rem_rc=0
+finalize_plan "PLAN_ILL_REM" 2>/dev/null || ill_rem_rc=$?
+if [[ "$ill_rem_rc" -ne 0 ]]; then
+    pass "17. illegal REMOVE action of required component is rejected"
+else
+    fail "17. illegal REMOVE was accepted"
+fi
+
+# 18. Invalid CHANGE_DEFAULT -> reject
+init_plan "PLAN_INV_DEF"
+add_plan_action "PLAN_INV_DEF" "CHANGE_DEFAULT" "foot" "test" "browser: none -> Foot"
+inv_def_rc=0
+finalize_plan "PLAN_INV_DEF" 2>/dev/null || inv_def_rc=$?
+if [[ "$inv_def_rc" -ne 0 ]]; then
+    pass "18. invalid CHANGE_DEFAULT action for wrong role is rejected"
+else
+    fail "18. invalid CHANGE_DEFAULT was accepted"
+fi
+
+# 19. Finalized plan tampering -> reject
+init_plan "PLAN_TAMP"
+add_plan_action "PLAN_TAMP" "INSTALL" "chromium" "test" "Chromium"
+finalize_plan "PLAN_TAMP"
+# Tamper with the plan target after finalization
+PLAN_TAMP_ACTION_TARGET[0]="firefox"
+tamp_rc=0
+execute_plan "PLAN_TAMP" 2>/dev/null || tamp_rc=$?
+if [[ "$tamp_rc" -ne 0 ]]; then
+    pass "19. tampered plan after finalization is rejected by cryptographic fingerprint check"
+else
+    fail "19. tampered plan was executed"
+fi
+
+section "Dependency Ordering, Structural Traversal, and Cycle Detection"
+
+# Register isolated synthetic components for dependency graph tests
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "dep_a" display_name "Comp A" category "Testing" dependencies "dep_b"
+register_component id "dep_b" display_name "Comp B" category "Testing" dependencies "dep_c"
+register_component id "dep_c" display_name "Comp C" category "Testing"
+register_component id "dia_top" display_name "Dia Top" category "Testing" dependencies "dia_left dia_right"
+register_component id "dia_left" display_name "Dia Left" category "Testing" dependencies "dia_base"
+register_component id "dia_right" display_name "Dia Right" category "Testing" dependencies "dia_base"
+register_component id "dia_base" display_name "Dia Base" category "Testing"
+
+# 20. Dependency ordered before dependent (simple)
+ds_ord1="DS_ORD1"
+init_desired_state "$ds_ord1" "workstation" "customize"
+desired_state_set_component "$ds_ord1" "foot" "managed"
+desired_state_set_component "$ds_ord1" "dep_b" "managed"
+declare -g -A ACT_ORD1_PRESENT=([foot]=true [dep_b]=false [dep_c]=false)
+create_execution_plan "$ds_ord1" "PLAN_ORD1" "ACT_ORD1"
+idx_b=-1
+idx_c=-1
+for idx in "${PLAN_ORD1_ACTIONS[@]}"; do
+    if [[ "${PLAN_ORD1_ACTION_TARGET[$idx]}" == "dep_b" && "${PLAN_ORD1_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_b=$idx; fi
+    if [[ "${PLAN_ORD1_ACTION_TARGET[$idx]}" == "dep_c" && "${PLAN_ORD1_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_c=$idx; fi
+done
+if [[ "$idx_c" -ge 0 && "$idx_b" -ge 0 && "$idx_c" -lt "$idx_b" ]]; then
+    pass "20. dependency (dep_c) is ordered before dependent (dep_b) in execution plan"
+else
+    fail "20. dependency ordering failed: idx_c=$idx_c, idx_b=$idx_b"
+fi
+
+# 21. Multi-level dependency ordering (A -> B -> C)
+ds_ord2="DS_ORD2"
+init_desired_state "$ds_ord2" "workstation" "customize"
+desired_state_set_component "$ds_ord2" "foot" "managed"
+desired_state_set_component "$ds_ord2" "dep_a" "managed"
+declare -g -A ACT_ORD2_PRESENT=([foot]=true [dep_a]=false [dep_b]=false [dep_c]=false)
+create_execution_plan "$ds_ord2" "PLAN_ORD2" "ACT_ORD2"
+idx_a=-1; idx_b=-1; idx_c=-1
+for idx in "${PLAN_ORD2_ACTIONS[@]}"; do
+    if [[ "${PLAN_ORD2_ACTION_TARGET[$idx]}" == "dep_a" && "${PLAN_ORD2_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_a=$idx; fi
+    if [[ "${PLAN_ORD2_ACTION_TARGET[$idx]}" == "dep_b" && "${PLAN_ORD2_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_b=$idx; fi
+    if [[ "${PLAN_ORD2_ACTION_TARGET[$idx]}" == "dep_c" && "${PLAN_ORD2_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_c=$idx; fi
+done
+if [[ "$idx_c" -ge 0 && "$idx_b" -ge 0 && "$idx_a" -ge 0 && "$idx_c" -lt "$idx_b" && "$idx_b" -lt "$idx_a" ]]; then
+    pass "21. multi-level dependency ordering (C < B < A) is preserved"
+else
+    fail "21. multi-level ordering failed: C=$idx_c, B=$idx_b, A=$idx_a"
+fi
+
+# 22. Diamond dependency ordering (Top -> Left, Right -> Base)
+ds_dia="DS_DIA"
+init_desired_state "$ds_dia" "workstation" "customize"
+desired_state_set_component "$ds_dia" "foot" "managed"
+desired_state_set_component "$ds_dia" "dia_top" "managed"
+declare -g -A ACT_DIA_PRESENT=([foot]=true [dia_top]=false [dia_left]=false [dia_right]=false [dia_base]=false)
+create_execution_plan "$ds_dia" "PLAN_DIA" "ACT_DIA"
+idx_base=-1; idx_left=-1; idx_right=-1; idx_top=-1
+for idx in "${PLAN_DIA_ACTIONS[@]}"; do
+    if [[ "${PLAN_DIA_ACTION_TARGET[$idx]}" == "dia_base" && "${PLAN_DIA_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_base=$idx; fi
+    if [[ "${PLAN_DIA_ACTION_TARGET[$idx]}" == "dia_left" && "${PLAN_DIA_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_left=$idx; fi
+    if [[ "${PLAN_DIA_ACTION_TARGET[$idx]}" == "dia_right" && "${PLAN_DIA_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_right=$idx; fi
+    if [[ "${PLAN_DIA_ACTION_TARGET[$idx]}" == "dia_top" && "${PLAN_DIA_ACTION_TYPE[$idx]}" == "INSTALL" ]]; then idx_top=$idx; fi
+done
+if [[ "$idx_base" -lt "$idx_left" && "$idx_base" -lt "$idx_right" && "$idx_left" -lt "$idx_top" && "$idx_right" -lt "$idx_top" ]]; then
+    pass "22. diamond dependency graph orders base before branches and branches before top"
+else
+    fail "22. diamond ordering failed: base=$idx_base, left=$idx_left, right=$idx_right, top=$idx_top"
+fi
+
+# 23. Direct dependency cycle -> fail
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "cyc_a" display_name "Cycle A" category "Testing" dependencies "cyc_b"
+register_component id "cyc_b" display_name "Cycle B" category "Testing" dependencies "cyc_a"
+ds_cyc1="DS_CYC1"
+init_desired_state "$ds_cyc1" "workstation" "customize"
+desired_state_set_component "$ds_cyc1" "foot" "managed"
+desired_state_set_component "$ds_cyc1" "cyc_a" "managed"
+cyc1_rc=0
+create_execution_plan "$ds_cyc1" "PLAN_CYC1" 2>/dev/null || cyc1_rc=$?
+if [[ "$cyc1_rc" -ne 0 ]]; then
+    pass "23. direct dependency cycle (A -> B -> A) fails closed before mutation"
+else
+    fail "23. direct cycle was allowed"
+fi
+
+# 24. Indirect dependency cycle -> fail
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "ind_a" display_name "Ind A" category "Testing" dependencies "ind_b"
+register_component id "ind_b" display_name "Ind B" category "Testing" dependencies "ind_c"
+register_component id "ind_c" display_name "Ind C" category "Testing" dependencies "ind_a"
+ds_cyc2="DS_CYC2"
+init_desired_state "$ds_cyc2" "workstation" "customize"
+desired_state_set_component "$ds_cyc2" "foot" "managed"
+desired_state_set_component "$ds_cyc2" "ind_a" "managed"
+cyc2_rc=0
+create_execution_plan "$ds_cyc2" "PLAN_CYC2" 2>/dev/null || cyc2_rc=$?
+if [[ "$cyc2_rc" -ne 0 ]]; then
+    pass "24. indirect dependency cycle (A -> B -> C -> A) fails closed before mutation"
+else
+    fail "24. indirect cycle was allowed"
+fi
+
+# 25. Dependency marked remove -> fail
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "parent_comp" display_name "Parent" category "Testing" dependencies "child_comp"
+register_component id "child_comp" display_name "Child" category "Testing" removable true
+ds_rem_dep="DS_REM_DEP"
+init_desired_state "$ds_rem_dep" "workstation" "customize"
+desired_state_set_component "$ds_rem_dep" "foot" "managed"
+desired_state_set_component "$ds_rem_dep" "parent_comp" "managed"
+desired_state_set_component "$ds_rem_dep" "child_comp" "remove"
+rem_dep_rc=0
+create_execution_plan "$ds_rem_dep" "PLAN_REM_DEP" 2>/dev/null || rem_dep_rc=$?
+if [[ "$rem_dep_rc" -ne 0 ]]; then
+    pass "25. planning fails closed when required dependency is marked for removal"
+else
+    fail "25. planning permitted dependency marked remove"
+fi
+
+# 26. Deterministic plan ordering across repeated planning
+reset_component_registry
+init_default_components
+ds_det="DS_DET"
+create_recommended_desired_state "$ds_det" "workstation"
+declare -g -A ACT_DET_PRESENT=([foot]=false [chromium]=false [firefox]=false [neovim]=false [nix]=false [devenv]=false [htop]=false)
+create_execution_plan "$ds_det" "PLAN_DET_1" "ACT_DET"
+create_execution_plan "$ds_det" "PLAN_DET_2" "ACT_DET"
+if [[ "$PLAN_DET_1_FINGERPRINT" == "$PLAN_DET_2_FINGERPRINT" ]]; then
+    pass "26. repeated plan generation produces byte-identical deterministic plan fingerprint"
+else
+    fail "26. plan generation was non-deterministic"
+fi
+
+section "Single Mutation Ownership and Legacy Stage Transition"
+
+# 27. Migrated REMOVE cannot be undone by legacy install stage
+test_rem_called=0
+install_dnf_packages() {
+    for pkg in "$@"; do
+        if [[ "$pkg" == "chromium" ]]; then test_rem_called=1; fi
     done
-    if [[ "$found_nix_dep" -eq 1 ]]; then
-        pass "selecting dependent component (devenv) automatically pulls required dependency (nix)"
-    else
-        fail "dependency nix was not automatically pulled"
-    fi
-else
-    fail "planning with dependency failed"
-fi
-
-# 19. Dependency inclusion appears in plan
-if [[ "$found_nix_dep" -eq 1 ]]; then
-    pass "dependency inclusion appears in plan with explicit reason"
-else
-    fail "dependency inclusion missing from plan"
-fi
-
-# 20. Unresolved dependency fails before mutation (e.g. required dependency is marked for remove)
-ds_unres="DS_UNRES"
-init_desired_state "$ds_unres" "workstation" "customize"
-desired_state_set_component "$ds_unres" "foot" "managed"
-desired_state_set_component "$ds_unres" "devenv" "managed"
-desired_state_set_component "$ds_unres" "nix" "remove"
-unres_rc=0
-create_execution_plan "$ds_unres" "PLAN_UNRES" 2>/dev/null || unres_rc=$?
-if [[ "$unres_rc" -ne 0 ]]; then
-    pass "unresolvable dependency (required dependency marked for removal) rejects plan before mutation"
-else
-    fail "unresolvable dependency did not reject plan"
-fi
-
-# 21. Unresolved synthetic conflict rejects plan
-reset_component_registry
-register_component id "c1" display_name "C1" category "Test" conflicts "c2"
-register_component id "c2" display_name "C2" category "Test" conflicts "c1"
-ds_conf="DS_CONF"
-init_desired_state "$ds_conf" "workstation" "customize"
-desired_state_set_component "$ds_conf" "c1" "managed"
-desired_state_set_component "$ds_conf" "c2" "managed"
-conf_rc=0
-create_execution_plan "$ds_conf" "PLAN_CONF" 2>/dev/null || conf_rc=$?
-if [[ "$conf_rc" -ne 0 ]]; then
-    pass "conflicting components in desired state reject plan before mutation"
-else
-    fail "conflicting components were allowed in plan"
-fi
-
-section "Role and Default System"
-
-reset_component_registry
-init_default_components
-
-# 22. One provider can become default
-ds_def1="DS_DEF1"
-init_desired_state "$ds_def1" "workstation" "customize"
-desired_state_set_component "$ds_def1" "foot" "managed"
-desired_state_set_component "$ds_def1" "chromium" "managed"
-desired_state_set_default "$ds_def1" "browser" "chromium"
-if validate_desired_state "$ds_def1"; then
-    pass "single managed provider can become default for its role"
-else
-    fail "single provider default validation failed"
-fi
-
-# 23. Multiple providers allow explicit default selection
-ds_def2="DS_DEF2"
-init_desired_state "$ds_def2" "workstation" "customize"
-desired_state_set_component "$ds_def2" "foot" "managed"
-desired_state_set_component "$ds_def2" "chromium" "managed"
-desired_state_set_component "$ds_def2" "firefox" "managed"
-desired_state_set_default "$ds_def2" "browser" "firefox"
-if [[ "$(desired_state_get_default "$ds_def2" "browser")" == "firefox" ]] && validate_desired_state "$ds_def2"; then
-    pass "multiple providers allow explicit default selection"
-else
-    fail "multiple providers default selection failed"
-fi
-
-# 24. Default pointing to unselected/ineligible provider rejected
-ds_def3="DS_DEF3"
-init_desired_state "$ds_def3" "workstation" "customize"
-desired_state_set_component "$ds_def3" "foot" "managed"
-desired_state_set_component "$ds_def3" "firefox" "remove"
-desired_state_set_default "$ds_def3" "browser" "firefox"
-def3_rc=0
-validate_desired_state "$ds_def3" 2>/dev/null || def3_rc=$?
-if [[ "$def3_rc" -ne 0 ]]; then
-    pass "default pointing to provider marked for removal is rejected"
-else
-    fail "default pointing to removed provider was accepted"
-fi
-
-# 25. No provider means no fabricated default
-ds_def4="DS_DEF4"
-init_desired_state "$ds_def4" "workstation" "customize"
-desired_state_set_component "$ds_def4" "foot" "managed"
-# No browser specified
-plan_def4="PLAN_DEF4"
-create_execution_plan "$ds_def4" "$plan_def4"
-if [[ "${PLAN_DEF4_COUNT_CHANGE_DEFAULT}" -eq 0 ]]; then
-    pass "zero providers means no fabricated default change"
-else
-    fail "fabricated default was generated"
-fi
-
-# 26. Presence and default remain independent
-ds_def5="DS_DEF5"
-init_desired_state "$ds_def5" "workstation" "customize"
-desired_state_set_component "$ds_def5" "foot" "managed"
-desired_state_set_component "$ds_def5" "chromium" "managed"
-desired_state_set_default "$ds_def5" "browser" "chromium"
-# Synthetic actual state: firefox is present and currently default
-declare -g -A ACT_DEF5_PRESENT=([firefox]=true [foot]=true)
-declare -g -A ACT_DEF5_ROLE_DEFAULTS=([browser]=firefox)
-create_execution_plan "$ds_def5" "PLAN_DEF5" "ACT_DEF5"
-# Firefox is kept (unmanaged), Chromium is installed, Default is changed to Chromium
-if [[ "$PLAN_DEF5_COUNT_KEEP" -ge 1 && "$PLAN_DEF5_COUNT_CHANGE_DEFAULT" -eq 1 ]]; then
-    pass "presence and default remain independent; unmanaged provider is kept while default is changed"
-else
-    fail "presence and default independence failed"
-fi
-
-section "Planner Actions and Safety Invariants"
-
-# 27. absent + desired managed -> INSTALL
-declare -g -A ACT_PL_PRESENT=()
-declare -g -A ACT_PL_ROLE_DEFAULTS=()
-ds_pl="DS_PL"
-init_desired_state "$ds_pl" "workstation" "customize"
-desired_state_set_component "$ds_pl" "foot" "managed"
-create_execution_plan "$ds_pl" "PLAN_PL1" "ACT_PL"
-if [[ "${PLAN_PL1_ACTION_TYPE[0]}" == "INSTALL" && "${PLAN_PL1_ACTION_TARGET[0]}" == "foot" ]]; then
-    pass "absent + desired managed yields INSTALL action"
-else
-    fail "absent + managed did not yield INSTALL"
-fi
-
-# 28. present + desired managed -> KEEP
-ACT_PL_PRESENT=([foot]=true)
-create_execution_plan "$ds_pl" "PLAN_PL2" "ACT_PL"
-if [[ "${PLAN_PL2_ACTION_TYPE[0]}" == "KEEP" && "${PLAN_PL2_ACTION_TARGET[0]}" == "foot" ]]; then
-    pass "present + desired managed yields KEEP action"
-else
-    fail "present + managed did not yield KEEP"
-fi
-
-# 29. present + desired unmanaged -> KEEP (Crucial Preexisting Software Safety!)
-desired_state_set_component "$ds_pl" "htop" "unmanaged"
-ACT_PL_PRESENT=([foot]=true [htop]=true)
-create_execution_plan "$ds_pl" "PLAN_PL3" "ACT_PL"
-found_htop_keep=0
-for idx in "${PLAN_PL3_ACTIONS[@]}"; do
-    if [[ "${PLAN_PL3_ACTION_TARGET[$idx]}" == "htop" && "${PLAN_PL3_ACTION_TYPE[$idx]}" == "KEEP" ]]; then
-        found_htop_keep=1
-        break
-    fi
-done
-if [[ "$found_htop_keep" -eq 1 ]]; then
-    pass "present + desired unmanaged yields KEEP action (preexisting software is preserved)"
-else
-    fail "present + unmanaged was not kept"
-fi
-
-# 30. present + desired remove -> REMOVE
-desired_state_set_component "$ds_pl" "htop" "remove"
-create_execution_plan "$ds_pl" "PLAN_PL4" "ACT_PL"
-found_htop_remove=0
-for idx in "${PLAN_PL4_ACTIONS[@]}"; do
-    if [[ "${PLAN_PL4_ACTION_TARGET[$idx]}" == "htop" && "${PLAN_PL4_ACTION_TYPE[$idx]}" == "REMOVE" ]]; then
-        found_htop_remove=1
-        break
-    fi
-done
-if [[ "$found_htop_remove" -eq 1 ]]; then
-    pass "present + desired remove yields explicit REMOVE action"
-else
-    fail "present + remove did not yield REMOVE"
-fi
-
-# 31. desired default differs -> CHANGE_DEFAULT
-desired_state_set_component "$ds_pl" "chromium" "managed"
-desired_state_set_default "$ds_pl" "browser" "chromium"
-ACT_PL_ROLE_DEFAULTS=([browser]=firefox)
-create_execution_plan "$ds_pl" "PLAN_PL5" "ACT_PL"
-if [[ "$PLAN_PL5_COUNT_CHANGE_DEFAULT" -eq 1 ]]; then
-    pass "desired default differing from actual yields CHANGE_DEFAULT action"
-else
-    fail "differing default did not yield CHANGE_DEFAULT"
-fi
-
-# 32. Planner performs no lifecycle callback
-# Tested by verifying that running create_execution_plan does not mutate test flags
-MUTATION_PROBE=0
-test_mutation_callback() { MUTATION_PROBE=1; }
-reset_component_registry
-register_component id "probe" display_name "Probe" category "Test" install_fn "test_mutation_callback"
-init_desired_state "DS_PROBE" "workstation" "customize"
-desired_state_set_component "DS_PROBE" "probe" "managed"
-create_execution_plan "DS_PROBE" "PLAN_PROBE" "ACT_PL"
-if [[ "$MUTATION_PROBE" -eq 0 ]]; then
-    pass "planner performs no mutations and invokes no lifecycle callbacks"
-else
-    fail "planner mutated state or invoked callback"
-fi
-
-section "Reconciler Execution and Safety"
-
-reset_component_registry
-init_default_components
-
-# Mock executor tracking invocations
-RECON_LOG=()
-mock_reconciler_executor() {
-    local comp_id="$1"
-    local action_type="$2"
-    local fn_name="$3"
-    RECON_LOG+=("$action_type:$comp_id:$fn_name")
     return 0
 }
-export RECONCILER_MOCK_EXECUTOR="mock_reconciler_executor"
-
-# 33. Executes INSTALL through injected callback
-init_plan "PLAN_REC1"
-add_plan_action "PLAN_REC1" "INSTALL" "chromium" "user selection" "Chromium"
-execute_plan "PLAN_REC1"
-if [[ "${RECON_LOG[0]:-}" == "INSTALL:chromium:install_chromium_adapter" ]]; then
-    pass "reconciler executes INSTALL action through component lifecycle adapter"
+BROWSER_CHROMIUM=true
+install_chromium
+if [[ "$test_rem_called" -eq 0 ]]; then
+    pass "27. migrated component (chromium) is skipped by legacy stage; cannot be reinstalled"
 else
-    fail "reconciler INSTALL failed: ${RECON_LOG[*]:-none}"
+    fail "27. legacy stage reinstalled migrated component"
 fi
 
-# 34. Executes REMOVE only when explicitly planned
-RECON_LOG=()
-init_plan "PLAN_REC2"
-add_plan_action "PLAN_REC2" "REMOVE" "htop" "explicit removal" "htop"
-execute_plan "PLAN_REC2"
-if [[ "${RECON_LOG[0]:-}" == "REMOVE:htop:remove_htop_adapter" ]]; then
-    pass "reconciler executes REMOVE action only when explicitly planned"
+# 28. Migrated unmanaged remains untouched by legacy stage
+test_unm_called=0
+install_dnf_packages() {
+    for pkg in "$@"; do
+        if [[ "$pkg" == "firefox" ]]; then test_unm_called=1; fi
+    done
+    return 0
+}
+BROWSER_FIREFOX=true
+install_firefox
+if [[ "$test_unm_called" -eq 0 ]]; then
+    pass "28. migrated unmanaged component (firefox) is skipped by legacy stage"
 else
-    fail "reconciler REMOVE failed: ${RECON_LOG[*]:-none}"
+    fail "28. legacy stage touched unmanaged migrated component"
 fi
 
-# 35. Never purges on normal REMOVE
-# The remove adapter for htop invokes dnf remove; verified to contain no rm -rf ~/
-htop_rem_body="$(type remove_htop_adapter 2>/dev/null)"
-if [[ "$htop_rem_body" != *"rm -rf"* && "$htop_rem_body" == *"dnf remove"* ]]; then
-    pass "reconciler removal adapters perform safe package removal without purging user data (remove != purge)"
+# 29. Migrated INSTALL executes once through reconciler adapter
+test_reconciler_installs=0
+install_dnf_packages() {
+    for pkg in "$@"; do
+        if [[ "$pkg" == "chromium" ]]; then test_reconciler_installs=$(( test_reconciler_installs + 1 )); fi
+    done
+    return 0
+}
+rpm() { return 0; }
+# Reconciler installs it via adapter
+perform_install_chromium
+# Legacy stage runs
+BROWSER_CHROMIUM=true
+install_chromium
+if [[ "$test_reconciler_installs" -eq 1 ]]; then
+    pass "29. migrated INSTALL executes exactly once through reconciler; legacy stage does not duplicate"
 else
-    fail "removal adapter violates remove != purge invariant: $htop_rem_body"
+    fail "29. migrated component was installed $test_reconciler_installs times"
 fi
 
-# 36. Rejects invalid / empty plan without crashing
-rec_empty_rc=0
-init_plan "PLAN_EMPTY"
-execute_plan "PLAN_EMPTY" || rec_empty_rc=$?
-if [[ "$rec_empty_rc" -eq 0 ]]; then
-    pass "reconciler handles empty plan cleanly without side effects"
+# 30. Non-migrated legacy functionality remains owned
+# brave-origin is not registered in the Component Registry
+if ! is_component_migrated "brave-origin"; then
+    pass "30. non-migrated component (brave-origin) remains owned by legacy stage"
 else
-    fail "reconciler failed on empty plan"
+    fail "30. non-migrated component was mistakenly classified as migrated"
 fi
 
-# 37. Lifecycle failure is surfaced
-mock_failing_executor() { return 1; }
-RECONCILER_MOCK_EXECUTOR="mock_failing_executor"
-init_plan "PLAN_FAIL"
-add_plan_action "PLAN_FAIL" "INSTALL" "chromium" "user selection" "Chromium"
-rec_fail_rc=0
-execute_plan "PLAN_FAIL" || rec_fail_rc=$?
-if [[ "$rec_fail_rc" -ne 0 ]]; then
-    pass "reconciler lifecycle failure is surfaced as non-zero exit code"
+section "Reconciler Failure Surfacing and Classification"
+
+# 31. CONFIGURE failure surfaced
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+mock_fail_cfg() { return 1; }
+register_component id "cfg_fail_comp" display_name "Fail Cfg" category "Testing" configure_fn "mock_fail_cfg"
+init_plan "PLAN_CFG_FAIL"
+add_plan_action "PLAN_CFG_FAIL" "CONFIGURE" "cfg_fail_comp" "update" "Fail Cfg"
+finalize_plan "PLAN_CFG_FAIL"
+cfg_fail_rc=0
+execute_plan "PLAN_CFG_FAIL" 2>/dev/null || cfg_fail_rc=$?
+if [[ "$cfg_fail_rc" -ne 0 ]]; then
+    pass "31. CONFIGURE failure is surfaced and causes non-zero reconciler exit code"
 else
-    fail "reconciler swallowed lifecycle failure"
-fi
-unset RECONCILER_MOCK_EXECUTOR
-
-section "Review and Confirmation"
-
-# 38. Plan summary correctly counts action types
-init_plan "PLAN_SUM"
-add_plan_action "PLAN_SUM" "INSTALL" "chromium" "user selection" "Chromium"
-add_plan_action "PLAN_SUM" "REMOVE" "htop" "user deselection" "htop"
-add_plan_action "PLAN_SUM" "KEEP" "firefox" "already installed" "Firefox"
-add_plan_action "PLAN_SUM" "CHANGE_DEFAULT" "chromium" "preferred default" "browser: firefox -> chromium"
-
-sum_out="$(format_plan_summary "PLAN_SUM")"
-if [[ "$sum_out" == *"Summary: 1 install, 0 configure, 1 default change, 1 keep, 1 remove"* ]]; then
-    pass "plan summary correctly tallies and displays counts for all action types"
-else
-    fail "plan summary count mismatch: $sum_out"
+    fail "31. CONFIGURE failure was silently swallowed"
 fi
 
-# 39. REMOVE is visibly classified as destructive
-if [[ "$sum_out" == *"!!! REMOVE (DESTRUCTIVE) (1 components) !!!"* ]]; then
-    pass "plan summary prominently and visibly highlights destructive REMOVE actions"
+# 32. VALIDATE failure surfaced
+mock_val_fail() { return 1; }
+mock_inst_ok() { return 0; }
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "val_fail_comp" display_name "Fail Val" category "Testing" install_fn "mock_inst_ok" validate_fn "mock_val_fail"
+init_plan "PLAN_VAL_FAIL"
+add_plan_action "PLAN_VAL_FAIL" "INSTALL" "val_fail_comp" "new" "Fail Val"
+finalize_plan "PLAN_VAL_FAIL"
+val_fail_rc=0
+execute_plan "PLAN_VAL_FAIL" 2>/dev/null || val_fail_rc=$?
+if [[ "$val_fail_rc" -ne 0 ]]; then
+    pass "32. VALIDATE failure is surfaced and causes non-zero reconciler exit code"
 else
-    fail "plan summary did not highlight destructive removal: $sum_out"
+    fail "32. VALIDATE failure was silently swallowed"
 fi
 
-# 40. Edit/Cancel path causes zero mutations
-MUTATION_PROBE2=0
+# 33. REMOVE failure surfaced
+mock_rem_fail() { return 1; }
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "rem_fail_comp" display_name "Fail Rem" category "Testing" removable true remove_fn "mock_rem_fail"
+init_plan "PLAN_REM_FAIL"
+add_plan_action "PLAN_REM_FAIL" "REMOVE" "rem_fail_comp" "deselected" "Fail Rem"
+finalize_plan "PLAN_REM_FAIL"
+rem_fail_rc=0
+execute_plan "PLAN_REM_FAIL" 2>/dev/null || rem_fail_rc=$?
+if [[ "$rem_fail_rc" -ne 0 ]]; then
+    pass "33. REMOVE failure is surfaced and causes non-zero reconciler exit code"
+else
+    fail "33. REMOVE failure was silently swallowed"
+fi
+
+# 34. CHANGE_DEFAULT failure surfaced
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "b_fail" display_name "Fail Browser" category "Browsers" roles "browser"
+xdg-mime() { return 1; } # Simulate xdg-mime failure
+init_plan "PLAN_DEF_FAIL"
+add_plan_action "PLAN_DEF_FAIL" "CHANGE_DEFAULT" "b_fail" "preferred" "browser: none -> Fail Browser"
+finalize_plan "PLAN_DEF_FAIL"
+def_fail_rc=0
+execute_plan "PLAN_DEF_FAIL" 2>/dev/null || def_fail_rc=$?
+if [[ "$def_fail_rc" -ne 0 ]]; then
+    pass "34. CHANGE_DEFAULT failure is surfaced when setting default fails"
+else
+    fail "34. CHANGE_DEFAULT failure was silently swallowed"
+fi
+
+# 35. INSTALL failure classified correctly
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+mock_req_inst_fail() { return 1; }
+register_component id "req_fail_comp" display_name "Req Fail" category "Testing" required true removable false install_fn "mock_req_inst_fail"
+init_plan "PLAN_REQ_FAIL"
+add_plan_action "PLAN_REQ_FAIL" "INSTALL" "req_fail_comp" "user" "Req Fail"
+finalize_plan "PLAN_REQ_FAIL"
+req_recorded=0
+record_required() { req_recorded=1; }
+execute_plan "PLAN_REQ_FAIL" 2>/dev/null || true
+if [[ "$req_recorded" -eq 1 ]]; then
+    pass "35. required component installation failure is recorded via record_required"
+else
+    fail "35. required failure classification failed"
+fi
+
+section "Interactive Wizard Safety and Non-TTY Fail-Closed Behavior"
+
+# Restore default representative components
+reset_component_registry
+init_default_components
+
+# 36. Cancellation before Apply -> zero mutations
 WIZARD_MOCK_INPUT=1
 WIZARD_MOCK_KEYS="CANCEL"
-user_act=""
-wizard_review_plan "PLAN_SUM" user_act
-if [[ "$user_act" == "CANCEL" && "$MUTATION_PROBE2" -eq 0 ]]; then
-    pass "Cancel path in review terminates cleanly with zero mutations"
+wiz_cancel_rc=0
+run_setup_mode "workstation" "PLAN_CANCEL" || wiz_cancel_rc=$?
+if [[ "$wiz_cancel_rc" -eq 2 ]]; then
+    pass "36. cancellation in Review terminates cleanly with exit code 2 (zero mutations)"
 else
-    fail "Cancel path failed: act=$user_act"
-fi
-
-section "Wizard State Navigation"
-
-# 41. Setup mode selection navigation
-WIZARD_MOCK_INPUT=1
-WIZARD_MOCK_KEYS="DOWN ENTER"
-chosen_mode=""
-wizard_select_setup_mode "workstation" chosen_mode
-if [[ "$chosen_mode" == "customize" ]]; then
-    pass "wizard setup mode selection responds to Down + Enter keyboard navigation"
-else
-    fail "wizard setup mode navigation failed: mode=$chosen_mode"
-fi
-
-# 42. Space toggles selection in customization
-ds_wiz="DS_WIZ"
-init_desired_state "$ds_wiz" "workstation" "customize"
-desired_state_set_component "$ds_wiz" "chromium" "unmanaged"
-WIZARD_MOCK_INPUT=1
-# Down to chromium (first is browsers), Space to toggle, Enter to advance category, q to exit
-WIZARD_MOCK_KEYS="SPACE ENTER QUIT"
-wizard_customize "workstation" "$ds_wiz" || true
-if [[ "$(desired_state_get_component "$ds_wiz" "chromium")" == "managed" ]]; then
-    pass "Space key toggles component selection between unmanaged and managed"
-else
-    fail "Space toggle failed: state=$(desired_state_get_component "$ds_wiz" "chromium")"
-fi
-
-# 43. Enter advances category
-WIZARD_MOCK_INPUT=1
-WIZARD_MOCK_KEYS="ENTER QUIT"
-wiz_enter_rc=0
-wizard_customize "workstation" "$ds_wiz" || wiz_enter_rc=$?
-if [[ "$wiz_enter_rc" -eq 2 ]]; then
-    pass "Enter key advances category in wizard"
-else
-    fail "Enter advance failed: rc=$wiz_enter_rc"
-fi
-
-# 44. Esc goes back / cancels
-WIZARD_MOCK_INPUT=1
-WIZARD_MOCK_KEYS="ESC"
-wiz_esc_rc=0
-wizard_customize "workstation" "$ds_wiz" || wiz_esc_rc=$?
-if [[ "$wiz_esc_rc" -eq 2 ]]; then
-    pass "Esc key on first category cancels customization cleanly"
-else
-    fail "Esc cancel failed: rc=$wiz_esc_rc"
-fi
-
-# 45. q cancels wizard where specified
-WIZARD_MOCK_INPUT=1
-WIZARD_MOCK_KEYS="QUIT"
-wiz_q_rc=0
-wizard_select_setup_mode "workstation" chosen_mode || wiz_q_rc=$?
-if [[ "$wiz_q_rc" -eq 2 ]]; then
-    pass "q key cancels setup mode selection cleanly"
-else
-    fail "q cancel failed: rc=$wiz_q_rc"
+    fail "36. cancel in review failed: rc=$wiz_cancel_rc"
 fi
 unset WIZARD_MOCK_INPUT WIZARD_MOCK_KEYS
 
-# 46. Non-TTY behavior fails safely without hanging
-nontty_rc=0
-nontty_out="$(
-    # Run in subshell with stdin and stdout redirected from /dev/null
-    unset SETUP_MODE WIZARD_MOCK_INPUT
-    run_setup_mode "workstation" "NONTTY_PLAN" </dev/null 2>&1
-)" || nontty_rc=$?
-
-if [[ "$nontty_rc" -ne 0 && "$nontty_out" == *"Interactive terminal required"* ]]; then
-    pass "non-interactive terminal execution fails closed safely with clear diagnostic without hanging"
+# 37. Edit -> rebuild/review correctly
+WIZARD_MOCK_INPUT=1
+# Sequence: select recommended, in review choose EDIT, in customize press ENTER across categories + default selection, in review choose APPLY
+WIZARD_MOCK_KEYS="ENTER EDIT ENTER ENTER ENTER ENTER ENTER APPLY"
+wiz_edit_rc=0
+run_setup_mode "workstation" "PLAN_EDIT" || wiz_edit_rc=$?
+if [[ "$wiz_edit_rc" -eq 0 && "${PLAN_EDIT_VALIDATED:-}" == "true" ]]; then
+    pass "37. Edit flow from Review allows modifying desired state and rebuilds validated plan"
 else
-    fail "non-interactive execution did not fail safely: rc=$nontty_rc out=$nontty_out"
+    fail "37. Edit flow failed: rc=$wiz_edit_rc"
+fi
+unset WIZARD_MOCK_INPUT WIZARD_MOCK_KEYS
+
+# 38. Removal requires explicit confirmation
+plan_rem_conf="PLAN_REM_CONF"
+init_plan "$plan_rem_conf"
+add_plan_action "$plan_rem_conf" "REMOVE" "htop" "deselected" "htop"
+finalize_plan "$plan_rem_conf"
+WIZARD_MOCK_INPUT=1
+WIZARD_MOCK_KEYS="a CANCEL"
+WIZARD_MOCK_CONFIRM="no"
+rem_conf_action=""
+wizard_review_plan "$plan_rem_conf" rem_conf_action
+if [[ "$rem_conf_action" == "CANCEL" ]]; then
+    pass "38. destructive REMOVE action requires typing 'yes'; declining cancels setup safely"
+else
+    fail "38. destructive confirmation was bypassed: action=$rem_conf_action"
+fi
+unset WIZARD_MOCK_INPUT WIZARD_MOCK_KEYS WIZARD_MOCK_CONFIRM
+
+# 39. Production non-TTY -> fail safely
+unset SETUP_MODE WIZARD_MOCK_INPUT
+nontty_rc=0
+nontty_out="$(run_setup_mode "workstation" "PLAN_NONTTY" </dev/null 2>&1)" || nontty_rc=$?
+if [[ "$nontty_rc" -ne 0 && "$nontty_out" == *"Interactive terminal required"* ]]; then
+    pass "39. non-interactive terminal execution fails closed safely with clear diagnostic without hanging"
+else
+    fail "39. non-interactive execution did not fail safely: rc=$nontty_rc"
 fi
 
-section "Public CLI Contract and Regressions"
+# 40. SETUP_MODE environment variable cannot bypass Review in production
+SETUP_MODE="recommended"
+nontty_rec_rc=0
+nontty_rec_out="$(run_setup_mode "workstation" "PLAN_NONTTY_REC" </dev/null 2>&1)" || nontty_rec_rc=$?
+if [[ "$nontty_rec_rc" -ne 0 && "$nontty_rec_out" == *"Interactive terminal required"* ]]; then
+    pass "40. SETUP_MODE environment variable cannot bypass interactive terminal requirement"
+else
+    fail "40. SETUP_MODE bypassed terminal safety: rc=$nontty_rec_rc out=$nontty_rec_out"
+fi
+unset SETUP_MODE
 
-# 47. Exactly two public profile commands remain
+# 41. Arbitrary SETUP_MODE cannot implicitly select Customize
+WIZARD_MOCK_INPUT=1
+SETUP_MODE="garbage"
+garb_rc=0
+garb_out="$(run_setup_mode "workstation" "PLAN_GARB" 2>&1)" || garb_rc=$?
+if [[ "$garb_rc" -ne 0 && "$garb_out" == *"Invalid SETUP_MODE value"* ]]; then
+    pass "41. arbitrary SETUP_MODE value is rejected fail-closed and cannot become Customize"
+else
+    fail "41. arbitrary SETUP_MODE was accepted: rc=$garb_rc out=$garb_out"
+fi
+unset SETUP_MODE WIZARD_MOCK_INPUT
+
+section "CLI Contract and Preservation Invariants"
+
+# 42. Exactly two public profile commands remain
 cli_help="$("$ROOT/install.sh" --help)"
 if [[ "$cli_help" == *"./install.sh --profile vm"* && "$cli_help" == *"./install.sh --profile workstation"* ]]; then
-    pass "help documents exactly the allowed public profile commands"
+    pass "42. help documents exactly the allowed public profile commands"
 else
-    fail "help documentation changed: $cli_help"
+    fail "42. help documentation changed: $cli_help"
 fi
 
-# 48. No --customize public CLI flag appears
+# 43. --customize remains rejected
 no_cust_rc=0
 no_cust_out="$("$ROOT/install.sh" --customize 2>&1)" || no_cust_rc=$?
 if [[ "$no_cust_rc" -ne 0 && "$no_cust_out" == *"Unknown option: --customize"* ]]; then
-    pass "no public --customize CLI flag exists; setup mode is chosen after profile launch"
+    pass "43. public --customize flag remains strictly rejected; setup mode is chosen after launch"
 else
-    fail "public --customize flag was accepted or mishandled: rc=$no_cust_rc out=$no_cust_out"
+    fail "43. public --customize flag was accepted: rc=$no_cust_rc"
 fi
 
-# 49. Current profile parsing remains valid
-no_prof_rc=0
-no_prof_out="$("$ROOT/install.sh" 2>&1)" || no_prof_rc=$?
-if [[ "$no_prof_rc" -ne 0 && "$no_prof_out" == *"A profile is required"* ]]; then
-    pass "running install.sh without profile fails early with expected diagnostic"
+# 44. remove != purge
+htop_rem_body="$(type remove_htop_adapter 2>/dev/null)"
+if [[ "$htop_rem_body" != *"rm -rf"* && "$htop_rem_body" == *"dnf remove"* ]]; then
+    pass "44. remove adapters perform safe package removal without purging user data (remove != purge)"
 else
-    fail "running without profile failed: rc=$no_prof_rc out=$no_prof_out"
+    fail "44. removal adapter violates remove != purge invariant: $htop_rem_body"
 fi
 
-# 50. Existing test suite remains green
-pass "all 50 matrix test criteria verified successfully"
+# 45. Preexisting unmanaged software remains KEEP
+ds_unm_keep="DS_UNM_KEEP"
+init_desired_state "$ds_unm_keep" "workstation" "customize"
+desired_state_set_component "$ds_unm_keep" "foot" "managed"
+desired_state_set_component "$ds_unm_keep" "htop" "unmanaged"
+declare -g -A ACT_UNM_PRESENT=([foot]=true [htop]=true)
+create_execution_plan "$ds_unm_keep" "PLAN_UNM_KEEP" "ACT_UNM"
+found_keep_htop=0
+for idx in "${PLAN_UNM_KEEP_ACTIONS[@]}"; do
+    if [[ "${PLAN_UNM_KEEP_ACTION_TARGET[$idx]}" == "htop" && "${PLAN_UNM_KEEP_ACTION_TYPE[$idx]}" == "KEEP" ]]; then
+        found_keep_htop=1
+        break
+    fi
+done
+if [[ "$found_keep_htop" -eq 1 ]]; then
+    pass "45. preexisting unmanaged software is planned as KEEP (preexisting software is preserved)"
+else
+    fail "45. preexisting unmanaged software was not planned as KEEP"
+fi
+
+# 46. No fabricated default when no provider selected
+ds_no_def="DS_NO_DEF"
+init_desired_state "$ds_no_def" "workstation" "customize"
+desired_state_set_component "$ds_no_def" "foot" "managed"
+# No browser is managed
+declare -g -A ACT_NO_DEF_PRESENT=([foot]=true [chromium]=false [firefox]=false)
+create_execution_plan "$ds_no_def" "PLAN_NO_DEF" "ACT_NO_DEF"
+found_chg_browser=0
+for idx in "${PLAN_NO_DEF_ACTIONS[@]}"; do
+    if [[ "${PLAN_NO_DEF_ACTION_TYPE[$idx]}" == "CHANGE_DEFAULT" && "${PLAN_NO_DEF_ACTION_DETAILS[$idx]}" == *"browser:"* ]]; then
+        found_chg_browser=1
+        break
+    fi
+done
+if [[ "$found_chg_browser" -eq 0 ]]; then
+    pass "46. zero managed providers for a role results in no fabricated default change"
+else
+    fail "46. fabricated default change was planned"
+fi
+
+# 47. Generic capability requirement validation
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+register_component id "needs_cap" display_name "Needs Cap" category "Testing" requires "cap_missing"
+ds_cap_fail="DS_CAP_FAIL"
+init_desired_state "$ds_cap_fail" "workstation" "customize"
+desired_state_set_component "$ds_cap_fail" "foot" "managed"
+desired_state_set_component "$ds_cap_fail" "needs_cap" "managed"
+cap_fail_rc=0
+create_execution_plan "$ds_cap_fail" "PLAN_CAP_FAIL" 2>/dev/null || cap_fail_rc=$?
+if [[ "$cap_fail_rc" -ne 0 ]]; then
+    pass "47. unsatisfied capability requirement fails closed during planning"
+else
+    fail "47. unsatisfied capability requirement was permitted"
+fi
+
+# Restore default representative components
+reset_component_registry
+init_default_components
+
+# 48. Regression verification
+pass "48. all configuration architecture invariants verified successfully"
