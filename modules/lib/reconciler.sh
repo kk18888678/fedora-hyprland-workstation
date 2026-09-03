@@ -44,10 +44,19 @@ set_system_role_default() {
                 return 1
             fi
 
-            # Verify resulting default where practical
+            # Canonical verification: query command must succeed, be non-empty, and match expected desktop file
             local check_def
-            check_def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null || true)"
-            if [[ -n "$check_def" && "$check_def" != "$desktop_file" ]]; then
+            if ! check_def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null)"; then
+                warn "Failed to query default application for x-scheme-handler/https"
+                return 1
+            fi
+
+            if [[ -z "$check_def" ]]; then
+                warn "Default browser query returned empty association, expected $desktop_file"
+                return 1
+            fi
+
+            if [[ "$check_def" != "$desktop_file" ]]; then
                 warn "Default browser query returned $check_def, expected $desktop_file"
                 return 1
             fi
@@ -93,9 +102,9 @@ execute_plan() {
     local plan_prefix="$1"
     local out_results_var="${2:-}"
 
-    # Plan MUST be validated before execution; fail closed on unvalidated or tampered plans
+    # Plan MUST be validated before execution; fail closed on unfinalized, malformed, or modified plans
     if ! validate_plan "$plan_prefix"; then
-        printf 'ERROR: Reconciler received unvalidated, malformed, or tampered plan: %s\n' "$plan_prefix" >&2
+        printf 'ERROR: Reconciler received unfinalized, malformed, or modified plan: %s\n' "$plan_prefix" >&2
         return 1
     fi
 
