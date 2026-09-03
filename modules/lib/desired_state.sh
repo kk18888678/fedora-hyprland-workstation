@@ -172,7 +172,7 @@ validate_desired_state() {
     local -n comp_map="${prefix}_COMPONENTS"
     local -n def_map="${prefix}_ROLE_DEFAULTS"
 
-    # Check each component entry
+    # 1. Check each component entry in the map
     for id in "${!comp_map[@]}"; do
         if ! component_exists "$id"; then
             printf 'ERROR: Desired state references unknown component: %s\n' "$id" >&2
@@ -183,6 +183,14 @@ validate_desired_state() {
         if [[ "$state" != "managed" && "$state" != "unmanaged" && "$state" != "remove" ]]; then
             printf 'ERROR: Desired state has invalid state for %s: %s\n' "$id" "$state" >&2
             return 1
+        fi
+
+        # Profile eligibility: component cannot be managed or removed if profile is not supported
+        if [[ "$state" == "managed" || "$state" == "remove" ]]; then
+            if ! component_supports_profile "$id" "$profile"; then
+                printf 'ERROR: Component %s does not support profile %s but is set to %s\n' "$id" "$profile" "$state" >&2
+                return 1
+            fi
         fi
 
         local is_req
@@ -209,7 +217,24 @@ validate_desired_state() {
         fi
     done
 
-    # Conflict validation between managed components
+    # 2. Required component completeness:
+    # Every required component applicable to the selected profile must explicitly resolve to managed
+    for req_id in $(list_component_ids); do
+        if component_supports_profile "$req_id" "$profile"; then
+            local is_req
+            is_req="$(get_component_attr "$req_id" required)"
+            if [[ "$is_req" == "true" ]]; then
+                local req_st="${comp_map[$req_id]:-}"
+                if [[ "$req_st" != "managed" ]]; then
+                    printf 'ERROR: Required component %s for profile %s is missing or not managed (state: %s)\n' \
+                        "$req_id" "$profile" "${req_st:-<omitted>}" >&2
+                    return 1
+                fi
+            fi
+        fi
+    done
+
+    # 3. Conflict validation between managed components
     for id1 in "${!comp_map[@]}"; do
         if [[ "${comp_map[$id1]}" == "managed" ]]; then
             local confs
@@ -223,12 +248,28 @@ validate_desired_state() {
         fi
     done
 
-    # Validate role defaults
+    # 4. Validate role defaults
     for role in "${!def_map[@]}"; do
+        # Unknown roles are strictly rejected
+        local role_valid=0
+        for sr in "${SUPPORTED_ROLES[@]}"; do
+            if [[ "$sr" == "$role" ]]; then role_valid=1; break; fi
+        done
+        if [[ "$role_valid" -eq 0 ]]; then
+            printf 'ERROR: Desired state specifies unknown role: %s\n' "$role" >&2
+            return 1
+        fi
+
         local def_id="${def_map[$role]}"
         if [[ -n "$def_id" ]]; then
             if ! component_exists "$def_id"; then
                 printf 'ERROR: Default for role %s references unknown component: %s\n' "$role" "$def_id" >&2
+                return 1
+            fi
+
+            # Profile eligibility of default provider
+            if ! component_supports_profile "$def_id" "$profile"; then
+                printf 'ERROR: Default component %s for role %s does not support profile %s\n' "$def_id" "$role" "$profile" >&2
                 return 1
             fi
 
@@ -244,10 +285,11 @@ validate_desired_state() {
                 return 1
             fi
 
-            # Check that the default component is not marked for removal
+            # Default provider MUST be desired managed (not unmanaged, not remove)
             local comp_state="${comp_map[$def_id]:-unmanaged}"
-            if [[ "$comp_state" == "remove" ]]; then
-                printf 'ERROR: Default component %s for role %s is marked for removal\n' "$def_id" "$role" >&2
+            if [[ "$comp_state" != "managed" ]]; then
+                printf 'ERROR: Default provider %s for role %s must be desired managed (currently: %s)\n' \
+                    "$def_id" "$role" "$comp_state" >&2
                 return 1
             fi
         fi
