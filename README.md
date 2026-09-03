@@ -128,8 +128,17 @@ sudo dnf install -y git
 
 ### 2. `sudo: command not found` or User Lacks Sudo Rights
 The installer is designed to run as your **normal user account** and elevate necessary system mutations (such as writing to `/etc` or installing RPMs) using `sudo`. It must **not** be invoked directly as root.
-- Ensure your user account belongs to the `wheel` administrative group (`sudo usermod -aG wheel $USER`).
-- If `sudo` is not installed on a minimal system, install it as root (`dnf install sudo`) and grant administrative rights to your user. Never attempt to bypass permission checks.
+- If your user is not authorized in the `sudoers` file, an existing administrator or root user must grant your user administrative membership from an authorized root session (`su -`):
+  ```bash
+  usermod -aG wheel <username>
+  ```
+  *(Log out and back in for group membership to take effect).*
+- If `sudo` is not installed on a minimal system, an existing administrator or root account must install and configure it:
+  ```bash
+  dnf install -y sudo
+  usermod -aG wheel <username>
+  ```
+- Do not attempt privilege-bypass workarounds, and do not run the installer itself as root.
 
 ### 3. Clone or Network Failures
 If `git clone` fails due to DNS issues, TLS handshakes, or GitHub reachability:
@@ -180,7 +189,7 @@ The installer records comprehensive step-by-step journals and error outputs. Log
 ```
 You can inspect the most recent run log using:
 ```bash
-cat /var/lib/fedora-hyprland-workstation/logs/install-*.log | less
+logs=(/var/lib/fedora-hyprland-workstation/logs/install-*.log); less "${logs[-1]}"
 ```
 Or check the last recorded status at:
 ```bash
