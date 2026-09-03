@@ -423,12 +423,21 @@ run_setup_mode() {
     local profile="$1"
     local plan_prefix="$2"
 
-    local mode="${SETUP_MODE:-}"
-    if [[ -z "$mode" ]]; then
-        if ! wizard_is_interactive; then
-            printf 'ERROR: Interactive terminal required for setup mode selection. Run in an interactive terminal.\n' >&2
+    # Production execution strictly requires an interactive terminal (stdin must be a terminal).
+    # Non-interactive executions without test mock input must fail closed safely before mutation.
+    if ! wizard_is_interactive; then
+        printf 'ERROR: Interactive terminal required for setup mode selection. Run in an interactive terminal.\n' >&2
+        return 1
+    fi
+
+    local mode=""
+    if [[ -n "${SETUP_MODE:-}" ]]; then
+        if [[ "$SETUP_MODE" != "recommended" && "$SETUP_MODE" != "customize" ]]; then
+            printf 'ERROR: Invalid SETUP_MODE value: %s (must be "recommended" or "customize")\n' "$SETUP_MODE" >&2
             return 1
         fi
+        mode="$SETUP_MODE"
+    else
         wizard_select_setup_mode "$profile" mode || return 2
     fi
 
@@ -437,22 +446,20 @@ run_setup_mode() {
     while true; do
         if [[ "$mode" == "recommended" ]]; then
             create_recommended_desired_state "$ds_prefix" "$profile" || return 1
-        else
+        elif [[ "$mode" == "customize" ]]; then
             create_recommended_desired_state "$ds_prefix" "$profile" || return 1
             declare -g "${ds_prefix}_SETUP_MODE"="customize"
-            if wizard_is_interactive; then
-                wizard_customize "$profile" "$ds_prefix" || return 2
-                wizard_configure_defaults "$profile" "$ds_prefix" || return 2
-            fi
+            wizard_customize "$profile" "$ds_prefix" || return 2
+            wizard_configure_defaults "$profile" "$ds_prefix" || return 2
+        else
+            printf 'ERROR: Unsupported setup mode: %s\n' "$mode" >&2
+            return 1
         fi
 
         create_execution_plan "$ds_prefix" "$plan_prefix" || return 1
 
-        # In non-interactive mode with explicit SETUP_MODE, plan is accepted automatically
-        if [[ -n "${SETUP_MODE:-}" ]] && ! wizard_is_interactive; then
-            return 0
-        fi
-
+        # Interactive Review is mandatory for ALL setup modes before Apply.
+        # There is no non-interactive auto-apply bypass in production.
         local user_action=""
         wizard_review_plan "$plan_prefix" user_action || return 2
 
