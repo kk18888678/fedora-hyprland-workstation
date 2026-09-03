@@ -11,6 +11,111 @@ else
     fail "managed greeter.toml cursor block"
 fi
 
+greeter_matrix_test="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+ROOT="$1"
+SCRIPT_DIR="$ROOT"
+# shellcheck source=/dev/null
+source "$ROOT/modules/common.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/status.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/desktop.sh"
+
+sandbox="$(mktemp -d)"
+trap 'rm -rf "$sandbox"' EXIT
+
+greetd_out="$sandbox/greetd.toml"
+greeter_toml_out="$sandbox/greeter.toml"
+
+install_root_file_from_stdin() {
+    cat > "$1"
+}
+
+validate_greetd_user() { return 0; }
+noctalia_session_bin="/usr/bin/noctalia-greeter-session"
+
+# 1. Bare metal path (GPU="generic", PROFILE_NAME="workstation")
+GPU="generic"
+PROFILE_NAME="workstation"
+INSTALL_GREETER=true
+command_exists() {
+    if [[ "$1" == "systemd-detect-virt" ]]; then
+        return 1
+    fi
+    return 0
+}
+
+configure_greetd_test() {
+    local greeter_session="$noctalia_session_bin"
+    local greetd_config="$greetd_out"
+    local session_cmd="$greeter_session"
+    if is_virtio_or_vm_gpu; then
+        session_cmd="env WLR_NO_HARDWARE_CURSORS=1 $greeter_session"
+    fi
+    install_root_file_from_stdin "$greetd_config" 0644 root root <<EOF
+[terminal]
+vt = 1
+
+[default_session]
+command = "$session_cmd"
+user = "greetd"
+EOF
+}
+
+configure_greeter_state_test() {
+    local greeter_toml="$greeter_toml_out"
+    local managed="$SCRIPT_DIR/config/noctalia-greeter/greeter.toml"
+    local content
+    content="$(cat "$managed")"
+    if is_virtio_or_vm_gpu; then
+        if ! grep -q '^\[output\]' <<< "$content"; then
+            content="${content}
+[output]
+scale = 1.0
+"
+        fi
+    fi
+    install_root_file_from_stdin "$greeter_toml" 0644 greetd greetd <<< "$content"
+}
+
+configure_greetd_test
+configure_greeter_state_test
+
+bare_has_wlr_env="$(grep -c 'WLR_NO_HARDWARE_CURSORS' "$greetd_out" || true)"
+bare_has_scale_1="$(grep -c 'scale = 1.0' "$greeter_toml_out" || true)"
+
+# 2. VM / virtio path (GPU="virtio")
+GPU="virtio"
+PROFILE_NAME="vm"
+configure_greetd_test
+configure_greeter_state_test
+
+vm_has_wlr_env="$(grep -c 'WLR_NO_HARDWARE_CURSORS=1' "$greetd_out" || true)"
+vm_has_scale_1="$(grep -c 'scale = 1.0' "$greeter_toml_out" || true)"
+
+echo "bare_has_wlr_env=$bare_has_wlr_env"
+echo "bare_has_scale_1=$bare_has_scale_1"
+echo "vm_has_wlr_env=$vm_has_wlr_env"
+echo "vm_has_scale_1=$vm_has_scale_1"
+EOS
+)"
+
+if printf '%s\n' "$greeter_matrix_test" | grep -q 'bare_has_wlr_env=0' &&
+   printf '%s\n' "$greeter_matrix_test" | grep -q 'bare_has_scale_1=0'; then
+    pass "bare-metal path preserves default hardware cursors and native auto-scaling"
+else
+    fail "bare-metal path incorrectly mutated: $greeter_matrix_test"
+fi
+
+if printf '%s\n' "$greeter_matrix_test" | grep -q 'vm_has_wlr_env=1' &&
+   printf '%s\n' "$greeter_matrix_test" | grep -q 'vm_has_scale_1=1'; then
+    pass "virtio/VM path safely configures WLR_NO_HARDWARE_CURSORS and integer scale 1.0"
+else
+    fail "virtio/VM path failed to configure software cursor or scale: $greeter_matrix_test"
+fi
+
 section "GNOME Keyring PAM Auto-Unlock"
 
 if grep -q "pam_gnome_keyring.so" "$ROOT/modules/validation.sh"; then

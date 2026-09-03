@@ -96,6 +96,21 @@ validate_greetd_user() {
     info "greetd service account validated."
 }
 
+is_virtio_or_vm_gpu() {
+    if [[ "${GPU:-}" == "virtio" ]]; then
+        return 0
+    fi
+    if [[ "${PROFILE_NAME:-}" == "vm" || "${PROFILE:-}" == "vm" ]]; then
+        return 0
+    fi
+    if command_exists systemd-detect-virt && systemd-detect-virt --vm &>/dev/null; then
+        if [[ -d /sys/bus/pci/drivers/virtio-pci ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 configure_greetd() {
     if ! is_true "${INSTALL_GREETER:-false}"; then
         return 0
@@ -120,12 +135,17 @@ configure_greetd() {
 
     sudo install -d -m 0755 /etc/greetd
 
+    local session_cmd="$greeter_session"
+    if is_virtio_or_vm_gpu; then
+        session_cmd="env WLR_NO_HARDWARE_CURSORS=1 $greeter_session"
+    fi
+
     install_root_file_from_stdin "$greetd_config" 0644 root root <<EOF
 [terminal]
 vt = 1
 
 [default_session]
-command = "$greeter_session"
+command = "$session_cmd"
 user = "greetd"
 EOF
 
@@ -154,7 +174,20 @@ configure_noctalia_greeter_state() {
         die "Managed greeter config is missing: $managed"
 
     # Login-screen cursor only. Do not change the user Hyprland cursor.
-    install_root_file "$managed" "$greeter_toml" 0644 greetd greetd
+    local content
+    content="$(cat "$managed")"
+    if is_virtio_or_vm_gpu; then
+        # On virtualized GPUs (e.g. virtio-gpu), Noctalia greeter auto-scaling
+        # computes fractional scale (1.04) from virtual EDID dimensions, which triggers
+        # DRM atomic commit ERANGE failure. Explicit scale = 1.0 ensures clean rendering.
+        if ! grep -q '^\[output\]' <<< "$content"; then
+            content="${content}
+[output]
+scale = 1.0
+"
+        fi
+    fi
+    install_root_file_from_stdin "$greeter_toml" 0644 greetd greetd <<< "$content"
 
     info "Noctalia greeter state directory configured."
 }
