@@ -270,6 +270,10 @@ run_classified_step() {
         return 0
     fi
 
+    local prev_login_count="${#INSTALL_LOGIN_FAILURES[@]}"
+    local prev_req_count="${#INSTALL_REQUIRED_FAILURES[@]}"
+    local prev_def_count="${#INSTALL_DEFERRED[@]}"
+
     "$function_name" "$@" || rc=$?
 
     if (( rc == 0 )); then
@@ -283,6 +287,11 @@ run_classified_step() {
         journal_stage "$function_name" "failed:${rc}"
     fi
 
+    local new_login_count="${#INSTALL_LOGIN_FAILURES[@]}"
+    local new_req_count="${#INSTALL_REQUIRED_FAILURES[@]}"
+    local new_def_count="${#INSTALL_DEFERRED[@]}"
+    local new_classified=$(( (new_login_count - prev_login_count) + (new_req_count - prev_req_count) + (new_def_count - prev_def_count) ))
+
     case "$class" in
         login)
             if (( ACTIVATION_BLOCKED == 0 )); then
@@ -293,16 +302,20 @@ run_classified_step() {
             fi
             ;;
         workstation)
-            record_required \
-                "$function_name" \
-                "stage" \
-                "Stage exited ${rc} without classifying the failure."
+            if (( new_classified == 0 )); then
+                record_required \
+                    "$function_name" \
+                    "stage" \
+                    "Stage exited ${rc} without classifying the failure."
+            fi
             ;;
         optional)
-            record_deferred \
-                "$function_name" \
-                "stage" \
-                "Stage exited ${rc}."
+            if (( new_classified == 0 )); then
+                record_deferred \
+                    "$function_name" \
+                    "stage" \
+                    "Stage exited ${rc}."
+            fi
             ;;
         *)
             die "Unknown installer step class: $class"
