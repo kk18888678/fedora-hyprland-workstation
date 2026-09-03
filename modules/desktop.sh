@@ -551,44 +551,72 @@ converge_gtk_bookmarks_file() {
         return 0
     fi
 
-    # Existing file: read lines and URIs while preserving custom labels and remote protocols
+    # Existing file: read lines and partition into personal vs managed
     local existing_lines=()
-    local existing_uris=()
     while IFS= read -r line || [[ -n "$line" ]]; do
         [[ -n "$line" ]] || continue
         existing_lines+=("$line")
-        local uri
-        uri="$(awk '{print $1}' <<< "$line")"
-        existing_uris+=("$uri")
     done < "$bookmark_file"
 
-    local missing_defaults=()
-    for def_uri in "${default_uris[@]}"; do
-        local found=0
-        for ex_uri in "${existing_uris[@]}"; do
-            if [[ "$ex_uri" == "$def_uri" ]]; then
-                found=1
+    local personal_before=()
+    local personal_after=()
+    local found_first_managed=0
+
+    for line in "${existing_lines[@]}"; do
+        local uri="${line%% *}"
+        local is_managed=0
+        for def_uri in "${default_uris[@]}"; do
+            if [[ "$uri" == "$def_uri" ]]; then
+                is_managed=1
                 break
             fi
         done
-        if (( found == 0 )); then
-            missing_defaults+=("$def_uri")
+
+        if (( is_managed == 1 )); then
+            found_first_managed=1
+        else
+            if (( found_first_managed == 0 )); then
+                personal_before+=("$line")
+            else
+                personal_after+=("$line")
+            fi
         fi
     done
 
-    # Fully idempotent when all defaults are satisfied
-    if [[ ${#missing_defaults[@]} -eq 0 ]]; then
-        return 0
+    # Assemble converged lines:
+    # 1. Personal bookmarks situated prior to standard managed block
+    # 2. Standard managed bookmarks in exact desired order
+    # 3. Personal bookmarks situated after standard managed block
+    local target_lines=()
+    for line in "${personal_before[@]}"; do
+        target_lines+=("$line")
+    done
+    for uri in "${default_uris[@]}"; do
+        target_lines+=("$uri")
+    done
+    for line in "${personal_after[@]}"; do
+        target_lines+=("$line")
+    done
+
+    # Fully idempotent when already in converged desired state
+    if [[ ${#existing_lines[@]} -eq ${#target_lines[@]} ]]; then
+        local matches=1
+        local i
+        for (( i=0; i<${#target_lines[@]}; i++ )); do
+            if [[ "${existing_lines[i]}" != "${target_lines[i]}" ]]; then
+                matches=0
+                break
+            fi
+        done
+        if (( matches == 1 )); then
+            return 0
+        fi
     fi
 
-    # Append missing defaults preserving existing order, custom paths, and labels
     local tmp
     tmp="$(mktemp)"
-    for line in "${existing_lines[@]}"; do
+    for line in "${target_lines[@]}"; do
         printf '%s\n' "$line" >> "$tmp"
-    done
-    for def_uri in "${missing_defaults[@]}"; do
-        printf '%s\n' "$def_uri" >> "$tmp"
     done
 
     run_as_target_user mv "$tmp" "$bookmark_file"

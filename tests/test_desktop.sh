@@ -522,6 +522,31 @@ mtime_c2="$(stat -c %Y "$gtk3_bm")"
 custom_idempotent_ok=$([[ "$mtime_c1" == "$mtime_c2" ]] && echo 1 || echo 0)
 echo "custom-idempotent-ok=$custom_idempotent_ok"
 
+# Test 5: Mixed standard and personal bookmarks out of order
+cat << EOF > "$gtk3_bm"
+file://${TARGET_HOME}/Pictures
+file:///some/personal/location My Project
+file://${TARGET_HOME}/Downloads
+EOF
+
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+
+expected_mixed="$(cat << EOF
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Music
+file://${TARGET_HOME}/Videos
+file:///some/personal/location My Project
+EOF
+)"
+
+mixed_reorder_ok=0
+if cmp -s "$gtk3_bm" <(printf '%s\n' "$expected_mixed"); then
+    mixed_reorder_ok=1
+fi
+echo "mixed-reorder-ok=$mixed_reorder_ok"
+
 rm -rf "$TARGET_HOME"
 EOS
 )"
@@ -548,6 +573,12 @@ if printf '%s\n' "$bookmarks_test_output" | grep -q 'custom-idempotent-ok=1'; th
     pass "converge_gtk_bookmarks is fully idempotent after custom bookmark convergence"
 else
     fail "converge_gtk_bookmarks failed custom idempotency: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'mixed-reorder-ok=1'; then
+    pass "converge_gtk_bookmarks deterministically reorders standard bookmarks and preserves personal bookmarks"
+else
+    fail "converge_gtk_bookmarks mixed reordering failed: $bookmarks_test_output"
 fi
 
 section "Monitor Configuration"
