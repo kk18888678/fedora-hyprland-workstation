@@ -431,15 +431,7 @@ run_setup_mode() {
     fi
 
     local mode=""
-    if [[ -n "${SETUP_MODE:-}" ]]; then
-        if [[ "$SETUP_MODE" != "recommended" && "$SETUP_MODE" != "customize" ]]; then
-            printf 'ERROR: Invalid SETUP_MODE value: %s (must be "recommended" or "customize")\n' "$SETUP_MODE" >&2
-            return 1
-        fi
-        mode="$SETUP_MODE"
-    else
-        wizard_select_setup_mode "$profile" mode || return 2
-    fi
+    wizard_select_setup_mode "$profile" mode || return 2
 
     local ds_prefix="RUN_DS"
 
