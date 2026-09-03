@@ -13,7 +13,7 @@
 # 5. Unknown prerelease classes and malformed policy registries fail closed.
 
 # Supported prerelease classes recognized by the classifier and registry
-SUPPORTED_PRERELEASE_CLASSES=("alpha" "beta" "rc" "preview" "pre" "nightly" "dev" "snapshot")
+SUPPORTED_PRERELEASE_CLASSES=("alpha" "beta" "rc" "preview" "pre" "nightly" "dev" "snapshot" "git")
 
 # Supported selection policies
 SUPPORTED_SELECTION_POLICIES=("stable_then_allowed_prerelease")
@@ -84,9 +84,15 @@ classify_release_tag() {
     local lower
     lower="$(printf '%s\n' "$tag" | tr '[:upper:]' '[:lower:]')"
 
+    # Match snapshot caret (Fedora RPM snapshot packaging convention)
+    if [[ "$lower" =~ \^ ]]; then
+        printf 'snapshot\n'
+        return 0
+    fi
+
     # Match conventional boundary-aware prerelease tokens:
     # Delimiter or digit transition followed by keyword and delimiter, digits, or end of string.
-    local token_pattern='(^|[^a-z0-9]|[0-9])(alpha|beta|rc|preview|pre|nightly|dev|snapshot)([0-9._+-]|$)'
+    local token_pattern='(^|[^a-z0-9]|[0-9])(alpha|beta|rc|preview|pre|nightly|dev|snapshot|git)([0-9._+-]|$)'
     if [[ "$lower" =~ $token_pattern ]]; then
         printf '%s\n' "${BASH_REMATCH[2]}"
         return 0

@@ -286,6 +286,15 @@ configure_repositories() {
             "Starship COPR could not be enabled."
     fi
 
+    # Quickshell package source (Aurelia desktop environment).
+    # Official community Copr repository maintained by upstream author (errornointernet).
+    if ! enable_copr "errornointernet/quickshell"; then
+        record_required \
+            "repositories" \
+            "errornointernet/quickshell" \
+            "Quickshell COPR could not be enabled."
+    fi
+
     # Multimedia and hardware ecosystem.
     install_rpmfusion
 

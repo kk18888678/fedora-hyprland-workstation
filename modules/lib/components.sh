@@ -563,26 +563,72 @@ remove_htop_adapter() {
 
 # quickshell
 detect_quickshell() {
-    # Verify the installed package is specifically the stable 'quickshell' package.
-    # Strictly reject quickshell-git, git snapshots, and development packages.
+    # Verify the installed package satisfies:
+    # 1. Exact package identity ('quickshell', not 'quickshell-git')
+    # 2. Expected host architecture
+    # 3. Stable release policy (reject git snapshots, carets, and prereleases)
+    # 4. Approved provenance rules (reject unapproved repositories/vendors such as lionheartp)
     if command -v rpm >/dev/null 2>&1; then
         local pkg_name
         pkg_name="$(rpm -q --qf '%{NAME}\n' quickshell 2>/dev/null || true)"
-        if [[ "$pkg_name" == "quickshell" ]]; then
-            local pkg_ver
-            pkg_ver="$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' quickshell 2>/dev/null || true)"
-            if [[ "$pkg_ver" =~ (\^|\.git|snapshot|nightly|alpha|beta|rc) ]]; then
+        if [[ "$pkg_name" != "quickshell" ]]; then
+            return 1
+        fi
+
+        local pkg_arch
+        pkg_arch="$(rpm -q --qf '%{ARCH}\n' quickshell 2>/dev/null || true)"
+        local exp_arch
+        exp_arch="$(uname -m 2>/dev/null || echo "x86_64")"
+        if [[ -n "$pkg_arch" && "$pkg_arch" != "$exp_arch" && "$pkg_arch" != "noarch" ]]; then
+            return 1
+        fi
+
+        local pkg_ver
+        pkg_ver="$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' quickshell 2>/dev/null || true)"
+        if [[ -z "$pkg_ver" ]]; then
+            return 1
+        fi
+
+        local tag_class="stable"
+        if declare -F classify_release_tag >/dev/null; then
+            tag_class="$(classify_release_tag "$pkg_ver")"
+        elif [[ "$pkg_ver" =~ (\^|\.git|snapshot|nightly|alpha|beta|rc|preview|pre|dev) ]]; then
+            tag_class="prerelease"
+        fi
+
+        if [[ "$tag_class" != "stable" ]]; then
+            return 1
+        fi
+
+        # Approved provenance: check vendor if available
+        local pkg_vendor
+        pkg_vendor="$(rpm -q --qf '%{VENDOR}\n' quickshell 2>/dev/null || true)"
+        if [[ "$pkg_vendor" == *"lionheartp"* ]]; then
+            return 1
+        fi
+
+        # Check from_repo if inspectable via dnf cache
+        if command -v dnf >/dev/null 2>&1; then
+            local from_repo
+            from_repo="$(dnf -q repoquery -C --installed quickshell --queryformat '%{from_repo}' 2>/dev/null || true)"
+            if [[ -n "$from_repo" && "$from_repo" == *"lionheartp"* ]]; then
                 return 1
             fi
-            return 0
         fi
-        return 1
+
+        return 0
     fi
     command_exists qs && command_exists quickshell
 }
+
 install_quickshell_adapter() {
-    install_dnf_packages quickshell
+    install_approved_quickshell
 }
+
+validate_quickshell_adapter() {
+    detect_quickshell
+}
+
 remove_quickshell_adapter() {
     if package_installed quickshell; then
         sudo dnf remove -y quickshell
@@ -756,6 +802,7 @@ init_default_components() {
         removable true \
         detect_fn "detect_quickshell" \
         install_fn "install_quickshell_adapter" \
+        validate_fn "validate_quickshell_adapter" \
         remove_fn "remove_quickshell_adapter"
 
     register_component \

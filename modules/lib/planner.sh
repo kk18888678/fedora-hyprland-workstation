@@ -579,6 +579,9 @@ create_execution_plan() {
             if [[ -n "${dependency_reason[$id]:-}" ]]; then
                 reason="${dependency_reason[$id]}"
             fi
+            if package_installed "$id" 2>/dev/null; then
+                reason="installed package does not satisfy desired state (convergence required)"
+            fi
             add_plan_action "$plan_prefix" "INSTALL" "$id" "$reason" "$disp ($cat)"
         else
             local cfg_fn

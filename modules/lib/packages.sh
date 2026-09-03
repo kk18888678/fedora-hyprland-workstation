@@ -232,3 +232,161 @@ install_dnf_packages() {
         run_with_retry "dnf install ${missing[*]}" dnf_install "${missing[@]}"
     fi
 }
+
+###############################################################################
+# Quickshell Provenance & Supply Chain Enforcement
+###############################################################################
+
+QUICKSHELL_APPROVED_COPR="errornointernet/quickshell"
+QUICKSHELL_APPROVED_REPOID="${QUICKSHELL_APPROVED_REPOID:-copr:copr.fedorainfracloud.org:errornointernet:quickshell}"
+
+query_quickshell_candidate() {
+    local repoid="${1:-$QUICKSHELL_APPROVED_REPOID}"
+    local query_out=""
+    local status=0
+
+    local arch
+    arch="$(uname -m 2>/dev/null || echo "x86_64")"
+
+    query_out="$(
+        run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery quickshell candidate from $repoid" \
+            dnf -q repoquery --from-repo="$repoid" --latest-limit=1 "quickshell.${arch}" \
+                --queryformat "%{name} %{epoch} %{version} %{release} %{arch} %{repoid}" 2>/dev/null
+    )" || status=$?
+
+    if (( status != 0 )) || [[ -z "$query_out" ]]; then
+        query_out="$(
+            run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery quickshell candidate (no arch) from $repoid" \
+                dnf -q repoquery --from-repo="$repoid" --latest-limit=1 "quickshell" \
+                    --queryformat "%{name} %{epoch} %{version} %{release} %{arch} %{repoid}" 2>/dev/null
+        )" || status=$?
+    fi
+
+    printf '%s\n' "$query_out"
+    return "$status"
+}
+
+validate_quickshell_candidate() {
+    local cand_name="$1"
+    local cand_epoch="$2"
+    local cand_version="$3"
+    local cand_release="$4"
+    local cand_arch="$5"
+    local cand_repoid="$6"
+    local __vqc_out_reason_var="${7:-}"
+
+    local approved_repoid="${QUICKSHELL_APPROVED_REPOID:-copr:copr.fedorainfracloud.org:errornointernet:quickshell}"
+    local __vqc_reason=""
+
+    # 1. Package Name / Identity Check (strictly reject quickshell-git)
+    if [[ "$cand_name" != "quickshell" ]]; then
+        __vqc_reason="Package identity '$cand_name' is prohibited; stable 'quickshell' required."
+        [[ -n "$__vqc_out_reason_var" ]] && printf -v "$__vqc_out_reason_var" '%s' "$__vqc_reason"
+        error "Rejected Quickshell candidate from ${cand_repoid}:"
+        error "  package: ${cand_name}"
+        error "  version: ${cand_version}-${cand_release}"
+        error "  reason: ${__vqc_reason}"
+        return 1
+    fi
+
+    # 2. Architecture Check
+    local exp_arch
+    exp_arch="$(uname -m 2>/dev/null || echo "x86_64")"
+    if [[ -n "$cand_arch" && "$cand_arch" != "$exp_arch" && "$cand_arch" != "noarch" ]]; then
+        __vqc_reason="Architecture '$cand_arch' does not match expected host architecture '$exp_arch'."
+        [[ -n "$__vqc_out_reason_var" ]] && printf -v "$__vqc_out_reason_var" '%s' "$__vqc_reason"
+        error "Rejected Quickshell candidate from ${cand_repoid}:"
+        error "  package: ${cand_name}.${cand_arch}"
+        error "  version: ${cand_version}-${cand_release}"
+        error "  reason: ${__vqc_reason}"
+        return 1
+    fi
+
+    # 3. Repository Provenance Check (strictly reject unapproved repos such as lionheartp/Hyprland)
+    if [[ "$cand_repoid" != "$approved_repoid" ]]; then
+        __vqc_reason="Candidate repository '$cand_repoid' does not match approved repository '$approved_repoid'."
+        [[ -n "$__vqc_out_reason_var" ]] && printf -v "$__vqc_out_reason_var" '%s' "$__vqc_reason"
+        error "Rejected Quickshell candidate from ${cand_repoid}:"
+        error "  package: ${cand_name}"
+        error "  version: ${cand_version}-${cand_release}"
+        error "  reason: ${__vqc_reason}"
+        return 1
+    fi
+
+    # 4. Version and Release Class Check (strictly reject git snapshots and prereleases)
+    local full_ver="${cand_version}-${cand_release}"
+    local tag_class="stable"
+    if declare -F classify_release_tag >/dev/null; then
+        tag_class="$(classify_release_tag "$full_ver")"
+    elif [[ "$full_ver" =~ (\^|\.git|snapshot|nightly|alpha|beta|rc|preview|pre|dev) ]]; then
+        tag_class="prerelease"
+    fi
+
+    if [[ "$tag_class" != "stable" ]]; then
+        __vqc_reason="release contains Git snapshot or prerelease marker ($tag_class)"
+        [[ -n "$__vqc_out_reason_var" ]] && printf -v "$__vqc_out_reason_var" '%s' "$__vqc_reason"
+        error "Rejected Quickshell candidate from ${cand_repoid}:"
+        error "  package: ${cand_name}"
+        error "  version: ${full_ver}"
+        error "  reason: ${__vqc_reason}"
+        return 1
+    fi
+
+    # Candidate successfully validated
+    info "Quickshell candidate:"
+    info "  package: ${cand_name}"
+    info "  version: ${full_ver}"
+    info "  arch: ${cand_arch}"
+    info "  repository: ${cand_repoid}"
+    info "  policy: stable/approved"
+
+    return 0
+}
+
+install_approved_quickshell() {
+    local approved_repoid="${QUICKSHELL_APPROVED_REPOID:-copr:copr.fedorainfracloud.org:errornointernet:quickshell}"
+
+    # 1. Determine candidate from approved repository
+    local cand_line
+    cand_line="$(query_quickshell_candidate "$approved_repoid")" || true
+    if [[ -z "$cand_line" ]]; then
+        error "Cannot install Quickshell: no candidate found in approved repository: $approved_repoid"
+        return 1
+    fi
+
+    local c_name c_epoch c_ver c_rel c_arch c_repo
+    read -r c_name c_epoch c_ver c_rel c_arch c_repo <<< "$cand_line"
+
+    # 2. Pre-install candidate validation BEFORE any package mutation
+    local reject_reason=""
+    if ! validate_quickshell_candidate "$c_name" "$c_epoch" "$c_ver" "$c_rel" "$c_arch" "$c_repo" reject_reason; then
+        error "Pre-install validation failed for Quickshell candidate; aborting package transaction."
+        return 1
+    fi
+
+    local cand_nevra="${c_name}-${c_ver}-${c_rel}.${c_arch}"
+    if [[ -n "$c_epoch" && "$c_epoch" != "0" ]]; then
+        cand_nevra="${c_name}-${c_epoch}:${c_ver}-${c_rel}.${c_arch}"
+    fi
+
+    # 3. Deterministic scoped transaction (handles fresh install, upgrade, and downgrade)
+    local status=0
+    if package_installed quickshell; then
+        info "Quickshell is currently installed; performing convergence to approved stable release ($cand_nevra)."
+        run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "dnf distro-sync quickshell from $approved_repoid" \
+            sudo dnf distro-sync -y --from-repo="$approved_repoid" quickshell || \
+        run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "dnf install --allow-downgrade $cand_nevra" \
+            sudo dnf install -y --allow-downgrade --from-repo="$approved_repoid" "$cand_nevra" || status=$?
+    else
+        info "Installing Quickshell ($cand_nevra) from approved repository: $approved_repoid"
+        run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "dnf install $cand_nevra" \
+            sudo dnf install -y --from-repo="$approved_repoid" "$cand_nevra" || status=$?
+    fi
+
+    if (( status != 0 )); then
+        error "Failed to install Quickshell from approved repository: $approved_repoid"
+        return "$status"
+    fi
+
+    return 0
+}
