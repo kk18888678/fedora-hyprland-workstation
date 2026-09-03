@@ -64,7 +64,11 @@ local manifest = dofile(manifest_path)
 
 package.path = manifest_dir .. "/?.lua;" .. package.path
 local eff = require("effective_bindings")
-local effective = eff.resolve_bindings(manifest)
+local effective, err = eff.resolve_bindings(manifest)
+if not effective then
+    io.stderr:write("Error: Keybindings overrides file is corrupt or invalid: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
 
 local C_RESET = "\27[0m"
 local C_BOLD  = "\27[1m"
@@ -115,7 +119,11 @@ local manifest = dofile(manifest_path)
 
 package.path = manifest_dir .. "/?.lua;" .. package.path
 local eff = require("effective_bindings")
-local effective = eff.resolve_bindings(manifest)
+local effective, err = eff.resolve_bindings(manifest)
+if not effective then
+    io.stderr:write("Error: Keybindings overrides file is corrupt or invalid: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
 
 for _, item in ipairs(effective.bindings or {}) do
     local id = item.id or ""

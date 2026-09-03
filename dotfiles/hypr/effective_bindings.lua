@@ -19,111 +19,6 @@ function M.get_overrides_path()
     return config_home .. "/hypr/keybindings_overrides.json"
 end
 
--- Pure Lua lightweight JSON decoder for shallow key-value maps
-function M.json_decode(str)
-    if not str or str:match("^%s*$") then return {} end
-    local result = {}
-    local content = str:match("^%s*{%s*(.-)%s*}%s*$")
-    if not content then return nil, "Invalid JSON: missing enclosing braces" end
-    if content:match("^%s*$") then return result end
-
-    local pos = 1
-    while pos <= #content do
-        local _, next_start = content:find("^[%s,]*", pos)
-        if next_start and next_start >= pos then pos = next_start + 1 end
-        if pos > #content then break end
-
-        local key_start, key_end, key = content:find("\"([^\"\\]-)\"", pos)
-        if not key_start or key_start ~= pos then break end
-        pos = key_end + 1
-
-        local col_start, col_end = content:find("^%s*:%s*", pos)
-        if not col_start then break end
-        pos = col_end + 1
-
-        local val_str_start, val_str_end, val_str = content:find("\"([^\"\\]-)\"", pos)
-        if val_str_start and val_str_start == pos then
-            result[key] = val_str
-            pos = val_str_end + 1
-        elseif content:sub(pos, pos + 4) == "false" then
-            result[key] = false
-            pos = pos + 5
-        elseif content:sub(pos, pos + 3) == "true" then
-            result[key] = true
-            pos = pos + 4
-        elseif content:sub(pos, pos + 3) == "null" then
-            result[key] = false
-            pos = pos + 4
-        else
-            break
-        end
-    end
-    return result
-end
-
--- Pure Lua lightweight JSON encoder
-function M.json_encode(tbl)
-    local keys = {}
-    for k in pairs(tbl) do table.insert(keys, k) end
-    table.sort(keys)
-    local lines = {}
-    for _, k in ipairs(keys) do
-        local v = tbl[k]
-        if type(v) == "string" then
-            table.insert(lines, string.format("  %q: %q", k, v))
-        elseif v == false or v == nil then
-            table.insert(lines, string.format("  %q: false", k))
-        elseif v == true then
-            table.insert(lines, string.format("  %q: true", k))
-        end
-    end
-    return "{\n" .. table.concat(lines, ",\n") .. "\n}\n"
-end
-
--- Load overrides from disk safely
-function M.load_overrides(path)
-    path = path or M.get_overrides_path()
-    local f = io.open(path, "r")
-    if not f then
-        return {}
-    end
-    local content = f:read("*a")
-    f:close()
-    local parsed, err = M.json_decode(content)
-    if not parsed then
-        return {}
-    end
-    return parsed
-end
-
--- Save overrides atomically
-function M.save_overrides(overrides, path)
-    path = path or M.get_overrides_path()
-    local dir = path:match("^(.*)/[^/]+$")
-    if dir and dir ~= "" then
-        os.execute(string.format("mkdir -p %q", dir))
-    end
-    local tmp_path = string.format("%s.tmp.%d", path, os.time())
-    local f, err = io.open(tmp_path, "w")
-    if not f then
-        return false, "Failed to open temporary file for writing: " .. tostring(err)
-    end
-    f:write(M.json_encode(overrides))
-    f:flush()
-    f:close()
-
-    local ok, ren_err = os.rename(tmp_path, path)
-    if not ok then
-        -- Fallback to shell mv if os.rename fails across filesystems
-        local mv_ret = os.execute(string.format("mv -f %q %q", tmp_path, path))
-        if mv_ret ~= 0 and mv_ret ~= true then
-            os.remove(tmp_path)
-            return false, "Failed to atomically rename overrides file: " .. tostring(ren_err)
-        end
-    end
-    return true
-end
-
 -- Normalize key string for consistent display and matching
 function M.normalize_key(k)
     if not k or type(k) ~= "string" then return nil end
@@ -176,10 +71,253 @@ function M.canonical_key(k)
     return norm:lower():gsub("%s+", "")
 end
 
+-- Strict, fail-closed JSON decoder for keybindings overrides schema:
+-- {
+--   "<stable-action-id>": "<normalized-key>",
+--   "<stable-action-id>": false
+-- }
+function M.parse_strict_overrides(str, manifest)
+    if not str or str:match("^%s*$") then return {} end
+
+    local valid_actions = {}
+    if manifest and manifest.bindings then
+        for _, b in ipairs(manifest.bindings) do
+            if b.id and b.editable ~= false then
+                valid_actions[b.id] = b
+            end
+        end
+    end
+
+    local pos = 1
+    local len = #str
+
+    local function skip_ws()
+        while pos <= len do
+            local c = str:sub(pos, pos)
+            if c == " " or c == "\t" or c == "\n" or c == "\r" then
+                pos = pos + 1
+            else
+                break
+            end
+        end
+    end
+
+    skip_ws()
+    if pos > len or str:sub(pos, pos) ~= "{" then
+        return nil, "Invalid JSON: root must be an object beginning with {"
+    end
+    pos = pos + 1
+
+    local result = {}
+    local seen_keys = {}
+
+    skip_ws()
+    if pos <= len and str:sub(pos, pos) == "}" then
+        pos = pos + 1
+        skip_ws()
+        if pos <= len then
+            return nil, "Trailing garbage after JSON object at byte " .. pos
+        end
+        return result
+    end
+
+    local function parse_string()
+        if pos > len or str:sub(pos, pos) ~= "\"" then
+            return nil, "Expected string starting with \" at byte " .. pos
+        end
+        pos = pos + 1
+        local chars = {}
+        while pos <= len do
+            local c = str:sub(pos, pos)
+            if c == "\"" then
+                pos = pos + 1
+                return table.concat(chars)
+            elseif c == "\\" then
+                pos = pos + 1
+                if pos > len then return nil, "Unterminated escape in string" end
+                local esc = str:sub(pos, pos)
+                if esc == "\"" or esc == "\\" or esc == "/" then
+                    table.insert(chars, esc)
+                elseif esc == "b" then table.insert(chars, "\b")
+                elseif esc == "f" then table.insert(chars, "\f")
+                elseif esc == "n" then table.insert(chars, "\n")
+                elseif esc == "r" then table.insert(chars, "\r")
+                elseif esc == "t" then table.insert(chars, "\t")
+                elseif esc == "u" then
+                    if pos + 4 > len then return nil, "Incomplete unicode escape" end
+                    local hex = str:sub(pos + 1, pos + 4)
+                    if not hex:match("^[0-9a-fA-F]{4}$") then
+                        return nil, "Invalid unicode escape \\u" .. hex
+                    end
+                    local code = tonumber(hex, 16)
+                    if code < 128 then
+                        table.insert(chars, string.char(code))
+                    else
+                        table.insert(chars, "?")
+                    end
+                    pos = pos + 4
+                else
+                    return nil, "Invalid escape sequence \\" .. esc
+                end
+                pos = pos + 1
+            elseif c:byte() < 32 then
+                return nil, "Unescaped control character in string"
+            else
+                table.insert(chars, c)
+                pos = pos + 1
+            end
+        end
+        return nil, "Unterminated string literal"
+    end
+
+    while pos <= len do
+        skip_ws()
+        if pos > len then return nil, "Unexpected EOF inside JSON object" end
+
+        -- Parse key
+        local key, k_err = parse_string()
+        if not key then return nil, k_err end
+
+        if manifest and not valid_actions[key] then
+            return nil, "Unknown or uneditable action ID in overrides: " .. tostring(key)
+        end
+
+        if seen_keys[key] then
+            return nil, "Duplicate key in overrides: " .. tostring(key)
+        end
+        seen_keys[key] = true
+
+        skip_ws()
+        if pos > len or str:sub(pos, pos) ~= ":" then
+            return nil, "Expected \":\" after key \"" .. key .. "\" at byte " .. pos
+        end
+        pos = pos + 1
+        skip_ws()
+
+        -- Parse value: strictly string or false
+        local val
+        local next_c = str:sub(pos, pos)
+        if next_c == "\"" then
+            local val_str, v_err = parse_string()
+            if not val_str then return nil, v_err end
+            local valid_k, norm_or_err = M.validate_key(val_str)
+            if not valid_k then
+                return nil, "Invalid key syntax for key \"" .. key .. "\": " .. tostring(norm_or_err)
+            end
+            val = norm_or_err
+        elseif str:sub(pos, pos + 4) == "false" then
+            val = false
+            pos = pos + 5
+            local follow = str:sub(pos, pos)
+            if follow ~= "" and not follow:match("^[%s,%}]$") then
+                return nil, "Invalid token starting with false at byte " .. pos
+            end
+        else
+            return nil, "Invalid value for key \"" .. key .. "\": only string or false allowed"
+        end
+
+        result[key] = val
+
+        skip_ws()
+        if pos > len then return nil, "Unexpected EOF after value for key \"" .. key .. "\"" end
+        local delim = str:sub(pos, pos)
+        if delim == "," then
+            pos = pos + 1
+            skip_ws()
+            if pos <= len and str:sub(pos, pos) == "}" then
+                return nil, "Trailing comma before } is not allowed in JSON"
+            end
+        elseif delim == "}" then
+            pos = pos + 1
+            break
+        else
+            return nil, "Expected \",\" or \"}\" after value, found \"" .. delim .. "\" at byte " .. pos
+        end
+    end
+
+    skip_ws()
+    if pos <= len then
+        return nil, "Trailing garbage after JSON object at byte " .. pos
+    end
+
+    return result
+end
+
+-- Pure Lua strict JSON encoder for overrides schema
+function M.json_encode(tbl)
+    local keys = {}
+    for k in pairs(tbl) do table.insert(keys, k) end
+    table.sort(keys)
+    local lines = {}
+    for _, k in ipairs(keys) do
+        local v = tbl[k]
+        if type(v) == "string" then
+            table.insert(lines, string.format("  %q: %q", k, v))
+        elseif v == false then
+            table.insert(lines, string.format("  %q: false", k))
+        end
+    end
+    return "{\n" .. table.concat(lines, ",\n") .. "\n}\n"
+end
+
+-- Load overrides from disk safely (fail-closed)
+function M.load_overrides(path, manifest)
+    path = path or M.get_overrides_path()
+    local f = io.open(path, "r")
+    if not f then
+        return {}
+    end
+    local content = f:read("*a")
+    f:close()
+
+    if not content or content:match("^%s*$") then
+        return {}
+    end
+
+    local parsed, err = M.parse_strict_overrides(content, manifest)
+    if not parsed then
+        return nil, "Malformed keybindings override file: " .. tostring(err)
+    end
+    return parsed
+end
+
+-- Save overrides atomically
+function M.save_overrides(overrides, path)
+    path = path or M.get_overrides_path()
+    local dir = path:match("^(.*)/[^/]+$")
+    if dir and dir ~= "" then
+        os.execute(string.format("mkdir -p -m 0700 %q", dir))
+    end
+    local tmp_path = string.format("%s.tmp.%d.%d", path, os.time(), math.random(100000, 999999))
+    local f, err = io.open(tmp_path, "w")
+    if not f then
+        return false, "Failed to open temporary file for writing: " .. tostring(err)
+    end
+    f:write(M.json_encode(overrides))
+    f:flush()
+    f:close()
+
+    -- Restrictive permissions 0600
+    os.execute(string.format("chmod 0600 %q", tmp_path))
+
+    local ok, ren_err = os.rename(tmp_path, path)
+    if not ok then
+        os.remove(tmp_path)
+        return false, "Failed to atomically rename overrides file: " .. tostring(ren_err)
+    end
+    return true
+end
+
 -- Resolve effective bindings by applying overrides onto manifest defaults
 function M.resolve_bindings(manifest, overrides)
     manifest = manifest or require("keybindings_manifest")
-    overrides = overrides or M.load_overrides()
+    if overrides == nil then
+        local loaded, err = M.load_overrides(nil, manifest)
+        if not loaded then
+            return nil, err
+        end
+        overrides = loaded
+    end
 
     local effective = {
         mainMod = manifest.mainMod or "SUPER",
@@ -227,7 +365,9 @@ function M.find_conflict(action_id, candidate_key, manifest, overrides)
     local candidate_canon = M.canonical_key(candidate_key)
     if not candidate_canon then return nil end
 
-    local effective = M.resolve_bindings(manifest, overrides)
+    local effective, err = M.resolve_bindings(manifest, overrides)
+    if not effective then return nil, err end
+
     for _, item in ipairs(effective.bindings) do
         if item.id ~= action_id and item.key then
             local existing_canon = M.canonical_key(item.key)
@@ -239,8 +379,22 @@ function M.find_conflict(action_id, candidate_key, manifest, overrides)
     return nil
 end
 
--- Set, unset, or reset override for an action
-function M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path)
+-- Reload Hyprland session safely
+function M.reload_session()
+    if os.getenv("HOTKEYS_SIMULATE_RELOAD_FAIL") == "1" then
+        return false, "Simulated reload failure"
+    end
+    if os.getenv("HYPRLAND_INSTANCE_SIGNATURE") and os.getenv("HYPRLAND_INSTANCE_SIGNATURE") ~= "" then
+        local ret = os.execute("hyprctl reload config-only >/dev/null 2>&1 || hyprctl reload >/dev/null 2>&1")
+        if ret ~= 0 and ret ~= true then
+            return false, "hyprctl reload exited with failure status"
+        end
+    end
+    return true
+end
+
+-- Transactional set/edit binding with rollback on reload failure
+function M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path, reload_fn)
     overrides_path = overrides_path or M.get_overrides_path()
     local manifest
     if manifest_path then
@@ -249,7 +403,9 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
         manifest = require("keybindings_manifest")
     end
 
-    -- Verify action_id exists in manifest
+    reload_fn = reload_fn or M.reload_session
+
+    -- 1. Verify action_id exists in manifest
     local target_item = nil
     for _, item in ipairs(manifest.bindings or {}) do
         if item.id == action_id then
@@ -261,6 +417,7 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
         return false, "Action ID not found in manifest: " .. tostring(action_id)
     end
 
+    -- 2. Verify action is editable
     if not target_item.editable then
         local reason = "This action is not editable as an individual keyboard shortcut."
         if target_item.generator then
@@ -273,42 +430,107 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
         return false, string.format("Action '%s' is not editable: %s", action_id, reason)
     end
 
-    local overrides = M.load_overrides(overrides_path)
+    -- 3. Capture previous state for rollback
+    local prev_exists = false
+    local prev_raw = nil
+    local f_prev = io.open(overrides_path, "r")
+    if f_prev then
+        prev_exists = true
+        prev_raw = f_prev:read("*a")
+        f_prev:close()
+    end
 
-    -- Case 1: Reset to default
+    -- 4. Load current overrides (fails closed if existing file is corrupt)
+    local overrides, load_err = M.load_overrides(overrides_path, manifest)
+    if not overrides then
+        return false, "Cannot modify corrupt overrides file: " .. tostring(load_err)
+    end
+
+    -- 5. Prepare candidate modification
+    local candidate = {}
+    for k, v in pairs(overrides) do candidate[k] = v end
+
+    local action_result_msg = ""
     if new_key_input == "default" then
-        overrides[action_id] = nil
-        local ok, save_err = M.save_overrides(overrides, overrides_path)
-        if not ok then return false, save_err end
-        return true, "Reset to default"
+        candidate[action_id] = nil
+        action_result_msg = "Reset to default"
+    elseif new_key_input == false or new_key_input == nil or new_key_input == "none" or new_key_input == "-" then
+        candidate[action_id] = false
+        action_result_msg = "Unbound shortcut"
+    else
+        local valid, norm_or_err = M.validate_key(new_key_input)
+        if not valid then
+            return false, norm_or_err
+        end
+        local norm_key = norm_or_err
+
+        local conflict = M.find_conflict(action_id, norm_key, manifest, candidate)
+        if conflict then
+            local conflict_desc = conflict.description or conflict.id or "another action"
+            return false, string.format("Conflict: '%s' is already assigned to %s (%s). Cannot reassign without unbinding first.",
+                norm_key, conflict_desc, conflict.id or "unnamed")
+        end
+
+        candidate[action_id] = norm_key
+        action_result_msg = norm_key
     end
 
-    -- Case 2: Unset / unbind
-    if new_key_input == false or new_key_input == nil or new_key_input == "none" or new_key_input == "-" then
-        overrides[action_id] = false
-        local ok, save_err = M.save_overrides(overrides, overrides_path)
-        if not ok then return false, save_err end
-        return true, "Unbound shortcut"
+    -- 6. Atomically persist candidate
+    local ok_save, save_err = M.save_overrides(candidate, overrides_path)
+    if not ok_save then
+        return false, save_err
     end
 
-    -- Case 3: Set new keybinding
-    local valid, norm_or_err = M.validate_key(new_key_input)
-    if not valid then
-        return false, norm_or_err
-    end
-    local norm_key = norm_or_err
-
-    local conflict = M.find_conflict(action_id, norm_key, manifest, overrides)
-    if conflict then
-        local conflict_desc = conflict.description or conflict.id or "another action"
-        return false, string.format("Conflict: '%s' is already assigned to %s (%s). Cannot reassign without unbinding first.",
-            norm_key, conflict_desc, conflict.id or "unnamed")
+    -- 7. Apply activation (reload)
+    local ok_reload, reload_err = reload_fn()
+    if ok_reload then
+        return true, action_result_msg
     end
 
-    overrides[action_id] = norm_key
-    local ok, save_err = M.save_overrides(overrides, overrides_path)
-    if not ok then return false, save_err end
-    return true, norm_key
+    -- 8. Transaction failed -> ROLLBACK!
+    if os.getenv("HOTKEYS_SIMULATE_ROLLBACK_FAIL") == "1" then
+        return false, "FATAL: Activation failed (" .. tostring(reload_err) .. ") AND rollback failed: simulated rollback error"
+    end
+
+    local rollback_ok = true
+    local rollback_err = nil
+    if prev_exists and prev_raw then
+        -- Atomically restore previous content
+        local f_tmp = string.format("%s.rollback.tmp.%d", overrides_path, os.time())
+        local f_rb, err_rb = io.open(f_tmp, "w")
+        if f_rb then
+            f_rb:write(prev_raw)
+            f_rb:flush()
+            f_rb:close()
+            local ren_ok, ren_err = os.rename(f_tmp, overrides_path)
+            if not ren_ok then
+                os.remove(f_tmp)
+                rollback_ok = false
+                rollback_err = ren_err
+            end
+        else
+            rollback_ok = false
+            rollback_err = err_rb
+        end
+    else
+        -- File did not exist: remove candidate file to restore absence
+        local rem_ok, rem_err = os.remove(overrides_path)
+        if not rem_ok and prev_exists then
+            rollback_ok = false
+            rollback_err = rem_err
+        end
+    end
+
+    if not rollback_ok then
+        return false, string.format("FATAL: Activation failed (%s) AND rollback failed: %s",
+            tostring(reload_err), tostring(rollback_err))
+    end
+
+    -- Trigger reload again to restore previous runtime state
+    reload_fn()
+
+    return false, string.format("Activation failed: %s (transaction rolled back to previous state)",
+        tostring(reload_err))
 end
 
 return M

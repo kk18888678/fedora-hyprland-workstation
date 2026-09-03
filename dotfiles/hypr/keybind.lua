@@ -3,7 +3,10 @@
 
 local manifest = require("keybindings_manifest")
 local effective_mod = require("effective_bindings")
-local effective = effective_mod.resolve_bindings(manifest)
+local effective, err = effective_mod.resolve_bindings(manifest)
+if not effective then
+    error("Failed to resolve effective keybindings: " .. tostring(err))
+end
 local mainMod = effective.mainMod or manifest.mainMod or "SUPER"
 
 local function register_binding(item)

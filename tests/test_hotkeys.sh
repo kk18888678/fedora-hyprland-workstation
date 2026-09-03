@@ -800,6 +800,139 @@ else
     fail "zero drift check failed: $zero_drift_output"
 fi
 
+section "Strict Override Persistence and Transactional Rollback"
+
+# 1. Truncated JSON is rejected entirely
+printf '{"terminal": "SUPER + RETURN"' > "$sandbox_overrides"
+trunc_ret=0
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || trunc_ret=$?
+if [[ "$trunc_ret" -ne 0 ]]; then
+    pass "truncated JSON override file is rejected entirely"
+else
+    fail "truncated JSON override was accepted"
+fi
+
+# 2. Trailing garbage after JSON object is rejected
+printf '{"terminal": "SUPER + RETURN"} trailing_garbage' > "$sandbox_overrides"
+trail_ret=0
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || trail_ret=$?
+if [[ "$trail_ret" -ne 0 ]]; then
+    pass "trailing garbage after JSON object is rejected"
+else
+    fail "trailing garbage after JSON object was accepted"
+fi
+
+# 3. Malformed value in overrides is rejected
+printf '{"terminal": 123}' > "$sandbox_overrides"
+val_ret=0
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || val_ret=$?
+if [[ "$val_ret" -ne 0 ]]; then
+    pass "malformed number value in overrides is rejected"
+else
+    fail "malformed number value was accepted"
+fi
+
+# 4. Unsupported boolean true in overrides is rejected
+printf '{"terminal": true}' > "$sandbox_overrides"
+true_ret=0
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true_ret=$?
+if [[ "$true_ret" -ne 0 ]]; then
+    pass "unsupported boolean true in overrides is rejected"
+else
+    fail "unsupported boolean true was accepted"
+fi
+
+# 5. Unsupported null in overrides is rejected
+printf '{"terminal": null}' > "$sandbox_overrides"
+null_ret=0
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || null_ret=$?
+if [[ "$null_ret" -ne 0 ]]; then
+    pass "unsupported null in overrides is rejected"
+else
+    fail "unsupported null was accepted"
+fi
+
+# 6. Unknown action ID in overrides is rejected
+printf '{"unknown_action_xyz": "SUPER + A"}' > "$sandbox_overrides"
+unk_ret=0
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || unk_ret=$?
+if [[ "$unk_ret" -ne 0 ]]; then
+    pass "unknown action ID in overrides is rejected"
+else
+    fail "unknown action ID was accepted"
+fi
+
+# 7. Malformed override does not partially apply earlier valid entries
+printf '{\n  "file_manager": "SUPER + ALT + E",\n  "terminal": 123\n}\n' > "$sandbox_overrides"
+partial_ret=0
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || partial_ret=$?
+# Verify via Lua that resolve_bindings returns nil error and does not yield partial table
+partial_lua_ok=0
+partial_check="$(
+    "$lua_bin" - "$ROOT" "$sandbox_overrides" <<'LUA_CHECK'
+package.path = arg[1] .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+local res, err = eff.resolve_bindings(manifest, eff.load_overrides(arg[2], manifest))
+if res == nil and err then
+    print("FAIL_CLOSED_OK")
+end
+LUA_CHECK
+)"
+if [[ "$partial_ret" -ne 0 && "$partial_check" == *"FAIL_CLOSED_OK"* ]]; then
+    pass "malformed override does not partially apply earlier valid entries"
+else
+    fail "malformed override was partially applied"
+fi
+
+# 8. Simulated successful reload commits candidate override
+printf '{\n  "file_manager": "SUPER + ALT + M"\n}\n' > "$sandbox_overrides"
+tx_commit_ret=0
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + N" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_commit_ret=$?
+if [[ "$tx_commit_ret" -eq 0 ]] && grep -q "SUPER + ALT + N" "$sandbox_overrides"; then
+    pass "simulated successful reload commits candidate override"
+else
+    fail "simulated successful reload failed to commit candidate"
+fi
+
+# 9. Simulated reload failure restores exact previous override content
+pre_content="$(cat "$sandbox_overrides")"
+tx_fail_ret=0
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_fail_ret=$?
+post_content="$(cat "$sandbox_overrides")"
+if [[ "$tx_fail_ret" -ne 0 && "$pre_content" == "$post_content" ]]; then
+    pass "simulated reload failure restores exact previous override content"
+else
+    fail "simulated reload failure did not restore previous content: ret=$tx_fail_ret"
+fi
+
+# 10. Simulated reload failure when no previous override existed restores absence
+rm -f "$sandbox_overrides"
+tx_noprev_ret=0
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_noprev_ret=$?
+if [[ "$tx_noprev_ret" -ne 0 && ! -f "$sandbox_overrides" ]]; then
+    pass "simulated reload failure when no previous override existed restores absence"
+else
+    fail "simulated reload failure failed to restore absence of override file: ret=$tx_noprev_ret exists=$(test -f "$sandbox_overrides" && echo 1 || echo 0)"
+fi
+
+# 11. Rollback failure is surfaced as a hard failure
+tx_rb_fail_out="$(HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_SIMULATE_ROLLBACK_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" 2>&1)" || true
+if [[ "$tx_rb_fail_out" == *"FATAL:"* ]]; then
+    pass "rollback failure is surfaced as a hard failure"
+else
+    fail "rollback failure did not surface FATAL error: $tx_rb_fail_out"
+fi
+
+# 12. Reload failure is never swallowed
+tx_swallow_ret=0
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_swallow_ret=$?
+if [[ "$tx_swallow_ret" -ne 0 ]]; then
+    pass "reload failure is never swallowed"
+else
+    fail "reload failure was swallowed (returned 0)"
+fi
+
 rm -rf "$sandbox_dir"
 unset HOTKEYS_OVERRIDES
 unset HOTKEYS_MANIFEST
