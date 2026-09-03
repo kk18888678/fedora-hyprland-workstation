@@ -21,10 +21,12 @@ M.bindings = {
     -- Applications & Launchers
     {
         id = "terminal",
+        editable = true,
         category = "Applications & Launchers",
         key = "SUPER + RETURN",
         action_type = "exec",
         command = M.terminal,
+        command_argv = { M.terminal },
         desktop_id = "kitty.desktop",
         display_key = "SUPER + RETURN",
         description = "Open Terminal (" .. M.terminal .. ")",
@@ -32,10 +34,12 @@ M.bindings = {
     },
     {
         id = "file_manager",
+        editable = true,
         category = "Applications & Launchers",
         key = "SUPER + E",
         action_type = "exec",
         command = M.explorer,
+        command_argv = { M.explorer },
         desktop_id = "thunar.desktop",
         display_key = "SUPER + E",
         description = "Open File Manager (" .. M.explorer .. ")",
@@ -43,10 +47,12 @@ M.bindings = {
     },
     {
         id = "launcher",
+        editable = true,
         category = "Applications & Launchers",
         key = "SUPER + D",
         action_type = "exec",
         command = "noctalia msg panel-toggle launcher",
+        command_argv = { "noctalia", "msg", "panel-toggle", "launcher" },
         desktop_id = "dev.noctalia.Noctalia.desktop",
         display_key = "SUPER + D",
         description = "Open Application Launcher",
@@ -54,10 +60,12 @@ M.bindings = {
     },
     {
         id = "hotkeys",
+        editable = true,
         category = "Applications & Launchers",
         key = "SUPER + K",
         action_type = "exec",
         command = "workstation-hotkeys",
+        command_argv = { "workstation-hotkeys" },
         desktop_id = "workstation-hotkeys.desktop",
         display_key = "SUPER + K",
         description = "Open this Hotkeys Reference",
@@ -65,10 +73,12 @@ M.bindings = {
     },
     {
         id = "desktop_settings",
+        editable = true,
         category = "Applications & Launchers",
         key = "SUPER + T",
         action_type = "exec",
         command = "noctalia msg settings-toggle",
+        command_argv = { "noctalia", "msg", "settings-toggle" },
         desktop_id = "dev.noctalia.Noctalia.desktop",
         display_key = "SUPER + T",
         description = "Open Desktop Settings",
@@ -76,10 +86,12 @@ M.bindings = {
     },
     {
         id = "lock_screen",
+        editable = true,
         category = "Applications & Launchers",
         key = "SUPER + L",
         action_type = "exec",
         command = "noctalia msg screen-lock",
+        command_argv = { "noctalia", "msg", "screen-lock" },
         display_key = "SUPER + L",
         description = "Lock Screen",
         runnable = true,
@@ -88,6 +100,7 @@ M.bindings = {
     -- Window Management
     {
         id = "window_close",
+        editable = true,
         category = "Window Management",
         key = "SUPER + Q",
         action_type = "dispatch_close",
@@ -97,6 +110,7 @@ M.bindings = {
     },
     {
         id = "window_toggle_float",
+        editable = true,
         category = "Window Management",
         key = "SUPER + W",
         action_type = "dispatch_float",
@@ -106,6 +120,7 @@ M.bindings = {
     },
     {
         id = "window_toggle_fullscreen",
+        editable = true,
         category = "Window Management",
         key = "SUPER + F",
         action_type = "dispatch_fullscreen",
@@ -115,6 +130,7 @@ M.bindings = {
     },
     {
         id = "window_cycle_focus",
+        editable = true,
         category = "Window Management",
         key = "ALT + tab",
         action_type = "dispatch_cycle",
@@ -126,6 +142,7 @@ M.bindings = {
     -- Window Focus & Resizing
     {
         id = "focus_left",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + left",
         action_type = "focus",
@@ -136,6 +153,7 @@ M.bindings = {
     },
     {
         id = "focus_right",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + right",
         action_type = "focus",
@@ -146,6 +164,7 @@ M.bindings = {
     },
     {
         id = "focus_up",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + up",
         action_type = "focus",
@@ -156,6 +175,7 @@ M.bindings = {
     },
     {
         id = "focus_down",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + down",
         action_type = "focus",
@@ -166,6 +186,7 @@ M.bindings = {
     },
     {
         id = "resize_window_left",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + SHIFT + left",
         action_type = "exec_resize",
@@ -176,6 +197,7 @@ M.bindings = {
     },
     {
         id = "resize_window_right",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + SHIFT + right",
         action_type = "exec_resize",
@@ -186,6 +208,7 @@ M.bindings = {
     },
     {
         id = "resize_window_up",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + SHIFT + up",
         action_type = "exec_resize",
@@ -196,6 +219,7 @@ M.bindings = {
     },
     {
         id = "resize_window_down",
+        editable = true,
         category = "Window Focus & Resizing",
         key = "SUPER + SHIFT + down",
         action_type = "exec_resize",
@@ -208,6 +232,7 @@ M.bindings = {
     -- Workspaces
     {
         id = "workspaces_switch_1_10",
+        editable = false,
         category = "Workspaces",
         generator = "workspaces_1_10",
         display_key = "SUPER + 1 .. 9, 0",
@@ -216,6 +241,7 @@ M.bindings = {
     },
     {
         id = "workspaces_move_1_10",
+        editable = false,
         category = "Workspaces",
         generator = "workspaces_move_1_10",
         display_key = "SUPER + SHIFT + 1 .. 9, 0",
@@ -224,6 +250,7 @@ M.bindings = {
     },
     {
         id = "workspace_prev",
+        editable = true,
         category = "Workspaces",
         key = "SUPER + CTRL + left",
         action_type = "focus_workspace_relative",
@@ -234,6 +261,7 @@ M.bindings = {
     },
     {
         id = "workspace_next",
+        editable = true,
         category = "Workspaces",
         key = "SUPER + CTRL + right",
         action_type = "focus_workspace_relative",
@@ -244,6 +272,7 @@ M.bindings = {
     },
     {
         id = "workspace_touchpad_swipe",
+        editable = false,
         category = "Workspaces",
         action_type = "gesture",
         display_key = "3-Finger Horizontal Swipe",
@@ -254,6 +283,7 @@ M.bindings = {
     -- Mouse Controls
     {
         id = "mouse_window_drag",
+        editable = false,
         category = "Mouse Controls",
         key = "SUPER + mouse:272",
         action_type = "mouse_drag",
@@ -264,6 +294,7 @@ M.bindings = {
     },
     {
         id = "mouse_window_resize",
+        editable = false,
         category = "Mouse Controls",
         key = "SUPER + mouse:273",
         action_type = "mouse_resize",
@@ -276,60 +307,72 @@ M.bindings = {
     -- Audio & Media Controls
     {
         id = "media_play_pause",
+        editable = true,
         category = "Audio & Media Controls",
         key = "XF86AudioPlay",
         action_type = "exec_locked",
         command = "playerctl play-pause",
+        command_argv = { "playerctl", "play-pause" },
         display_key = "Play / Pause Key",
         description = "Toggle Play / Pause (playerctl)",
         runnable = true,
     },
     {
         id = "media_next_track",
+        editable = true,
         category = "Audio & Media Controls",
         key = "XF86AudioNext",
         action_type = "exec_locked",
         command = "playerctl next",
+        command_argv = { "playerctl", "next" },
         display_key = "Next Track Key",
         description = "Next Track (playerctl)",
         runnable = true,
     },
     {
         id = "media_prev_track",
+        editable = true,
         category = "Audio & Media Controls",
         key = "XF86AudioPrev",
         action_type = "exec_locked",
         command = "playerctl previous",
+        command_argv = { "playerctl", "previous" },
         display_key = "Previous Track Key",
         description = "Previous Track (playerctl)",
         runnable = true,
     },
     {
         id = "volume_raise",
+        editable = true,
         category = "Audio & Media Controls",
         key = "XF86AudioRaiseVolume",
         action_type = "exec_locked",
         command = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
+        command_argv = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+" },
         display_key = "Volume Up Key",
         description = "Adjust Volume Up 5% (wpctl)",
         runnable = true,
     },
     {
         id = "volume_lower",
+        editable = true,
         category = "Audio & Media Controls",
         key = "XF86AudioLowerVolume",
         action_type = "exec_locked",
         command = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+        command_argv = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-" },
         display_key = "Volume Down Key",
         description = "Adjust Volume Down 5% (wpctl)",
         runnable = true,
     },
     {
         id = "volume_mute_toggle",
+        editable = true,
         category = "Audio & Media Controls",
         key = "XF86AudioMute",
         action_type = "exec_locked",
         command = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        command_argv = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle" },
         display_key = "Mute Key",
         description = "Toggle Audio Mute (wpctl)",
         runnable = true,

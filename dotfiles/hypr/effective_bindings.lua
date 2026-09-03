@@ -261,6 +261,18 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
         return false, "Action ID not found in manifest: " .. tostring(action_id)
     end
 
+    if not target_item.editable then
+        local reason = "This action is not editable as an individual keyboard shortcut."
+        if target_item.generator then
+            reason = "Generated aggregate workspace bindings cannot be edited as a single shortcut."
+        elseif target_item.action_type == "gesture" then
+            reason = "Hardware touchpad gestures cannot be edited as keyboard shortcuts."
+        elseif target_item.mouse then
+            reason = "Mouse button bindings cannot be edited through the keyboard hotkey manager."
+        end
+        return false, string.format("Action '%s' is not editable: %s", action_id, reason)
+    end
+
     local overrides = M.load_overrides(overrides_path)
 
     -- Case 1: Reset to default
