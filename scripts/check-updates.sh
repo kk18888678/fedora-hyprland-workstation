@@ -55,13 +55,31 @@ check_github_release() {
     local discovery_status=""
     discover_github_release_candidates "$repo_slug" candidate_list discovery_status
 
-    if [[ "$discovery_status" == "fetch_error" ]]; then
-        printf '  [WARN] Could not retrieve releases from GitHub for %s.\n' "$repo_slug"
+    if [[ "$discovery_status" != "complete" ]]; then
+        printf '  Current pinned : %s\n' "$current_version"
+        local status_desc="$discovery_status"
+        case "$discovery_status" in
+            bound_reached) status_desc="pagination bound reached" ;;
+            fetch_error) status_desc="fetch failed" ;;
+            parser_unavailable) status_desc="JSON parser (jq) unavailable" ;;
+            parse_error) status_desc="response invalid" ;;
+        esac
+        if [[ "${#candidate_list[@]}" -gt 0 ]]; then
+            local latest_raw="${candidate_list[0]}"
+            local raw_tag=""
+            local raw_meta="false"
+            parse_release_candidate "$latest_raw" raw_tag raw_meta
+            printf '  Upstream latest: %s (DISCOVERY INCOMPLETE [%s] - cannot determine best release)\n' "$raw_tag" "$status_desc"
+        else
+            printf '  Upstream latest: unknown (DISCOVERY INCOMPLETE [%s])\n' "$status_desc"
+        fi
+        printf '  Status         : DISCOVERY INCOMPLETE\n\n'
         return 0
     fi
 
     if [[ "${#candidate_list[@]}" -eq 0 ]]; then
-        printf '  [INFO] No releases found.\n\n'
+        printf '  Current pinned : %s\n' "$current_version"
+        printf '  [INFO] No releases found upstream.\n\n'
         return 0
     fi
 
@@ -89,13 +107,8 @@ check_github_release() {
         local raw_class
         raw_class="$(classify_release_tag "$raw_tag" "$raw_meta")"
         printf '  Current pinned : %s\n' "$current_version"
-        if [[ "$discovery_status" != "complete" ]]; then
-            printf '  Upstream latest: %s (DISCOVERY INCOMPLETE [%s] - cannot verify stable precedence)\n' "$raw_tag" "$discovery_status"
-            printf '  Status         : DISCOVERY INCOMPLETE\n\n'
-        else
-            printf '  Upstream latest: %s (PRERELEASE [%s] - rejected by policy)\n' "$raw_tag" "$raw_class"
-            printf '  Status         : PRERELEASE IGNORED\n\n'
-        fi
+        printf '  Upstream latest: %s (PRERELEASE [%s] - rejected by policy)\n' "$raw_tag" "$raw_class"
+        printf '  Status         : PRERELEASE IGNORED\n\n'
     fi
 }
 

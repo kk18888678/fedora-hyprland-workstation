@@ -705,3 +705,148 @@ else
     fail "page retrieval error did not fail closed: st=$st_p5 ret=$sel_p5_ret out=$sel_p5_out"
 fi
 
+section "Strict JSON Parser Contract and Fail-Closed Best-Release Semantics"
+
+# 13. JQ unavailable sets parser_unavailable status and extracts zero candidates
+cand_no_jq=()
+st_no_jq=""
+JQ_CMD="definitely_nonexistent_jq_binary" discover_github_release_candidates "mock/repo" cand_no_jq st_no_jq mock_fetcher_stable_first
+if [[ "$st_no_jq" == "parser_unavailable" && "${#cand_no_jq[@]}" -eq 0 ]]; then
+    pass "parser unavailability sets status parser_unavailable without attempting regex fallback"
+else
+    fail "parser unavailability failed: st=$st_no_jq count=${#cand_no_jq[@]}"
+fi
+
+# 14. Malformed JSON sets parse_error
+mock_fetcher_malformed_json() {
+    echo "this is not json"
+}
+cand_bad_json=()
+st_bad_json=""
+discover_github_release_candidates "mock/repo" cand_bad_json st_bad_json mock_fetcher_malformed_json
+if [[ "$st_bad_json" == "parse_error" && "${#cand_bad_json[@]}" -eq 0 ]]; then
+    pass "malformed JSON API response sets parse_error and extracts zero candidates"
+else
+    fail "malformed JSON did not set parse_error: st=$st_bad_json count=${#cand_bad_json[@]}"
+fi
+
+# 15. Valid JSON object instead of releases array sets parse_error (e.g. rate limit error)
+mock_fetcher_rate_limit() {
+    echo '{"message": "API rate limit exceeded"}'
+}
+cand_rate_limit=()
+st_rate_limit=""
+discover_github_release_candidates "mock/repo" cand_rate_limit st_rate_limit mock_fetcher_rate_limit
+if [[ "$st_rate_limit" == "parse_error" && "${#cand_rate_limit[@]}" -eq 0 ]]; then
+    pass "API rate limit or error object sets parse_error rather than false complete discovery"
+else
+    fail "API rate limit object was not rejected as parse_error: st=$st_rate_limit count=${#cand_rate_limit[@]}"
+fi
+
+# 16. Valid empty array [] concludes complete discovery
+mock_fetcher_empty_array() {
+    echo "[]"
+}
+cand_empty_arr=()
+st_empty_arr=""
+discover_github_release_candidates "mock/repo" cand_empty_arr st_empty_arr mock_fetcher_empty_array
+if [[ "$st_empty_arr" == "complete" && "${#cand_empty_arr[@]}" -eq 0 ]]; then
+    pass "valid empty JSON array correctly concludes complete discovery with zero candidates"
+else
+    fail "valid empty array did not conclude complete: st=$st_empty_arr count=${#cand_empty_arr[@]}"
+fi
+
+# 17. Compact one-line JSON array extracts exactly all candidates with correct pairing
+mock_fetcher_compact_json() {
+    if [[ "$2" -eq 1 ]]; then
+        echo '[{"tag_name":"v2.0.0-beta","prerelease":true},{"tag_name":"v1.9.0","prerelease":false}]'
+    else
+        echo "[]"
+    fi
+}
+cand_compact=()
+st_compact=""
+discover_github_release_candidates "mock/repo" cand_compact st_compact mock_fetcher_compact_json
+if [[ "$st_compact" == "complete" && "${#cand_compact[@]}" -eq 2 && \
+      "${cand_compact[0]}" == "v2.0.0-beta|true" && "${cand_compact[1]}" == "v1.9.0|false" ]]; then
+    pass "compact one-line JSON array extracts exactly all candidates with correct tag and metadata pairing"
+else
+    fail "compact JSON parsing failed: st=$st_compact count=${#cand_compact[@]} candidates=${cand_compact[*]}"
+fi
+
+# 18. Metadata preservation through complete discovery -> selection pipeline
+mock_fetcher_unknown_pre() {
+    if [[ "$2" -eq 1 ]]; then
+        echo '[{"tag_name":"v2.0.0","prerelease":true}]'
+    else
+        echo "[]"
+    fi
+}
+cand_unk_pre=()
+st_unk_pre=""
+discover_github_release_candidates "mock/repo" cand_unk_pre st_unk_pre mock_fetcher_unknown_pre
+sel_unk_ret=0
+sel_unk_out="$(select_eligible_release --discovery-status "$st_unk_pre" "app_no_exception" "${cand_unk_pre[@]}" 2>&1)" || sel_unk_ret=$?
+if [[ "$sel_unk_ret" -ne 0 && "${cand_unk_pre[0]}" == "v2.0.0|true" ]]; then
+    pass "authoritative prerelease=true metadata preserves unknown_prerelease through complete pipeline"
+else
+    fail "metadata preservation pipeline failed: ret=$sel_unk_ret out=$sel_unk_out"
+fi
+
+# 19. bound_reached with existing stable candidate FAILS CLOSED (never selects best release)
+mock_fetcher_bound_with_stable() {
+    local slug="$1" page="$2" per_page="$3"
+    printf '['
+    printf '{"tag_name": "v1.9.0", "prerelease": false}'
+    for i in $(seq 1 29); do
+        printf ',{"tag_name": "v1.8.%d-beta", "prerelease": true}' "$i"
+    done
+    printf ']\n'
+}
+cand_bws=()
+st_bws=""
+RELEASE_DISCOVERY_MAX_PAGES=1 discover_github_release_candidates "mock/repo" cand_bws st_bws mock_fetcher_bound_with_stable
+sel_bws_ret=0
+sel_bws_out="$(select_eligible_release --discovery-status "$st_bws" "test_app" "${cand_bws[@]}" 2>&1)" || sel_bws_ret=$?
+if [[ "$st_bws" == "bound_reached" && "$sel_bws_ret" -ne 0 && "$sel_bws_out" == *"Release discovery was incomplete"* ]]; then
+    pass "bound_reached with existing stable candidate fails closed and refuses best-release selection"
+else
+    fail "bound_reached with stable candidate did not fail closed: st=$st_bws ret=$sel_bws_ret out=$sel_bws_out"
+fi
+
+# 20. fetch_error with existing stable candidate FAILS CLOSED
+sel_fes_ret=0
+sel_fes_out="$(select_eligible_release --discovery-status "fetch_error" "test_app" "v1.9.0|false" 2>&1)" || sel_fes_ret=$?
+if [[ "$sel_fes_ret" -ne 0 && "$sel_fes_out" == *"Release discovery was incomplete"* ]]; then
+    pass "fetch_error with existing stable candidate fails closed and refuses best-release selection"
+else
+    fail "fetch_error with stable candidate did not fail closed: ret=$sel_fes_ret out=$sel_fes_out"
+fi
+
+# 21. parser_unavailable with existing stable candidate FAILS CLOSED
+sel_pua_ret=0
+sel_pua_out="$(select_eligible_release --discovery-status "parser_unavailable" "test_app" "v1.9.0|false" 2>&1)" || sel_pua_ret=$?
+if [[ "$sel_pua_ret" -ne 0 && "$sel_pua_out" == *"Release discovery was incomplete"* ]]; then
+    pass "parser_unavailable with existing stable candidate fails closed and refuses best-release selection"
+else
+    fail "parser_unavailable with stable candidate did not fail closed: ret=$sel_pua_ret out=$sel_pua_out"
+fi
+
+# 22. parse_error with existing stable candidate FAILS CLOSED
+sel_per_ret=0
+sel_per_out="$(select_eligible_release --discovery-status "parse_error" "test_app" "v1.9.0|false" 2>&1)" || sel_per_ret=$?
+if [[ "$sel_per_out" == *"Release discovery was incomplete"* && "$sel_per_ret" -ne 0 ]]; then
+    pass "parse_error with existing stable candidate fails closed and refuses best-release selection"
+else
+    fail "parse_error with stable candidate did not fail closed: ret=$sel_per_ret out=$sel_per_out"
+fi
+
+# 23. complete discovery with stable candidates successfully selects newest stable
+sel_comp_out="$(select_eligible_release --discovery-status "complete" "test_app" "v1.0.0|false" "v1.9.0|false")"
+if [[ "$sel_comp_out" == "v1.9.0" ]]; then
+    pass "complete discovery with stable candidates successfully selects newest stable"
+else
+    fail "complete discovery stable selection failed: out=$sel_comp_out"
+fi
+
+

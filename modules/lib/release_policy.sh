@@ -402,9 +402,10 @@ evaluate_release_eligibility() {
 }
 
 # Select the best eligible release from candidate list:
-# 1. Any policy-compliant stable release ALWAYS takes precedence over prerelease.
-# 2. If no stable release exists, and discovery is complete, consult exception registry.
-# 3. If discovery is incomplete and no stable release was found, fail closed (stable > allowed prerelease).
+# 1. Discovery completeness MUST be established BEFORE returning any best upstream release.
+#    Incomplete discovery (bound_reached, fetch_error, parse_error, parser_unavailable) fails closed.
+# 2. Any policy-compliant stable release ALWAYS takes precedence over prerelease.
+# 3. If no stable release exists and discovery is complete, consult exception registry.
 # 4. If allowed prerelease exists, select newest allowed prerelease.
 # 5. Otherwise reject with descriptive error on stderr.
 select_eligible_release() {
@@ -424,6 +425,13 @@ select_eligible_release() {
     local app_id="$1"
     shift
     local candidates=("$@")
+
+    # 1. Validate discovery status: incomplete candidate universe must fail closed
+    # Incomplete discovery cannot guarantee that a newer stable or release does not exist.
+    if [[ "$discovery_status" != "complete" ]]; then
+        printf 'ERROR: Release discovery was incomplete (%s) for %s; cannot determine best release\n' "$discovery_status" "$app_id" >&2
+        return 1
+    fi
 
     local stable_candidates=()
     local prerelease_candidates=()
@@ -445,7 +453,7 @@ select_eligible_release() {
         fi
     done
 
-    # 1. Stable always takes precedence if any stable candidate exists
+    # 2. Stable always takes precedence if any stable candidate exists
     if [[ "${#stable_candidates[@]}" -gt 0 ]]; then
         local selected
         selected="$(printf '%s\n' "${stable_candidates[@]}" | sort -V | tail -n 1)"
@@ -455,14 +463,6 @@ select_eligible_release() {
 
     if [[ "${#prerelease_candidates[@]}" -eq 0 ]]; then
         printf 'ERROR: No candidate releases provided for %s\n' "$app_id" >&2
-        return 1
-    fi
-
-    # 2. No stable candidate found.
-    # If release discovery was incomplete, we cannot prove that no stable release exists.
-    # Fail closed to preserve the invariant: stable > allowed prerelease.
-    if [[ "$discovery_status" != "complete" ]]; then
-        printf 'ERROR: Release discovery was incomplete (%s) for %s; cannot determine if stable release exists\n' "$discovery_status" "$app_id" >&2
         return 1
     fi
 
@@ -547,6 +547,13 @@ discover_github_release_candidates() {
     local all_candidates=()
     local discovery_status="complete"
 
+    local jq_bin="${JQ_CMD:-jq}"
+    if ! command -v "$jq_bin" >/dev/null 2>&1; then
+        eval "$_out_candidates_var=()"
+        printf -v "$_out_status_var" '%s' "parser_unavailable"
+        return 0
+    fi
+
     local page=1
     while [[ "$page" -le "$max_pages" ]]; do
         local page_json=""
@@ -560,37 +567,30 @@ discover_github_release_candidates() {
             break
         fi
 
+        local jq_out=""
+        if ! jq_out="$(printf '%s' "$page_json" | "$jq_bin" -r '
+            if type != "array" then
+                error("API response is not an array")
+            else
+                .[] | "\(.tag_name)\t\(.prerelease)"
+            end' 2>/dev/null)"; then
+            discovery_status="parse_error"
+            break
+        fi
+
         local page_candidates=()
-        if command -v jq >/dev/null 2>&1; then
+        if [[ -n "$jq_out" ]]; then
             while IFS=$'\t' read -r tag is_pre; do
                 if [[ -n "$tag" && "$tag" != "null" ]]; then
                     [[ "$is_pre" != "true" ]] && is_pre="false"
                     page_candidates+=("$(format_release_candidate "$tag" "$is_pre")")
                 fi
-            done < <(printf '%s' "$page_json" | jq -r '.[] | "\(.tag_name)\t\(.prerelease)"' 2>/dev/null || true)
-        else
-            local cur_tag=""
-            local cur_pre="false"
-            while IFS= read -r line; do
-                if [[ "$line" =~ \"tag_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
-                    cur_tag="${BASH_REMATCH[1]}"
-                fi
-                if [[ "$line" =~ \"prerelease\"[[:space:]]*:[[:space:]]*(true|false) ]]; then
-                    cur_pre="${BASH_REMATCH[1]}"
-                fi
-                if [[ "$line" =~ \} ]]; then
-                    if [[ -n "$cur_tag" ]]; then
-                        page_candidates+=("$(format_release_candidate "$cur_tag" "$cur_pre")")
-                        cur_tag=""
-                        cur_pre="false"
-                    fi
-                fi
-            done <<< "$page_json"
+            done <<< "$jq_out"
         fi
 
         local count="${#page_candidates[@]}"
         if [[ "$count" -eq 0 ]]; then
-            # Empty page indicates end of releases reached
+            # Valid empty array [] indicates end of releases reached
             discovery_status="complete"
             break
         fi
