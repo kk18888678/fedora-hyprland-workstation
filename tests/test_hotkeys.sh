@@ -1137,25 +1137,32 @@ else
     fail "workstation-hotkeys ordering mismatch: ${top_action_ids[*]:0:7}"
 fi
 
-# 2. Status bar preview generation
-p_run="$("$ROOT/bin/workstation-hotkeys" preview "terminal" "true" "true")"
-p_ctx="$("$ROOT/bin/workstation-hotkeys" preview "window_close" "false" "true")"
-p_ro="$("$ROOT/bin/workstation-hotkeys" preview "workspaces_switch_1_10" "false" "false")"
+# 2. Context-sensitive status bar preview generation
+p_run="$("$ROOT/bin/workstation-hotkeys" preview "terminal" "true" "true" "SUPER + RETURN")"
+p_ctx="$("$ROOT/bin/workstation-hotkeys" preview "window_close" "false" "true" "SUPER + Q")"
+p_unset="$("$ROOT/bin/workstation-hotkeys" preview "terminal" "true" "true" "None (Unbound)")"
+p_ro="$("$ROOT/bin/workstation-hotkeys" preview "workspaces_switch_1_10" "false" "false" "SUPER + 1")"
 
-if [[ "$p_run" == *"Run"* && "$p_run" == *"Edit"* && "$p_run" == *"App Shortcut"* ]]; then
-    pass "status bar preview displays runnable, editable, and app assignment controls"
+if [[ "$p_run" == *"↵ Run"* && "$p_run" == *"Alt+S Set"* && "$p_run" == *"Alt+U Unset"* && "$p_run" == *"Esc Close"* ]]; then
+    pass "status bar preview displays [↵ Run    Alt+S Set    Alt+U Unset    Esc Close] for runnable+settable"
 else
     fail "runnable status bar preview failed: $p_run"
 fi
 
-if [[ "$p_ctx" == *"[Context Action]"* && "$p_ctx" != *"↵ Run"* && "$p_ctx" == *"Edit"* ]]; then
-    pass "status bar preview suppresses Run for non-runnable context actions"
+if [[ "$p_ctx" == *"Alt+S Set"* && "$p_ctx" == *"Alt+U Unset"* && "$p_ctx" == *"Esc Close"* && "$p_ctx" != *"↵ Run"* ]]; then
+    pass "status bar preview displays [Alt+S Set    Alt+U Unset    Esc Close] for non-runnable context action"
 else
     fail "context status bar preview failed: $p_ctx"
 fi
 
-if [[ "$p_ro" == *"[Read-Only System Shortcut]"* && "$p_ro" != *"Edit"* ]]; then
-    pass "status bar preview suppresses Edit for read-only system actions"
+if [[ "$p_unset" == *"Alt+S Set"* && "$p_unset" == *"Esc Close"* && "$p_unset" != *"Alt+U Unset"* && "$p_unset" != *"↵ Run"* ]]; then
+    pass "status bar preview displays [Alt+S Set    Esc Close] for unset action"
+else
+    fail "unset status bar preview failed: $p_unset"
+fi
+
+if [[ "$p_ro" == *"Esc Close"* && "$p_ro" != *"Alt+S Set"* && "$p_ro" != *"Alt+U Unset"* && "$p_ro" != *"↵ Run"* ]]; then
+    pass "status bar preview displays [Esc Close] for read-only system actions"
 else
     fail "read-only status bar preview failed: $p_ro"
 fi
@@ -1175,23 +1182,48 @@ else
 fi
 
 app_argv="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=run_argv HOTKEYS_TEST_ID="app:chatgpt.desktop" "$ROOT/bin/workstation-hotkeys")"
-if [[ "$app_argv" == $'gtk-launch\nchatgpt.desktop' ]]; then
-    pass "application shortcut produces structured argv [gtk-launch chatgpt.desktop]"
+if [[ "$app_argv" == $'gtk-launch\n--\nchatgpt.desktop' ]]; then
+    pass "application shortcut produces structured argv [gtk-launch -- chatgpt.desktop]"
 else
     fail "unexpected app shortcut argv: $app_argv"
 fi
 
-# Conflict detection against assigned application shortcut
-conflict_app_exit=0
-conflict_app_out="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=assign_app HOTKEYS_TEST_ID="brave-origin.desktop" HOTKEYS_TEST_INPUT="SUPER + SHIFT + C" "$ROOT/bin/workstation-hotkeys" 2>&1)" || conflict_app_exit=$?
-
-if [[ "$conflict_app_exit" -ne 0 && "$conflict_app_out" == *"Conflict"* && "$conflict_app_out" == *"chatgpt.desktop"* ]]; then
-    pass "conflict detection catches collisions against assigned application shortcuts"
+# Rejection of leading dash option injection
+leaddash_exit=0
+leaddash_out="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=assign_app HOTKEYS_TEST_ID="-option.desktop" HOTKEYS_TEST_INPUT="SUPER + SHIFT + Z" "$ROOT/bin/workstation-hotkeys" 2>&1)" || leaddash_exit=$?
+if [[ "$leaddash_exit" -ne 0 && "$leaddash_out" == *"Invalid desktop ID"* ]]; then
+    pass "assign_application_shortcut rejects leading dash desktop ID injection"
 else
-    fail "app collision check failed: code=$conflict_app_exit out=$conflict_app_out"
+    fail "leading dash injection was not rejected: code=$leaddash_exit out=$leaddash_out"
 fi
 
-# 4. Physical key capture mock mode
+# Conflict detection against assigned application shortcut and modifier permutations
+perm_exit=0
+perm_out="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=assign_app HOTKEYS_TEST_ID="brave-origin.desktop" HOTKEYS_TEST_INPUT="SHIFT + SUPER + C" "$ROOT/bin/workstation-hotkeys" 2>&1)" || perm_exit=$?
+
+if [[ "$perm_exit" -ne 0 && "$perm_out" == *"Conflict"* && "$perm_out" == *"chatgpt.desktop"* ]]; then
+    pass "conflict detection catches collisions across modifier permutations (SHIFT + SUPER + C vs SUPER + SHIFT + C)"
+else
+    fail "app collision check failed: code=$perm_exit out=$perm_out"
+fi
+
+# 4. Display row format: ONE ROW = HOTKEY + APP/ACTION & concealed search metadata
+first_display_row="$(head -n 1 <<< "$ordered_list" | cut -f 2)"
+first_meta_col="$(head -n 1 <<< "$ordered_list" | cut -f 10)"
+if [[ "$first_display_row" =~ ^[[:space:]]+SUPER[[:space:]]\+[[:space:]]D[[:space:]]+App[[:space:]]Launcher$ ]] &&
+   [[ "$first_display_row" != *"["* && "$first_display_row" != *"launcher"* ]]; then
+    pass "workstation-hotkeys formats display row strictly as HOTKEY + APP/ACTION"
+else
+    fail "display row violates one-row format: $first_display_row"
+fi
+
+if [[ "$first_meta_col" == *$'\e[8m'* && "$first_meta_col" == *"launcher"* && "$first_meta_col" == *"Applications"* ]]; then
+    pass "workstation-hotkeys conceals search metadata (action ID, category) in separate field for fzf"
+else
+    fail "search metadata not properly concealed: $first_meta_col"
+fi
+
+# 5. Physical key capture mock mode
 mock_cap_out="$(HOTKEYS_CAPTURE_MOCK_INPUT="SUPER + SHIFT + T" "$ROOT/bin/workstation-hotkey-capture")"
 if [[ "$mock_cap_out" == "KEY:SUPER + SHIFT + T" ]]; then
     pass "workstation-hotkey-capture returns formatted key combination in test capture mode"
@@ -1212,6 +1244,37 @@ if [[ "$mock_cancel_code" -eq 1 && "$mock_cancel_out" == "CANCEL" ]]; then
     pass "workstation-hotkey-capture handles cancellation safely with non-zero exit code"
 else
     fail "cancel capture mock failed: code=$mock_cancel_code out=$mock_cancel_out"
+fi
+
+# 6. Capture stdout purity and fail-closed non-interactive behavior
+clean_cap_out="$(python3 -c '
+import subprocess
+out = subprocess.check_output(["'"$ROOT/bin/workstation-hotkey-capture"'"], stdin=subprocess.DEVNULL)
+assert out == b"MANUAL\n", f"Expected b\"MANUAL\\n\", got {out}"
+print("STDOUT_CLEAN")
+')"
+if [[ "$clean_cap_out" == "STDOUT_CLEAN" ]]; then
+    pass "workstation-hotkey-capture emits clean stdout with zero escape sequences in non-interactive mode"
+else
+    fail "capture stdout polluted: $clean_cap_out"
+fi
+
+# 7. Kitty protocol parser with shifted sub-arguments and bare key fail-closed
+parser_test_out="$(python3 -c '
+with open("'"$ROOT/bin/workstation-hotkey-capture"'") as f:
+    code = f.read()
+ns = {}
+exec(code, ns)
+ok1, res1 = ns["parse_kitty_sequence"]("\x1b[116:84;9u")
+assert ok1 and res1 == "SUPER + T", f"Failed shifted: {res1}"
+ok2, res2 = ns["parse_kitty_sequence"]("\x1b[116;16u")
+assert ok2 and res2 == "SUPER + CTRL + ALT + SHIFT + T", f"Failed all mods: {res2}"
+print("PARSER_OK")
+')"
+if [[ "$parser_test_out" == "PARSER_OK" ]]; then
+    pass "Kitty protocol parser handles shifted key sub-arguments and canonical modifier sorting"
+else
+    fail "Kitty protocol parser failed: $parser_test_out"
 fi
 
 rm -rf "$order_sandbox"

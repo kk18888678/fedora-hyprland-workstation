@@ -30,7 +30,7 @@ M.bindings = {
         command_argv = { "noctalia", "msg", "panel-toggle", "launcher" },
         desktop_id = "dev.noctalia.Noctalia.desktop",
         display_key = "SUPER + D",
-        description = "Open Application Launcher",
+        description = "App Launcher",
         runnable = true,
     },
     {
@@ -44,7 +44,7 @@ M.bindings = {
         command_argv = { M.terminal },
         desktop_id = "kitty.desktop",
         display_key = "SUPER + RETURN",
-        description = "Open Terminal (" .. M.terminal .. ")",
+        description = "Terminal",
         runnable = true,
     },
     {
@@ -58,7 +58,7 @@ M.bindings = {
         command_argv = { M.explorer },
         desktop_id = "thunar.desktop",
         display_key = "SUPER + E",
-        description = "Open File Manager (" .. M.explorer .. ")",
+        description = "Files",
         runnable = true,
     },
     {
@@ -72,7 +72,7 @@ M.bindings = {
         command_argv = { "workstation-hotkeys" },
         desktop_id = "workstation-hotkeys.desktop",
         display_key = "SUPER + K",
-        description = "Open this Hotkeys Reference",
+        description = "Hotkeys",
         runnable = true,
     },
     {
@@ -86,7 +86,7 @@ M.bindings = {
         command_argv = { "noctalia", "msg", "settings-toggle" },
         desktop_id = "dev.noctalia.Noctalia.desktop",
         display_key = "SUPER + T",
-        description = "Open Desktop Settings",
+        description = "Desktop Settings",
         runnable = true,
     },
     {
@@ -112,7 +112,7 @@ M.bindings = {
         key = "SUPER + Q",
         action_type = "dispatch_close",
         display_key = "SUPER + Q",
-        description = "Close Active Window",
+        description = "Close Window",
         runnable = false,
     },
     {
@@ -123,7 +123,7 @@ M.bindings = {
         key = "SUPER + F",
         action_type = "dispatch_fullscreen",
         display_key = "SUPER + F",
-        description = "Toggle Fullscreen Window",
+        description = "Fullscreen",
         runnable = false,
     },
     {
@@ -134,7 +134,7 @@ M.bindings = {
         key = "SUPER + W",
         action_type = "dispatch_float",
         display_key = "SUPER + W",
-        description = "Toggle Floating Window",
+        description = "Toggle Floating",
         runnable = false,
     },
     {
@@ -157,7 +157,7 @@ M.bindings = {
         category = "Workspaces",
         generator = "workspaces_1_10",
         display_key = "SUPER + 1 .. 9, 0",
-        description = "Switch to Workspace 1–10",
+        description = "Workspace 1–10",
         runnable = false,
     },
     {
@@ -201,7 +201,7 @@ M.bindings = {
         category = "Workspaces",
         action_type = "gesture",
         display_key = "3-Finger Horizontal Swipe",
-        description = "Switch Workspaces (Touchpad)",
+        description = "Swipe Workspaces (Touchpad)",
         runnable = false,
     },
 
@@ -215,7 +215,7 @@ M.bindings = {
         action_type = "focus",
         direction = "left",
         display_key = "SUPER + Left",
-        description = "Focus Left Window",
+        description = "Focus Window Left",
         runnable = false,
     },
     {
@@ -227,7 +227,7 @@ M.bindings = {
         action_type = "focus",
         direction = "right",
         display_key = "SUPER + Right",
-        description = "Focus Right Window",
+        description = "Focus Window Right",
         runnable = false,
     },
     {
@@ -239,7 +239,7 @@ M.bindings = {
         action_type = "focus",
         direction = "up",
         display_key = "SUPER + Up",
-        description = "Focus Up Window",
+        description = "Focus Window Up",
         runnable = false,
     },
     {
@@ -251,7 +251,7 @@ M.bindings = {
         action_type = "focus",
         direction = "down",
         display_key = "SUPER + Down",
-        description = "Focus Down Window",
+        description = "Focus Window Down",
         runnable = false,
     },
     {
@@ -263,7 +263,7 @@ M.bindings = {
         action_type = "exec_resize",
         resize_args = "-30 0",
         display_key = "SUPER + SHIFT + Left",
-        description = "Resize Active Window Left (-30px)",
+        description = "Resize Window Left",
         runnable = false,
     },
     {
@@ -275,7 +275,7 @@ M.bindings = {
         action_type = "exec_resize",
         resize_args = "30 0",
         display_key = "SUPER + SHIFT + Right",
-        description = "Resize Active Window Right (+30px)",
+        description = "Resize Window Right",
         runnable = false,
     },
     {
@@ -287,7 +287,7 @@ M.bindings = {
         action_type = "exec_resize",
         resize_args = "0 -30",
         display_key = "SUPER + SHIFT + Up",
-        description = "Resize Active Window Up (-30px)",
+        description = "Resize Window Up",
         runnable = false,
     },
     {
@@ -299,7 +299,7 @@ M.bindings = {
         action_type = "exec_resize",
         resize_args = "0 30",
         display_key = "SUPER + SHIFT + Down",
-        description = "Resize Active Window Down (+30px)",
+        description = "Resize Window Down",
         runnable = false,
     },
 
@@ -314,7 +314,7 @@ M.bindings = {
         command = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
         command_argv = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+" },
         display_key = "Volume Up Key",
-        description = "Adjust Volume Up 5% (wpctl)",
+        description = "Volume Up",
         runnable = true,
     },
     {
@@ -327,7 +327,7 @@ M.bindings = {
         command = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
         command_argv = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-" },
         display_key = "Volume Down Key",
-        description = "Adjust Volume Down 5% (wpctl)",
+        description = "Volume Down",
         runnable = true,
     },
     {
@@ -340,7 +340,7 @@ M.bindings = {
         command = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
         command_argv = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle" },
         display_key = "Mute Key",
-        description = "Toggle Audio Mute (wpctl)",
+        description = "Toggle Mute",
         runnable = true,
     },
     {
@@ -353,7 +353,7 @@ M.bindings = {
         command = "playerctl play-pause",
         command_argv = { "playerctl", "play-pause" },
         display_key = "Play / Pause Key",
-        description = "Toggle Play / Pause (playerctl)",
+        description = "Play / Pause",
         runnable = true,
     },
     {
@@ -366,7 +366,7 @@ M.bindings = {
         command = "playerctl next",
         command_argv = { "playerctl", "next" },
         display_key = "Next Track Key",
-        description = "Next Track (playerctl)",
+        description = "Next Track",
         runnable = true,
     },
     {
@@ -379,7 +379,7 @@ M.bindings = {
         command = "playerctl previous",
         command_argv = { "playerctl", "previous" },
         display_key = "Previous Track Key",
-        description = "Previous Track (playerctl)",
+        description = "Previous Track",
         runnable = true,
     },
 
@@ -393,7 +393,7 @@ M.bindings = {
         action_type = "mouse_drag",
         mouse = true,
         display_key = "SUPER + Left Mouse Drag",
-        description = "Move Floating Window",
+        description = "Move Window (Mouse)",
         runnable = false,
     },
     {
@@ -405,7 +405,7 @@ M.bindings = {
         action_type = "mouse_resize",
         mouse = true,
         display_key = "SUPER + Right Mouse Drag",
-        description = "Resize Floating Window",
+        description = "Resize Window (Mouse)",
         runnable = false,
     },
 }

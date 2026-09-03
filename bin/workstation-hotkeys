@@ -6,16 +6,25 @@ if [[ "${1:-}" == "preview" ]]; then
     sel_id="${2:-}"
     sel_runnable="${3:-false}"
     sel_editable="${4:-false}"
+    sel_key="${5:-}"
 
-    if [[ "$sel_editable" == "true" && "$sel_runnable" == "true" ]]; then
-        printf '\033[1;32m%s\033[0m   \033[1;36m%s\033[0m   \033[1;33m%s\033[0m   \033[1;35m%s\033[0m   \033[1;34m%s\033[0m   \033[2m%s\033[0m\n' \
-            "↵ Run" "Ctrl+E Edit" "Ctrl+U Unset" "Ctrl+R Reset" "Ctrl+A App Shortcut" "Esc Quit"
-    elif [[ "$sel_editable" == "true" ]]; then
-        printf '\033[2;37m%s\033[0m   \033[1;36m%s\033[0m   \033[1;33m%s\033[0m   \033[1;35m%s\033[0m   \033[1;34m%s\033[0m   \033[2m%s\033[0m\n' \
-            "[Context Action]" "Ctrl+E Edit" "Ctrl+U Unset" "Ctrl+R Reset" "Ctrl+A App Shortcut" "Esc Quit"
+    # Target UX vocabulary:
+    # ↵ Run    Alt+S Set    Alt+U Unset    Esc Close
+    if [[ "$sel_editable" != "true" ]]; then
+        # Truly immutable/read-only system action
+        printf '  \033[2m%s\033[0m\n' "Esc Close"
+    elif [[ "$sel_key" == "None (Unbound)" || "$sel_key" == "none" || -z "$sel_key" ]]; then
+        # Settable, but currently unset
+        printf '  \033[1;36m%s\033[0m    \033[2m%s\033[0m\n' \
+            "Alt+S Set" "Esc Close"
+    elif [[ "$sel_runnable" == "true" ]]; then
+        # Settable, bound, runnable
+        printf '  \033[1;32m%s\033[0m    \033[1;36m%s\033[0m    \033[1;33m%s\033[0m    \033[2m%s\033[0m\n' \
+            "↵ Run" "Alt+S Set" "Alt+U Unset" "Esc Close"
     else
-        printf '\033[2;37m%s\033[0m   \033[1;34m%s\033[0m   \033[2m%s\033[0m\n' \
-            "[Read-Only System Shortcut]" "Ctrl+A App Shortcut" "Esc Quit"
+        # Settable, bound, non-runnable (context action)
+        printf '  \033[1;36m%s\033[0m    \033[1;33m%s\033[0m    \033[2m%s\033[0m\n' \
+            "Alt+S Set" "Alt+U Unset" "Esc Close"
     fi
     exit 0
 fi
@@ -157,13 +166,15 @@ for _, item in ipairs(effective.bindings or {}) do
     local cmd = item.command or ""
     local act = item.action_type or ""
 
-    -- Display column formatted for clean alignment in fzf
-    local pad = 32 - #key
-    if pad < 2 then pad = 2 end
-    local display_col = string.format("%s%s%-36s [%s]", key, string.rep(" ", pad), desc, cat)
+    -- Clean, large two-column format: HOTKEY + APP / ACTION
+    local display_col = string.format("  %-28s  %s", key, desc)
 
-    print(string.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
-        id, display_col, key, desc, cat, runnable, editable, cmd, act))
+    -- Searchable metadata concealed with ANSI escape code \27[8m so action ID, category,
+    -- and underlying commands participate in fuzzy search without cluttering the displayed row.
+    local search_meta = string.format("\27[8m %s %s %s\27[0m", id, cat, cmd)
+
+    print(string.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+        id, display_col, key, desc, cat, runnable, editable, cmd, act, search_meta))
 end
 LUA_SCRIPT
 }
@@ -192,7 +203,6 @@ end
 LUA_SCRIPT
 }
 
-# Execute action safely using structured argv
 # Execute action safely using structured argv and process detachment
 execute_action() {
     local action_id="$1"
@@ -209,14 +219,35 @@ execute_action() {
         return 1
     fi
 
-    # Direct background execution of structured argv detached completely from
-    # the terminal emulator PTY and process group
-    if command -v setsid >/dev/null 2>&1; then
-        setsid -f "${cmd_argv[@]}" </dev/null >/dev/null 2>&1
-    else
-        nohup "${cmd_argv[@]}" </dev/null >/dev/null 2>&1 &
-        disown $! 2>/dev/null || true
+    local exe="${cmd_argv[0]}"
+    if ! command -v "$exe" >/dev/null 2>&1; then
+        logger -t workstation-hotkeys "Action '$action_id' ($description) failed: command '$exe' not found" 2>/dev/null || true
+        if command -v notify-send >/dev/null 2>&1; then
+            notify-send -u critical "Launch Failed" "Command not found: $exe" 2>/dev/null || true
+        fi
+        printf '%s\n' "Error: Command '$exe' is not installed or not executable." >&2
+        return 1
     fi
+
+    # Direct background execution of structured argv detached completely from
+    # the terminal emulator PTY and process group, capturing immediate startup failures
+    (
+        err_log="$(mktemp /tmp/hotkeys-launch-XXXXXX.log 2>/dev/null || true)"
+        if [[ -n "$err_log" ]]; then
+            if ! "${cmd_argv[@]}" </dev/null >/dev/null 2>"$err_log"; then
+                err_msg="$(head -n 2 "$err_log" 2>/dev/null || true)"
+                logger -t workstation-hotkeys "Action '$action_id' ($description) failed: ${err_msg:-exited with error}" 2>/dev/null || true
+                if command -v notify-send >/dev/null 2>&1; then
+                    notify-send -u critical "Launch Failed" "$description: ${err_msg:-Failed to start}" 2>/dev/null || true
+                fi
+            fi
+            rm -f "$err_log"
+        else
+            "${cmd_argv[@]}" </dev/null >/dev/null 2>&1
+        fi
+    ) &
+    disown $! 2>/dev/null || true
+
     printf '%s\n' "Running: $description"
     return 0
 }
@@ -252,15 +283,10 @@ prompt_and_capture_key() {
     local action_cat="$4"
 
     clear
-    printf '\033[1;35m%s\033[0m\n' "Fedora Hyprland Workstation — Key Capture"
-    printf '%s\n' "───────────────────────────────────────────────────────────────────"
-    printf '\033[1mAction:\033[0m      %s\n' "$action_desc"
-    printf '\033[1mAction ID:\033[0m   %s\n' "$action_id"
-    printf '\033[1mCategory:\033[0m    %s\n' "$action_cat"
-    printf '\033[1mCurrent Key:\033[0m %s\n' "$current_key"
-    printf '%s\n\n' "───────────────────────────────────────────────────────────────────"
-    printf '%s\n' "Press physical key combination now (e.g. Super+Shift+T)..."
-    printf '%s\n\n' "[Press Esc/Ctrl+C to cancel | Press 't' to type text | 'u' to unbind]"
+    printf '\033[1;36m%s\033[0m\n\n' "Set Shortcut — $action_desc"
+    printf 'Current shortcut:  \033[1m%s\033[0m\n\n' "$current_key"
+    printf '%s\n\n' "Press desired key combination now (e.g. Super + Shift + T)..."
+    printf '\033[2m%s\033[0m\n' "[ Esc Cancel    't' Type text manually    'u' Unset ]"
 
     local capture_bin
     capture_bin="$(dirname -- "${BASH_SOURCE[0]}")/workstation-hotkey-capture"
@@ -501,14 +527,15 @@ if command -v fzf >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
 
         # Run fzf with real search, persistent bottom status bar, and contextual keys
         fzf_out="$(printf '%s\n' "$tsv_data" | fzf \
-            --prompt="Search shortcuts > " \
+            --ansi \
+            --prompt="Search hotkeys > " \
             --header="Fedora Hyprland Workstation — Keyboard Shortcuts" \
-            --preview="$0 preview {1} {6} {7}" \
+            --preview="$0 preview {1} {6} {7} {3}" \
             --preview-window="bottom:2:wrap:noborder" \
-            --expect=ctrl-e,alt-e,ctrl-u,alt-u,ctrl-r,alt-r,ctrl-a,alt-a \
+            --expect=alt-s,alt-u \
             --bind='ctrl-c:abort,esc:abort' \
             --delimiter=$'\t' \
-            --with-nth=2 || true)"
+            --with-nth=2,10 || true)"
 
         if [[ -z "$fzf_out" ]]; then
             # Esc or Ctrl+C was pressed to quit
@@ -522,27 +549,17 @@ if command -v fzf >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
             exit 0
         fi
 
-        IFS=$'\t' read -r sel_id sel_display sel_key sel_desc sel_cat sel_runnable sel_editable sel_cmd sel_act <<< "$selected_row"
+        IFS=$'\t' read -r sel_id sel_display sel_key sel_desc sel_cat sel_runnable sel_editable sel_cmd sel_act sel_meta <<< "$selected_row"
 
         case "$key_action" in
-            ctrl-a|alt-a)
-                assign_app_shortcut_ui
-                continue
-                ;;
-            ctrl-e|alt-e)
+            alt-s)
                 if [[ "$sel_editable" != "true" ]]; then
-                    clear
-                    printf '\033[1;33m%s\033[0m\n\n' "Cannot edit from hotkeys manager:"
-                    printf '%s\n' "Action: $sel_desc ($sel_id)"
-                    printf '%s\n\n' "This action is not editable as an individual keyboard shortcut."
-                    printf '%s' "Press Enter to return to shortcut list... "
-                    read -r _ || true
                     continue
                 fi
                 prompt_and_capture_key "$sel_id" "$sel_desc" "$sel_key" "$sel_cat"
                 continue
                 ;;
-            ctrl-u|alt-u)
+            alt-u)
                 if [[ "$sel_editable" != "true" ]]; then
                     continue
                 fi
@@ -555,31 +572,11 @@ if command -v fzf >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
                 fi
                 continue
                 ;;
-            ctrl-r|alt-r)
-                if [[ "$sel_editable" != "true" ]]; then
-                    continue
-                fi
-                if err_msg="$(apply_binding_edit "$sel_id" "default" 2>&1)"; then
-                    printf '\n\033[1;32m%s\033[0m\n' "Shortcut restored to default."
-                    sleep 0.5
-                else
-                    printf '\n\033[1;31m%s\033[0m\n' "$err_msg"
-                    sleep 1
-                fi
-                continue
-                ;;
             *)
                 # Enter workflow: activate/run
                 if [[ "$sel_runnable" == "true" ]]; then
                     execute_action "$sel_id" "$sel_desc"
                     exit 0
-                else
-                    clear
-                    printf '\033[1;33m%s\033[0m\n\n' "Cannot execute from hotkeys manager:"
-                    printf '%s\n' "Action: $sel_desc ($sel_id)"
-                    printf '%s\n\n' "This action requires direct window, workspace, or input device context."
-                    printf '%s' "Press Enter to return to shortcut list... "
-                    read -r _ || true
                 fi
                 ;;
         esac
