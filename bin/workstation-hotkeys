@@ -220,13 +220,6 @@ print(tostring(result))
 LUA_SCRIPT
 }
 
-# Reload Hyprland if active
-reload_hyprland_session() {
-    if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-        hyprctl reload >/dev/null 2>&1 || true
-    fi
-}
-
 # Handle test actions non-interactively
 if [[ -n "${HOTKEYS_TEST_ACTION:-}" ]]; then
     case "$HOTKEYS_TEST_ACTION" in
@@ -282,7 +275,6 @@ LUA
             target_id="${HOTKEYS_TEST_ID:-}"
             target_input="${HOTKEYS_TEST_INPUT:-}"
             if err_msg="$(apply_binding_edit "$target_id" "$target_input" 2>&1)"; then
-                reload_hyprland_session
                 printf '%s\n' "EDIT_OK"
                 exit 0
             else
@@ -293,7 +285,6 @@ LUA
         unset)
             target_id="${HOTKEYS_TEST_ID:-}"
             if err_msg="$(apply_binding_edit "$target_id" "none" 2>&1)"; then
-                reload_hyprland_session
                 printf '%s\n' "UNSET_OK"
                 exit 0
             else
@@ -304,7 +295,6 @@ LUA
         reset)
             target_id="${HOTKEYS_TEST_ID:-}"
             if err_msg="$(apply_binding_edit "$target_id" "default" 2>&1)"; then
-                reload_hyprland_session
                 printf '%s\n' "RESET_OK"
                 exit 0
             else
@@ -312,6 +302,7 @@ LUA
                 exit 1
             fi
             ;;
+
         quit)
             exit 0
             ;;
@@ -388,10 +379,10 @@ if command -v fzf >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
             fi
 
             if err_msg="$(apply_binding_edit "$sel_id" "$new_input" 2>&1)"; then
-                reload_hyprland_session
                 printf '\n\033[1;32m%s\033[0m\n' "Shortcut updated successfully. Hyprland configuration reloaded."
                 sleep 1
             else
+
                 printf '\n\033[1;31m%s\033[0m\n' "$err_msg"
                 printf '%s' "Press Enter to return to shortcut list... "
                 read -r _ || true

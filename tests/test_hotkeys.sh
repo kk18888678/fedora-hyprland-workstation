@@ -1048,8 +1048,63 @@ else
     fail "leftover temporary files remained after failed reload transaction: $leftover_fail_tmp"
 fi
 
+# 16. Single owner reload: successful edit causes exactly one transactional reload attempt
+reload_audit_log="$sandbox_dir/reload_audit.log"
+export HOTKEYS_RELOAD_LOG="$reload_audit_log"
+
+: > "$reload_audit_log"
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + E" "$ROOT/bin/workstation-hotkeys" >/dev/null
+edit_reload_count="$(wc -l < "$reload_audit_log")"
+if [[ "$edit_reload_count" -eq 1 ]]; then
+    pass "successful edit causes exactly one transactional reload attempt with single owner"
+else
+    fail "successful edit triggered unexpected number of reload attempts: $edit_reload_count"
+fi
+
+# 17. Single owner reload: successful unset causes exactly one transactional reload attempt
+: > "$reload_audit_log"
+HOTKEYS_TEST_ACTION=unset HOTKEYS_TEST_ID="file_manager" "$ROOT/bin/workstation-hotkeys" >/dev/null
+unset_reload_count="$(wc -l < "$reload_audit_log")"
+if [[ "$unset_reload_count" -eq 1 ]]; then
+    pass "successful unset causes exactly one transactional reload attempt"
+else
+    fail "successful unset triggered unexpected number of reload attempts: $unset_reload_count"
+fi
+
+# 18. Single owner reload: successful reset causes exactly one transactional reload attempt
+: > "$reload_audit_log"
+HOTKEYS_TEST_ACTION=reset HOTKEYS_TEST_ID="file_manager" "$ROOT/bin/workstation-hotkeys" >/dev/null
+reset_reload_count="$(wc -l < "$reload_audit_log")"
+if [[ "$reset_reload_count" -eq 1 ]]; then
+    pass "successful reset causes exactly one transactional reload attempt"
+else
+    fail "successful reset triggered unexpected number of reload attempts: $reset_reload_count"
+fi
+
+# 19. Reload failure causes rollback, reports failure rather than UI success, and preserves old content
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + M" "$ROOT/bin/workstation-hotkeys" >/dev/null
+pre_fail_content="$(cat "$sandbox_overrides")"
+: > "$reload_audit_log"
+fail_exit_code=0
+fail_out="$(HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" 2>&1)" || fail_exit_code=$?
+post_fail_content="$(cat "$sandbox_overrides")"
+
+if [[ "$fail_exit_code" -ne 0 && "$fail_out" == *"EDIT_FAIL"* && "$fail_out" == *"rolled back"* ]]; then
+    pass "reload failure is reported as failure rather than UI success"
+else
+    fail "reload failure was incorrectly reported: code=$fail_exit_code out=$fail_out"
+fi
+
+if [[ "$pre_fail_content" == "$post_fail_content" ]]; then
+    pass "previous valid override content survives transaction rollback intact"
+else
+    fail "override content was altered despite transaction rollback"
+fi
+
 rm -rf "$sandbox_dir"
 unset HOTKEYS_OVERRIDES
 unset HOTKEYS_MANIFEST
+unset HOTKEYS_RELOAD_LOG
+
 
 

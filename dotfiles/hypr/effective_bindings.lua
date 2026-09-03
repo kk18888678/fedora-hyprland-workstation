@@ -408,8 +408,16 @@ function M.find_conflict(action_id, candidate_key, manifest, overrides)
     return nil
 end
 
--- Reload Hyprland session safely
+-- Reload Hyprland session safely (single owner of reload execution)
 function M.reload_session()
+    local log_file = os.getenv("HOTKEYS_RELOAD_LOG")
+    if log_file and log_file ~= "" then
+        local f = io.open(log_file, "a")
+        if f then
+            f:write("RELOAD\n")
+            f:close()
+        end
+    end
     if os.getenv("HOTKEYS_SIMULATE_RELOAD_FAIL") == "1" then
         return false, "Simulated reload failure"
     end
@@ -421,6 +429,7 @@ function M.reload_session()
     end
     return true
 end
+
 
 -- Transactional set/edit binding with rollback on reload failure
 function M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path, reload_fn)
