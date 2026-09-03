@@ -1117,6 +1117,20 @@ added.
 
 ---
 
+# 39. Workstation Configuration and State Architecture
+
+The installer configuration and customization engine follows these durable invariants:
+
+- **State Pipeline**: All frontends (CLI Wizard, Recommended Baseline, future Quickshell UI) must share the identical Desired State -> Planner -> Review -> Reconciler pipeline.
+- **UI Non-Mutation**: Interactive UI handlers mutate only in-memory desired state and navigation state. UI components must never directly invoke package installation, removal, or system mutation commands.
+- **Mutation-Free Planner**: The Planner evaluates Actual State, Desired State, and Registry referentially without performing mutations or executing lifecycle callbacks.
+- **Preexisting Software Safety (`unselected != remove`)**: Preexisting installed software not selected by the user transitions to `unmanaged` (`KEEP`). Deselection in customization never implies removal. Removal must be explicit.
+- **Preserve User Data (`remove != purge`)**: Normal component removal uninstalls managed packages/binaries safely without deleting personal documents, home directories, browser profiles, or user dotfiles. Purging is strictly prohibited from standard removal flows.
+- **Presence != Default**: Application presence and default role preferences are independent. Multiple providers of a role (e.g. browsers) may coexist; default association is explicit and configurable.
+- **Non-Interactive Terminal Safety**: The setup wizard requires an interactive TTY (`[[ -t 0 ]]`). Non-interactive executions without an explicit `SETUP_MODE` fail closed immediately without hanging.
+
+---
+
 # Final Standard
 
 The repository should be:
@@ -1137,5 +1151,3 @@ The repository should be:
 The objective is a modern Fedora Hyprland workstation that stays current on
 stable software without becoming a bleeding-edge experiment or an
 unmaintainable collection of shell scripts and dotfiles.
-
-```
