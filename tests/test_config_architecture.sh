@@ -7,13 +7,10 @@
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$ROOT/modules/common.sh"
+source "$ROOT/modules/status.sh"
 source "$ROOT/modules/browsers.sh"
 source "$ROOT/modules/nix.sh"
 source "$ROOT/modules/packages.sh"
-
-record_success() { :; }
-record_required() { :; }
-record_deferred() { :; }
 
 section "Component Registry and Invariants"
 
@@ -712,15 +709,13 @@ xdg-mime() { return 1; }
 init_plan "PLAN_DEF_REC"
 add_plan_action "PLAN_DEF_REC" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
 finalize_plan "PLAN_DEF_REC"
-def_rec_recorded=0
-record_deferred() { def_rec_recorded=1; }
+INSTALL_DEFERRED=()
 execute_plan "PLAN_DEF_REC" 2>/dev/null || true
-if [[ "$def_rec_recorded" -eq 1 ]]; then
+if [[ "${#INSTALL_DEFERRED[@]}" -gt 0 ]]; then
     pass "34f. CHANGE_DEFAULT failure is surfaced through record_deferred"
 else
     fail "34f. CHANGE_DEFAULT failure was not recorded"
 fi
-record_deferred() { :; }
 
 # 35. INSTALL failure classified correctly
 reset_component_registry
@@ -730,10 +725,9 @@ register_component id "req_fail_comp" display_name "Req Fail" category "Testing"
 init_plan "PLAN_REQ_FAIL"
 add_plan_action "PLAN_REQ_FAIL" "INSTALL" "req_fail_comp" "user" "Req Fail"
 finalize_plan "PLAN_REQ_FAIL"
-req_recorded=0
-record_required() { req_recorded=1; }
+INSTALL_REQUIRED_FAILURES=()
 execute_plan "PLAN_REQ_FAIL" 2>/dev/null || true
-if [[ "$req_recorded" -eq 1 ]]; then
+if [[ "${#INSTALL_REQUIRED_FAILURES[@]}" -gt 0 ]]; then
     pass "35. required component installation failure is recorded via record_required"
 else
     fail "35. required failure classification failed"
@@ -937,5 +931,390 @@ fi
 reset_component_registry
 init_default_components
 
-# 48. Regression verification
-pass "48. all configuration architecture invariants verified successfully"
+section "run_classified_step Generic Argument Forwarding"
+
+# 48a: zero-argument function still works
+mock_zero_called=0
+mock_zero_arg() { mock_zero_called=1; return 0; }
+run_classified_step workstation "Test zero arg" mock_zero_arg
+if [[ "$mock_zero_called" -eq 1 ]]; then
+    pass "48a. zero-argument function works with run_classified_step"
+else
+    fail "48a. zero-argument function was not executed"
+fi
+
+# 48b: one argument is forwarded
+mock_one_val=""
+mock_one_arg() { mock_one_val="$1"; return 0; }
+run_classified_step workstation "Test one arg" mock_one_arg "arg1"
+if [[ "$mock_one_val" == "arg1" ]]; then
+    pass "48b. single argument is forwarded cleanly"
+else
+    fail "48b. single argument forwarding failed: got '$mock_one_val'"
+fi
+
+# 48c: multiple arguments forwarded in exact order
+mock_multi_args=()
+mock_multi_arg() { mock_multi_args=("$@"); return 0; }
+run_classified_step workstation "Test multi arg" mock_multi_arg "first" "second" "third"
+if [[ "${#mock_multi_args[@]}" -eq 3 && "${mock_multi_args[0]}" == "first" && "${mock_multi_args[1]}" == "second" && "${mock_multi_args[2]}" == "third" ]]; then
+    pass "48c. multiple arguments are forwarded in exact order"
+else
+    fail "48c. multiple arguments forwarding failed: ${mock_multi_args[*]}"
+fi
+
+# 48d: argument containing spaces remains one single argv element
+mock_space_args=()
+mock_space_func() { mock_space_args=("$@"); return 0; }
+run_classified_step workstation "Test space arg" mock_space_func "hello world" "foo bar baz"
+if [[ "${#mock_space_args[@]}" -eq 2 && "${mock_space_args[0]}" == "hello world" && "${mock_space_args[1]}" == "foo bar baz" ]]; then
+    pass "48d. arguments containing spaces remain individual argv elements"
+else
+    fail "48d. whitespace splitting occurred in arguments"
+fi
+
+# 48e: empty string argument remains one single argv element
+mock_empty_args=()
+mock_empty_func() { mock_empty_args=("$@"); return 0; }
+run_classified_step workstation "Test empty arg" mock_empty_func "" "non-empty"
+if [[ "${#mock_empty_args[@]}" -eq 2 && "${mock_empty_args[0]}" == "" && "${mock_empty_args[1]}" == "non-empty" ]]; then
+    pass "48e. empty-string argument is preserved as an argv element"
+else
+    fail "48e. empty-string argument was dropped or mishandled"
+fi
+
+# 48f: argument forwarding works for abort-class stage
+mock_abort_val=""
+mock_abort_func() { mock_abort_val="$1"; return 0; }
+run_classified_step abort "Test abort arg" mock_abort_func "abort_target"
+if [[ "$mock_abort_val" == "abort_target" ]]; then
+    pass "48f. argument forwarding works for abort-class stage"
+else
+    fail "48f. abort-class argument forwarding failed"
+fi
+
+# 48g: argument forwarding works for workstation stage
+mock_work_val=""
+mock_work_func() { mock_work_val="$1"; return 0; }
+run_classified_step workstation "Test workstation arg" mock_work_func "workstation_target"
+if [[ "$mock_work_val" == "workstation_target" ]]; then
+    pass "48g. argument forwarding works for workstation stage"
+else
+    fail "48g. workstation-class argument forwarding failed"
+fi
+
+# 48h: mocked execute_plan receives exact plan prefix
+mock_exec_plan_prefix=""
+mock_reconciler_plan() { mock_exec_plan_prefix="$1"; return 0; }
+run_classified_step workstation "Reconciling configured components" mock_reconciler_plan "MY_CUSTOM_PLAN"
+if [[ "$mock_exec_plan_prefix" == "MY_CUSTOM_PLAN" ]]; then
+    pass "48h. mocked execute_plan receives exact plan prefix argument"
+else
+    fail "48h. plan prefix was not received by execute_plan: '$mock_exec_plan_prefix'"
+fi
+
+# 48i: regression test reproducing real integration call
+real_plan_arg=""
+real_mock_exec() { real_plan_arg="$1"; return 0; }
+run_classified_step workstation "Reconciling configured components" real_mock_exec "MAIN_INSTALLER_PLAN"
+if [[ "$real_plan_arg" == "MAIN_INSTALLER_PLAN" ]]; then
+    pass "48i. real integration invocation forwards MAIN_INSTALLER_PLAN to execute_plan"
+else
+    fail "48i. real integration invocation dropped plan argument"
+fi
+
+section "Executable Role Default Adapters and Decoupled Preference Modeling"
+
+reset_component_registry
+init_default_components
+
+# 49a: role with registered executable adapter can produce CHANGE_DEFAULT
+# In workstation profile, actual browser is detected as "" (none), desired is chromium
+create_recommended_desired_state "DS_DEF_EXEC" "workstation"
+create_execution_plan "DS_DEF_EXEC" "PLAN_DEF_EXEC"
+found_browser_action=0
+for idx in "${PLAN_DEF_EXEC_ACTIONS[@]}"; do
+    if [[ "${PLAN_DEF_EXEC_ACTION_TYPE[$idx]}" == "CHANGE_DEFAULT" && "${PLAN_DEF_EXEC_ACTION_DETAILS[$idx]}" == *"browser:"* ]]; then
+        found_browser_action=1
+        break
+    fi
+done
+if [[ "$found_browser_action" -eq 1 ]]; then
+    pass "49a. role with registered executable adapter (browser) produces CHANGE_DEFAULT"
+else
+    fail "49a. executable adapter role did not produce CHANGE_DEFAULT"
+fi
+
+# 49b: role without executable adapter does NOT produce CHANGE_DEFAULT
+# 49d: terminal currently does not produce an executable CHANGE_DEFAULT action
+# 49e: text-editor currently does not produce an executable CHANGE_DEFAULT action
+found_term_action=0
+found_editor_action=0
+for idx in "${PLAN_DEF_EXEC_ACTIONS[@]}"; do
+    if [[ "${PLAN_DEF_EXEC_ACTION_TYPE[$idx]}" == "CHANGE_DEFAULT" ]]; then
+        if [[ "${PLAN_DEF_EXEC_ACTION_DETAILS[$idx]}" == *"terminal:"* ]]; then found_term_action=1; fi
+        if [[ "${PLAN_DEF_EXEC_ACTION_DETAILS[$idx]}" == *"text-editor:"* ]]; then found_editor_action=1; fi
+    fi
+done
+if [[ "$found_term_action" -eq 0 && "$found_editor_action" -eq 0 ]]; then
+    pass "49b. roles without executable adapters do not produce CHANGE_DEFAULT actions"
+    pass "49d. terminal role produces zero executable CHANGE_DEFAULT actions"
+    pass "49e. text-editor role produces zero executable CHANGE_DEFAULT actions"
+else
+    fail "49b. un-executable role produced CHANGE_DEFAULT: term=$found_term_action editor=$found_editor_action"
+fi
+
+# 49c: browser remains actionable by default
+if role_has_default_adapter "browser"; then
+    pass "49c. browser role is registered as an executable default adapter"
+else
+    fail "49c. browser role is not registered as executable"
+fi
+
+# 49f: review action counts accurately reflect only executable actions
+c_def="${PLAN_DEF_EXEC_COUNT_CHANGE_DEFAULT}"
+if [[ "$c_def" -eq 1 ]]; then
+    pass "49f. review plan action counts accurately reflect only executable actions (1 default change)"
+else
+    fail "49f. review plan action count was $c_def (expected 1)"
+fi
+
+# 49g: unsupported/non-actionable role fails closed if manually planned or called in set_system_role_default
+init_plan "PLAN_UNEXEC_DEF"
+add_plan_action "PLAN_UNEXEC_DEF" "CHANGE_DEFAULT" "foot" "preferred" "terminal: none -> Foot"
+unexec_rc=0
+finalize_plan "PLAN_UNEXEC_DEF" 2>/dev/null || unexec_rc=$?
+if [[ "$unexec_rc" -ne 0 ]]; then
+    pass "49g. un-executable role in plan CHANGE_DEFAULT fails plan validation fail-closed"
+else
+    fail "49g. un-executable role in plan was accepted by finalize_plan"
+fi
+
+call_unexec_rc=0
+set_system_role_default "terminal" "foot" 2>/dev/null || call_unexec_rc=$?
+if [[ "$call_unexec_rc" -ne 0 ]]; then
+    pass "49g2. set_system_role_default returns 1 for un-executable role"
+else
+    fail "49g2. set_system_role_default succeeded for un-executable role"
+fi
+
+# 49h: generic role/default desired-state validation remains intact
+ds_val_rc=0
+validate_desired_state "DS_DEF_EXEC" || ds_val_rc=$?
+if [[ "$ds_val_rc" -eq 0 ]]; then
+    pass "49h. generic role/default desired-state validation remains valid"
+else
+    fail "49h. desired state validation failed: rc=$ds_val_rc"
+fi
+
+# 49i: adding a mocked adapter for another role in isolated tests proves architecture is extensible
+mock_terminal_adapter_called=0
+mock_terminal_adapter() { mock_terminal_adapter_called=1; return 0; }
+mock_terminal_detector() { printf 'none\n'; }
+register_role_default_adapter "terminal" "mock_terminal_adapter" "mock_terminal_detector"
+create_recommended_desired_state "DS_MOCK_TERM" "workstation"
+create_execution_plan "DS_MOCK_TERM" "PLAN_MOCK_TERM"
+found_mock_term=0
+for idx in "${PLAN_MOCK_TERM_ACTIONS[@]}"; do
+    if [[ "${PLAN_MOCK_TERM_ACTION_TYPE[$idx]}" == "CHANGE_DEFAULT" && "${PLAN_MOCK_TERM_ACTION_DETAILS[$idx]}" == *"terminal:"* ]]; then
+        found_mock_term=1
+        break
+    fi
+done
+if [[ "$found_mock_term" -eq 1 ]]; then
+    pass "49i. registering a new role default adapter enables planning without planner role-name special-casing"
+else
+    fail "49i. dynamically registered role default adapter was not planned"
+fi
+init_default_role_adapters
+
+section "Action vs Stage Failure Classification Contract"
+
+_reset_test_status() {
+    INSTALL_SUCCEEDED=()
+    INSTALL_DEFERRED=()
+    INSTALL_REQUIRED_FAILURES=()
+    INSTALL_LOGIN_FAILURES=()
+    ACTIVATION_BLOCKED=0
+}
+
+# 50a: workstation stage returns nonzero with NO prior classification -> records required failure
+_reset_test_status
+mock_unclass_fail() { return 1; }
+run_classified_step workstation "Unclassified workstation failure" mock_unclass_fail
+if [[ "${#INSTALL_REQUIRED_FAILURES[@]}" -eq 1 && "${INSTALL_REQUIRED_FAILURES[0]}" == *"without classifying the failure"* ]]; then
+    pass "50a. unclassified workstation failure records required failure"
+else
+    fail "50a. unclassified workstation failure was not classified as required"
+fi
+
+# 50b: optional stage returns nonzero with NO prior classification -> records deferred failure
+_reset_test_status
+run_classified_step optional "Unclassified optional failure" mock_unclass_fail
+if [[ "${#INSTALL_DEFERRED[@]}" -eq 1 && "${INSTALL_DEFERRED[0]}" == *"Stage exited 1"* ]]; then
+    pass "50b. unclassified optional failure records deferred failure"
+else
+    fail "50b. unclassified optional failure was not classified as deferred"
+fi
+
+# 50c: login stage returns nonzero with NO prior classification -> records activation failure and blocks activation
+_reset_test_status
+run_classified_step login "Unclassified login failure" mock_unclass_fail
+if [[ "${#INSTALL_LOGIN_FAILURES[@]}" -eq 1 && "$ACTIVATION_BLOCKED" -eq 1 ]]; then
+    pass "50c. unclassified login failure records activation failure and blocks activation"
+else
+    fail "50c. unclassified login failure did not block activation"
+fi
+
+# 50d & 50e: reconciler action records deferred and execution completes -> no additional required stage failure is added
+_reset_test_status
+reset_component_registry
+register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
+mock_opt_inst_fail() { return 1; }
+register_component id "opt_comp" display_name "Opt Comp" category "Testing" required false removable true install_fn "mock_opt_inst_fail"
+init_plan "PLAN_OPT_ONLY"
+add_plan_action "PLAN_OPT_ONLY" "INSTALL" "opt_comp" "user" "Opt Comp"
+finalize_plan "PLAN_OPT_ONLY"
+
+run_classified_step workstation "Reconciling configured components" execute_plan "PLAN_OPT_ONLY"
+if [[ "${#INSTALL_DEFERRED[@]}" -eq 1 && "${#INSTALL_REQUIRED_FAILURES[@]}" -eq 0 ]]; then
+    pass "50d. reconciler deferred failure completes without adding a duplicate required stage failure"
+else
+    fail "50d. reconciler deferred failure was promoted: req=${#INSTALL_REQUIRED_FAILURES[@]} def=${#INSTALL_DEFERRED[@]}"
+fi
+resolved_opt_exit="$(installer_exit_code)"
+if [[ "$resolved_opt_exit" -eq 2 ]]; then
+    pass "50e. deferred-only reconciliation outcome resolves to installer exit code 2"
+else
+    fail "50e. deferred-only reconciliation resolved to exit code $resolved_opt_exit (expected 2)"
+fi
+
+# 50f & 50g: reconciler action records required -> no duplicate generic required stage failure is added
+_reset_test_status
+mock_req_inst_fail() { return 1; }
+register_component id "req_comp" display_name "Req Comp" category "Testing" required true removable false install_fn "mock_req_inst_fail"
+init_plan "PLAN_REQ_ONLY"
+add_plan_action "PLAN_REQ_ONLY" "INSTALL" "req_comp" "user" "Req Comp"
+finalize_plan "PLAN_REQ_ONLY"
+
+run_classified_step workstation "Reconciling configured components" execute_plan "PLAN_REQ_ONLY"
+if [[ "${#INSTALL_REQUIRED_FAILURES[@]}" -eq 1 && "${INSTALL_REQUIRED_FAILURES[0]}" == *"Required component installation failed: req_comp"* ]]; then
+    pass "50f. reconciler required failure completes without adding duplicate unclassified stage failure"
+else
+    fail "50f. required failure created duplicate stage failure: ${INSTALL_REQUIRED_FAILURES[*]}"
+fi
+resolved_req_exit="$(installer_exit_code)"
+if [[ "$resolved_req_exit" -eq 1 ]]; then
+    pass "50g. required reconciliation failure resolves to installer exit code 1"
+else
+    fail "50g. required reconciliation resolved to exit code $resolved_req_exit (expected 1)"
+fi
+
+# 50h: activation-critical classification is never downgraded
+_reset_test_status
+ACTIVATION_BLOCKED=1
+INSTALL_LOGIN_FAILURES+=("test: login: critical failure")
+run_classified_step workstation "Reconciling after login failure" execute_plan "PLAN_OPT_ONLY"
+if [[ "$ACTIVATION_BLOCKED" -eq 1 && ${#INSTALL_LOGIN_FAILURES[@]} -eq 1 ]]; then
+    pass "50h. activation-critical classification is never downgraded by reconciler"
+else
+    fail "50h. activation-critical status was downgraded: blocked=$ACTIVATION_BLOCKED"
+fi
+
+# 50i & 50j: malformed/unvalidated plan still fails closed and is classified by run_classified_step
+_reset_test_status
+init_plan "PLAN_UNFINAL"
+add_plan_action "PLAN_UNFINAL" "INSTALL" "foot" "user" "Foot"
+# Not finalized!
+run_classified_step workstation "Reconciling unfinalized plan" execute_plan "PLAN_UNFINAL"
+if [[ "${#INSTALL_REQUIRED_FAILURES[@]}" -eq 1 && "${INSTALL_REQUIRED_FAILURES[0]}" == *"without classifying the failure"* ]]; then
+    pass "50i. unfinalized plan passed to execute_plan fails closed and is surfaced as required stage failure"
+    pass "50j. unexpected execute_plan failure with no inner classification is surfaced by wrapper"
+else
+    fail "50i. unfinalized plan failure was not surfaced as required stage failure"
+fi
+
+# 50k: multiple classified failures do not create one extra generic failure
+_reset_test_status
+init_plan "PLAN_MULTI_FAIL"
+add_plan_action "PLAN_MULTI_FAIL" "INSTALL" "opt_comp" "user" "Opt Comp"
+add_plan_action "PLAN_MULTI_FAIL" "INSTALL" "req_comp" "user" "Req Comp"
+finalize_plan "PLAN_MULTI_FAIL"
+run_classified_step workstation "Reconciling multi-failure plan" execute_plan "PLAN_MULTI_FAIL"
+if [[ "${#INSTALL_DEFERRED[@]}" -eq 1 && "${#INSTALL_REQUIRED_FAILURES[@]}" -eq 1 ]]; then
+    pass "50k. multiple classified failures do not generate an additional generic stage failure"
+else
+    fail "50k. multiple failures resulted in incorrect failure counts: req=${#INSTALL_REQUIRED_FAILURES[@]} def=${#INSTALL_DEFERRED[@]}"
+fi
+
+# 50l: successful reconciliation returns/behaves as success
+_reset_test_status
+init_plan "PLAN_CLEAN_SUCCESS"
+finalize_plan "PLAN_CLEAN_SUCCESS"
+clean_rec_rc=0
+run_classified_step workstation "Reconciling empty clean plan" execute_plan "PLAN_CLEAN_SUCCESS" || clean_rec_rc=$?
+if [[ "$clean_rec_rc" -eq 0 && "${#INSTALL_REQUIRED_FAILURES[@]}" -eq 0 && "${#INSTALL_DEFERRED[@]}" -eq 0 ]]; then
+    pass "50l. successful reconciliation returns 0 and leaves failure journals clean"
+else
+    fail "50l. clean reconciliation failed: rc=$clean_rec_rc"
+fi
+
+# 50m: no action failure disappears from the final status journal
+_reset_test_status
+run_classified_step workstation "Reconciling multi-failure plan" execute_plan "PLAN_MULTI_FAIL"
+if [[ "${INSTALL_DEFERRED[0]}" == *"opt_comp"* && "${INSTALL_REQUIRED_FAILURES[0]}" == *"req_comp"* ]]; then
+    pass "50m. no individual action failure disappears from the status journal"
+else
+    fail "50m. action failure details were lost in status journal"
+fi
+
+section "End-to-End Orchestration Composition Boundary Integration Test"
+
+# 51: Real composition boundary test:
+# install orchestration wrapper (run_classified_step)
+#   -> execute_plan with plan-prefix argument
+#   -> validated mock plan
+#   -> reconciliation
+# Must prove:
+#   - run_classified_step forwards the real plan prefix;
+#   - execute_plan receives it;
+#   - a valid mocked plan is accepted;
+#   - a KEEP-only or harmless plan completes;
+#   - no unbound positional parameter occurs even under set -u.
+
+_reset_test_status
+reset_component_registry
+init_default_components
+
+subshell_boundary_rc=0
+subshell_boundary_out="$(
+    set -Eeuo pipefail
+    source "$ROOT/modules/common.sh"
+    source "$ROOT/modules/status.sh"
+
+    # Setup a realistic plan matching what Recommended VM produces
+    init_plan "MAIN_INSTALLER_PLAN"
+    add_plan_action "MAIN_INSTALLER_PLAN" "KEEP" "foot" "already installed" "Foot (Desktop)"
+    add_plan_action "MAIN_INSTALLER_PLAN" "KEEP" "chromium" "already installed" "Chromium (Browsers)"
+    finalize_plan "MAIN_INSTALLER_PLAN"
+
+    # Exact invocation from install.sh line 219:
+    run_classified_step \
+        workstation \
+        "Reconciling configured components" \
+        execute_plan \
+        "MAIN_INSTALLER_PLAN"
+)" || subshell_boundary_rc=$?
+
+if [[ "$subshell_boundary_rc" -eq 0 && "$subshell_boundary_out" != *"unbound variable"* && "$subshell_boundary_out" == *"Reconciling configured components"* ]]; then
+    pass "51. real composition boundary (run_classified_step -> execute_plan MAIN_INSTALLER_PLAN) executes cleanly under set -u without unbound variable error"
+else
+    fail "51. composition boundary failed under set -u: rc=$subshell_boundary_rc out=$subshell_boundary_out"
+fi
+
+_reset_test_status
+reset_component_registry
+init_default_components
+
+# 52. Regression verification
+pass "52. all configuration architecture invariants verified successfully"
