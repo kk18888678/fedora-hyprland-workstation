@@ -19,6 +19,18 @@ source "$_LIB_DIR/packages.sh"
 source "$_LIB_DIR/artifacts.sh"
 # shellcheck source=/dev/null
 source "$_LIB_DIR/release_policy.sh"
+# shellcheck source=/dev/null
+source "$_LIB_DIR/components.sh"
+# shellcheck source=/dev/null
+source "$_LIB_DIR/desired_state.sh"
+# shellcheck source=/dev/null
+source "$_LIB_DIR/planner.sh"
+# shellcheck source=/dev/null
+source "$_LIB_DIR/reconciler.sh"
+# shellcheck source=/dev/null
+source "$_LIB_DIR/wizard.sh"
+
+init_default_components
 
 unset _LIB_DIR
 

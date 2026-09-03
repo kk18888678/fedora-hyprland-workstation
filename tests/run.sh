@@ -18,6 +18,7 @@ run_suite "$ROOT/tests/test_packages.sh"
 run_suite "$ROOT/tests/test_applications.sh"
 run_suite "$ROOT/tests/test_release_policy.sh"
 run_suite "$ROOT/tests/test_supply_chain.sh"
+run_suite "$ROOT/tests/test_config_architecture.sh"
 
 run_suite "$ROOT/tests/test_xdg.sh"
 run_suite "$ROOT/tests/test_desktop.sh"

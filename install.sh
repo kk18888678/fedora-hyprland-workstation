@@ -189,6 +189,19 @@ acquire_installer_lock
 require_sudo
 init_installer_state
 
+# Setup mode selection, configuration planning, and user review
+INSTALLER_PLAN="MAIN_INSTALLER_PLAN"
+setup_rc=0
+run_setup_mode "$PROFILE" "$INSTALLER_PLAN" || setup_rc=$?
+
+if [[ "$setup_rc" -eq 2 ]]; then
+    # User cancelled setup in wizard or review
+    SUMMARY_PRINTED=1
+    exit 0
+elif [[ "$setup_rc" -ne 0 ]]; then
+    die "Setup mode initialization failed."
+fi
+
 exec > >(tee -a "$INSTALL_LOG_FILE") 2>&1
 
 ###############################################################################
@@ -203,6 +216,7 @@ exec > >(tee -a "$INSTALL_LOG_FILE") 2>&1
 run_classified_step abort "Preparing Fedora" prepare_system
 run_classified_step workstation "Configuring repositories" configure_repositories
 run_classified_step workstation "Installing host packages" install_packages
+run_classified_step workstation "Reconciling configured components" execute_plan "$INSTALLER_PLAN"
 run_classified_step workstation "Configuring Zsh environment" configure_shell
 run_classified_step workstation "Installing browsers" install_browsers
 run_classified_step optional "Installing workstation applications" install_applications
