@@ -181,13 +181,34 @@ A project whose upstream labels all normal public releases with a prerelease-
 looking suffix must be treated as an explicit documented exception, not silently
 generalized into permission to consume prerelease software elsewhere.
 
+### Declarative Prerelease Exception Invariants
+
+- **Prohibited by Default**: Prerelease software (alpha, beta, rc, preview, pre,
+  nightly, dev, snapshot) is strictly prohibited by default.
+- **Narrow Declarative Scope**: A narrowly scoped declarative exception in
+  `config/prerelease_exceptions.conf` may permit explicitly named prerelease
+  classes for an explicitly named application using a stable application ID.
+- **Eligibility Only**: Exceptions affect release eligibility ONLY and must
+  never weaken provenance, checksum/signature verification, archive safety,
+  architecture matching, installation sandboxing, or post-install validation.
+- **Stable Precedence**: A policy-compliant stable release always takes
+  precedence over an allowed prerelease (stable > allowed prerelease).
+- **Explicit Classes & Fail-Closed**: Allowed prerelease classes must be
+  explicitly enumerated; wildcards ("*") are prohibited. Unknown prerelease
+  classes and malformed registry configurations fail closed.
+
 ### Explicit Documented Exceptions
 
-- **Official OpenAI ChatGPT for Linux Public Preview**:
-  - Reason: Official vendor desktop application distributed by OpenAI with explicit Fedora 43/44 support, required for workstation AI workflows. Currently, no separate general-availability/stable Linux channel exists.
+- **Official OpenAI ChatGPT for Linux Public Preview** (Vendor Distribution Channel Exception):
+  - Reason: Official vendor desktop application distributed by OpenAI with explicit Fedora 43/44 support, required for workstation AI workflows. Currently, no separate general-availability/stable Linux channel exists. Ongoing updates are managed by OpenAI's signed DNF repository.
   - Scope: Applies exclusively to the official OpenAI ChatGPT for Linux public preview; does not establish a general precedent for prerelease software elsewhere.
 
+- **N_m3u8DL-RE** (Direct Upstream Release Class Exception):
+  - Reason: Upstream nilaoda/N_m3u8DL-RE distributes its supported release line exclusively with the `-beta` suffix; no stable release has ever been published.
+  - Scope: Permits the `beta` class ONLY. Stable releases take precedence if ever published. All direct artifact integrity (SHA-512) and archive safety requirements remain strictly enforced.
+
 ---
+
 
 # 4. Installation vs Update Discovery
 

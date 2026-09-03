@@ -10,9 +10,13 @@ The workstation provides a **cutting-edge, but not bleeding-edge** environment:
 
 - **Default Profiles**: Default profiles (`workstation`, `vm`) install **only** verified stable releases.
 - **Prohibited Sources**: Alpha, beta, release candidate (RC), nightly, development snapshot, and untagged git HEAD builds are prohibited from default installation paths.
+- **Declarative Prerelease Exceptions**:
+  - Exceptions are declared strictly in `config/prerelease_exceptions.conf` and evaluated via `modules/lib/release_policy.sh`.
+  - Exceptions affect release eligibility ONLY and never weaken cryptographic checksum verification, archive safety checks, or validation.
+  - Stable releases always take precedence over allowed prereleases (`stable > allowed prerelease`).
 - **Explicit Documented Exceptions**:
-  - **Official OpenAI ChatGPT for Linux Public Preview**: Supported as official vendor desktop distribution with Fedora 43/44 support for workstation AI workflows. Future updates are managed by OpenAI's signed DNF repository.
-- **Prerelease Handling (e.g. N_m3u8DL-RE)**: If an upstream tool currently only provides prereleases (e.g. `0.6.0-beta`), metadata is tracked in `config/versions.conf` for update discovery, but provisioning is skipped during normal installation until a stable release is available.
+  - **Official OpenAI ChatGPT for Linux Public Preview** (Vendor Distribution Channel Exception): Supported as official vendor desktop distribution with Fedora 43/44 support for workstation AI workflows. Future updates are managed by OpenAI's signed DNF repository.
+  - **N_m3u8DL-RE** (Direct Upstream Release Class Exception: `beta`): Upstream nilaoda/N_m3u8DL-RE distributes its supported release line exclusively with the `-beta` suffix; no stable release has ever been published. Pinned SHA-512 byte verification and archive sandboxing remain strictly enforced.
 
 ---
 
@@ -39,9 +43,10 @@ For software installed directly from upstream release assets rather than Fedora 
 | **Bento4** | `1.6.0-641` | `bok.net/Bento4` | SHA-512 |
 | **Shaka Packager** | `3.9.3` | `github.com/shaka-project/shaka-packager` | SHA-512 |
 | **dovi_tool** | `2.3.3` | `github.com/quietvoid/dovi_tool` | SHA-512 |
-| **N_m3u8DL-RE** | `0.6.0-beta` (tracked) | `github.com/nilaoda/N_m3u8DL-RE` | SHA-512 (Tracked for update audit; skipped during install) |
+| **N_m3u8DL-RE** | `0.6.0-beta` | `github.com/nilaoda/N_m3u8DL-RE` | SHA-512 (Approved declarative beta exception; verified archive) |
 
 ---
+
 
 ## 3. Installation vs Update Discovery
 
