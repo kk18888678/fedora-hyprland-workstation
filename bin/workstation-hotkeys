@@ -169,12 +169,8 @@ for _, item in ipairs(effective.bindings or {}) do
     -- Clean, large two-column format: HOTKEY + APP / ACTION
     local display_col = string.format("  %-28s  %s", key, desc)
 
-    -- Searchable metadata concealed with ANSI escape code \27[8m so action ID, category,
-    -- and underlying commands participate in fuzzy search without cluttering the displayed row.
-    local search_meta = string.format("\27[8m %s %s %s\27[0m", id, cat, cmd)
-
-    print(string.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
-        id, display_col, key, desc, cat, runnable, editable, cmd, act, search_meta))
+    print(string.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+        id, display_col, key, desc, cat, runnable, editable, cmd, act))
 end
 LUA_SCRIPT
 }
@@ -535,7 +531,7 @@ if command -v fzf >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
             --expect=alt-s,alt-u \
             --bind='ctrl-c:abort,esc:abort' \
             --delimiter=$'\t' \
-            --with-nth=2,10 || true)"
+            --with-nth=2 || true)"
 
         if [[ -z "$fzf_out" ]]; then
             # Esc or Ctrl+C was pressed to quit
@@ -549,7 +545,7 @@ if command -v fzf >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
             exit 0
         fi
 
-        IFS=$'\t' read -r sel_id sel_display sel_key sel_desc sel_cat sel_runnable sel_editable sel_cmd sel_act sel_meta <<< "$selected_row"
+        IFS=$'\t' read -r sel_id sel_display sel_key sel_desc sel_cat sel_runnable sel_editable sel_cmd sel_act <<< "$selected_row"
 
         case "$key_action" in
             alt-s)

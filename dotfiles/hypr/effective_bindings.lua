@@ -89,6 +89,55 @@ function M.canonical_key(k)
     return norm:lower():gsub("%s+", "")
 end
 
+local FRIENDLY_NAMES = {
+    ["SUPER"] = "Super",
+    ["CTRL"] = "Ctrl",
+    ["CONTROL"] = "Ctrl",
+    ["ALT"] = "Alt",
+    ["SHIFT"] = "Shift",
+    ["RETURN"] = "Return",
+    ["ENTER"] = "Return",
+    ["SPACE"] = "Space",
+    ["TAB"] = "Tab",
+    ["ESC"] = "Esc",
+    ["ESCAPE"] = "Esc",
+    ["BACKSPACE"] = "Backspace",
+    ["LEFT"] = "Left",
+    ["RIGHT"] = "Right",
+    ["UP"] = "Up",
+    ["DOWN"] = "Down",
+    ["DELETE"] = "Delete",
+    ["INSERT"] = "Insert",
+    ["HOME"] = "Home",
+    ["END"] = "End",
+    ["PAGEUP"] = "PageUp",
+    ["PAGEDOWN"] = "PageDown",
+}
+
+-- Separate internal canonical representation from presentation
+function M.format_friendly_key(k)
+    if not k or type(k) ~= "string" or k == "" then return "None (Unbound)" end
+    if k == "None (Unbound)" or k == "none" or k == "NONE" then return "None (Unbound)" end
+    if k:find("Swipe") or k:find("Key") or k:find("Drag") then return k end
+
+    local parts = {}
+    for part in k:gmatch("[^%+]+") do
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part ~= "" then
+            local upper = part:upper()
+            if FRIENDLY_NAMES[upper] then
+                table.insert(parts, FRIENDLY_NAMES[upper])
+            elseif #part == 1 then
+                table.insert(parts, part:upper())
+            else
+                table.insert(parts, part:sub(1,1):upper() .. part:sub(2):lower())
+            end
+        end
+    end
+    if #parts == 0 then return k end
+    return table.concat(parts, " + ")
+end
+
 -- Strict, fail-closed JSON decoder for keybindings overrides schema:
 -- {
 --   "<stable-action-id>": "<normalized-key>",
@@ -515,10 +564,14 @@ function M.resolve_bindings(manifest, overrides)
                 elseif type(ov) == "string" then
                     local norm = M.normalize_key(ov)
                     item.key = norm
-                    item.display_key = norm
+                    item.display_key = M.format_friendly_key(norm)
                     item.unbound = false
                     item.user_overridden = true
                 end
+            elseif item.display_key then
+                item.display_key = M.format_friendly_key(item.display_key)
+            elseif item.key then
+                item.display_key = M.format_friendly_key(item.key)
             end
         end
 
@@ -552,7 +605,7 @@ function M.resolve_bindings(manifest, overrides)
                 elseif type(ov) == "string" then
                     local norm = M.normalize_key(ov)
                     item.key = norm
-                    item.display_key = norm
+                    item.display_key = M.format_friendly_key(norm)
                     item.unbound = false
                 end
                 table.insert(effective.bindings, item)

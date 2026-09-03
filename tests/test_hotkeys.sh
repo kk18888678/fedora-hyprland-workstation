@@ -1175,8 +1175,8 @@ else
 fi
 
 app_list="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys")"
-if grep -q "app:chatgpt.desktop" <<< "$app_list" && grep -q "SUPER + SHIFT + C" <<< "$app_list"; then
-    pass "assigned application shortcut appears in workstation-hotkeys manifest listing"
+if grep -q "app:chatgpt.desktop" <<< "$app_list" && grep -q "Super + Shift + C" <<< "$app_list"; then
+    pass "assigned application shortcut appears in workstation-hotkeys manifest listing with friendly formatting"
 else
     fail "assigned application shortcut missing from hotkeys listing: $app_list"
 fi
@@ -1207,20 +1207,52 @@ else
     fail "app collision check failed: code=$perm_exit out=$perm_out"
 fi
 
-# 4. Display row format: ONE ROW = HOTKEY + APP/ACTION & concealed search metadata
+# 4. Display row format: ONE ROW = HOTKEY + APP/ACTION without metadata leaks
 first_display_row="$(head -n 1 <<< "$ordered_list" | cut -f 2)"
-first_meta_col="$(head -n 1 <<< "$ordered_list" | cut -f 10)"
-if [[ "$first_display_row" =~ ^[[:space:]]+SUPER[[:space:]]\+[[:space:]]D[[:space:]]+App[[:space:]]Launcher$ ]] &&
-   [[ "$first_display_row" != *"["* && "$first_display_row" != *"launcher"* ]]; then
-    pass "workstation-hotkeys formats display row strictly as HOTKEY + APP/ACTION"
+second_display_row="$(head -n 2 <<< "$ordered_list" | tail -n 1 | cut -f 2)"
+meta_leak_col="$(head -n 1 <<< "$ordered_list" | cut -f 10)"
+
+if [[ "$first_display_row" =~ ^[[:space:]]+Super[[:space:]]\+[[:space:]]D[[:space:]]+App[[:space:]]Launcher$ ]] &&
+   [[ "$first_display_row" != *"["* && "$first_display_row" != *"launcher"* && "$first_display_row" != *"Applications"* && "$first_display_row" != *$'\e'* ]]; then
+    pass "workstation-hotkeys formats display row strictly as friendly HOTKEY + APP/ACTION"
 else
-    fail "display row violates one-row format: $first_display_row"
+    fail "display row violates clean one-row format: $first_display_row"
 fi
 
-if [[ "$first_meta_col" == *$'\e[8m'* && "$first_meta_col" == *"launcher"* && "$first_meta_col" == *"Applications"* ]]; then
-    pass "workstation-hotkeys conceals search metadata (action ID, category) in separate field for fzf"
+if [[ "$second_display_row" =~ ^[[:space:]]+Super[[:space:]]\+[[:space:]]Return[[:space:]]+Terminal$ ]] &&
+   [[ "$second_display_row" != *"kitty"* && "$second_display_row" != *"terminal"* ]]; then
+    pass "workstation-hotkeys renders [Super + Return        Terminal] cleanly"
 else
-    fail "search metadata not properly concealed: $first_meta_col"
+    fail "second display row format unexpected: $second_display_row"
+fi
+
+if [[ -z "$meta_leak_col" ]] &&
+   grep -q -- '--with-nth=2[[:space:]]' "$ROOT/bin/workstation-hotkeys" &&
+   ! grep -q -- '--with-nth=2,10' "$ROOT/bin/workstation-hotkeys"; then
+    pass "fzf is configured strictly with --with-nth=2 and does not leak hidden metadata fields"
+else
+    fail "fzf field configuration or metadata leak detected: col10='$meta_leak_col'"
+fi
+
+# Verification of format_friendly_key and canonical invariance
+lua_friendly_check="$(luajit -e '
+package.path = "dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+assert(eff.format_friendly_key("SUPER + D") == "Super + D", "Failed Super + D")
+assert(eff.format_friendly_key("SUPER + RETURN") == "Super + Return", "Failed Super + Return")
+assert(eff.format_friendly_key("SUPER + SHIFT + T") == "Super + Shift + T", "Failed Super + Shift + T")
+assert(eff.format_friendly_key("ALT + TAB") == "Alt + Tab", "Failed Alt + Tab")
+assert(eff.format_friendly_key("CTRL + ALT + X") == "Ctrl + Alt + X", "Failed Ctrl + Alt + X")
+
+-- Canonical invariance
+assert(eff.canonical_key("SUPER + SHIFT + T") == eff.canonical_key("Shift + Super + T"), "Canonical mismatch")
+assert(eff.canonical_key("SUPER + RETURN") == "super+return", "Canonical return mismatch")
+print("OK")
+')"
+if [[ "$lua_friendly_check" == "OK" ]]; then
+    pass "friendly display formatting and canonical internal representation invariance verified"
+else
+    fail "friendly formatting / canonical invariance check failed: $lua_friendly_check"
 fi
 
 # 5. Physical key capture mock mode
