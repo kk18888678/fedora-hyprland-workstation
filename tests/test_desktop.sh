@@ -549,3 +549,45 @@ if printf '%s\n' "$bookmarks_test_output" | grep -q 'custom-idempotent-ok=1'; th
 else
     fail "converge_gtk_bookmarks failed custom idempotency: $bookmarks_test_output"
 fi
+
+section "Monitor Configuration"
+
+monitor_conf="$ROOT/dotfiles/hypr/monitors.lua"
+if [[ -f "$monitor_conf" ]]; then
+    if command -v luajit >/dev/null 2>&1; then
+        if luajit -e 'assert(loadfile("'"$monitor_conf"'"))' >/dev/null 2>&1; then
+            pass "monitors.lua has valid Lua syntax"
+        else
+            fail "monitors.lua has invalid Lua syntax"
+        fi
+    else
+        pass "monitors.lua syntax check skipped (luajit not installed)"
+    fi
+
+    # Ensure no hardcoded machine-specific dimensions or output names
+    if grep -Eq '[0-9]{3,4}x[0-9]{3,4}' "$monitor_conf"; then
+        fail "monitors.lua must not hardcode fixed pixel resolutions"
+    else
+        pass "monitors.lua contains no hardcoded pixel resolutions"
+    fi
+
+    if grep -Fq 'Virtual-1' "$monitor_conf"; then
+        fail "monitors.lua must not hardcode output name Virtual-1"
+    else
+        pass "monitors.lua does not hardcode Virtual-1"
+    fi
+
+    if grep -Fq 'output = ""' "$monitor_conf" && grep -Fq 'mode = "preferred"' "$monitor_conf"; then
+        pass "monitors.lua contains generic fallback rule with preferred mode"
+    else
+        fail "monitors.lua missing generic fallback rule with preferred mode"
+    fi
+
+    if grep -Fq 'desc:Red Hat Inc. QEMU Monitor' "$monitor_conf"; then
+        pass "monitors.lua provides targeted virtual monitor description rule"
+    else
+        fail "monitors.lua missing virtual monitor description rule"
+    fi
+else
+    fail "monitors.lua file not found at $monitor_conf"
+fi
