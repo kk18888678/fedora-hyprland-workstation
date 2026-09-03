@@ -2,7 +2,9 @@
 -- Reads the authoritative declarative keybindings manifest and registers bindings with Hyprland.
 
 local manifest = require("keybindings_manifest")
-local mainMod = manifest.mainMod or "SUPER"
+local effective_mod = require("effective_bindings")
+local effective = effective_mod.resolve_bindings(manifest)
+local mainMod = effective.mainMod or manifest.mainMod or "SUPER"
 
 local function register_binding(item)
     if item.generator then
@@ -24,8 +26,8 @@ local function register_binding(item)
         return
     end
 
-    if not item.key and item.action_type == "gesture" then
-        -- Touchpad gesture documentation entry (handled natively in gesture settings)
+    if not item.key and (item.action_type == "gesture" or item.unbound) then
+        -- Touchpad gesture or user-unbound entry: skip registration
         return
     end
 
@@ -69,7 +71,7 @@ local function register_binding(item)
     end
 end
 
-for _, item in ipairs(manifest.bindings or {}) do
+for _, item in ipairs(effective.bindings or {}) do
     register_binding(item)
 end
 

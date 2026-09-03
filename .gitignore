@@ -1,0 +1,8 @@
+# User configuration overrides
+dotfiles/hypr/keybindings_overrides.json
+*.tmp*
+*.tmp.*
+
+# Transient runtime generated files
+dotfiles/hypr/noctalia.lua
+dotfiles/kitty/themes/noctalia.conf

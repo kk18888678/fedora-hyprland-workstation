@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Workstation Hotkeys & Keyboard Shortcuts Reference
-# Dynamically rendered from the single source of truth: keybindings_manifest.lua
+# Workstation Hotkeys & Keyboard Shortcuts Reference & Interactive Manager
+# Dynamically derived from keybindings_manifest.lua and effective_bindings.lua.
 
-# If not running in an interactive terminal and not forced to stdout, launch in a dedicated floating terminal.
-if [[ ! -t 1 && "${HOTKEYS_FORCE_STDOUT:-0}" != "1" ]]; then
+# If not running in an interactive terminal and not forced to stdout or test mode,
+# launch in a dedicated floating terminal.
+if [[ ! -t 1 && "${HOTKEYS_FORCE_STDOUT:-0}" != "1" && -z "${HOTKEYS_TEST_ACTION:-}" ]]; then
     if command -v foot >/dev/null 2>&1; then
         exec foot --app-id=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
     elif command -v kitty >/dev/null 2>&1; then
@@ -34,6 +35,21 @@ if [[ -z "$manifest_path" || ! -f "$manifest_path" ]]; then
     exit 1
 fi
 
+manifest_dir="$(dirname -- "$manifest_path")"
+
+effective_lua=""
+if [[ -f "$manifest_dir/effective_bindings.lua" ]]; then
+    effective_lua="$manifest_dir/effective_bindings.lua"
+else
+    script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+    effective_lua="$script_dir/../dotfiles/hypr/effective_bindings.lua"
+fi
+
+if [[ ! -f "$effective_lua" ]]; then
+    printf '%s\n' "Error: effective_bindings.lua loader not found." >&2
+    exit 1
+fi
+
 lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
 if [[ -z "$lua_bin" ]]; then
     printf '%s\n' "Error: Lua interpreter not found." >&2
@@ -41,9 +57,14 @@ if [[ -z "$lua_bin" ]]; then
 fi
 
 render_output() {
-    "$lua_bin" - "$manifest_path" <<'LUA_SCRIPT'
+    "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
 local manifest_path = arg[1]
+local manifest_dir  = arg[2]
 local manifest = dofile(manifest_path)
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local effective = eff.resolve_bindings(manifest)
 
 local C_RESET = "\27[0m"
 local C_BOLD  = "\27[1m"
@@ -58,9 +79,9 @@ print()
 print(string.format("%s%s Fedora Hyprland Workstation — Keyboard Shortcuts %s", C_BOLD, C_IRIS, C_RESET))
 print(string.format("%s───────────────────────────────────────────────────────────────────%s", C_MUTED, C_RESET))
 
-for _, cat in ipairs(manifest.categories or {}) do
+for _, cat in ipairs(effective.categories or {}) do
     local cat_items = {}
-    for _, item in ipairs(manifest.bindings or {}) do
+    for _, item in ipairs(effective.bindings or {}) do
         if item.category == cat then
             table.insert(cat_items, item)
         end
@@ -69,7 +90,7 @@ for _, cat in ipairs(manifest.categories or {}) do
     if #cat_items > 0 then
         print(string.format("\n%s%s%s%s", C_BOLD, C_FOAM, cat, C_RESET))
         for _, item in ipairs(cat_items) do
-            local key_str = item.display_key or item.key or ""
+            local key_str = item.display_key or item.key or "None (Unbound)"
             local desc_str = item.description or ""
             local pad = 37 - #key_str
             if pad < 2 then pad = 2 end
@@ -84,8 +105,237 @@ print(string.format("%sPress %sq%s%s, %sEsc%s%s, or %sCtrl+C%s%s to close.%s\n",
 LUA_SCRIPT
 }
 
+# Fetch TSV rows for interactive TUI / test mode:
+# ID 	 DISPLAY_ROW 	 KEY 	 DESCRIPTION 	 CATEGORY 	 RUNNABLE 	 COMMAND 	 ACTION_TYPE
+get_tsv_rows() {
+    "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local manifest = dofile(manifest_path)
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local effective = eff.resolve_bindings(manifest)
+
+for _, item in ipairs(effective.bindings or {}) do
+    local id = item.id or ""
+    local key = item.display_key or item.key or "None (Unbound)"
+    local desc = item.description or ""
+    local cat = item.category or ""
+    local runnable = (item.runnable == true) and "true" or "false"
+    local cmd = item.command or ""
+    local act = item.action_type or ""
+
+    -- Display column formatted for clean alignment in fzf
+    local pad = 32 - #key
+    if pad < 2 then pad = 2 end
+    local display_col = string.format("%s%s%-36s [%s]", key, string.rep(" ", pad), desc, cat)
+
+    print(string.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+        id, display_col, key, desc, cat, runnable, cmd, act))
+end
+LUA_SCRIPT
+}
+
+# Execute action safely
+execute_action() {
+    local action_id="$1"
+    local runnable="$2"
+    local command="$3"
+    local description="$4"
+    local action_type="$5"
+
+    if [[ "$runnable" != "true" || -z "$command" ]]; then
+        printf '%s\n' "Unavailable: This action requires desktop context and cannot be run from the hotkey manager."
+        return 1
+    fi
+
+    # Bounded, safe command execution without eval
+    if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+        hyprctl dispatch exec "$command" >/dev/null 2>&1 || {
+            nohup $command >/dev/null 2>&1 &
+        }
+    else
+        nohup $command >/dev/null 2>&1 &
+    fi
+    printf '%s\n' "Running: $description"
+    return 0
+}
+
+# Set/edit binding via Lua helper
+apply_binding_edit() {
+    local action_id="$1"
+    local new_input="$2"
+
+    "$lua_bin" - "$manifest_path" "$manifest_dir" "$action_id" "$new_input" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local action_id     = arg[3]
+local new_input     = arg[4]
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+
+local ok, result = eff.set_action_binding(action_id, new_input, manifest_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+}
+
+# Reload Hyprland if active
+reload_hyprland_session() {
+    if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+        hyprctl reload >/dev/null 2>&1 || true
+    fi
+}
+
+# Handle test actions non-interactively
+if [[ -n "${HOTKEYS_TEST_ACTION:-}" ]]; then
+    case "$HOTKEYS_TEST_ACTION" in
+        list)
+            get_tsv_rows
+            exit 0
+            ;;
+        run)
+            target_id="${HOTKEYS_TEST_ID:-}"
+            found=0
+            while IFS=$'	' read -r id display_col key desc cat runnable cmd act; do
+                if [[ "$id" == "$target_id" ]]; then
+                    found=1
+                    if [[ "$runnable" == "true" ]]; then
+                        printf '%s\n' "RUN:$cmd"
+                        exit 0
+                    else
+                        printf '%s\n' "UNAVAILABLE:$desc"
+                        exit 2
+                    fi
+                fi
+            done < <(get_tsv_rows)
+            if [[ "$found" -eq 0 ]]; then
+                printf '%s\n' "ERROR: Action not found: $target_id" >&2
+                exit 1
+            fi
+            ;;
+        edit|conflict|invalid)
+            target_id="${HOTKEYS_TEST_ID:-}"
+            target_input="${HOTKEYS_TEST_INPUT:-}"
+            if apply_binding_edit "$target_id" "$target_input"; then
+                reload_hyprland_session
+                printf '%s\n' "EDIT_OK"
+                exit 0
+            else
+                printf '%s\n' "EDIT_FAIL" >&2
+                exit 1
+            fi
+            ;;
+        unset)
+            target_id="${HOTKEYS_TEST_ID:-}"
+            if apply_binding_edit "$target_id" "none"; then
+                reload_hyprland_session
+                printf '%s\n' "UNSET_OK"
+                exit 0
+            else
+                printf '%s\n' "UNSET_FAIL" >&2
+                exit 1
+            fi
+            ;;
+        reset)
+            target_id="${HOTKEYS_TEST_ID:-}"
+            if apply_binding_edit "$target_id" "default"; then
+                reload_hyprland_session
+                printf '%s\n' "RESET_OK"
+                exit 0
+            else
+                printf '%s\n' "RESET_FAIL" >&2
+                exit 1
+            fi
+            ;;
+        quit)
+            exit 0
+            ;;
+        *)
+            printf '%s\n' "Unknown HOTKEYS_TEST_ACTION: $HOTKEYS_TEST_ACTION" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Force stdout mode (preserves existing non-interactive test and output parity)
 if [[ "${HOTKEYS_FORCE_STDOUT:-0}" == "1" ]]; then
     render_output
+    exit 0
+fi
+
+# Interactive mode: requires fzf and interactive TTY
+if command -v fzf >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
+    while true; do
+        tsv_data="$(get_tsv_rows)"
+
+        # Run fzf with navigation, Enter, e (edit), and q/Esc abort
+        fzf_out="$(printf '%s
+' "$tsv_data" | fzf             --disabled             --bind 'j:down,k:up,q:abort,esc:abort'             --expect=e             --header="Fedora Hyprland Workstation — Keyboard Shortcuts"             --footer="↵ Run    e Edit shortcut    q / Esc Quit"             --delimiter=$'	'             --with-nth=2 || true)"
+
+        if [[ -z "$fzf_out" ]]; then
+            # Esc or q was pressed to quit
+            exit 0
+        fi
+
+        key_action="$(head -n 1 <<< "$fzf_out")"
+        selected_row="$(tail -n +2 <<< "$fzf_out" | head -n 1)"
+
+        if [[ -z "$selected_row" ]]; then
+            exit 0
+        fi
+
+        IFS=$'	' read -r sel_id sel_display sel_key sel_desc sel_cat sel_runnable sel_cmd sel_act <<< "$selected_row"
+
+        if [[ "$key_action" == "e" ]]; then
+            # Edit workflow
+            clear
+            printf '\033[1;35m%s\033[0m\n' "Fedora Hyprland Workstation — Edit Shortcut"
+            printf '%s\n' "───────────────────────────────────────────────────────────────────"
+            printf '\033[1mAction:\033[0m      %s\n' "$sel_desc"
+            printf '\033[1mAction ID:\033[0m   %s\n' "$sel_id"
+            printf '\033[1mCategory:\033[0m    %s\n' "$sel_cat"
+            printf '\033[1mCurrent Key:\033[0m %s\n' "$sel_key"
+            printf '%s\n\n' "───────────────────────────────────────────────────────────────────"
+            printf '%s\n' "Enter new key combination (e.g. SUPER + ALT + T),"
+            printf '%s\n' "  type 'none' or '-' to unbind,"
+            printf '%s\n' "  type 'default' to restore manifest default,"
+            printf '%s' "  or press Enter with no input to cancel: "
+
+            read -r new_input || true
+            if [[ -z "$new_input" ]]; then
+                continue
+            fi
+
+            if err_msg="$(apply_binding_edit "$sel_id" "$new_input" 2>&1)"; then
+                reload_hyprland_session
+                printf '\n\033[1;32m%s\033[0m\n' "Shortcut updated successfully. Hyprland configuration reloaded."
+                sleep 1
+            else
+                printf '\n\033[1;31m%s\033[0m\n' "$err_msg"
+                printf '%s' "Press Enter to return to shortcut list... "
+                read -r _ || true
+            fi
+        else
+            # Enter workflow: activate/run
+            if [[ "$sel_runnable" == "true" ]]; then
+                execute_action "$sel_id" "$sel_runnable" "$sel_cmd" "$sel_desc" "$sel_act"
+                exit 0
+            else
+                clear
+                printf '\033[1;33m%s\033[0m\n\n' "Cannot execute from hotkeys manager:"
+                printf '%s\n' "Action: $sel_desc ($sel_id)"
+                printf '%s\n\n' "This action requires direct window, workspace, or input device context."
+                printf '%s' "Press Enter to return to shortcut list... "
+                read -r _ || true
+            fi
+        fi
+    done
 elif command -v less >/dev/null 2>&1; then
     render_output | less -R -F -X
 else

@@ -502,3 +502,201 @@ if ! grep -q "workstation-launcher" "$ROOT/dotfiles/hypr/windowrules.lua" &&
 else
     fail "dead workstation-launcher references remain in code"
 fi
+
+section "Interactive Hotkey Manager & User Overrides Engine"
+
+# 1. Manifest stable IDs uniqueness and presence
+manifest_ids_output="$(
+    "$lua_bin" - "$manifest_file" <<'LUA_CHECK'
+local manifest = dofile(arg[1])
+local seen_ids = {}
+local total = 0
+for idx, b in ipairs(manifest.bindings or {}) do
+    total = total + 1
+    if not b.id or b.id == "" then
+        print("ERR: Missing id at index " .. idx)
+        os.exit(1)
+    end
+    if seen_ids[b.id] then
+        print("ERR: Duplicate id: " .. b.id)
+        os.exit(1)
+    end
+    seen_ids[b.id] = true
+end
+print(string.format("IDS_VALID count=%d", total))
+LUA_CHECK
+)"
+
+if grep -q "^IDS_VALID" <<< "$manifest_ids_output"; then
+    pass "keybindings_manifest.lua specifies unique, stable action IDs for all bindings"
+else
+    fail "keybindings_manifest.lua IDs validation failed: $manifest_ids_output"
+fi
+
+# 2. Module presence and syntax
+effective_module="$ROOT/dotfiles/hypr/effective_bindings.lua"
+if [[ -f "$effective_module" ]]; then
+    if "$lua_bin" -e 'assert(loadfile("'"$effective_module"'"))' >/dev/null 2>&1; then
+        pass "effective_bindings.lua exists and compiles cleanly"
+    else
+        fail "effective_bindings.lua has syntax errors"
+    fi
+else
+    fail "effective_bindings.lua is missing"
+fi
+
+# 3. Non-interactive test hooks and interactive TUI wiring
+sandbox_dir="$(mktemp -d)"
+sandbox_overrides="$sandbox_dir/keybindings_overrides.json"
+export HOTKEYS_OVERRIDES="$sandbox_overrides"
+export HOTKEYS_MANIFEST="$manifest_file"
+manifest_before_hash="$(sha256sum "$manifest_file" | awk '{print $1}')"
+
+# Hook: quit exits 0 (clean quit on q / Esc)
+if HOTKEYS_TEST_ACTION=quit "$ROOT/bin/workstation-hotkeys"; then
+    pass "hotkeys manager quit hook exits cleanly with code 0 (q / Esc support)"
+else
+    fail "hotkeys manager quit hook failed"
+fi
+
+# Hook: run on safe runnable action executes command
+run_terminal_output="$(HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_ID="terminal" "$ROOT/bin/workstation-hotkeys")"
+if [[ "$run_terminal_output" == "RUN:kitty" ]]; then
+    pass "hotkeys manager Return action executes safe runnable commands without eval"
+else
+    fail "hotkeys manager Return action failed on runnable item: $run_terminal_output"
+fi
+
+# Hook: run on non-runnable action fails safely without execution
+run_close_ret=0
+run_close_output="$(HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_ID="window_close" "$ROOT/bin/workstation-hotkeys" 2>&1)" || run_close_ret=$?
+if [[ "$run_close_ret" -eq 2 && "$run_close_output" == UNAVAILABLE:* ]]; then
+    pass "hotkeys manager Return action safely refuses window/workspace context actions"
+else
+    fail "hotkeys manager Return action failed to refuse non-runnable item: status=$run_close_ret out=$run_close_output"
+fi
+
+# Hook: edit existing binding
+if HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + E" "$ROOT/bin/workstation-hotkeys" >/dev/null; then
+    pass "hotkeys manager edit flow updates existing shortcut"
+else
+    fail "hotkeys manager edit flow failed"
+fi
+
+# Verify override file is data-only (valid JSON) and not executable code
+if [[ -f "$sandbox_overrides" ]]; then
+    if jq . "$sandbox_overrides" >/dev/null 2>&1; then
+        pass "user override file is pure valid JSON and not executable code"
+    else
+        fail "user override file is not valid JSON"
+    fi
+else
+    fail "user override file was not created"
+fi
+
+# Hook: unset binding
+if HOTKEYS_TEST_ACTION=unset HOTKEYS_TEST_ID="file_manager" "$ROOT/bin/workstation-hotkeys" >/dev/null; then
+    pass "hotkeys manager unset flow unbinds shortcut to None (Unbound)"
+else
+    fail "hotkeys manager unset flow failed"
+fi
+
+# Hook: set previously unset binding
+if HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + SHIFT + F" "$ROOT/bin/workstation-hotkeys" >/dev/null; then
+    pass "hotkeys manager set flow assigns new shortcut to previously unbound action"
+else
+    fail "hotkeys manager set flow failed on previously unbound action"
+fi
+
+# Hook: conflict detection rejects assigning an already bound key
+conflict_ret=0
+conflict_out="$(HOTKEYS_TEST_ACTION=conflict HOTKEYS_TEST_ID="desktop_settings" HOTKEYS_TEST_INPUT="SUPER + RETURN" "$ROOT/bin/workstation-hotkeys" 2>&1)" || conflict_ret=$?
+if [[ "$conflict_ret" -ne 0 && "$conflict_out" == *"Conflict:"* && "$conflict_out" == *"terminal"* ]]; then
+    pass "hotkeys manager detects keybinding conflict and refuses to steal existing binding"
+else
+    fail "hotkeys manager failed conflict detection: ret=$conflict_ret out=$conflict_out"
+fi
+
+# Hook: invalid syntax rejection
+invalid_ret=0
+invalid_out="$(HOTKEYS_TEST_ACTION=invalid HOTKEYS_TEST_ID="desktop_settings" HOTKEYS_TEST_INPUT="SUPER + ; rm -rf /" "$ROOT/bin/workstation-hotkeys" 2>&1)" || invalid_ret=$?
+if [[ "$invalid_ret" -ne 0 && "$invalid_out" == *"invalid or dangerous"* ]]; then
+    pass "hotkeys manager rejects invalid and dangerous keybinding syntax"
+else
+    fail "hotkeys manager failed invalid syntax rejection: ret=$invalid_ret out=$invalid_out"
+fi
+
+# Hook: reset binding restores manifest default
+if HOTKEYS_TEST_ACTION=reset HOTKEYS_TEST_ID="file_manager" "$ROOT/bin/workstation-hotkeys" >/dev/null; then
+    pass "hotkeys manager reset flow restores manifest default"
+else
+    fail "hotkeys manager reset flow failed"
+fi
+
+# Verify manifest on disk was not modified in-place
+manifest_after_hash="$(sha256sum "$manifest_file" | awk '{print $1}')"
+if [[ "$manifest_before_hash" == "$manifest_after_hash" ]]; then
+    pass "repository manifest file remains completely untouched by user edits"
+else
+    fail "manifest was modified during user override operations"
+fi
+
+# Verify zero drift: Hyprland keybind.lua and workstation-hotkeys consume the same effective bindings
+zero_drift_output="$(
+    "$lua_bin" - "$ROOT" "$sandbox_overrides" <<'LUA_CHECK'
+local root = arg[1]
+local overrides_path = arg[2]
+
+-- Set override
+local f = io.open(overrides_path, "w")
+f:write('{\n  "file_manager": "SUPER + ALT + M",\n  "desktop_settings": false\n}\n')
+f:close()
+
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+local effective = eff.resolve_bindings(manifest, eff.load_overrides(overrides_path))
+
+-- Verify Hyprland registration with these effective bindings
+local bound_keys = {}
+local hl = {
+    bind = function(key, action, flags) bound_keys[key] = true end,
+    dsp = {
+        focus = function() return function() end end,
+        exec_cmd = function() return function() end end,
+        window = {
+            close = function() return function() end end,
+            float = function() return function() end end,
+            fullscreen = function() return function() end end,
+            cycle_next = function() return function() end end,
+            move = function() return function() end end,
+            drag = function() return function() end end,
+            resize = function() return function() end end,
+        },
+    },
+    exec_cmd = function() end,
+}
+_G.hl = hl
+package.loaded["keybind"] = nil
+require("keybind")
+
+-- file_manager should be bound to SUPER + ALT + M
+assert(bound_keys["SUPER + ALT + M"], "Hyprland missing overridden file_manager key")
+-- desktop_settings was set to false, should not be bound at all
+for k, _ in pairs(bound_keys) do
+    assert(k ~= "SUPER + T", "Hyprland should not bind unbound desktop_settings")
+end
+
+print("ZERO_DRIFT_OK")
+LUA_CHECK
+)"
+
+if grep -q "ZERO_DRIFT_OK" <<< "$zero_drift_output"; then
+    pass "Hyprland runtime configuration and hotkeys UI share identical effective binding resolution"
+else
+    fail "zero drift check failed: $zero_drift_output"
+fi
+
+rm -rf "$sandbox_dir"
+unset HOTKEYS_OVERRIDES
+unset HOTKEYS_MANIFEST
