@@ -160,7 +160,7 @@ The Planner (`modules/lib/planner.sh`) is strictly read-only and performs zero s
   - `KEEP`: Component is present and desired `managed` or `unmanaged`.
   - `CONFIGURE`: Component is present and has an updated configuration.
   - `REMOVE`: Component is present and explicitly desired `remove`.
-  - `CHANGE_DEFAULT`: Desired role provider differs from current host default.
+  - `CHANGE_DEFAULT`: Desired role provider differs from current host default, provided an executable system-default adapter is registered for that role (`role_has_default_adapter`). Roles representing preferences without an executable system adapter (e.g. `terminal`, `text-editor`) remain in desired state but do not generate actionable mutation plans until real adapters exist.
 - Every action records target ID, action type, descriptive reason, and details.
 - Fail-Closed Plan Verification (`validate_plan`): The plan cannot be executed without valid structure and matching SHA-256 fingerprint. This protects the internal Review -> Reconciler consistency boundary against accidental or unexpected post-review mutation. It is an internal state consistency check, not a cryptographic authentication boundary against malicious code executing inside the installer process.
 
@@ -188,7 +188,7 @@ The Reconciler (`modules/lib/reconciler.sh`):
   1. `REMOVE` actions (safe package removal; remove != purge).
   2. `INSTALL` actions (`install_fn` -> `configure_fn` -> `validate_fn`).
   3. `CONFIGURE` actions.
-  4. `CHANGE_DEFAULT` actions (role association updates verified via canonical `xdg-mime` query).
+  4. `CHANGE_DEFAULT` actions (delegated to registered role default adapters and verified, e.g. via canonical `xdg-mime` query for browsers).
 - Surfaces all failures (`INSTALL`, `CONFIGURE`, `VALIDATE`, `REMOVE`, `CHANGE_DEFAULT`) and records them through standard repository classification (`record_required`, `record_deferred`).
 
 ---

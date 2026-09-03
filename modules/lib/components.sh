@@ -48,6 +48,40 @@ SUPPORTED_PROFILES=(
     "vm"
 )
 
+# Registry for executable role default adapters and state detectors
+declare -g -A _ROLE_DEFAULT_ADAPTERS=()
+declare -g -A _ROLE_DEFAULT_DETECTORS=()
+
+# Check if a role has an executable system-default adapter
+role_has_default_adapter() {
+    local role="$1"
+    [[ -n "${_ROLE_DEFAULT_ADAPTERS[$role]:-}" ]]
+}
+
+# Register an executable default adapter for a role
+register_role_default_adapter() {
+    local role="$1"
+    local adapter_fn="$2"
+    local detect_fn="${3:-}"
+
+    _ROLE_DEFAULT_ADAPTERS["$role"]="$adapter_fn"
+    if [[ -n "$detect_fn" ]]; then
+        _ROLE_DEFAULT_DETECTORS["$role"]="$detect_fn"
+    fi
+}
+
+# Reset role default adapters (used for test isolation)
+reset_role_default_adapters() {
+    _ROLE_DEFAULT_ADAPTERS=()
+    _ROLE_DEFAULT_DETECTORS=()
+}
+
+# Register default role adapters for the workstation
+init_default_role_adapters() {
+    reset_role_default_adapters
+    register_role_default_adapter "browser" "set_browser_default_adapter" "detect_browser_default_adapter"
+}
+
 # Reset registry state (essential for test isolation)
 reset_component_registry() {
     _COMP_IDS=()
@@ -68,6 +102,10 @@ reset_component_registry() {
     _COMP_CONFIGURE_FN=()
     _COMP_VALIDATE_FN=()
     _COMP_REMOVE_FN=()
+    reset_role_default_adapters
+    if declare -F init_default_role_adapters >/dev/null 2>&1; then
+        init_default_role_adapters
+    fi
 }
 
 # Check if a component is registered
@@ -523,6 +561,8 @@ remove_htop_adapter() {
 
 # Register the representative components
 init_default_components() {
+    init_default_role_adapters
+
     register_component \
         id "chromium" \
         display_name "Chromium" \

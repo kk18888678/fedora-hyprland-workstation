@@ -105,25 +105,28 @@ detect_component_presence() {
     return 1
 }
 
+# Browser default detector adapter
+detect_browser_default_adapter() {
+    if command_exists xdg-mime 2>/dev/null; then
+        local def
+        def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null || true)"
+        case "$def" in
+            *chromium*) printf 'chromium\n' ;;
+            *firefox*)  printf 'firefox\n' ;;
+            *) printf '' ;;
+        esac
+    fi
+}
+
 # Detect current default provider for a role on the host
 detect_current_role_default() {
     local role="$1"
-    case "$role" in
-        browser)
-            if command_exists xdg-mime 2>/dev/null; then
-                local def
-                def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null || true)"
-                case "$def" in
-                    *chromium*) printf 'chromium\n' ;;
-                    *firefox*)  printf 'firefox\n' ;;
-                    *) printf '' ;;
-                esac
-            fi
-            ;;
-        *)
-            printf ''
-            ;;
-    esac
+    local detector="${_ROLE_DEFAULT_DETECTORS[$role]:-}"
+    if [[ -n "$detector" ]] && declare -F "$detector" >/dev/null 2>&1; then
+        "$detector"
+    else
+        printf ''
+    fi
 }
 
 # Order component IDs topologically (dependency before dependent)
@@ -299,6 +302,10 @@ _validate_plan_structure() {
                 done
                 if [[ "$valid_role" -eq 0 ]]; then
                     printf 'ERROR: Plan CHANGE_DEFAULT action has unknown role: %s\n' "$role" >&2
+                    return 1
+                fi
+                if ! role_has_default_adapter "$role"; then
+                    printf 'ERROR: Plan CHANGE_DEFAULT action has no executable adapter for role: %s\n' "$role" >&2
                     return 1
                 fi
                 local comp_roles
@@ -609,10 +616,13 @@ create_execution_plan() {
         fi
     done
 
-    # 10. Plan role default changes
+    # 10. Plan role default changes (only for roles with executable default adapters)
     for role in "${SUPPORTED_ROLES[@]}"; do
         local desired_def="${ds_def_map[$role]:-}"
         if [[ -n "$desired_def" ]]; then
+            if ! role_has_default_adapter "$role"; then
+                continue
+            fi
             local actual_def=""
             if [[ -n "$actual_prefix" ]]; then
                 local act_def_var="${actual_prefix}_ROLE_DEFAULTS"

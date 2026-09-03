@@ -11,62 +11,72 @@
 # - Failure classification follows repository status semantics.
 
 # Set system default application for a role
+set_browser_default_adapter() {
+    local comp_id="$1"
+
+    if ! command_exists xdg-mime; then
+        warn "xdg-mime command unavailable; cannot set default browser"
+        return 1
+    fi
+
+    local desktop_file=""
+    case "$comp_id" in
+        chromium) desktop_file="chromium-browser.desktop" ;;
+        firefox)  desktop_file="firefox.desktop" ;;
+        *)        desktop_file="${comp_id}.desktop" ;;
+    esac
+
+    if [[ -z "$desktop_file" ]]; then
+        warn "No desktop file determined for browser: $comp_id"
+        return 1
+    fi
+
+    local err=0
+    xdg-mime default "$desktop_file" x-scheme-handler/http 2>/dev/null || err=1
+    xdg-mime default "$desktop_file" x-scheme-handler/https 2>/dev/null || err=1
+    xdg-mime default "$desktop_file" text/html 2>/dev/null || err=1
+
+    if [[ "$err" -ne 0 ]]; then
+        warn "Failed to set default browser MIME associations to $desktop_file"
+        return 1
+    fi
+
+    # Canonical verification: query command must succeed, be non-empty, and match expected desktop file
+    local check_def
+    if ! check_def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null)"; then
+        warn "Failed to query default application for x-scheme-handler/https"
+        return 1
+    fi
+
+    if [[ -z "$check_def" ]]; then
+        warn "Default browser query returned empty association, expected $desktop_file"
+        return 1
+    fi
+
+    if [[ "$check_def" != "$desktop_file" ]]; then
+        warn "Default browser query returned $check_def, expected $desktop_file"
+        return 1
+    fi
+
+    return 0
+}
+
 set_system_role_default() {
     local role="$1"
     local comp_id="$2"
 
-    case "$role" in
-        browser)
-            if ! command_exists xdg-mime; then
-                warn "xdg-mime command unavailable; cannot set default browser"
-                return 1
-            fi
+    if ! role_has_default_adapter "$role"; then
+        warn "Unsupported or non-executable role default requested: $role"
+        return 1
+    fi
 
-            local desktop_file=""
-            case "$comp_id" in
-                chromium) desktop_file="chromium-browser.desktop" ;;
-                firefox)  desktop_file="firefox.desktop" ;;
-                *)        desktop_file="${comp_id}.desktop" ;;
-            esac
+    local adapter_fn="${_ROLE_DEFAULT_ADAPTERS[$role]:-}"
+    if [[ -z "$adapter_fn" ]] || ! declare -F "$adapter_fn" >/dev/null 2>&1; then
+        warn "Default adapter function not found for role $role: ${adapter_fn:-<none>}"
+        return 1
+    fi
 
-            if [[ -z "$desktop_file" ]]; then
-                warn "No desktop file determined for browser: $comp_id"
-                return 1
-            fi
-
-            local err=0
-            xdg-mime default "$desktop_file" x-scheme-handler/http 2>/dev/null || err=1
-            xdg-mime default "$desktop_file" x-scheme-handler/https 2>/dev/null || err=1
-            xdg-mime default "$desktop_file" text/html 2>/dev/null || err=1
-
-            if [[ "$err" -ne 0 ]]; then
-                warn "Failed to set default browser MIME associations to $desktop_file"
-                return 1
-            fi
-
-            # Canonical verification: query command must succeed, be non-empty, and match expected desktop file
-            local check_def
-            if ! check_def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null)"; then
-                warn "Failed to query default application for x-scheme-handler/https"
-                return 1
-            fi
-
-            if [[ -z "$check_def" ]]; then
-                warn "Default browser query returned empty association, expected $desktop_file"
-                return 1
-            fi
-
-            if [[ "$check_def" != "$desktop_file" ]]; then
-                warn "Default browser query returned $check_def, expected $desktop_file"
-                return 1
-            fi
-            return 0
-            ;;
-        *)
-            warn "Unsupported role default requested: $role"
-            return 1
-            ;;
-    esac
+    "$adapter_fn" "$comp_id"
 }
 
 # Execute an action via its callback or a mock runner
@@ -99,8 +109,13 @@ _reconciler_invoke() {
 #   plan_prefix: name of plan structure
 #   out_results_var (optional): name of variable to store execution status
 execute_plan() {
-    local plan_prefix="$1"
+    local plan_prefix="${1:-}"
     local out_results_var="${2:-}"
+
+    if [[ -z "$plan_prefix" ]]; then
+        printf 'ERROR: execute_plan requires a valid plan_prefix argument\n' >&2
+        return 1
+    fi
 
     # Plan MUST be validated before execution; fail closed on unfinalized, malformed, or modified plans
     if ! validate_plan "$plan_prefix"; then
