@@ -178,7 +178,8 @@ function M.parse_strict_overrides(str, manifest)
         local key, k_err = parse_string()
         if not key then return nil, k_err end
 
-        if manifest and not valid_actions[key] then
+        local is_app_action = key:match("^app:[%w%-%._]+%.desktop$")
+        if manifest and not valid_actions[key] and not is_app_action then
             return nil, "Unknown or uneditable action ID in overrides: " .. tostring(key)
         end
 
@@ -337,6 +338,124 @@ function M.save_overrides(overrides, path)
 end
 
 
+-- Standard application search paths
+local APP_SEARCH_DIRS = {
+    (os.getenv("HOME") or "") .. "/.local/share/applications",
+    "/usr/local/share/applications",
+    "/usr/share/applications",
+    "/var/lib/flatpak/exports/share/applications",
+    (os.getenv("HOME") or "") .. "/.local/share/flatpak/exports/share/applications",
+}
+
+-- Parse a single desktop entry file safely
+function M.parse_desktop_file(filepath)
+    local f = io.open(filepath, "r")
+    if not f then return nil end
+    local in_entry = false
+    local data = { path = filepath }
+    for line in f:lines() do
+        line = line:gsub("^%s+", ""):gsub("%s+$", "")
+        if line:match("^%[Desktop Entry%]$") then
+            in_entry = true
+        elseif line:match("^%[") then
+            in_entry = false
+        elseif in_entry then
+            local k, v = line:match("^([^=]+)=(.*)$")
+            if k and v then
+                k = k:gsub("%s+$", "")
+                data[k] = v
+            end
+        end
+    end
+    f:close()
+
+    if data.Type ~= "Application" then return nil end
+    if data.NoDisplay == "true" or data.Hidden == "true" then return nil end
+    if not data.Name or data.Name == "" then return nil end
+
+    return {
+        desktop_id = filepath:match("([^/]+)$"),
+        name = data.Name,
+        generic_name = data.GenericName,
+        comment = data.Comment,
+        exec = data.Exec,
+        icon = data.Icon,
+        categories = data.Categories,
+        path = filepath,
+    }
+end
+
+-- Find a specific desktop application by desktop_id
+function M.find_desktop_app(desktop_id)
+    if not desktop_id or type(desktop_id) ~= "string" or not desktop_id:match("%.desktop$") then
+        return nil
+    end
+    for _, dir in ipairs(APP_SEARCH_DIRS) do
+        local path = dir .. "/" .. desktop_id
+        local app = M.parse_desktop_file(path)
+        if app then return app end
+    end
+    return nil
+end
+
+-- Query truthfully detectable system default roles
+function M.get_truthful_default_roles()
+    local defaults = {}
+    local p_br = io.popen("xdg-mime query default x-scheme-handler/https 2>/dev/null", "r")
+    if p_br then
+        local br = p_br:read("*l")
+        p_br:close()
+        if br and br ~= "" then defaults[br] = "Default Browser" end
+    end
+    local p_fm = io.popen("xdg-mime query default inode/directory 2>/dev/null", "r")
+    if p_fm then
+        local fm = p_fm:read("*l")
+        p_fm:close()
+        if fm and fm ~= "" then defaults[fm] = "Default File Manager" end
+    end
+    local p_te = io.popen("xdg-mime query default text/plain 2>/dev/null", "r")
+    if p_te then
+        local te = p_te:read("*l")
+        p_te:close()
+        if te and te ~= "" then defaults[te] = "Default Text Editor" end
+    end
+    return defaults
+end
+
+-- List all installed desktop applications
+function M.list_installed_applications()
+    local seen = {}
+    local apps = {}
+    local default_roles = M.get_truthful_default_roles()
+
+    for _, dir in ipairs(APP_SEARCH_DIRS) do
+        local p = io.popen("ls -1 " .. sh_quote(dir) .. "/*.desktop 2>/dev/null", "r")
+        if p then
+            for f in p:lines() do
+                local base = f:match("([^/]+)$")
+                if base and not seen[base] then
+                    seen[base] = true
+                    local info = M.parse_desktop_file(f)
+                    if info then
+                        info.default_role = default_roles[base]
+                        table.insert(apps, info)
+                    end
+                end
+            end
+            p:close()
+        end
+    end
+
+    table.sort(apps, function(a, b)
+        local na = (a.name or ""):lower()
+        local nb = (b.name or ""):lower()
+        if na ~= nb then return na < nb end
+        return a.desktop_id < b.desktop_id
+    end)
+
+    return apps
+end
+
 -- Resolve effective bindings by applying overrides onto manifest defaults
 function M.resolve_bindings(manifest, overrides)
     manifest = manifest or require("keybindings_manifest")
@@ -357,6 +476,8 @@ function M.resolve_bindings(manifest, overrides)
         overrides = overrides,
     }
 
+    local known_ids = {}
+
     for _, orig in ipairs(manifest.bindings or {}) do
         local item = {}
         for k, v in pairs(orig) do
@@ -364,24 +485,91 @@ function M.resolve_bindings(manifest, overrides)
         end
 
         local action_id = item.id
-        if action_id and overrides[action_id] ~= nil then
-            local ov = overrides[action_id]
-            if ov == false or ov == "" or ov == "none" then
-                item.key = nil
-                item.display_key = "None (Unbound)"
-                item.unbound = true
-                item.user_overridden = true
-            elseif type(ov) == "string" then
-                local norm = M.normalize_key(ov)
-                item.key = norm
-                item.display_key = norm
-                item.unbound = false
-                item.user_overridden = true
+        if action_id then
+            known_ids[action_id] = true
+            if overrides[action_id] ~= nil then
+                local ov = overrides[action_id]
+                if ov == false or ov == "" or ov == "none" then
+                    item.key = nil
+                    item.display_key = "None (Unbound)"
+                    item.unbound = true
+                    item.user_overridden = true
+                elseif type(ov) == "string" then
+                    local norm = M.normalize_key(ov)
+                    item.key = norm
+                    item.display_key = norm
+                    item.unbound = false
+                    item.user_overridden = true
+                end
             end
         end
 
         table.insert(effective.bindings, item)
     end
+
+    -- Process application-specific overrides (e.g. "app:foo.desktop")
+    for action_id, ov in pairs(overrides) do
+        if not known_ids[action_id] then
+            local app_desktop = action_id:match("^app:([%w%-%._]+%.desktop)$")
+            if app_desktop then
+                local app_info = M.find_desktop_app(app_desktop)
+                local app_name = (app_info and app_info.name) and app_info.name or app_desktop:gsub("%.desktop$", "")
+                local item = {
+                    id = action_id,
+                    priority = 45,
+                    editable = true,
+                    runnable = true,
+                    category = "Applications & Launchers",
+                    desktop_id = app_desktop,
+                    description = "Launch " .. app_name,
+                    action_type = "exec",
+                    command = "gtk-launch " .. app_desktop,
+                    command_argv = { "gtk-launch", app_desktop },
+                    user_overridden = true,
+                }
+                if ov == false or ov == "" or ov == "none" then
+                    item.key = nil
+                    item.display_key = "None (Unbound)"
+                    item.unbound = true
+                elseif type(ov) == "string" then
+                    local norm = M.normalize_key(ov)
+                    item.key = norm
+                    item.display_key = norm
+                    item.unbound = false
+                end
+                table.insert(effective.bindings, item)
+            end
+        end
+    end
+
+    -- Deterministic, metadata-driven sort prioritizing discoverability:
+    -- 1. Explicit priority (ascending)
+    -- 2. Category order rank in manifest (ascending)
+    -- 3. Description (alphabetical)
+    -- 4. Action ID (tiebreaker)
+    local cat_rank = {}
+    for idx, c in ipairs(effective.categories or {}) do
+        cat_rank[c] = idx
+    end
+
+    table.sort(effective.bindings, function(a, b)
+        local pa = a.priority or 999
+        local pb = b.priority or 999
+        if pa ~= pb then
+            return pa < pb
+        end
+        local ca = cat_rank[a.category] or 999
+        local cb = cat_rank[b.category] or 999
+        if ca ~= cb then
+            return ca < cb
+        end
+        local da = a.description or ""
+        local db = b.description or ""
+        if da ~= db then
+            return da < db
+        end
+        return (a.id or "") < (b.id or "")
+    end)
 
     return effective
 end
@@ -443,7 +631,7 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
 
     reload_fn = reload_fn or M.reload_session
 
-    -- 1. Verify action_id exists in manifest
+    -- 1. Verify action_id exists in manifest or is a valid desktop application
     local target_item = nil
     for _, item in ipairs(manifest.bindings or {}) do
         if item.id == action_id then
@@ -452,7 +640,28 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
         end
     end
     if not target_item then
-        return false, "Action ID not found in manifest: " .. tostring(action_id)
+        local app_desktop = action_id:match("^app:([%w%-%._]+%.desktop)$")
+        if app_desktop then
+            local app_info = M.find_desktop_app(app_desktop)
+            if app_info then
+                target_item = {
+                    id = action_id,
+                    priority = 45,
+                    editable = true,
+                    runnable = true,
+                    category = "Applications & Launchers",
+                    desktop_id = app_desktop,
+                    description = "Launch " .. (app_info.name or app_desktop),
+                    action_type = "exec",
+                    command = "gtk-launch " .. app_desktop,
+                    command_argv = { "gtk-launch", app_desktop },
+                }
+            else
+                return false, "Desktop application not found: " .. app_desktop
+            end
+        else
+            return false, "Action ID not found in manifest: " .. tostring(action_id)
+        end
     end
 
     -- 2. Verify action is editable
@@ -561,6 +770,30 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
         tostring(reload_err))
 end
 
+-- Unified application shortcut assignment
+function M.assign_application_shortcut(desktop_id, new_key_input, manifest_path, overrides_path, reload_fn)
+    manifest_path = manifest_path or nil
+    local manifest
+    if manifest_path then
+        manifest = dofile(manifest_path)
+    else
+        manifest = require("keybindings_manifest")
+    end
+
+    local action_id = nil
+    for _, item in ipairs(manifest.bindings or {}) do
+        if item.desktop_id == desktop_id then
+            action_id = item.id
+            break
+        end
+    end
+    if not action_id then
+        action_id = "app:" .. desktop_id
+    end
+
+    return M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path, reload_fn)
+end
+
 -- Retrieve structured command_argv for a runnable action
 function M.get_action_argv(action_id, manifest)
     manifest = manifest or require("keybindings_manifest")
@@ -578,8 +811,13 @@ function M.get_action_argv(action_id, manifest)
             end
         end
     end
+    local app_desktop = action_id:match("^app:([%w%-%._]+%.desktop)$")
+    if app_desktop then
+        return { "gtk-launch", app_desktop }
+    end
     return nil, "Action ID not found in manifest: " .. tostring(action_id)
 end
 
 return M
+
 

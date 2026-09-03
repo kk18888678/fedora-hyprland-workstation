@@ -521,9 +521,11 @@ install_rose_pine_gtk_theme() {
 
 install_workstation_hotkeys() {
     local bin_source="$SCRIPT_DIR/bin/workstation-hotkeys"
+    local cap_source="$SCRIPT_DIR/bin/workstation-hotkey-capture"
     local desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-hotkeys.desktop"
 
     local bin_target="${HOTKEYS_BIN_DIR:-/usr/local/bin}/workstation-hotkeys"
+    local cap_target="${HOTKEYS_BIN_DIR:-/usr/local/bin}/workstation-hotkey-capture"
     local desktop_target="${HOTKEYS_APPS_DIR:-/usr/local/share/applications}/workstation-hotkeys.desktop"
 
     if [[ -f "$bin_source" ]]; then
@@ -536,6 +538,19 @@ install_workstation_hotkeys() {
             mkdir -p "$(dirname "$bin_target")"
             cp "$bin_source" "$bin_target"
             chmod 0755 "$bin_target"
+        fi
+    fi
+
+    if [[ -f "$cap_source" ]]; then
+        info "Installing workstation-hotkey-capture command to $cap_target."
+        if [[ "$cap_target" == /usr/* || "$cap_target" == /etc/* ]]; then
+            sudo mkdir -p "$(dirname "$cap_target")"
+            sudo cp "$cap_source" "$cap_target"
+            sudo chmod 0755 "$cap_target"
+        else
+            mkdir -p "$(dirname "$cap_target")"
+            cp "$cap_source" "$cap_target"
+            chmod 0755 "$cap_target"
         fi
     fi
 

@@ -254,6 +254,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$HELPER_ROOT"
 TARGET_USER="tester"
 TARGET_HOME="$(mktemp -d)"
+MEDIA_TOOLS_DIR="$(mktemp -d)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
@@ -261,12 +262,13 @@ source "$SCRIPT_DIR/modules/status.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/applications.sh"
 
-# Simulate media utility download failure
+# Isolate host binaries and simulate media utility download failure
+command_exists() { return 1; }
 run_with_retry() { return 1; }
 install_media_utilities
 echo "cli-fail-blocked=$ACTIVATION_BLOCKED"
 echo "cli-fail-exit=$(installer_exit_code)"
-rm -rf "$TARGET_HOME"
+rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR"
 EOS
 )"
 

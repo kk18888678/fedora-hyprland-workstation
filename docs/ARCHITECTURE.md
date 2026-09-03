@@ -114,3 +114,43 @@ sequenceDiagram
 1. **Prepare**: All packages, configurations, dotfiles, and services are deployed. `greetd` is **never** started or replaced in the running session (`systemctl enable --now` is prohibited during preparation).
 2. **Validate**: `validate_login_stack` runs an exhaustive read-only capability check on Hyprland binaries, PAM modules, portal services, greeter executables, and config syntax.
 3. **Activate**: Only if login stack validation passes is `greetd.service` enabled for the next boot. If validation fails, `ACTIVATION_BLOCKED=1` prevents enablement and the workstation remains in its safe previous state.
+
+---
+
+## 4. Hotkeys Information Architecture, App Shortcuts & Noctalia Boundary
+
+### Information Architecture & Single Source of Truth
+- **Keybindings Manifest** (`dotfiles/hypr/keybindings_manifest.lua`): Authoritative declarative catalog of all workstation shortcuts, categories, commands, and explicit priority rankings.
+- **User Overrides** (`~/.config/hypr/keybindings_overrides.json`): User-owned, pure JSON file storing individual key customizations or unbindings (`"action_id": "MOD + KEY"` or `"action_id": false`).
+- **Effective Resolver** (`dotfiles/hypr/effective_bindings.lua`): Single source of truth combining manifest defaults with user overrides. Handles validation, conflict detection, deterministic metadata-driven sorting, and transactional reload with automatic rollback.
+- **Hyprland & Manager Parity**: Both `keybind.lua` (Hyprland runtime session) and `bin/workstation-hotkeys` (TUI manager) consume `effective_bindings.lua`, guaranteeing 0% drift between active session behavior and interactive reference.
+
+### Application Shortcut Model
+- Applications are modeled as `app:<desktop_id>` (e.g. `app:chatgpt.desktop`).
+- Discovered across standard XDG application directories (`~/.local/share/applications`, `/usr/share/applications`, `/var/lib/flatpak/exports/share/applications`).
+- Executed via `gtk-launch <desktop_id>` detached completely from the terminal emulator PTY and process group (`setsid -f`).
+- Truthful system default badges (`[Default Browser]`, `[Default File Manager]`, `[Default Text Editor]`) are queried directly from `xdg-mime` and displayed without speculative heuristics.
+
+### Noctalia Native Launcher Boundary
+- Noctalia's native launcher is compiled in C++ (`noctalia 5.0.0~beta.9`).
+- Inspection of upstream sources (`src/panel/widgets/launcher/`, `launcher_dialog.cpp`) confirms that context menu options (`launcher.context-menu.open/pin/unpin`) and item models are hardcoded internally in compiled binary code without IPC hooks, plugin interfaces, or external script extension points for custom shortcut assignment.
+- Rather than introducing fragile binary patching, the workstation provides a decoupled application shortcut assignment backend (`effective_bindings.assign_application_shortcut`) and user-facing selector (`Ctrl+A` in `workstation-hotkeys`).
+- When the future Quickshell shell arrives, it will directly interface with this exact backend via QML/IPC, preserving user keybinding overrides seamlessly across shell generations.
+
+---
+
+## 5. File Manager & GTK Bookmarks Boundary Model
+
+### Separation of Concerns
+- **XDG User Directories** (`~/.config/user-dirs.dirs`): Managed by `xdg-user-dirs-update`, establishes standard user directory paths (`XDG_DOWNLOAD_DIR`, `XDG_DOCUMENTS_DIR`, etc.).
+- **GTK Bookmarks** (`~/.config/gtk-3.0/bookmarks`): Plaintext URI list consumed by GTK file choosers, Thunar, and GTK applications for custom user places.
+- **Thunar Sidebar Internal Model** (`ThunarShortcutsModel` in `thunar-shortcuts-model.c`):
+  - Upstream Xfce Thunar hardcodes the top section of the shortcuts sidebar: System Built-In Places (Home, Desktop, File System, Trash, Recent, Network, removable media).
+  - These built-in places are managed internally by Thunar and GVFS; they cannot be reordered or moved below custom user bookmarks through dotfiles, Xfconf, or filesystem configuration alone.
+  - Custom bookmarks from `~/.config/gtk-3.0/bookmarks` populate the *User Bookmarks* section below the system places.
+
+### Engineering Policy
+- Do not attempt speculative edits or pseudo-configurations that claim to reorder Thunar's hardcoded Places section.
+- Maintain idempotent convergence of `~/.config/gtk-3.0/bookmarks` for standard user bookmarks across GTK file choosers and Thunar.
+- Test only what the installer actually controls and state upstream component boundaries truthfully.
+

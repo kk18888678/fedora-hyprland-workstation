@@ -2,6 +2,9 @@
 
 # Test Suite: Workspaces discoverability, single-source-of-truth keybindings manifest, and zero-drift hotkeys validation.
 
+# Isolate overrides from live workstation environment unless explicitly set
+export HOTKEYS_OVERRIDES="${HOTKEYS_OVERRIDES:-/dev/null}"
+
 section "Workspaces Discoverability"
 
 workspaces_lua="$ROOT/dotfiles/hypr/workspaces.lua"
@@ -365,9 +368,11 @@ sudo() {
 install_workstation_hotkeys
 
 bin_installed=$([[ -x "$HOTKEYS_BIN_DIR/workstation-hotkeys" ]] && echo 1 || echo 0)
+cap_installed=$([[ -x "$HOTKEYS_BIN_DIR/workstation-hotkey-capture" ]] && echo 1 || echo 0)
 desktop_installed=$([[ -f "$HOTKEYS_APPS_DIR/workstation-hotkeys.desktop" ]] && echo 1 || echo 0)
 
 echo "bin-installed=$bin_installed"
+echo "cap-installed=$cap_installed"
 echo "desktop-installed=$desktop_installed"
 
 rm -rf "$TARGET_HOME" "$HOTKEYS_BIN_DIR" "$HOTKEYS_APPS_DIR"
@@ -375,6 +380,7 @@ EOS
 )"
 
 if printf '%s\n' "$hotkeys_install_output" | grep -q 'bin-installed=1' &&
+   printf '%s\n' "$hotkeys_install_output" | grep -q 'cap-installed=1' &&
    printf '%s\n' "$hotkeys_install_output" | grep -q 'desktop-installed=1'; then
     pass "install_workstation_hotkeys deploys executable and desktop entry into isolated target paths"
 else
@@ -1105,6 +1111,110 @@ rm -rf "$sandbox_dir"
 unset HOTKEYS_OVERRIDES
 unset HOTKEYS_MANIFEST
 unset HOTKEYS_RELOAD_LOG
+
+section "Metadata-Driven Order, Key Capture, and App Shortcuts"
+
+order_sandbox="$(mktemp -d)"
+order_overrides="$order_sandbox/overrides.json"
+echo "{}" > "$order_overrides"
+
+# 1. Deterministic ordering verification
+ordered_list="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys")"
+top_action_ids=()
+while IFS=$'\t' read -r id _rest; do
+    top_action_ids+=("$id")
+done <<< "$ordered_list"
+
+if [[ "${top_action_ids[0]}" == "launcher" &&
+      "${top_action_ids[1]}" == "terminal" &&
+      "${top_action_ids[2]}" == "file_manager" &&
+      "${top_action_ids[3]}" == "hotkeys" &&
+      "${top_action_ids[4]}" == "desktop_settings" &&
+      "${top_action_ids[5]}" == "lock_screen" &&
+      "${top_action_ids[6]}" == "window_close" ]]; then
+    pass "workstation-hotkeys presents items in explicit deterministic metadata-driven priority order"
+else
+    fail "workstation-hotkeys ordering mismatch: ${top_action_ids[*]:0:7}"
+fi
+
+# 2. Status bar preview generation
+p_run="$("$ROOT/bin/workstation-hotkeys" preview "terminal" "true" "true")"
+p_ctx="$("$ROOT/bin/workstation-hotkeys" preview "window_close" "false" "true")"
+p_ro="$("$ROOT/bin/workstation-hotkeys" preview "workspaces_switch_1_10" "false" "false")"
+
+if [[ "$p_run" == *"Run"* && "$p_run" == *"Edit"* && "$p_run" == *"App Shortcut"* ]]; then
+    pass "status bar preview displays runnable, editable, and app assignment controls"
+else
+    fail "runnable status bar preview failed: $p_run"
+fi
+
+if [[ "$p_ctx" == *"[Context Action]"* && "$p_ctx" != *"↵ Run"* && "$p_ctx" == *"Edit"* ]]; then
+    pass "status bar preview suppresses Run for non-runnable context actions"
+else
+    fail "context status bar preview failed: $p_ctx"
+fi
+
+if [[ "$p_ro" == *"[Read-Only System Shortcut]"* && "$p_ro" != *"Edit"* ]]; then
+    pass "status bar preview suppresses Edit for read-only system actions"
+else
+    fail "read-only status bar preview failed: $p_ro"
+fi
+
+# 3. Application shortcut assignment
+if HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=assign_app HOTKEYS_TEST_ID="chatgpt.desktop" HOTKEYS_TEST_INPUT="SUPER + SHIFT + C" "$ROOT/bin/workstation-hotkeys" >/dev/null; then
+    pass "assign_application_shortcut successfully assigns shortcut to desktop_id"
+else
+    fail "assign_application_shortcut failed"
+fi
+
+app_list="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys")"
+if grep -q "app:chatgpt.desktop" <<< "$app_list" && grep -q "SUPER + SHIFT + C" <<< "$app_list"; then
+    pass "assigned application shortcut appears in workstation-hotkeys manifest listing"
+else
+    fail "assigned application shortcut missing from hotkeys listing: $app_list"
+fi
+
+app_argv="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=run_argv HOTKEYS_TEST_ID="app:chatgpt.desktop" "$ROOT/bin/workstation-hotkeys")"
+if [[ "$app_argv" == $'gtk-launch\nchatgpt.desktop' ]]; then
+    pass "application shortcut produces structured argv [gtk-launch chatgpt.desktop]"
+else
+    fail "unexpected app shortcut argv: $app_argv"
+fi
+
+# Conflict detection against assigned application shortcut
+conflict_app_exit=0
+conflict_app_out="$(HOTKEYS_OVERRIDES="$order_overrides" HOTKEYS_TEST_ACTION=assign_app HOTKEYS_TEST_ID="brave-origin.desktop" HOTKEYS_TEST_INPUT="SUPER + SHIFT + C" "$ROOT/bin/workstation-hotkeys" 2>&1)" || conflict_app_exit=$?
+
+if [[ "$conflict_app_exit" -ne 0 && "$conflict_app_out" == *"Conflict"* && "$conflict_app_out" == *"chatgpt.desktop"* ]]; then
+    pass "conflict detection catches collisions against assigned application shortcuts"
+else
+    fail "app collision check failed: code=$conflict_app_exit out=$conflict_app_out"
+fi
+
+# 4. Physical key capture mock mode
+mock_cap_out="$(HOTKEYS_CAPTURE_MOCK_INPUT="SUPER + SHIFT + T" "$ROOT/bin/workstation-hotkey-capture")"
+if [[ "$mock_cap_out" == "KEY:SUPER + SHIFT + T" ]]; then
+    pass "workstation-hotkey-capture returns formatted key combination in test capture mode"
+else
+    fail "key capture mock failed: $mock_cap_out"
+fi
+
+mock_unbind_out="$(HOTKEYS_CAPTURE_MOCK_INPUT="unbind" "$ROOT/bin/workstation-hotkey-capture")"
+if [[ "$mock_unbind_out" == "UNBIND" ]]; then
+    pass "workstation-hotkey-capture handles unbind input safely"
+else
+    fail "unbind capture mock failed: $mock_unbind_out"
+fi
+
+mock_cancel_code=0
+mock_cancel_out="$(HOTKEYS_CAPTURE_MOCK_INPUT="cancel" "$ROOT/bin/workstation-hotkey-capture" 2>&1)" || mock_cancel_code=$?
+if [[ "$mock_cancel_code" -eq 1 && "$mock_cancel_out" == "CANCEL" ]]; then
+    pass "workstation-hotkey-capture handles cancellation safely with non-zero exit code"
+else
+    fail "cancel capture mock failed: code=$mock_cancel_code out=$mock_cancel_out"
+fi
+
+rm -rf "$order_sandbox"
 
 
 
