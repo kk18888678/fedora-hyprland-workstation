@@ -61,6 +61,53 @@ set_browser_default_adapter() {
     return 0
 }
 
+set_file_manager_default_adapter() {
+    local comp_id="$1"
+
+    if ! command_exists xdg-mime; then
+        warn "xdg-mime command unavailable; cannot set default file manager"
+        return 1
+    fi
+
+    local desktop_file=""
+    case "$comp_id" in
+        nautilus) desktop_file="org.gnome.Nautilus.desktop" ;;
+        thunar)   desktop_file="thunar.desktop" ;;
+        *)        desktop_file="${comp_id}.desktop" ;;
+    esac
+
+    if [[ -z "$desktop_file" ]]; then
+        warn "No desktop file determined for file manager: $comp_id"
+        return 1
+    fi
+
+    local err=0
+    xdg-mime default "$desktop_file" inode/directory 2>/dev/null || err=1
+
+    if [[ "$err" -ne 0 ]]; then
+        warn "Failed to set default file manager MIME association to $desktop_file"
+        return 1
+    fi
+
+    local check_def
+    if ! check_def="$(xdg-mime query default inode/directory 2>/dev/null)"; then
+        warn "Failed to query default application for inode/directory"
+        return 1
+    fi
+
+    if [[ -z "$check_def" ]]; then
+        warn "Default file manager query returned empty association, expected $desktop_file"
+        return 1
+    fi
+
+    if [[ "$check_def" != "$desktop_file" ]]; then
+        warn "Default file manager query returned $check_def, expected $desktop_file"
+        return 1
+    fi
+
+    return 0
+}
+
 set_system_role_default() {
     local role="$1"
     local comp_id="$2"

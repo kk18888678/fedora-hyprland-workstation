@@ -118,6 +118,19 @@ detect_browser_default_adapter() {
     fi
 }
 
+# File manager default detector adapter
+detect_file_manager_default_adapter() {
+    if command_exists xdg-mime 2>/dev/null; then
+        local def
+        def="$(xdg-mime query default inode/directory 2>/dev/null || true)"
+        case "$def" in
+            *Nautilus*|*nautilus*) printf 'nautilus\n' ;;
+            *thunar*|*Thunar*)     printf 'thunar\n' ;;
+            *) printf '' ;;
+        esac
+    fi
+}
+
 # Detect current default provider for a role on the host
 detect_current_role_default() {
     local role="$1"

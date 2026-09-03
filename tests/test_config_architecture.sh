@@ -753,8 +753,8 @@ unset WIZARD_MOCK_INPUT WIZARD_MOCK_KEYS
 
 # 37. Edit -> rebuild/review correctly
 WIZARD_MOCK_INPUT=1
-# Sequence: select recommended, in review choose EDIT, in customize press ENTER across categories + default selection, in review choose APPLY
-WIZARD_MOCK_KEYS="ENTER EDIT ENTER ENTER ENTER ENTER ENTER APPLY"
+# Sequence: select recommended, in review choose EDIT, in customize press ENTER across categories + default selection screens (browser, file-manager), in review choose APPLY
+WIZARD_MOCK_KEYS="ENTER EDIT ENTER ENTER ENTER ENTER ENTER ENTER APPLY"
 wiz_edit_rc=0
 run_setup_mode "workstation" "PLAN_EDIT" || wiz_edit_rc=$?
 if [[ "$wiz_edit_rc" -eq 0 && "${PLAN_EDIT_VALIDATED:-}" == "true" ]]; then
@@ -1073,10 +1073,10 @@ fi
 
 # 49f: review action counts accurately reflect only executable actions
 c_def="${PLAN_DEF_EXEC_COUNT_CHANGE_DEFAULT}"
-if [[ "$c_def" -eq 1 ]]; then
-    pass "49f. review plan action counts accurately reflect only executable actions (1 default change)"
+if [[ "$c_def" -eq 2 ]]; then
+    pass "49f. review plan action counts accurately reflect only executable actions (2 default changes: browser and file-manager)"
 else
-    fail "49f. review plan action count was $c_def (expected 1)"
+    fail "49f. review plan action count was $c_def (expected 2)"
 fi
 
 # 49g: unsupported/non-actionable role fails closed if manually planned or called in set_system_role_default

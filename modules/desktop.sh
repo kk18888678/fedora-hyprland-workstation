@@ -33,6 +33,43 @@ deploy_noctalia_config() {
     fi
 }
 
+deploy_aurelia_config() {
+    local source="$SCRIPT_DIR/dotfiles/aurelia"
+    local destination="$TARGET_HOME/.config/aurelia"
+
+    if [[ -d "$source" ]]; then
+        ensure_directory "$destination"
+        ensure_symlink "$source" "$destination"
+        info "Aurelia configuration deployed."
+    fi
+}
+
+set_workstation_hotkeys_provider() {
+    local provider="$1"
+    local dest_dir="${TARGET_HOME:-$HOME}/.config/workstation"
+    local dest_file="$dest_dir/desktop.conf"
+
+    if declare -F ensure_directory >/dev/null 2>&1; then
+        ensure_directory "$dest_dir" 2>/dev/null || mkdir -p "$dest_dir"
+    else
+        mkdir -p "$dest_dir"
+    fi
+
+    # Write atomically via mktemp and mv
+    local tmp_file
+    tmp_file="$(mktemp "${dest_dir}/.tmp.desktop.conf.XXXXXX" 2>/dev/null || true)"
+    if [[ -z "$tmp_file" ]]; then
+        printf 'hotkeys.provider = %s\n' "$provider" > "$dest_file"
+        return 0
+    fi
+
+    if [[ -f "$dest_file" ]]; then
+        grep -v -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$dest_file" > "$tmp_file" 2>/dev/null || true
+    fi
+    printf 'hotkeys.provider = %s\n' "$provider" >> "$tmp_file"
+    mv -f "$tmp_file" "$dest_file"
+}
+
 install_noctalia_shell() {
     case "${DESKTOP_SHELL:-}" in
         noctalia)

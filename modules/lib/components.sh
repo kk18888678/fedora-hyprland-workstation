@@ -40,6 +40,7 @@ SUPPORTED_ROLES=(
     "terminal"
     "login-shell"
     "text-editor"
+    "file-manager"
 )
 
 # Supported machine profiles
@@ -80,6 +81,7 @@ reset_role_default_adapters() {
 init_default_role_adapters() {
     reset_role_default_adapters
     register_role_default_adapter "browser" "set_browser_default_adapter" "detect_browser_default_adapter"
+    register_role_default_adapter "file-manager" "set_file_manager_default_adapter" "detect_file_manager_default_adapter"
 }
 
 # Reset registry state (essential for test isolation)
@@ -174,8 +176,8 @@ register_component() {
         printf 'ERROR: Component id must not be empty\n' >&2
         return 1
     fi
-    if [[ ! "$id" =~ ^[a-z0-9_]+$ ]]; then
-        printf 'ERROR: Invalid component id: %s (must be lowercase alphanumeric and underscore)\n' "$id" >&2
+    if [[ ! "$id" =~ ^[a-z0-9_.]+$ ]]; then
+        printf 'ERROR: Invalid component id: %s (must be lowercase alphanumeric, underscore, or period)\n' "$id" >&2
         return 1
     fi
     if component_exists "$id"; then
@@ -559,6 +561,77 @@ remove_htop_adapter() {
     fi
 }
 
+# quickshell
+detect_quickshell() {
+    package_installed quickshell || command_exists qs || command_exists quickshell
+}
+install_quickshell_adapter() {
+    install_dnf_packages quickshell
+}
+remove_quickshell_adapter() {
+    if package_installed quickshell; then
+        sudo dnf remove -y quickshell
+    fi
+}
+
+# desktop environments
+detect_noctalia() {
+    command_exists noctalia || package_installed noctalia
+}
+install_noctalia_adapter() {
+    if declare -F install_noctalia_shell >/dev/null 2>&1; then
+        install_noctalia_shell
+    fi
+}
+
+detect_aurelia() {
+    [[ -f "${TARGET_HOME:-$HOME}/.config/aurelia/shell.qml" ]]
+}
+install_aurelia_adapter() {
+    if declare -F deploy_aurelia_config >/dev/null 2>&1; then
+        deploy_aurelia_config
+    fi
+}
+
+# hotkeys providers
+detect_legacy_hotkeys() {
+    command_exists workstation-hotkeys
+}
+configure_legacy_hotkeys() {
+    if declare -F set_workstation_hotkeys_provider >/dev/null 2>&1; then
+        set_workstation_hotkeys_provider "legacy"
+    fi
+}
+
+detect_aurelia_hotkeys() {
+    [[ -f "${TARGET_HOME:-$HOME}/.config/aurelia/components/hotkeys/HotkeysWindow.qml" ]]
+}
+configure_aurelia_hotkeys() {
+    if declare -F set_workstation_hotkeys_provider >/dev/null 2>&1; then
+        set_workstation_hotkeys_provider "aurelia"
+    fi
+}
+
+# file managers
+detect_nautilus() {
+    package_installed nautilus || command_exists nautilus
+}
+install_nautilus_adapter() {
+    install_dnf_packages nautilus
+}
+remove_nautilus_adapter() {
+    if package_installed nautilus; then
+        sudo dnf remove -y nautilus
+    fi
+}
+
+detect_thunar() {
+    package_installed Thunar || command_exists thunar
+}
+install_thunar_adapter() {
+    install_dnf_packages Thunar
+}
+
 # Register the representative components
 init_default_components() {
     init_default_role_adapters
@@ -656,4 +729,102 @@ init_default_components() {
         detect_fn "detect_htop" \
         install_fn "install_htop_adapter" \
         remove_fn "remove_htop_adapter"
+
+    register_component \
+        id "quickshell" \
+        display_name "Quickshell Toolkit" \
+        category "Desktop" \
+        description "Flexible QtQuick desktop shell toolkit from COPR" \
+        supported_profiles "workstation vm" \
+        recommended false \
+        required false \
+        removable true \
+        detect_fn "detect_quickshell" \
+        install_fn "install_quickshell_adapter" \
+        remove_fn "remove_quickshell_adapter"
+
+    register_component \
+        id "desktop.environment.noctalia" \
+        display_name "Noctalia Desktop Environment" \
+        category "Desktop" \
+        description "Wayland desktop shell powered by Noctalia" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable true \
+        conflicts "desktop.environment.aurelia" \
+        provides "desktop_environment" \
+        detect_fn "detect_noctalia" \
+        install_fn "install_noctalia_adapter"
+
+    register_component \
+        id "desktop.environment.aurelia" \
+        display_name "Aurelia Desktop Environment" \
+        category "Desktop" \
+        description "Quickshell-native modular desktop environment (Preview)" \
+        supported_profiles "workstation vm" \
+        recommended false \
+        required false \
+        removable true \
+        conflicts "desktop.environment.noctalia" \
+        provides "desktop_environment" \
+        dependencies "quickshell" \
+        detect_fn "detect_aurelia" \
+        install_fn "install_aurelia_adapter"
+
+    register_component \
+        id "desktop.hotkeys.legacy" \
+        display_name "Legacy Hotkeys Manager (fzf)" \
+        category "Desktop" \
+        description "Terminal-based shortcuts manager using fzf" \
+        supported_profiles "workstation vm" \
+        recommended false \
+        required false \
+        removable true \
+        conflicts "desktop.hotkeys.aurelia" \
+        provides "hotkeys_provider" \
+        detect_fn "detect_legacy_hotkeys" \
+        configure_fn "configure_legacy_hotkeys"
+
+    register_component \
+        id "desktop.hotkeys.aurelia" \
+        display_name "Aurelia Hotkeys (Quickshell)" \
+        category "Desktop" \
+        description "Native graphical hotkeys component powered by Quickshell" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable true \
+        conflicts "desktop.hotkeys.legacy" \
+        provides "hotkeys_provider" \
+        dependencies "quickshell" \
+        detect_fn "detect_aurelia_hotkeys" \
+        configure_fn "configure_aurelia_hotkeys"
+
+    register_component \
+        id "nautilus" \
+        display_name "GNOME Files (Nautilus)" \
+        category "Applications" \
+        description "Default file manager for GNOME" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable true \
+        roles "file-manager" \
+        detect_fn "detect_nautilus" \
+        install_fn "install_nautilus_adapter" \
+        remove_fn "remove_nautilus_adapter"
+
+    register_component \
+        id "thunar" \
+        display_name "Thunar File Manager" \
+        category "Applications" \
+        description "Lightweight file manager from XFCE" \
+        supported_profiles "workstation vm" \
+        recommended false \
+        required false \
+        removable false \
+        roles "file-manager" \
+        detect_fn "detect_thunar" \
+        install_fn "install_thunar_adapter"
 }
