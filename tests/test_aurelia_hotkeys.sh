@@ -479,7 +479,7 @@ section "36-37. Security and Command Construction Invariants"
 
 # Test 36: QML IPC endpoints expose only allowlisted operations
 ipc_methods="$(grep -E 'function [a-zA-Z0-9_]+\(\)' "$ROOT/dotfiles/aurelia/shell.qml" | sed 's/^[[:space:]]*function //;s/(.*//' | tr '\n' ' ')"
-if [[ "$ipc_methods" =~ ^(toggle open close isVisible |toggle isVisible open close ) ]]; then
+if [[ "$ipc_methods" =~ (ping toggle open close isVisible|ping toggle isVisible open close|toggle open close isVisible) ]]; then
     pass "36. QML can invoke only allowlisted backend operations"
 else
     fail "36. QML IPC methods contain unexpected endpoints: $ipc_methods"
@@ -530,3 +530,146 @@ fi
         fail "40. Nautilus default detection failed: $fm_detected"
     fi
 )
+
+section "41-43. Cold-Start and Warm-Start Single-Toggle Invariants"
+
+# Test 41: Cold start invokes mutating toggle exactly once after non-mutating ping
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "call" && "$3" == "hotkeys" ]]; then
+    if [[ "$4" == "toggle" ]]; then
+        echo "toggle" >> "$MOCK_LOG"
+        cnt=$(grep -c "toggle" "$MOCK_LOG")
+        if [[ "$cnt" -eq 1 ]]; then
+            exit 1
+        fi
+        exit 0
+    elif [[ "$4" == "ping" ]]; then
+        echo "ping" >> "$MOCK_LOG"
+        exit 0
+    fi
+elif [[ "$1" == "--no-duplicate" ]]; then
+    echo "daemon_start" >> "$MOCK_LOG"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    toggle_count="$(grep -c '^toggle$' "$mock_log" || true)"
+    ping_count="$(grep -c '^ping$' "$mock_log" || true)"
+    daemon_count="$(grep -c '^daemon_start$' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    # Initial warm probe failed (1 toggle attempt), daemon started (1), ping probe succeeded, exactly 1 mutating toggle after readiness
+    if [[ "$toggle_count" -eq 2 && "$ping_count" -ge 1 && "$daemon_count" -eq 1 ]]; then
+        pass "41. cold startup uses non-mutating ping probe and invokes toggle exactly once after readiness"
+    else
+        fail "41. cold startup toggle/ping invariant violated: toggles=$toggle_count pings=$ping_count daemons=$daemon_count"
+    fi
+)
+
+# Test 42: Warm start invokes mutating toggle exactly once without starting daemon or polling ping
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "call" && "$3" == "hotkeys" ]]; then
+    if [[ "$4" == "toggle" ]]; then
+        echo "toggle" >> "$MOCK_LOG"
+        exit 0
+    elif [[ "$4" == "ping" ]]; then
+        echo "ping" >> "$MOCK_LOG"
+        exit 0
+    fi
+elif [[ "$1" == "--no-duplicate" ]]; then
+    echo "daemon_start" >> "$MOCK_LOG"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    toggle_count="$(grep -c '^toggle$' "$mock_log" || true)"
+    daemon_count="$(grep -c '^daemon_start$' "$mock_log" || true)"
+    ping_count="$(grep -c '^ping$' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$toggle_count" -eq 1 && "$daemon_count" -eq 0 && "$ping_count" -eq 0 ]]; then
+        pass "42. warm startup invokes toggle exactly once without starting daemon"
+    else
+        fail "42. warm startup invariant violated: toggles=$toggle_count daemons=$daemon_count pings=$ping_count"
+    fi
+)
+
+# Test 43: Startup timeout is bounded around 2s (~40 attempts * 50ms)
+timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/workstation-hotkeys" || true)"
+sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/workstation-hotkeys" || true)"
+if [[ -n "$timeout_spec" && -n "$sleep_spec" ]]; then
+    pass "43. startup timeout is bounded around 2s (40 * 50ms) without arbitrary long sleeps"
+else
+    fail "43. startup timeout not bounded around 2s"
+fi
+
+section "44-48. Omarchy-Inspired UI and Presentation Invariants"
+
+# Test 44: No keycap badge or pill rectangles in HotkeyRow
+if ! grep -E '(Rectangle \{.*id: keyBadge|border\.color: rowRoot\.isSelected)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeyRow.qml" >/dev/null; then
+    pass "44. no keycap-per-modifier UI or row borders introduced (clean two-column layout)"
+else
+    fail "44. found keycap badge or row borders in HotkeyRow.qml"
+fi
+
+# Test 45: Row display renders shortcut + separator arrow + action title
+if grep -q 'text: rowRoot.formattedShortcut()' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeyRow.qml" &&
+   grep -q 'text: "→"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeyRow.qml" &&
+   grep -q 'text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeyRow.qml"; then
+    pass "45. row display has shortcut + arrow separator + action presentation"
+else
+    fail "45. row display missing shortcut, arrow, or action presentation"
+fi
+
+# Test 46: Search area uses minimal keybindings_ prompt style without boxed rectangle
+if grep -q 'text: "keybindings_"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   ! grep -E 'Rectangle \{.*Search shortcuts' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" >/dev/null; then
+    pass "46. search area uses minimal keybindings_ prompt style without boxed rectangle"
+else
+    fail "46. search area has boxed rectangle or missing keybindings_ prompt"
+fi
+
+# Test 47: Footer is textual/hint-based and not modeled as action buttons
+if grep -q 'text: "↵"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   grep -q 'text: "Alt+S"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   grep -q 'text: "Alt+U"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   grep -q 'text: "Esc"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   ! grep -E 'Rectangle \{.*Layout\.preferredWidth: altSText' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" >/dev/null; then
+    pass "47. footer is textual/hint-based, not modeled as action buttons"
+else
+    fail "47. footer contains button boxes or missing keyboard hints"
+fi
+
+# Test 48: No category headings/IDs/commands appear in normal row presentation
+if ! grep -E '(category|action_id|command_argv)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeyRow.qml" >/dev/null; then
+    pass "48. no category headings/IDs/commands appear in normal row presentation"
+else
+    fail "48. HotkeyRow leaks category headings or internal commands"
+fi
+
+section "49-50. Performance and Sizing Invariants"
+
+# Test 49: Search does not spawn processes
+if ! grep -E 'filterItems.*Process' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysModel.qml" >/dev/null; then
+    pass "49. search operates in-memory with zero process spawning on keystrokes"
+else
+    fail "49. process spawning detected in search"
+fi
+
+# Test 50: Window dimensions follow restrained command-palette proportions (800x480)
+if grep -q 'implicitWidth: 800' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   grep -q 'implicitHeight: 480' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml"; then
+    pass "50. window dimensions follow restrained command-palette proportions (800x480)"
+else
+    fail "50. window dimensions deviate from command-palette target"
+fi

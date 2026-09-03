@@ -8,55 +8,59 @@ Rectangle {
     required property var modelData
     required property bool isSelected
 
-    width: ListView.view ? ListView.view.width : 640
-    height: 44
-    radius: Theme.radiusSm
-    color: isSelected ? Theme.selectionActive : "transparent"
+    width: ListView.view ? ListView.view.width : 760
+    height: 34
+    radius: 4
+    color: isSelected ? Theme.selection : "transparent"
 
-    border.color: isSelected ? Theme.borderActive : "transparent"
-    border.width: 1
+    // Understated horizontal highlight without box borders or card elevation
+    border.width: 0
 
-    Behavior on color {
-        ColorAnimation { duration: 80 }
+    function formattedShortcut(): string {
+        var key = rowRoot.modelData ? (rowRoot.modelData.display_key || "") : ""
+        if (!key || key === "None (Unbound)") {
+            return "—"
+        }
+        return key.toUpperCase()
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingMd
-        anchors.rightMargin: Theme.spacingMd
-        spacing: Theme.spacingMd
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        spacing: 0
 
-        // Hotkey badge pill (left)
-        Rectangle {
-            id: keyBadge
-            Layout.preferredWidth: 190
-            Layout.preferredHeight: 28
-            radius: Theme.radiusSm
-            color: rowRoot.isSelected ? Theme.surface : Theme.overlay
-            border.color: rowRoot.isSelected ? Theme.accent : Theme.highlight
-            border.width: 1
-
-            Text {
-                anchors.centerIn: parent
-                text: rowRoot.modelData.display_key || "None (Unbound)"
-                color: (rowRoot.modelData.display_key && rowRoot.modelData.display_key !== "None (Unbound)")
-                    ? Theme.gold
-                    : Theme.textSubtle
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSm
-                font.bold: true
-                elide: Text.ElideRight
-            }
+        // Column 1: Shortcut (stable width across every row)
+        Text {
+            Layout.preferredWidth: 260
+            Layout.alignment: Qt.AlignVCenter
+            text: rowRoot.formattedShortcut()
+            color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSm
+            font.weight: rowRoot.isSelected ? Font.Medium : Font.Normal
+            elide: Text.ElideRight
         }
 
-        // Action / Application title (right)
+        // Column separator arrow (subtle, fixed position)
+        Text {
+            Layout.preferredWidth: 32
+            Layout.alignment: Qt.AlignVCenter
+            text: "→"
+            color: Theme.textSubtle
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSm
+        }
+
+        // Column 2: Action / Application title (starts at identical horizontal position)
         Text {
             Layout.fillWidth: true
-            text: rowRoot.modelData.description || ""
+            Layout.alignment: Qt.AlignVCenter
+            text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""
             color: rowRoot.isSelected ? Theme.text : Theme.textMuted
-            font.family: Theme.fontFamilyProse
-            font.pixelSize: Theme.fontSizeMd
-            font.bold: rowRoot.isSelected
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSm
+            font.weight: rowRoot.isSelected ? Font.Medium : Font.Normal
             elide: Text.ElideRight
         }
     }

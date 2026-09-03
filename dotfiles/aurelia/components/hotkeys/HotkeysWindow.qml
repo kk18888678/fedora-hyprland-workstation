@@ -12,9 +12,9 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-    // Sizing and positioning
-    implicitWidth: 720
-    implicitHeight: 520
+    // Window dimensions: restrained command palette proportions (800x480)
+    implicitWidth: 800
+    implicitHeight: 480
     color: "transparent"
 
     onVisibleChanged: {
@@ -29,13 +29,13 @@ PanelWindow {
         id: hotkeysModel
     }
 
-    // Modal surface card
+    // Modal surface: clean floating card with single subtle border and Rosé Pine Moon background
     Rectangle {
         id: surfaceCard
         anchors.centerIn: parent
-        width: 720
-        height: 520
-        radius: Theme.radiusLg
+        width: 800
+        height: 480
+        radius: Theme.radiusMd
         color: Theme.background
         border.color: Theme.border
         border.width: 1
@@ -45,111 +45,82 @@ PanelWindow {
             anchors.fill: parent
             spacing: 0
 
-            // Header: Search Bar
-            Rectangle {
+            // Header: Minimal search input area (keybindings_ prompt style, no box/border)
+            Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
-                color: Theme.surface
-                border.color: Theme.highlight
-                border.width: 1
+                Layout.preferredHeight: 40
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.topMargin: 16
+                Layout.bottomMargin: 6
 
-                RowLayout {
+                TextInput {
+                    id: searchInput
                     anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingLg
-                    anchors.rightMargin: Theme.spacingLg
-                    spacing: Theme.spacingMd
+                    verticalAlignment: TextInput.AlignVCenter
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeMd
+                    color: Theme.text
+                    selectByMouse: true
+                    selectionColor: Theme.selection
+                    selectedTextColor: Theme.text
 
-                    // Search icon / prompt symbol
                     Text {
-                        text: "󰍉"
-                        color: Theme.accent
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeLg
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        text: "keybindings_"
+                        color: Theme.textSubtle
+                        font: parent.font
+                        visible: !searchInput.text
                     }
 
-                    // Search text input
-                    TextInput {
-                        id: searchInput
-                        Layout.fillWidth: true
-                        font.family: Theme.fontFamilyProse
-                        font.pixelSize: Theme.fontSizeMd
-                        color: Theme.text
-                        selectByMouse: true
-                        selectionColor: Theme.selectionActive
-                        selectedTextColor: Theme.text
+                    onTextChanged: {
+                        hotkeysModel.searchQuery = text
+                    }
 
-                        Text {
-                            anchors.fill: parent
-                            text: "Search shortcuts..."
-                            color: Theme.textSubtle
-                            font: parent.font
-                            visible: !searchInput.text && !searchInput.activeFocus
-                        }
-
-                        onTextChanged: {
-                            hotkeysModel.searchQuery = text
-                        }
-
-                        Keys.onPressed: function(event) {
-                            if (event.key === Qt.Key_Escape) {
+                    Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Escape) {
+                            windowRoot.visible = false
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Down) {
+                            hotkeysModel.selectNext()
+                            listView.positionViewAtIndex(hotkeysModel.selectedIndex, ListView.Contain)
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Up) {
+                            hotkeysModel.selectPrevious()
+                            listView.positionViewAtIndex(hotkeysModel.selectedIndex, ListView.Contain)
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (hotkeysModel.runSelected()) {
                                 windowRoot.visible = false
-                                event.accepted = true
-                            } else if (event.key === Qt.Key_Down) {
-                                hotkeysModel.selectNext()
-                                listView.positionViewAtIndex(hotkeysModel.selectedIndex, ListView.Contain)
-                                event.accepted = true
-                            } else if (event.key === Qt.Key_Up) {
-                                hotkeysModel.selectPrevious()
-                                listView.positionViewAtIndex(hotkeysModel.selectedIndex, ListView.Contain)
-                                event.accepted = true
-                            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                if (hotkeysModel.runSelected()) {
-                                    windowRoot.visible = false
-                                }
-                                event.accepted = true
-                            } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
-                                if (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === true) {
-                                    hotkeysModel.setShortcut(hotkeysModel.selectedItem.id)
-                                }
-                                event.accepted = true
-                            } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U) {
-                                if (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === true) {
-                                    hotkeysModel.unsetShortcut(hotkeysModel.selectedItem.id)
-                                }
-                                event.accepted = true
                             }
-                        }
-                    }
-
-                    // Result count badge
-                    Rectangle {
-                        Layout.preferredWidth: countText.implicitWidth + 16
-                        Layout.preferredHeight: 22
-                        radius: Theme.radiusSm
-                        color: Theme.overlay
-
-                        Text {
-                            id: countText
-                            anchors.centerIn: parent
-                            text: hotkeysModel.filteredItems.length + " shortcuts"
-                            color: Theme.textMuted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
+                            event.accepted = true
+                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
+                            if (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === true) {
+                                hotkeysModel.setShortcut(hotkeysModel.selectedItem.id)
+                            }
+                            event.accepted = true
+                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U) {
+                            if (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === true) {
+                                hotkeysModel.unsetShortcut(hotkeysModel.selectedItem.id)
+                            }
+                            event.accepted = true
                         }
                     }
                 }
             }
 
-            // Body: Shortcut List or Empty State
+            // Body: Shortcut List or Restrained Empty State
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.leftMargin: 12
+                Layout.rightMargin: 12
 
                 ListView {
                     id: listView
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMd
-                    spacing: 4
+                    spacing: 2
                     clip: true
                     model: hotkeysModel.filteredItems
                     currentIndex: hotkeysModel.selectedIndex
@@ -158,119 +129,97 @@ PanelWindow {
                         modelData: model
                         isSelected: index === hotkeysModel.selectedIndex
                     }
+
+                    // Extremely subtle scrollbar indicator
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        width: 4
+                        contentItem: Rectangle {
+                            color: Theme.highlight
+                            radius: 2
+                        }
+                    }
                 }
 
-                // Empty state message
-                ColumnLayout {
+                // Minimal empty state message (no oversized cards or icons)
+                Text {
                     anchors.centerIn: parent
-                    spacing: Theme.spacingMd
+                    text: "No matching shortcuts"
+                    color: Theme.textSubtle
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSm
                     visible: hotkeysModel.filteredItems.length === 0
-
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: "󰌑"
-                        color: Theme.textSubtle
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 36
-                    }
-
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: "No matching shortcuts found"
-                        color: Theme.textMuted
-                        font.family: Theme.fontFamilyProse
-                        font.pixelSize: Theme.fontSizeMd
-                    }
                 }
             }
 
-            // Footer: Context-sensitive Action Bar
-            Rectangle {
+            // Footer: Subtle low-emphasis keyboard hint text (no button widgets)
+            Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 44
-                color: Theme.surface
-                border.color: Theme.highlight
-                border.width: 1
+                Layout.preferredHeight: 32
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.bottomMargin: 10
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingLg
-                    anchors.rightMargin: Theme.spacingLg
-                    spacing: Theme.spacingLg
+                    spacing: 16
 
-                    // ↵ Run action (only when runnable)
+                    // ↵ Run (only when runnable)
                     RowLayout {
-                        spacing: Theme.spacingXs
+                        spacing: 4
                         visible: hotkeysModel.selectedItem && hotkeysModel.selectedItem.runnable === true
 
                         Text {
                             text: "↵"
                             color: Theme.accent
                             font.family: Theme.fontFamily
-                            font.bold: true
                             font.pixelSize: Theme.fontSizeSm
                         }
                         Text {
                             text: "Run"
-                            color: Theme.text
-                            font.family: Theme.fontFamilyProse
+                            color: Theme.textMuted
+                            font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
 
                     // Alt+S Set (only when editable)
                     RowLayout {
-                        spacing: Theme.spacingXs
+                        spacing: 4
                         visible: hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === true
 
-                        Rectangle {
-                            Layout.preferredWidth: altSText.implicitWidth + 8
-                            Layout.preferredHeight: 18
-                            radius: 4
-                            color: Theme.overlay
-                            Text {
-                                id: altSText
-                                anchors.centerIn: parent
-                                text: "Alt+S"
-                                color: Theme.gold
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeXs
-                            }
+                        Text {
+                            text: "Alt+S"
+                            color: Theme.gold
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
                         }
                         Text {
                             text: "Set"
-                            color: Theme.text
-                            font.family: Theme.fontFamilyProse
+                            color: Theme.textMuted
+                            font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
 
                     // Alt+U Unset (only when editable and bound)
                     RowLayout {
-                        spacing: Theme.spacingXs
+                        spacing: 4
                         visible: hotkeysModel.selectedItem &&
                                  hotkeysModel.selectedItem.editable === true &&
                                  hotkeysModel.selectedItem.display_key &&
                                  hotkeysModel.selectedItem.display_key !== "None (Unbound)"
 
-                        Rectangle {
-                            Layout.preferredWidth: altUText.implicitWidth + 8
-                            Layout.preferredHeight: 18
-                            radius: 4
-                            color: Theme.overlay
-                            Text {
-                                id: altUText
-                                anchors.centerIn: parent
-                                text: "Alt+U"
-                                color: Theme.love
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeXs
-                            }
+                        Text {
+                            text: "Alt+U"
+                            color: Theme.love
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
                         }
                         Text {
                             text: "Unset"
-                            color: Theme.text
-                            font.family: Theme.fontFamilyProse
+                            color: Theme.textMuted
+                            font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
@@ -281,26 +230,18 @@ PanelWindow {
 
                     // Esc Close (always available)
                     RowLayout {
-                        spacing: Theme.spacingXs
+                        spacing: 4
 
-                        Rectangle {
-                            Layout.preferredWidth: escText.implicitWidth + 8
-                            Layout.preferredHeight: 18
-                            radius: 4
-                            color: Theme.overlay
-                            Text {
-                                id: escText
-                                anchors.centerIn: parent
-                                text: "Esc"
-                                color: Theme.textMuted
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeXs
-                            }
+                        Text {
+                            text: "Esc"
+                            color: Theme.textSubtle
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
                         }
                         Text {
                             text: "Close"
-                            color: Theme.textMuted
-                            font.family: Theme.fontFamilyProse
+                            color: Theme.textSubtle
+                            font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }

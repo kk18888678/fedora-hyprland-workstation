@@ -16,6 +16,10 @@ ShellRoot {
     IpcHandler {
         target: "hotkeys"
 
+        function ping(): bool {
+            return hotkeysLoader.item !== null
+        }
+
         function toggle(): void {
             if (hotkeysLoader.item) {
                 hotkeysLoader.item.visible = !hotkeysLoader.item.visible

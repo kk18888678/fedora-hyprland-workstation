@@ -685,11 +685,12 @@ if [[ "$active_provider" == "aurelia" ]]; then
     if [[ "${HOTKEYS_SIMULATE_AURELIA_FAIL:-0}" != "1" ]]; then
         qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
         if [[ -n "$qs_bin" ]]; then
-            # 1. Attempt IPC call to an existing healthy Aurelia instance
+            # 1. Warm path: attempt toggle on an existing running Aurelia instance
             if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
                 exit 0
             fi
-            # 2. If unavailable, locate the Aurelia shell QML configuration
+
+            # 2. Cold path: locate the Aurelia shell QML configuration
             aurelia_shell="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
             if [[ ! -f "$aurelia_shell" ]]; then
                 aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
@@ -697,13 +698,23 @@ if [[ "$active_provider" == "aurelia" ]]; then
             if [[ -f "$aurelia_shell" ]]; then
                 # 3. Start Aurelia safely with --no-duplicate to prevent duplicate instances
                 "$qs_bin" --no-duplicate --daemonize --path "$aurelia_shell" >/dev/null 2>&1 || true
-                # 4. Verify actual IPC readiness with bounded retry (max 500ms: 10 * 50ms)
-                for _ in {1..10}; do
-                    if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
-                        exit 0
+
+                # 4. Bounded readiness check using NON-MUTATING ping probe (~2s budget: 40 * 50ms)
+                is_ready=0
+                for _ in {1..40}; do
+                    if "$qs_bin" ipc call hotkeys ping >/dev/null 2>&1; then
+                        is_ready=1
+                        break
                     fi
                     sleep 0.05
                 done
+
+                # 5. Invoke mutating toggle EXACTLY ONCE only after readiness is confirmed
+                if [[ "$is_ready" -eq 1 ]]; then
+                    if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
+                        exit 0
+                    fi
+                fi
             fi
         fi
     fi
