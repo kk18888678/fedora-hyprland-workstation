@@ -97,17 +97,44 @@ validate_greetd_user() {
 }
 
 is_virtio_or_vm_gpu() {
+    # Explicit GPU configuration overrides heuristics
     if [[ "${GPU:-}" == "virtio" ]]; then
         return 0
+    elif [[ -n "${GPU:-}" && "${GPU:-}" != "generic" && "${GPU:-}" != "auto" ]]; then
+        return 1
     fi
-    if [[ "${PROFILE_NAME:-}" == "vm" || "${PROFILE:-}" == "vm" ]]; then
-        return 0
+
+    # Only virtual machine environments require virtio-gpu cursor/scaling workarounds
+    if ! command_exists systemd-detect-virt || ! systemd-detect-virt --vm &>/dev/null; then
+        return 1
     fi
-    if command_exists systemd-detect-virt && systemd-detect-virt --vm &>/dev/null; then
-        if [[ -d /sys/bus/pci/drivers/virtio-pci ]]; then
+
+    # Inspect active DRM subsystem devices specifically for virtio-gpu driver
+    if [[ -d /sys/bus/virtio/drivers/virtio_gpu ]]; then
+        local virtio_devs
+        virtio_devs=$(find /sys/bus/virtio/drivers/virtio_gpu -maxdepth 1 -name "virtio*" 2>/dev/null || true)
+        if [[ -n "$virtio_devs" ]]; then
             return 0
         fi
     fi
+
+    # Inspect PCI display controller vendor/device (1af4:1050 / 1af4:1010 for virtio-gpu)
+    local drm_uevent
+    for drm_uevent in /sys/class/drm/card*/device/uevent; do
+        if [[ -f "$drm_uevent" ]]; then
+            if grep -qi 'PCI_ID=1AF4:1050\|PCI_ID=1AF4:1010' "$drm_uevent" 2>/dev/null; then
+                return 0
+            fi
+        fi
+    done
+
+    # Fallback to lspci if available
+    if command_exists lspci; then
+        if lspci -d 1af4:1050 2>/dev/null | grep -q . || lspci -d 1af4:1010 2>/dev/null | grep -q .; then
+            return 0
+        fi
+    fi
+
     return 1
 }
 

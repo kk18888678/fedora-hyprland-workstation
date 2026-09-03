@@ -154,3 +154,23 @@ sequenceDiagram
 - Maintain idempotent convergence of `~/.config/gtk-3.0/bookmarks` for standard user bookmarks across GTK file choosers and Thunar.
 - Test only what the installer actually controls and state upstream component boundaries truthfully.
 
+---
+
+## 6. Greeter Cursor & Display Scaling Boundary Model
+
+### Empirical Reality vs Hypothesized Mechanism
+- **Observed Behavior**:
+  - In QEMU/KVM virtual machines with virtio graphics, the Noctalia greeter login screen displays an inverted (downward-pointing) mouse cursor graphic.
+  - Compositor startup logs record `Atomic commit failed: Numerical result out of range with ATOMIC_TEST_ONLY | ATOMIC_NONBLOCK` (`-ERANGE`).
+  - Upon logging in, the Hyprland user desktop session displays a normal, upright pointer.
+- **Verified Workaround**:
+  - Setting `command = "env WLR_NO_HARDWARE_CURSORS=1 ..."` in `/etc/greetd/config.toml` forces Noctalia's wlroots compositor to render the cursor via software buffer in the primary scene pass, reliably presenting an upright pointer graphic.
+  - Setting `[output] scale = 1.0` in `/var/lib/noctalia-greeter/greeter.toml` eliminates fractional scaling calculation (~1.04) derived from QEMU's default virtual EDID (`650x330mm`), eliminating the `-ERANGE` atomic test failure.
+- **Upstream Evidence & Hypotheses**:
+  - Upstream QEMU and VirGL issue trackers document coordinate origin convention mismatches (`Y_0_TOP` vs OpenGL/DRM scanout buffer conventions) when 3D acceleration is enabled for virtio-gpu cursor planes.
+  - The `-ERANGE` error from the Linux DRM atomic check reflects plane bounds or scaling ratio limits enforced by the kernel driver.
+  - These technical explanations are evidence-supported upstream hypotheses; the installer treats the configuration strictly as a targeted compatibility workaround for virtio-gpu environments rather than an empirically verified kernel fault proof.
+- **Narrow Detection Invariant**:
+  - Hardware cursor disabling and integer scale overrides must apply exclusively to confirmed `virtio-gpu` display controllers (detected via `/sys/bus/virtio/drivers/virtio_gpu` or PCI ID `1af4:1050/1010`).
+  - Virtual machines with passed-through physical GPUs (NVIDIA/AMD) and bare-metal installations must retain default hardware cursors and native auto-scaling.
+

@@ -95,10 +95,21 @@ configure_greeter_state_test
 vm_has_wlr_env="$(grep -c 'WLR_NO_HARDWARE_CURSORS=1' "$greetd_out" || true)"
 vm_has_scale_1="$(grep -c 'scale = 1.0' "$greeter_toml_out" || true)"
 
+# 3. Passed-through non-virtio GPU inside VM (GPU="nvidia", PROFILE_NAME="vm")
+GPU="nvidia"
+PROFILE_NAME="vm"
+configure_greetd_test
+configure_greeter_state_test
+
+passthrough_has_wlr_env="$(grep -c 'WLR_NO_HARDWARE_CURSORS' "$greetd_out" || true)"
+passthrough_has_scale_1="$(grep -c 'scale = 1.0' "$greeter_toml_out" || true)"
+
 echo "bare_has_wlr_env=$bare_has_wlr_env"
 echo "bare_has_scale_1=$bare_has_scale_1"
 echo "vm_has_wlr_env=$vm_has_wlr_env"
 echo "vm_has_scale_1=$vm_has_scale_1"
+echo "passthrough_has_wlr_env=$passthrough_has_wlr_env"
+echo "passthrough_has_scale_1=$passthrough_has_scale_1"
 EOS
 )"
 
@@ -114,6 +125,13 @@ if printf '%s\n' "$greeter_matrix_test" | grep -q 'vm_has_wlr_env=1' &&
     pass "virtio/VM path safely configures WLR_NO_HARDWARE_CURSORS and integer scale 1.0"
 else
     fail "virtio/VM path failed to configure software cursor or scale: $greeter_matrix_test"
+fi
+
+if printf '%s\n' "$greeter_matrix_test" | grep -q 'passthrough_has_wlr_env=0' &&
+   printf '%s\n' "$greeter_matrix_test" | grep -q 'passthrough_has_scale_1=0'; then
+    pass "passed-through physical GPU in VM preserves default hardware cursors and auto-scaling"
+else
+    fail "passed-through physical GPU in VM incorrectly received workaround: $greeter_matrix_test"
 fi
 
 section "GNOME Keyring PAM Auto-Unlock"
