@@ -238,9 +238,9 @@ print_installer_summary() {
 # optional     -> unexpected failure is deferred
 # abort        -> let set -e abort (preconditions)
 run_classified_step() {
-    local class="$1"
-    local description="$2"
-    local function_name="$3"
+    local class="${1:-}"
+    local description="${2:-}"
+    local function_name="${3:-}"
     local rc=0
 
     CURRENT_STAGE="$function_name"
@@ -256,15 +256,21 @@ run_classified_step() {
         die "Installer function not found: $function_name"
     fi
 
+    if [[ $# -ge 3 ]]; then
+        shift 3
+    else
+        shift "$#"
+    fi
+
     if [[ "$class" == "abort" ]]; then
-        "$function_name"
+        "$function_name" "$@"
         if declare -F journal_stage >/dev/null; then
             journal_stage "$function_name" "done"
         fi
         return 0
     fi
 
-    "$function_name" || rc=$?
+    "$function_name" "$@" || rc=$?
 
     if (( rc == 0 )); then
         if declare -F journal_stage >/dev/null; then
