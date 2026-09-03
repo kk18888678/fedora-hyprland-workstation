@@ -615,9 +615,15 @@ if [[ -f "$monitor_conf" ]]; then
     fi
 
     if grep -Fq 'desc:Red Hat Inc. QEMU Monitor' "$monitor_conf"; then
-        pass "monitors.lua provides targeted virtual monitor description rule"
+        fail "monitors.lua contains misleading/placebo VM-specific rule"
     else
-        fail "monitors.lua missing virtual monitor description rule"
+        pass "monitors.lua avoids dead or misleading VM-specific monitor rules"
+    fi
+
+    if grep -iq 'seamless resolution adaptation' "$monitor_conf"; then
+        fail "monitors.lua makes unwarranted claims of dynamic post-enumeration adaptation"
+    else
+        pass "monitors.lua accurately documents VM dynamic resize capabilities without unwarranted claims"
     fi
 else
     fail "monitors.lua file not found at $monitor_conf"

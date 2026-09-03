@@ -1,21 +1,17 @@
 -- Default monitor configuration.
 --
--- Use the preferred mode reported by the display and let Hyprland
--- determine its position automatically.
+-- Uses the preferred mode reported by the display at session initialization
+-- and lets Hyprland position outputs automatically.
 --
--- For virtual machine environments (e.g. QEMU / KVM virtio-gpu), targeted
--- monitor description matching ensures seamless resolution adaptation
--- without hardcoding any display port names or fixed pixel geometries.
---
--- Physical workstation monitor configuration remains generic, safe,
--- and dynamically adaptable.
-
-hl.monitor({
-    output = "desc:Red Hat Inc. QEMU Monitor",
-    mode = "preferred",
-    position = "auto",
-    scale = "1",
-})
+-- Note on Virtual Machine displays (e.g. QEMU / KVM virtio-gpu):
+-- Virtual displays expose a dynamic DRM mode that reflects the hypervisor
+-- viewer window size at compositor startup. Because Hyprland/Aquamarine
+-- currently probes modes during initial output enumeration and skips
+-- re-probing connected connectors on later DRM hotplug uevents, automatic
+-- post-enumeration live window resizing cannot be guaranteed purely via
+-- declarative monitor configuration without an upstream backend extension.
+-- Users wishing to change virtual display resolution should set the desired
+-- viewer window size prior to compositor launch or configure a discrete mode.
 
 hl.monitor({
     output = "",
@@ -23,3 +19,4 @@ hl.monitor({
     position = "auto",
     scale = "1",
 })
+
