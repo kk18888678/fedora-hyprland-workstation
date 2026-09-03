@@ -38,14 +38,49 @@ canonical_app_id() {
     printf '%s' "$lower"
 }
 
+# Structured release candidate helpers:
+# Representation: "<tag>|<is_prerelease>"
+format_release_candidate() {
+    local tag="$1"
+    local is_prerelease="${2:-false}"
+    [[ "$is_prerelease" != "true" ]] && is_prerelease="false"
+    printf '%s|%s\n' "$tag" "$is_prerelease"
+}
+
+parse_release_candidate() {
+    local __prc_raw="$1"
+    local __prc_out_tag="$2"
+    local __prc_out_meta="${3:-}"
+
+    local __prc_tag="${__prc_raw%%|*}"
+    local __prc_meta="false"
+    if [[ "$__prc_raw" == *"|"* ]]; then
+        __prc_meta="${__prc_raw#*|}"
+    fi
+
+    printf -v "$__prc_out_tag" '%s' "$__prc_tag"
+    if [[ -n "$__prc_out_meta" ]]; then
+        printf -v "$__prc_out_meta" '%s' "$__prc_meta"
+    fi
+}
+
+
 # Boundary-aware release tag classifier.
 # Returns exact class:
 #   "stable"
 #   "alpha" | "beta" | "rc" | "preview" | "pre" | "nightly" | "dev" | "snapshot"
 #   "unknown_prerelease"
 classify_release_tag() {
-    local tag="$1"
+    local raw_tag="$1"
     local is_prerelease_meta="${2:-false}"
+
+    local tag=""
+    local parsed_meta="false"
+    parse_release_candidate "$raw_tag" tag parsed_meta
+    if [[ "$raw_tag" == *"|"* ]]; then
+        is_prerelease_meta="$parsed_meta"
+    fi
+
     local lower
     lower="$(printf '%s\n' "$tag" | tr '[:upper:]' '[:lower:]')"
 
@@ -65,6 +100,7 @@ classify_release_tag() {
     printf 'stable\n'
     return 0
 }
+
 
 # Validate declarative registry syntax and invariants without executing code.
 validate_prerelease_exceptions_registry() {
@@ -351,10 +387,24 @@ evaluate_release_eligibility() {
 
 # Select the best eligible release from candidate list:
 # 1. Any policy-compliant stable release ALWAYS takes precedence over prerelease.
-# 2. If no stable release exists, consult exception registry for allowed prerelease classes.
-# 3. If allowed prerelease exists, select newest allowed prerelease.
-# 4. Otherwise reject with descriptive error on stderr.
+# 2. If no stable release exists, and discovery is complete, consult exception registry.
+# 3. If discovery is incomplete and no stable release was found, fail closed (stable > allowed prerelease).
+# 4. If allowed prerelease exists, select newest allowed prerelease.
+# 5. Otherwise reject with descriptive error on stderr.
 select_eligible_release() {
+    local discovery_status="${RELEASE_DISCOVERY_STATUS:-complete}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --discovery-status)
+                discovery_status="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
     local app_id="$1"
     shift
     local candidates=("$@")
@@ -363,9 +413,14 @@ select_eligible_release() {
     local prerelease_candidates=()
     local prerelease_classes=()
 
-    for tag in "${candidates[@]}"; do
+    for cand in "${candidates[@]}"; do
+        local tag=""
+        local is_pre="false"
+        parse_release_candidate "$cand" tag is_pre
+        [[ -z "$tag" ]] && continue
+
         local cls
-        cls="$(classify_release_tag "$tag")"
+        cls="$(classify_release_tag "$tag" "$is_pre")"
         if [[ "$cls" == "stable" ]]; then
             stable_candidates+=("$tag")
         else
@@ -374,7 +429,7 @@ select_eligible_release() {
         fi
     done
 
-    # 1. Stable always takes precedence
+    # 1. Stable always takes precedence if any stable candidate exists
     if [[ "${#stable_candidates[@]}" -gt 0 ]]; then
         local selected
         selected="$(printf '%s\n' "${stable_candidates[@]}" | sort -V | tail -n 1)"
@@ -387,7 +442,15 @@ select_eligible_release() {
         return 1
     fi
 
-    # 2. No stable candidate: consult exception registry
+    # 2. No stable candidate found.
+    # If release discovery was incomplete, we cannot prove that no stable release exists.
+    # Fail closed to preserve the invariant: stable > allowed prerelease.
+    if [[ "$discovery_status" != "complete" ]]; then
+        printf 'ERROR: Release discovery was incomplete (%s) for %s; cannot determine if stable release exists\n' "$discovery_status" "$app_id" >&2
+        return 1
+    fi
+
+    # 3. Discovery was complete and zero stable candidates exist. Consult exception registry.
     load_prerelease_exceptions_registry || true
     if [[ "$_PRERELEASE_REGISTRY_VALID" != "true" ]]; then
         printf 'ERROR: Malformed exception policy\n' >&2
@@ -420,10 +483,9 @@ select_eligible_release() {
         fi
         printf '%s\n' "$selected"
         return 0
-
     fi
 
-    # 3. No allowed candidates
+    # 4. No allowed candidates
     local has_unknown=0
     for cls in "${prerelease_classes[@]}"; do
         if [[ "$cls" == "unknown_prerelease" ]]; then has_unknown=1; break; fi
@@ -435,3 +497,104 @@ select_eligible_release() {
     fi
     return 1
 }
+
+# Bounded GitHub release discovery parameters
+# Bounds prevent infinite pagination loops while providing full coverage for typical workstation tools.
+RELEASE_DISCOVERY_MAX_PAGES="${RELEASE_DISCOVERY_MAX_PAGES:-10}"
+RELEASE_DISCOVERY_PER_PAGE="${RELEASE_DISCOVERY_PER_PAGE:-30}"
+
+_default_github_page_fetcher() {
+    local repo_slug="$1"
+    local page="$2"
+    local per_page="$3"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        return 1
+    fi
+
+    curl -fsSL --max-time 15 \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/${repo_slug}/releases?page=${page}&per_page=${per_page}" 2>/dev/null
+}
+
+# Discover release candidates from GitHub API across bounded pages.
+# Preserves authoritative prerelease metadata per candidate.
+discover_github_release_candidates() {
+    local repo_slug="$1"
+    local _out_candidates_var="$2"
+    local _out_status_var="$3"
+    local fetcher="${4:-_default_github_page_fetcher}"
+
+    local max_pages="$RELEASE_DISCOVERY_MAX_PAGES"
+    local per_page="$RELEASE_DISCOVERY_PER_PAGE"
+
+    local all_candidates=()
+    local discovery_status="complete"
+
+    local page=1
+    while [[ "$page" -le "$max_pages" ]]; do
+        local page_json=""
+        if ! page_json="$("$fetcher" "$repo_slug" "$page" "$per_page")"; then
+            discovery_status="fetch_error"
+            break
+        fi
+
+        if [[ -z "$page_json" ]]; then
+            discovery_status="fetch_error"
+            break
+        fi
+
+        local page_candidates=()
+        if command -v jq >/dev/null 2>&1; then
+            while IFS=$'\t' read -r tag is_pre; do
+                if [[ -n "$tag" && "$tag" != "null" ]]; then
+                    [[ "$is_pre" != "true" ]] && is_pre="false"
+                    page_candidates+=("$(format_release_candidate "$tag" "$is_pre")")
+                fi
+            done < <(printf '%s' "$page_json" | jq -r '.[] | "\(.tag_name)\t\(.prerelease)"' 2>/dev/null || true)
+        else
+            local cur_tag=""
+            local cur_pre="false"
+            while IFS= read -r line; do
+                if [[ "$line" =~ \"tag_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+                    cur_tag="${BASH_REMATCH[1]}"
+                fi
+                if [[ "$line" =~ \"prerelease\"[[:space:]]*:[[:space:]]*(true|false) ]]; then
+                    cur_pre="${BASH_REMATCH[1]}"
+                fi
+                if [[ "$line" =~ \} ]]; then
+                    if [[ -n "$cur_tag" ]]; then
+                        page_candidates+=("$(format_release_candidate "$cur_tag" "$cur_pre")")
+                        cur_tag=""
+                        cur_pre="false"
+                    fi
+                fi
+            done <<< "$page_json"
+        fi
+
+        local count="${#page_candidates[@]}"
+        if [[ "$count" -eq 0 ]]; then
+            # Empty page indicates end of releases reached
+            discovery_status="complete"
+            break
+        fi
+
+        all_candidates+=("${page_candidates[@]}")
+
+        if [[ "$count" -lt "$per_page" ]]; then
+            # Last page has fewer than per_page items -> end of releases reached
+            discovery_status="complete"
+            break
+        fi
+
+        ((page++)) || true
+    done
+
+    if [[ "$page" -gt "$max_pages" && "$discovery_status" == "complete" ]]; then
+        discovery_status="bound_reached"
+    fi
+
+    eval "$_out_candidates_var=(\"\${all_candidates[@]}\")"
+    printf -v "$_out_status_var" '%s' "$discovery_status"
+}
+

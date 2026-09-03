@@ -51,43 +51,22 @@ check_github_release() {
         return 0
     fi
 
-    # Retrieve recent releases to discover both stable and allowed prereleases
-    local releases_json
-    releases_json="$(curl -fsSL -H "Accept: application/vnd.github+json" \
-        "https://api.github.com/repos/${repo_slug}/releases?per_page=10" 2>/dev/null || true)"
+    local candidate_list=()
+    local discovery_status=""
+    discover_github_release_candidates "$repo_slug" candidate_list discovery_status
 
-    if [[ -z "$releases_json" ]]; then
-        # Fallback to /releases/latest
-        releases_json="$(curl -fsSL -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${repo_slug}/releases/latest" 2>/dev/null || true)"
-        if [[ -n "$releases_json" ]]; then
-            releases_json="[$releases_json]"
-        fi
-    fi
-
-    if [[ -z "$releases_json" ]]; then
+    if [[ "$discovery_status" == "fetch_error" ]]; then
         printf '  [WARN] Could not retrieve releases from GitHub for %s.\n' "$repo_slug"
         return 0
     fi
 
-    local candidate_tags=()
-    if command -v jq >/dev/null 2>&1; then
-        while IFS= read -r t; do
-            [[ -n "$t" ]] && candidate_tags+=("$t")
-        done < <(printf '%s' "$releases_json" | jq -r '.[].tag_name // empty' 2>/dev/null || true)
-    else
-        while IFS= read -r t; do
-            [[ -n "$t" ]] && candidate_tags+=("$t")
-        done < <(printf '%s' "$releases_json" | awk -F'"' '/"tag_name":/{print $4}' || true)
-    fi
-
-    if [[ "${#candidate_tags[@]}" -eq 0 ]]; then
+    if [[ "${#candidate_list[@]}" -eq 0 ]]; then
         printf '  [INFO] No releases found.\n\n'
         return 0
     fi
 
     local selected_tag=""
-    if selected_tag="$(select_eligible_release "$app_id" "${candidate_tags[@]}" 2>/dev/null)"; then
+    if selected_tag="$(select_eligible_release --discovery-status "$discovery_status" "$app_id" "${candidate_list[@]}" 2>/dev/null)"; then
         local sel_class
         sel_class="$(classify_release_tag "$selected_tag")"
         printf '  Current pinned : %s\n' "$current_version"
@@ -103,14 +82,23 @@ check_github_release() {
             printf '  Status         : UPDATE AVAILABLE (review before bumping config/versions.conf)\n\n'
         fi
     else
-        local latest_raw="${candidate_tags[0]}"
+        local latest_raw="${candidate_list[0]}"
+        local raw_tag=""
+        local raw_meta="false"
+        parse_release_candidate "$latest_raw" raw_tag raw_meta
         local raw_class
-        raw_class="$(classify_release_tag "$latest_raw")"
+        raw_class="$(classify_release_tag "$raw_tag" "$raw_meta")"
         printf '  Current pinned : %s\n' "$current_version"
-        printf '  Upstream latest: %s (PRERELEASE [%s] - rejected by policy)\n' "$latest_raw" "$raw_class"
-        printf '  Status         : PRERELEASE IGNORED\n\n'
+        if [[ "$discovery_status" != "complete" ]]; then
+            printf '  Upstream latest: %s (DISCOVERY INCOMPLETE [%s] - cannot verify stable precedence)\n' "$raw_tag" "$discovery_status"
+            printf '  Status         : DISCOVERY INCOMPLETE\n\n'
+        else
+            printf '  Upstream latest: %s (PRERELEASE [%s] - rejected by policy)\n' "$raw_tag" "$raw_class"
+            printf '  Status         : PRERELEASE IGNORED\n\n'
+        fi
     fi
 }
+
 
 check_github_latest() {
     local project_label="$1"

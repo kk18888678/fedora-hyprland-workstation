@@ -60,6 +60,59 @@ else
     fail "explicit nightly token classification failed"
 fi
 
+# Authoritative upstream metadata tests (Part 1):
+# 1. tag v1.0.0-beta, metadata false -> beta
+if [[ "$(classify_release_tag "v1.0.0-beta" "false")" == "beta" && \
+      "$(classify_release_tag "v1.0.0-beta|false")" == "beta" ]]; then
+    pass "explicit beta tag with metadata false is classified beta"
+else
+    fail "explicit beta tag with metadata false failed"
+fi
+
+# 2. tag v1.0.0-beta, metadata true -> beta
+if [[ "$(classify_release_tag "v1.0.0-beta" "true")" == "beta" && \
+      "$(classify_release_tag "v1.0.0-beta|true")" == "beta" ]]; then
+    pass "explicit beta tag with metadata true is classified beta"
+else
+    fail "explicit beta tag with metadata true failed"
+fi
+
+# 3. tag v1.0.0, metadata false -> stable
+if [[ "$(classify_release_tag "v1.0.0" "false")" == "stable" && \
+      "$(classify_release_tag "v1.0.0|false")" == "stable" ]]; then
+    pass "stable-looking tag with metadata false is classified stable"
+else
+    fail "stable-looking tag with metadata false failed"
+fi
+
+# 4. tag v1.0.0, metadata true -> unknown_prerelease
+if [[ "$(classify_release_tag "v1.0.0" "true")" == "unknown_prerelease" && \
+      "$(classify_release_tag "v1.0.0|true")" == "unknown_prerelease" ]]; then
+    pass "stable-looking tag with authoritative metadata true is classified unknown_prerelease"
+else
+    fail "stable-looking tag with metadata true failed"
+fi
+
+# 5. Authoritative prerelease metadata survives candidate parsing and formatting
+cand_formatted="$(format_release_candidate "v2.0.0" "true")"
+parsed_t=""
+parsed_m=""
+parse_release_candidate "$cand_formatted" parsed_t parsed_m
+if [[ "$cand_formatted" == "v2.0.0|true" && "$parsed_t" == "v2.0.0" && "$parsed_m" == "true" ]]; then
+    pass "authoritative prerelease metadata survives candidate formatting and parsing"
+else
+    fail "candidate formatting/parsing failed: formatted=$cand_formatted tag=$parsed_t meta=$parsed_m"
+fi
+
+# 6. Unknown prerelease metadata never enters stable candidate list
+sel_pre_meta_ret=0
+select_eligible_release "app_no_exception" "v2.0.0|true" >/dev/null 2>&1 || sel_pre_meta_ret=$?
+if [[ "$sel_pre_meta_ret" -ne 0 ]]; then
+    pass "tag with authoritative prerelease metadata true never enters stable candidate path"
+else
+    fail "tag with prerelease metadata true incorrectly entered stable path"
+fi
+
 # 15. Unknown prerelease class -> rejected
 t_unknown="$(classify_release_tag "v1.0.0-customtag" "true")"
 if [[ "$t_unknown" == "unknown_prerelease" ]]; then
@@ -77,6 +130,7 @@ if [[ "$eval_unknown_ret" -ne 0 && "$eval_unknown_err" == "unknown prerelease cl
 else
     fail "unidentifiable prerelease class did not fail closed: ret=$eval_unknown_ret err=$eval_unknown_err"
 fi
+
 
 section "Registry Validation and Fail-Closed Invariants"
 
@@ -448,3 +502,130 @@ if [[ "$arch_guard_enforced" -eq 1 ]]; then
 else
     fail "prerelease artifact did not enforce target architecture"
 fi
+
+section "Bounded Pagination & Discovery Semantics"
+
+# 7. Stable on first page -> stable selected
+mock_fetcher_stable_first() {
+    local slug="$1" page="$2" per_page="$3"
+    if [[ "$page" -eq 1 ]]; then
+        cat << 'INNER_EOF'
+[
+  {"tag_name": "v1.0.0", "prerelease": false}
+]
+INNER_EOF
+    else
+        echo "[]"
+    fi
+}
+cand_p1=()
+st_p1=""
+discover_github_release_candidates "mock/repo" cand_p1 st_p1 mock_fetcher_stable_first
+sel_p1="$(select_eligible_release --discovery-status "$st_p1" "test_app" "${cand_p1[@]}")"
+if [[ "$sel_p1" == "v1.0.0" && "$st_p1" == "complete" ]]; then
+    pass "stable release on first page is discovered and selected"
+else
+    fail "first page stable discovery failed: sel=$sel_p1 st=$st_p1"
+fi
+
+# 8. Stable on later page -> stable selected (stable beats newer beta on earlier page)
+mock_fetcher_stable_later() {
+    local slug="$1" page="$2" per_page="$3"
+    if [[ "$page" -eq 1 ]]; then
+        # Page 1 has 30 beta releases
+        printf '['
+        for i in $(seq 1 30); do
+            [[ "$i" -gt 1 ]] && printf ','
+            printf '{"tag_name": "v2.0.0-beta.%d", "prerelease": true}' "$i"
+        done
+        printf ']\n'
+    elif [[ "$page" -eq 2 ]]; then
+        # Page 2 has a stable release
+        cat << 'INNER_EOF'
+[
+  {"tag_name": "v1.9.0", "prerelease": false}
+]
+INNER_EOF
+    else
+        echo "[]"
+    fi
+}
+cand_p2=()
+st_p2=""
+discover_github_release_candidates "mock/repo" cand_p2 st_p2 mock_fetcher_stable_later
+sel_p2="$(select_eligible_release --discovery-status "$st_p2" "n_m3u8dl_re" "${cand_p2[@]}")"
+if [[ "$sel_p2" == "v1.9.0" && "$st_p2" == "complete" ]]; then
+    pass "stable release on later page is discovered and takes precedence over newer beta on earlier page"
+else
+    fail "later page stable discovery failed: sel=$sel_p2 st=$st_p2"
+fi
+
+# 9. Complete beta-only history permits beta for approved app
+mock_fetcher_beta_only_complete() {
+    local slug="$1" page="$2" per_page="$3"
+    if [[ "$page" -eq 1 ]]; then
+        cat << 'INNER_EOF'
+[
+  {"tag_name": "v0.6.0-beta", "prerelease": true},
+  {"tag_name": "v0.5.0-beta", "prerelease": true}
+]
+INNER_EOF
+    else
+        echo "[]"
+    fi
+}
+cand_p3=()
+st_p3=""
+discover_github_release_candidates "mock/repo" cand_p3 st_p3 mock_fetcher_beta_only_complete
+sel_p3="$(select_eligible_release --discovery-status "$st_p3" "n_m3u8dl_re" "${cand_p3[@]}")"
+if [[ "$sel_p3" == "v0.6.0-beta" && "$st_p3" == "complete" ]]; then
+    pass "complete pagination with beta-only history permits allowed beta for approved app"
+else
+    fail "complete beta-only discovery failed: sel=$sel_p3 st=$st_p3"
+fi
+
+# 10. Discovery bound reached before completion -> fails closed, no beta fallback
+mock_fetcher_infinite_betas() {
+    local slug="$1" page="$2" per_page="$3"
+    printf '['
+    for i in $(seq 1 30); do
+        [[ "$i" -gt 1 ]] && printf ','
+        printf '{"tag_name": "v0.9.%d-beta", "prerelease": true}' "$i"
+    done
+    printf ']\n'
+}
+cand_p4=()
+st_p4=""
+RELEASE_DISCOVERY_MAX_PAGES=3 discover_github_release_candidates "mock/repo" cand_p4 st_p4 mock_fetcher_infinite_betas
+sel_p4_ret=0
+sel_p4_out="$(select_eligible_release --discovery-status "$st_p4" "n_m3u8dl_re" "${cand_p4[@]}" 2>&1)" || sel_p4_ret=$?
+if [[ "$st_p4" == "bound_reached" && "$sel_p4_ret" -ne 0 && "$sel_p4_out" == *"Release discovery was incomplete"* ]]; then
+    pass "discovery bound reached without stable release fails closed and rejects beta fallback"
+else
+    fail "discovery bound reached did not fail closed: st=$st_p4 ret=$sel_p4_ret out=$sel_p4_out"
+fi
+
+# 11. Incomplete discovery never enables beta fallback
+incomplete_sel_ret=0
+incomplete_sel_out="$(select_eligible_release --discovery-status "incomplete" "n_m3u8dl_re" "v0.6.0-beta|true" 2>&1)" || incomplete_sel_ret=$?
+if [[ "$incomplete_sel_ret" -ne 0 && "$incomplete_sel_out" == *"Release discovery was incomplete"* ]]; then
+    pass "incomplete discovery status explicitly blocks prerelease fallback"
+else
+    fail "incomplete discovery incorrectly permitted beta fallback: ret=$incomplete_sel_ret out=$incomplete_sel_out"
+fi
+
+# 12. Page retrieval error rejects prerelease fallback
+mock_fetcher_network_error() {
+    return 1
+}
+cand_p5=()
+st_p5=""
+discover_github_release_candidates "mock/repo" cand_p5 st_p5 mock_fetcher_network_error
+sel_p5_ret=0
+sel_p5_out="$(select_eligible_release --discovery-status "$st_p5" "n_m3u8dl_re" "v0.6.0-beta|true" 2>&1)" || sel_p5_ret=$?
+if [[ "$st_p5" == "fetch_error" && "$sel_p5_ret" -ne 0 && "$sel_p5_out" == *"Release discovery was incomplete"* ]]; then
+    pass "network or page retrieval failure fails closed and rejects prerelease fallback"
+else
+    fail "page retrieval error did not fail closed: st=$st_p5 ret=$sel_p5_ret out=$sel_p5_out"
+fi
+
