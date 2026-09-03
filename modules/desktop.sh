@@ -523,6 +523,18 @@ install_workstation_hotkeys() {
     record_success "workstation-hotkeys"
 }
 
+# Converge GTK Bookmarks file (shared across Thunar/GTK3 and GTK4 applications).
+#
+# Policy:
+# 1. Fresh/empty file: writes the canonical managed standard block
+#    (Documents, Downloads, Pictures, Music, Videos).
+# 2. Existing file containing only personal bookmarks: preserves all personal
+#    bookmarks in their existing relative order at the top and appends the managed block.
+# 3. Existing file containing mixed/managed bookmarks: preserves personal bookmarks
+#    situated prior to the first managed bookmark, de-duplicates and converges the
+#    managed block at that position, and preserves subsequent personal bookmarks.
+# 4. Preserves custom labels (e.g. 'file:///path Label') and non-file schemes (e.g. 'smb://').
+# 5. Strict idempotency: returns immediately without modifying file mtime if already converged.
 converge_gtk_bookmarks_file() {
     local bookmark_file="$1"
     local home_dir="${2:-$TARGET_HOME}"

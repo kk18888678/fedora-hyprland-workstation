@@ -457,15 +457,14 @@ sudo() {
     "$@"
 }
 
-# Test 1: Empty initial state -> initializes exact baseline in both gtk-3.0 and gtk-4.0
+# Test 1: empty/nonexistent file -> initializes exact baseline in both gtk-3.0 and gtk-4.0
 converge_gtk_bookmarks "$TARGET_HOME"
-
 gtk3_bm="$TARGET_HOME/.config/gtk-3.0/bookmarks"
 gtk4_bm="$TARGET_HOME/.config/gtk-4.0/bookmarks"
 
 empty_init_ok=0
 if [[ -f "$gtk3_bm" && -f "$gtk4_bm" ]]; then
-    expected_content="$(cat << EOF
+    expected_std="$(cat << EOF
 file://${TARGET_HOME}/Documents
 file://${TARGET_HOME}/Downloads
 file://${TARGET_HOME}/Pictures
@@ -473,79 +472,148 @@ file://${TARGET_HOME}/Music
 file://${TARGET_HOME}/Videos
 EOF
 )"
-    if cmp -s "$gtk3_bm" <(printf '%s\n' "$expected_content") &&
-       cmp -s "$gtk4_bm" <(printf '%s\n' "$expected_content"); then
+    if cmp -s "$gtk3_bm" <(printf '%s\n' "$expected_std") &&
+       cmp -s "$gtk4_bm" <(printf '%s\n' "$expected_std"); then
         empty_init_ok=1
     fi
 fi
 echo "empty-init-ok=$empty_init_ok"
 
-# Test 2: Rerun idempotency on fully initialized bookmarks
-mtime_before="$(stat -c %Y "$gtk3_bm")"
-converge_gtk_bookmarks "$TARGET_HOME"
-mtime_after="$(stat -c %Y "$gtk3_bm")"
-idempotent_ok=$([[ "$mtime_before" == "$mtime_after" ]] && echo 1 || echo 0)
-echo "idempotent-ok=$idempotent_ok"
-
-# Test 3: Partially initialized bookmarks with custom user folder and remote URI
+# Test 2: only managed bookmarks out of order -> converges to canonical order
 cat << EOF > "$gtk3_bm"
-file://${TARGET_HOME}/Projects Code Repository
-smb://nas.local/share Network Share
+file://${TARGET_HOME}/Videos
+file://${TARGET_HOME}/Pictures
 file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
 file://${TARGET_HOME}/Music
 EOF
-
 converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+only_managed_ok=$([[ "$(cat "$gtk3_bm")" == "$expected_std" ]] && echo 1 || echo 0)
+echo "only-managed-ok=$only_managed_ok"
 
-partial_preserved_ok=0
-# Verify that custom Projects and SMB were preserved, and missing Downloads, Pictures, Videos were appended
-if grep -q "file://${TARGET_HOME}/Projects Code Repository" "$gtk3_bm" &&
-   grep -q "smb://nas.local/share Network Share" "$gtk3_bm" &&
-   grep -q "file://${TARGET_HOME}/Documents" "$gtk3_bm" &&
-   grep -q "file://${TARGET_HOME}/Downloads" "$gtk3_bm" &&
-   grep -q "file://${TARGET_HOME}/Pictures" "$gtk3_bm" &&
-   grep -q "file://${TARGET_HOME}/Music" "$gtk3_bm" &&
-   grep -q "file://${TARGET_HOME}/Videos" "$gtk3_bm"; then
-    # Verify no duplicate entries
-    num_docs="$(grep -c "file://${TARGET_HOME}/Documents" "$gtk3_bm" || true)"
-    num_music="$(grep -c "file://${TARGET_HOME}/Music" "$gtk3_bm" || true)"
-    if [[ "$num_docs" -eq 1 && "$num_music" -eq 1 ]]; then
-        partial_preserved_ok=1
-    fi
-fi
-echo "partial-preserved-ok=$partial_preserved_ok"
-
-# Test 4: Rerun on custom bookmarks causes zero changes
-mtime_c1="$(stat -c %Y "$gtk3_bm")"
-converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
-mtime_c2="$(stat -c %Y "$gtk3_bm")"
-custom_idempotent_ok=$([[ "$mtime_c1" == "$mtime_c2" ]] && echo 1 || echo 0)
-echo "custom-idempotent-ok=$custom_idempotent_ok"
-
-# Test 5: Mixed standard and personal bookmarks out of order
+# Test 3: only personal bookmarks -> preserved in order at top, managed block appended
 cat << EOF > "$gtk3_bm"
-file://${TARGET_HOME}/Pictures
-file:///some/personal/location My Project
-file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Work
+file://${TARGET_HOME}/Personal
 EOF
-
 converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
-
-expected_mixed="$(cat << EOF
+expected_only_pers="$(cat << EOF
+file://${TARGET_HOME}/Work
+file://${TARGET_HOME}/Personal
 file://${TARGET_HOME}/Documents
 file://${TARGET_HOME}/Downloads
 file://${TARGET_HOME}/Pictures
 file://${TARGET_HOME}/Music
 file://${TARGET_HOME}/Videos
-file:///some/personal/location My Project
 EOF
 )"
+only_pers_ok=$([[ "$(cat "$gtk3_bm")" == "$expected_only_pers" ]] && echo 1 || echo 0)
+echo "only-pers-ok=$only_pers_ok"
 
-mixed_reorder_ok=0
-if cmp -s "$gtk3_bm" <(printf '%s\n' "$expected_mixed"); then
-    mixed_reorder_ok=1
+# Test 4: personal before managed -> preserved before managed block
+cat << EOF > "$gtk3_bm"
+file://${TARGET_HOME}/Alpha
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Music
+file://${TARGET_HOME}/Videos
+EOF
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+expected_before="$(cat << EOF
+file://${TARGET_HOME}/Alpha
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Music
+file://${TARGET_HOME}/Videos
+EOF
+)"
+pers_before_ok=$([[ "$(cat "$gtk3_bm")" == "$expected_before" ]] && echo 1 || echo 0)
+echo "pers-before-ok=$pers_before_ok"
+
+# Test 5: personal after managed -> preserved after managed block
+cat << EOF > "$gtk3_bm"
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Music
+file://${TARGET_HOME}/Videos
+file://${TARGET_HOME}/Omega
+EOF
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+expected_after="$(cat << EOF
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Music
+file://${TARGET_HOME}/Videos
+file://${TARGET_HOME}/Omega
+EOF
+)"
+pers_after_ok=$([[ "$(cat "$gtk3_bm")" == "$expected_after" ]] && echo 1 || echo 0)
+echo "pers-after-ok=$pers_after_ok"
+
+# Test 6: personal interleaved with managed -> de-duplicated and converged at first managed position
+cat << EOF > "$gtk3_bm"
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/MyProject
+file://${TARGET_HOME}/Downloads
+EOF
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+expected_interleaved="$(cat << EOF
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Music
+file://${TARGET_HOME}/Videos
+file://${TARGET_HOME}/MyProject
+EOF
+)"
+interleaved_ok=$([[ "$(cat "$gtk3_bm")" == "$expected_interleaved" ]] && echo 1 || echo 0)
+echo "interleaved-ok=$interleaved_ok"
+
+# Test 7: duplicate managed entries -> duplicates removed, appears exactly once
+cat << EOF > "$gtk3_bm"
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Downloads
+file://${TARGET_HOME}/Documents
+file://${TARGET_HOME}/Pictures
+file://${TARGET_HOME}/Pictures
+EOF
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+dedup_ok=$([[ "$(cat "$gtk3_bm")" == "$expected_std" ]] && echo 1 || echo 0)
+echo "dedup-ok=$dedup_ok"
+
+# Test 8: custom labels -> labels preserved intact
+cat << EOF > "$gtk3_bm"
+file://${TARGET_HOME}/Code Custom Code Folder
+file://${TARGET_HOME}/Documents
+EOF
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+labels_ok=$(grep -q "file://${TARGET_HOME}/Code Custom Code Folder" "$gtk3_bm" && echo 1 || echo 0)
+echo "labels-ok=$labels_ok"
+
+# Test 9: remote/non-file personal URIs -> preserved intact
+cat << EOF > "$gtk3_bm"
+smb://nas.local/share Network Share
+sftp://server.lan/backup Remote Backup
+file://${TARGET_HOME}/Documents
+EOF
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+remote_ok=0
+if grep -q "smb://nas.local/share Network Share" "$gtk3_bm" &&
+   grep -q "sftp://server.lan/backup Remote Backup" "$gtk3_bm"; then
+    remote_ok=1
 fi
-echo "mixed-reorder-ok=$mixed_reorder_ok"
+echo "remote-ok=$remote_ok"
+
+# Test 10: second-run byte/idempotency behavior -> zero change and unchanged mtime
+mtime_c1="$(stat -c %Y "$gtk3_bm")"
+converge_gtk_bookmarks_file "$gtk3_bm" "$TARGET_HOME"
+mtime_c2="$(stat -c %Y "$gtk3_bm")"
+idempotent_c_ok=$([[ "$mtime_c1" == "$mtime_c2" ]] && echo 1 || echo 0)
+echo "idempotent-c-ok=$idempotent_c_ok"
 
 rm -rf "$TARGET_HOME"
 EOS
@@ -557,29 +625,60 @@ else
     fail "converge_gtk_bookmarks empty init failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'idempotent-ok=1'; then
-    pass "converge_gtk_bookmarks is fully idempotent on satisfied bookmarks"
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'only-managed-ok=1'; then
+    pass "converge_gtk_bookmarks reorders out-of-order managed bookmarks into canonical order"
 else
-    fail "converge_gtk_bookmarks idempotency failed: $bookmarks_test_output"
+    fail "converge_gtk_bookmarks only-managed reordering failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'partial-preserved-ok=1'; then
-    pass "converge_gtk_bookmarks preserves existing custom paths, remote URIs, and labels without duplicates"
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'only-pers-ok=1'; then
+    pass "converge_gtk_bookmarks preserves only-personal bookmarks at top and appends managed block"
 else
-    fail "converge_gtk_bookmarks failed to preserve custom/partial bookmarks: $bookmarks_test_output"
+    fail "converge_gtk_bookmarks only-personal preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'custom-idempotent-ok=1'; then
-    pass "converge_gtk_bookmarks is fully idempotent after custom bookmark convergence"
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'pers-before-ok=1'; then
+    pass "converge_gtk_bookmarks preserves personal bookmarks situated before managed block"
 else
-    fail "converge_gtk_bookmarks failed custom idempotency: $bookmarks_test_output"
+    fail "converge_gtk_bookmarks personal-before preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'mixed-reorder-ok=1'; then
-    pass "converge_gtk_bookmarks deterministically reorders standard bookmarks and preserves personal bookmarks"
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'pers-after-ok=1'; then
+    pass "converge_gtk_bookmarks preserves personal bookmarks situated after managed block"
 else
-    fail "converge_gtk_bookmarks mixed reordering failed: $bookmarks_test_output"
+    fail "converge_gtk_bookmarks personal-after preservation failed: $bookmarks_test_output"
 fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'interleaved-ok=1'; then
+    pass "converge_gtk_bookmarks preserves interleaved personal bookmarks while converging managed block"
+else
+    fail "converge_gtk_bookmarks interleaved preservation failed: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'dedup-ok=1'; then
+    pass "converge_gtk_bookmarks de-duplicates multiple occurrences of standard bookmarks"
+else
+    fail "converge_gtk_bookmarks de-duplication failed: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'labels-ok=1'; then
+    pass "converge_gtk_bookmarks preserves custom bookmark labels intact"
+else
+    fail "converge_gtk_bookmarks label preservation failed: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'remote-ok=1'; then
+    pass "converge_gtk_bookmarks preserves non-file remote protocol URIs intact"
+else
+    fail "converge_gtk_bookmarks remote URI preservation failed: $bookmarks_test_output"
+fi
+
+if printf '%s\n' "$bookmarks_test_output" | grep -q 'idempotent-c-ok=1'; then
+    pass "converge_gtk_bookmarks satisfies strict byte idempotency on subsequent runs"
+else
+    fail "converge_gtk_bookmarks byte idempotency failed: $bookmarks_test_output"
+fi
+
 
 section "Monitor Configuration"
 
