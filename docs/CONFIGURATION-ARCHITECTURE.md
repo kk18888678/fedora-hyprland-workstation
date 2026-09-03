@@ -133,10 +133,15 @@ System-wide defaults are modeled as generic capability roles rather than hardcod
 
 ## 6. Dependency and Conflict Resolution
 
-- **Declarative Dependencies**:
-  Components declare dependencies directly (e.g. `devenv` depends on `nix`).
+- **Declarative Dependencies & Capabilities**:
+  Components declare dependencies and required capabilities directly (e.g. `devenv` depends on `nix`).
+- **Topological Sorting & Cycle Detection**:
+  The planner performs structural topological sorting (`topological_sort_components`). Direct cycles (`A -> B -> A`) and indirect cycles (`A -> B -> C -> A`) fail closed immediately before planning or mutation.
+- **Dependency-Aware Ordering**:
+  - `INSTALL` and `CONFIGURE` actions are sequenced dependencies first, dependents after.
+  - `REMOVE` actions are sequenced in reverse topological order: dependents first, dependencies after.
 - **Automatic Inclusion**:
-  If a user selects `devenv` while `nix` is unselected, the planner automatically resolves `nix` to `managed` and records the explicit reason (`required by devenv`).
+  If a user selects `devenv` while `nix` is unselected, the planner automatically promotes `nix` to `managed` and records the explicit reason (`required by devenv`).
 - **Unresolved Dependencies Fail Closed**:
   If a component requires a dependency that is explicitly marked for removal (`remove`), planning fails closed before mutation.
 - **Conflict Prevention**:
@@ -149,13 +154,15 @@ System-wide defaults are modeled as generic capability roles rather than hardcod
 The Planner (`modules/lib/planner.sh`) is strictly read-only and performs zero system mutations:
 
 - Consumes: Desired State + Actual State + Component Registry.
-- Produces: An immutable, validated Plan consisting of discrete actions:
+- Produces: An immutable, cryptographically fingerprinted Plan (`finalize_plan`).
+- Discrete actions:
   - `INSTALL`: Component is absent and desired `managed`.
   - `KEEP`: Component is present and desired `managed` or `unmanaged`.
   - `CONFIGURE`: Component is present and has an updated configuration.
   - `REMOVE`: Component is present and explicitly desired `remove`.
   - `CHANGE_DEFAULT`: Desired role provider differs from current host default.
 - Every action records target ID, action type, descriptive reason, and details.
+- Fail-Closed Plan Verification (`validate_plan`): The plan cannot be tampered with or executed without valid structure and matching SHA-256 fingerprint.
 
 ---
 
@@ -168,41 +175,46 @@ Before any host mutation occurs, the Review Screen (`format_plan_summary`):
 - Interactive options:
   - `[A] Apply changes`: Proceeds to reconciliation.
   - `[E] Edit selections`: Returns to the customization wizard.
-  - `[C] Cancel setup`: Terminates the run immediately with zero mutations.
+  - `[C] Cancel setup`: Terminates the run immediately with zero mutations (exit code 2).
 
 ---
 
 ## 9. Reconciler
 
 The Reconciler (`modules/lib/reconciler.sh`):
-- Executes an already validated and confirmed Plan.
+- Executes ONLY an already validated, finalized Plan (`validate_plan`); fails closed on unvalidated or tampered plans.
 - Does not make policy decisions.
 - Invokes component lifecycle adapters in safe dependency order:
-  1. `REMOVE` actions (safe package removal).
+  1. `REMOVE` actions (safe package removal; remove != purge).
   2. `INSTALL` actions (`install_fn` -> `configure_fn` -> `validate_fn`).
   3. `CONFIGURE` actions.
-  4. `CHANGE_DEFAULT` actions (role association updates).
-- Surfaces failures through the standard repository failure classification subsystem (`record_required`, `record_deferred`).
+  4. `CHANGE_DEFAULT` actions (role association updates verified via `xdg-mime`).
+- Surfaces all failures (`INSTALL`, `CONFIGURE`, `VALIDATE`, `REMOVE`, `CHANGE_DEFAULT`) and records them through standard repository classification (`record_required`, `record_deferred`).
 
 ---
 
 ## 10. Non-Interactive Terminal Safety
 
 - `wizard_is_interactive()` verifies that standard input is an interactive TTY (`[[ -t 0 ]]`).
-- If invoked non-interactively (e.g. headless automation or background pipe) without an explicit `SETUP_MODE` environment variable:
-  - The installer fails closed immediately:
-    ```text
-    ERROR: Interactive terminal required for setup mode selection. Run in an interactive terminal.
-    ```
-  - It does not hang waiting for input and does not silently apply unreviewed changes.
-- Automated testing and scripted workflows can pass `SETUP_MODE=recommended` or `SETUP_MODE=customize` to bypass keyboard menus deterministically.
+- Production runs strictly require an interactive terminal. If executed non-interactively without mock input, the installer fails closed immediately:
+  ```text
+  ERROR: Interactive terminal required for setup mode selection. Run in an interactive terminal.
+  ```
+- It does not hang waiting for input and does not silently apply unreviewed changes.
+- Setting `SETUP_MODE=recommended` does NOT bypass the interactive Review requirement in production.
 
 ---
 
-## 11. Migration and Coexistence Strategy
+## 11. Migration and Single Mutation Ownership
 
-The architecture coexists with established installer modules:
-- Login-critical activation (`greetd`, `Hyprland`, `Noctalia`) remains intact and isolated.
+To prevent competing ownership and double-installation bugs:
+- **Single Mutation Owner Principle**:
+  Every component registered in the Component Registry has exactly ONE mutation owner: the Reconciler.
+- **Legacy Stage Guarding**:
+  Legacy installation stages (`install_browsers`, `install_nix`, `install_packages`) invoke `is_component_migrated "$id"` and skip any component managed by the Reconciler.
+- **Preserved Non-Migrated Software**:
+  Tools not yet in the registry (e.g. `brave-origin` in browsers, non-migrated packages in manifest files) remain fully owned and installed by legacy stages.
+- Login-critical activation (`greetd`, `Hyprland`, `Noctalia`) remains intact, isolated, and blocks activation only on login-critical failures.
 - The reconciler executes alongside existing classified stages.
 - Representative components (`chromium`, `firefox`, `foot`, `neovim`, `nix`, `devenv`, `htop`) prove the registry, roles, dependencies, and removal flows without disrupting the overall desktop stack.
 
