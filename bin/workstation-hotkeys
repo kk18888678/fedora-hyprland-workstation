@@ -29,21 +29,7 @@ if [[ "${1:-}" == "preview" ]]; then
     exit 0
 fi
 
-# Workstation Hotkeys & Keyboard Shortcuts Reference & Interactive Manager
-# Dynamically derived from keybindings_manifest.lua and effective_bindings.lua.
-
-# If not running in an interactive terminal and not forced to stdout or test mode,
-# launch in a dedicated floating terminal.
-if [[ ! -t 1 && "${HOTKEYS_FORCE_STDOUT:-0}" != "1" && -z "${HOTKEYS_TEST_ACTION:-}" ]]; then
-    if command -v foot >/dev/null 2>&1; then
-        exec foot --app-id=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
-    elif command -v kitty >/dev/null 2>&1; then
-        exec kitty --class=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
-    else
-        notify-send "Hotkeys" "No supported terminal found to display hotkeys." 2>/dev/null || true
-        exit 1
-    fi
-fi
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # Locate keybindings manifest
 manifest_path=""
@@ -51,11 +37,8 @@ if [[ -n "${HOTKEYS_MANIFEST:-}" && -f "$HOTKEYS_MANIFEST" ]]; then
     manifest_path="$HOTKEYS_MANIFEST"
 elif [[ -f "${HOME:-}/.config/hypr/keybindings_manifest.lua" ]]; then
     manifest_path="${HOME:-}/.config/hypr/keybindings_manifest.lua"
-else
-    script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-    if [[ -f "$script_dir/../dotfiles/hypr/keybindings_manifest.lua" ]]; then
-        manifest_path="$script_dir/../dotfiles/hypr/keybindings_manifest.lua"
-    fi
+elif [[ -f "$script_dir/../dotfiles/hypr/keybindings_manifest.lua" ]]; then
+    manifest_path="$script_dir/../dotfiles/hypr/keybindings_manifest.lua"
 fi
 
 if [[ -z "$manifest_path" || ! -f "$manifest_path" ]]; then
@@ -80,12 +63,91 @@ fi
 effective_dir="$(dirname -- "$effective_lua")"
 export LUA_PATH="$manifest_dir/?.lua;$effective_dir/?.lua;${LUA_PATH:-;;}"
 
-
 lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
 if [[ -z "$lua_bin" ]]; then
     printf '%s\n' "Error: Lua interpreter not found." >&2
     exit 1
 fi
+
+# Parse CLI arguments and provider overrides
+HOTKEYS_SUBCOMMAND=""
+HOTKEYS_TARGET_ID=""
+HOTKEYS_PROVIDER_OVERRIDE=""
+
+remaining_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --provider=*)
+            HOTKEYS_PROVIDER_OVERRIDE="${1#*=}"
+            shift
+            ;;
+        --provider)
+            HOTKEYS_PROVIDER_OVERRIDE="${2:-}"
+            shift 2
+            ;;
+        json|--json)
+            HOTKEYS_SUBCOMMAND="json"
+            shift
+            ;;
+        run|--run)
+            HOTKEYS_SUBCOMMAND="run"
+            HOTKEYS_TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        set|--set)
+            HOTKEYS_SUBCOMMAND="set"
+            HOTKEYS_TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        unset|--unset)
+            HOTKEYS_SUBCOMMAND="unset"
+            HOTKEYS_TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        toggle|--toggle)
+            HOTKEYS_SUBCOMMAND="toggle"
+            shift
+            ;;
+        *)
+            remaining_args+=("$1")
+            shift
+            ;;
+    esac
+done
+if [[ ${#remaining_args[@]} -gt 0 ]]; then
+    set -- "${remaining_args[@]}"
+fi
+
+get_hotkeys_provider() {
+    if [[ -n "${HOTKEYS_PROVIDER_OVERRIDE:-}" ]]; then
+        printf '%s\n' "$HOTKEYS_PROVIDER_OVERRIDE"
+        return 0
+    fi
+    if [[ -n "${WORKSTATION_HOTKEYS_PROVIDER:-}" ]]; then
+        printf '%s\n' "$WORKSTATION_HOTKEYS_PROVIDER"
+        return 0
+    fi
+    if [[ -n "${HOTKEYS_PROVIDER:-}" ]]; then
+        printf '%s\n' "$HOTKEYS_PROVIDER"
+        return 0
+    fi
+    local config_file="${XDG_CONFIG_HOME:-$HOME/.config}/workstation/desktop.conf"
+    if [[ -f "$config_file" ]]; then
+        local prov
+        prov="$(grep -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$config_file" 2>/dev/null | tail -n 1 | cut -d '=' -f2 | tr -d ' "[:space:]' || true)"
+        if [[ -n "$prov" ]]; then
+            printf '%s\n' "$prov"
+            return 0
+        fi
+    fi
+    if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml" || -f "$script_dir/../dotfiles/aurelia/shell.qml" ]]; then
+        if command -v qs >/dev/null 2>&1 || command -v quickshell >/dev/null 2>&1; then
+            printf '%s\n' "aurelia"
+            return 0
+        fi
+    fi
+    printf '%s\n' "legacy"
+}
 
 render_output() {
     "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
@@ -278,7 +340,7 @@ prompt_and_capture_key() {
     local current_key="$3"
     local action_cat="$4"
 
-    clear
+    clear 2>/dev/null || true
     printf '\033[1;36m%s\033[0m\n\n' "Set Shortcut — $action_desc"
     printf 'Current shortcut:  \033[1m%s\033[0m\n\n' "$current_key"
     printf '%s\n\n' "Press desired key combination now (e.g. Super + Shift + T)..."
@@ -320,11 +382,13 @@ prompt_and_capture_key() {
 
     if err_msg="$(apply_binding_edit "$action_id" "$new_key" 2>&1)"; then
         printf '\n\033[1;32m%s\033[0m\n' "Shortcut updated successfully. Hyprland configuration reloaded."
-        sleep 0.8
+        if [[ -t 0 && -t 1 ]]; then sleep 0.8; fi
     else
         printf '\n\033[1;31m%s\033[0m\n\n' "$err_msg"
-        printf '%s' "Press Enter to return to shortcut list... "
-        read -r _ || true
+        if [[ -t 0 ]]; then
+            printf '%s' "Press Enter to return to shortcut list... "
+            read -r _ || true
+        fi
     fi
 }
 
@@ -358,7 +422,6 @@ for _, app in ipairs(apps) do
     if pad < 2 then pad = 2 end
     local role_badge = (role ~= "") and (" [" .. role .. "]") or ""
     local display_col = string.format("%s%s%-24s%s", name, string.rep(" ", pad), "[" .. shortcut .. "]", role_badge)
-
     print(string.format("%s\t%s\t%s\t%s\t%s", did, display_col, name, shortcut, role))
 end
 LUA_SCRIPT
@@ -366,7 +429,7 @@ LUA_SCRIPT
 
 # Assign application shortcut interactive UI
 assign_app_shortcut_ui() {
-    clear
+    clear 2>/dev/null || true
     local app_data
     app_data="$(get_app_rows)"
 
@@ -387,6 +450,100 @@ assign_app_shortcut_ui() {
 
     prompt_and_capture_key "app:$chosen_id" "Launch $chosen_name" "$chosen_cur" "Applications & Launchers"
 }
+
+# Fetch JSON rows for Aurelia / modern UI consumption
+get_json_rows() {
+    "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local manifest = dofile(manifest_path)
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local effective, err = eff.resolve_bindings(manifest)
+if not effective then
+    io.stderr:write("Error: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
+
+io.write(eff.serialize_bindings_json(effective))
+LUA_SCRIPT
+}
+
+# Handle explicit subcommands immediately
+if [[ "$HOTKEYS_SUBCOMMAND" == "json" || "${HOTKEYS_TEST_ACTION:-}" == "json" ]]; then
+    get_json_rows
+    exit 0
+fi
+
+if [[ "$HOTKEYS_SUBCOMMAND" == "run" ]]; then
+    if [[ -z "$HOTKEYS_TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing action ID for run" >&2
+        exit 1
+    fi
+    desc="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$HOTKEYS_TARGET_ID" 2>/dev/null <<'LUA'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local target_id     = arg[3]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = dofile(manifest_path)
+local effective = eff.resolve_bindings(manifest)
+for _, b in ipairs(effective.bindings or {}) do
+    if b.id == target_id then print(b.description or b.id); os.exit(0) end
+end
+LUA
+)"
+    execute_action "$HOTKEYS_TARGET_ID" "${desc:-$HOTKEYS_TARGET_ID}"
+    exit $?
+fi
+
+if [[ "$HOTKEYS_SUBCOMMAND" == "unset" ]]; then
+    if [[ -z "$HOTKEYS_TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing action ID for unset" >&2
+        exit 1
+    fi
+    if err_msg="$(apply_binding_edit "$HOTKEYS_TARGET_ID" "none" 2>&1)"; then
+        printf '%s\n' "UNSET_OK"
+        exit 0
+    else
+        printf 'UNSET_FAIL: %s\n' "$err_msg" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$HOTKEYS_SUBCOMMAND" == "set" ]]; then
+    if [[ -z "$HOTKEYS_TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing action ID for set" >&2
+        exit 1
+    fi
+    if [[ ! -t 0 || ! -t 1 ]] && [[ -z "${HOTKEYS_CAPTURE_MOCK_INPUT:-}" ]]; then
+        if command -v foot >/dev/null 2>&1; then
+            exec foot --app-id=workstation-hotkeys-capture --title="Set Shortcut" "$0" set "$HOTKEYS_TARGET_ID"
+        elif command -v kitty >/dev/null 2>&1; then
+            exec kitty --class=workstation-hotkeys-capture --title="Set Shortcut" "$0" set "$HOTKEYS_TARGET_ID"
+        fi
+    fi
+    info_line="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$HOTKEYS_TARGET_ID" 2>/dev/null <<'LUA'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local target_id     = arg[3]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = dofile(manifest_path)
+local effective = eff.resolve_bindings(manifest)
+for _, b in ipairs(effective.bindings or {}) do
+    if b.id == target_id then
+        print(string.format("%s\t%s\t%s", b.description or b.id, b.display_key or "none", b.category or ""))
+        os.exit(0)
+    end
+end
+LUA
+)"
+    IFS=$'\t' read -r action_desc current_key action_cat <<< "$info_line"
+    prompt_and_capture_key "$HOTKEYS_TARGET_ID" "${action_desc:-$HOTKEYS_TARGET_ID}" "${current_key:-none}" "${action_cat:-}"
+    exit $?
+fi
 
 # Handle test actions non-interactively
 if [[ -n "${HOTKEYS_TEST_ACTION:-}" ]]; then
@@ -514,6 +671,51 @@ fi
 if [[ "${HOTKEYS_FORCE_STDOUT:-0}" == "1" ]]; then
     render_output
     exit 0
+fi
+
+# Dispatch based on configured Hotkeys Provider
+active_provider="$(get_hotkeys_provider)"
+if [[ "$active_provider" == "aurelia" ]]; then
+    if [[ "${HOTKEYS_SIMULATE_AURELIA_SUCCESS:-0}" == "1" ]]; then
+        printf '%s\n' "AURELIA_TOGGLE_OK"
+        exit 0
+    fi
+    if [[ "${HOTKEYS_SIMULATE_AURELIA_FAIL:-0}" != "1" ]]; then
+        qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
+        if [[ -n "$qs_bin" ]]; then
+            if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
+                exit 0
+            fi
+            # Daemon might not be running yet; try launching Aurelia shell
+            aurelia_shell="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
+            if [[ ! -f "$aurelia_shell" ]]; then
+                aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
+            fi
+            if [[ -f "$aurelia_shell" ]]; then
+                nohup "$qs_bin" --config "$aurelia_shell" >/dev/null 2>&1 &
+                disown $! 2>/dev/null || true
+                for _ in {1..10}; do
+                    if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
+                        exit 0
+                    fi
+                    sleep 0.1
+                done
+            fi
+        fi
+    fi
+    logger -t workstation-hotkeys "Aurelia Hotkeys unavailable; falling back to legacy fzf interface." 2>/dev/null || true
+fi
+
+# Legacy fallback / direct fzf mode: if not in an interactive terminal, spawn terminal
+if [[ ! -t 1 ]]; then
+    if command -v foot >/dev/null 2>&1; then
+        exec foot --app-id=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
+    elif command -v kitty >/dev/null 2>&1; then
+        exec kitty --class=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
+    else
+        notify-send "Hotkeys" "No supported terminal found to display hotkeys." 2>/dev/null || true
+        exit 1
+    fi
 fi
 
 # Interactive mode: requires fzf and interactive TTY

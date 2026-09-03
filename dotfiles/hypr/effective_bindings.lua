@@ -893,6 +893,36 @@ function M.get_action_argv(action_id, manifest)
     return nil, "Action ID not found in manifest: " .. tostring(action_id)
 end
 
+-- Serialize effective bindings into structured JSON consumed by modern UIs (e.g. Aurelia Quickshell)
+function M.serialize_bindings_json(effective)
+    effective = effective or M.resolve_bindings()
+    local json_parts = {}
+    table.insert(json_parts, "[\n")
+    local count = #(effective.bindings or {})
+    for i, b in ipairs(effective.bindings or {}) do
+        local fields = {
+            string.format('    "id": %q', b.id or ""),
+            string.format('    "display_key": %q', b.display_key or b.key or "None (Unbound)"),
+            string.format('    "key": %s', b.key and string.format('%q', b.key) or "null"),
+            string.format('    "description": %q', b.description or ""),
+            string.format('    "category": %q', b.category or ""),
+            string.format('    "runnable": %s', b.runnable == true and "true" or "false"),
+            string.format('    "editable": %s', b.editable ~= false and "true" or "false"),
+            string.format('    "priority": %d', b.priority or 999)
+        }
+        if b.desktop_id then
+            table.insert(fields, string.format('    "desktop_id": %q', b.desktop_id))
+        end
+        local item_str = "  {\n" .. table.concat(fields, ",\n") .. "\n  }"
+        if i < count then
+            item_str = item_str .. ","
+        end
+        table.insert(json_parts, item_str .. "\n")
+    end
+    table.insert(json_parts, "]\n")
+    return table.concat(json_parts)
+end
+
 return M
 
 

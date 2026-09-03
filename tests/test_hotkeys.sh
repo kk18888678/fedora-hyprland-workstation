@@ -1128,10 +1128,10 @@ done <<< "$ordered_list"
 if [[ "${top_action_ids[0]}" == "launcher" &&
       "${top_action_ids[1]}" == "terminal" &&
       "${top_action_ids[2]}" == "file_manager" &&
-      "${top_action_ids[3]}" == "hotkeys" &&
-      "${top_action_ids[4]}" == "desktop_settings" &&
-      "${top_action_ids[5]}" == "lock_screen" &&
-      "${top_action_ids[6]}" == "window_close" ]]; then
+      "${top_action_ids[3]}" == "browser" &&
+      "${top_action_ids[4]}" == "hotkeys" &&
+      "${top_action_ids[5]}" == "desktop_settings" &&
+      "${top_action_ids[6]}" == "lock_screen" ]]; then
     pass "workstation-hotkeys presents items in explicit deterministic metadata-driven priority order"
 else
     fail "workstation-hotkeys ordering mismatch: ${top_action_ids[*]:0:7}"
