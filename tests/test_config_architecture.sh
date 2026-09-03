@@ -352,18 +352,18 @@ else
     fail "18. invalid CHANGE_DEFAULT was accepted"
 fi
 
-# 19. Finalized plan tampering -> reject
+# 19. Finalized plan unexpected mutation -> reject
 init_plan "PLAN_TAMP"
 add_plan_action "PLAN_TAMP" "INSTALL" "chromium" "test" "Chromium"
 finalize_plan "PLAN_TAMP"
-# Tamper with the plan target after finalization
+# Mutate the plan target after finalization
 PLAN_TAMP_ACTION_TARGET[0]="firefox"
 tamp_rc=0
 execute_plan "PLAN_TAMP" 2>/dev/null || tamp_rc=$?
 if [[ "$tamp_rc" -ne 0 ]]; then
-    pass "19. tampered plan after finalization is rejected by cryptographic fingerprint check"
+    pass "19. modified plan after finalization is rejected by deterministic fingerprint check"
 else
-    fail "19. tampered plan was executed"
+    fail "19. modified plan was executed"
 fi
 
 section "Dependency Ordering, Structural Traversal, and Cycle Detection"
@@ -617,21 +617,110 @@ else
     fail "33. REMOVE failure was silently swallowed"
 fi
 
-# 34. CHANGE_DEFAULT failure surfaced
+# 34. CHANGE_DEFAULT verification fail-closed semantics
 reset_component_registry
 register_component id "foot" display_name "Foot" category "Desktop" required true removable false roles "terminal"
-register_component id "b_fail" display_name "Fail Browser" category "Browsers" roles "browser"
-xdg-mime() { return 1; } # Simulate xdg-mime failure
-init_plan "PLAN_DEF_FAIL"
-add_plan_action "PLAN_DEF_FAIL" "CHANGE_DEFAULT" "b_fail" "preferred" "browser: none -> Fail Browser"
-finalize_plan "PLAN_DEF_FAIL"
-def_fail_rc=0
-execute_plan "PLAN_DEF_FAIL" 2>/dev/null || def_fail_rc=$?
-if [[ "$def_fail_rc" -ne 0 ]]; then
-    pass "34. CHANGE_DEFAULT failure is surfaced when setting default fails"
+register_component id "chromium" display_name "Chromium" category "Browsers" roles "browser"
+
+# 34a: xdg-mime default mutation failure -> CHANGE_DEFAULT failure
+xdg-mime() {
+    if [[ "$1" == "default" ]]; then return 1; fi
+    if [[ "$1" == "query" ]]; then printf 'chromium-browser.desktop\n'; return 0; fi
+    return 1
+}
+init_plan "PLAN_DEF_MUT_FAIL"
+add_plan_action "PLAN_DEF_MUT_FAIL" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
+finalize_plan "PLAN_DEF_MUT_FAIL"
+def_mut_rc=0
+execute_plan "PLAN_DEF_MUT_FAIL" 2>/dev/null || def_mut_rc=$?
+if [[ "$def_mut_rc" -ne 0 ]]; then
+    pass "34a. xdg-mime default mutation failure causes CHANGE_DEFAULT failure"
 else
-    fail "34. CHANGE_DEFAULT failure was silently swallowed"
+    fail "34a. xdg-mime default mutation failure was ignored"
 fi
+
+# 34b: verification query command failure -> CHANGE_DEFAULT failure
+xdg-mime() {
+    if [[ "$1" == "default" ]]; then return 0; fi
+    if [[ "$1" == "query" ]]; then return 1; fi # query command fails
+    return 1
+}
+init_plan "PLAN_DEF_QRY_FAIL"
+add_plan_action "PLAN_DEF_QRY_FAIL" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
+finalize_plan "PLAN_DEF_QRY_FAIL"
+def_qry_rc=0
+execute_plan "PLAN_DEF_QRY_FAIL" 2>/dev/null || def_qry_rc=$?
+if [[ "$def_qry_rc" -ne 0 ]]; then
+    pass "34b. verification query command failure causes CHANGE_DEFAULT failure"
+else
+    fail "34b. verification query command failure was ignored"
+fi
+
+# 34c: verification query returns empty -> CHANGE_DEFAULT failure
+xdg-mime() {
+    if [[ "$1" == "default" ]]; then return 0; fi
+    if [[ "$1" == "query" ]]; then printf '\n'; return 0; fi # returns empty
+    return 1
+}
+init_plan "PLAN_DEF_EMPTY"
+add_plan_action "PLAN_DEF_EMPTY" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
+finalize_plan "PLAN_DEF_EMPTY"
+def_emp_rc=0
+execute_plan "PLAN_DEF_EMPTY" 2>/dev/null || def_emp_rc=$?
+if [[ "$def_emp_rc" -ne 0 ]]; then
+    pass "34c. verification query returning empty association causes CHANGE_DEFAULT failure"
+else
+    fail "34c. empty verification query was accepted"
+fi
+
+# 34d: verification query returns wrong desktop file -> CHANGE_DEFAULT failure
+xdg-mime() {
+    if [[ "$1" == "default" ]]; then return 0; fi
+    if [[ "$1" == "query" ]]; then printf 'firefox.desktop\n'; return 0; fi # wrong desktop file
+    return 1
+}
+init_plan "PLAN_DEF_WRONG"
+add_plan_action "PLAN_DEF_WRONG" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
+finalize_plan "PLAN_DEF_WRONG"
+def_wrong_rc=0
+execute_plan "PLAN_DEF_WRONG" 2>/dev/null || def_wrong_rc=$?
+if [[ "$def_wrong_rc" -ne 0 ]]; then
+    pass "34d. verification query returning wrong desktop file causes CHANGE_DEFAULT failure"
+else
+    fail "34d. wrong desktop file verification was accepted"
+fi
+
+# 34e: verification query returns exact expected desktop file -> success
+xdg-mime() {
+    if [[ "$1" == "default" ]]; then return 0; fi
+    if [[ "$1" == "query" ]]; then printf 'chromium-browser.desktop\n'; return 0; fi # matching expected
+    return 1
+}
+init_plan "PLAN_DEF_OK"
+add_plan_action "PLAN_DEF_OK" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
+finalize_plan "PLAN_DEF_OK"
+def_ok_rc=0
+execute_plan "PLAN_DEF_OK" 2>/dev/null || def_ok_rc=$?
+if [[ "$def_ok_rc" -eq 0 ]]; then
+    pass "34e. verification query returning exact expected desktop file succeeds"
+else
+    fail "34e. exact matching desktop file failed: rc=$def_ok_rc"
+fi
+
+# 34f: CHANGE_DEFAULT failure continues to record via record_deferred
+xdg-mime() { return 1; }
+init_plan "PLAN_DEF_REC"
+add_plan_action "PLAN_DEF_REC" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
+finalize_plan "PLAN_DEF_REC"
+def_rec_recorded=0
+record_deferred() { def_rec_recorded=1; }
+execute_plan "PLAN_DEF_REC" 2>/dev/null || true
+if [[ "$def_rec_recorded" -eq 1 ]]; then
+    pass "34f. CHANGE_DEFAULT failure is surfaced through record_deferred"
+else
+    fail "34f. CHANGE_DEFAULT failure was not recorded"
+fi
+record_deferred() { :; }
 
 # 35. INSTALL failure classified correctly
 reset_component_registry
@@ -708,7 +797,7 @@ else
     fail "39. non-interactive execution did not fail safely: rc=$nontty_rc"
 fi
 
-# 40. SETUP_MODE environment variable cannot bypass Review in production
+# 40. SETUP_MODE environment variable cannot bypass interactive terminal requirement
 SETUP_MODE="recommended"
 nontty_rec_rc=0
 nontty_rec_out="$(run_setup_mode "workstation" "PLAN_NONTTY_REC" </dev/null 2>&1)" || nontty_rec_rc=$?
@@ -719,17 +808,47 @@ else
 fi
 unset SETUP_MODE
 
-# 41. Arbitrary SETUP_MODE cannot implicitly select Customize
+# 41. SETUP_MODE environment variable cannot bypass interactive setup-mode selection
+WIZARD_MOCK_INPUT=1
+SETUP_MODE="recommended"
+# User input sends CANCEL at the setup mode selection screen
+WIZARD_MOCK_KEYS="CANCEL"
+sm_bypass_rc=0
+run_setup_mode "workstation" "PLAN_SM_BYPASS" || sm_bypass_rc=$?
+# If SETUP_MODE was honored as an override, it would have selected recommended, built plan, and prompted Review.
+# Because it must ALWAYS call wizard_select_setup_mode, CANCEL terminates immediately with rc 2.
+if [[ "$sm_bypass_rc" -eq 2 ]]; then
+    pass "41. SETUP_MODE=recommended cannot bypass interactive setup-mode selection screen"
+else
+    fail "41. SETUP_MODE bypassed interactive setup-mode selection: rc=$sm_bypass_rc"
+fi
+unset SETUP_MODE WIZARD_MOCK_INPUT WIZARD_MOCK_KEYS
+
+# 41b. SETUP_MODE=customize cannot bypass interactive setup-mode selection screen
+WIZARD_MOCK_INPUT=1
+SETUP_MODE="customize"
+WIZARD_MOCK_KEYS="CANCEL"
+sm_cust_rc=0
+run_setup_mode "workstation" "PLAN_SM_CUST" || sm_cust_rc=$?
+if [[ "$sm_cust_rc" -eq 2 ]]; then
+    pass "41b. SETUP_MODE=customize cannot bypass interactive setup-mode selection screen"
+else
+    fail "41b. SETUP_MODE=customize bypassed interactive setup-mode selection: rc=$sm_cust_rc"
+fi
+unset SETUP_MODE WIZARD_MOCK_INPUT WIZARD_MOCK_KEYS
+
+# 41c. Arbitrary SETUP_MODE values do not create a separate production parsing path
 WIZARD_MOCK_INPUT=1
 SETUP_MODE="garbage"
-garb_rc=0
-garb_out="$(run_setup_mode "workstation" "PLAN_GARB" 2>&1)" || garb_rc=$?
-if [[ "$garb_rc" -ne 0 && "$garb_out" == *"Invalid SETUP_MODE value"* ]]; then
-    pass "41. arbitrary SETUP_MODE value is rejected fail-closed and cannot become Customize"
+WIZARD_MOCK_KEYS="CANCEL"
+sm_garb_rc=0
+run_setup_mode "workstation" "PLAN_SM_GARB" || sm_garb_rc=$?
+if [[ "$sm_garb_rc" -eq 2 ]]; then
+    pass "41c. arbitrary SETUP_MODE=garbage is completely ignored and interactive selection runs"
 else
-    fail "41. arbitrary SETUP_MODE was accepted: rc=$garb_rc out=$garb_out"
+    fail "41c. arbitrary SETUP_MODE altered setup-mode behavior: rc=$sm_garb_rc"
 fi
-unset SETUP_MODE WIZARD_MOCK_INPUT
+unset SETUP_MODE WIZARD_MOCK_INPUT WIZARD_MOCK_KEYS
 
 section "CLI Contract and Preservation Invariants"
 
