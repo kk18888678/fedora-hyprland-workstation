@@ -238,7 +238,83 @@ else
     fail "registry with unsupported selection_policy was accepted"
 fi
 
+# Duplicate enabled rejected
+dup_enabled_file="$reg_test_dir/dup_enabled.conf"
+
+cat << 'INNER_EOF' > "$dup_enabled_file"
+[app_dup]
+enabled = true
+enabled = false
+allowed_classes = beta
+selection_policy = stable_then_allowed_prerelease
+reason = "Duplicate enabled"
+INNER_EOF
+if ! validate_prerelease_exceptions_registry "$dup_enabled_file" 2>/dev/null; then
+    pass "registry with duplicate enabled property is rejected"
+else
+    fail "registry with duplicate enabled property was accepted"
+fi
+
+# Duplicate allowed_classes rejected
+dup_classes_file="$reg_test_dir/dup_classes.conf"
+cat << 'INNER_EOF' > "$dup_classes_file"
+[app_dup]
+enabled = true
+allowed_classes = beta
+allowed_classes = rc
+selection_policy = stable_then_allowed_prerelease
+reason = "Duplicate classes"
+INNER_EOF
+if ! validate_prerelease_exceptions_registry "$dup_classes_file" 2>/dev/null; then
+    pass "registry with duplicate allowed_classes property is rejected"
+else
+    fail "registry with duplicate allowed_classes property was accepted"
+fi
+
+# Duplicate selection_policy rejected
+dup_pol_file="$reg_test_dir/dup_policy.conf"
+cat << 'INNER_EOF' > "$dup_pol_file"
+[app_dup]
+enabled = true
+allowed_classes = beta
+selection_policy = stable_then_allowed_prerelease
+selection_policy = stable_then_allowed_prerelease
+reason = "Duplicate policy"
+INNER_EOF
+if ! validate_prerelease_exceptions_registry "$dup_pol_file" 2>/dev/null; then
+    pass "registry with duplicate selection_policy property is rejected"
+else
+    fail "registry with duplicate selection_policy property was accepted"
+fi
+
+# Duplicate reason rejected
+dup_reason_file="$reg_test_dir/dup_reason.conf"
+cat << 'INNER_EOF' > "$dup_reason_file"
+[app_dup]
+enabled = true
+allowed_classes = beta
+selection_policy = stable_then_allowed_prerelease
+reason = "First reason"
+reason = "Second reason"
+INNER_EOF
+if ! validate_prerelease_exceptions_registry "$dup_reason_file" 2>/dev/null; then
+    pass "registry with duplicate reason property is rejected"
+else
+    fail "registry with duplicate reason property was accepted"
+fi
+
+# Duplicate property causes prerelease evaluation to fail closed
+dup_eval_err=""
+dup_eval_ret=0
+PRERELEASE_EXCEPTIONS_FILE="$dup_enabled_file" evaluate_release_eligibility "app_dup" "v1.0.0-beta" dup_eval_err || dup_eval_ret=$?
+if [[ "$dup_eval_ret" -ne 0 && "$dup_eval_err" == "malformed exception policy" ]]; then
+    pass "duplicate property causes prerelease evaluation to fail closed"
+else
+    fail "duplicate property did not fail closed during evaluation: ret=$dup_eval_ret err=$dup_eval_err"
+fi
+
 rm -rf "$reg_test_dir"
+
 
 section "Release Selection Semantics (stable > allowed prerelease)"
 

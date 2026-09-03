@@ -175,6 +175,10 @@ validate_prerelease_exceptions_registry() {
 
             case "$key" in
                 enabled)
+                    if $has_enabled; then
+                        printf 'ERROR: Line %d: Duplicate property in section [%s]: %s\n' "$line_no" "$current_app" "$key" >&2
+                        return 1
+                    fi
                     if [[ "$val" != "true" && "$val" != "false" ]]; then
                         printf 'ERROR: Line %d: Invalid enabled boolean: %s\n' "$line_no" "$val" >&2
                         return 1
@@ -182,6 +186,10 @@ validate_prerelease_exceptions_registry() {
                     has_enabled=true
                     ;;
                 allowed_classes)
+                    if $has_classes; then
+                        printf 'ERROR: Line %d: Duplicate property in section [%s]: %s\n' "$line_no" "$current_app" "$key" >&2
+                        return 1
+                    fi
                     if [[ -z "$val" ]]; then
                         printf 'ERROR: Line %d: Empty allowed_classes\n' "$line_no" >&2
                         return 1
@@ -210,6 +218,10 @@ validate_prerelease_exceptions_registry() {
                     has_classes=true
                     ;;
                 selection_policy)
+                    if $has_policy; then
+                        printf 'ERROR: Line %d: Duplicate property in section [%s]: %s\n' "$line_no" "$current_app" "$key" >&2
+                        return 1
+                    fi
                     local matched_pol=0
                     for sp in "${SUPPORTED_SELECTION_POLICIES[@]}"; do
                         if [[ "$sp" == "$val" ]]; then matched_pol=1; break; fi
@@ -221,6 +233,10 @@ validate_prerelease_exceptions_registry() {
                     has_policy=true
                     ;;
                 reason)
+                    if $has_reason; then
+                        printf 'ERROR: Line %d: Duplicate property in section [%s]: %s\n' "$line_no" "$current_app" "$key" >&2
+                        return 1
+                    fi
                     if [[ -z "$val" ]]; then
                         printf 'ERROR: Line %d: Empty reason\n' "$line_no" >&2
                         return 1
