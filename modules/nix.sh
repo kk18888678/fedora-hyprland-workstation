@@ -134,7 +134,32 @@ install_devenv() {
     command_exists devenv
 }
 
+perform_install_nix() {
+    info "Configuring Nix package manager and service."
+
+    if ! install_nix_package_manager; then
+        record_required "nix" "packages" "Fedora Nix packages could not be installed."
+        return 1
+    fi
+
+    configure_nix_features
+
+    if ! enable_nix_daemon; then
+        record_required "nix" "daemon" "nix-daemon.service is not active."
+        return 1
+    fi
+
+    info "Nix package manager and daemon configured."
+    record_success "nix"
+    return 0
+}
+
 install_nix() {
+    if is_component_migrated "nix"; then
+        info "Nix and devenv are owned by configuration reconciler; skipping in legacy stage."
+        return 0
+    fi
+
     if ! is_true "${NIX:-false}"; then
         info "Nix disabled by profile."
         return 0
@@ -142,15 +167,7 @@ install_nix() {
 
     info "Configuring Nix development environment."
 
-    if ! install_nix_package_manager; then
-        record_required "nix" "packages" "Fedora Nix packages could not be installed."
-        return 0
-    fi
-
-    configure_nix_features
-
-    if ! enable_nix_daemon; then
-        record_required "nix" "daemon" "nix-daemon.service is not active."
+    if ! perform_install_nix; then
         return 0
     fi
 

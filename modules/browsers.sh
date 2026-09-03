@@ -10,26 +10,36 @@
 #
 # Every browser is controlled by the active installation profile.
 
+perform_install_chromium() {
+    info "Installing Chromium."
+
+    if ! install_dnf_packages chromium; then
+        record_required "browsers" "chromium" "Chromium installation failed."
+        return 1
+    fi
+
+    if ! rpm -q chromium >/dev/null 2>&1; then
+        record_required "browsers" "chromium" "Chromium installation could not be validated."
+        return 1
+    fi
+
+    info "Chromium installation validated."
+    record_success "chromium"
+    return 0
+}
+
 install_chromium() {
+    if is_component_migrated "chromium"; then
+        info "Chromium is owned by configuration reconciler; skipping in legacy stage."
+        return 0
+    fi
+
     if ! is_true "${BROWSER_CHROMIUM:-false}"; then
         info "Chromium disabled by profile."
         return 0
     fi
 
-    info "Installing Chromium."
-
-    if ! install_dnf_packages chromium; then
-        record_required "browsers" "chromium" "Chromium installation failed."
-        return 0
-    fi
-
-    if ! rpm -q chromium >/dev/null 2>&1; then
-        record_required "browsers" "chromium" "Chromium installation could not be validated."
-        return 0
-    fi
-
-    info "Chromium installation validated."
-    record_success "chromium"
+    perform_install_chromium
 }
 
 brave_origin_repo_installed() {
@@ -86,12 +96,7 @@ install_brave_origin() {
     record_success "brave-origin"
 }
 
-install_firefox() {
-    if ! is_true "${BROWSER_FIREFOX:-false}"; then
-        info "Firefox disabled by profile."
-        return 0
-    fi
-
+perform_install_firefox() {
     info "Installing Firefox."
 
     if ! install_dnf_packages firefox; then
@@ -99,7 +104,7 @@ install_firefox() {
             "browsers" \
             "firefox" \
             "Firefox package could not be installed."
-        return 0
+        return 1
     fi
 
     if ! rpm -q firefox >/dev/null 2>&1; then
@@ -107,14 +112,34 @@ install_firefox() {
             "browsers" \
             "firefox" \
             "Firefox was not present after installation."
-        return 0
+        return 1
     fi
 
     info "Firefox installation validated."
     record_success "firefox"
+    return 0
+}
+
+install_firefox() {
+    if is_component_migrated "firefox"; then
+        info "Firefox is owned by configuration reconciler; skipping in legacy stage."
+        return 0
+    fi
+
+    if ! is_true "${BROWSER_FIREFOX:-false}"; then
+        info "Firefox disabled by profile."
+        return 0
+    fi
+
+    perform_install_firefox
 }
 
 configure_default_browser() {
+    if is_role_migrated "browser"; then
+        info "Default browser role is owned by configuration reconciler; skipping in legacy stage."
+        return 0
+    fi
+
     if ! is_true "${BROWSER_CHROMIUM:-false}"; then
         info "Chromium disabled; default browser configuration skipped."
         return 0

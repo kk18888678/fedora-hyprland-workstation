@@ -46,6 +46,10 @@ validate_manifest_packages() {
     info "Validating package manifest: $(basename "$manifest")"
 
     while IFS= read -r package; do
+        if is_component_migrated "$package"; then
+            continue
+        fi
+
         if package_installed "$package"; then
             continue
         fi
@@ -77,11 +81,15 @@ install_manifest() {
     validate_manifest_packages "$manifest" || return 1
 
     while IFS= read -r package; do
+        if is_component_migrated "$package"; then
+            info "Package $package is owned by configuration reconciler; skipping in legacy manifest."
+            continue
+        fi
         packages+=("$package")
     done < <(read_package_manifest "$manifest")
 
     if [[ ${#packages[@]} -eq 0 ]]; then
-        warn "Package manifest is empty: $manifest"
+        info "Package manifest contains only reconciler-owned or empty packages: $(basename "$manifest")"
         return 0
     fi
 

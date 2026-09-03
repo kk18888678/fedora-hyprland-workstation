@@ -294,6 +294,45 @@ get_role_providers() {
     done
 }
 
+# Check if a component is migrated to and managed by the Component Registry
+is_component_migrated() {
+    local id="$1"
+    component_exists "$id"
+}
+
+# Check if a capability role is migrated to and managed by the Component Registry
+is_role_migrated() {
+    local role="$1"
+    local found=0
+    for r in "${SUPPORTED_ROLES[@]}"; do
+        if [[ "$r" == "$role" ]]; then
+            found=1
+            break
+        fi
+    done
+    [[ "$found" -eq 1 ]]
+}
+
+# Get list of components that provide a capability token
+get_capability_providers() {
+    local cap="$1"
+    local profile="${2:-}"
+
+    for id in "${_COMP_IDS[@]}"; do
+        if [[ -n "$profile" ]] && ! component_supports_profile "$id" "$profile"; then
+            continue
+        fi
+
+        local provs="${_COMP_PROVIDES[$id]:-}"
+        for p in $provs; do
+            if [[ "$p" == "$cap" ]]; then
+                printf '%s\n' "$id"
+                break
+            fi
+        done
+    done
+}
+
 # Validate full referential integrity of the registry
 validate_component_registry() {
     if [[ "${#_COMP_IDS[@]}" -eq 0 ]]; then
@@ -333,7 +372,32 @@ validate_component_registry() {
             fi
         done
 
-        # 3. Check roles declarations
+        # 3. Check required vs removable invariant
+        if [[ "${_COMP_REQUIRED[$id]}" == "true" && "${_COMP_REMOVABLE[$id]}" == "true" ]]; then
+            printf 'ERROR: Required component %s cannot be marked removable\n' "$id" >&2
+            return 1
+        fi
+
+        # 4. Check capability requirements referential integrity
+        local reqs="${_COMP_REQUIRES[$id]:-}"
+        for req in $reqs; do
+            local prov_count=0
+            for other in "${_COMP_IDS[@]}"; do
+                local provs="${_COMP_PROVIDES[$other]:-}"
+                for p in $provs; do
+                    if [[ "$p" == "$req" ]]; then
+                        prov_count=$(( prov_count + 1 ))
+                        break
+                    fi
+                done
+            done
+            if [[ "$prov_count" -eq 0 ]]; then
+                printf 'ERROR: Component %s requires unknown capability: %s (no registered provider)\n' "$id" "$req" >&2
+                return 1
+            fi
+        done
+
+        # 5. Check roles declarations
         local comp_roles="${_COMP_ROLES[$id]:-}"
         for r in $comp_roles; do
             local matched_role=0
@@ -359,8 +423,8 @@ detect_chromium() {
     package_installed chromium || command_exists chromium
 }
 install_chromium_adapter() {
-    if type install_chromium >/dev/null 2>&1; then
-        install_chromium
+    if type perform_install_chromium >/dev/null 2>&1; then
+        perform_install_chromium
     else
         install_dnf_packages chromium
     fi
@@ -376,8 +440,8 @@ detect_firefox() {
     package_installed firefox || command_exists firefox
 }
 install_firefox_adapter() {
-    if type install_firefox >/dev/null 2>&1; then
-        install_firefox
+    if type perform_install_firefox >/dev/null 2>&1; then
+        perform_install_firefox
     else
         install_dnf_packages firefox
     fi
@@ -418,8 +482,8 @@ detect_nix() {
     fi
 }
 install_nix_adapter() {
-    if type install_nix >/dev/null 2>&1; then
-        install_nix
+    if type perform_install_nix >/dev/null 2>&1; then
+        perform_install_nix
     else
         install_dnf_packages nix nix-daemon
     fi
@@ -430,7 +494,9 @@ detect_devenv() {
     command_exists devenv
 }
 install_devenv_adapter() {
-    if type install_devenv >/dev/null 2>&1; then
+    if type perform_install_devenv >/dev/null 2>&1; then
+        perform_install_devenv
+    elif type install_devenv >/dev/null 2>&1; then
         install_devenv
     else
         command_exists devenv
