@@ -350,7 +350,7 @@ _validate_plan_structure() {
     return 0
 }
 
-# Finalize plan and attach cryptographic verification token
+# Finalize plan and compute deterministic integrity fingerprint
 finalize_plan() {
     local plan_prefix="$1"
 
@@ -365,7 +365,7 @@ finalize_plan() {
     return 0
 }
 
-# Validate plan before execution (fails closed on unvalidated or tampered plans)
+# Validate plan before execution (fails closed on unfinalized, malformed, or modified plans)
 validate_plan() {
     local plan_prefix="$1"
 
@@ -389,7 +389,7 @@ validate_plan() {
     local actual_fp
     actual_fp="$(compute_plan_fingerprint "$plan_prefix")"
     if [[ "$expected_fp" != "$actual_fp" ]]; then
-        printf 'ERROR: Plan %s failed integrity check: fingerprint mismatch (tampered plan)\n' "$plan_prefix" >&2
+        printf 'ERROR: Plan %s failed integrity check: fingerprint mismatch (unexpected plan mutation)\n' "$plan_prefix" >&2
         return 1
     fi
 

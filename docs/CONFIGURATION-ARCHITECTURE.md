@@ -154,7 +154,7 @@ System-wide defaults are modeled as generic capability roles rather than hardcod
 The Planner (`modules/lib/planner.sh`) is strictly read-only and performs zero system mutations:
 
 - Consumes: Desired State + Actual State + Component Registry.
-- Produces: An immutable, cryptographically fingerprinted Plan (`finalize_plan`).
+- Produces: A finalized Plan with a deterministic SHA-256 integrity fingerprint (`finalize_plan`).
 - Discrete actions:
   - `INSTALL`: Component is absent and desired `managed`.
   - `KEEP`: Component is present and desired `managed` or `unmanaged`.
@@ -162,7 +162,7 @@ The Planner (`modules/lib/planner.sh`) is strictly read-only and performs zero s
   - `REMOVE`: Component is present and explicitly desired `remove`.
   - `CHANGE_DEFAULT`: Desired role provider differs from current host default.
 - Every action records target ID, action type, descriptive reason, and details.
-- Fail-Closed Plan Verification (`validate_plan`): The plan cannot be tampered with or executed without valid structure and matching SHA-256 fingerprint.
+- Fail-Closed Plan Verification (`validate_plan`): The plan cannot be executed without valid structure and matching SHA-256 fingerprint. This protects the internal Review -> Reconciler consistency boundary against accidental or unexpected post-review mutation. It is an internal state consistency check, not a cryptographic authentication boundary against malicious code executing inside the installer process.
 
 ---
 
@@ -182,13 +182,13 @@ Before any host mutation occurs, the Review Screen (`format_plan_summary`):
 ## 9. Reconciler
 
 The Reconciler (`modules/lib/reconciler.sh`):
-- Executes ONLY an already validated, finalized Plan (`validate_plan`); fails closed on unvalidated or tampered plans.
+- Executes ONLY an already validated, finalized Plan (`validate_plan`); fails closed on unfinalized, malformed, or modified plans.
 - Does not make policy decisions.
 - Invokes component lifecycle adapters in safe dependency order:
   1. `REMOVE` actions (safe package removal; remove != purge).
   2. `INSTALL` actions (`install_fn` -> `configure_fn` -> `validate_fn`).
   3. `CONFIGURE` actions.
-  4. `CHANGE_DEFAULT` actions (role association updates verified via `xdg-mime`).
+  4. `CHANGE_DEFAULT` actions (role association updates verified via canonical `xdg-mime` query).
 - Surfaces all failures (`INSTALL`, `CONFIGURE`, `VALIDATE`, `REMOVE`, `CHANGE_DEFAULT`) and records them through standard repository classification (`record_required`, `record_deferred`).
 
 ---
@@ -201,7 +201,7 @@ The Reconciler (`modules/lib/reconciler.sh`):
   ERROR: Interactive terminal required for setup mode selection. Run in an interactive terminal.
   ```
 - It does not hang waiting for input and does not silently apply unreviewed changes.
-- Setting `SETUP_MODE=recommended` does NOT bypass the interactive Review requirement in production.
+- There is no environment-variable or CLI bypass for setup-mode selection in production. Setup mode is chosen strictly interactively through the setup-mode selection screen. The only public installer commands remain `./install.sh --profile workstation` and `./install.sh --profile vm`.
 
 ---
 
