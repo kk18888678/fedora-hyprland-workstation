@@ -602,6 +602,83 @@ else
     fail "runnable action with arguments failed: $run_args_output"
 fi
 
+# Deterministic test: structured command_argv with multi-word arguments and metacharacters
+argv_sandbox="$(mktemp -d)"
+mock_manifest="$argv_sandbox/manifest.lua"
+mock_bin="$argv_sandbox/mock_program"
+capture_log="$argv_sandbox/captured_argv.log"
+
+cat << "EOF_BIN" > "$mock_bin"
+#!/usr/bin/env bash
+printf "%s\n" "$@" > "$1"
+EOF_BIN
+chmod +x "$mock_bin"
+
+cat << EOF_MANIFEST > "$mock_manifest"
+return {
+    bindings = {
+        {
+            id = "test_custom_action",
+            description = "Test Custom Action",
+            runnable = true,
+            editable = true,
+            command = "test-program",
+            command_argv = {
+                "$mock_bin",
+                "$capture_log",
+                "--title",
+                "My Window",
+                "--literal",
+                "a b c",
+                "--metachars",
+                "; rm -rf / | \$(whoami) \`date\` > $argv_sandbox/pwned.txt",
+            },
+        },
+        {
+            id = "test_invalid_argv_action",
+            description = "Test Invalid Argv Action",
+            runnable = true,
+            editable = true,
+            command = "invalid",
+        },
+    },
+}
+EOF_MANIFEST
+
+# Verify execution captures exact argv elements without shell word-splitting
+HOTKEYS_MANIFEST="$mock_manifest" HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_EXEC=1 HOTKEYS_TEST_ID="test_custom_action" "$ROOT/bin/workstation-hotkeys" >/dev/null
+sleep 0.2
+
+readarray -t captured_args < "$capture_log"
+if [[ "${#captured_args[@]}" -eq 7 && \
+      "${captured_args[1]}" == "--title" && \
+      "${captured_args[2]}" == "My Window" && \
+      "${captured_args[3]}" == "--literal" && \
+      "${captured_args[4]}" == "a b c" ]]; then
+    pass "structured command_argv preserves exact multi-word argument boundaries without word splitting"
+else
+    fail "structured command_argv failed argument boundary preservation: count=${#captured_args[@]}"
+fi
+
+# Verify dangerous characters remained literal data and were NOT evaluated
+if [[ "${captured_args[6]}" == *"\$(whoami)"* && ! -f "$argv_sandbox/pwned.txt" ]]; then
+    pass "shell metacharacters in command_argv remain literal data without shell evaluation or redirection"
+else
+    fail "shell metacharacters in command_argv were evaluated or leaked side effects"
+fi
+
+# Verify runnable action without command_argv fails closed
+missing_argv_ret=0
+HOTKEYS_MANIFEST="$mock_manifest" HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_ID="test_invalid_argv_action" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || missing_argv_ret=$?
+if [[ "$missing_argv_ret" -eq 2 ]]; then
+    pass "runnable action missing valid structured command_argv fails closed as unavailable"
+else
+    fail "runnable action missing command_argv did not fail closed: status=$missing_argv_ret"
+fi
+
+rm -rf "$argv_sandbox"
+
+
 # Hook: run on non-runnable action fails safely without execution
 run_close_ret=0
 run_close_output="$(HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_ID="window_close" "$ROOT/bin/workstation-hotkeys" 2>&1)" || run_close_ret=$?

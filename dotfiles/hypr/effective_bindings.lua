@@ -552,4 +552,25 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
         tostring(reload_err))
 end
 
+-- Retrieve structured command_argv for a runnable action
+function M.get_action_argv(action_id, manifest)
+    manifest = manifest or require("keybindings_manifest")
+    for _, item in ipairs(manifest.bindings or {}) do
+        if item.id == action_id then
+            if item.runnable == true and type(item.command_argv) == "table" and #item.command_argv > 0 then
+                for _, a in ipairs(item.command_argv) do
+                    if type(a) ~= "string" then
+                        return nil, "Invalid command_argv: elements must be strings"
+                    end
+                end
+                return item.command_argv
+            else
+                return nil, "Action is not runnable or lacks structured command_argv"
+            end
+        end
+    end
+    return nil, "Action ID not found in manifest: " .. tostring(action_id)
+end
+
 return M
+
