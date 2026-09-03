@@ -933,7 +933,46 @@ else
     fail "reload failure was swallowed (returned 0)"
 fi
 
+# 13. Normal save creates override file with restrictive 0600 permissions
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + M" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+perm_check="$(stat -c %a "$sandbox_overrides" 2>/dev/null || true)"
+if [[ "$perm_check" == "600" ]]; then
+    pass "override file is created with restrictive 0600 permissions via exclusive mktemp"
+else
+    fail "override file permissions are not 0600: $perm_check"
+fi
+
+# 14. Exclusive creation does not follow or overwrite pre-existing symlinks
+decoy_file="$sandbox_dir/decoy.txt"
+printf "DO_NOT_CORRUPT_DECOY\n" > "$decoy_file"
+ln -s "$decoy_file" "$sandbox_dir/.tmp.overrides.123456"
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + N" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+decoy_after="$(cat "$decoy_file")"
+if [[ "$decoy_after" == "DO_NOT_CORRUPT_DECOY" ]]; then
+    pass "exclusive temporary file creation avoids following or corrupting symlinks"
+else
+    fail "exclusive temporary creation followed or corrupted symlink"
+fi
+rm -f "$sandbox_dir/.tmp.overrides.123456" "$decoy_file"
+
+# 15. Failed write/replace does not leave leftover temporary files
+leftover_tmp="$(find "$sandbox_dir" -maxdepth 1 -name ".tmp.overrides.*")"
+if [[ -z "$leftover_tmp" ]]; then
+    pass "no leftover temporary files remain after normal save operations"
+else
+    fail "leftover temporary files remained after normal save: $leftover_tmp"
+fi
+
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+leftover_fail_tmp="$(find "$sandbox_dir" -maxdepth 1 -name ".tmp.overrides.*")"
+if [[ -z "$leftover_fail_tmp" ]]; then
+    pass "no leftover temporary files remain after failed reload transactions"
+else
+    fail "leftover temporary files remained after failed reload transaction: $leftover_fail_tmp"
+fi
+
 rm -rf "$sandbox_dir"
 unset HOTKEYS_OVERRIDES
 unset HOTKEYS_MANIFEST
+
 

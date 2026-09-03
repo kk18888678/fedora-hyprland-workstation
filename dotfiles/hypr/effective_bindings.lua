@@ -281,24 +281,46 @@ function M.load_overrides(path, manifest)
     return parsed
 end
 
--- Save overrides atomically
-function M.save_overrides(overrides, path)
-    path = path or M.get_overrides_path()
+-- POSIX shell single-quote escaper
+local function sh_quote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+-- Safely and exclusively create a temporary file in target directory,
+-- write content with 0600 permissions, and atomically rename to final destination.
+local function atomic_write_file(path, content)
     local dir = path:match("^(.*)/[^/]+$")
-    if dir and dir ~= "" then
-        os.execute(string.format("mkdir -p -m 0700 %q", dir))
+    if not dir or dir == "" then dir = "." end
+
+    -- Ensure parent directory with 0700 permissions
+    local dir_cmd = "mkdir -p -m 0700 " .. sh_quote(dir)
+    local ok_dir = os.execute(dir_cmd)
+    if ok_dir ~= 0 and ok_dir ~= true then
+        return false, "Failed to create directory: " .. tostring(dir)
     end
-    local tmp_path = string.format("%s.tmp.%d.%d", path, os.time(), math.random(100000, 999999))
+
+    -- Create exclusive temporary file using mktemp with template in target directory.
+    -- mktemp uses mkstemp() (O_CREAT | O_EXCL) creating the file with mode 0600 atomically,
+    -- eliminating symlink following and permission race windows.
+    local template = dir .. "/.tmp.overrides.XXXXXX"
+    local p = io.popen("mktemp " .. sh_quote(template) .. " 2>/dev/null", "r")
+    if not p then
+        return false, "Failed to invoke mktemp for exclusive temporary file"
+    end
+    local tmp_path = p:read("*l")
+    local ok_p = p:close()
+    if not ok_p or not tmp_path or tmp_path == "" then
+        return false, "Failed to create exclusive temporary file via mktemp"
+    end
+
     local f, err = io.open(tmp_path, "w")
     if not f then
+        os.remove(tmp_path)
         return false, "Failed to open temporary file for writing: " .. tostring(err)
     end
-    f:write(M.json_encode(overrides))
+    f:write(content)
     f:flush()
     f:close()
-
-    -- Restrictive permissions 0600
-    os.execute(string.format("chmod 0600 %q", tmp_path))
 
     local ok, ren_err = os.rename(tmp_path, path)
     if not ok then
@@ -307,6 +329,13 @@ function M.save_overrides(overrides, path)
     end
     return true
 end
+
+-- Save overrides atomically using exclusive temporary file creation and atomic rename
+function M.save_overrides(overrides, path)
+    path = path or M.get_overrides_path()
+    return atomic_write_file(path, M.json_encode(overrides))
+end
+
 
 -- Resolve effective bindings by applying overrides onto manifest defaults
 function M.resolve_bindings(manifest, overrides)
@@ -495,22 +524,11 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
     local rollback_ok = true
     local rollback_err = nil
     if prev_exists and prev_raw then
-        -- Atomically restore previous content
-        local f_tmp = string.format("%s.rollback.tmp.%d", overrides_path, os.time())
-        local f_rb, err_rb = io.open(f_tmp, "w")
-        if f_rb then
-            f_rb:write(prev_raw)
-            f_rb:flush()
-            f_rb:close()
-            local ren_ok, ren_err = os.rename(f_tmp, overrides_path)
-            if not ren_ok then
-                os.remove(f_tmp)
-                rollback_ok = false
-                rollback_err = ren_err
-            end
-        else
+        -- Atomically restore previous content using exclusive atomic writer
+        local ok_restore, err_restore = atomic_write_file(overrides_path, prev_raw)
+        if not ok_restore then
             rollback_ok = false
-            rollback_err = err_rb
+            rollback_err = err_restore
         end
     else
         -- File did not exist: remove candidate file to restore absence
@@ -520,6 +538,7 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
             rollback_err = rem_err
         end
     end
+
 
     if not rollback_ok then
         return false, string.format("FATAL: Activation failed (%s) AND rollback failed: %s",
