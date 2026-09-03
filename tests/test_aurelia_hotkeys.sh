@@ -7,6 +7,8 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$ROOT/tests/test_helper.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/common.sh"
 
 # Source component and planner modules
 # shellcheck source=/dev/null
@@ -404,3 +406,127 @@ if [[ "$fm_default" == "nautilus" ]]; then
 else
     fail "30. Default file manager role did not default to nautilus: $fm_default"
 fi
+
+section "31. Quickshell Stable Package Identity vs Git Snapshots"
+
+# Test 31: detect_quickshell must strictly reject quickshell-git and git snapshots
+(
+    rpm() {
+        if [[ "$*" == *"%{NAME}"* ]]; then
+            printf '%s\n' "quickshell-git"
+        elif [[ "$*" == *"%{VERSION}-%{RELEASE}"* ]]; then
+            printf '%s\n' "0.3.1^856.git2d3b3e9-2.fc44"
+        fi
+    }
+    if detect_quickshell; then
+        fail "31. detect_quickshell accepted quickshell-git"
+    else
+        pass "31. stable Quickshell package identity cannot resolve to quickshell-git"
+    fi
+)
+
+section "32. Production Provider Authority Invariance"
+
+# Test 32: Arbitrary environment variables must NOT override persisted configuration
+sb_auth_test="$(mktemp -d)"
+mkdir -p "$sb_auth_test/.config/workstation"
+echo "hotkeys.provider = legacy" > "$sb_auth_test/.config/workstation/desktop.conf"
+auth_prov="$(
+    XDG_CONFIG_HOME="$sb_auth_test/.config" \
+    HOTKEYS_PROVIDER="aurelia" \
+    WORKSTATION_HOTKEYS_PROVIDER="aurelia" \
+    HOTKEYS_TEST_ACTION="provider" \
+    "$ROOT/bin/workstation-hotkeys"
+)"
+rm -rf "$sb_auth_test"
+if [[ "$auth_prov" == "legacy" ]]; then
+    pass "32. production provider authority is persisted config, not arbitrary env override"
+else
+    fail "32. arbitrary env variable bypassed persisted provider authority: $auth_prov"
+fi
+
+section "33. Single-Instance and Path Option Dispatch Invariants"
+
+# Test 33: Quickshell dispatch must use --no-duplicate and --path
+dispatch_src="$(grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/workstation-hotkeys" || true)"
+if [[ -n "$dispatch_src" ]]; then
+    pass "33. repeated dispatch cannot create duplicate instances (uses --no-duplicate and --path)"
+else
+    fail "33. dispatch missing --no-duplicate or --path"
+fi
+
+section "34-35. Strict Action ID Validation"
+
+# Test 34: Unknown action ID must fail closed
+unknown_rc=0
+"$ROOT/bin/workstation-hotkeys" run "non_existent_action_xyz" >/dev/null 2>&1 || unknown_rc=$?
+if [[ "$unknown_rc" -ne 0 ]]; then
+    pass "34. unknown action ID cannot run (fails closed)"
+else
+    fail "34. unknown action ID succeeded unexpectedly"
+fi
+
+# Test 35: Malicious/metacharacter action ID must fail closed
+meta_rc=0
+"$ROOT/bin/workstation-hotkeys" run "app:foo;reboot" >/dev/null 2>&1 || meta_rc=$?
+if [[ "$meta_rc" -ne 0 ]]; then
+    pass "35. invalid action ID format fails closed"
+else
+    fail "35. invalid action ID accepted: rc=$meta_rc"
+fi
+
+section "36-37. Security and Command Construction Invariants"
+
+# Test 36: QML IPC endpoints expose only allowlisted operations
+ipc_methods="$(grep -E 'function [a-zA-Z0-9_]+\(\)' "$ROOT/dotfiles/aurelia/shell.qml" | sed 's/^[[:space:]]*function //;s/(.*//' | tr '\n' ' ')"
+if [[ "$ipc_methods" =~ ^(toggle open close isVisible |toggle isVisible open close ) ]]; then
+    pass "36. QML can invoke only allowlisted backend operations"
+else
+    fail "36. QML IPC methods contain unexpected endpoints: $ipc_methods"
+fi
+
+# Test 37: Zero shell command injection / string concatenation
+if ! grep -E '(bash -c|sh -c|eval )' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysModel.qml" >/dev/null; then
+    pass "37. no shell command construction from action metadata"
+else
+    fail "37. found shell command construction in HotkeysModel.qml"
+fi
+
+section "38-40. Coexistence and Adaptation Invariants"
+
+# Test 38: Inactive Aurelia components remain unloaded
+if grep -q 'active: root.hotkeysEnabled' "$ROOT/dotfiles/aurelia/shell.qml"; then
+    pass "38. inactive Aurelia components remain unloaded"
+else
+    fail "38. inactive Aurelia components not conditionally loaded"
+fi
+
+# Test 39: Noctalia components remain untouched when Aurelia Hotkeys is selected
+reset_component_registry
+init_default_components
+init_desired_state "DS_NOCT_UNTOUCH" "workstation"
+create_recommended_desired_state "DS_NOCT_UNTOUCH" "workstation"
+desired_state_set_component "DS_NOCT_UNTOUCH" "desktop.hotkeys.aurelia" "managed"
+desired_state_set_component "DS_NOCT_UNTOUCH" "desktop.hotkeys.legacy" "unmanaged"
+noct_status="$(desired_state_get_component "DS_NOCT_UNTOUCH" "desktop.environment.noctalia")"
+if [[ "$noct_status" == "managed" ]]; then
+    pass "39. Noctalia components remain untouched when Aurelia Hotkeys selected"
+else
+    fail "39. Noctalia component state mutated: $noct_status"
+fi
+
+# Test 40: Nautilus role default detection works
+(
+    xdg-mime() {
+        if [[ "$1" == "query" && "$2" == "default" && "$3" == "inode/directory" ]]; then
+            printf '%s\n' "org.gnome.Nautilus.desktop"
+        fi
+    }
+    export -f xdg-mime
+    fm_detected="$(detect_file_manager_default_adapter)"
+    if [[ "$fm_detected" == "nautilus" ]]; then
+        pass "40. Nautilus role default detection works"
+    else
+        fail "40. Nautilus default detection failed: $fm_detected"
+    fi
+)

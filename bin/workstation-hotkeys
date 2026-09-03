@@ -119,18 +119,17 @@ if [[ ${#remaining_args[@]} -gt 0 ]]; then
 fi
 
 get_hotkeys_provider() {
+    # 1. Explicit CLI argument override (--provider=...)
     if [[ -n "${HOTKEYS_PROVIDER_OVERRIDE:-}" ]]; then
         printf '%s\n' "$HOTKEYS_PROVIDER_OVERRIDE"
         return 0
     fi
-    if [[ -n "${WORKSTATION_HOTKEYS_PROVIDER:-}" ]]; then
-        printf '%s\n' "$WORKSTATION_HOTKEYS_PROVIDER"
+    # 2. Test-only environment override (strictly scoped to automated testing harness)
+    if [[ -n "${HOTKEYS_TEST_PROVIDER:-}" ]]; then
+        printf '%s\n' "$HOTKEYS_TEST_PROVIDER"
         return 0
     fi
-    if [[ -n "${HOTKEYS_PROVIDER:-}" ]]; then
-        printf '%s\n' "$HOTKEYS_PROVIDER"
-        return 0
-    fi
+    # 3. Persisted desired-state configuration written by reconciler
     local config_file="${XDG_CONFIG_HOME:-$HOME/.config}/workstation/desktop.conf"
     if [[ -f "$config_file" ]]; then
         local prov
@@ -140,12 +139,7 @@ get_hotkeys_provider() {
             return 0
         fi
     fi
-    if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml" || -f "$script_dir/../dotfiles/aurelia/shell.qml" ]]; then
-        if command -v qs >/dev/null 2>&1 || command -v quickshell >/dev/null 2>&1; then
-            printf '%s\n' "aurelia"
-            return 0
-        fi
-    fi
+    # 4. Fallback default
     printf '%s\n' "legacy"
 }
 
@@ -476,11 +470,19 @@ if [[ "$HOTKEYS_SUBCOMMAND" == "json" || "${HOTKEYS_TEST_ACTION:-}" == "json" ]]
     exit 0
 fi
 
-if [[ "$HOTKEYS_SUBCOMMAND" == "run" ]]; then
+# Validate action ID format strictly before execution or mutation
+if [[ -n "$HOTKEYS_SUBCOMMAND" && "$HOTKEYS_SUBCOMMAND" =~ ^(run|set|unset)$ ]]; then
     if [[ -z "$HOTKEYS_TARGET_ID" ]]; then
-        printf '%s\n' "Error: Missing action ID for run" >&2
+        printf '%s\n' "Error: Missing action ID for $HOTKEYS_SUBCOMMAND" >&2
         exit 1
     fi
+    if [[ ! "$HOTKEYS_TARGET_ID" =~ ^[a-zA-Z0-9_.:-]+$ ]]; then
+        printf '%s\n' "Error: Invalid action ID: $HOTKEYS_TARGET_ID" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$HOTKEYS_SUBCOMMAND" == "run" ]]; then
     desc="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$HOTKEYS_TARGET_ID" 2>/dev/null <<'LUA'
 local manifest_path = arg[1]
 local manifest_dir  = arg[2]
@@ -492,17 +494,17 @@ local effective = eff.resolve_bindings(manifest)
 for _, b in ipairs(effective.bindings or {}) do
     if b.id == target_id then print(b.description or b.id); os.exit(0) end
 end
+os.exit(1)
 LUA
-)"
+)" || {
+        printf '%s\n' "Error: Unknown action ID: $HOTKEYS_TARGET_ID" >&2
+        exit 1
+    }
     execute_action "$HOTKEYS_TARGET_ID" "${desc:-$HOTKEYS_TARGET_ID}"
     exit $?
 fi
 
 if [[ "$HOTKEYS_SUBCOMMAND" == "unset" ]]; then
-    if [[ -z "$HOTKEYS_TARGET_ID" ]]; then
-        printf '%s\n' "Error: Missing action ID for unset" >&2
-        exit 1
-    fi
     if err_msg="$(apply_binding_edit "$HOTKEYS_TARGET_ID" "none" 2>&1)"; then
         printf '%s\n' "UNSET_OK"
         exit 0
@@ -513,10 +515,6 @@ if [[ "$HOTKEYS_SUBCOMMAND" == "unset" ]]; then
 fi
 
 if [[ "$HOTKEYS_SUBCOMMAND" == "set" ]]; then
-    if [[ -z "$HOTKEYS_TARGET_ID" ]]; then
-        printf '%s\n' "Error: Missing action ID for set" >&2
-        exit 1
-    fi
     if [[ ! -t 0 || ! -t 1 ]] && [[ -z "${HOTKEYS_CAPTURE_MOCK_INPUT:-}" ]]; then
         if command -v foot >/dev/null 2>&1; then
             exec foot --app-id=workstation-hotkeys-capture --title="Set Shortcut" "$0" set "$HOTKEYS_TARGET_ID"
@@ -657,6 +655,10 @@ LUA
             fi
             ;;
 
+        provider)
+            get_hotkeys_provider
+            exit 0
+            ;;
         quit)
             exit 0
             ;;
@@ -683,27 +685,29 @@ if [[ "$active_provider" == "aurelia" ]]; then
     if [[ "${HOTKEYS_SIMULATE_AURELIA_FAIL:-0}" != "1" ]]; then
         qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
         if [[ -n "$qs_bin" ]]; then
+            # 1. Attempt IPC call to an existing healthy Aurelia instance
             if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
                 exit 0
             fi
-            # Daemon might not be running yet; try launching Aurelia shell
+            # 2. If unavailable, locate the Aurelia shell QML configuration
             aurelia_shell="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
             if [[ ! -f "$aurelia_shell" ]]; then
                 aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
             fi
             if [[ -f "$aurelia_shell" ]]; then
-                nohup "$qs_bin" --config "$aurelia_shell" >/dev/null 2>&1 &
-                disown $! 2>/dev/null || true
+                # 3. Start Aurelia safely with --no-duplicate to prevent duplicate instances
+                "$qs_bin" --no-duplicate --daemonize --path "$aurelia_shell" >/dev/null 2>&1 || true
+                # 4. Verify actual IPC readiness with bounded retry (max 500ms: 10 * 50ms)
                 for _ in {1..10}; do
                     if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
                         exit 0
                     fi
-                    sleep 0.1
+                    sleep 0.05
                 done
             fi
         fi
     fi
-    logger -t workstation-hotkeys "Aurelia Hotkeys unavailable; falling back to legacy fzf interface." 2>/dev/null || true
+    logger -t workstation-hotkeys "Aurelia Hotkeys unavailable or failed readiness; falling back to legacy fzf interface." 2>/dev/null || true
 fi
 
 # Legacy fallback / direct fzf mode: if not in an interactive terminal, spawn terminal

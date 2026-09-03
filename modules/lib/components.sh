@@ -563,7 +563,22 @@ remove_htop_adapter() {
 
 # quickshell
 detect_quickshell() {
-    package_installed quickshell || command_exists qs || command_exists quickshell
+    # Verify the installed package is specifically the stable 'quickshell' package.
+    # Strictly reject quickshell-git, git snapshots, and development packages.
+    if command -v rpm >/dev/null 2>&1; then
+        local pkg_name
+        pkg_name="$(rpm -q --qf '%{NAME}\n' quickshell 2>/dev/null || true)"
+        if [[ "$pkg_name" == "quickshell" ]]; then
+            local pkg_ver
+            pkg_ver="$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' quickshell 2>/dev/null || true)"
+            if [[ "$pkg_ver" =~ (\^|\.git|snapshot|nightly|alpha|beta|rc) ]]; then
+                return 1
+            fi
+            return 0
+        fi
+        return 1
+    fi
+    command_exists qs && command_exists quickshell
 }
 install_quickshell_adapter() {
     install_dnf_packages quickshell
