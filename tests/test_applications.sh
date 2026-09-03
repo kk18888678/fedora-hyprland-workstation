@@ -636,6 +636,53 @@ fi
 
 section "N_m3u8DL-RE Prerelease Policy"
 
+# 1. Approved declarative exception provisions N_m3u8DL-RE beta artifact
+n_m3u8dl_approved_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+MEDIA_TOOLS_DIR="$(mktemp -d)"
+export MEDIA_TOOLS_DIR
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+command_exists() { return 1; }
+n_m3u8dl_ran=0
+provision_verified_archive() {
+    if [[ "$5" == "N_m3u8DL-RE" ]]; then
+        n_m3u8dl_ran=1
+        return 0
+    fi
+    return 0
+}
+provision_verified_binary() { return 0; }
+
+install_media_utilities
+
+echo "n_m3u8dl_ran=$n_m3u8dl_ran"
+echo "success_recorded=$(grep -c '^N_m3u8DL-RE$' <(printf '%s\n' "${INSTALL_SUCCEEDED[@]}") || true)"
+echo "activation_blocked=$ACTIVATION_BLOCKED"
+
+
+rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR"
+EOS
+)"
+
+if printf '%s\n' "$n_m3u8dl_approved_output" | grep -q 'n_m3u8dl_ran=1' &&
+   printf '%s\n' "$n_m3u8dl_approved_output" | grep -q 'success_recorded=1' &&
+   printf '%s\n' "$n_m3u8dl_approved_output" | grep -q 'activation_blocked=0'; then
+    pass "declarative prerelease exception permits N_m3u8DL-RE beta artifact and provisions verified archive"
+else
+    fail "declarative exception failed to provision N_m3u8DL-RE beta: $n_m3u8dl_approved_output"
+fi
+
+# 2. Disabled/missing exception skips N_m3u8DL-RE and records deferred notice
 n_m3u8dl_policy_output="$(
     bash -s <<'EOS'
 set -Eeuo pipefail
@@ -644,6 +691,9 @@ TARGET_USER="tester"
 TARGET_HOME="$(mktemp -d)"
 MEDIA_TOOLS_DIR="$(mktemp -d)"
 export MEDIA_TOOLS_DIR
+empty_exceptions="$(mktemp)"
+export PRERELEASE_EXCEPTIONS_FILE="$empty_exceptions"
+
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
@@ -659,9 +709,8 @@ provision_verified_archive() {
         dovi_ran=1
         return 0
     fi
-    # If N_m3u8DL-RE is called, fail test
     if [[ "$5" == "N_m3u8DL-RE" ]]; then
-        echo "ERROR: N_m3u8DL-RE beta archive was provisioned!" >&2
+        echo "ERROR: N_m3u8DL-RE beta archive was provisioned without exception!" >&2
         return 1
     fi
     return 0
@@ -675,7 +724,7 @@ echo "deferred_recorded=$(grep -c 'Skipping N_m3u8DL-RE' <(printf '%s\n' "${INST
 echo "activation_blocked=$ACTIVATION_BLOCKED"
 echo "exit_code=$(installer_exit_code)"
 
-rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR"
+rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR" "$empty_exceptions"
 EOS
 )"
 
@@ -683,10 +732,11 @@ if printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'dovi_ran=1' &&
    printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'deferred_recorded=1' &&
    printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'activation_blocked=0' &&
    printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'exit_code=2'; then
-    pass "normal installer skips N_m3u8DL-RE beta artifact and records deferred notice without blocking activation"
+    pass "without exception installer skips N_m3u8DL-RE beta artifact and records deferred notice without blocking activation"
 else
-    fail "normal installer did not handle N_m3u8DL-RE prerelease correctly: $n_m3u8dl_policy_output"
+    fail "installer without exception did not handle N_m3u8DL-RE prerelease correctly: $n_m3u8dl_policy_output"
 fi
+
 
 section "Upstream Prerelease Classification Logic"
 

@@ -255,16 +255,33 @@ install_media_utilities() {
         fi
     fi
 
-    # 2. N_m3u8DL-RE (skipped during install: upstream only provides beta prereleases)
+    # 2. N_m3u8DL-RE (evaluated via declarative release policy)
     if [[ -x "$target_dir/N_m3u8DL-RE" ]] || command_exists N_m3u8DL-RE; then
         info "N_m3u8DL-RE already installed."
         record_success "N_m3u8DL-RE"
     else
-        record_deferred \
-            "applications" \
-            "N_m3u8DL-RE" \
-            "Skipping N_m3u8DL-RE: upstream releases are currently prerelease (beta); no policy-compliant stable release available."
+        local n_m3u8dl_version="${N_M3U8DL_RE_VERSION:-}"
+        local n_m3u8dl_url="${N_M3U8DL_RE_URL:-}"
+        local n_m3u8dl_sha512="${N_M3U8DL_RE_SHA512:-}"
+
+        local eligibility_err=""
+        if ! evaluate_release_eligibility "n_m3u8dl_re" "$n_m3u8dl_version" eligibility_err; then
+            record_deferred \
+                "applications" \
+                "N_m3u8DL-RE" \
+                "Skipping N_m3u8DL-RE: $eligibility_err"
+        elif [[ -n "$n_m3u8dl_url" && -n "$n_m3u8dl_sha512" ]]; then
+            info "Provisioning N_m3u8DL-RE (${n_m3u8dl_version})."
+            if provision_verified_archive "$n_m3u8dl_url" "$n_m3u8dl_sha512" "$target_dir/N_m3u8DL-RE" "N_m3u8DL-RE" "N_m3u8DL-RE" true; then
+                record_success "N_m3u8DL-RE"
+            else
+                record_deferred "applications" "N_m3u8DL-RE" "Failed to download, verify, or extract N_m3u8DL-RE."
+            fi
+        else
+            record_deferred "applications" "N_m3u8DL-RE" "Missing pinned URL or checksum for N_m3u8DL-RE."
+        fi
     fi
+
 
     # 3. Shaka Packager (packager)
     if [[ -x "$target_dir/packager" ]] || command_exists packager; then
