@@ -23,6 +23,7 @@ run_suite "$ROOT/tests/test_config_architecture.sh"
 run_suite "$ROOT/tests/test_xdg.sh"
 run_suite "$ROOT/tests/test_desktop.sh"
 run_suite "$ROOT/tests/test_hotkeys.sh"
+run_suite "$ROOT/tests/test_aurelia_hotkeys.sh"
 run_suite "$ROOT/tests/test_validation.sh"
 run_suite "$ROOT/tests/test_resilience.sh"
 
