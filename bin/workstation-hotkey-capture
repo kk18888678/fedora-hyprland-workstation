@@ -3,6 +3,7 @@
 Workstation Hotkey Physical Key Capture
 Captures physical key combinations using terminal raw mode and Kitty keyboard protocol.
 Isolates Hyprland session during capture to prevent compositor shortcut preemption.
+Guarantees clean, idempotent terminal and submap restoration on any exit or signal.
 """
 
 import sys
@@ -12,6 +13,7 @@ import tty
 import select
 import subprocess
 import re
+import signal
 
 SPECIAL_KEYS = {
     13: "RETURN",
@@ -42,13 +44,16 @@ MODIFIER_KEYS = {
 }
 
 def parse_kitty_sequence(seq):
-    m = re.match(r"^\x1b\[(\d+)(?:;(\d+))?(?::(\d+))?u$", seq)
+    # Matches Kitty keyboard protocol sequences including sub-arguments in keycode:
+    # CSI unicode-key-code[:shifted-key[:base-key]] ; modifiers[:event_type] u
+    m = re.match(r"^\x1b\[(\d+)(?::\d+)*(?:;(\d+)(?::(\d+))?)?u$", seq)
     if not m:
         return False, None
     code = int(m.group(1))
     mods = (int(m.group(2)) - 1) if m.group(2) else 0
     event_type = int(m.group(3)) if m.group(3) else 1
 
+    # Event types: 1 = press, 2 = repeat, 3 = release
     if event_type == 3:
         return True, "RELEASE"
 
@@ -59,6 +64,7 @@ def parse_kitty_sequence(seq):
         return True, "CANCEL"
 
     parts = []
+    # Strict canonical modifier order: SUPER -> CTRL -> ALT -> SHIFT -> KEY
     if mods & 8: parts.append("SUPER")
     if mods & 4: parts.append("CTRL")
     if mods & 2: parts.append("ALT")
@@ -89,41 +95,98 @@ def capture_main():
     if not sys.stdin.isatty():
         return "MANUAL"
 
-    fd = sys.stdin.fileno()
-    old_attrs = termios.tcgetattr(fd)
+    tty_fd = sys.stdin.fileno()
+    tty_in = sys.stdin
+
+    # Protocol control escape sequences and interactive cues MUST be sent to the controlling
+    # terminal (/dev/tty) or sys.stderr, NEVER to sys.stdout (reserved for machine results).
+    tty_out = None
+    try:
+        tty_out = open("/dev/tty", "w")
+    except Exception:
+        tty_out = sys.stderr
+
+    old_attrs = None
+    try:
+        old_attrs = termios.tcgetattr(tty_fd)
+    except Exception:
+        return "MANUAL"
+
     in_submap = False
+    cleaned_up = False
+
+    def cleanup():
+        nonlocal cleaned_up, in_submap, old_attrs, tty_fd, tty_out
+        if cleaned_up:
+            return
+        cleaned_up = True
+
+        # Pop Kitty progressive enhancement from the terminal emulator
+        if tty_out:
+            try:
+                tty_out.write("\x1b[<u")
+                tty_out.flush()
+            except Exception:
+                pass
+
+        # Restore terminal raw mode attributes
+        if tty_fd is not None and old_attrs is not None:
+            try:
+                termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_attrs)
+            except Exception:
+                pass
+
+        # Guarantee Hyprland submap reset to prevent locking global keybindings
+        if in_submap:
+            try:
+                subprocess.run(["hyprctl", "dispatch", "submap", "reset"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            except Exception:
+                pass
+
+    def handle_signal(signum, frame):
+        cleanup()
+        sys.exit(128 + signum)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGQUIT):
+        try:
+            signal.signal(sig, handle_signal)
+        except Exception:
+            pass
 
     try:
         if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
             ret = subprocess.run(["hyprctl", "dispatch", "submap", "hotkey_capture"],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
             if ret.returncode == 0:
                 in_submap = True
 
-        tty.setraw(fd)
-        sys.stdout.write("\x1b[>1u")
-        sys.stdout.flush()
+        tty.setraw(tty_fd)
+        # Request Kitty progressive enhancement on controlling terminal
+        tty_out.write("\x1b[>1u")
+        tty_out.flush()
 
         buf = ""
         while True:
-            r, _, _ = select.select([sys.stdin], [], [], 30.0)
+            r, _, _ = select.select([tty_in], [], [], 30.0)
             if not r:
                 return "CANCEL"
 
-            ch = sys.stdin.read(1)
+            ch = os.read(tty_fd, 1).decode("latin-1", errors="replace")
             if not ch:
                 return "CANCEL"
 
             buf += ch
 
-            if buf == "\x03":
+            if buf == "\x03":  # Ctrl+C
                 return "CANCEL"
-            elif buf == "\x1b":
-                r_esc, _, _ = select.select([sys.stdin], [], [], 0.05)
+            elif buf == "\x1b":  # Potential Escape or start of ANSI sequence
+                r_esc, _, _ = select.select([tty_in], [], [], 0.05)
                 if not r_esc:
                     return "CANCEL"
                 continue
 
+            # Parse Kitty keyboard protocol event
             if buf.startswith("\x1b[") and buf.endswith("u"):
                 ok, res = parse_kitty_sequence(buf)
                 buf = ""
@@ -135,6 +198,7 @@ def capture_main():
                     else:
                         return f"KEY:{res}"
 
+            # Legacy VT arrow keys
             if re.match(r"^\x1b\[([A-D])$", buf):
                 direction_map = {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}
                 key = direction_map[buf[2]]
@@ -151,43 +215,33 @@ def capture_main():
                 parts.append(direction_map[m.group(2)])
                 return f"KEY:{' + '.join(parts)}"
 
+            # Bare keypresses without escape sequence
             if not buf.startswith("\x1b"):
-                if buf == "t" or buf == "T":
+                if buf in ("t", "T"):
                     return "MANUAL"
-                elif buf == "u" or buf == "U":
+                elif buf in ("u", "U"):
                     return "UNBIND"
-                elif buf == "q" or buf == "Q":
+                elif buf in ("q", "Q"):
                     return "CANCEL"
-                elif buf == "\r" or buf == "\n":
+                elif buf in ("\r", "\n"):
                     return "KEY:RETURN"
                 elif buf == " ":
                     return "KEY:SPACE"
                 elif buf == "\t":
                     return "KEY:TAB"
-                elif buf == "\x7f" or buf == "\x08":
+                elif buf in ("\x7f", "\x08"):
                     return "KEY:BACKSPACE"
-                elif len(buf) == 1 and 32 < ord(buf) < 127:
-                    return f"KEY:{buf.upper()}"
+                else:
+                    # Fail closed: do NOT silently strip modifiers like Super/Alt on bare ASCII.
+                    # Fall back to manual text entry prompt.
+                    return "MANUAL"
                 buf = ""
 
             if len(buf) > 32:
                 buf = ""
 
     finally:
-        try:
-            sys.stdout.write("\x1b[<u")
-            sys.stdout.flush()
-        except Exception:
-            pass
-
-        try:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
-        except Exception:
-            pass
-
-        if in_submap:
-            subprocess.run(["hyprctl", "dispatch", "submap", "reset"],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cleanup()
 
 if __name__ == "__main__":
     result = capture_main()

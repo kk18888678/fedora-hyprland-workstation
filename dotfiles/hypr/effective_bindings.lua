@@ -19,32 +19,50 @@ function M.get_overrides_path()
     return config_home .. "/hypr/keybindings_overrides.json"
 end
 
--- Normalize key string for consistent display and matching
+-- Normalize key string with strict canonical modifier ordering (SUPER -> CTRL -> ALT -> SHIFT -> KEY)
 function M.normalize_key(k)
     if not k or type(k) ~= "string" then return nil end
     k = k:gsub("^%s+", ""):gsub("%s+$", "")
     if k == "" then return nil end
 
-    local parts = {}
+    local has_super = false
+    local has_ctrl = false
+    local has_alt = false
+    local has_shift = false
+    local key_parts = {}
+
     for part in k:gmatch("[^%+]+") do
         part = part:gsub("^%s+", ""):gsub("%s+$", "")
         if part ~= "" then
             local upper = part:upper()
             if upper == "SUPER" or upper == "MOD4" or upper == "WIN" then
-                table.insert(parts, "SUPER")
-            elseif upper == "SHIFT" then
-                table.insert(parts, "SHIFT")
+                has_super = true
             elseif upper == "CTRL" or upper == "CONTROL" then
-                table.insert(parts, "CTRL")
+                has_ctrl = true
             elseif upper == "ALT" or upper == "MOD1" then
-                table.insert(parts, "ALT")
+                has_alt = true
+            elseif upper == "SHIFT" then
+                has_shift = true
             else
-                table.insert(parts, part)
+                table.insert(key_parts, upper)
             end
         end
     end
-    if #parts == 0 then return nil end
-    return table.concat(parts, " + ")
+
+    if not has_super and not has_ctrl and not has_alt and not has_shift and #key_parts == 0 then
+        return nil
+    end
+
+    local canonical_parts = {}
+    if has_super then table.insert(canonical_parts, "SUPER") end
+    if has_ctrl  then table.insert(canonical_parts, "CTRL") end
+    if has_alt   then table.insert(canonical_parts, "ALT") end
+    if has_shift then table.insert(canonical_parts, "SHIFT") end
+    for _, kp in ipairs(key_parts) do
+        table.insert(canonical_parts, kp)
+    end
+
+    return table.concat(canonical_parts, " + ")
 end
 
 -- Validate key syntax
@@ -178,7 +196,7 @@ function M.parse_strict_overrides(str, manifest)
         local key, k_err = parse_string()
         if not key then return nil, k_err end
 
-        local is_app_action = key:match("^app:[%w%-%._]+%.desktop$")
+        local is_app_action = key:match("^app:[a-zA-Z0-9][%w%-%._]*%.desktop$")
         if manifest and not valid_actions[key] and not is_app_action then
             return nil, "Unknown or uneditable action ID in overrides: " .. tostring(key)
         end
@@ -510,7 +528,7 @@ function M.resolve_bindings(manifest, overrides)
     -- Process application-specific overrides (e.g. "app:foo.desktop")
     for action_id, ov in pairs(overrides) do
         if not known_ids[action_id] then
-            local app_desktop = action_id:match("^app:([%w%-%._]+%.desktop)$")
+            local app_desktop = action_id:match("^app:([a-zA-Z0-9][%w%-%._]*%.desktop)$")
             if app_desktop then
                 local app_info = M.find_desktop_app(app_desktop)
                 local app_name = (app_info and app_info.name) and app_info.name or app_desktop:gsub("%.desktop$", "")
@@ -521,10 +539,10 @@ function M.resolve_bindings(manifest, overrides)
                     runnable = true,
                     category = "Applications & Launchers",
                     desktop_id = app_desktop,
-                    description = "Launch " .. app_name,
+                    description = app_name,
                     action_type = "exec",
-                    command = "gtk-launch " .. app_desktop,
-                    command_argv = { "gtk-launch", app_desktop },
+                    command = "gtk-launch -- " .. app_desktop,
+                    command_argv = { "gtk-launch", "--", app_desktop },
                     user_overridden = true,
                 }
                 if ov == false or ov == "" or ov == "none" then
@@ -772,6 +790,10 @@ end
 
 -- Unified application shortcut assignment
 function M.assign_application_shortcut(desktop_id, new_key_input, manifest_path, overrides_path, reload_fn)
+    if not desktop_id or type(desktop_id) ~= "string" or not desktop_id:match("^[a-zA-Z0-9][%w%-%._]*%.desktop$") then
+        return false, "Invalid desktop ID: must start with alphanumeric character and end with .desktop"
+    end
+
     manifest_path = manifest_path or nil
     local manifest
     if manifest_path then
@@ -811,9 +833,9 @@ function M.get_action_argv(action_id, manifest)
             end
         end
     end
-    local app_desktop = action_id:match("^app:([%w%-%._]+%.desktop)$")
+    local app_desktop = action_id:match("^app:([a-zA-Z0-9][%w%-%._]*%.desktop)$")
     if app_desktop then
-        return { "gtk-launch", app_desktop }
+        return { "gtk-launch", "--", app_desktop }
     end
     return nil, "Action ID not found in manifest: " .. tostring(action_id)
 end
