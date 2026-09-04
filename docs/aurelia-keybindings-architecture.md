@@ -216,5 +216,74 @@ Workstation keybindings bind generic user intents to application roles rather th
 - **Files Default (`file_manager`)**: `Super+E` dynamically launches the active default file manager (`nautilus` by default, or `thunar` if selected in `desktop.conf` or MIME defaults).
 - **Terminal Default (`terminal`)**: `Super+Return` dynamically launches the active default terminal (`kitty` by default, or `foot` if selected).
 - **Browser Default (`browser`)**: `Super+B` dynamically launches the active default browser (`chromium-browser` by default, or `firefox` if selected).
-- **Specific Unbound Actions**: Concrete applications (`files.nautilus`, `files.thunar`, `terminal.kitty`, `terminal.foot`, `browser.chromium`, `browser.firefox`) exist as unbound actions in the manifest. Users can bind explicit shortcuts to specific applications without mutating or breaking role actions.
+- **Direct Application Actions**: Concrete applications (`files.nautilus`, `files.thunar`, `terminal.kitty`, `terminal.foot`, `browser.chromium`, `browser.firefox`) exist as unbound actions in the manifest. Users can bind explicit shortcuts to specific applications without mutating or breaking role actions.
 - **Zero Shortcut Mutation**: Switching application defaults updates the executed command dynamically at runtime without modifying keybinding declarations or user override files.
+
+---
+
+## 10. Application Registry, Action Registry & View Architecture
+
+Aurelia Keybindings implements a clean three-tier separation of concerns across application discovery, action declaration, and shortcut configuration:
+
+```mermaid
+graph TD
+    subgraph "Application Registry (Discovery)"
+        XDG["XDG Data Dirs (~/.local/share, /usr/share)"]
+        Parser["application_registry.lua (Safe Desktop Parser)"]
+        AppsCLI["workstation-keybindings apps"]
+        XDG --> Parser --> AppsCLI
+    end
+
+    subgraph "Action Registry (Identities & Metadata)"
+        Manifest["keybindings_manifest.lua (Static System Actions)"]
+        UserActions["~/.config/hypr/user_actions.json (User App Actions)"]
+        ActionReg["Action Registry (app:<desktop_id>)"]
+        Manifest --> ActionReg
+        UserActions --> ActionReg
+    end
+
+    subgraph "Effective Bindings & Aurelia Shell UI"
+        Overrides["~/.config/hypr/keybindings_overrides.json"]
+        EffectiveEngine["effective_bindings.lua"]
+        JSON["workstation-keybindings json"]
+        UI["Aurelia Keybindings (Bound / Unbound / Add App)"]
+
+        ActionReg --> EffectiveEngine
+        Overrides --> EffectiveEngine
+        EffectiveEngine --> JSON --> UI
+    end
+```
+
+### 10.1 Application Registry (`dotfiles/hypr/application_registry.lua`)
+- **Standards-Compliant Desktop Parsing**: Scans standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`) respecting user shadowing and `Hidden=true` masking.
+- **Safe Structured Exec Parser**: Parses `Exec` keys without `eval` or shell interpolation, strips Freedesktop field codes (`%u`, `%U`, `%f`, `%F`), handles escapes/quotes, and normalizes standard `/usr/bin/` paths.
+- **In-Memory Cache**: 5-second TTL cache prevents redundant filesystem operations while ensuring responsive CLI output (< 20ms).
+- **Installed Applications Discovery**: Emitted via `workstation-keybindings apps` as structured JSON consumed on-demand by the UI.
+
+### 10.2 Action Registry vs. Application Registry vs. Effective Bindings
+- **Application Registry**: Tracks all valid, launchable graphical desktop applications installed on the operating system.
+- **Action Registry**: Defines the universe of actions eligible for shortcut assignment. Composed of static system actions (`keybindings_manifest.lua`) and explicitly added user application actions (`user_actions.json`).
+- **Effective Bindings**: The runtime merged state of the Action Registry with user keybinding overrides (`keybindings_overrides.json`), serialized as structured JSON for UI display.
+
+### 10.3 Bound and Unbound View Architecture
+`KeybindingsWindow.qml` and `KeybindingsModel.qml` partition the effective bindings into distinct operational views:
+- **Bound View (Default)**:
+  - Displays all active keyboard shortcuts (`unbound: false`).
+  - Fast warm opening (< 100ms) with zero application enumeration overhead.
+  - Alt+U unsets a shortcut, automatically moving it to the Unbound view.
+  - Enter runs runnable actions directly.
+- **Unbound View**:
+  - Displays actions without assigned shortcuts (`unbound: true`).
+  - Displays `—` in the shortcut column.
+  - Alt+S captures and assigns a new shortcut, moving the item to the Bound view.
+  - Alt+A opens the Add Application picker view.
+- **View Navigation**:
+  - Minimal command-palette tab bar: `[ Bound (N) ]` and `[ Unbound (M) ]`.
+  - `Tab` key toggles between Bound and Unbound views instantly.
+  - Search input filtering is scoped in-memory to the currently active view.
+
+### 10.4 Explicit Application Action Provisioning (`add-app`)
+- **On-Demand Discovery**: Installed applications are discovered via `workstation-keybindings apps` only when entering the Add Application view (`Alt+A`).
+- **Validated Persistence**: Adding an application validates the desktop ID syntax (rejecting path traversal and leading dashes), writes atomically to `user_actions.json` with 0600 permissions, and emits an observability log.
+- **Immediate Assignment**: Newly added applications instantly appear in the Unbound view as `app:<desktop_id>` and can immediately receive a key combination via `Alt+S`.
+- **Clean Removal**: `workstation-keybindings remove-app <desktop_id>` cleans up both the user action registration and any associated shortcut overrides atomically.

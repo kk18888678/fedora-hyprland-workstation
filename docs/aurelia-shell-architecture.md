@@ -59,6 +59,12 @@ graph LR
 - **Browser (`browser` / `browser.default`)**: Bound to `Super+B`. Dynamically resolves to `chromium-browser` (default) or `firefox` based on system MIME defaults, `desktop.conf`, or `DEFAULT_BROWSER`.
 - **Direct Application Actions**: Concrete applications (`files.nautilus`, `files.thunar`, `terminal.kitty`, `terminal.foot`, `browser.chromium`, `browser.firefox`) exist as unbound actions in the manifest. Users can bind explicit shortcuts to specific applications without mutating or breaking role actions.
 
+### 3.1 Workstation Application Registry & Action Registry
+The shell architecture enforces a strict separation between discovering installed applications and managing bound/unbound shortcuts:
+1. **Workstation Application Registry (`application_registry.lua`)**: Discovers installed graphical applications from standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`). Parses `.desktop` files with a hardened, structured parser without `eval` or shell interpolation, stripping Freedesktop field codes and caching entries in memory (5s TTL).
+2. **Action Registry**: Represents the universe of configurable actions (`keybindings_manifest.lua` + `~/.config/hypr/user_actions.json`). User-added applications receive stable identities prefixed with `app:<desktop_id>`.
+3. **Effective Bindings Engine (`effective_bindings.lua`)**: Resolves dynamic roles, merges user overrides (`keybindings_overrides.json`), and serializes structured JSON for consumption by Aurelia components.
+
 ---
 
 ## 4. Universal Aurelia Component Contract
