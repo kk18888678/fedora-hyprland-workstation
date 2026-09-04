@@ -24,6 +24,7 @@ ShellRoot {
 
     // Primary IPC Endpoint: Aurelia Keybindings Component
     IpcHandler {
+        id: keybindingsIpc
         target: "keybindings"
 
         function ping(): bool {
@@ -70,35 +71,27 @@ ShellRoot {
         target: "hotkeys"
 
         function ping(): bool {
-            return keybindingsLoader.item !== null
+            return keybindingsIpc.ping()
         }
 
         function toggle(): void {
-            if (keybindingsLoader.item) {
-                keybindingsLoader.item.visible = !keybindingsLoader.item.visible
-            }
+            keybindingsIpc.toggle()
         }
 
         function open(): void {
-            if (keybindingsLoader.item) {
-                keybindingsLoader.item.visible = true
-            }
+            keybindingsIpc.open()
         }
 
         function close(): void {
-            if (keybindingsLoader.item) {
-                keybindingsLoader.item.visible = false
-            }
+            keybindingsIpc.close()
         }
 
         function isVisible(): bool {
-            return keybindingsLoader.item ? keybindingsLoader.item.visible : false
+            return keybindingsIpc.isVisible()
         }
 
         function selectIndex(idx: int): void {
-            if (keybindingsLoader.item && keybindingsLoader.item.keybindingsModel) {
-                keybindingsLoader.item.keybindingsModel.selectedIndex = idx
-            }
+            keybindingsIpc.selectIndex(idx)
         }
     }
 
