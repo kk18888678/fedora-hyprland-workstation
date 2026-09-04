@@ -669,9 +669,11 @@ fi
 # 1. Warm path: check non-mutating readiness via ping with explicit configuration path
 t_warm_start="$(date +%s%3N 2>/dev/null || date +%s)"
 ipc_ping_target="keybindings"
-if ! "$qs_bin" ipc --path "$aurelia_shell" call "$ipc_ping_target" ping >/dev/null 2>&1; then
+ping_out="$("$qs_bin" ipc --path "$aurelia_shell" call "$ipc_ping_target" ping 2>&1 || true)"
+if [[ "$ping_out" != *"true"* && "$ping_out" != *"pong"* ]]; then
     # Compatibility fallback to old target name if shell is running old code
-    if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping >/dev/null 2>&1; then
+    ping_hotk="$("$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping 2>&1 || true)"
+    if [[ "$ping_hotk" == *"true"* || "$ping_hotk" == *"pong"* ]]; then
         ipc_ping_target="hotkeys"
     else
         ipc_ping_target=""
@@ -711,11 +713,14 @@ fi
 is_ready=0
 ready_target="keybindings"
 for _ in {1..40}; do
-    if "$qs_bin" ipc --path "$aurelia_shell" call keybindings ping >/dev/null 2>&1; then
+    kb_out="$("$qs_bin" ipc --path "$aurelia_shell" call keybindings ping 2>&1 || true)"
+    if [[ "$kb_out" == *"true"* || "$kb_out" == *"pong"* ]]; then
         is_ready=1
         ready_target="keybindings"
         break
-    elif "$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping >/dev/null 2>&1; then
+    fi
+    hk_out="$("$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping 2>&1 || true)"
+    if [[ "$hk_out" == *"true"* || "$hk_out" == *"pong"* ]]; then
         is_ready=1
         ready_target="hotkeys"
         break
