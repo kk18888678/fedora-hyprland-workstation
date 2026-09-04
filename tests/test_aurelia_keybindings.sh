@@ -243,6 +243,9 @@ fi
     cat << "MOCK_EOF" > "$mock_dir/qs"
 #!/usr/bin/env bash
 if [[ "$1" == "ipc" ]]; then
+    if [[ "$*" == *"ping"* ]]; then
+        echo "true"
+    fi
     echo "toggle" >> "$MOCK_LOG"
     exit 0
 elif [[ "$1" == "--no-duplicate" ]]; then
@@ -362,6 +365,37 @@ if grep -q 'Theme.bgBase' "$qml_window" &&
     pass "8.4 KeybindingsWindow consumes semantic design system tokens"
 else
     fail "8.4 KeybindingsWindow missing design token usage"
+fi
+
+# 8.5: Central configuration file theme.conf defines geometry, dimensions, colors, typography
+theme_conf="$ROOT/dotfiles/aurelia/theme.conf"
+if [[ -f "$theme_conf" ]] &&
+   grep -q '^paletteWidth = ' "$theme_conf" &&
+   grep -q '^colShortcutWidth = ' "$theme_conf" &&
+   grep -q '^background = ' "$theme_conf" &&
+   grep -q '^fontFamily = ' "$theme_conf"; then
+    pass "8.5 central theme.conf defines variables for geometry, dimensions, colors, and typography"
+else
+    fail "8.5 central theme.conf missing or incomplete"
+fi
+
+# 8.6: Zero hardcoded hex colors in KeybindingsWindow/KeybindingRow
+hex_leaks="$(grep -E '#[0-9a-fA-F]{3,8}' "$ROOT/dotfiles/aurelia/components/keybindings/"*.qml || true)"
+if [[ -z "$hex_leaks" ]]; then
+    pass "8.6 zero hardcoded hex colors in Keybindings QML components (100% theme token driven)"
+else
+    fail "8.6 hardcoded hex colors detected in QML components: $hex_leaks"
+fi
+
+# 8.7: Dynamic token parsing in Theme.qml handles typed geometry, dimensions, and color aliases
+if grep -q 'function _getInt(' "$theme_qml" &&
+   grep -q 'function _getString(' "$theme_qml" &&
+   grep -q 'function _getColor(' "$theme_qml" &&
+   grep -q '_getInt("colShortcutWidth"' "$theme_qml" &&
+   grep -q '_getInt("paletteWidth"' "$theme_qml"; then
+    pass "8.7 Theme.qml dynamically parses typed variables from theme.conf with safe fallbacks"
+else
+    fail "8.7 dynamic typed variable parsing missing in Theme.qml"
 fi
 
 section "9. Observability, Performance & Resource Bounds"

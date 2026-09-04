@@ -543,6 +543,7 @@ if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
             if ! grep -q "^daemon_start$" "$MOCK_LOG"; then
                 exit 1
             fi
+            echo "true"
             exit 0
         elif [[ "$6" == "toggle" ]]; then
             echo "toggle" >> "$MOCK_LOG"
@@ -580,6 +581,7 @@ if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
     if [[ "$4" == "call" && ( "$5" == "keybindings" || "$5" == "hotkeys" ) ]]; then
         if [[ "$6" == "ping" ]]; then
             echo "ping" >> "$MOCK_LOG"
+            echo "true"
             exit 0
         elif [[ "$6" == "toggle" ]]; then
             echo "toggle" >> "$MOCK_LOG"
@@ -940,6 +942,9 @@ section "61-75. Aurelia Runtime, Readiness, IPC Addressing, and Deployment Valid
 #!/usr/bin/env bash
 if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
     echo "ipc:$6" >> "$MOCK_LOG"
+    if [[ "$6" == "ping" ]]; then
+        echo "true"
+    fi
     exit 0
 elif [[ "$1" == "--no-duplicate" ]]; then
     echo "daemon_start" >> "$MOCK_LOG"
@@ -970,6 +975,9 @@ if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
     echo "ipc:$6" >> "$MOCK_LOG"
     if [[ "$6" == "ping" ]] && ! grep -q "^daemon_start$" "$MOCK_LOG"; then
         exit 1
+    fi
+    if [[ "$6" == "ping" ]]; then
+        echo "true"
     fi
     exit 0
 elif [[ "$1" == "--no-duplicate" ]]; then
@@ -1041,6 +1049,7 @@ EOF
 if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
     echo "ipc:$6" >> "$MOCK_LOG"
     if [[ "$6" == "ping" ]]; then
+        echo "true"
         exit 0
     elif [[ "$6" == "toggle" ]]; then
         exit 1

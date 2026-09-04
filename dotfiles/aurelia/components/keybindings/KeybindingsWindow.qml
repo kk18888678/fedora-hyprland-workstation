@@ -366,7 +366,7 @@ PanelWindow {
                 ListView {
                     id: listView
                     anchors.fill: parent
-                    spacing: 3
+                    spacing: Theme.rowSpacing
                     clip: true
                     model: keybindingsModel.filteredItems
                     currentIndex: keybindingsModel.selectedIndex
@@ -378,10 +378,10 @@ PanelWindow {
                     // Extremely subtle scrollbar indicator
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
-                        width: 4
+                        width: Theme.scrollBarWidth
                         contentItem: Rectangle {
                             color: Theme.selection
-                            radius: 2
+                            radius: Theme.radiusSm / 2
                         }
                     }
                 }
@@ -411,7 +411,7 @@ PanelWindow {
 
                     // ↵ Run (active when runnable and not capturing)
                     RowLayout {
-                        spacing: 4
+                        spacing: Theme.spacingXs
                         visible: (keybindingsModel.operationState === "idle" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.runnable === true)
 
                         Text {
@@ -432,7 +432,7 @@ PanelWindow {
 
                     // Alt+S Set (active when editable and not capturing)
                     RowLayout {
-                        spacing: 4
+                        spacing: Theme.spacingXs
                         visible: (keybindingsModel.operationState === "idle" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true)
 
                         Text {
@@ -453,7 +453,7 @@ PanelWindow {
 
                     // Alt+U Unset (active when editable, bound, and not capturing)
                     RowLayout {
-                        spacing: 4
+                        spacing: Theme.spacingXs
                         visible: (keybindingsModel.operationState === "idle" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true &&
                                   keybindingsModel.selectedItem.display_key &&
                                   keybindingsModel.selectedItem.display_key !== "None (Unbound)")
@@ -518,7 +518,7 @@ PanelWindow {
 
                     // Inline state hints
                     RowLayout {
-                        spacing: 4
+                        spacing: Theme.spacingXs
                         visible: (keybindingsModel.operationState === "capturing")
 
                         Text {
@@ -535,7 +535,7 @@ PanelWindow {
 
                     // Esc Close / Cancel hint
                     RowLayout {
-                        spacing: 6
+                        spacing: Theme.spacingSm
                         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
                         Text {

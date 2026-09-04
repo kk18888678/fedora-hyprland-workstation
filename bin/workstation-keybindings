@@ -19,7 +19,11 @@ set -Eeuo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # Workstation diagnostic, crash, and performance logging
-LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/workstation"
+if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -z "${XDG_STATE_HOME:-}" ]]; then
+    LOG_DIR="/tmp/workstation-tests-${UID:-1000}"
+else
+    LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/workstation"
+fi
 mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="/tmp"
 KEYBINDINGS_LOG="$LOG_DIR/keybindings.log"
 CRASH_LOG="$LOG_DIR/crashes.log"
@@ -64,6 +68,19 @@ log_event() {
             printf '%s [%s] [%s] %s (dur=%sms)\n' "$ts" "$level" "$op" "$msg" "$dur" >> "$PERF_LOG" 2>/dev/null || true
             bound_logfile "$PERF_LOG"
         fi
+    fi
+}
+
+notify_user() {
+    local urgency="$1"
+    local title="$2"
+    local message="$3"
+    # Never fire desktop notifications during automated test executions
+    if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" || -n "${HOTKEYS_TEST_PROVIDER:-}" || -n "${HOTKEYS_SIMULATE_AURELIA_FAIL:-}" || -n "${AURELIA_TEST_MODE:-}" ]]; then
+        return 0
+    fi
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u "$urgency" "$title" "$message" 2>/dev/null || true
     fi
 }
 
@@ -329,9 +346,7 @@ execute_action() {
     local exe="${cmd_argv[0]}"
     if ! command -v "$exe" >/dev/null 2>&1; then
         log_event "ERROR" "Action '$action_id' ($description) failed: command '$exe' not found" "run"
-        if command -v notify-send >/dev/null 2>&1; then
-            notify-send -u critical "Launch Failed" "Command not found: $exe" 2>/dev/null || true
-        fi
+        notify_user critical "Launch Failed" "Command not found: $exe"
         printf 'Error: Command "%s" is not installed or not executable.\n' "$exe" >&2
         return 1
     fi
@@ -645,9 +660,7 @@ fi
 qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
 if [[ -z "$qs_bin" ]]; then
     log_event "ERROR" "Quickshell runtime binary not found" "dispatch"
-    if command -v notify-send >/dev/null 2>&1; then
-        notify-send -u critical "Keybindings Error" "Quickshell runtime binary not found." 2>/dev/null || true
-    fi
+    notify_user critical "Keybindings Error" "Quickshell runtime binary not found."
     printf '%s\n' "Error: Quickshell runtime binary not found." >&2
     exit 1
 fi
@@ -659,9 +672,7 @@ if [[ ! -f "$aurelia_shell" ]]; then
 fi
 if [[ ! -f "$aurelia_shell" ]]; then
     log_event "ERROR" "Aurelia configuration not found at '$aurelia_shell'" "dispatch"
-    if command -v notify-send >/dev/null 2>&1; then
-        notify-send -u critical "Keybindings Error" "Aurelia configuration not found at '$aurelia_shell'." 2>/dev/null || true
-    fi
+    notify_user critical "Keybindings Error" "Aurelia configuration not found at '$aurelia_shell'."
     printf '%s\n' "Error: Aurelia configuration not found at '$aurelia_shell'." >&2
     exit 1
 fi
@@ -690,9 +701,7 @@ if [[ -n "$ipc_ping_target" ]]; then
         exit 0
     else
         log_event "ERROR" "Aurelia toggle failed on warm instance" "toggle"
-        if command -v notify-send >/dev/null 2>&1; then
-            notify-send -u critical "Keybindings Error" "Failed to toggle keybindings window." 2>/dev/null || true
-        fi
+        notify_user critical "Keybindings Error" "Failed to toggle keybindings window."
         printf '%s\n' "Error: Aurelia toggle failed on warm instance." >&2
         exit 1
     fi
@@ -702,9 +711,7 @@ fi
 t_cold_start="$(date +%s%3N 2>/dev/null || date +%s)"
 if ! QSG_INFO=1 "$qs_bin" --no-duplicate --daemonize --log-times -v --path "$aurelia_shell" >>"$AURELIA_LOG" 2>&1; then
     log_event "CRASH" "Aurelia process launch failed" "launch"
-    if command -v notify-send >/dev/null 2>&1; then
-        notify-send -u critical "Keybindings Error" "Failed to launch Aurelia Quickshell process." 2>/dev/null || true
-    fi
+    notify_user critical "Keybindings Error" "Failed to launch Aurelia Quickshell process."
     printf '%s\n' "Error: Aurelia process launch failed." >&2
     exit 1
 fi
@@ -741,9 +748,7 @@ if [[ "$is_ready" -eq 1 ]]; then
         exit 0
     else
         log_event "ERROR" "Aurelia toggle failed after cold readiness" "toggle"
-        if command -v notify-send >/dev/null 2>&1; then
-            notify-send -u critical "Keybindings Error" "Failed to toggle keybindings after startup." 2>/dev/null || true
-        fi
+        notify_user critical "Keybindings Error" "Failed to toggle keybindings after startup."
         printf '%s\n' "Error: Aurelia toggle failed after cold readiness." >&2
         exit 1
     fi
@@ -755,9 +760,7 @@ else
             log_event "CRASH_DIAGNOSTIC" "Recent Aurelia engine output: $tail_diag" "launch"
         fi
     fi
-    if command -v notify-send >/dev/null 2>&1; then
-        notify-send -u critical "Keybindings Error" "Aurelia readiness timed out." 2>/dev/null || true
-    fi
+    notify_user critical "Keybindings Error" "Aurelia readiness timed out."
     printf '%s\n' "Error: Keybindings interface timed out waiting for Quickshell readiness." >&2
     exit 1
 fi

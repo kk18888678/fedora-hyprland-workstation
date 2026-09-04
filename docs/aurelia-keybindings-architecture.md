@@ -134,28 +134,31 @@ stateDiagram-v2
 
 ---
 
-## 5. Aurelia Design System Foundation
+## 5. Aurelia Design System Foundation & Central Configuration
 
-Aurelia Keybindings establishes the core Aurelia Design System tokens in `dotfiles/aurelia/theme/Theme.qml`, completely decoupled from Noctalia or transient desktop configuration files.
+Aurelia Keybindings establishes a centralized, single-source-of-truth configuration architecture. All colors, window geometry, table column dimensions, typography, spacing, and animations are defined in `dotfiles/aurelia/theme.conf` and dynamically consumed through the `dotfiles/aurelia/theme/Theme.qml` singleton.
 
-### 5.1 Color Tokens (Rosé Pine Moon)
-The color palette natively embeds canonical Rosé Pine Moon hex values:
-- `bgBase` (`#232136`): Base background surface.
-- `bgSurface` (`#2a273f`): Elevated component and card surface.
-- `bgOverlay` (`#393552`): Modal dialogs and active highlights.
-- `border` (`#393552`): Subtle divider and inactive borders.
-- `borderActive` (`#9ccfd8`): Active focus and hover highlight (Foam).
-- `text` (`#e0def4`): Primary readable foreground.
-- `textMuted` (`#6e6a86`): Subtle secondary text and hints.
-- `accent` (`#c4a7e7`): Primary brand highlight (Iris).
-- `gold` (`#f6c177`): Shortcut key combination badge (Gold).
-- `love` (`#eb6f92`): Destructive and unset indicators (Love).
+No QML component hardcodes hex colors or layout dimensions. Editing a single variable in `theme.conf` instantly reconfigures the entire component tree.
 
-### 5.2 Geometric & Motion Tokens
-- **Proportions**: Standard command palette geometry (`paletteWidth = 800`, `paletteHeight = 480`).
-- **Spacing**: Modular 4px scale (`spacingXs = 4`, `spacingSm = 8`, `spacingMd = 12`, `spacingLg = 16`, `spacingXl = 20`, `spacing2Xl = 24`).
-- **Radii**: Consistent corner radii (`radiusSm = 6`, `radiusMd = 8`, `radiusLg = 12`).
-- **Motion**: Standard animation durations (`durationFast = 100ms`, `durationNormal = 200ms`) with smooth easing curves.
+### 5.1 Central Configuration File (`theme.conf`)
+Located at `~/.config/aurelia/theme.conf` (symlinked from `dotfiles/aurelia/theme.conf`):
+- **Window Geometry**: `paletteWidth` (800), `paletteHeight` (480), `searchHeight` (40), `rowHeight` (38), `footerHeight` (34).
+- **Table Column Layout**: `colShortcutWidth` (350 for balanced 50/50 split, or 280 for ~40/60 split), `colSeparatorWidth` (28), `rowSpacing` (3), `scrollBarWidth` (4).
+- **Corner Radii & Borders**: `radiusSm` (4), `radiusMd` (8), `radiusLg` (12), `borderWidthDefault` (1), `borderWidthFocus` (2).
+- **Spacing Scale**: Modular 4px scale (`spacingXs` = 4, `spacingSm` = 8, `spacingMd` = 12, `spacingLg` = 16, `spacingXl` = 20, `spacingXxl` = 24).
+- **Typography**: `fontFamily` ("Hack Nerd Font, monospace"), `fontSizeXs` (10) through `fontSizeXl` (18).
+- **Motion**: `durationFast` (100ms), `durationNormal` (200ms).
+- **Colors**: Base surfaces (`background`, `surface`, `selection`), active and inactive borders (`border`, `borderActive`), text hierarchy (`text`, `textSecondary`, `textMuted`, `textSubtle`), and semantic accents (`accent`, `accentAlt`, `gold`, `love`, `pine`, `foam`, `rose`, `iris`, `success`, `warning`, `error`).
+
+### 5.2 Dynamic Singleton Resolver (`Theme.qml`)
+- Resolves configuration via `AURELIA_THEME_CONF` or `~/.config/aurelia/theme.conf`.
+- Provides safe, typed parsing helpers: `_getInt()`, `_getString()`, and `_getColor()` with alias fallback arrays (e.g. `active_border_color`, `active_border`, `border_active`).
+- Defaults securely to the canonical Rosé Pine Moon palette when no custom configuration is provided.
+
+### 5.3 Test Suite Isolation & Zero Desktop Spam
+- Automated test suites export `WORKSTATION_TEST_MODE=1`.
+- `bin/workstation-keybindings` provides `notify_user()` which suppresses `notify-send` desktop popups during automated test execution.
+- Test logs are isolated to `/tmp/workstation-tests-${UID}` to prevent polluting user crash logs.
 
 ---
 

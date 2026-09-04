@@ -8,6 +8,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 HELPER_ROOT="$ROOT"
 export ROOT
 export HELPER_ROOT
+export WORKSTATION_TEST_MODE=1
 FAILS=0
 PASSES=0
 
