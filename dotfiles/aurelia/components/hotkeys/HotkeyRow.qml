@@ -46,14 +46,15 @@ Rectangle {
             elide: Text.ElideRight
         }
 
-        // Column separator arrow (subtle, fixed position)
+        // Column separator arrow (clearly visible, accent on selection)
         Text {
             Layout.preferredWidth: 28
             Layout.alignment: Qt.AlignVCenter
             text: "→"
-            color: Theme.textSubtle
+            color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
+            font.weight: rowRoot.isSelected ? Font.Medium : Font.Normal
         }
 
         // Column 2: Action / Application title (starts at identical horizontal position)
