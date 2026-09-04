@@ -255,9 +255,9 @@ graph TD
 ```
 
 ### 10.1 Application Registry (`dotfiles/hypr/application_registry.lua`)
-- **Standards-Compliant Desktop Parsing**: Scans standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`) respecting user shadowing and `Hidden=true` masking.
-- **Safe Structured Exec Parser**: Parses `Exec` keys without `eval` or shell interpolation, strips Freedesktop field codes (`%u`, `%U`, `%f`, `%F`), handles escapes/quotes, and normalizes standard `/usr/bin/` paths.
-- **In-Memory Cache**: 5-second TTL cache prevents redundant filesystem operations while ensuring responsive CLI output (< 20ms).
+- **Standards-Compliant Desktop Parsing**: Recursively scans standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`) respecting user shadowing and `Hidden=true` masking.
+- **Trusted Launcher Platform Delegation**: Delegates execution directly to trusted platform launcher (`gtk-launch`) with structured arguments, eliminating custom Exec tokenizers and shell interpolation.
+- **In-Memory Cache**: Lazy process-lifetime cache with explicit invalidation/refresh prevents redundant filesystem operations while ensuring responsive CLI output (< 20ms).
 - **Installed Applications Discovery**: Emitted via `workstation-keybindings apps` as structured JSON consumed on-demand by the UI.
 
 ### 10.2 Action Registry vs. Application Registry vs. Effective Bindings

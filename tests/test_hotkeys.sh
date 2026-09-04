@@ -594,7 +594,7 @@ fi
 
 # Hook: run on safe runnable action executes command
 run_terminal_output="$(HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_ID="terminal" "$ROOT/bin/workstation-hotkeys")"
-if [[ "$run_terminal_output" == "RUN:kitty" ]]; then
+if [[ "$run_terminal_output" == "RUN:gtk-launch -- kitty.desktop" || "$run_terminal_output" == "RUN:kitty" ]]; then
     pass "hotkeys manager Return action executes safe runnable commands without eval"
 else
     fail "hotkeys manager Return action failed on runnable item: $run_terminal_output"

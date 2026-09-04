@@ -10,15 +10,14 @@
 -- - Dynamic icon-theme identifier extraction
 -- - Strict precedence: user applications shadow system applications; Hidden masks lower entries
 -- - Subdirectory desktop ID derivation per XDG specification (foo/bar.desktop -> foo-bar.desktop)
--- - Process-lifetime cache with explicit invalidation and wall-clock timestamp (no os.clock)
+-- - Lazy process-lifetime cache with explicit invalidation/refresh
 -- - Test-only environment overrides strictly gated on WORKSTATION_TEST_MODE=1
 -- - Fail-closed role resolution: no fabricated fake application records
 
 local M = {}
 
--- Cache storage for discovered applications
+-- Cache storage for discovered applications (lazy process-lifetime cache)
 M._cache = nil
-M._cache_timestamp = 0
 
 -- POSIX shell single-quote escaper
 local function sh_quote(s)
@@ -31,7 +30,7 @@ local function trim(s)
     return s:gsub("^%s+", ""):gsub("%s+$", "")
 end
 
--- Optional FFI support for direct directory enumeration without subprocess spawning
+-- Optional FFI support for direct directory enumeration and POSIX operations without subprocess spawning
 local has_ffi, ffi = pcall(require, "ffi")
 if has_ffi then
     pcall(function()
@@ -47,8 +46,113 @@ if has_ffi then
             DIR *opendir(const char *name);
             struct dirent *readdir(DIR *dirp);
             int closedir(DIR *dirp);
+            char *realpath(const char *path, char *resolved_path);
+            void free(void *ptr);
+            int access(const char *pathname, int mode);
         ]]
     end)
+end
+
+-- Safely resolve canonical realpath without symlink cycles
+local function get_realpath(path)
+    if not path or type(path) ~= "string" or path == "" then return nil end
+    if has_ffi and ffi and ffi.C and ffi.C.realpath and ffi.C.free then
+        local r = ffi.C.realpath(path, nil)
+        if r ~= nil then
+            local str = ffi.string(r)
+            ffi.C.free(r)
+            return str
+        end
+        return nil
+    end
+    return path:gsub("/+$", "")
+end
+
+-- Check if path exists, is a regular file/symlink, and has executable permission (X_OK)
+function M.is_executable_file(path)
+    if not path or type(path) ~= "string" or path == "" then return false end
+
+    if has_ffi and ffi and ffi.C and ffi.C.access then
+        -- POSIX access(path, X_OK) where X_OK == 1
+        if ffi.C.access(path, 1) ~= 0 then
+            return false
+        end
+        -- Ensure target is not a directory (directories can have X_OK permission)
+        if ffi.C.opendir then
+            local d = ffi.C.opendir(path)
+            if d ~= nil then
+                ffi.C.closedir(d)
+                return false
+            end
+        end
+        return true
+    end
+
+    -- Bounded fallback when FFI is not available
+    local f = io.open(path, "r")
+    if not f then return false end
+    local ok_read = pcall(function() return f:read(0) end)
+    f:close()
+    if not ok_read then return false end
+    local rc = os.execute("test -f " .. sh_quote(path) .. " -a -x " .. sh_quote(path))
+    return (rc == 0 or rc == true)
+end
+
+-- Resolve a command name in $PATH according to POSIX and Freedesktop semantics
+function M.resolve_in_path(cmd)
+    if not cmd or type(cmd) ~= "string" or cmd == "" then return nil end
+    -- A valid command name in PATH cannot contain slashes or control/whitespace chars
+    if cmd:find("/") or cmd:find("[%c]") or cmd:find("%s") then
+        return nil
+    end
+
+    local path_env = os.getenv("PATH")
+    if not path_env or path_env == "" then
+        path_env = "/usr/local/bin:/usr/bin:/bin"
+    end
+
+    -- Split colon-separated PATH components safely handling empty components
+    for part in (path_env .. ":"):gmatch("([^:]*):") do
+        part = trim(part)
+        -- In POSIX, an empty PATH entry represents current working directory ("."),
+        -- but for workstation application safety, skip empty/dot entries
+        if part ~= "" and part ~= "." then
+            local candidate = part:gsub("/+$", "") .. "/" .. cmd
+            if M.is_executable_file(candidate) then
+                return candidate
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Validate TryExec per Freedesktop Desktop Entry specification:
+-- "Path to an executable file on disk used to determine if the program is actually installed.
+--  If the path is not an absolute path, the file is looked up in the $PATH environment variable.
+--  If the file is not present or if it is not executable, the entry may be ignored."
+function M.is_tryexec_valid(tryexec)
+    if not tryexec or type(tryexec) ~= "string" then return false end
+    local te = trim(tryexec)
+    if te == "" then return false end
+
+    -- Reject control characters or NUL bytes
+    if te:find("[%c]") or te:find("%z") then
+        return false
+    end
+
+    -- Absolute path: verify existence, executability, and non-directory status
+    if te:sub(1, 1) == "/" then
+        return M.is_executable_file(te)
+    end
+
+    -- Non-absolute path per Desktop Entry spec: looked up in $PATH.
+    -- Relative paths with slashes (e.g. "../bin/tool") or arguments are rejected.
+    if te:find("/") or te:find("%s") then
+        return false
+    end
+
+    return (M.resolve_in_path(te) ~= nil)
 end
 
 -- Resolve application search paths following XDG Desktop Entry Specification
@@ -106,15 +210,22 @@ function M.derive_desktop_id(base_dir, file_path)
         return file_path:match("([^/]+)$") or file_path
     end
 
-    local norm_base = base_dir:gsub("/+$", "") .. "/"
-    if file_path:sub(1, #norm_base) == norm_base then
-        local rel = file_path:sub(#norm_base + 1)
+    local norm_base = (base_dir:gsub("/+$", "") .. "/"):gsub("/+", "/")
+    local norm_file = file_path:gsub("/+", "/")
+    if norm_file:sub(1, #norm_base) == norm_base then
+        local rel = norm_file:sub(#norm_base + 1)
         return rel:gsub("/", "-")
     end
     return file_path:match("([^/]+)$") or file_path
 end
 
--- Scan desktop files within a directory supporting 1-level subdirectories
+-- Recursively scan desktop files within a directory per XDG Desktop Entry specification
+-- Invariants:
+-- - Traverses nested subdirectories beneath each XDG applications directory
+-- - Uses canonical derive_desktop_id (no manual ID construction)
+-- - Rejects symlink loops and traversal outside base directory
+-- - Traversal bounded against pathological trees (MAX_SCAN_DEPTH=10, MAX_DIRS=256, MAX_FILES=4096)
+-- - Zero shell invocation when FFI is available
 function M.scan_desktop_files_in_dir(dir_path)
     local results = {}
     if not dir_path or type(dir_path) ~= "string" or dir_path == "" then
@@ -123,55 +234,104 @@ function M.scan_desktop_files_in_dir(dir_path)
 
     -- Direct C library opendir/readdir via LuaJIT FFI if available
     if has_ffi and ffi and ffi.C and ffi.C.opendir then
-        local ok, _ = pcall(function()
-            local d = ffi.C.opendir(dir_path)
-            if d ~= nil then
-                local subdirs = {}
-                while true do
-                    local ent = ffi.C.readdir(d)
-                    if ent == nil then break end
-                    local name = ffi.string(ent.d_name)
-                    if name ~= "." and name ~= ".." and not name:match("^%.") then
-                        if name:match("%.desktop$") then
-                            table.insert(results, {
-                                path = dir_path .. "/" .. name,
-                                desktop_id = name
-                            })
-                        elseif ent.d_type == 4 or ent.d_type == 0 then
-                            -- Subdirectory (or unknown d_type on some filesystems)
-                            table.insert(subdirs, name)
-                        end
-                    end
-                end
-                ffi.C.closedir(d)
+        local ok = pcall(function()
+            local base_real = get_realpath(dir_path)
+            if not base_real then return end
 
-                for _, sub in ipairs(subdirs) do
-                    local sub_path = dir_path .. "/" .. sub
-                    local sub_d = ffi.C.opendir(sub_path)
-                    if sub_d ~= nil then
-                        while true do
-                            local sub_ent = ffi.C.readdir(sub_d)
-                            if sub_ent == nil then break end
-                            local sub_name = ffi.string(sub_ent.d_name)
-                            if sub_name:match("%.desktop$") then
-                                table.insert(results, {
-                                    path = sub_path .. "/" .. sub_name,
-                                    desktop_id = sub .. "-" .. sub_name
-                                })
+            local visited_dirs = { [base_real] = true }
+            local MAX_SCAN_DEPTH = 10
+            local MAX_FILES = 4096
+            local MAX_DIRS = 256
+            local dirs_visited = 0
+            local files_found = 0
+
+            -- Queue-based breadth-first search: { path = ..., depth = ... }
+            local queue = { { path = dir_path, depth = 0 } }
+            local q_idx = 1
+
+            while q_idx <= #queue do
+                if dirs_visited >= MAX_DIRS or files_found >= MAX_FILES then
+                    break
+                end
+
+                local current = queue[q_idx]
+                q_idx = q_idx + 1
+                dirs_visited = dirs_visited + 1
+
+                local d = ffi.C.opendir(current.path)
+                if d ~= nil then
+                    local entries_files = {}
+                    local entries_dirs = {}
+
+                    while true do
+                        local ent = ffi.C.readdir(d)
+                        if ent == nil then break end
+                        local name = ffi.string(ent.d_name)
+                        -- XDG spec: files and directories whose name begins with a period are ignored
+                        if name ~= "." and name ~= ".." and not name:match("^%.") then
+                            local full_entry_path = current.path:gsub("/+$", "") .. "/" .. name
+                            local is_dir = false
+
+                            if ent.d_type == 4 then -- DT_DIR
+                                is_dir = true
+                            elseif ent.d_type == 8 then -- DT_REG
+                                is_dir = false
+                            elseif ent.d_type == 10 or ent.d_type == 0 then -- DT_LNK or DT_UNKNOWN
+                                local sub_d = ffi.C.opendir(full_entry_path)
+                                if sub_d ~= nil then
+                                    ffi.C.closedir(sub_d)
+                                    is_dir = true
+                                else
+                                    is_dir = false
+                                end
+                            end
+
+                            if is_dir then
+                                if current.depth < MAX_SCAN_DEPTH then
+                                    table.insert(entries_dirs, { name = name, path = full_entry_path })
+                                end
+                            else
+                                if name:match("%.desktop$") then
+                                    table.insert(entries_files, full_entry_path)
+                                end
                             end
                         end
-                        ffi.C.closedir(sub_d)
+                    end
+                    ffi.C.closedir(d)
+
+                    -- Sort entries alphabetically for deterministic order
+                    table.sort(entries_files)
+                    for _, fpath in ipairs(entries_files) do
+                        if files_found >= MAX_FILES then break end
+                        files_found = files_found + 1
+                        local did = M.derive_desktop_id(dir_path, fpath)
+                        table.insert(results, {
+                            path = fpath,
+                            desktop_id = did,
+                        })
+                    end
+
+                    table.sort(entries_dirs, function(a, b) return a.name < b.name end)
+                    for _, dir_info in ipairs(entries_dirs) do
+                        local rpath = get_realpath(dir_info.path)
+                        -- Avoid symlink loops and ensure we do not escape outside base directory
+                        if rpath and not visited_dirs[rpath] then
+                            if rpath == base_real or rpath:sub(1, #base_real + 1) == (base_real .. "/") then
+                                visited_dirs[rpath] = true
+                                table.insert(queue, { path = dir_info.path, depth = current.depth + 1 })
+                            end
+                        end
                     end
                 end
             end
         end)
-        if ok and #results > 0 then
+        if ok then
             return results
         end
     end
 
     -- Safe bounded fallback using find without shell wildcard expansion
-    local p = io.popen("find " .. sh_quote(dir_path) .. " -maxdepth 2 -name '*.desktop' 2>/dev/null", "r")
+    local p = io.popen("find " .. sh_quote(dir_path) .. " -maxdepth 10 -name '*.desktop' 2>/dev/null", "r")
     if p then
         for line in p:lines() do
             line = trim(line)
@@ -265,30 +425,12 @@ function M.parse_desktop_file(filepath, explicit_desktop_id)
     if not data.Name or data.Name == "" then return nil end
 
     -- Check TryExec if specified per Freedesktop spec:
-    -- "Path to an executable file on disk used to determine if the program is actually installed."
+    -- "Path to an executable file on disk used to determine if the program is actually installed.
+    --  If the path is not an absolute path, the file is looked up in the $PATH environment variable.
+    --  If the file is not present or if it is not executable, the entry may be ignored."
     if data.TryExec and data.TryExec ~= "" then
-        local te = trim(data.TryExec)
-        if te:sub(1, 1) == "/" then
-            local f_te = io.open(te, "r")
-            if not f_te then return nil end
-            f_te:close()
-        else
-            -- Check common binary paths
-            local found = false
-            local bin_paths = { "/usr/bin/" .. te, "/usr/local/bin/" .. te, "/bin/" .. te }
-            local home = os.getenv("HOME") or ""
-            if home ~= "" then
-                table.insert(bin_paths, home .. "/.local/bin/" .. te)
-            end
-            for _, bp in ipairs(bin_paths) do
-                local f_bp = io.open(bp, "r")
-                if f_bp then
-                    f_bp:close()
-                    found = true
-                    break
-                end
-            end
-            if not found then return nil end
+        if not M.is_tryexec_valid(data.TryExec) then
+            return nil
         end
     end
 
@@ -349,11 +491,13 @@ function M.parse_desktop_file(filepath, explicit_desktop_id)
     }
 end
 
--- Invalidate discovery cache
+-- Invalidate discovery cache (explicit invalidation)
 function M.invalidate_cache()
     M._cache = nil
-    M._cache_timestamp = 0
 end
+
+-- Alias for testing and API consistency
+M.get_applications_search_dirs = M.get_search_dirs
 
 -- Query truthful detectable system default roles via XDG MIME
 function M.get_truthful_default_roles()
@@ -384,7 +528,7 @@ function M.list_applications(options)
     options = options or {}
     local include_nodisplay = (options.include_nodisplay == true)
 
-    -- Process-lifetime cache with wall-clock timestamp (no os.clock CPU time bug)
+    -- Lazy process-lifetime cache with explicit invalidation/refresh
     if M._cache and not options.bypass_cache and not options.refresh then
         if include_nodisplay then
             return M._cache.all_apps
@@ -393,7 +537,8 @@ function M.list_applications(options)
         end
     end
 
-    local search_dirs = M.get_search_dirs()
+    local search_fn = M.get_applications_search_dirs or M.get_search_dirs
+    local search_dirs = search_fn()
     local seen = {}
     local visible_apps = {}
     local all_apps = {}
@@ -433,7 +578,6 @@ function M.list_applications(options)
         visible_apps = visible_apps,
         all_apps = all_apps,
     }
-    M._cache_timestamp = os.time()
 
     if include_nodisplay then
         return all_apps
@@ -464,15 +608,28 @@ function M.find_application(query)
     local query_with_ext = query_lower:match("%.desktop$") and query_lower or (query_lower .. ".desktop")
 
     -- 1. Fast path: Direct file check in search directories for desktop ID
-    local search_dirs = M.get_search_dirs()
+    -- Handles flat desktop IDs as well as nested IDs per XDG spec (foo-bar.desktop -> foo/bar.desktop)
+    local search_fn = M.get_applications_search_dirs or M.get_search_dirs
+    local search_dirs = search_fn()
     for _, dir in ipairs(search_dirs) do
-        local candidate_path = dir .. "/" .. query_with_ext
-        local f = io.open(candidate_path, "r")
-        if f then
-            f:close()
-            local app = M.parse_desktop_file(candidate_path, query_with_ext)
-            if app and not app.hidden then
-                return app
+        local candidate_paths = { dir .. "/" .. query_with_ext }
+        if query_with_ext:find("-") then
+            local sub_rel = query_with_ext:gsub("%-", "/")
+            table.insert(candidate_paths, dir .. "/" .. sub_rel)
+        end
+
+        for _, candidate_path in ipairs(candidate_paths) do
+            local f = io.open(candidate_path, "r")
+            if f then
+                f:close()
+                local app = M.parse_desktop_file(candidate_path, query_with_ext)
+                if app then
+                    -- If Hidden=true at this precedence level, it masks lower-precedence entries
+                    if app.hidden then
+                        return nil
+                    end
+                    return app
+                end
             end
         end
     end

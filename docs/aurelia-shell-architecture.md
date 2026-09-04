@@ -61,7 +61,7 @@ graph LR
 
 ### 3.1 Workstation Application Registry & Action Registry
 The shell architecture enforces a strict separation between discovering installed applications and managing bound/unbound shortcuts:
-1. **Workstation Application Registry (`application_registry.lua`)**: Discovers installed graphical applications from standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`). Parses `.desktop` files with a hardened, structured parser without `eval` or shell interpolation, stripping Freedesktop field codes and caching entries in memory (5s TTL).
+1. **Workstation Application Registry (`application_registry.lua`)**: Discovers installed graphical applications from standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`). Parses `.desktop` files with a hardened, structured parser without `eval` or shell interpolation, stripping Freedesktop field codes with a lazy process-lifetime cache and explicit invalidation/refresh.
 2. **Action Registry**: Represents the universe of configurable actions (`keybindings_manifest.lua` + `~/.config/hypr/user_actions.json`). User-added applications receive stable identities prefixed with `app:<desktop_id>`.
 3. **Effective Bindings Engine (`effective_bindings.lua`)**: Resolves dynamic roles, merges user overrides (`keybindings_overrides.json`), and serializes structured JSON for consumption by Aurelia components.
 
