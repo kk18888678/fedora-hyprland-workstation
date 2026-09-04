@@ -17,6 +17,7 @@
 set -Eeuo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+export WORKSTATION_KEYBINDINGS_BIN="${WORKSTATION_KEYBINDINGS_BIN:-$script_dir/workstation-keybindings}"
 
 # Workstation diagnostic, crash, and performance logging
 if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -z "${XDG_STATE_HOME:-}" ]]; then

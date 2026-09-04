@@ -110,6 +110,16 @@ QtObject {
         }
     }
 
+    property FileView binKeybindingsCheck: FileView {
+        path: "/usr/local/bin/workstation-keybindings"
+        printErrors: false
+    }
+
+    property FileView binHotkeysCheck: FileView {
+        path: "/usr/local/bin/workstation-hotkeys"
+        printErrors: false
+    }
+
     // Deterministic backend executable resolution:
     // 1. Test override via WORKSTATION_KEYBINDINGS_BIN environment variable
     // 2. Managed system installation: /usr/local/bin/workstation-keybindings
@@ -121,6 +131,18 @@ QtObject {
         if (testOverride !== "") {
             return testOverride
         }
+        try {
+            var kbTxt = binKeybindingsCheck.text()
+            if (kbTxt && kbTxt.length > 0) {
+                return "/usr/local/bin/workstation-keybindings"
+            }
+        } catch (e) {}
+        try {
+            var hkTxt = binHotkeysCheck.text()
+            if (hkTxt && hkTxt.length > 0) {
+                return "/usr/local/bin/workstation-hotkeys"
+            }
+        } catch (e) {}
         return "/usr/local/bin/workstation-keybindings"
     }
 

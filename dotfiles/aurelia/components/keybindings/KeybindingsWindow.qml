@@ -258,7 +258,8 @@ PanelWindow {
                         verticalAlignment: Text.AlignVCenter
                         text: keybindingsModel.operationMessage
                         color: (keybindingsModel.operationState === "success") ? Theme.success : ((keybindingsModel.operationState === "conflict") ? Theme.warning : Theme.error)
-                        font: parent.font
+                        font.family: parent.font.family
+                        font.pixelSize: parent.font.pixelSize
                         font.bold: true
                         visible: (keybindingsModel.operationState === "success" || keybindingsModel.operationState === "conflict" || keybindingsModel.operationState === "error")
                     }
