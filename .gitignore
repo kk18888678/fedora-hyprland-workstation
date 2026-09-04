@@ -1,5 +1,6 @@
 # User configuration overrides
 dotfiles/hypr/keybindings_overrides.json
+dotfiles/hypr/user_actions.json
 *.tmp*
 *.tmp.*
 

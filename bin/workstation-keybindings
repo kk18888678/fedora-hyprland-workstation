@@ -154,6 +154,20 @@ while [[ $# -gt 0 ]]; do
             SUBCOMMAND="json"
             shift
             ;;
+        apps|--apps)
+            SUBCOMMAND="apps"
+            shift
+            ;;
+        add-app|--add-app)
+            SUBCOMMAND="add-app"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        remove-app|--remove-app)
+            SUBCOMMAND="remove-app"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
         run|--run)
             SUBCOMMAND="run"
             TARGET_ID="${2:-}"
@@ -442,10 +456,121 @@ io.write(eff.serialize_bindings_json(effective))
 LUA_SCRIPT
 }
 
+# Fetch discovered desktop applications JSON for modern UI / Launcher consumption
+get_apps_json() {
+    "$lua_bin" - "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_dir = arg[1]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local reg = require("application_registry")
+local apps = reg.list_applications()
+local parts = {}
+table.insert(parts, "[\n")
+local count = #apps
+for i, a in ipairs(apps) do
+    local fields = {
+        string.format('    "desktop_id": %q', a.desktop_id or ""),
+        string.format('    "name": %q', a.name or ""),
+        string.format('    "generic_name": %q', a.generic_name or ""),
+        string.format('    "comment": %q', a.comment or ""),
+        string.format('    "icon": %q', a.icon or ""),
+        string.format('    "categories": %q', a.categories or ""),
+        string.format('    "default_role": %q', a.default_role or ""),
+        string.format('    "source": %q', a.source or "")
+    }
+    local item_str = "  {\n" .. table.concat(fields, ",\n") .. "\n  }"
+    if i < count then
+        item_str = item_str .. ","
+    end
+    table.insert(parts, item_str .. "\n")
+end
+table.insert(parts, "]\n")
+io.write(table.concat(parts))
+LUA_SCRIPT
+}
+
 # Handle explicit subcommands immediately
 if [[ "$SUBCOMMAND" == "json" || "${KEYBINDINGS_TEST_ACTION:-}" == "json" || "${HOTKEYS_TEST_ACTION:-}" == "json" ]]; then
     get_json_rows
     exit 0
+fi
+
+if [[ "$SUBCOMMAND" == "apps" ]]; then
+    get_apps_json
+    exit 0
+fi
+
+if [[ "$SUBCOMMAND" == "add-app" ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing desktop ID for add-app" >&2
+        exit 1
+    fi
+    if [[ ! "$TARGET_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.desktop$ ]]; then
+        printf '%s\n' "Error: Invalid desktop ID: $TARGET_ID" >&2
+        exit 1
+    fi
+    user_actions_path="${KEYBINDINGS_USER_ACTIONS:-${USER_ACTIONS_PATH:-}}"
+    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$user_actions_path" 2>&1 <<'LUA_SCRIPT'
+local manifest_path     = arg[1]
+local manifest_dir      = arg[2]
+local desktop_id        = arg[3]
+local user_actions_path = arg[4]
+if user_actions_path == "" then user_actions_path = nil end
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, result = eff.add_user_application_action(desktop_id, user_actions_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+)"; then
+        log_event "INFO" "Successfully added application action '$TARGET_ID'" "add-app"
+        printf '%s\n' "ADD_APP_OK"
+        exit 0
+    else
+        log_event "ERROR" "Failed to add application action '$TARGET_ID': $err_msg" "add-app"
+        printf 'ADD_APP_FAIL: %s\n' "$err_msg" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$SUBCOMMAND" == "remove-app" ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing desktop ID for remove-app" >&2
+        exit 1
+    fi
+    if [[ ! "$TARGET_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.desktop$ ]]; then
+        printf '%s\n' "Error: Invalid desktop ID: $TARGET_ID" >&2
+        exit 1
+    fi
+    user_actions_path="${KEYBINDINGS_USER_ACTIONS:-${USER_ACTIONS_PATH:-}}"
+    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$user_actions_path" 2>&1 <<'LUA_SCRIPT'
+local manifest_path     = arg[1]
+local manifest_dir      = arg[2]
+local desktop_id        = arg[3]
+local user_actions_path = arg[4]
+if user_actions_path == "" then user_actions_path = nil end
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, result = eff.remove_user_application_action(desktop_id, user_actions_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+)"; then
+        log_event "INFO" "Successfully removed application action '$TARGET_ID'" "remove-app"
+        printf '%s\n' "REMOVE_APP_OK"
+        exit 0
+    else
+        log_event "ERROR" "Failed to remove application action '$TARGET_ID': $err_msg" "remove-app"
+        printf 'REMOVE_APP_FAIL: %s\n' "$err_msg" >&2
+        exit 1
+    fi
 fi
 
 # Validate action ID format strictly before execution or mutation
