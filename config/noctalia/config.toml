@@ -1,7 +1,49 @@
 # Noctalia workstation configuration
 # Managed configuration for Fedora Hyprland Workstation
 
+[bar.default]
+position = "top"
+thickness = 32
+margin_edge = 4
+margin_ends = 12
+padding = 10
+radius = 8
+background_opacity = 0.92
+start = [ "workspaces" ]
+center = [ "clock" ]
+end = [ "media", "tray", "volume", "control-center", "session" ]
+
 [widget.workspaces]
 type = "workspaces"
 hide_when_empty = false
 show_labels = true
+
+[widget.clock]
+type = "clock"
+format = "{:%a %d %b  %H:%M}"
+
+[widget.media]
+type = "media"
+hide_when_no_media = true
+max_length = 200.0
+
+[widget.battery]
+type = "battery"
+hide_when_plugged = true
+hide_when_full = true
+
+[widget.notifications]
+type = "notifications"
+hide_when_no_unread = true
+
+[widget.bluetooth]
+type = "bluetooth"
+hide_when_no_connected_device = true
+
+[widget.keyboard_layout]
+type = "keyboard_layout"
+hide_when_single_layout = true
+
+[widget.volume]
+type = "volume"
+device = "output"
