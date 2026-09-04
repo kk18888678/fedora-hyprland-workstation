@@ -352,10 +352,12 @@ PanelWindow {
                         } else if (event.key === Qt.Key_Down) {
                             keybindingsModel.selectNext()
                             listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
+                            listView.forceActiveFocus()
                             event.accepted = true
                         } else if (event.key === Qt.Key_Up) {
                             keybindingsModel.selectPrevious()
                             listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
+                            listView.forceActiveFocus()
                             event.accepted = true
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                             if (keybindingsModel.activeView === "add_app") {
@@ -524,9 +526,164 @@ PanelWindow {
                     clip: true
                     model: keybindingsModel.filteredItems
                     currentIndex: keybindingsModel.selectedIndex
+                    focus: true
 
                     delegate: KeybindingRow {
                         isSelected: index === keybindingsModel.selectedIndex
+                    }
+
+                    Keys.onPressed: function(event) {
+                        // 1. Handling during inline capture mode
+                        if (keybindingsModel.operationState === "capturing") {
+                            if (event.key === Qt.Key_Escape) {
+                                cancelCapture()
+                                event.accepted = true
+                                return
+                            }
+                            if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+                                if (windowRoot.recordingItem) {
+                                    keybindingsModel.unsetShortcut(windowRoot.recordingItem.id)
+                                }
+                                event.accepted = true
+                                return
+                            }
+                            var formatted = windowRoot.formatKeyEvent(event)
+                            if (formatted && formatted !== "") {
+                                if (windowRoot.recordingItem) {
+                                    keybindingsModel.setShortcut(windowRoot.recordingItem.id, formatted)
+                                }
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 2. Handling during conflict/error/success state
+                        if (keybindingsModel.operationState === "conflict" || keybindingsModel.operationState === "error" || keybindingsModel.operationState === "success") {
+                            if (event.key === Qt.Key_Escape) {
+                                cancelCapture()
+                                event.accepted = true
+                                return
+                            }
+                        }
+
+                        // 3. Tab toggles Bound vs Unbound view
+                        if (event.key === Qt.Key_Tab) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                keybindingsModel.switchView("unbound")
+                            } else {
+                                keybindingsModel.toggleView()
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 4. Escape: back or close
+                        if (event.key === Qt.Key_Escape) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                keybindingsModel.switchView("unbound")
+                            } else {
+                                windowRoot.visible = false
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 5. Down/Up Navigation
+                        if (event.key === Qt.Key_Down) {
+                            keybindingsModel.selectNext()
+                            listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key === Qt.Key_Up) {
+                            if (keybindingsModel.selectedIndex === 0) {
+                                searchInput.forceActiveFocus()
+                            } else {
+                                keybindingsModel.selectPrevious()
+                                listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 6. Return / Enter: Run or Add
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                var appItem = keybindingsModel.selectedItem
+                                if (appItem && appItem.desktop_id) {
+                                    keybindingsModel.addApplication(appItem.desktop_id)
+                                }
+                            } else if (keybindingsModel.runSelected()) {
+                                windowRoot.visible = false
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 7. S -> Set / Edit hotkey (or Alt+S)
+                        if ((event.key === Qt.Key_S && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S)) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                event.accepted = true
+                                return
+                            }
+                            var item = keybindingsModel.selectedItem
+                            if (!item) {
+                                event.accepted = true
+                                return
+                            }
+                            if (item.editable !== true) {
+                                keybindingsModel.operationState = "error"
+                                keybindingsModel.operationMessage = "Immutable: System binding cannot be modified."
+                            } else {
+                                windowRoot.recordingItem = item
+                                keybindingsModel.operationState = "capturing"
+                                keybindingsModel.operationMessage = ""
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 8. U -> Unset / Clear hotkey (or Alt+U)
+                        if ((event.key === Qt.Key_U && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U)) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                event.accepted = true
+                                return
+                            }
+                            var itemUnset = keybindingsModel.selectedItem
+                            if (!itemUnset) {
+                                event.accepted = true
+                                return
+                            }
+                            if (itemUnset.editable !== true) {
+                                keybindingsModel.operationState = "error"
+                                keybindingsModel.operationMessage = "Immutable: System binding cannot be modified."
+                            } else {
+                                keybindingsModel.unsetShortcut(itemUnset.id)
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 9. Alt+A -> Add Application
+                        if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                keybindingsModel.switchView("unbound")
+                            } else {
+                                keybindingsModel.switchView("add_app")
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 10. Slash, Backspace, or printable text redirects to searchInput
+                        if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32)) {
+                            searchInput.forceActiveFocus()
+                            if (event.key !== Qt.Key_Slash) {
+                                searchInput.text = searchInput.text + event.text
+                            }
+                            event.accepted = true
+                            return
+                        }
                     }
 
                     // Extremely subtle scrollbar indicator
@@ -584,13 +741,13 @@ PanelWindow {
                         }
                     }
 
-                    // Alt+S Set / Assign (active when editable, not add_app, and not capturing)
+                    // S Set / Assign (active when editable, not add_app, and not capturing)
                     RowLayout {
                         spacing: Theme.spacingXs
                         visible: (keybindingsModel.operationState === "idle" && keybindingsModel.activeView !== "add_app" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true)
 
                         Text {
-                            text: "Alt+S"
+                            text: "S"
                             color: Theme.gold
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -605,7 +762,7 @@ PanelWindow {
                         }
                     }
 
-                    // Alt+U Unset (active in bound view when editable, bound, and not capturing)
+                    // U Unset (active in bound view when editable, bound, and not capturing)
                     RowLayout {
                         spacing: Theme.spacingXs
                         visible: (keybindingsModel.operationState === "idle" && keybindingsModel.activeView === "bound" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true &&
@@ -613,7 +770,7 @@ PanelWindow {
                                   keybindingsModel.selectedItem.display_key !== "None (Unbound)")
 
                         Text {
-                            text: "Alt+U"
+                            text: "U"
                             color: Theme.love
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm

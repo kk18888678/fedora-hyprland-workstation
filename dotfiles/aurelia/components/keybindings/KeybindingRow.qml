@@ -85,6 +85,9 @@ Rectangle {
         onClicked: {
             if (typeof keybindingsModel !== "undefined") {
                 keybindingsModel.selectedIndex = rowRoot.index
+                if (ListView.view) {
+                    ListView.view.forceActiveFocus()
+                }
                 if (keybindingsModel.activeView === "add_app") {
                     if (keybindingsModel.selectedItem && keybindingsModel.selectedItem.desktop_id) {
                         keybindingsModel.addApplication(keybindingsModel.selectedItem.desktop_id)
