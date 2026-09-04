@@ -59,27 +59,20 @@ function M.read_desktop_config()
     return app_reg.read_desktop_config()
 end
 
--- Forward legacy command info requests through the Application Registry
+-- Forward command info requests through the Application Registry
 function M.get_app_command_info(app)
     if not app or type(app) ~= "string" then return nil end
     local info = app_reg.find_application(app)
     if info then
         return {
             name = info.name,
-            command = info.exec,
+            command = info.command,
             command_argv = info.command_argv,
             desktop_id = info.desktop_id,
             icon = info.icon,
         }
     end
-    local norm = app:lower():gsub("^%s+", ""):gsub("%s+$", "")
-    return {
-        name = norm:sub(1,1):upper() .. norm:sub(2),
-        command = norm,
-        command_argv = { norm },
-        desktop_id = norm .. ".desktop",
-        icon = norm,
-    }
+    return nil
 end
 
 -- Dynamically resolve active application for a generic workstation role
@@ -284,7 +277,7 @@ function M.parse_strict_overrides(str, manifest)
                 elseif esc == "u" then
                     if pos + 4 > len then return nil, "Incomplete unicode escape" end
                     local hex = str:sub(pos + 1, pos + 4)
-                    if not hex:match("^[0-9a-fA-F]{4}$") then
+                    if not hex:match("^%x%x%x%x$") then
                         return nil, "Invalid unicode escape \\u" .. hex
                     end
                     local code = tonumber(hex, 16)
@@ -475,7 +468,220 @@ function M.save_overrides(overrides, path)
     return atomic_write_file(path, M.json_encode(overrides))
 end
 
--- Load user-created actions safely (schema: { "version": 1, "actions": [ "foo.desktop", ... ] })
+-- UTF-8 encoding helper for unicode escapes
+local function utf8_encode(code)
+    if code < 0x80 then
+        return string.char(code)
+    elseif code < 0x800 then
+        return string.char(0xC0 + math.floor(code / 0x40), 0x80 + (code % 0x40))
+    elseif code < 0x10000 then
+        return string.char(0xE0 + math.floor(code / 0x1000), 0x80 + (math.floor(code / 0x40) % 0x40), 0x80 + (code % 0x40))
+    else
+        return string.char(0xF0 + math.floor(code / 0x40000), 0x80 + (math.floor(code / 0x1000) % 0x40), 0x80 + (math.floor(code / 0x40) % 0x40), 0x80 + (code % 0x40))
+    end
+end
+
+-- Strict, fail-closed JSON and schema decoder for user_actions.json:
+-- Schema:
+-- {
+--   "version": 1,
+--   "actions": [ "foo.desktop", ... ]
+-- }
+function M.parse_strict_user_actions(str)
+    if not str or type(str) ~= "string" or str:match("^%s*$") then
+        return { version = 1, actions = {} }
+    end
+
+    if #str > 65536 then
+        return nil, "user_actions.json exceeds maximum size of 64KB"
+    end
+
+    local pos = 1
+    local len = #str
+
+    local function skip_ws()
+        while pos <= len do
+            local c = str:sub(pos, pos)
+            if c == " " or c == "\t" or c == "\n" or c == "\r" then
+                pos = pos + 1
+            else
+                break
+            end
+        end
+    end
+
+    local function parse_string()
+        if pos > len or str:sub(pos, pos) ~= "\"" then
+            return nil, "Expected string starting with \" at byte " .. pos
+        end
+        pos = pos + 1
+        local chars = {}
+        while pos <= len do
+            local c = str:sub(pos, pos)
+            if c == "\"" then
+                pos = pos + 1
+                return table.concat(chars)
+            elseif c == "\\" then
+                pos = pos + 1
+                if pos > len then return nil, "Unterminated escape in string" end
+                local esc = str:sub(pos, pos)
+                if esc == "\"" or esc == "\\" or esc == "/" then
+                    table.insert(chars, esc)
+                elseif esc == "b" then table.insert(chars, "\b")
+                elseif esc == "f" then table.insert(chars, "\f")
+                elseif esc == "n" then table.insert(chars, "\n")
+                elseif esc == "r" then table.insert(chars, "\r")
+                elseif esc == "t" then table.insert(chars, "\t")
+                elseif esc == "u" then
+                    if pos + 4 > len then return nil, "Incomplete unicode escape" end
+                    local hex = str:sub(pos + 1, pos + 4)
+                    if not hex:match("^%x%x%x%x$") then
+                        return nil, "Invalid unicode escape \\u" .. hex
+                    end
+                    local code = tonumber(hex, 16)
+                    table.insert(chars, utf8_encode(code))
+                    pos = pos + 4
+                else
+                    return nil, "Invalid escape sequence \\" .. esc
+                end
+                pos = pos + 1
+            elseif c:byte() < 32 then
+                return nil, "Unescaped control character in string at byte " .. pos
+            else
+                table.insert(chars, c)
+                pos = pos + 1
+            end
+        end
+        return nil, "Unterminated string literal"
+    end
+
+    local function parse_number()
+        local start_pos = pos
+        if str:sub(pos, pos) == "-" then pos = pos + 1 end
+        while pos <= len and str:sub(pos, pos):match("[0-9]") do
+            pos = pos + 1
+        end
+        local num_str = str:sub(start_pos, pos - 1)
+        local n = tonumber(num_str)
+        if not n then return nil, "Invalid number at byte " .. start_pos end
+        return n
+    end
+
+    skip_ws()
+    if pos > len or str:sub(pos, pos) ~= "{" then
+        return nil, "Invalid JSON: root must be an object beginning with {"
+    end
+    pos = pos + 1
+
+    local version = nil
+    local actions = nil
+    local seen_keys = {}
+
+    skip_ws()
+    if pos <= len and str:sub(pos, pos) == "}" then
+        pos = pos + 1
+        skip_ws()
+        if pos <= len then
+            return nil, "Trailing garbage after JSON object at byte " .. pos
+        end
+        return nil, "Invalid user_actions schema: missing version and actions fields"
+    end
+
+    while pos <= len do
+        skip_ws()
+        if pos > len then return nil, "Unexpected EOF inside JSON object" end
+
+        local key, k_err = parse_string()
+        if not key then return nil, k_err end
+
+        if seen_keys[key] then
+            return nil, "Duplicate key in user_actions: " .. tostring(key)
+        end
+        seen_keys[key] = true
+
+        skip_ws()
+        if pos > len or str:sub(pos, pos) ~= ":" then
+            return nil, "Expected \":\" after key \"" .. key .. "\" at byte " .. pos
+        end
+        pos = pos + 1
+        skip_ws()
+
+        if key == "version" then
+            local v_num, n_err = parse_number()
+            if not v_num then return nil, n_err end
+            if v_num ~= 1 then
+                return nil, "Unsupported user_actions schema version: " .. tostring(v_num) .. " (expected 1)"
+            end
+            version = v_num
+        elseif key == "actions" then
+            if pos > len or str:sub(pos, pos) ~= "[" then
+                return nil, "Invalid actions field: expected array beginning with [ at byte " .. pos
+            end
+            pos = pos + 1
+            actions = {}
+            local seen_actions = {}
+
+            skip_ws()
+            if pos <= len and str:sub(pos, pos) == "]" then
+                pos = pos + 1
+            else
+                while pos <= len do
+                    skip_ws()
+                    local act_str, a_err = parse_string()
+                    if not act_str then return nil, a_err end
+
+                    -- Validate desktop ID syntax: must start with alphanumeric, contain only valid chars, end with .desktop, no traversal, no leading dash
+                    if not act_str:match("^[a-zA-Z0-9][%w%-%._]*%.desktop$") or act_str:find("%.%./") or act_str:sub(1, 1) == "-" then
+                        return nil, "Invalid desktop ID in actions array: " .. tostring(act_str)
+                    end
+
+                    if not seen_actions[act_str] then
+                        seen_actions[act_str] = true
+                        table.insert(actions, act_str)
+                    end
+
+                    skip_ws()
+                    if pos <= len and str:sub(pos, pos) == "]" then
+                        pos = pos + 1
+                        break
+                    elseif pos <= len and str:sub(pos, pos) == "," then
+                        pos = pos + 1
+                    else
+                        return nil, "Expected \",\" or \"]\" in actions array at byte " .. pos
+                    end
+                end
+            end
+        else
+            return nil, "Unknown field in user_actions: \"" .. key .. "\""
+        end
+
+        skip_ws()
+        if pos <= len and str:sub(pos, pos) == "}" then
+            pos = pos + 1
+            break
+        elseif pos <= len and str:sub(pos, pos) == "," then
+            pos = pos + 1
+        else
+            return nil, "Expected \",\" or \"}\" inside JSON object at byte " .. pos
+        end
+    end
+
+    skip_ws()
+    if pos <= len then
+        return nil, "Trailing garbage after JSON object at byte " .. pos
+    end
+
+    if not version then
+        return nil, "Missing required \"version\" field in user_actions"
+    end
+    if not actions then
+        return nil, "Missing required \"actions\" field in user_actions"
+    end
+
+    return { version = version, actions = actions }
+end
+
+-- Load user-created actions safely using strict fail-closed JSON parser
 function M.load_user_actions(path)
     path = path or M.get_user_actions_path()
     local f = io.open(path, "r")
@@ -490,28 +696,7 @@ function M.load_user_actions(path)
         return { version = 1, actions = {} }
     end
 
-    local actions = {}
-    local seen = {}
-    local in_actions = false
-
-    for line in content:gmatch("[^\r\n]+") do
-        line = line:gsub("^%s+", ""):gsub("%s+$", "")
-        if line:find("\"actions\"%s*:%s*%[") then
-            in_actions = true
-        elseif in_actions then
-            if line:find("%]") then
-                in_actions = false
-            else
-                local did = line:match("\"([a-zA-Z0-9][%w%-%._]*%.desktop)\"")
-                if did and not seen[did] then
-                    seen[did] = true
-                    table.insert(actions, did)
-                end
-            end
-        end
-    end
-
-    return { version = 1, actions = actions }
+    return M.parse_strict_user_actions(content)
 end
 
 -- Serialize user-created actions
@@ -659,28 +844,43 @@ function M.resolve_bindings(manifest, overrides)
         if action_id then
             -- Role-based dynamic resolution through Application Registry
             if action_id == "terminal" or action_id == "terminal.default" then
-                local _, info = app_reg.resolve_role("terminal")
-                if info then
-                    item.command = info.exec
+                local canon, info = M.resolve_role_default("terminal")
+                if canon and type(info) == "table" then
+                    item.command = info.command
                     item.command_argv = info.command_argv
                     item.desktop_id = info.desktop_id
                     item.icon = info.icon
+                else
+                    item.runnable = false
+                    item.command = nil
+                    item.command_argv = nil
+                    item.description = item.description .. " (unavailable)"
                 end
             elseif action_id == "file_manager" or action_id == "files.default" or action_id == "files" or action_id == "explorer" then
-                local _, info = app_reg.resolve_role("file-manager")
-                if info then
-                    item.command = info.exec
+                local canon, info = M.resolve_role_default("file-manager")
+                if canon and type(info) == "table" then
+                    item.command = info.command
                     item.command_argv = info.command_argv
                     item.desktop_id = info.desktop_id
                     item.icon = info.icon
+                else
+                    item.runnable = false
+                    item.command = nil
+                    item.command_argv = nil
+                    item.description = item.description .. " (unavailable)"
                 end
             elseif action_id == "browser" or action_id == "browser.default" then
-                local _, info = app_reg.resolve_role("browser")
-                if info then
-                    item.command = info.exec
+                local canon, info = M.resolve_role_default("browser")
+                if canon and type(info) == "table" then
+                    item.command = info.command
                     item.command_argv = info.command_argv
                     item.desktop_id = info.desktop_id
                     item.icon = info.icon
+                else
+                    item.runnable = false
+                    item.command = nil
+                    item.command_argv = nil
+                    item.description = item.description .. " (unavailable)"
                 end
             else
                 -- Check legacy specific app shortcuts (e.g. terminal.kitty, files.nautilus)
@@ -688,10 +888,14 @@ function M.resolve_bindings(manifest, overrides)
                 if role_prefix and specific_app then
                     local app_info = app_reg.find_application(specific_app)
                     if app_info then
-                        item.command = app_info.exec
+                        item.command = app_info.command
                         item.command_argv = app_info.command_argv
                         item.desktop_id = app_info.desktop_id
                         item.icon = app_info.icon
+                    else
+                        item.runnable = false
+                        item.command = nil
+                        item.command_argv = nil
                     end
                 end
             end
@@ -741,18 +945,23 @@ function M.resolve_bindings(manifest, overrides)
                 local app_info = app_reg.find_application(did)
                 local app_name = (app_info and app_info.name) or did:gsub("%.desktop$", "")
                 local app_icon = (app_info and app_info.icon) or ""
+                local is_runnable = (app_info ~= nil)
+                local desc = app_name
+                if not is_runnable then
+                    desc = desc .. " (unavailable)"
+                end
                 local item = {
                     id = action_id,
-                    priority = 45,
+                    priority = 100,
                     editable = true,
-                    runnable = true,
+                    runnable = is_runnable,
                     category = "Applications & Launchers",
                     desktop_id = did,
-                    description = app_name,
+                    description = desc,
                     icon = app_icon,
                     action_type = "exec",
-                    command = "gtk-launch -- " .. did,
-                    command_argv = { "gtk-launch", "--", did },
+                    command = is_runnable and ("gtk-launch -- " .. did) or nil,
+                    command_argv = is_runnable and { "gtk-launch", "--", did } or nil,
                     user_created = true,
                 }
                 local ov = overrides[action_id]
@@ -787,18 +996,23 @@ function M.resolve_bindings(manifest, overrides)
                 local app_info = app_reg.find_application(app_desktop)
                 local app_name = (app_info and app_info.name) or app_desktop:gsub("%.desktop$", "")
                 local app_icon = (app_info and app_info.icon) or ""
+                local is_runnable = (app_info ~= nil)
+                local desc = app_name
+                if not is_runnable then
+                    desc = desc .. " (unavailable)"
+                end
                 local item = {
                     id = action_id,
-                    priority = 45,
+                    priority = 100,
                     editable = true,
-                    runnable = true,
+                    runnable = is_runnable,
                     category = "Applications & Launchers",
                     desktop_id = app_desktop,
-                    description = app_name,
+                    description = desc,
                     icon = app_icon,
                     action_type = "exec",
-                    command = "gtk-launch -- " .. app_desktop,
-                    command_argv = { "gtk-launch", "--", app_desktop },
+                    command = is_runnable and ("gtk-launch -- " .. app_desktop) or nil,
+                    command_argv = is_runnable and { "gtk-launch", "--", app_desktop } or nil,
                     user_overridden = true,
                     user_created = true,
                 }
@@ -921,7 +1135,7 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
             if app_info then
                 target_item = {
                     id = action_id,
-                    priority = 45,
+                    priority = 100,
                     editable = true,
                     runnable = true,
                     category = "Applications & Launchers",
@@ -1085,21 +1299,24 @@ function M.get_action_argv(action_id, manifest)
     manifest = manifest or require("keybindings_manifest")
 
     -- Check direct aliases for role actions
-    local resolved_role_app = nil
     if action_id == "terminal" or action_id == "terminal.default" then
-        resolved_role_app = M.resolve_role_default("terminal")
-    elseif action_id == "file_manager" or action_id == "files.default" or action_id == "files" or action_id == "explorer" then
-        resolved_role_app = M.resolve_role_default("file-manager")
-    elseif action_id == "browser" or action_id == "browser.default" then
-        resolved_role_app = M.resolve_role_default("browser")
-    end
-
-    if resolved_role_app then
-        local app_info = app_reg.find_application(resolved_role_app)
-        if app_info and app_info.command_argv then
-            return app_info.command_argv
+        local canon, info = M.resolve_role_default("terminal")
+        if not canon or type(info) ~= "table" or not info.command_argv then
+            return nil, "Application for role 'terminal' is not available"
         end
-        return { resolved_role_app }
+        return info.command_argv
+    elseif action_id == "file_manager" or action_id == "files.default" or action_id == "files" or action_id == "explorer" then
+        local canon, info = M.resolve_role_default("file-manager")
+        if not canon or type(info) ~= "table" or not info.command_argv then
+            return nil, "Application for role 'file-manager' is not available"
+        end
+        return info.command_argv
+    elseif action_id == "browser" or action_id == "browser.default" then
+        local canon, info = M.resolve_role_default("browser")
+        if not canon or type(info) ~= "table" or not info.command_argv then
+            return nil, "Application for role 'browser' is not available"
+        end
+        return info.command_argv
     end
 
     -- Check specific app shortcuts (e.g. files.nautilus, terminal.kitty, browser.firefox)
@@ -1109,7 +1326,7 @@ function M.get_action_argv(action_id, manifest)
         if app_info and app_info.command_argv then
             return app_info.command_argv
         end
-        return { specific_app }
+        return nil, "Application not found or not runnable: " .. tostring(specific_app)
     end
 
     for _, item in ipairs(manifest.bindings or {}) do
@@ -1129,6 +1346,10 @@ function M.get_action_argv(action_id, manifest)
 
     local app_desktop = tostring(action_id):match("^app:([a-zA-Z0-9][%w%-%._]*%.desktop)$")
     if app_desktop then
+        local app_info = app_reg.find_application(app_desktop)
+        if not app_info then
+            return nil, "Desktop application not found in Application Registry: " .. app_desktop
+        end
         return { "gtk-launch", "--", app_desktop }
     end
     return nil, "Action ID not found in manifest: " .. tostring(action_id)
