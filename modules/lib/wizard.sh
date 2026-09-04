@@ -98,6 +98,37 @@ _wizard_read_key() {
     return 0
 }
 
+# Check whether terminal supports ANSI cursor movement for in-place redrawing
+_wizard_supports_cursor() {
+    # Only use cursor manipulation when connected to an interactive tty and not in mock/test mode
+    [[ -z "${WIZARD_MOCK_INPUT:-}" && -t 1 && "${TERM:-}" != "dumb" ]]
+}
+
+# Clear previous frame lines
+_wizard_clear_lines() {
+    local n="${1:-0}"
+    if [[ "$n" -gt 0 ]] && _wizard_supports_cursor; then
+        printf '\r\033[%dA\033[J' "$n"
+    fi
+}
+
+# Render an interactive frame in-place without duplicating menu output
+_wizard_render_frame() {
+    local -n _prev_lines_ref="$1"
+    local frame_text="$2"
+
+    _wizard_clear_lines "$_prev_lines_ref"
+    printf '%s' "$frame_text"
+
+    local -a _lines
+    readarray -t _lines <<< "$frame_text"
+    local count="${#_lines[@]}"
+    if [[ "$count" -gt 0 && -z "${_lines[-1]}" ]]; then
+        count=$((count - 1))
+    fi
+    _prev_lines_ref="$count"
+}
+
 # Render and handle Setup Mode selection screen
 wizard_select_setup_mode() {
     local profile="$1"
@@ -105,27 +136,40 @@ wizard_select_setup_mode() {
 
     local selected=0
     local key=""
+    local prev_lines=0
 
     while true; do
-        printf '\n'
-        printf '============================================================\n'
-        printf 'Fedora Hyprland Workstation Setup (%s profile)\n' "$profile"
-        printf '============================================================\n\n'
-        printf 'Please select a setup mode:\n\n'
+        local frame=""
+        frame+="
+============================================================
+Fedora Hyprland Workstation Setup (${profile} profile)
+============================================================
 
+Please select a setup mode:
+
+"
         if [[ "$selected" -eq 0 ]]; then
-            printf '  (*) Recommended Workstation\n'
-            printf '      Our complete opinionated configuration\n\n'
-            printf '  ( ) Customize Workstation\n'
-            printf '      Choose applications, tools and preferences\n\n'
+            frame+="  (*) Recommended Workstation
+      Our complete opinionated configuration
+
+  ( ) Customize Workstation
+      Choose applications, tools and preferences
+
+"
         else
-            printf '  ( ) Recommended Workstation\n'
-            printf '      Our complete opinionated configuration\n\n'
-            printf '  (*) Customize Workstation\n'
-            printf '      Choose applications, tools and preferences\n\n'
+            frame+="  ( ) Recommended Workstation
+      Our complete opinionated configuration
+
+  (*) Customize Workstation
+      Choose applications, tools and preferences
+
+"
         fi
 
-        printf 'Controls: [Up/Down or j/k] Navigate  [Enter] Select  [q] Cancel\n'
+        frame+="Controls: [Up/Down or j/k] Navigate  [Enter] Select  [q] Cancel
+"
+
+        _wizard_render_frame prev_lines "$frame"
 
         _wizard_read_key key
 
@@ -176,15 +220,21 @@ wizard_customize() {
 
         local key=""
         local leave_cat=0
+        local prev_lines=0
 
         while [[ "$leave_cat" -eq 0 ]]; do
-            printf '\n'
-            printf '============================================================\n'
-            printf 'Customize: %s (Category %d of %d)\n' "$cur_cat" "$(( cat_idx + 1 ))" "$total_cats"
-            printf '============================================================\n\n'
+            local frame=""
+            frame+="
+============================================================
+Customize: ${cur_cat} (Category $(( cat_idx + 1 )) of ${total_cats})
+============================================================
+
+"
 
             if [[ "$total_items" -eq 0 ]]; then
-                printf '  (No components available for this profile in this category)\n\n'
+                frame+="  (No components available for this profile in this category)
+
+"
             else
                 for i in $(seq 0 $(( total_items - 1 ))); do
                     local cid="${comp_ids[$i]}"
@@ -212,13 +262,16 @@ wizard_customize() {
                     local req_note=""
                     [[ "$is_req" == "true" ]] && req_note=" [REQUIRED]"
 
-                    printf '%s[%s] %-20s - %s%s\n' "$prefix" "$marker" "$name" "$desc" "$req_note"
+                    frame+="$(printf '%s[%s] %-20s - %s%s\n' "$prefix" "$marker" "$name" "$desc" "$req_note")"
                 done
-                printf '\n'
+                frame+=$'\n'
             fi
 
-            printf 'Controls: [Up/Down] Navigate  [Space] Toggle Select/Unmanage  [r/d] Mark Remove\n'
-            printf '          [Enter] Next Category  [Esc] Prev Category  [q] Cancel\n'
+            frame+="Controls: [Up/Down] Navigate  [Space] Toggle Select/Unmanage  [r/d] Mark Remove
+          [Enter] Next Category  [Esc] Prev Category  [q] Cancel
+"
+
+            _wizard_render_frame prev_lines "$frame"
 
             _wizard_read_key key
 
@@ -319,11 +372,15 @@ wizard_configure_defaults() {
 
             local key=""
             local done_role=0
+            local prev_lines=0
             while [[ "$done_role" -eq 0 ]]; do
-                printf '\n'
-                printf '============================================================\n'
-                printf 'Choose Default Application for: %s\n' "$role"
-                printf '============================================================\n\n'
+                local frame=""
+                frame+="
+============================================================
+Choose Default Application for: ${role}
+============================================================
+
+"
 
                 for i in $(seq 0 $(( ${#managed_providers[@]} - 1 ))); do
                     local pid="${managed_providers[$i]}"
@@ -331,9 +388,13 @@ wizard_configure_defaults() {
                     pname="$(get_component_attr "$pid" display_name)"
                     local mark="( )"
                     [[ "$i" -eq "$sel" ]] && mark="(*)"
-                    printf '  %s %s\n' "$mark" "$pname"
+                    frame+="$(printf '  %s %s\n' "$mark" "$pname")"
                 done
-                printf '\nControls: [Up/Down] Choose  [Enter] Confirm  [q] Cancel\n'
+                frame+="
+Controls: [Up/Down] Choose  [Enter] Confirm  [q] Cancel
+"
+
+                _wizard_render_frame prev_lines "$frame"
 
                 _wizard_read_key key
                 case "$key" in
@@ -380,10 +441,10 @@ wizard_review_plan() {
     while true; do
         printf 'Select option [a/e/c]: '
         _wizard_read_key key
-        printf '\n'
 
         case "$key" in
             APPLY|a|A)
+                printf 'a\n'
                 if [[ "$has_removals" -eq 1 ]]; then
                     printf '\n'
                     printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
@@ -404,12 +465,17 @@ wizard_review_plan() {
                 return 0
                 ;;
             EDIT|e|E)
+                printf 'e\n'
                 out_action="EDIT"
                 return 0
                 ;;
             CANCEL|QUIT|ESC|c|C)
+                printf 'c\n'
                 out_action="CANCEL"
                 return 0
+                ;;
+            *)
+                printf '\n'
                 ;;
         esac
     done
