@@ -97,7 +97,7 @@ for idx, b in ipairs(manifest.bindings) do
         seen_keys[b.key] = true
     end
 
-    if b.key == "SUPER + K" and b.command == "workstation-hotkeys" then
+    if b.key == "SUPER + K" and (b.command == "workstation-keybindings" or b.command == "workstation-hotkeys") then
         has_super_k = true
     end
 
@@ -320,7 +320,7 @@ else
     fail "config/desktop-entries/workstation-hotkeys.desktop is missing"
 fi
 
-if grep -q "^Name=Hotkeys$" "$hotkeys_desktop" &&
+if (grep -q "^Name=Keybindings$" "$hotkeys_desktop" || grep -q "^Name=Hotkeys$" "$hotkeys_desktop") &&
    grep -q "^Exec=workstation-hotkeys$" "$hotkeys_desktop"; then
     pass "workstation-hotkeys.desktop has valid Name and Exec properties"
 else
@@ -482,10 +482,10 @@ print("NOT_FOUND")
 LUA_CHECK
 )"
 
-if [[ "$manifest_hotkeys_cmd" == "workstation-hotkeys" ]]; then
-    pass "keybindings_manifest.lua binds SUPER+K to workstation-hotkeys reference"
+if [[ "$manifest_hotkeys_cmd" == "workstation-keybindings" || "$manifest_hotkeys_cmd" == "workstation-hotkeys" ]]; then
+    pass "keybindings_manifest.lua binds SUPER+K to workstation-keybindings reference"
 else
-    fail "SUPER+K does not bind to workstation-hotkeys: $manifest_hotkeys_cmd"
+    fail "SUPER+K does not bind to workstation-keybindings: $manifest_hotkeys_cmd"
 fi
 
 # Ensure no dead standalone workstation-launcher architecture remains
@@ -1132,7 +1132,7 @@ if [[ "${top_action_ids[0]}" == "launcher" &&
       "${top_action_ids[1]}" == "terminal" &&
       "${top_action_ids[2]}" == "file_manager" &&
       "${top_action_ids[3]}" == "browser" &&
-      "${top_action_ids[4]}" == "hotkeys" &&
+      ( "${top_action_ids[4]}" == "keybindings" || "${top_action_ids[4]}" == "hotkeys" ) &&
       "${top_action_ids[5]}" == "desktop_settings" &&
       "${top_action_ids[6]}" == "lock_screen" ]]; then
     pass "workstation-hotkeys presents items in explicit deterministic metadata-driven priority order"
@@ -1140,34 +1140,13 @@ else
     fail "workstation-hotkeys ordering mismatch: ${top_action_ids[*]:0:7}"
 fi
 
-# 2. Context-sensitive status bar preview generation
-p_run="$("$ROOT/bin/workstation-hotkeys" preview "terminal" "true" "true" "SUPER + RETURN")"
-p_ctx="$("$ROOT/bin/workstation-hotkeys" preview "window_close" "false" "true" "SUPER + Q")"
-p_unset="$("$ROOT/bin/workstation-hotkeys" preview "terminal" "true" "true" "None (Unbound)")"
-p_ro="$("$ROOT/bin/workstation-hotkeys" preview "workspaces_switch_1_10" "false" "false" "SUPER + 1")"
-
-if [[ "$p_run" == *"↵ Run"* && "$p_run" == *"Alt+S Set"* && "$p_run" == *"Alt+U Unset"* && "$p_run" == *"Esc Close"* ]]; then
-    pass "status bar preview displays [↵ Run    Alt+S Set    Alt+U Unset    Esc Close] for runnable+settable"
+# 2. Legacy fzf provider removal and rejection
+leg_rc=0
+leg_err="$("$ROOT/bin/workstation-keybindings" --provider=legacy 2>&1)" || leg_rc=$?
+if [[ "$leg_rc" -ne 0 && "$leg_err" == *"Legacy provider has been removed"* ]]; then
+    pass "legacy fzf provider is removed and fails closed with actionable error"
 else
-    fail "runnable status bar preview failed: $p_run"
-fi
-
-if [[ "$p_ctx" == *"Alt+S Set"* && "$p_ctx" == *"Alt+U Unset"* && "$p_ctx" == *"Esc Close"* && "$p_ctx" != *"↵ Run"* ]]; then
-    pass "status bar preview displays [Alt+S Set    Alt+U Unset    Esc Close] for non-runnable context action"
-else
-    fail "context status bar preview failed: $p_ctx"
-fi
-
-if [[ "$p_unset" == *"Alt+S Set"* && "$p_unset" == *"Esc Close"* && "$p_unset" != *"Alt+U Unset"* && "$p_unset" != *"↵ Run"* ]]; then
-    pass "status bar preview displays [Alt+S Set    Esc Close] for unset action"
-else
-    fail "unset status bar preview failed: $p_unset"
-fi
-
-if [[ "$p_ro" == *"Esc Close"* && "$p_ro" != *"Alt+S Set"* && "$p_ro" != *"Alt+U Unset"* && "$p_ro" != *"↵ Run"* ]]; then
-    pass "status bar preview displays [Esc Close] for read-only system actions"
-else
-    fail "read-only status bar preview failed: $p_ro"
+    fail "legacy fzf provider was not rejected: rc=$leg_rc err=$leg_err"
 fi
 
 # 3. Application shortcut assignment
@@ -1229,12 +1208,11 @@ else
     fail "second display row format unexpected: $second_display_row"
 fi
 
-if [[ -z "$meta_leak_col" ]] &&
-   grep -q -- '--with-nth=2[[:space:]]' "$ROOT/bin/workstation-hotkeys" &&
-   ! grep -q -- '--with-nth=2,10' "$ROOT/bin/workstation-hotkeys"; then
-    pass "fzf is configured strictly with --with-nth=2 and does not leak hidden metadata fields"
+if ! grep -q 'fzf' "$ROOT/bin/workstation-keybindings" &&
+   ! grep -q 'foot --app-id=workstation-hotkeys' "$ROOT/bin/workstation-keybindings"; then
+    pass "workstation-keybindings has zero fzf UI or terminal fallback dependencies"
 else
-    fail "fzf field configuration or metadata leak detected: col10='$meta_leak_col'"
+    fail "workstation-keybindings still contains fzf execution or terminal fallback references"
 fi
 
 # Verification of format_friendly_key and canonical invariance

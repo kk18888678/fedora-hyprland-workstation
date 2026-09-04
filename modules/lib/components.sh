@@ -661,17 +661,8 @@ install_aurelia_adapter() {
     fi
 }
 
-# hotkeys providers
-detect_legacy_hotkeys() {
-    command_exists workstation-hotkeys
-}
-configure_legacy_hotkeys() {
-    if declare -F set_workstation_hotkeys_provider >/dev/null 2>&1; then
-        set_workstation_hotkeys_provider "legacy"
-    fi
-}
-
-detect_aurelia_hotkeys() {
+# keybindings / hotkeys providers
+detect_aurelia_keybindings() {
     local aurelia_dir="${TARGET_HOME:-$HOME}/.config/aurelia"
     [[ -e "$aurelia_dir" ]] || return 1
     if [[ -L "$aurelia_dir" ]]; then
@@ -679,20 +670,20 @@ detect_aurelia_hotkeys() {
         real_target="$(readlink -f "$aurelia_dir" 2>/dev/null || true)"
         [[ -n "$real_target" && -d "$real_target" ]] || return 1
     fi
-    [[ -f "$aurelia_dir/components/hotkeys/HotkeysWindow.qml" && \
-       -f "$aurelia_dir/components/hotkeys/HotkeysModel.qml" && \
-       -f "$aurelia_dir/components/hotkeys/HotkeyRow.qml" && \
+    [[ (-f "$aurelia_dir/components/keybindings/KeybindingsWindow.qml" || -f "$aurelia_dir/components/hotkeys/HotkeysWindow.qml") && \
+       (-f "$aurelia_dir/components/keybindings/KeybindingsModel.qml" || -f "$aurelia_dir/components/hotkeys/HotkeysModel.qml") && \
+       (-f "$aurelia_dir/components/keybindings/KeybindingRow.qml" || -f "$aurelia_dir/components/hotkeys/HotkeyRow.qml") && \
        -f "$aurelia_dir/theme/Theme.qml" && \
        -f "$aurelia_dir/theme/qmldir" ]]
 }
-validate_aurelia_hotkeys() {
+validate_aurelia_keybindings() {
     # 1. Quickshell runtime binary exists and satisfies provenance
     detect_quickshell || return 1
     (command -v qs >/dev/null 2>&1 || command -v quickshell >/dev/null 2>&1) || return 1
 
-    # 2. Aurelia shell and hotkeys QML component tree
+    # 2. Aurelia shell and keybindings QML component tree
     detect_aurelia || return 1
-    detect_aurelia_hotkeys || return 1
+    detect_aurelia_keybindings || return 1
 
     # 3. Target directory ownership matches expected target user
     local aurelia_dir="${TARGET_HOME:-$HOME}/.config/aurelia"
@@ -707,15 +698,20 @@ validate_aurelia_hotkeys() {
     fi
     return 0
 }
-configure_aurelia_hotkeys() {
+configure_aurelia_keybindings() {
     if ! detect_quickshell; then
-        warn "Cannot set hotkeys provider to 'aurelia': quickshell runtime is not available."
+        warn "Cannot configure Aurelia keybindings: quickshell runtime is not available."
         return 1
     fi
-    if declare -F set_workstation_hotkeys_provider >/dev/null 2>&1; then
-        set_workstation_hotkeys_provider "aurelia"
+    if declare -F set_workstation_keybindings_provider >/dev/null 2>&1; then
+        set_workstation_keybindings_provider "aurelia"
     fi
 }
+
+# Compatibility aliases
+detect_aurelia_hotkeys() { detect_aurelia_keybindings "$@"; }
+validate_aurelia_hotkeys() { validate_aurelia_keybindings "$@"; }
+configure_aurelia_hotkeys() { configure_aurelia_keybindings "$@"; }
 
 # file managers
 detect_nautilus() {
@@ -879,30 +875,34 @@ init_default_components() {
         install_fn "install_aurelia_adapter"
 
     register_component \
-        id "desktop.hotkeys.legacy" \
-        display_name "Legacy Hotkeys Manager (fzf)" \
+        id "desktop.keybindings.aurelia" \
+        display_name "Aurelia Keybindings (Quickshell)" \
         category "Desktop" \
-        description "Terminal-based shortcuts manager using fzf" \
-        supported_profiles "workstation vm" \
-        recommended false \
-        required false \
-        removable true \
-        conflicts "desktop.hotkeys.aurelia" \
-        provides "hotkeys_provider" \
-        detect_fn "detect_legacy_hotkeys" \
-        configure_fn "configure_legacy_hotkeys"
-
-    register_component \
-        id "desktop.hotkeys.aurelia" \
-        display_name "Aurelia Hotkeys (Quickshell)" \
-        category "Desktop" \
-        description "Native graphical hotkeys component powered by Quickshell" \
+        description "Native graphical keybindings component powered by Quickshell" \
         supported_profiles "workstation vm" \
         recommended true \
         required false \
         removable true \
-        conflicts "desktop.hotkeys.legacy" \
-        provides "hotkeys_provider" \
+        conflicts "desktop.hotkeys.aurelia" \
+        provides "keybindings_provider hotkeys_provider" \
+        dependencies "quickshell" \
+        detect_fn "detect_aurelia_keybindings" \
+        install_fn "install_aurelia_adapter" \
+        validate_fn "validate_aurelia_keybindings" \
+        configure_fn "configure_aurelia_keybindings"
+
+    # Compatibility alias for desktop.hotkeys.aurelia
+    register_component \
+        id "desktop.hotkeys.aurelia" \
+        display_name "Aurelia Keybindings (Compatibility Alias)" \
+        category "Desktop" \
+        description "Compatibility alias for desktop.keybindings.aurelia" \
+        supported_profiles "workstation vm" \
+        recommended false \
+        required false \
+        removable true \
+        conflicts "desktop.keybindings.aurelia" \
+        provides "keybindings_provider hotkeys_provider" \
         dependencies "quickshell" \
         detect_fn "detect_aurelia_hotkeys" \
         install_fn "install_aurelia_adapter" \

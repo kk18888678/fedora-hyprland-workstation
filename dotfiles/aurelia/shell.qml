@@ -2,73 +2,118 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "./theme"
-import "./components/hotkeys"
+import "./components/keybindings"
 
 ShellRoot {
     id: root
 
-    // Aurelia Quickshell Shell Root
-    // Production-ready, event-driven, single-process host for Aurelia desktop shell components.
+    // Aurelia Desktop Shell Host
+    // Single-process host for resident and on-demand Aurelia shell components.
+    //
+    // Lifecycle policy:
+    // Keybindings is intentionally kept resident in memory to guarantee sub-100ms warm
+    // opening times on Super+K without process spawn latency. Inactive state consumes
+    // zero CPU and no background polling timers.
 
-    property bool hotkeysEnabled: true
+    property bool keybindingsEnabled: true
+    property alias hotkeysEnabled: root.keybindingsEnabled
 
     Component.onCompleted: {
-        console.info("[PERF] ShellRoot: Aurelia shell initialization complete (hotkeysEnabled=" + root.hotkeysEnabled + ")")
+        console.info("[PERF] ShellRoot: Aurelia shell initialization complete (keybindingsEnabled=" + root.keybindingsEnabled + ")")
     }
 
-    // IPC Endpoint for Aurelia Hotkeys Component
+    // Primary IPC Endpoint: Aurelia Keybindings Component
     IpcHandler {
-        target: "hotkeys"
+        target: "keybindings"
 
         function ping(): bool {
-            return hotkeysLoader.item !== null
+            return keybindingsLoader.item !== null
         }
 
         function toggle(): void {
-            if (hotkeysLoader.item) {
-                var next = !hotkeysLoader.item.visible
-                console.info("[IPC] hotkeys.toggle() -> visible=" + next)
-                hotkeysLoader.item.visible = next
+            if (keybindingsLoader.item) {
+                var next = !keybindingsLoader.item.visible
+                console.info("[IPC] keybindings.toggle() -> visible=" + next)
+                keybindingsLoader.item.visible = next
             } else {
-                console.warn("[IPC-WARN] hotkeys.toggle() called but item not loaded")
+                console.warn("[IPC-WARN] keybindings.toggle() called but item not loaded")
             }
         }
 
         function open(): void {
-            if (hotkeysLoader.item) {
-                console.info("[IPC] hotkeys.open()")
-                hotkeysLoader.item.visible = true
+            if (keybindingsLoader.item) {
+                console.info("[IPC] keybindings.open()")
+                keybindingsLoader.item.visible = true
             }
         }
 
         function close(): void {
-            if (hotkeysLoader.item) {
-                console.info("[IPC] hotkeys.close()")
-                hotkeysLoader.item.visible = false
+            if (keybindingsLoader.item) {
+                console.info("[IPC] keybindings.close()")
+                keybindingsLoader.item.visible = false
             }
         }
 
         function isVisible(): bool {
-            return hotkeysLoader.item ? hotkeysLoader.item.visible : false
+            return keybindingsLoader.item ? keybindingsLoader.item.visible : false
         }
 
         function selectIndex(idx: int): void {
-            if (hotkeysLoader.item && hotkeysLoader.item.hotkeysModel) {
-                hotkeysLoader.item.hotkeysModel.selectedIndex = idx
+            if (keybindingsLoader.item && keybindingsLoader.item.keybindingsModel) {
+                keybindingsLoader.item.keybindingsModel.selectedIndex = idx
             }
         }
     }
 
-    // Lazy/Conditional Loader for Hotkeys Component
-    // Inactive components do not allocate windows or timers.
-    Loader {
-        id: hotkeysLoader
-        active: root.hotkeysEnabled
-        onLoaded: {
-            console.info("[PERF] ShellRoot: HotkeysWindow component loaded successfully")
+    // Backwards compatibility IPC Endpoint: forwards hotkeys target to keybindings
+    IpcHandler {
+        target: "hotkeys"
+
+        function ping(): bool {
+            return keybindingsLoader.item !== null
         }
-        sourceComponent: HotkeysWindow {
+
+        function toggle(): void {
+            if (keybindingsLoader.item) {
+                keybindingsLoader.item.visible = !keybindingsLoader.item.visible
+            }
+        }
+
+        function open(): void {
+            if (keybindingsLoader.item) {
+                keybindingsLoader.item.visible = true
+            }
+        }
+
+        function close(): void {
+            if (keybindingsLoader.item) {
+                keybindingsLoader.item.visible = false
+            }
+        }
+
+        function isVisible(): bool {
+            return keybindingsLoader.item ? keybindingsLoader.item.visible : false
+        }
+
+        function selectIndex(idx: int): void {
+            if (keybindingsLoader.item && keybindingsLoader.item.keybindingsModel) {
+                keybindingsLoader.item.keybindingsModel.selectedIndex = idx
+            }
+        }
+    }
+
+    // Resident Loader for Keybindings Component
+    Loader {
+        id: keybindingsLoader
+        active: root.keybindingsEnabled
+        onLoaded: {
+            console.info("[PERF] ShellRoot: KeybindingsWindow component loaded successfully")
+        }
+        sourceComponent: KeybindingsWindow {
             visible: false
         }
     }
+
+    // Compatibility alias
+    property alias hotkeysLoader: keybindingsLoader
 }

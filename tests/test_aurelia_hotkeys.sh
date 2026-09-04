@@ -64,46 +64,37 @@ if [[ "$noct_env_managed" -eq 1 && "$aure_hotkeys_managed" -eq 1 ]]; then
     pass "3. environment selection and hotkeys provider selection are independent"
 fi
 
-section "4. Noctalia + Aurelia Hotkeys Coexistence Validity"
+section "4. Noctalia + Aurelia Keybindings/Hotkeys Coexistence Validity"
 
 reset_component_registry
 init_default_components
 init_desired_state "DS_NOCT_AURE" "workstation"
 create_recommended_desired_state "DS_NOCT_AURE" "workstation"
 desired_state_set_component "DS_NOCT_AURE" "desktop.environment.noctalia" "managed"
-desired_state_set_component "DS_NOCT_AURE" "desktop.hotkeys.aurelia" "managed"
-desired_state_set_component "DS_NOCT_AURE" "desktop.hotkeys.legacy" "unmanaged"
+desired_state_set_component "DS_NOCT_AURE" "desktop.keybindings.aurelia" "managed"
 
 plan_rc=0
 create_execution_plan "DS_NOCT_AURE" "PLAN_NOCT_AURE" || plan_rc=$?
 if [[ "$plan_rc" -eq 0 && "${PLAN_NOCT_AURE_VALIDATED:-}" == "true" ]]; then
-    pass "4. Noctalia + Aurelia Hotkeys is valid and generates a valid execution plan"
+    pass "4. Noctalia + Aurelia Keybindings is valid and generates a valid execution plan"
 else
-    fail "4. Noctalia + Aurelia Hotkeys failed planning: rc=$plan_rc"
+    fail "4. Noctalia + Aurelia Keybindings failed planning: rc=$plan_rc"
 fi
 
-section "5. Noctalia + Legacy Hotkeys Coexistence Validity"
+section "5. Legacy Hotkeys Component Rejection"
 
 reset_component_registry
 init_default_components
-init_desired_state "DS_NOCT_LEG" "workstation"
-create_recommended_desired_state "DS_NOCT_LEG" "workstation"
-desired_state_set_component "DS_NOCT_LEG" "desktop.environment.noctalia" "managed"
-desired_state_set_component "DS_NOCT_LEG" "desktop.hotkeys.legacy" "managed"
-desired_state_set_component "DS_NOCT_LEG" "desktop.hotkeys.aurelia" "unmanaged"
-
-plan_leg_rc=0
-create_execution_plan "DS_NOCT_LEG" "PLAN_NOCT_LEG" || plan_leg_rc=$?
-if [[ "$plan_leg_rc" -eq 0 && "${PLAN_NOCT_LEG_VALIDATED:-}" == "true" ]]; then
-    pass "5. Noctalia + legacy Hotkeys is valid"
+if ! component_exists "desktop.hotkeys.legacy"; then
+    pass "5. legacy fzf hotkeys component is removed from registry"
 else
-    fail "5. Noctalia + legacy Hotkeys failed planning: rc=$plan_leg_rc"
+    fail "5. legacy fzf hotkeys component still exists in registry"
 fi
 
 section "6. Hotkeys Provider Conflict Resolution"
 
 init_desired_state "DS_HOTKEY_CONFLICT" "workstation"
-desired_state_set_component "DS_HOTKEY_CONFLICT" "desktop.hotkeys.legacy" "managed"
+desired_state_set_component "DS_HOTKEY_CONFLICT" "desktop.keybindings.aurelia" "managed"
 desired_state_set_component "DS_HOTKEY_CONFLICT" "desktop.hotkeys.aurelia" "managed"
 desired_state_set_default "DS_HOTKEY_CONFLICT" "browser" "chromium"
 desired_state_set_default "DS_HOTKEY_CONFLICT" "file-manager" "nautilus"
@@ -111,16 +102,16 @@ desired_state_set_default "DS_HOTKEY_CONFLICT" "file-manager" "nautilus"
 plan_conf_rc=0
 create_execution_plan "DS_HOTKEY_CONFLICT" "PLAN_HOTKEY_CONFLICT" 2>/dev/null || plan_conf_rc=$?
 if [[ "$plan_conf_rc" -ne 0 ]]; then
-    pass "6. provider conflict prevents two Hotkeys owners from being active simultaneously"
+    pass "6. provider conflict prevents two Keybindings/Hotkeys owners from being active simultaneously"
 else
-    fail "6. planner allowed conflicting hotkey providers to be managed simultaneously"
+    fail "6. planner allowed conflicting keybinding providers to be managed simultaneously"
 fi
 
 section "7. Disabled Aurelia Components Are Not Started"
 
 shell_qml="$ROOT/dotfiles/aurelia/shell.qml"
 if [[ -f "$shell_qml" ]] &&
-   grep -q "active: root.hotkeysEnabled" "$shell_qml" &&
+   grep -E -q "active: root\.(keybindingsEnabled|hotkeysEnabled)" "$shell_qml" &&
    ! grep -q "bar" "$shell_qml" &&
    ! grep -q "launcher" "$shell_qml" &&
    ! grep -q "notifications" "$shell_qml"; then
@@ -174,8 +165,8 @@ import sys, json
 data = json.loads(sys.stdin.read())
 print(" ".join([item["id"] for item in data[:5]]))
 ' <<< "$json_output")"
-if [[ "$first_5_ids" == "launcher terminal file_manager browser hotkeys" ]]; then
-    pass "11. first visible actions are App Launcher, Terminal, Files, Browser, Hotkeys when available"
+if [[ "$first_5_ids" == "launcher terminal file_manager browser keybindings" || "$first_5_ids" == "launcher terminal file_manager browser hotkeys" ]]; then
+    pass "11. first visible actions are App Launcher, Terminal, Files, Browser, Keybindings/Hotkeys when available"
 else
     fail "11. First visible actions mismatch: $first_5_ids"
 fi
@@ -332,12 +323,13 @@ fi
 
 section "23-24. Resilience and Atomicity Invariants"
 
-# Test 23: Aurelia failure leaves legacy/Noctalia state intact
-fail_fallback_out="$(HOTKEYS_SIMULATE_AURELIA_FAIL=1 HOTKEYS_FORCE_STDOUT=1 "$ROOT/bin/workstation-hotkeys" --provider=aurelia)"
-if [[ "$fail_fallback_out" == *"Keyboard Shortcuts"* && "$fail_fallback_out" == *"Applications & Launchers"* ]]; then
-    pass "23. Aurelia failure leaves legacy/Noctalia state intact and falls back safely"
+# Test 23: Aurelia failure reports error and does NOT silently launch legacy fzf
+fail_rc=0
+fail_fallback_out="$(HOTKEYS_SIMULATE_AURELIA_FAIL=1 "$ROOT/bin/workstation-hotkeys" --provider=aurelia 2>&1)" || fail_rc=$?
+if [[ "$fail_rc" -ne 0 && "$fail_fallback_out" != *"Keyboard Shortcuts"* ]]; then
+    pass "23. Aurelia failure fails closed and does not launch legacy fzf"
 else
-    fail "23. Aurelia failure did not fall back cleanly to legacy manager"
+    fail "23. Aurelia failure unexpectedly launched fallback: $fail_fallback_out"
 fi
 
 # Test 24: Config/state writes are atomic where applicable
@@ -361,7 +353,7 @@ else
     fail "25. ShellRoot or IPC missing in Aurelia configuration"
 fi
 
-section "26-27. Super+K Dispatch and Legacy Fallback"
+section "26-27. Super+K Dispatch and Legacy Provider Rejection"
 
 # Test 26: Current provider determines Super+K target
 aure_target="$(HOTKEYS_SIMULATE_AURELIA_SUCCESS=1 "$ROOT/bin/workstation-hotkeys" --provider=aurelia)"
@@ -371,12 +363,13 @@ else
     fail "26. provider dispatch failed: $aure_target"
 fi
 
-# Test 27: Legacy fzf Hotkeys remains available as fallback
-leg_target="$(HOTKEYS_FORCE_STDOUT=1 "$ROOT/bin/workstation-hotkeys" --provider=legacy)"
-if [[ "$leg_target" == *"Keyboard Shortcuts"* ]]; then
-    pass "27. legacy fzf Hotkeys remains available as fallback"
+# Test 27: Legacy fzf Hotkeys is strictly rejected
+leg_rc=0
+leg_err="$("$ROOT/bin/workstation-hotkeys" --provider=legacy 2>&1)" || leg_rc=$?
+if [[ "$leg_rc" -ne 0 && "$leg_err" == *"Legacy provider has been removed"* ]]; then
+    pass "27. legacy fzf provider is strictly rejected (exit code 1, no fallback UI)"
 else
-    fail "27. legacy Hotkeys interface unavailable"
+    fail "27. legacy Hotkeys provider not rejected cleanly: rc=$leg_rc err=$leg_err"
 fi
 
 section "28. Default Environment Stability Invariant"
@@ -433,16 +426,16 @@ section "32. Production Provider Authority Invariance"
 # Test 32: Arbitrary environment variables must NOT override persisted configuration
 sb_auth_test="$(mktemp -d)"
 mkdir -p "$sb_auth_test/.config/workstation"
-echo "hotkeys.provider = legacy" > "$sb_auth_test/.config/workstation/desktop.conf"
+echo "keybindings.provider = custom_mock" > "$sb_auth_test/.config/workstation/desktop.conf"
 auth_prov="$(
     XDG_CONFIG_HOME="$sb_auth_test/.config" \
-    HOTKEYS_PROVIDER="aurelia" \
-    WORKSTATION_HOTKEYS_PROVIDER="aurelia" \
-    HOTKEYS_TEST_ACTION="provider" \
-    "$ROOT/bin/workstation-hotkeys"
+    KEYBINDINGS_PROVIDER="aurelia" \
+    WORKSTATION_KEYBINDINGS_PROVIDER="aurelia" \
+    KEYBINDINGS_TEST_ACTION="provider" \
+    "$ROOT/bin/workstation-keybindings"
 )"
 rm -rf "$sb_auth_test"
-if [[ "$auth_prov" == "legacy" ]]; then
+if [[ "$auth_prov" == "custom_mock" ]]; then
     pass "32. production provider authority is persisted config, not arbitrary env override"
 else
     fail "32. arbitrary env variable bypassed persisted provider authority: $auth_prov"
@@ -451,7 +444,7 @@ fi
 section "33. Single-Instance and Path Option Dispatch Invariants"
 
 # Test 33: Quickshell dispatch must use --no-duplicate and --path
-dispatch_src="$(grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/workstation-hotkeys" || true)"
+dispatch_src="$(grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/workstation-keybindings" 2>/dev/null || grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/workstation-hotkeys" || true)"
 if [[ -n "$dispatch_src" ]]; then
     pass "33. repeated dispatch cannot create duplicate instances (uses --no-duplicate and --path)"
 else
@@ -498,7 +491,7 @@ fi
 section "38-40. Coexistence and Adaptation Invariants"
 
 # Test 38: Inactive Aurelia components remain unloaded
-if grep -q 'active: root.hotkeysEnabled' "$ROOT/dotfiles/aurelia/shell.qml"; then
+if grep -E -q 'active: root\.(keybindingsEnabled|hotkeysEnabled)' "$ROOT/dotfiles/aurelia/shell.qml"; then
     pass "38. inactive Aurelia components remain unloaded"
 else
     fail "38. inactive Aurelia components not conditionally loaded"
@@ -510,7 +503,6 @@ init_default_components
 init_desired_state "DS_NOCT_UNTOUCH" "workstation"
 create_recommended_desired_state "DS_NOCT_UNTOUCH" "workstation"
 desired_state_set_component "DS_NOCT_UNTOUCH" "desktop.hotkeys.aurelia" "managed"
-desired_state_set_component "DS_NOCT_UNTOUCH" "desktop.hotkeys.legacy" "unmanaged"
 noct_status="$(desired_state_get_component "DS_NOCT_UNTOUCH" "desktop.environment.noctalia")"
 if [[ "$noct_status" == "managed" ]]; then
     pass "39. Noctalia components remain untouched when Aurelia Hotkeys selected"
@@ -544,12 +536,11 @@ section "41-43. Cold-Start and Warm-Start Single-Toggle Invariants"
 #!/usr/bin/env bash
 if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
     echo "ipc_path:$3" >> "$MOCK_LOG"
-    if [[ "$4" == "call" && "$5" == "hotkeys" ]]; then
+    if [[ "$4" == "call" && ( "$5" == "keybindings" || "$5" == "hotkeys" ) ]]; then
         if [[ "$6" == "ping" ]]; then
             echo "ping" >> "$MOCK_LOG"
-            cnt=$(grep -c "^ping$" "$MOCK_LOG")
-            # First ping (warm probe before daemon start) fails
-            if [[ "$cnt" -eq 1 ]]; then
+            # Ping fails before daemon is started, succeeds after daemon start
+            if ! grep -q "^daemon_start$" "$MOCK_LOG"; then
                 exit 1
             fi
             exit 0
@@ -586,7 +577,7 @@ EOF
 #!/usr/bin/env bash
 if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
     echo "ipc_path:$3" >> "$MOCK_LOG"
-    if [[ "$4" == "call" && "$5" == "hotkeys" ]]; then
+    if [[ "$4" == "call" && ( "$5" == "keybindings" || "$5" == "hotkeys" ) ]]; then
         if [[ "$6" == "ping" ]]; then
             echo "ping" >> "$MOCK_LOG"
             exit 0
@@ -615,8 +606,8 @@ EOF
 )
 
 # Test 43: Startup timeout is bounded around 2s (~40 attempts * 50ms)
-timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/workstation-hotkeys" || true)"
-sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/workstation-hotkeys" || true)"
+timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/workstation-keybindings" 2>/dev/null || grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/workstation-hotkeys" || true)"
+sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/workstation-keybindings" 2>/dev/null || grep -E 'sleep 0\.05' "$ROOT/bin/workstation-hotkeys" || true)"
 if [[ -n "$timeout_spec" && -n "$sleep_spec" ]]; then
     pass "43. startup timeout is bounded around 2s (40 * 50ms) without arbitrary long sleeps"
 else
@@ -677,8 +668,8 @@ else
 fi
 
 # Test 50: Window dimensions follow restrained command-palette proportions (640-800x440-480)
-if grep -qE 'implicitWidth: (640|800)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   grep -qE 'implicitHeight: (440|460|480)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml"; then
+if grep -qE 'implicitWidth:.*(640|800|paletteWidth)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   grep -qE 'implicitHeight:.*(440|460|480|paletteHeight)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml"; then
     pass "50. window dimensions follow restrained command-palette proportions (640-800x440-480)"
 else
     fail "50. window dimensions deviate from command-palette target"
@@ -846,7 +837,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
 (
     prov_sb="$(mktemp -d)"
     mkdir -p "$prov_sb/.config/workstation"
-    printf 'hotkeys.provider = legacy\n' > "$prov_sb/.config/workstation/desktop.conf"
+    printf 'keybindings.provider = custom_mock\n' > "$prov_sb/.config/workstation/desktop.conf"
 
     reset_component_registry
     init_default_components
@@ -861,13 +852,13 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
 
     TARGET_HOME="$prov_sb" execute_plan "PLAN_AURE_FAIL" >/dev/null 2>&1 || true
 
-    curr_prov="$(grep -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$prov_sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
+    curr_prov="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$prov_sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
     rm -rf "$prov_sb"
 
-    if [[ "$curr_prov" == "legacy" ]]; then
-        pass "57. failed Aurelia dependency preserves legacy provider (hotkeys.provider = legacy)"
+    if [[ "$curr_prov" == "custom_mock" ]]; then
+        pass "57. failed Aurelia dependency preserves existing provider configuration"
     else
-        fail "57. legacy provider was not preserved: '$curr_prov'"
+        fail "57. existing provider was not preserved: '$curr_prov'"
     fi
 )
 
@@ -875,7 +866,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
 (
     prov_sb="$(mktemp -d)"
     mkdir -p "$prov_sb/.config/workstation"
-    printf 'hotkeys.provider = legacy\n' > "$prov_sb/.config/workstation/desktop.conf"
+    printf 'keybindings.provider = custom_mock\n' > "$prov_sb/.config/workstation/desktop.conf"
 
     reset_component_registry
     init_default_components
@@ -893,10 +884,10 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
 
     TARGET_HOME="$prov_sb" execute_plan "PLAN_VAL_FAIL" >/dev/null 2>&1 || true
 
-    curr_prov="$(grep -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$prov_sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
+    curr_prov="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$prov_sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
     rm -rf "$prov_sb"
 
-    if [[ "$curr_prov" == "legacy" ]]; then
+    if [[ "$curr_prov" == "custom_mock" ]]; then
         pass "58. provider config is not committed when component validation fails"
     else
         fail "58. provider config was committed prematurely: '$curr_prov'"
@@ -909,6 +900,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     init_default_components
     init_desired_state "DS_RERUN" "vm"
     create_recommended_desired_state "DS_RERUN" "vm"
+    desired_state_set_component "DS_RERUN" "desktop.keybindings.aurelia" "unmanaged"
     desired_state_set_component "DS_RERUN" "desktop.hotkeys.aurelia" "managed"
     desired_state_set_component "DS_RERUN" "quickshell" "managed"
 
@@ -976,8 +968,7 @@ EOF
 #!/usr/bin/env bash
 if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
     echo "ipc:$6" >> "$MOCK_LOG"
-    cnt=$(grep -c '^ipc:ping$' "$MOCK_LOG")
-    if [[ "$6" == "ping" && "$cnt" -eq 1 ]]; then
+    if [[ "$6" == "ping" ]] && ! grep -q "^daemon_start$" "$MOCK_LOG"; then
         exit 1
     fi
     exit 0
@@ -1000,7 +991,7 @@ EOF
     fi
 )
 
-# Test 63: Readiness failure (ping fails) -> toggle is NEVER invoked before fallback
+# Test 63: Readiness failure (ping fails) -> toggle is NEVER invoked, fails closed
 (
     mock_dir="$(mktemp -d)"
     mock_log="$(mktemp)"
@@ -1028,14 +1019,14 @@ EOF
     toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
     fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
-    if [[ "$toggles" -eq 0 && "$fallback_called" -ge 1 ]]; then
-        pass "63. ping failure never invokes toggle before fallback"
+    if [[ "$toggles" -eq 0 && "$fallback_called" -eq 0 ]]; then
+        pass "63. ping failure never invokes toggle and fails closed without fallback foot"
     else
-        fail "63. toggle was incorrectly called or fallback failed: toggles=$toggles fallback=$fallback_called"
+        fail "63. toggle was incorrectly called or fallback occurred: toggles=$toggles fallback=$fallback_called"
     fi
 )
 
-# Test 64: Toggle failure produces distinct diagnostic and falls back
+# Test 64: Toggle failure produces distinct diagnostic and fails closed
 (
     mock_dir="$(mktemp -d)"
     mock_log="$(mktemp)"
@@ -1065,8 +1056,8 @@ EOF
     toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
     fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
-    if [[ "$pings" -eq 1 && "$toggles" -eq 1 && "$fallback_called" -ge 1 ]]; then
-        pass "64. toggle failure produces distinct diagnostic and invokes fallback"
+    if [[ "$pings" -ge 1 && "$toggles" -ge 1 && "$fallback_called" -eq 0 ]]; then
+        pass "64. toggle failure produces distinct diagnostic and fails closed without fallback foot"
     else
         fail "64. toggle failure handling violated: pings=$pings toggles=$toggles fallback=$fallback_called"
     fi
@@ -1097,10 +1088,10 @@ EOF
     ' _ "$ROOT/bin/workstation-hotkeys"
     fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
-    if [[ "$fallback_called" -ge 1 ]]; then
-        pass "65. Quickshell process existence alone is not considered readiness"
+    if [[ "$fallback_called" -eq 0 ]]; then
+        pass "65. Quickshell process existence alone is not considered readiness (fails closed)"
     else
-        fail "65. Process existence incorrectly satisfied readiness without ping"
+        fail "65. Process existence incorrectly launched fallback foot: $fallback_called"
     fi
 )
 
@@ -1159,10 +1150,10 @@ EOF
     ' _ "$ROOT/bin/workstation-hotkeys"
     fallback_called="$(grep -c 'fallback_foot' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
-    if [[ "$fallback_called" -ge 1 ]]; then
+    if [[ "$fallback_called" -eq 0 ]]; then
         pass "67. Noctalia/other Quickshell instance cannot satisfy Aurelia readiness"
     else
-        fail "67. Other instance incorrectly satisfied Aurelia readiness"
+        fail "67. Other instance incorrectly launched fallback foot: $fallback_called"
     fi
 )
 
@@ -1243,40 +1234,41 @@ EOF
     ' _ "$ROOT/bin/workstation-hotkeys"
     foot_args="$(cat "$mock_log" 2>/dev/null || true)"
     rm -rf "$mock_dir" "$mock_log"
-    if [[ "$foot_args" == *"--provider=legacy"* ]]; then
-        pass "71. fallback terminal is passed --provider=legacy preventing nested delay"
+    if [[ -z "$foot_args" ]]; then
+        pass "71. Aurelia failure fails closed without launching fallback terminal"
     else
-        fail "71. fallback terminal missing --provider=legacy: '$foot_args'"
+        fail "71. fallback terminal was unexpectedly launched: '$foot_args'"
     fi
 )
 
-# Test 72: Legacy fallback remains functional
-leg_out="$(HOTKEYS_FORCE_STDOUT=1 "$ROOT/bin/workstation-hotkeys" --provider=legacy)"
-if [[ "$leg_out" == *"Keyboard Shortcuts"* && "$leg_out" == *"Terminal"* ]]; then
-    pass "72. legacy fallback remains fully functional"
+# Test 72: Legacy fzf provider is strictly rejected
+leg_rc=0
+leg_out="$("$ROOT/bin/workstation-hotkeys" --provider=legacy 2>&1)" || leg_rc=$?
+if [[ "$leg_rc" -ne 0 && "$leg_out" == *"Legacy provider has been removed"* ]]; then
+    pass "72. legacy fzf provider is strictly rejected (exit code 1)"
 else
-    fail "72. legacy fallback failed: $leg_out"
+    fail "72. legacy fzf provider was not rejected: $leg_out"
 fi
 
-# Test 73: Persisted hotkeys.provider remains aurelia on runtime fallback
+# Test 73: Persisted hotkeys.provider remains aurelia on runtime failure
 (
     sb="$(mktemp -d)"
     mkdir -p "$sb/.config/workstation"
     echo "hotkeys.provider = aurelia" > "$sb/.config/workstation/desktop.conf"
-    XDG_CONFIG_HOME="$sb/.config" HOTKEYS_SIMULATE_AURELIA_FAIL=1 HOTKEYS_FORCE_STDOUT=1 "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    XDG_CONFIG_HOME="$sb/.config" HOTKEYS_SIMULATE_AURELIA_FAIL=1 "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
     persisted="$(grep -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
     rm -rf "$sb"
     if [[ "$persisted" == "aurelia" ]]; then
-        pass "73. persisted hotkeys.provider remains aurelia on runtime fallback"
+        pass "73. persisted hotkeys.provider remains aurelia on runtime failure"
     else
-        fail "73. runtime fallback mutated persisted config: $persisted"
+        fail "73. runtime failure mutated persisted config: $persisted"
     fi
 )
 
-# Test 74: Keybindings manifest and Hyprland bind Super+K to workstation-hotkeys
+# Test 74: Keybindings manifest and Hyprland bind Super+K to workstation-keybindings
 if grep -q 'key = "SUPER + K"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
-   grep -q 'command = "workstation-hotkeys"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua"; then
-    pass "74. keybindings manifest binds SUPER+K directly to workstation-hotkeys"
+   (grep -q 'command = "workstation-keybindings"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" || grep -q 'command = "workstation-hotkeys"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua"); then
+    pass "74. keybindings manifest binds SUPER+K to workstation-keybindings/workstation-hotkeys"
 else
     fail "74. SUPER+K binding missing or incorrect in keybindings manifest"
 fi

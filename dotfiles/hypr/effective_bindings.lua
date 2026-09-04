@@ -7,7 +7,10 @@ local M = {}
 
 -- Determine user override file location
 function M.get_overrides_path()
-    local env_path = os.getenv("HOTKEYS_OVERRIDES")
+    local env_path = os.getenv("KEYBINDINGS_OVERRIDES")
+    if not env_path or env_path == "" then
+        env_path = os.getenv("HOTKEYS_OVERRIDES")
+    end
     if env_path and env_path ~= "" then
         return env_path
     end
@@ -246,7 +249,7 @@ function M.parse_strict_overrides(str, manifest)
         if not key then return nil, k_err end
 
         local is_app_action = key:match("^app:[a-zA-Z0-9][%w%-%._]*%.desktop$")
-        if manifest and not valid_actions[key] and not is_app_action then
+        if manifest and not valid_actions[key] and not (key == "hotkeys" and valid_actions["keybindings"]) and not is_app_action then
             return nil, "Unknown or uneditable action ID in overrides: " .. tostring(key)
         end
 
@@ -554,8 +557,11 @@ function M.resolve_bindings(manifest, overrides)
         local action_id = item.id
         if action_id then
             known_ids[action_id] = true
-            if overrides[action_id] ~= nil then
-                local ov = overrides[action_id]
+            local ov = overrides[action_id]
+            if ov == nil and action_id == "keybindings" then
+                ov = overrides["hotkeys"]
+            end
+            if ov ~= nil then
                 if ov == false or ov == "" or ov == "none" then
                     item.key = nil
                     item.display_key = "None (Unbound)"
@@ -705,8 +711,9 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
     -- 1. Verify action_id exists in manifest or is a valid desktop application
     local target_item = nil
     for _, item in ipairs(manifest.bindings or {}) do
-        if item.id == action_id then
+        if item.id == action_id or (item.id == "keybindings" and action_id == "hotkeys") or (item.id == "hotkeys" and action_id == "keybindings") then
             target_item = item
+            action_id = item.id
             break
         end
     end
@@ -736,16 +743,22 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
     end
 
     -- 2. Verify action is editable
-    if not target_item.editable then
+    if not target_item.editable or target_item.immutable then
         local reason = "This action is not editable as an individual keyboard shortcut."
-        if target_item.generator then
+        if target_item.immutable then
+            reason = "This shortcut is an immutable core system binding and cannot be modified."
+        elseif target_item.generator then
             reason = "Generated aggregate workspace bindings cannot be edited as a single shortcut."
         elseif target_item.action_type == "gesture" then
             reason = "Hardware touchpad gestures cannot be edited as keyboard shortcuts."
         elseif target_item.mouse then
             reason = "Mouse button bindings cannot be edited through the keyboard hotkey manager."
         end
-        return false, string.format("Action '%s' is not editable: %s", action_id, reason)
+        if target_item.immutable then
+            return false, string.format("Action '%s' is immutable: %s", action_id, reason)
+        else
+            return false, string.format("Action '%s' is not editable: %s", action_id, reason)
+        end
     end
 
     -- 3. Capture previous state for rollback
@@ -873,7 +886,7 @@ end
 function M.get_action_argv(action_id, manifest)
     manifest = manifest or require("keybindings_manifest")
     for _, item in ipairs(manifest.bindings or {}) do
-        if item.id == action_id then
+        if item.id == action_id or (item.id == "keybindings" and action_id == "hotkeys") or (item.id == "hotkeys" and action_id == "keybindings") then
             if item.runnable == true and type(item.command_argv) == "table" and #item.command_argv > 0 then
                 for _, a in ipairs(item.command_argv) do
                     if type(a) ~= "string" then

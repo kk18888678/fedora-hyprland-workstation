@@ -43,7 +43,7 @@ deploy_aurelia_config() {
     fi
 }
 
-set_workstation_hotkeys_provider() {
+set_workstation_keybindings_provider() {
     local provider="$1"
     local dest_dir="${TARGET_HOME:-$HOME}/.config/workstation"
     local dest_file="$dest_dir/desktop.conf"
@@ -58,15 +58,19 @@ set_workstation_hotkeys_provider() {
     local tmp_file
     tmp_file="$(mktemp "${dest_dir}/.tmp.desktop.conf.XXXXXX" 2>/dev/null || true)"
     if [[ -z "$tmp_file" ]]; then
-        printf 'hotkeys.provider = %s\n' "$provider" > "$dest_file"
+        printf 'keybindings.provider = %s\nhotkeys.provider = %s\n' "$provider" "$provider" > "$dest_file"
         return 0
     fi
 
     if [[ -f "$dest_file" ]]; then
-        grep -v -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$dest_file" > "$tmp_file" 2>/dev/null || true
+        grep -v -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$dest_file" > "$tmp_file" 2>/dev/null || true
     fi
-    printf 'hotkeys.provider = %s\n' "$provider" >> "$tmp_file"
+    printf 'keybindings.provider = %s\nhotkeys.provider = %s\n' "$provider" "$provider" >> "$tmp_file"
     mv -f "$tmp_file" "$dest_file"
+}
+
+set_workstation_hotkeys_provider() {
+    set_workstation_keybindings_provider "$@"
 }
 
 install_noctalia_shell() {
@@ -582,31 +586,59 @@ install_rose_pine_gtk_theme() {
     record_success "rose-pine-gtk"
 }
 
-install_workstation_hotkeys() {
-    local bin_source="$SCRIPT_DIR/bin/workstation-hotkeys"
+install_workstation_keybindings() {
+    local bin_dir="${KEYBINDINGS_BIN_DIR:-${HOTKEYS_BIN_DIR:-/usr/local/bin}}"
+    local apps_dir="${KEYBINDINGS_APPS_DIR:-${HOTKEYS_APPS_DIR:-/usr/local/share/applications}}"
+
+    local kb_bin_source="$SCRIPT_DIR/bin/workstation-keybindings"
+    local hk_bin_source="$SCRIPT_DIR/bin/workstation-hotkeys"
     local cap_source="$SCRIPT_DIR/bin/workstation-hotkey-capture"
-    local desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-hotkeys.desktop"
+    local kb_desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-keybindings.desktop"
+    local hk_desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-hotkeys.desktop"
 
-    local bin_target="${HOTKEYS_BIN_DIR:-/usr/local/bin}/workstation-hotkeys"
-    local cap_target="${HOTKEYS_BIN_DIR:-/usr/local/bin}/workstation-hotkey-capture"
-    local desktop_target="${HOTKEYS_APPS_DIR:-/usr/local/share/applications}/workstation-hotkeys.desktop"
+    local kb_bin_target="$bin_dir/workstation-keybindings"
+    local hk_bin_target="$bin_dir/workstation-hotkeys"
+    local cap_target="$bin_dir/workstation-hotkey-capture"
+    local kb_desktop_target="$apps_dir/workstation-keybindings.desktop"
+    local hk_desktop_target="$apps_dir/workstation-hotkeys.desktop"
 
-    if [[ -f "$bin_source" ]]; then
-        info "Installing workstation-hotkeys command to $bin_target."
-        if [[ "$bin_target" == /usr/* || "$bin_target" == /etc/* ]]; then
-            sudo mkdir -p "$(dirname "$bin_target")"
-            sudo cp "$bin_source" "$bin_target"
-            sudo chmod 0755 "$bin_target"
+    local is_privileged=0
+    if [[ "$bin_dir" == /usr/* || "$bin_dir" == /etc/* || "$apps_dir" == /usr/* || "$apps_dir" == /etc/* ]]; then
+        is_privileged=1
+    fi
+
+    # Install primary workstation-keybindings executable
+    if [[ -f "$kb_bin_source" ]]; then
+        info "Installing workstation-keybindings command to $kb_bin_target."
+        if [[ "$is_privileged" -eq 1 ]]; then
+            sudo mkdir -p "$(dirname "$kb_bin_target")"
+            sudo cp "$kb_bin_source" "$kb_bin_target"
+            sudo chmod 0755 "$kb_bin_target"
         else
-            mkdir -p "$(dirname "$bin_target")"
-            cp "$bin_source" "$bin_target"
-            chmod 0755 "$bin_target"
+            mkdir -p "$(dirname "$kb_bin_target")"
+            cp "$kb_bin_source" "$kb_bin_target"
+            chmod 0755 "$kb_bin_target"
         fi
     fi
 
+    # Install compatibility workstation-hotkeys wrapper
+    if [[ -f "$hk_bin_source" ]]; then
+        info "Installing workstation-hotkeys compatibility wrapper to $hk_bin_target."
+        if [[ "$is_privileged" -eq 1 ]]; then
+            sudo mkdir -p "$(dirname "$hk_bin_target")"
+            sudo cp "$hk_bin_source" "$hk_bin_target"
+            sudo chmod 0755 "$hk_bin_target"
+        else
+            mkdir -p "$(dirname "$hk_bin_target")"
+            cp "$hk_bin_source" "$hk_bin_target"
+            chmod 0755 "$hk_bin_target"
+        fi
+    fi
+
+    # Install capture binary
     if [[ -f "$cap_source" ]]; then
         info "Installing workstation-hotkey-capture command to $cap_target."
-        if [[ "$cap_target" == /usr/* || "$cap_target" == /etc/* ]]; then
+        if [[ "$is_privileged" -eq 1 ]]; then
             sudo mkdir -p "$(dirname "$cap_target")"
             sudo cp "$cap_source" "$cap_target"
             sudo chmod 0755 "$cap_target"
@@ -617,21 +649,41 @@ install_workstation_hotkeys() {
         fi
     fi
 
-    if [[ -f "$desktop_source" ]]; then
-        info "Installing workstation-hotkeys desktop entry to $desktop_target."
-        if [[ "$desktop_target" == /usr/* || "$desktop_target" == /etc/* ]]; then
-            sudo mkdir -p "$(dirname "$desktop_target")"
-            sudo cp "$desktop_source" "$desktop_target"
-            sudo chmod 0644 "$desktop_target"
+    # Install primary workstation-keybindings desktop entry
+    if [[ -f "$kb_desktop_source" ]]; then
+        info "Installing workstation-keybindings desktop entry to $kb_desktop_target."
+        if [[ "$is_privileged" -eq 1 ]]; then
+            sudo mkdir -p "$(dirname "$kb_desktop_target")"
+            sudo cp "$kb_desktop_source" "$kb_desktop_target"
+            sudo chmod 0644 "$kb_desktop_target"
         else
-            mkdir -p "$(dirname "$desktop_target")"
-            cp "$desktop_source" "$desktop_target"
-            chmod 0644 "$desktop_target"
+            mkdir -p "$(dirname "$kb_desktop_target")"
+            cp "$kb_desktop_source" "$kb_desktop_target"
+            chmod 0644 "$kb_desktop_target"
         fi
     fi
 
-    info "Workstation hotkeys installed."
+    # Install compatibility workstation-hotkeys desktop entry
+    if [[ -f "$hk_desktop_source" ]]; then
+        info "Installing workstation-hotkeys compatibility desktop entry to $hk_desktop_target."
+        if [[ "$is_privileged" -eq 1 ]]; then
+            sudo mkdir -p "$(dirname "$hk_desktop_target")"
+            sudo cp "$hk_desktop_source" "$hk_desktop_target"
+            sudo chmod 0644 "$hk_desktop_target"
+        else
+            mkdir -p "$(dirname "$hk_desktop_target")"
+            cp "$hk_desktop_source" "$hk_desktop_target"
+            chmod 0644 "$hk_desktop_target"
+        fi
+    fi
+
+    info "Workstation keybindings installed."
+    record_success "workstation-keybindings"
     record_success "workstation-hotkeys"
+}
+
+install_workstation_hotkeys() {
+    install_workstation_keybindings "$@"
 }
 
 # Converge GTK Bookmarks file (shared across Thunar/GTK3 and GTK4 applications).

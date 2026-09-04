@@ -1,0 +1,224 @@
+# Aurelia Keybindings Architecture Specification
+
+This document specifies the architecture, lifecycle model, failure isolation boundaries, and design system contract for **Aurelia Keybindings** within the Fedora Hyprland Workstation.
+
+---
+
+## 1. Product Identity and Terminology
+
+| Concept | Identifier / Label | Scope |
+| :--- | :--- | :--- |
+| **Internal Product Name** | `Aurelia Keybindings` | Engineering documentation, git commits, code comments |
+| **User-Facing App Name** | `Keybindings` | Desktop entries (`Name=Keybindings`), window titles, UI header |
+| **Generic Descriptor** | `Keyboard Shortcuts` | Desktop entry (`GenericName=Keyboard Shortcuts`) |
+| **Primary Backend Binary** | `bin/workstation-keybindings` | System installation path: `/usr/local/bin/workstation-keybindings` |
+| **Compatibility Wrapper** | `bin/workstation-hotkeys` | 25-line thin forwarding wrapper delegating to `workstation-keybindings` |
+| **Component Registry ID** | `desktop.keybindings.aurelia` | Primary installer component (`desktop.hotkeys.aurelia` is compatibility alias) |
+| **QML Component Directory** | `dotfiles/aurelia/components/keybindings/` | Source tree for `KeybindingsWindow.qml`, `KeybindingsModel.qml`, `KeybindingRow.qml` |
+| **IPC Target** | `keybindings` | Quickshell IPC target (`hotkeys` preserved as forwarding alias) |
+
+---
+
+## 2. Failure Domains & Isolation Model
+
+```mermaid
+graph TD
+    subgraph "Desktop Session Layer (Fail-Safe)"
+        Greetd["greetd / noctalia-greeter"]
+        Hyprland["Hyprland Wayland Compositor"]
+        Activation["Graphical Session Activation"]
+    end
+
+    subgraph "Aurelia Process Boundary (Sandboxed)"
+        Quickshell["Single Quickshell Process (--path dotfiles/aurelia)"]
+        IPC["IPC Endpoint: keybindings"]
+        Model["KeybindingsModel.qml (In-Memory State & Concurrency Guards)"]
+        UI["KeybindingsWindow.qml (Layer-Shell Surface)"]
+    end
+
+    subgraph "Backend Execution Boundary (Double-Fork)"
+        Backend["/usr/local/bin/workstation-keybindings"]
+        LuaEngine["effective_bindings.lua / keybindings_manifest.lua"]
+        Launcher["Double-Fork Grandchild (PPID=1 / init)"]
+    end
+
+    Hyprland -->|SUPER+K Dispatch| Backend
+    Backend -->|IPC toggle| IPC
+    IPC --> UI
+    UI --> Model
+    Model -->|Structured argv / run| Backend
+    Backend -->|Detached Launch| Launcher
+    Backend -.->|Non-blocking on failure| Hyprland
+
+    style Activation fill:#2a273f,stroke:#9ccfd8,stroke-width:2px;
+    style Quickshell fill:#232136,stroke:#f6c177,stroke-width:2px;
+    style Launcher fill:#1f1d2e,stroke:#ea9a97,stroke-width:2px;
+```
+
+### 2.1 Component Level (UI & Model)
+- **Safe JSON Parsing**: All backend JSON responses are parsed within `try { ... } catch (e)` blocks in `KeybindingsModel.qml`. Malformed output triggers a structured inline error state without crashing the Quickshell engine.
+- **Concurrency Guards**: Dedicated boolean guards (`isReloading`, `isExecuting`, `isMutating`) prevent re-entrant dispatch. Concurrent user requests while an asynchronous operation is pending are safely dropped with warning logs.
+- **Pure Native Wayland Layer-Shell**: The UI operates exclusively within the Wayland layer-shell protocol. No terminal emulators (`foot`, `kitty`, `xterm`) are ever spawned for UI presentation, key capture, or error reporting.
+
+### 2.2 Process Level (Backend Execution)
+- **Double-Fork Process Launch**: Action execution through `workstation-keybindings run <action_id>` uses a POSIX double-fork pattern:
+  1. The parent orchestrator forks a launcher subshell.
+  2. The launcher subshell invokes `( "$@" ) >/dev/null 2>&1 &` to spawn the target application and immediately terminates with status 0.
+  3. The target application (grandchild) is instantly reparented to `systemd` / `init` (`PPID=1`).
+  4. Zero intermediate wrapper shells or file descriptors are retained. No temporary files are created during execution.
+- **Strict Structured `argv` Dispatch**: Commands are resolved from canonical manifests into structured argument arrays (`command_argv`). Command lines are never evaluated with `eval` or passed through arbitrary `sh -c` interpreters.
+
+### 2.3 Desktop Session Level (Graphical Activation Invariance)
+- **Non-Blocking Classification**: In accordance with `AGENTS.md` Principle 15, Keybindings failures are strictly classified as `WORKSTATION-REQUIRED-BUT-NONBLOCKING` or `OPTIONAL`.
+- **Zero Impact on Display Manager**: A complete failure of Quickshell, Keybindings QML, or backend binaries records diagnostic entries but **never** sets `ACTIVATION_BLOCKED=1` or prevents `greetd` from activating graphical login.
+
+---
+
+## 3. Resident vs. Lazy Process Lifecycle
+
+Aurelia Keybindings implements a hybrid **resident surface with lazy activation** model to satisfy competing requirements for responsiveness and resource conservation:
+
+1. **Sub-100ms Warm Toggle**:
+   - The Wayland layer-shell window remains resident in memory within the primary Aurelia Quickshell daemon.
+   - When the user presses `Super+K`, the backend issues a non-mutating `ping` check to the Quickshell socket. Upon confirmation of socket readiness, it delivers an IPC message to target `keybindings` with argument `toggle`.
+   - Warm toggle executes in under 20ms roundtrip without process creation or window rebuild.
+
+2. **Zero Idle CPU Overhead**:
+   - When the window is hidden (`visible: false`), **all timers and animations are strictly disabled**.
+   - No background threads poll files or sockets.
+   - In-memory search filtering executes only in response to explicit `textChanged` events from the search input.
+
+3. **Bounded Cold Launch**:
+   - If the Aurelia daemon is not currently active, the backend initiates cold launch using `quickshell --no-duplicate --path <aurelia_dir>`.
+   - The backend polls for daemon readiness using non-mutating `quickshell ipc --path <dir> target ping` probes over a bounded budget (~2000ms max, 40 iterations at 50ms intervals).
+   - Once readiness is confirmed, a single `toggle` IPC command is dispatched. If the readiness budget expires, the backend fails closed with a clear diagnostic log and returns exit code 1 without spawning arbitrary fallback windows.
+
+---
+
+## 4. Inline Keybinding Capture State Machine
+
+Keybinding modification is handled entirely inline within the native layer-shell interface without opening external terminal windows or secondary dialogs.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+
+    Idle --> Capturing : Alt+S / Edit Shortcut
+    Capturing --> Idle : Escape (Cancel Capture)
+    Capturing --> Applying : Valid Key Combination Pressed
+    Capturing --> Capturing : Standalone Modifier (Super/Ctrl/Alt/Shift)
+
+    Idle --> Applying : Alt+U / Unset Shortcut (sets 'none')
+
+    Applying --> Validating : Backend Dispatched
+
+    Validating --> Success : Valid & Applied Atomically
+    Validating --> Conflict : Conflict Detected (Existing Action)
+    Validating --> Error : Syntax Error / Immutable Refusal
+
+    Success --> Idle : Success Message Timed (1.5s) or Escape
+    Conflict --> Capturing : Auto-retry or Escape
+    Error --> Idle : Escape / Input Reset
+```
+
+### 4.1 State Definitions
+- **`idle`**: Normal navigation state. Arrow keys move focus; typing filters search; Return launches runnable applications.
+- **`capturing`**: Modal input capture active. Input is locked to recording; search input is disabled.
+  - Raw key events are normalized into canonical Hyprland notation (`SUPER + CTRL + ALT + SHIFT + KEY`).
+  - Standalone modifier presses (e.g., tapping `Super` alone) are ignored without leaving capture mode.
+  - Pressing `Escape` immediately transitions the state machine back to `idle` with zero mutations.
+- **`validating` & `applying`**: Asynchronous mutation request dispatched to backend (`workstation-keybindings set <id> <key>`).
+- **`conflict`**: The key combination is already owned by another action. The UI displays the conflicting action description inline in warning amber (`Theme.warning`).
+- **`error`**: The key combination is invalid or the target action is immutable (e.g. workspace gestures). The error is displayed in error red (`Theme.error`).
+- **`success`**: The mutation succeeded and was committed atomically to `keybindings_overrides.json`. Confirmation is shown in success green (`Theme.success`) before returning to `idle`.
+
+---
+
+## 5. Aurelia Design System Foundation
+
+Aurelia Keybindings establishes the core Aurelia Design System tokens in `dotfiles/aurelia/theme/Theme.qml`, completely decoupled from Noctalia or transient desktop configuration files.
+
+### 5.1 Color Tokens (Rosé Pine Moon)
+The color palette natively embeds canonical Rosé Pine Moon hex values:
+- `bgBase` (`#232136`): Base background surface.
+- `bgSurface` (`#2a273f`): Elevated component and card surface.
+- `bgOverlay` (`#393552`): Modal dialogs and active highlights.
+- `border` (`#393552`): Subtle divider and inactive borders.
+- `borderActive` (`#9ccfd8`): Active focus and hover highlight (Foam).
+- `text` (`#e0def4`): Primary readable foreground.
+- `textMuted` (`#6e6a86`): Subtle secondary text and hints.
+- `accent` (`#c4a7e7`): Primary brand highlight (Iris).
+- `gold` (`#f6c177`): Shortcut key combination badge (Gold).
+- `love` (`#eb6f92`): Destructive and unset indicators (Love).
+
+### 5.2 Geometric & Motion Tokens
+- **Proportions**: Standard command palette geometry (`paletteWidth = 800`, `paletteHeight = 480`).
+- **Spacing**: Modular 4px scale (`spacingXs = 4`, `spacingSm = 8`, `spacingMd = 12`, `spacingLg = 16`, `spacingXl = 20`, `spacing2Xl = 24`).
+- **Radii**: Consistent corner radii (`radiusSm = 6`, `radiusMd = 8`, `radiusLg = 12`).
+- **Motion**: Standard animation durations (`durationFast = 100ms`, `durationNormal = 200ms`) with smooth easing curves.
+
+---
+
+## 6. Observability & Resource Bounds
+
+To prevent unconstrained resource growth on production workstations:
+
+1. **Diagnostic Log Bounding**:
+   - All backend operations log to `~/.local/state/workstation-keybindings/`.
+   - Every log file (`keybindings.log`, `crashes.log`, `performance.log`) is monitored by `bound_logfile()`:
+   - When a log file exceeds 2000 lines, it is atomically rotated via temporary file to retain the most recent 2000 lines.
+2. **Performance Telemetry (`[PERF]`)**:
+   - Critical milestones (cold start readiness, warm IPC roundtrip, JSON load and parse durations) are tagged with `[PERF]` and duration timestamps.
+   - Operations exceeding warning thresholds (e.g. warm toggle > 100ms) emit `[PERF-WARN]` diagnostics.
+3. **Structured Crash Logging**:
+   - Unhandled backend failures and timeouts append to `crashes.log` with timestamp, operation context, exit code, and captured stderr.
+
+---
+
+## 7. Future Seams Architecture
+
+### 7.1 Future AI Diagnostics Seam
+A future local diagnostic bundle generator can integrate cleanly at the logging and telemetry boundary:
+- **Local Sanitized Bundle**: A dedicated maintenance command (`workstation-keybindings diagnose`) can package bounded logs (`crashes.log`, `performance.log`), system package EVR, and Hyprland bind state into an encrypted local archive.
+- **Privacy & User Consent**: The seam enforces strict privacy invariants: zero automatic network egress, zero exfiltration of user passwords or tokens, and explicit user confirmation before generating or presenting diagnostic bundles.
+- **Vendor Agnosticism**: Diagnostics generation is decoupled from specific AI vendor APIs; bundles are emitted as standard local JSON/tar.gz artifacts.
+
+### 7.2 Future Actual vs. Desired vs. Drift Seam
+The keybinding system is architected to support bidirectional drift detection between declarative desired state and live compositor bindings:
+- **Desired State**: Defined declaratively by `dotfiles/hypr/keybindings_manifest.lua` merged with user overrides `~/.config/hypr/keybindings_overrides.json`.
+- **Actual State**: Queryable at runtime via `hyprctl binds -j`.
+- **Reconciliation Engine**: The installer reconciler can detect discrepancies between declared binds and compositor state, providing non-destructive auditing and automated resynchronization on user command.
+
+---
+
+## 8. Minimum Aurelia Component Contract
+
+Future Aurelia components (such as **Aurelia Launcher**) must conform to the following architectural requirements established by Aurelia Keybindings:
+
+1. **Naming & Directory Conventions**:
+   - Source code placed in `dotfiles/aurelia/components/<component_name>/`.
+   - Component files named `<Component>Window.qml`, `<Component>Model.qml`, `<Component>Row.qml`.
+   - Component registry ID formatted as `desktop.<component_name>.aurelia`.
+   - User-facing desktop entry `Name` must be a clean generic noun (e.g. `Launcher`, `Keybindings`), **never** prefixed with "Aurelia".
+
+2. **IPC & Lifecycle Protocol**:
+   - Single shared Aurelia shell instance registered in `dotfiles/aurelia/shell.qml`.
+   - Loaded conditionally via `Loader { active: ... }` to ensure disabled components consume zero memory.
+   - Must implement `ping` and `toggle` targets over Quickshell IPC.
+
+3. **Backend & Process Separation**:
+   - Business logic encapsulated in an independent CLI binary under `bin/workstation-<component_name>`.
+   - Model must resolve backend binary deterministically (`WORKSTATION_<COMPONENT>_BIN` -> `/usr/local/bin` -> PATH).
+   - Execution of host applications must use POSIX double-fork detachment reparenting to init (`PPID=1`).
+   - No `eval`, `sh -c`, or shell string concatenations allowed.
+
+4. **Design System Adherence**:
+   - All visual elements must consume tokens exclusively from `Theme.qml`.
+   - No hardcoded pixel literals for colors, padding, typography, or animation durations.
+   - Decoupled from third-party desktop tools; standalone functionality guaranteed.
+
+5. **Failure & State Safety**:
+   - Zero continuous background timers when UI is hidden.
+   - Model guarded against concurrent user actions with explicit state properties.
+   - All log files bounded to <= 2000 lines with atomic rotation.
+   - Non-blocking failure classification: component failures must never prevent graphical login activation.

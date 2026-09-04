@@ -142,8 +142,21 @@ else
     fail "10. candidate with wrong architecture was unexpectedly accepted"
 fi
 
+# 11-12. invalid installed Quickshell detection and convergence planning
+mock_rpm_dir="$(mktemp -d)"
+cat << 'MOCK_EOF' > "$mock_rpm_dir/rpm"
+#!/usr/bin/env bash
+if [[ "$*" == *"%{NAME}"* ]]; then echo "quickshell"; exit 0; fi
+if [[ "$*" == *"%{ARCH}"* ]]; then uname -m; exit 0; fi
+if [[ "$*" == *"%{VERSION}-%{RELEASE}"* ]]; then echo "0.3.1-9.git.20260829.2d3b3e9.fc44"; exit 0; fi
+if [[ "$*" == *"%{VENDOR}"* ]]; then echo "Fedora Copr - user lionheartp"; exit 0; fi
+if [[ "$1" == "-q" ]]; then exit 0; fi
+exit 0
+MOCK_EOF
+chmod +x "$mock_rpm_dir/rpm"
+
 # 11. invalid installed Quickshell is not classified KEEP
-if ! detect_quickshell; then
+if ! PATH="$mock_rpm_dir:$PATH" detect_quickshell; then
     pass "11. invalid installed Quickshell is detected as not satisfied (detect_quickshell returns 1)"
 else
     fail "11. invalid installed Quickshell was incorrectly detected as valid"
@@ -154,10 +167,10 @@ reset_component_registry
 init_default_components
 init_desired_state "DS_CORR" "vm"
 create_recommended_desired_state "DS_CORR" "vm"
-desired_state_set_component "DS_CORR" "desktop.hotkeys.aurelia" "managed"
+desired_state_set_component "DS_CORR" "desktop.keybindings.aurelia" "managed"
 desired_state_set_component "DS_CORR" "quickshell" "managed"
 
-create_execution_plan "DS_CORR" "PLAN_CORR"
+PATH="$mock_rpm_dir:$PATH" create_execution_plan "DS_CORR" "PLAN_CORR"
 q_action=""
 q_reason=""
 for idx in "${PLAN_CORR_ACTIONS[@]}"; do
@@ -173,6 +186,7 @@ if [[ "$q_action" == "INSTALL" && "$q_reason" == *"convergence required"* ]]; th
 else
     fail "12. planner failed to generate corrective action: action=$q_action reason=$q_reason"
 fi
+rm -rf "$mock_rpm_dir"
 
 # 13. reconciler chooses deterministic approved source
 body="$(declare -f install_quickshell_adapter || true)"

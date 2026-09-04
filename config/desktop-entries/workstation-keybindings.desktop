@@ -2,10 +2,9 @@
 Name=Keybindings
 GenericName=Keyboard Shortcuts
 Comment=Workstation Keyboard Shortcuts Reference
-Exec=workstation-hotkeys
+Exec=workstation-keybindings
 Icon=input-keyboard
 Terminal=false
 Type=Application
 Categories=Utility;Documentation;
 Keywords=keybindings;hotkeys;shortcuts;help;keyboard;
-NoDisplay=true

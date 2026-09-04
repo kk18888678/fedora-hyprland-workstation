@@ -6,3 +6,5 @@ dotfiles/hypr/keybindings_overrides.json
 # Transient runtime generated files
 dotfiles/hypr/noctalia.lua
 dotfiles/kitty/themes/noctalia.conf
+__pycache__/
+*.pyc
