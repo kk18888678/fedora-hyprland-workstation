@@ -25,6 +25,9 @@ Rectangle {
         if (!key || key === "None (Unbound)") {
             return "—"
         }
+        if (key.endsWith(".desktop")) {
+            return key
+        }
         return key.toUpperCase()
     }
 
@@ -82,7 +85,11 @@ Rectangle {
         onClicked: {
             if (typeof keybindingsModel !== "undefined") {
                 keybindingsModel.selectedIndex = rowRoot.index
-                if (keybindingsModel.selectedItem && keybindingsModel.selectedItem.runnable) {
+                if (keybindingsModel.activeView === "add_app") {
+                    if (keybindingsModel.selectedItem && keybindingsModel.selectedItem.desktop_id) {
+                        keybindingsModel.addApplication(keybindingsModel.selectedItem.desktop_id)
+                    }
+                } else if (keybindingsModel.selectedItem && keybindingsModel.selectedItem.runnable) {
                     if (keybindingsModel.runSelected() && typeof windowRoot !== "undefined") {
                         windowRoot.visible = false
                     }

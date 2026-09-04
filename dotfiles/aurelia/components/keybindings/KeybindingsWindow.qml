@@ -122,10 +122,13 @@ PanelWindow {
             keybindingsModel.operationState = "idle"
             keybindingsModel.operationMessage = ""
             recordingItem = null
+            keybindingsModel.activeView = "bound"
             keybindingsModel.searchQuery = ""
             keybindingsModel.selectedIndex = 0
             if (!keybindingsModel.allItems || keybindingsModel.allItems.length === 0) {
                 keybindingsModel.reload()
+            } else {
+                keybindingsModel.filterItems()
             }
             searchInput.forceActiveFocus()
             console.info("[PERF] KeybindingsWindow: Window displayed and input focused in " + (Date.now() - openT0) + "ms")
@@ -190,6 +193,8 @@ PanelWindow {
             if (event.key === Qt.Key_Escape) {
                 if (keybindingsModel.operationState !== "idle") {
                     windowRoot.cancelCapture()
+                } else if (keybindingsModel.activeView === "add_app") {
+                    keybindingsModel.switchView("unbound")
                 } else {
                     windowRoot.visible = false
                 }
@@ -229,7 +234,25 @@ PanelWindow {
                         text: "keybindings_"
                         color: Theme.textSubtle
                         font: parent.font
-                        visible: !searchInput.text && (keybindingsModel.operationState === "idle")
+                        visible: !searchInput.text && (keybindingsModel.operationState === "idle") && (keybindingsModel.activeView === "bound")
+                    }
+
+                    Text {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        text: "keybindings_ (unbound)"
+                        color: Theme.textSubtle
+                        font: parent.font
+                        visible: !searchInput.text && (keybindingsModel.operationState === "idle") && (keybindingsModel.activeView === "unbound")
+                    }
+
+                    Text {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        text: "add application_"
+                        color: Theme.textSubtle
+                        font: parent.font
+                        visible: !searchInput.text && (keybindingsModel.operationState === "idle") && (keybindingsModel.activeView === "add_app")
                     }
 
                     // Capturing active prompt
@@ -307,9 +330,24 @@ PanelWindow {
                             }
                         }
 
-                        // 3. Normal idle navigation and execution
+                        // 3. Tab toggles Bound vs Unbound view
+                        if (event.key === Qt.Key_Tab) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                keybindingsModel.switchView("unbound")
+                            } else {
+                                keybindingsModel.toggleView()
+                            }
+                            event.accepted = true
+                            return
+                        }
+
+                        // 4. Normal idle navigation, view switching, and execution
                         if (event.key === Qt.Key_Escape) {
-                            windowRoot.visible = false
+                            if (keybindingsModel.activeView === "add_app") {
+                                keybindingsModel.switchView("unbound")
+                            } else {
+                                windowRoot.visible = false
+                            }
                             event.accepted = true
                         } else if (event.key === Qt.Key_Down) {
                             keybindingsModel.selectNext()
@@ -320,23 +358,42 @@ PanelWindow {
                             listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
                             event.accepted = true
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (keybindingsModel.runSelected()) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                var appItem = keybindingsModel.selectedItem
+                                if (appItem && appItem.desktop_id) {
+                                    keybindingsModel.addApplication(appItem.desktop_id)
+                                }
+                            } else if (keybindingsModel.runSelected()) {
                                 windowRoot.visible = false
                             }
                             event.accepted = true
-                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
-                            var item = keybindingsModel.selectedItem
-                            if (!item) {
-                                event.accepted = true
-                                return
-                            }
-                            if (item.editable !== true) {
-                                keybindingsModel.operationState = "error"
-                                keybindingsModel.operationMessage = "Immutable: System binding cannot be modified."
+                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                keybindingsModel.switchView("unbound")
                             } else {
-                                windowRoot.recordingItem = item
-                                keybindingsModel.operationState = "capturing"
-                                keybindingsModel.operationMessage = ""
+                                keybindingsModel.switchView("add_app")
+                            }
+                            event.accepted = true
+                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
+                            if (keybindingsModel.activeView === "add_app") {
+                                var appToAdd = keybindingsModel.selectedItem
+                                if (appToAdd && appToAdd.desktop_id) {
+                                    keybindingsModel.addApplication(appToAdd.desktop_id)
+                                }
+                            } else {
+                                var item = keybindingsModel.selectedItem
+                                if (!item) {
+                                    event.accepted = true
+                                    return
+                                }
+                                if (item.editable !== true) {
+                                    keybindingsModel.operationState = "error"
+                                    keybindingsModel.operationMessage = "Immutable: System binding cannot be modified."
+                                } else {
+                                    windowRoot.recordingItem = item
+                                    keybindingsModel.operationState = "capturing"
+                                    keybindingsModel.operationMessage = ""
+                                }
                             }
                             event.accepted = true
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U) {
@@ -352,6 +409,102 @@ PanelWindow {
                                 keybindingsModel.unsetShortcut(itemUnset.id)
                             }
                             event.accepted = true
+                        }
+                    }
+                }
+            }
+
+            // View Selector Tabs: Minimal command-palette tabs [ Bound (N) ] [ Unbound (M) ] [ + Add Application ]
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 28
+                Layout.leftMargin: Theme.spacingXl
+                Layout.rightMargin: Theme.spacingXl
+                Layout.bottomMargin: Theme.spacingSm
+                spacing: Theme.spacingMd
+
+                // Bound tab
+                Rectangle {
+                    Layout.preferredHeight: 24
+                    Layout.preferredWidth: boundText.implicitWidth + Theme.spacingMd * 2
+                    radius: Theme.radiusSm
+                    color: (keybindingsModel.activeView === "bound") ? Theme.selection : "transparent"
+
+                    Text {
+                        id: boundText
+                        anchors.centerIn: parent
+                        text: "Bound (" + keybindingsModel.boundCount + ")"
+                        color: (keybindingsModel.activeView === "bound") ? Theme.accent : Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSm
+                        font.weight: (keybindingsModel.activeView === "bound") ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            keybindingsModel.switchView("bound")
+                        }
+                    }
+                }
+
+                // Unbound tab
+                Rectangle {
+                    Layout.preferredHeight: 24
+                    Layout.preferredWidth: unboundText.implicitWidth + Theme.spacingMd * 2
+                    radius: Theme.radiusSm
+                    color: (keybindingsModel.activeView === "unbound") ? Theme.selection : "transparent"
+
+                    Text {
+                        id: unboundText
+                        anchors.centerIn: parent
+                        text: "Unbound (" + keybindingsModel.unboundCount + ")"
+                        color: (keybindingsModel.activeView === "unbound") ? Theme.accent : Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSm
+                        font.weight: (keybindingsModel.activeView === "unbound") ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            keybindingsModel.switchView("unbound")
+                        }
+                    }
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                // Add Application / Back tab
+                Rectangle {
+                    Layout.preferredHeight: 24
+                    Layout.preferredWidth: addAppText.implicitWidth + Theme.spacingMd * 2
+                    radius: Theme.radiusSm
+                    color: (keybindingsModel.activeView === "add_app") ? Theme.selection : "transparent"
+
+                    Text {
+                        id: addAppText
+                        anchors.centerIn: parent
+                        text: (keybindingsModel.activeView === "add_app") ? "← Back to Shortcuts" : "+ Add Application"
+                        color: (keybindingsModel.activeView === "add_app") ? Theme.gold : Theme.foam
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSm
+                        font.weight: Theme.fontWeightMedium
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (keybindingsModel.activeView === "add_app") {
+                                keybindingsModel.switchView("unbound")
+                            } else {
+                                keybindingsModel.switchView("add_app")
+                            }
                         }
                     }
                 }
@@ -390,7 +543,7 @@ PanelWindow {
                 // Minimal empty state message
                 Text {
                     anchors.centerIn: parent
-                    text: "No matching shortcuts"
+                    text: (keybindingsModel.activeView === "add_app") ? (keybindingsModel.isLoadingApps ? "Discovering installed applications..." : "No matching applications found") : (keybindingsModel.activeView === "unbound" ? "No unbound shortcuts (press Alt+A to add an application)" : "No matching shortcuts")
                     color: Theme.textSubtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSm
@@ -410,10 +563,10 @@ PanelWindow {
                     anchors.fill: parent
                     spacing: Theme.spacingLg
 
-                    // ↵ Run (active when runnable and not capturing)
+                    // ↵ Run / Add (active when runnable or in add_app, and not capturing)
                     RowLayout {
                         spacing: Theme.spacingXs
-                        visible: (keybindingsModel.operationState === "idle" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.runnable === true)
+                        visible: (keybindingsModel.operationState === "idle" && (keybindingsModel.activeView === "add_app" || (keybindingsModel.selectedItem && keybindingsModel.selectedItem.runnable === true)))
 
                         Text {
                             text: "↵"
@@ -423,7 +576,7 @@ PanelWindow {
                             font.bold: true
                         }
                         Text {
-                            text: "Run"
+                            text: (keybindingsModel.activeView === "add_app") ? "Add" : "Run"
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -431,10 +584,10 @@ PanelWindow {
                         }
                     }
 
-                    // Alt+S Set (active when editable and not capturing)
+                    // Alt+S Set / Assign (active when editable, not add_app, and not capturing)
                     RowLayout {
                         spacing: Theme.spacingXs
-                        visible: (keybindingsModel.operationState === "idle" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true)
+                        visible: (keybindingsModel.operationState === "idle" && keybindingsModel.activeView !== "add_app" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true)
 
                         Text {
                             text: "Alt+S"
@@ -444,7 +597,7 @@ PanelWindow {
                             font.bold: true
                         }
                         Text {
-                            text: "Set"
+                            text: (keybindingsModel.activeView === "unbound") ? "Assign" : "Set"
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -452,10 +605,10 @@ PanelWindow {
                         }
                     }
 
-                    // Alt+U Unset (active when editable, bound, and not capturing)
+                    // Alt+U Unset (active in bound view when editable, bound, and not capturing)
                     RowLayout {
                         spacing: Theme.spacingXs
-                        visible: (keybindingsModel.operationState === "idle" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true &&
+                        visible: (keybindingsModel.operationState === "idle" && keybindingsModel.activeView === "bound" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true &&
                                   keybindingsModel.selectedItem.display_key &&
                                   keybindingsModel.selectedItem.display_key !== "None (Unbound)")
 
@@ -475,10 +628,52 @@ PanelWindow {
                         }
                     }
 
+                    // Alt+A Add Application (in unbound view)
+                    RowLayout {
+                        spacing: Theme.spacingXs
+                        visible: (keybindingsModel.operationState === "idle" && keybindingsModel.activeView === "unbound")
+
+                        Text {
+                            text: "Alt+A"
+                            color: Theme.foam
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Add App"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+                    }
+
+                    // Tab Switch View hint
+                    RowLayout {
+                        spacing: Theme.spacingXs
+                        visible: (keybindingsModel.operationState === "idle" && keybindingsModel.activeView !== "add_app")
+
+                        Text {
+                            text: "Tab"
+                            color: Theme.textMuted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: (keybindingsModel.activeView === "bound") ? "Unbound" : "Bound"
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+                    }
+
                     // Mouse Action Info
                     RowLayout {
                         spacing: Theme.spacingSm
-                        visible: (keybindingsModel.selectedItem && (keybindingsModel.selectedItem.category === "Mouse Controls" || keybindingsModel.selectedItem.mouse === true))
+                        visible: (keybindingsModel.activeView === "bound" && keybindingsModel.selectedItem && (keybindingsModel.selectedItem.category === "Mouse Controls" || keybindingsModel.selectedItem.mouse === true))
 
                         Text {
                             text: "🖱 Mouse Action"
@@ -499,7 +694,7 @@ PanelWindow {
                     // System Binding Info
                     RowLayout {
                         spacing: Theme.spacingSm
-                        visible: (keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === false && keybindingsModel.selectedItem.category !== "Mouse Controls" && !keybindingsModel.selectedItem.mouse)
+                        visible: (keybindingsModel.activeView === "bound" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === false && keybindingsModel.selectedItem.category !== "Mouse Controls" && !keybindingsModel.selectedItem.mouse)
 
                         Text {
                             text: "• System Binding"
@@ -534,7 +729,7 @@ PanelWindow {
                         Layout.fillWidth: true
                     }
 
-                    // Esc Close / Cancel hint
+                    // Esc Close / Cancel / Back hint
                     RowLayout {
                         spacing: Theme.spacingSm
                         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
@@ -547,7 +742,7 @@ PanelWindow {
                             font.bold: true
                         }
                         Text {
-                            text: (keybindingsModel.operationState !== "idle") ? "Cancel" : "Close"
+                            text: (keybindingsModel.operationState !== "idle") ? "Cancel" : ((keybindingsModel.activeView === "add_app") ? "Back" : "Close")
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm

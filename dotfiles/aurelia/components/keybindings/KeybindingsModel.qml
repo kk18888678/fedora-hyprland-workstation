@@ -6,11 +6,23 @@ QtObject {
     id: root
 
     property var allItems: []
+    property var boundItems: []
+    property var unboundItems: []
+    property var availableApplications: []
     property var filteredItems: []
+
+    // Views: "bound" | "unbound" | "add_app"
+    property string activeView: "bound"
+    readonly property int boundCount: boundItems.length
+    readonly property int unboundCount: unboundItems.length
+    readonly property int appsCount: availableApplications.length
+
     property string searchQuery: ""
     property int selectedIndex: 0
-    property bool isLoading: false
+    property bool isLoading: fetchProcess.running || appsProcess.running
+    property bool isLoadingApps: appsProcess.running
     property string statusMessage: ""
+    property string appsStatusMessage: ""
 
     // Inline Keybinding Operation State Machine
     // States: "idle" | "capturing" | "applying" | "success" | "conflict" | "error"
@@ -20,7 +32,7 @@ QtObject {
     // Concurrency state bounds
     property bool isReloading: fetchProcess.running
     property bool isExecuting: runProcess.running
-    property bool isMutating: setProcess.running || unsetProcess.running
+    property bool isMutating: setProcess.running || unsetProcess.running || addAppProcess.running
 
     readonly property var selectedItem: (filteredItems && filteredItems.length > selectedIndex && selectedIndex >= 0)
         ? filteredItems[selectedIndex]
@@ -49,18 +61,76 @@ QtObject {
         fetchProcess.running = true
     }
 
+    function switchView(view) {
+        if (view !== "bound" && view !== "unbound" && view !== "add_app") return;
+        if (root.activeView === view) return;
+        root.activeView = view;
+        root.searchQuery = "";
+        root.selectedIndex = 0;
+        root.resetOperation();
+        if (view === "add_app") {
+            if (!root.availableApplications || root.availableApplications.length === 0) {
+                root.loadApplications();
+            }
+        }
+        root.filterItems();
+    }
+
+    function toggleView() {
+        if (root.activeView === "bound") {
+            root.switchView("unbound");
+        } else {
+            root.switchView("bound");
+        }
+    }
+
+    function loadApplications() {
+        if (appsProcess.running) return;
+        root.isLoadingApps = true;
+        root.appsStatusMessage = "";
+        appsProcess.running = true;
+    }
+
+    function addApplication(desktopId) {
+        if (!desktopId) return;
+        if (root.isMutating) return;
+        if (addAppProcess.running) {
+            console.warn("[PERF-WARN] KeybindingsModel: addApplication() ignored because addAppProcess is currently running")
+            return;
+        }
+        console.info("[PERF] KeybindingsModel: Adding application action for '" + desktopId + "'")
+        root.operationState = "applying"
+        root.operationMessage = "Adding application..."
+        addAppProcess.command = [root.backendBin, "add-app", desktopId]
+        addAppProcess.environment = root.procEnv
+        addAppProcess.running = true
+    }
+
     function filterItems() {
         var t0 = Date.now()
         var query = (searchQuery || "").trim().toLowerCase()
         var currentSelectedId = selectedItem ? selectedItem.id : ""
 
+        var sourceList = []
+        if (root.activeView === "add_app") {
+            sourceList = root.availableApplications
+        } else if (root.activeView === "unbound") {
+            sourceList = root.unboundItems
+        } else {
+            sourceList = root.boundItems
+        }
+
         if (query === "") {
-            filteredItems = allItems.slice()
+            filteredItems = sourceList.slice()
         } else {
             var tokens = query.split(/\s+/).filter(function(t) { return t.length > 0; })
-            filteredItems = allItems.filter(function(item) {
-                // Natural search over displayed key and action/application title
-                var target = ((item.display_key || "") + " " + (item.description || "")).toLowerCase()
+            filteredItems = sourceList.filter(function(item) {
+                var target = ""
+                if (root.activeView === "add_app") {
+                    target = ((item.display_key || "") + " " + (item.description || "") + " " + (item.categories || "") + " " + (item.comment || "")).toLowerCase()
+                } else {
+                    target = ((item.display_key || "") + " " + (item.description || "")).toLowerCase()
+                }
                 for (var i = 0; i < tokens.length; i++) {
                     if (target.indexOf(tokens[i]) === -1) {
                         return false
@@ -223,6 +293,18 @@ QtObject {
                     var parseDuration = Date.now() - parseT0
                     if (Array.isArray(parsed)) {
                         root.allItems = parsed
+                        var bList = []
+                        var uList = []
+                        for (var k = 0; k < parsed.length; k++) {
+                            var it = parsed[k]
+                            if (it.unbound === true || !it.key || it.display_key === "None (Unbound)") {
+                                uList.push(it)
+                            } else {
+                                bList.push(it)
+                            }
+                        }
+                        root.boundItems = bList
+                        root.unboundItems = uList
                         root.filterItems()
                         if (fetchDuration > 300 || parseDuration > 20) {
                             console.warn("[PERF-WARN] KeybindingsModel: Fetched " + parsed.length + " shortcuts in " + fetchDuration + "ms (JSON parse: " + parseDuration + "ms)")
@@ -247,6 +329,87 @@ QtObject {
             if (code !== 0) {
                 console.error("[ERROR] KeybindingsModel: fetchProcess exited with code: " + code)
                 root.statusMessage = "Failed to fetch shortcut metadata (exit " + code + ")"
+            }
+        }
+    }
+
+    // Backend process to discover installed graphical applications
+    property Process appsProcess: Process {
+        command: [root.backendBin, "apps"]
+        environment: root.procEnv
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.isLoadingApps = false
+                try {
+                    var parsed = JSON.parse(this.text)
+                    if (Array.isArray(parsed)) {
+                        var appList = []
+                        for (var i = 0; i < parsed.length; i++) {
+                            var a = parsed[i]
+                            var desc = a.name || a.desktop_id
+                            if (a.generic_name && a.generic_name !== a.name) {
+                                desc = desc + " — " + a.generic_name
+                            }
+                            appList.push({
+                                id: "app:" + a.desktop_id,
+                                desktop_id: a.desktop_id,
+                                description: desc,
+                                display_key: a.desktop_id,
+                                icon: a.icon || "",
+                                categories: a.categories || "",
+                                comment: a.comment || "",
+                                runnable: false,
+                                editable: true
+                            })
+                        }
+                        root.availableApplications = appList
+                        if (root.activeView === "add_app") {
+                            root.filterItems()
+                        }
+                    }
+                } catch (e) {
+                    console.error("[ERROR] KeybindingsModel: Failed to parse applications: " + e)
+                    root.appsStatusMessage = "Failed to load applications: " + e
+                }
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (this.text && this.text.trim()) {
+                    console.error("[ERROR] KeybindingsModel: appsProcess stderr: " + this.text.trim())
+                }
+            }
+        }
+        onExited: function(code) {
+            root.isLoadingApps = false
+            if (code !== 0) {
+                console.error("[ERROR] KeybindingsModel: appsProcess exited with code: " + code)
+                root.appsStatusMessage = "Failed to fetch applications (exit " + code + ")"
+            }
+        }
+    }
+
+    // Backend process to add application action
+    property Process addAppProcess: Process {
+        command: [root.backendBin, "add-app", ""]
+        environment: root.procEnv
+        property string errorText: ""
+        stderr: StdioCollector {
+            onStreamFinished: {
+                addAppProcess.errorText = this.text ? this.text.trim() : ""
+            }
+        }
+        onExited: function(code) {
+            if (code === 0) {
+                root.operationState = "success"
+                root.operationMessage = "Application added to Unbound actions."
+                console.info("[PERF] KeybindingsModel: addAppProcess completed successfully")
+                root.reload()
+                root.switchView("unbound")
+            } else {
+                root.operationState = "error"
+                root.operationMessage = addAppProcess.errorText || "Failed to add application."
+                console.error("[ERROR] KeybindingsModel: addAppProcess failed (code " + code + "): " + root.operationMessage)
             }
         }
     }
