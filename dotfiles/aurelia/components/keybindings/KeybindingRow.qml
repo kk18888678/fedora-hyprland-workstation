@@ -39,7 +39,7 @@ Rectangle {
             Layout.preferredWidth: Theme.colShortcutWidth
             Layout.alignment: Qt.AlignVCenter
             text: rowRoot.formattedShortcut()
-            color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
+            color: rowRoot.isSelected ? Theme.accent : Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
             font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
@@ -62,7 +62,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
             text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""
-            color: rowRoot.isSelected ? Theme.text : Theme.textMuted
+            color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
             font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal

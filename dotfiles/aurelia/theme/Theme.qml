@@ -141,11 +141,11 @@ QtObject {
     readonly property color error: _getColor("error", "", _love)
 
     // 4. Semantic Typography Tokens (Configurable via theme.conf)
-    readonly property string fontFamily: _getString("fontFamily", "Hack Nerd Font, monospace")
+    readonly property string fontFamily: _getString("fontFamily", "JetBrainsMono Nerd Font, Hack Nerd Font, monospace")
     readonly property string fontFamilyProse: _getString("fontFamilyProse", "sans-serif")
     readonly property int fontSizeXs: _getInt("fontSizeXs", 10)
-    readonly property int fontSizeSm: _getInt("fontSizeSm", 12)
-    readonly property int fontSizeMd: _getInt("fontSizeMd", 13)
+    readonly property int fontSizeSm: _getInt("fontSizeSm", 13)
+    readonly property int fontSizeMd: _getInt("fontSizeMd", 14)
     readonly property int fontSizeLg: _getInt("fontSizeLg", 15)
     readonly property int fontSizeXl: _getInt("fontSizeXl", 18)
     readonly property int fontWeightNormal: Font.Normal
