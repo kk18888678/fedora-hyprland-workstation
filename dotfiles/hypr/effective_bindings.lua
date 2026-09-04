@@ -22,6 +22,147 @@ function M.get_overrides_path()
     return config_home .. "/hypr/keybindings_overrides.json"
 end
 
+-- Determine desktop config file location (~/.config/workstation/desktop.conf)
+function M.get_desktop_config_path()
+    local config_home = os.getenv("XDG_CONFIG_HOME")
+    if not config_home or config_home == "" then
+        local home = os.getenv("HOME") or ""
+        config_home = home .. "/.config"
+    end
+    return config_home .. "/workstation/desktop.conf"
+end
+
+-- Read key-value pairs from desktop.conf
+function M.read_desktop_config()
+    local conf_path = M.get_desktop_config_path()
+    local f = io.open(conf_path, "r")
+    if not f then return {} end
+    local conf = {}
+    for line in f:lines() do
+        line = line:gsub("^%s+", ""):gsub("%s+$", "")
+        if line ~= "" and not line:match("^[#;]") then
+            local k, v = line:match("^([%w%._%-]+)%s*=%s*(.-)$")
+            if k and v then
+                v = v:gsub("^%s+", ""):gsub("%s+$", "")
+                conf[k:lower()] = v
+            end
+        end
+    end
+    f:close()
+    return conf
+end
+
+local KNOWN_ROLE_APPS = {
+    ["kitty"] = {
+        name = "Kitty",
+        command = "kitty",
+        command_argv = { "kitty" },
+        desktop_id = "kitty.desktop",
+    },
+    ["foot"] = {
+        name = "Foot",
+        command = "foot",
+        command_argv = { "foot" },
+        desktop_id = "footclient.desktop",
+    },
+    ["nautilus"] = {
+        name = "Nautilus",
+        command = "nautilus",
+        command_argv = { "nautilus" },
+        desktop_id = "org.gnome.Nautilus.desktop",
+    },
+    ["thunar"] = {
+        name = "Thunar",
+        command = "thunar",
+        command_argv = { "thunar" },
+        desktop_id = "thunar.desktop",
+    },
+    ["chromium"] = {
+        name = "Chromium",
+        command = "chromium-browser",
+        command_argv = { "chromium-browser" },
+        desktop_id = "chromium-browser.desktop",
+    },
+    ["chromium-browser"] = {
+        name = "Chromium",
+        command = "chromium-browser",
+        command_argv = { "chromium-browser" },
+        desktop_id = "chromium-browser.desktop",
+    },
+    ["firefox"] = {
+        name = "Firefox",
+        command = "firefox",
+        command_argv = { "firefox" },
+        desktop_id = "firefox.desktop",
+    },
+}
+
+function M.get_app_command_info(app)
+    if not app or type(app) ~= "string" then return nil end
+    local norm = app:lower():gsub("^%s+", ""):gsub("%s+$", "")
+    return KNOWN_ROLE_APPS[norm]
+end
+
+-- Dynamically resolve active application for a generic workstation role
+function M.resolve_role_default(role)
+    if not role or type(role) ~= "string" then return nil end
+    local r = role:lower():gsub("_", "-")
+    local conf = M.read_desktop_config()
+
+    if r == "terminal" or r == "terminal.default" then
+        local env_val = os.getenv("DEFAULT_TERMINAL") or os.getenv("TERMINAL")
+        if env_val and env_val ~= "" then
+            return env_val:lower()
+        end
+        local cfg_val = conf["terminal.default"] or conf["terminal_default"] or conf["terminal"]
+        if cfg_val and cfg_val ~= "" then
+            return cfg_val:lower()
+        end
+        return "kitty"
+    elseif r == "file-manager" or r == "file_manager" or r == "files" or r == "files.default" or r == "explorer" then
+        local env_val = os.getenv("DEFAULT_FILE_MANAGER") or os.getenv("DEFAULT_EXPLORER") or os.getenv("FILE_MANAGER")
+        if env_val and env_val ~= "" then
+            return env_val:lower()
+        end
+        local cfg_val = conf["file-manager.default"] or conf["file_manager.default"] or conf["file-manager"] or conf["files.default"] or conf["files"]
+        if cfg_val and cfg_val ~= "" then
+            return cfg_val:lower()
+        end
+        local ok, p = pcall(io.popen, "xdg-mime query default inode/directory 2>/dev/null")
+        if ok and p then
+            local res = p:read("*a")
+            pcall(function() p:close() end)
+            if res then
+                res = res:lower()
+                if res:find("thunar") then return "thunar" end
+                if res:find("nautilus") then return "nautilus" end
+            end
+        end
+        return "nautilus"
+    elseif r == "browser" or r == "browser.default" then
+        local env_val = os.getenv("DEFAULT_BROWSER") or os.getenv("BROWSER")
+        if env_val and env_val ~= "" then
+            return env_val:lower()
+        end
+        local cfg_val = conf["browser.default"] or conf["browser_default"] or conf["browser"]
+        if cfg_val and cfg_val ~= "" then
+            return cfg_val:lower()
+        end
+        local ok, p = pcall(io.popen, "xdg-mime query default x-scheme-handler/https 2>/dev/null")
+        if ok and p then
+            local res = p:read("*a")
+            pcall(function() p:close() end)
+            if res then
+                res = res:lower()
+                if res:find("firefox") then return "firefox" end
+                if res:find("chromium") then return "chromium-browser" end
+            end
+        end
+        return "chromium-browser"
+    end
+    return nil
+end
+
 -- Normalize key string with strict canonical modifier ordering (SUPER -> CTRL -> ALT -> SHIFT -> KEY)
 function M.normalize_key(k)
     if not k or type(k) ~= "string" then return nil end
@@ -540,7 +681,7 @@ function M.resolve_bindings(manifest, overrides)
     local effective = {
         mainMod = manifest.mainMod or "SUPER",
         terminal = manifest.terminal or "kitty",
-        explorer = manifest.explorer or "thunar",
+        explorer = manifest.explorer or "nautilus",
         categories = manifest.categories or {},
         bindings = {},
         overrides = overrides,
@@ -556,6 +697,33 @@ function M.resolve_bindings(manifest, overrides)
 
         local action_id = item.id
         if action_id then
+            -- Role-based dynamic resolution
+            if action_id == "terminal" or action_id == "terminal.default" then
+                local def_term = M.resolve_role_default("terminal")
+                local info = M.get_app_command_info(def_term)
+                if info then
+                    item.command = info.command
+                    item.command_argv = info.command_argv
+                    item.desktop_id = info.desktop_id
+                end
+            elseif action_id == "file_manager" or action_id == "files.default" then
+                local def_fm = M.resolve_role_default("file-manager")
+                local info = M.get_app_command_info(def_fm)
+                if info then
+                    item.command = info.command
+                    item.command_argv = info.command_argv
+                    item.desktop_id = info.desktop_id
+                end
+            elseif action_id == "browser" or action_id == "browser.default" then
+                local def_browser = M.resolve_role_default("browser")
+                local info = M.get_app_command_info(def_browser)
+                if info then
+                    item.command = info.command
+                    item.command_argv = info.command_argv
+                    item.desktop_id = info.desktop_id
+                end
+            end
+
             known_ids[action_id] = true
             local ov = overrides[action_id]
             if ov == nil and action_id == "keybindings" then
@@ -885,6 +1053,33 @@ end
 -- Retrieve structured command_argv for a runnable action
 function M.get_action_argv(action_id, manifest)
     manifest = manifest or require("keybindings_manifest")
+
+    -- Check direct aliases for role actions
+    local resolved_role_app = nil
+    if action_id == "terminal" or action_id == "terminal.default" then
+        resolved_role_app = M.resolve_role_default("terminal")
+    elseif action_id == "file_manager" or action_id == "files.default" or action_id == "files" or action_id == "explorer" then
+        resolved_role_app = M.resolve_role_default("file-manager")
+    elseif action_id == "browser" or action_id == "browser.default" then
+        resolved_role_app = M.resolve_role_default("browser")
+    end
+
+    if resolved_role_app then
+        local app_info = M.get_app_command_info(resolved_role_app)
+        if app_info and app_info.command_argv then
+            return app_info.command_argv
+        end
+    end
+
+    -- Check specific app shortcuts (e.g. files.nautilus, terminal.kitty, browser.firefox)
+    local role_prefix, specific_app = tostring(action_id):match("^(%w+)%.([%w%-_]+)$")
+    if role_prefix and specific_app then
+        local app_info = M.get_app_command_info(specific_app)
+        if app_info and app_info.command_argv then
+            return app_info.command_argv
+        end
+    end
+
     for _, item in ipairs(manifest.bindings or {}) do
         if item.id == action_id or (item.id == "keybindings" and action_id == "hotkeys") or (item.id == "hotkeys" and action_id == "keybindings") then
             if item.runnable == true and type(item.command_argv) == "table" and #item.command_argv > 0 then
@@ -899,7 +1094,7 @@ function M.get_action_argv(action_id, manifest)
             end
         end
     end
-    local app_desktop = action_id:match("^app:([a-zA-Z0-9][%w%-%._]*%.desktop)$")
+    local app_desktop = tostring(action_id):match("^app:([a-zA-Z0-9][%w%-%._]*%.desktop)$")
     if app_desktop then
         return { "gtk-launch", "--", app_desktop }
     end

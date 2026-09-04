@@ -445,3 +445,127 @@ else
     pass "10.1 Keybindings is decoupled from login-critical validation path"
 fi
 
+section "11. Role-Based Action Resolution & Dynamic Application Intent"
+
+lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+
+# 11.1: File manager role resolves dynamically without mutating shortcut declaration
+role_fm_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+
+-- Default resolution
+local def_fm = eff.resolve_role_default("file-manager")
+local argv_def = eff.get_action_argv("file_manager", manifest)
+
+-- Thunar override via environment
+eff.resolve_role_default = function() return "thunar" end
+local argv_thunar = eff.get_action_argv("file_manager", manifest)
+
+print(string.format("FM: def=%s def_cmd=%s thunar_cmd=%s", def_fm, argv_def[1], argv_thunar[1]))
+LUA_CHECK
+)"
+if grep -q "FM: def=nautilus def_cmd=nautilus thunar_cmd=thunar" <<< "$role_fm_out"; then
+    pass "11.1 file manager role resolves dynamically (Nautilus vs Thunar) without mutating shortcut declaration"
+else
+    fail "11.1 file manager dynamic resolution failed: $role_fm_out"
+fi
+
+# 11.2: Terminal role resolves dynamically (Kitty vs Foot) without mutating shortcut declaration
+role_term_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+
+local def_term = eff.resolve_role_default("terminal")
+local argv_def = eff.get_action_argv("terminal", manifest)
+
+eff.resolve_role_default = function() return "foot" end
+local argv_foot = eff.get_action_argv("terminal", manifest)
+
+print(string.format("TERM: def=%s def_cmd=%s foot_cmd=%s", def_term, argv_def[1], argv_foot[1]))
+LUA_CHECK
+)"
+if grep -q "TERM: def=kitty def_cmd=kitty foot_cmd=foot" <<< "$role_term_out"; then
+    pass "11.2 terminal role resolves dynamically (Kitty vs Foot) without mutating shortcut declaration"
+else
+    fail "11.2 terminal dynamic resolution failed: $role_term_out"
+fi
+
+# 11.3: Browser role resolves dynamically (Chromium vs Firefox) without mutating shortcut declaration
+role_browser_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+
+local def_browser = eff.resolve_role_default("browser")
+local argv_def = eff.get_action_argv("browser", manifest)
+
+eff.resolve_role_default = function() return "firefox" end
+local argv_ff = eff.get_action_argv("browser", manifest)
+
+print(string.format("BROWSER: def=%s def_cmd=%s ff_cmd=%s", def_browser, argv_def[1], argv_ff[1]))
+LUA_CHECK
+)"
+if grep -q "BROWSER: def=chromium-browser def_cmd=chromium-browser ff_cmd=firefox" <<< "$role_browser_out"; then
+    pass "11.3 browser role resolves dynamically (Chromium vs Firefox) without mutating shortcut declaration"
+else
+    fail "11.3 browser dynamic resolution failed: $role_browser_out"
+fi
+
+# 11.4: Specific unbound application actions exist, are editable, and return structured command_argv
+role_unbound_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+
+local actions = { "terminal.kitty", "terminal.foot", "files.nautilus", "files.thunar", "browser.chromium", "browser.firefox" }
+local ok_count = 0
+for _, act in ipairs(actions) do
+    local argv = eff.get_action_argv(act, manifest)
+    if argv and #argv > 0 then
+        ok_count = ok_count + 1
+    end
+end
+print(string.format("UNBOUND: count=%d/%d", ok_count, #actions))
+LUA_CHECK
+)"
+if grep -q "UNBOUND: count=6/6" <<< "$role_unbound_out"; then
+    pass "11.4 specific unbound application actions exist and return structured command_argv"
+else
+    fail "11.4 specific unbound application actions check failed: $role_unbound_out"
+fi
+
+# 11.5: desktop.conf drives role default resolution when env is not set
+conf_drive_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+local tmp = os.tmpname()
+local f = io.open(tmp, "w")
+f:write("terminal.default = foot\nfile-manager.default = thunar\nbrowser.default = firefox\n")
+f:close()
+
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+eff.get_desktop_config_path = function() return tmp end
+
+local r_term = eff.resolve_role_default("terminal")
+local r_fm   = eff.resolve_role_default("file-manager")
+local r_br   = eff.resolve_role_default("browser")
+
+os.remove(tmp)
+print(string.format("CONF: term=%s fm=%s br=%s", r_term, r_fm, r_br))
+LUA_CHECK
+)"
+if grep -q "CONF: term=foot fm=thunar br=firefox" <<< "$conf_drive_out"; then
+    pass "11.5 desktop.conf drives role default resolution without environment overrides"
+else
+    fail "11.5 desktop.conf driven resolution failed: $conf_drive_out"
+fi
+
+
