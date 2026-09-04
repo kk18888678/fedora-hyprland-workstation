@@ -4,19 +4,21 @@
 -- Dynamically discovers applications through standard Linux/XDG desktop-entry mechanisms.
 -- Provides dynamic role resolution (file manager, browser, terminal) through desktop identity.
 -- Invariants:
--- - Zero hardcoded application tables (no KNOWN_ROLE_APPS)
--- - Standards-compliant XDG Desktop Entry parsing (Type=Application, NoDisplay, Hidden, Exec)
--- - Safe structured Exec tokenization with field-code removal (no eval, no sh -c)
+-- - Zero hardcoded application tables
+-- - Standards-compliant XDG Desktop Entry parsing (Type=Application, NoDisplay, Hidden, TryExec)
+-- - Zero custom Exec parser: execution delegated strictly to trusted platform launcher (gtk-launch)
 -- - Dynamic icon-theme identifier extraction
--- - Precedence: user applications shadow system applications; Hidden masks lower entries
--- - Bounded execution and safe failure isolation on malformed input
+-- - Strict precedence: user applications shadow system applications; Hidden masks lower entries
+-- - Subdirectory desktop ID derivation per XDG specification (foo/bar.desktop -> foo-bar.desktop)
+-- - Process-lifetime cache with explicit invalidation and wall-clock timestamp (no os.clock)
+-- - Test-only environment overrides strictly gated on WORKSTATION_TEST_MODE=1
+-- - Fail-closed role resolution: no fabricated fake application records
 
 local M = {}
 
 -- Cache storage for discovered applications
 M._cache = nil
 M._cache_timestamp = 0
-M._CACHE_TTL = 5.0 -- 5 seconds cache TTL
 
 -- POSIX shell single-quote escaper
 local function sh_quote(s)
@@ -27,6 +29,26 @@ end
 local function trim(s)
     if not s or type(s) ~= "string" then return "" end
     return s:gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+-- Optional FFI support for direct directory enumeration without subprocess spawning
+local has_ffi, ffi = pcall(require, "ffi")
+if has_ffi then
+    pcall(function()
+        ffi.cdef[[
+            typedef struct DIR DIR;
+            struct dirent {
+                unsigned long  d_ino;
+                long           d_off;
+                unsigned short d_reclen;
+                unsigned char  d_type;
+                char           d_name[256];
+            };
+            DIR *opendir(const char *name);
+            struct dirent *readdir(DIR *dirp);
+            int closedir(DIR *dirp);
+        ]]
+    end)
 end
 
 -- Resolve application search paths following XDG Desktop Entry Specification
@@ -50,7 +72,13 @@ function M.get_search_dirs()
     end
     add_dir(data_home .. "/applications")
 
-    -- 2. System and exported data directories ($XDG_DATA_DIRS/applications)
+    -- 2. User-specific Flatpak export directory
+    local home = os.getenv("HOME") or ""
+    if home ~= "" then
+        add_dir(home .. "/.local/share/flatpak/exports/share/applications")
+    end
+
+    -- 3. System and exported data directories ($XDG_DATA_DIRS/applications)
     local data_dirs = os.getenv("XDG_DATA_DIRS")
     if not data_dirs or data_dirs == "" then
         data_dirs = "/usr/local/share:/usr/share"
@@ -63,93 +91,102 @@ function M.get_search_dirs()
         end
     end
 
+    -- 4. Host-global Flatpak export directory
+    add_dir("/var/lib/flatpak/exports/share/applications")
+
     return dirs
 end
 
--- Standards-correct Exec key tokenization following Freedesktop Desktop Entry Specification
--- - Extracts executable as argv[1]
--- - Normalizes standard /usr/bin or /bin prefixes to executable name for consistent matching
--- - Handles double quotes and backslash escape sequences
--- - Strips field codes (%f, %F, %u, %U, %d, %D, %n, %N, %i, %c, %k, %v, %m)
--- - Expands %% to %
--- - Strictly prohibits eval, sh -c, or shell interpolation
-function M.parse_exec_line(exec_str)
-    if not exec_str or type(exec_str) ~= "string" then return nil end
-    exec_str = trim(exec_str)
-    if exec_str == "" then return nil end
+-- Derive desktop file ID relative to base applications directory per XDG specification:
+-- "If the file is in a subdirectory of a desktop file directory, the ID is formed by
+--  joining the subdirectory names and the desktop file name with dashes (-) instead of directory separators (/)."
+function M.derive_desktop_id(base_dir, file_path)
+    if not file_path or type(file_path) ~= "string" then return "" end
+    if not base_dir or type(base_dir) ~= "string" then
+        return file_path:match("([^/]+)$") or file_path
+    end
 
-    local tokens = {}
-    local pos = 1
-    local len = #exec_str
+    local norm_base = base_dir:gsub("/+$", "") .. "/"
+    if file_path:sub(1, #norm_base) == norm_base then
+        local rel = file_path:sub(#norm_base + 1)
+        return rel:gsub("/", "-")
+    end
+    return file_path:match("([^/]+)$") or file_path
+end
 
-    while pos <= len do
-        -- Skip leading whitespace
-        while pos <= len and exec_str:sub(pos, pos):match("%s") do
-            pos = pos + 1
-        end
-        if pos > len then break end
+-- Scan desktop files within a directory supporting 1-level subdirectories
+function M.scan_desktop_files_in_dir(dir_path)
+    local results = {}
+    if not dir_path or type(dir_path) ~= "string" or dir_path == "" then
+        return results
+    end
 
-        local token = {}
-        local in_quotes = false
-
-        while pos <= len do
-            local c = exec_str:sub(pos, pos)
-            if c == "\\" then
-                pos = pos + 1
-                if pos <= len then
-                    local esc = exec_str:sub(pos, pos)
-                    if esc == "s" then
-                        table.insert(token, " ")
-                    elseif esc == "n" then
-                        table.insert(token, "\n")
-                    elseif esc == "t" then
-                        table.insert(token, "\t")
-                    elseif esc == "r" then
-                        table.insert(token, "\r")
-                    else
-                        table.insert(token, esc)
+    -- Direct C library opendir/readdir via LuaJIT FFI if available
+    if has_ffi and ffi and ffi.C and ffi.C.opendir then
+        local ok, _ = pcall(function()
+            local d = ffi.C.opendir(dir_path)
+            if d ~= nil then
+                local subdirs = {}
+                while true do
+                    local ent = ffi.C.readdir(d)
+                    if ent == nil then break end
+                    local name = ffi.string(ent.d_name)
+                    if name ~= "." and name ~= ".." and not name:match("^%.") then
+                        if name:match("%.desktop$") then
+                            table.insert(results, {
+                                path = dir_path .. "/" .. name,
+                                desktop_id = name
+                            })
+                        elseif ent.d_type == 4 or ent.d_type == 0 then
+                            -- Subdirectory (or unknown d_type on some filesystems)
+                            table.insert(subdirs, name)
+                        end
                     end
-                    pos = pos + 1
                 end
-            elseif c == "\"" then
-                in_quotes = not in_quotes
-                pos = pos + 1
-            elseif not in_quotes and c:match("%s") then
-                break
-            else
-                table.insert(token, c)
-                pos = pos + 1
+                ffi.C.closedir(d)
+
+                for _, sub in ipairs(subdirs) do
+                    local sub_path = dir_path .. "/" .. sub
+                    local sub_d = ffi.C.opendir(sub_path)
+                    if sub_d ~= nil then
+                        while true do
+                            local sub_ent = ffi.C.readdir(sub_d)
+                            if sub_ent == nil then break end
+                            local sub_name = ffi.string(sub_ent.d_name)
+                            if sub_name:match("%.desktop$") then
+                                table.insert(results, {
+                                    path = sub_path .. "/" .. sub_name,
+                                    desktop_id = sub .. "-" .. sub_name
+                                })
+                            end
+                        end
+                        ffi.C.closedir(sub_d)
+                    end
+                end
+            end
+        end)
+        if ok and #results > 0 then
+            return results
+        end
+    end
+
+    -- Safe bounded fallback using find without shell wildcard expansion
+    local p = io.popen("find " .. sh_quote(dir_path) .. " -maxdepth 2 -name '*.desktop' 2>/dev/null", "r")
+    if p then
+        for line in p:lines() do
+            line = trim(line)
+            if line ~= "" and line:match("%.desktop$") then
+                local did = M.derive_desktop_id(dir_path, line)
+                table.insert(results, {
+                    path = line,
+                    desktop_id = did
+                })
             end
         end
-
-        table.insert(tokens, table.concat(token))
+        p:close()
     end
 
-    if #tokens == 0 then return nil end
-
-    -- Executable is the first token
-    local exe = tokens[1]
-    if exe:match("^/usr/bin/([^/]+)$") then
-        exe = exe:match("^/usr/bin/([^/]+)$")
-    elseif exe:match("^/bin/([^/]+)$") then
-        exe = exe:match("^/bin/([^/]+)$")
-    end
-    local argv = { exe }
-
-    -- Process arguments and filter field codes
-    for i = 2, #tokens do
-        local tok = tokens[i]
-        -- Freedesktop field codes to strip when launching application directly
-        if tok:match("^%%[fFuUdDnNicckvm]$") then
-            -- Field code omitted for direct launch
-        else
-            -- Expand %% to literal %
-            tok = tok:gsub("%%%%", "%%")
-            table.insert(argv, tok)
-        end
-    end
-
-    return argv
+    return results
 end
 
 -- Determine application origin/source from filesystem path
@@ -173,7 +210,7 @@ function M.detect_source(path)
 end
 
 -- Safely parse a single .desktop file with strict bounds
-function M.parse_desktop_file(filepath)
+function M.parse_desktop_file(filepath, explicit_desktop_id)
     if not filepath or type(filepath) ~= "string" then return nil end
 
     local f = io.open(filepath, "r")
@@ -209,10 +246,12 @@ function M.parse_desktop_file(filepath)
         end
     end
 
-    local desktop_id = filepath:match("([^/]+)$")
-    if not desktop_id then return nil end
+    local desktop_id = explicit_desktop_id or filepath:match("([^/]+)$")
+    if not desktop_id or not desktop_id:match("^[a-zA-Z0-9][%w%-%._]*%.desktop$") then
+        return nil
+    end
 
-    -- Check if marked Hidden (equivalent to deleted at this precedence level)
+    -- Check if marked Hidden (equivalent to deleted at this precedence level per XDG spec)
     if data.Hidden == "true" then
         return {
             desktop_id = desktop_id,
@@ -221,12 +260,74 @@ function M.parse_desktop_file(filepath)
         }
     end
 
-    -- Strictly require Type=Application and Name
+    -- Strictly require Type=Application and non-empty Name
     if data.Type ~= "Application" then return nil end
     if not data.Name or data.Name == "" then return nil end
 
+    -- Check TryExec if specified per Freedesktop spec:
+    -- "Path to an executable file on disk used to determine if the program is actually installed."
+    if data.TryExec and data.TryExec ~= "" then
+        local te = trim(data.TryExec)
+        if te:sub(1, 1) == "/" then
+            local f_te = io.open(te, "r")
+            if not f_te then return nil end
+            f_te:close()
+        else
+            -- Check common binary paths
+            local found = false
+            local bin_paths = { "/usr/bin/" .. te, "/usr/local/bin/" .. te, "/bin/" .. te }
+            local home = os.getenv("HOME") or ""
+            if home ~= "" then
+                table.insert(bin_paths, home .. "/.local/bin/" .. te)
+            end
+            for _, bp in ipairs(bin_paths) do
+                local f_bp = io.open(bp, "r")
+                if f_bp then
+                    f_bp:close()
+                    found = true
+                    break
+                end
+            end
+            if not found then return nil end
+        end
+    end
+
+    local nodisplay = (data.NoDisplay == "true")
     local exec_str = data.Exec or ""
-    local command_argv = M.parse_exec_line(exec_str)
+
+    -- Check OnlyShowIn / NotShowIn against current desktop
+    local current_desktop = (os.getenv("XDG_CURRENT_DESKTOP") or "Hyprland"):lower()
+    if data.NotShowIn then
+        for env_id in data.NotShowIn:gmatch("[^;]+") do
+            if trim(env_id):lower() == current_desktop then
+                nodisplay = true
+                break
+            end
+        end
+    end
+    if data.OnlyShowIn and not nodisplay then
+        local shown = false
+        for env_id in data.OnlyShowIn:gmatch("[^;]+") do
+            if trim(env_id):lower() == current_desktop then
+                shown = true
+                break
+            end
+        end
+        if not shown then
+            nodisplay = true
+        end
+    end
+
+    -- Sanitize icon identifier: reject path traversal and control characters
+    local icon = data.Icon or ""
+    if icon:find("[%c\"';`$><]") or icon:find("%.%./") then
+        icon = ""
+    end
+
+    -- Safe structured launcher: trusted Freedesktop platform launch via gtk-launch
+    -- Avoids custom Exec tokenization, shell interpretation, or eval.
+    local launch_cmd = "gtk-launch -- " .. desktop_id
+    local launch_argv = { "gtk-launch", "--", desktop_id }
 
     return {
         desktop_id = desktop_id,
@@ -234,12 +335,14 @@ function M.parse_desktop_file(filepath)
         generic_name = data.GenericName or "",
         comment = data.Comment or "",
         exec = exec_str,
-        command_argv = command_argv or { exec_str:match("^%S+") or exec_str },
-        icon = data.Icon or "",
+        exec_raw = exec_str,
+        command = launch_cmd,
+        command_argv = launch_argv,
+        icon = icon,
         categories = data.Categories or "",
         keywords = data.Keywords or "",
         terminal = (data.Terminal == "true"),
-        nodisplay = (data.NoDisplay == "true"),
+        nodisplay = nodisplay,
         hidden = false,
         path = filepath,
         source = M.detect_source(filepath),
@@ -281,8 +384,8 @@ function M.list_applications(options)
     options = options or {}
     local include_nodisplay = (options.include_nodisplay == true)
 
-    local now = os.clock()
-    if M._cache and (now - M._cache_timestamp) < M._CACHE_TTL and not options.bypass_cache then
+    -- Process-lifetime cache with wall-clock timestamp (no os.clock CPU time bug)
+    if M._cache and not options.bypass_cache and not options.refresh then
         if include_nodisplay then
             return M._cache.all_apps
         else
@@ -297,25 +400,22 @@ function M.list_applications(options)
     local default_roles = M.get_truthful_default_roles()
 
     for _, dir in ipairs(search_dirs) do
-        local p = io.popen("ls -1 " .. sh_quote(dir) .. "/*.desktop 2>/dev/null", "r")
-        if p then
-            for filepath in p:lines() do
-                local did = filepath:match("([^/]+)$")
-                if did and not seen[did] then
-                    seen[did] = true
-                    local info = M.parse_desktop_file(filepath)
-                    if info then
-                        if not info.hidden then
-                            info.default_role = default_roles[did] or ""
-                            table.insert(all_apps, info)
-                            if not info.nodisplay or include_nodisplay then
-                                table.insert(visible_apps, info)
-                            end
+        local files = M.scan_desktop_files_in_dir(dir)
+        for _, entry in ipairs(files) do
+            local did = entry.desktop_id
+            if did and not seen[did] then
+                seen[did] = true
+                local info = M.parse_desktop_file(entry.path, did)
+                if info then
+                    if not info.hidden then
+                        info.default_role = default_roles[did] or ""
+                        table.insert(all_apps, info)
+                        if not info.nodisplay or include_nodisplay then
+                            table.insert(visible_apps, info)
                         end
                     end
                 end
             end
-            p:close()
         end
     end
 
@@ -333,7 +433,7 @@ function M.list_applications(options)
         visible_apps = visible_apps,
         all_apps = all_apps,
     }
-    M._cache_timestamp = now
+    M._cache_timestamp = os.time()
 
     if include_nodisplay then
         return all_apps
@@ -370,7 +470,7 @@ function M.find_application(query)
         local f = io.open(candidate_path, "r")
         if f then
             f:close()
-            local app = M.parse_desktop_file(candidate_path)
+            local app = M.parse_desktop_file(candidate_path, query_with_ext)
             if app and not app.hidden then
                 return app
             end
@@ -441,123 +541,147 @@ function M.read_desktop_config()
 end
 
 -- Resolve active application dynamically for generic workstation roles:
+-- Precedence:
 -- 1. Explicit workstation desired role (desktop.conf)
--- 2. Test-only environment override (when WORKSTATION_TEST_MODE=1 or DEFAULT_<ROLE> set)
+-- 2. Test-only environment override (ONLY when WORKSTATION_TEST_MODE=1)
 -- 3. Standard desktop/XDG default (xdg-mime query default)
 -- 4. Stable Recommended fallback
--- Returns: canonical_name, app_info
+-- Policy B: If explicit desired role cannot be resolved, log drift and use verified Recommended fallback.
+-- If neither desired nor recommended fallback exists, fail closed with error (zero fake application records).
 function M.resolve_role(role)
     if not role or type(role) ~= "string" then return nil end
     local r = role:lower():gsub("_", "-")
     local conf = M.read_desktop_config()
+    local is_test_mode = (os.getenv("WORKSTATION_TEST_MODE") == "1")
 
-    local target_app = nil
+    local explicit_target = nil
+    local mime_target = nil
+    local recommended_target = nil
 
     if r == "terminal" or r == "terminal.default" then
         -- 1. Explicit workstation desired role
         local cfg_val = conf["terminal.default"] or conf["terminal_default"] or conf["terminal"]
         if cfg_val and cfg_val ~= "" then
-            target_app = cfg_val
+            explicit_target = cfg_val
         end
 
-        -- 2. Test-only environment override
-        if not target_app then
+        -- 2. Test-only environment override (strictly gated on WORKSTATION_TEST_MODE=1)
+        if not explicit_target and is_test_mode then
             local test_val = os.getenv("DEFAULT_TERMINAL") or os.getenv("TERMINAL")
             if test_val and test_val ~= "" then
-                target_app = test_val
+                explicit_target = test_val
             end
         end
 
         -- 3. Recommended fallback
-        if not target_app then
-            target_app = "kitty"
-        end
+        recommended_target = "kitty.desktop"
 
     elseif r == "file-manager" or r == "file_manager" or r == "files" or r == "files.default" or r == "explorer" then
         -- 1. Explicit workstation desired role
         local cfg_val = conf["file-manager.default"] or conf["file_manager.default"] or conf["file-manager"] or conf["files.default"] or conf["files"]
         if cfg_val and cfg_val ~= "" then
-            target_app = cfg_val
+            explicit_target = cfg_val
         end
 
-        -- 2. Test-only environment override
-        if not target_app then
+        -- 2. Test-only environment override (strictly gated on WORKSTATION_TEST_MODE=1)
+        if not explicit_target and is_test_mode then
             local test_val = os.getenv("DEFAULT_FILE_MANAGER") or os.getenv("DEFAULT_EXPLORER") or os.getenv("FILE_MANAGER")
             if test_val and test_val ~= "" then
-                target_app = test_val
+                explicit_target = test_val
             end
         end
 
         -- 3. Standard desktop/XDG default via xdg-mime
-        if not target_app then
+        if not explicit_target then
             local ok, p = pcall(io.popen, "xdg-mime query default inode/directory 2>/dev/null")
             if ok and p then
                 local res = trim(p:read("*l") or "")
                 pcall(function() p:close() end)
                 if res ~= "" then
-                    target_app = res
+                    mime_target = res
                 end
             end
         end
 
         -- 4. Recommended fallback
-        if not target_app then
-            target_app = "org.gnome.Nautilus.desktop"
-        end
+        recommended_target = "org.gnome.Nautilus.desktop"
 
     elseif r == "browser" or r == "browser.default" then
         -- 1. Explicit workstation desired role
         local cfg_val = conf["browser.default"] or conf["browser_default"] or conf["browser"]
         if cfg_val and cfg_val ~= "" then
-            target_app = cfg_val
+            explicit_target = cfg_val
         end
 
-        -- 2. Test-only environment override
-        if not target_app then
+        -- 2. Test-only environment override (strictly gated on WORKSTATION_TEST_MODE=1)
+        if not explicit_target and is_test_mode then
             local test_val = os.getenv("DEFAULT_BROWSER") or os.getenv("BROWSER")
             if test_val and test_val ~= "" then
-                target_app = test_val
+                explicit_target = test_val
             end
         end
 
         -- 3. Standard desktop/XDG default via xdg-mime
-        if not target_app then
+        if not explicit_target then
             local ok, p = pcall(io.popen, "xdg-mime query default x-scheme-handler/https 2>/dev/null")
             if ok and p then
                 local res = trim(p:read("*l") or "")
                 pcall(function() p:close() end)
                 if res ~= "" then
-                    target_app = res
+                    mime_target = res
                 end
             end
         end
 
         -- 4. Recommended fallback
-        if not target_app then
-            target_app = "chromium-browser.desktop"
+        recommended_target = "chromium-browser.desktop"
+    else
+        return nil, "Unknown workstation role: " .. tostring(role)
+    end
+
+    -- Resolution sequence:
+    -- A. If explicit target set:
+    if explicit_target then
+        local app_info = M.find_application(explicit_target)
+        if app_info then
+            local canon = M.canonical_app_name(app_info.desktop_id)
+            return canon, app_info
+        end
+
+        -- Explicit target not discoverable: report drift, attempt recommended fallback
+        if recommended_target then
+            local rec_info = M.find_application(recommended_target)
+            if rec_info then
+                rec_info.drifted = true
+                local canon = M.canonical_app_name(rec_info.desktop_id)
+                return canon, rec_info
+            end
+        end
+
+        -- Fail closed: do not synthesize fake application record
+        return nil, string.format("Cannot resolve application for role '%s': configured '%s' is not installed and fallback is unavailable", role, explicit_target)
+    end
+
+    -- B. If MIME default detected:
+    if mime_target then
+        local app_info = M.find_application(mime_target)
+        if app_info then
+            local canon = M.canonical_app_name(app_info.desktop_id)
+            return canon, app_info
         end
     end
 
-    if not target_app then return nil end
-
-    -- Resolve through the dynamic Application Registry
-    local app_info = M.find_application(target_app)
-    if app_info then
-        local canon = M.canonical_app_name(app_info.desktop_id)
-        return canon, app_info
+    -- C. Recommended workstation fallback:
+    if recommended_target then
+        local rec_info = M.find_application(recommended_target)
+        if rec_info then
+            local canon = M.canonical_app_name(rec_info.desktop_id)
+            return canon, rec_info
+        end
     end
 
-    -- Fallback synthesis if application is not installed on host
-    local canon = M.canonical_app_name(target_app)
-    local fallback_info = {
-        desktop_id = target_app:match("%.desktop$") and target_app or (target_app .. ".desktop"),
-        name = canon:sub(1,1):upper() .. canon:sub(2),
-        exec = canon,
-        command_argv = { canon },
-        icon = canon,
-        source = "fallback",
-    }
-    return canon, fallback_info
+    -- Fail closed
+    return nil, string.format("Cannot resolve application for role '%s': no installed application matches role", role)
 end
 
 return M
