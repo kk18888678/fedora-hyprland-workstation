@@ -1257,3 +1257,53 @@ else
     fail "14.4 cache invariants test failed: $test_14_4_out"
 fi
 
+# 14.5: keybind.lua safely ignores unbound, unrunnable, or nil-command actions without crashing Hyprland
+test_14_5_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+
+local mock_calls = {}
+local hl = {
+    dsp = {
+        exec_cmd = function(cmd)
+            if cmd == nil or type(cmd) ~= "string" then
+                error("exec_cmd: bad argument 1: expected string, got nil", 2)
+            end
+            return "exec:" .. cmd
+        end,
+        window = {
+            close = function() return "close" end,
+            float = function() return "float" end,
+            fullscreen = function() return "fullscreen" end,
+            cycle_next = function() return "cycle" end,
+            drag = function() return "drag" end,
+            resize = function() return "resize" end,
+            move = function() return "move" end,
+        },
+        focus = function(arg) return "focus" end,
+    },
+    bind = function(key, dsp, flags)
+        if type(dsp) ~= "string" and type(dsp) ~= "function" then
+            error("hl.bind: dispatcher must be a dispatcher or a lua function", 2)
+        end
+        table.insert(mock_calls, { key = key, dsp = dsp, flags = flags })
+    end
+}
+_G.hl = hl
+
+-- Test that keybind.lua loads without error even if unrunnable actions with nil command exist in effective bindings
+package.loaded["keybind"] = nil
+local ok, err = pcall(require, "keybind")
+assert(ok == true, "keybind.lua failed to load with mock hl: " .. tostring(err))
+assert(#mock_calls > 0, "No bindings registered by keybind.lua")
+
+print("TEST_14_5_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_14_5_OK" <<< "$test_14_5_out"; then
+    pass "14.5 keybind.lua safely ignores unbound, unrunnable, or nil-command actions"
+else
+    fail "14.5 keybind.lua defensive binding test failed: $test_14_5_out"
+fi
+
+

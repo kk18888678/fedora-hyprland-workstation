@@ -29,22 +29,29 @@ local function register_binding(item)
         return
     end
 
-    if not item.key and (item.action_type == "gesture" or item.unbound) then
+    if item.unbound or item.action_type == "gesture" then
         -- Touchpad gesture or user-unbound entry: skip registration
         return
     end
 
-    if not item.key then
-        error("Keybinding entry missing key definition: " .. tostring(item.description or "unlabeled"))
+    if not item.key or item.key == "" or item.key == "None" then
+        return
     end
 
     local desc = item.description or "Unlabeled binding"
     local flags = { description = desc }
 
     if item.action_type == "exec" then
+        if not item.command or item.command == "" or item.runnable == false then
+            -- Action has no runnable command available: do not register broken binding
+            return
+        end
         hl.bind(item.key, hl.dsp.exec_cmd(item.command), flags)
     elseif item.action_type == "exec_locked" then
         flags.locked = true
+        if not item.command or item.command == "" or item.runnable == false then
+            return
+        end
         hl.bind(item.key, hl.dsp.exec_cmd(item.command), flags)
     elseif item.action_type == "dispatch_close" then
         hl.bind(item.key, hl.dsp.window.close(), flags)

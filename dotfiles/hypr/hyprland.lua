@@ -14,6 +14,8 @@ for _, module in ipairs({
     "startup",
     "inputs",
     "keybindings_manifest",
+    "application_registry",
+    "effective_bindings",
     "keybind",
     "windowrules",
     "animations",
