@@ -421,6 +421,14 @@ install_hack_nerd_font
 font_skip_ok=1
 echo "font-skip-ok=$font_skip_ok"
 
+# Test JetBrainsMono font idempotent skip when already present
+JETBRAINS_FONTS_INSTALL_DIR="$TARGET_HOME/share/fonts/JetBrainsMonoNerdFont"
+mkdir -p "$JETBRAINS_FONTS_INSTALL_DIR"
+touch "$JETBRAINS_FONTS_INSTALL_DIR/JetBrainsMonoNerdFont-Regular.ttf"
+install_jetbrains_mono_nerd_font
+jetbrains_font_skip_ok=1
+echo "jetbrains-font-skip-ok=$jetbrains_font_skip_ok"
+
 # Test GTK theme idempotent skip when already present
 mkdir -p "$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk/gtk-3.0"
 touch "$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk/index.theme"
@@ -513,6 +521,12 @@ if printf '%s\n' "$desktop_theme_test_output" | grep -q 'font-skip-ok=1'; then
     pass "install_hack_nerd_font detects existing font installation idempotently"
 else
     fail "install_hack_nerd_font idempotency failed: $desktop_theme_test_output"
+fi
+
+if printf '%s\n' "$desktop_theme_test_output" | grep -q 'jetbrains-font-skip-ok=1'; then
+    pass "install_jetbrains_mono_nerd_font detects existing font installation idempotently"
+else
+    fail "install_jetbrains_mono_nerd_font idempotency failed: $desktop_theme_test_output"
 fi
 
 if printf '%s\n' "$desktop_theme_test_output" | grep -q 'gtk-skip-ok=1'; then

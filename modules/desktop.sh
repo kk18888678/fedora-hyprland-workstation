@@ -412,6 +412,103 @@ install_hack_nerd_font() {
     record_success "hack-nerd-font"
 }
 
+install_jetbrains_mono_nerd_font() {
+    load_pinned_versions
+
+    local fonts_dir="${JETBRAINS_FONTS_INSTALL_DIR:-/usr/local/share/fonts/JetBrainsMonoNerdFont}"
+    if [[ -d "$fonts_dir" && -f "$fonts_dir/JetBrainsMonoNerdFont-Regular.ttf" ]]; then
+        info "JetBrainsMono Nerd Font already installed."
+        record_success "jetbrains-mono-nerd-font"
+        return 0
+    fi
+
+    if [[ -z "${JETBRAINS_MONO_NERD_FONT_URL:-}" || -z "${JETBRAINS_MONO_NERD_FONT_SHA512:-}" ]]; then
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font version metadata missing."
+        return 0
+    fi
+
+    info "Installing JetBrainsMono Nerd Font (${JETBRAINS_MONO_NERD_FONT_VERSION:-pinned})."
+
+    local staging_dir
+    staging_dir="$(mktemp -d)"
+    local staging_archive="$staging_dir/jetbrains-mono.tar.xz"
+
+    if ! download_and_verify_artifact "$JETBRAINS_MONO_NERD_FONT_URL" "$JETBRAINS_MONO_NERD_FONT_SHA512" "$staging_archive" "JetBrainsMono Nerd Font"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "Failed to download or verify JetBrainsMono Nerd Font archive."
+        return 0
+    fi
+
+    local extracted_dir="$staging_dir/extracted"
+    mkdir -p "$extracted_dir"
+
+    # Pre-extraction structural validation
+    local verbose_listing
+    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font archive inspection failed."
+        return 0
+    fi
+
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        local type_char="${line:0:1}"
+        case "$type_char" in
+            -|d) ;;
+            *)
+                rm -rf "$staging_dir"
+                record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font archive contains unsupported entry type '$type_char'."
+                return 0
+                ;;
+        esac
+    done <<< "$verbose_listing"
+
+    local members_listing
+    if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font archive member listing failed."
+        return 0
+    fi
+
+    local member
+    while IFS= read -r member; do
+        [[ -n "$member" ]] || continue
+        if ! validate_path_components "$member" || ! normalize_archive_path "" "$member" >/dev/null; then
+            rm -rf "$staging_dir"
+            record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font archive contains forbidden member path: $member"
+            return 0
+        fi
+    done <<< "$members_listing"
+
+    if ! tar -xf "$staging_archive" -C "$extracted_dir"; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "Failed to extract JetBrainsMono Nerd Font archive."
+        return 0
+    fi
+
+    if [[ "$fonts_dir" == /usr/* || "$fonts_dir" == /etc/* ]]; then
+        sudo mkdir -p "$fonts_dir"
+        sudo cp -r "$extracted_dir"/* "$fonts_dir/"
+        sudo chmod 0755 "$fonts_dir"
+        sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+    else
+        mkdir -p "$fonts_dir"
+        cp -r "$extracted_dir"/* "$fonts_dir/"
+        chmod 0755 "$fonts_dir"
+        chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+    fi
+
+    rm -rf "$staging_dir"
+
+    if command_exists fc-cache; then
+        fc-cache -f >/dev/null 2>&1 || true
+    fi
+
+    info "JetBrainsMono Nerd Font installed successfully."
+    record_success "jetbrains-mono-nerd-font"
+}
+
 install_rose_pine_gtk_theme() {
     load_pinned_versions
 
@@ -819,6 +916,7 @@ install_desktop() {
     deploy_hyprland_config
     deploy_noctalia_config
     install_hack_nerd_font
+    install_jetbrains_mono_nerd_font
     install_rose_pine_gtk_theme
     converge_gtk_bookmarks
     install_workstation_hotkeys
