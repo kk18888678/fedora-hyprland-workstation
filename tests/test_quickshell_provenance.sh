@@ -2,6 +2,9 @@
 
 # Test Suite: Quickshell package provenance, candidate validation, and safe convergence.
 
+ROOT="${ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)}"
+# shellcheck source=/dev/null
+source "$ROOT/tests/test_helper.sh"
 # shellcheck source=/dev/null
 source "$ROOT/modules/common.sh"
 # shellcheck source=/dev/null
@@ -239,3 +242,139 @@ if [[ "$rc" -ne 0 && -z "$mutations" ]]; then
 else
     fail "17. candidate resolution failure did not fail closed: rc=$rc mutations=$mutations"
 fi
+
+section "Quickshell Candidate Discovery & Parser Invariants"
+
+# 18. old production repoquery command failure reproduced
+old_cmd_rc=0
+old_cmd_out=""
+old_cmd_out="$(dnf -q repoquery --from-repo="$QUICKSHELL_APPROVED_REPOID" quickshell 2>&1)" || old_cmd_rc=$?
+if [[ "$old_cmd_rc" -ne 0 && "$old_cmd_out" == *"Unknown argument \"--from-repo="* ]]; then
+    pass "18. old production command failure reproduced (repoquery rejects --from-repo with code $old_cmd_rc)"
+else
+    fail "18. expected old repoquery command to fail with unknown argument error: rc=$old_cmd_rc out=$old_cmd_out"
+fi
+
+# 19. corrected candidate discovery against approved repository
+appr_cand="$(query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID")" || appr_cand=""
+read -r p_name p_epoch p_ver p_rel p_arch p_repo extra_tokens <<< "$appr_cand"
+host_arch="$(uname -m 2>/dev/null || echo "x86_64")"
+
+if [[ -n "$appr_cand" && \
+      "$p_name" == "quickshell" && \
+      "$p_epoch" == "0" && \
+      "$p_ver" == "0.3.1" && \
+      "$p_rel" == "2.fc44" && \
+      "$p_arch" == "$host_arch" && \
+      "$p_repo" == "$QUICKSHELL_APPROVED_REPOID" && \
+      -z "$extra_tokens" ]]; then
+    pass "19. approved candidate is discovered and parsed (name=$p_name epoch=$p_epoch ver=$p_ver rel=$p_rel arch=$p_arch repo=$p_repo)"
+else
+    fail "19. candidate discovery/parsing failed: '$appr_cand'"
+fi
+
+# 20. malformed repoquery output fails closed
+mock_dir="$(mktemp -d)"
+cat << 'MOCK_EOF' > "$mock_dir/dnf"
+#!/usr/bin/env bash
+echo "quickshell only three fields"
+exit 0
+MOCK_EOF
+chmod +x "$mock_dir/dnf"
+
+mal_rc=0
+mal_out=""
+mal_out="$(PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" 2>/dev/null)" || mal_rc=$?
+rm -rf "$mock_dir"
+
+if [[ "$mal_rc" -eq 3 && -z "$mal_out" ]]; then
+    pass "20. malformed repoquery output fails closed with exit code 3"
+else
+    fail "20. malformed output was not rejected cleanly: rc=$mal_rc out=$mal_out"
+fi
+
+# 21. repoquery nonzero exit is classified as query failure, not 'no candidate'
+mock_dir="$(mktemp -d)"
+cat << 'MOCK_EOF' > "$mock_dir/dnf"
+#!/usr/bin/env bash
+echo "Internal error in DNF" >&2
+exit 2
+MOCK_EOF
+chmod +x "$mock_dir/dnf"
+
+fail_rc=0
+fail_err_log="$(mktemp)"
+PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" 2>"$fail_err_log" || fail_rc=$?
+fail_err_content="$(cat "$fail_err_log")"
+rm -rf "$mock_dir" "$fail_err_log"
+
+if [[ "$fail_rc" -eq 2 && "$fail_err_content" == *"Failed to query approved Quickshell repository"* ]]; then
+    pass "21. repoquery nonzero exit is treated as query failure with diagnostic, not 'no candidate'"
+else
+    fail "21. nonzero exit handling invalid: rc=$fail_rc err=$fail_err_content"
+fi
+
+# 22. genuinely empty successful query returns status 1 ('no candidate')
+mock_dir="$(mktemp -d)"
+cat << 'MOCK_EOF' > "$mock_dir/dnf"
+#!/usr/bin/env bash
+exit 0
+MOCK_EOF
+chmod +x "$mock_dir/dnf"
+
+empty_rc=0
+PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" >/dev/null 2>&1 || empty_rc=$?
+rm -rf "$mock_dir"
+
+if [[ "$empty_rc" -eq 1 ]]; then
+    pass "22. genuinely empty successful query returns status 1 ('no candidate')"
+else
+    fail "22. empty query did not return 1: rc=$empty_rc"
+fi
+
+# 23. unavailable repository returns query failure with repository unavailable diagnostic
+unavail_rc=0
+unavail_log="$(mktemp)"
+query_quickshell_candidate "copr:copr.fedorainfracloud.org:nonexistent:repo" 2>"$unavail_log" || unavail_rc=$?
+unavail_content="$(cat "$unavail_log")"
+rm -f "$unavail_log"
+
+if [[ "$unavail_rc" -ne 0 && "$unavail_content" == *"Approved Quickshell repository is unavailable"* ]]; then
+    pass "23. unavailable repository is distinguished and reported with actionable diagnostic"
+else
+    fail "23. unavailable repository not distinguished: rc=$unavail_rc content=$unavail_content"
+fi
+
+# 24. post-install validation verifies candidate satisfaction
+(
+    package_installed() { return 0; }
+    detect_quickshell() { return 1; }
+    mock_dir="$(mktemp -d)"
+    cat << 'MOCK_EOF' > "$mock_dir/dnf"
+#!/usr/bin/env bash
+if [[ "$1" == "repoquery" || "$2" == "repoquery" ]]; then
+    echo "quickshell 0 0.3.1 2.fc44 x86_64 $MOCK_APPR_REPO"
+    exit 0
+fi
+exit 0
+MOCK_EOF
+    chmod +x "$mock_dir/dnf"
+    cat << 'MOCK_EOF' > "$mock_dir/sudo"
+#!/usr/bin/env bash
+"$@"
+MOCK_EOF
+    chmod +x "$mock_dir/sudo"
+
+    run_with_timeout() { shift 2; "$@"; }
+    run_dnf_command() { shift 2; "$@"; }
+    export MOCK_APPR_REPO="$QUICKSHELL_APPROVED_REPOID"
+    post_val_rc=0
+    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null 2>&1 || post_val_rc=$?
+    rm -rf "$mock_dir"
+
+    if [[ "$post_val_rc" -ne 0 ]]; then
+        pass "24. post-install validation failure fails closed after transaction"
+    else
+        fail "24. post-install validation failure was ignored"
+    fi
+)

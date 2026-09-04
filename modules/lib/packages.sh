@@ -248,22 +248,64 @@ query_quickshell_candidate() {
     local arch
     arch="$(uname -m 2>/dev/null || echo "x86_64")"
 
-    query_out="$(
-        run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery quickshell candidate from $repoid" \
-            dnf -q repoquery --from-repo="$repoid" --latest-limit=1 "quickshell.${arch}" \
-                --queryformat "%{name} %{epoch} %{version} %{release} %{arch} %{repoid}" 2>/dev/null
-    )" || status=$?
+    local err_file
+    err_file="$(mktemp "${TMPDIR:-/tmp}/quickshell_query_err.XXXXXX" 2>/dev/null || true)"
 
-    if (( status != 0 )) || [[ -z "$query_out" ]]; then
+    if [[ -n "$err_file" ]]; then
         query_out="$(
-            run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery quickshell candidate (no arch) from $repoid" \
-                dnf -q repoquery --from-repo="$repoid" --latest-limit=1 "quickshell" \
-                    --queryformat "%{name} %{epoch} %{version} %{release} %{arch} %{repoid}" 2>/dev/null
+            run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery quickshell candidate from $repoid" \
+                dnf -q repoquery --repo="$repoid" --arch="$arch,noarch" --latest-limit=1 quickshell \
+                    --queryformat "%{name} %{epoch} %{version} %{release} %{arch} %{repoid}\n" 2>"$err_file"
+        )" || status=$?
+    else
+        query_out="$(
+            run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery quickshell candidate from $repoid" \
+                dnf -q repoquery --repo="$repoid" --arch="$arch,noarch" --latest-limit=1 quickshell \
+                    --queryformat "%{name} %{epoch} %{version} %{release} %{arch} %{repoid}\n" 2>/dev/null
         )" || status=$?
     fi
 
-    printf '%s\n' "$query_out"
-    return "$status"
+    local bounded_err=""
+    if [[ -n "$err_file" && -f "$err_file" ]]; then
+        bounded_err="$(head -n 2 "$err_file" | tr '\n' ' ' | sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//')"
+        rm -f "$err_file"
+    fi
+
+    # Non-zero exit from dnf repoquery is a query failure or repository unavailable
+    if (( status != 0 )); then
+        [[ -z "$bounded_err" ]] && bounded_err="command failed or timed out"
+        if [[ "$bounded_err" == *"No matching repositories"* ]]; then
+            error "Approved Quickshell repository is unavailable: $repoid"
+            error "  dnf repoquery exited $status: $bounded_err"
+        else
+            error "Failed to query approved Quickshell repository: $repoid"
+            error "  dnf repoquery exited $status: $bounded_err"
+        fi
+        return "$status"
+    fi
+
+    # Trim whitespace
+    query_out="$(printf '%s' "$query_out" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+    # Clean exit with empty output means no candidate found
+    if [[ -z "$query_out" ]]; then
+        return 1
+    fi
+
+    # Parse and validate candidate line structure
+    local first_line
+    first_line="$(head -n 1 <<< "$query_out")"
+
+    local c_name="" c_epoch="" c_ver="" c_rel="" c_arch="" c_repo="" extra=""
+    read -r c_name c_epoch c_ver c_rel c_arch c_repo extra <<< "$first_line"
+
+    if [[ -z "$c_name" || -z "$c_epoch" || -z "$c_ver" || -z "$c_rel" || -z "$c_arch" || -z "$c_repo" || -n "$extra" ]]; then
+        error "Failed to parse Quickshell candidate from $repoid: malformed repoquery output: '$first_line'"
+        return 3
+    fi
+
+    printf '%s\n' "$first_line"
+    return 0
 }
 
 validate_quickshell_candidate() {
@@ -347,10 +389,14 @@ install_approved_quickshell() {
     local approved_repoid="${QUICKSHELL_APPROVED_REPOID:-copr:copr.fedorainfracloud.org:errornointernet:quickshell}"
 
     # 1. Determine candidate from approved repository
-    local cand_line
-    cand_line="$(query_quickshell_candidate "$approved_repoid")" || true
-    if [[ -z "$cand_line" ]]; then
+    local cand_line=""
+    local q_status=0
+    cand_line="$(query_quickshell_candidate "$approved_repoid")" || q_status=$?
+    if (( q_status == 1 )) || [[ -z "$cand_line" && q_status == 0 ]]; then
         error "Cannot install Quickshell: no candidate found in approved repository: $approved_repoid"
+        return 1
+    elif (( q_status != 0 )); then
+        error "Cannot install Quickshell: candidate resolution failed for approved repository: $approved_repoid"
         return 1
     fi
 
@@ -386,6 +432,12 @@ install_approved_quickshell() {
     if (( status != 0 )); then
         error "Failed to install Quickshell from approved repository: $approved_repoid"
         return "$status"
+    fi
+
+    # 4. Post-install validation
+    if ! detect_quickshell; then
+        error "Post-install validation failed for Quickshell after package transaction."
+        return 1
     fi
 
     return 0
