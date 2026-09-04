@@ -9,8 +9,8 @@ Rectangle {
     required property int index
     required property bool isSelected
 
-    width: ListView.view ? ListView.view.width : 600
-    height: 34
+    width: ListView.view ? ListView.view.width : 760
+    height: 38
     radius: 4
     color: isSelected ? Theme.selection : "transparent"
 
@@ -30,13 +30,13 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 16
-        anchors.rightMargin: 16
-        spacing: 0
+        anchors.leftMargin: 20
+        anchors.rightMargin: 20
+        spacing: 16
 
         // Column 1: Shortcut (stable width across every row)
         Text {
-            Layout.preferredWidth: 200
+            Layout.preferredWidth: 280
             Layout.alignment: Qt.AlignVCenter
             text: rowRoot.formattedShortcut()
             color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
@@ -74,7 +74,7 @@ Rectangle {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onEntered: {
-            if (typeof hotkeysModel !== "undefined") {
+            if (typeof hotkeysModel !== "undefined" && hotkeysModel.selectedIndex !== rowRoot.index) {
                 hotkeysModel.selectedIndex = rowRoot.index
             }
         }

@@ -12,13 +12,14 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
-    // Window dimensions: restrained command palette proportions (640x460)
-    implicitWidth: 640
-    implicitHeight: 460
+    // Window dimensions: restrained command palette proportions (800x480)
+    implicitWidth: 800
+    implicitHeight: 480
     color: "transparent"
 
     property bool isRecording: false
     property var recordingItem: null
+    property alias hotkeysModel: hotkeysModel
 
     function formatKeyEvent(event): string {
         var k = event.key
@@ -71,7 +72,9 @@ PanelWindow {
             recordingItem = null
             hotkeysModel.searchQuery = ""
             hotkeysModel.selectedIndex = 0
-            hotkeysModel.reload()
+            if (!hotkeysModel.allItems || hotkeysModel.allItems.length === 0) {
+                hotkeysModel.reload()
+            }
             searchInput.forceActiveFocus()
             console.info("[PERF] HotkeysWindow: Window displayed and input focused in " + (Date.now() - openT0) + "ms")
         } else {
@@ -92,14 +95,14 @@ PanelWindow {
         }
     }
 
-    // Modal surface: clean floating card with dynamic active border highlight on hover/focus
+    // Modal surface: clean floating card with dynamic theme-aware active border highlight on hover/focus
     Rectangle {
         id: surfaceCard
         anchors.fill: parent
         radius: Theme.radiusMd
         color: Theme.background
-        border.color: (surfaceHover.hovered || searchInput.activeFocus) ? Theme.accent : Theme.border
-        border.width: (surfaceHover.hovered || searchInput.activeFocus) ? 2 : 1
+        border.color: (surfaceHover.hovered || searchInput.activeFocus) ? Theme.borderActive : Theme.border
+        border.width: 2
         clip: true
 
         HoverHandler {
@@ -107,10 +110,7 @@ PanelWindow {
         }
 
         Behavior on border.color {
-            ColorAnimation { duration: 120 }
-        }
-        Behavior on border.width {
-            NumberAnimation { duration: 120 }
+            ColorAnimation { duration: 100 }
         }
 
         Keys.onPressed: function(event) {
@@ -245,7 +245,7 @@ PanelWindow {
                 ListView {
                     id: listView
                     anchors.fill: parent
-                    spacing: 2
+                    spacing: 3
                     clip: true
                     model: hotkeysModel.filteredItems
                     currentIndex: hotkeysModel.selectedIndex
@@ -276,10 +276,10 @@ PanelWindow {
                 }
             }
 
-            // Footer: Subtle low-emphasis keyboard hint text (no button widgets)
+            // Footer: High-contrast keyboard hint text and contextual actions
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: 34
                 Layout.leftMargin: 20
                 Layout.rightMargin: 20
                 Layout.bottomMargin: 10
@@ -288,65 +288,110 @@ PanelWindow {
                     anchors.fill: parent
                     spacing: 16
 
-                    // ↵ Run (active when runnable, crisp muted when non-executable)
+                    // ↵ Run (active when runnable)
                     RowLayout {
                         spacing: 4
-                        property bool isRunnable: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.runnable === true) : false
+                        visible: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.runnable === true) : false
 
                         Text {
                             text: "↵"
-                            color: parent.isRunnable ? Theme.accent : Theme.textMuted
+                            color: Theme.accent
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
-                            font.bold: parent.isRunnable
+                            font.bold: true
                         }
                         Text {
                             text: "Run"
-                            color: parent.isRunnable ? Theme.text : Theme.textSubtle
+                            color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
+                            font.weight: Font.Medium
                         }
                     }
 
-                    // Alt+S Set (active when editable, crisp muted when fixed)
+                    // Alt+S Set (active when editable)
                     RowLayout {
                         spacing: 4
-                        property bool isEditable: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true) : false
+                        visible: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true) : false
 
                         Text {
                             text: "Alt+S"
-                            color: parent.isEditable ? Theme.gold : Theme.textMuted
+                            color: Theme.gold
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
-                            font.bold: parent.isEditable
+                            font.bold: true
                         }
                         Text {
                             text: "Set"
-                            color: parent.isEditable ? Theme.text : Theme.textSubtle
+                            color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
+                            font.weight: Font.Medium
                         }
                     }
 
-                    // Alt+U Unset (active when editable and bound, crisp muted otherwise)
+                    // Alt+U Unset (active when editable and bound)
                     RowLayout {
                         spacing: 4
-                        property bool canUnset: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true &&
-                                                                             hotkeysModel.selectedItem.display_key &&
-                                                                             hotkeysModel.selectedItem.display_key !== "None (Unbound)") : false
+                        visible: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true &&
+                                                              hotkeysModel.selectedItem.display_key &&
+                                                              hotkeysModel.selectedItem.display_key !== "None (Unbound)") : false
 
                         Text {
                             text: "Alt+U"
-                            color: parent.canUnset ? Theme.love : Theme.textMuted
+                            color: Theme.love
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
-                            font.bold: parent.canUnset
+                            font.bold: true
                         }
                         Text {
                             text: "Unset"
-                            color: parent.canUnset ? Theme.text : Theme.textSubtle
+                            color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
+                            font.weight: Font.Medium
+                        }
+                    }
+
+                    // Mouse Control Info (active when selecting mouse gestures / drag / resize)
+                    RowLayout {
+                        spacing: 8
+                        visible: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.category === "Mouse Controls" || hotkeysModel.selectedItem.mouse === true) : false
+
+                        Text {
+                            text: "🖱 Mouse Action"
+                            color: Theme.foam
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Compositor window gesture"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Font.Medium
+                        }
+                    }
+
+                    // System Binding Info (active when selecting non-editable system bindings)
+                    RowLayout {
+                        spacing: 8
+                        visible: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === false && hotkeysModel.selectedItem.category !== "Mouse Controls" && !hotkeysModel.selectedItem.mouse) : false
+
+                        Text {
+                            text: "• System Binding"
+                            color: Theme.foam
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Compositor managed"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Font.Medium
                         }
                     }
 
@@ -354,36 +399,24 @@ PanelWindow {
                         Layout.fillWidth: true
                     }
 
-                    // Right grouping: status context + Esc Close
+                    // Esc Close (always available with high contrast)
                     RowLayout {
-                        spacing: 16
+                        spacing: 6
                         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
-                        // Context indicator for non-editable system bindings
                         Text {
-                            text: (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === false) ? "• System Binding" : ""
-                            color: Theme.foam
+                            text: "Esc"
+                            color: Theme.rose
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            visible: text !== ""
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
                         }
-
-                        // Esc Close (always available)
-                        RowLayout {
-                            spacing: 4
-
-                            Text {
-                                text: "Esc"
-                                color: Theme.textSubtle
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeSm
-                            }
-                            Text {
-                                text: "Close"
-                                color: Theme.textSubtle
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeSm
-                            }
+                        Text {
+                            text: "Close"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Font.Medium
                         }
                     }
                 }

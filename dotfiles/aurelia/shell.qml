@@ -51,6 +51,12 @@ ShellRoot {
         function isVisible(): bool {
             return hotkeysLoader.item ? hotkeysLoader.item.visible : false
         }
+
+        function selectIndex(idx: int): void {
+            if (hotkeysLoader.item && hotkeysLoader.item.hotkeysModel) {
+                hotkeysLoader.item.hotkeysModel.selectedIndex = idx
+            }
+        }
     }
 
     // Lazy/Conditional Loader for Hotkeys Component
