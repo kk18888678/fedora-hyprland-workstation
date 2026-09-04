@@ -24,12 +24,17 @@ QtObject {
         reload()
     }
 
+    property var reloadStartTime: 0
+
     function reload() {
         isLoading = true
+        statusMessage = ""
+        reloadStartTime = Date.now()
         fetchProcess.running = true
     }
 
     function filterItems() {
+        var t0 = Date.now()
         var query = (searchQuery || "").trim().toLowerCase()
         var currentSelectedId = selectedItem ? selectedItem.id : ""
 
@@ -68,6 +73,11 @@ QtObject {
                 selectedIndex = 0
             }
         }
+
+        var filterElapsed = Date.now() - t0
+        if (filterElapsed > 15) {
+            console.warn("[PERF-WARN] HotkeysModel: filterItems took " + filterElapsed + "ms for query '" + query + "' (" + filteredItems.length + " matches)")
+        }
     }
 
     function selectNext() {
@@ -96,6 +106,8 @@ QtObject {
         "PATH": (Quickshell.env("HOME") ? Quickshell.env("HOME") + "/.local/bin:" : "") + (Quickshell.env("PATH") || "/usr/local/bin:/usr/bin")
     })
 
+    property var runStartTime: 0
+
     function runSelected() {
         var item = selectedItem
         if (!item) return false
@@ -104,14 +116,17 @@ QtObject {
         }
 
         // Direct structured argv execution through hardened backend
+        runStartTime = Date.now()
         runProcess.command = [root.hotkeysBin, "run", item.id]
         runProcess.environment = root.procEnv
         runProcess.running = true
+        console.info("[PERF] HotkeysModel: Dispatching run action '" + item.id + "'")
         return true
     }
 
     function setShortcut(actionId, newKey) {
         if (!actionId) return
+        console.info("[PERF] HotkeysModel: Setting shortcut for '" + actionId + "' to '" + (newKey || "") + "'")
         if (newKey && newKey !== "") {
             setProcess.command = [root.hotkeysBin, "set", actionId, newKey]
         } else {
@@ -123,6 +138,7 @@ QtObject {
 
     function unsetShortcut(actionId) {
         if (!actionId) return
+        console.info("[PERF] HotkeysModel: Unsetting shortcut for '" + actionId + "'")
         unsetProcess.command = [root.hotkeysBin, "unset", actionId]
         unsetProcess.environment = root.procEnv
         unsetProcess.running = true
@@ -135,14 +151,18 @@ QtObject {
         stdout: StdioCollector {
             onStreamFinished: {
                 root.isLoading = false
+                var fetchDuration = root.reloadStartTime > 0 ? (Date.now() - root.reloadStartTime) : 0
+                var parseT0 = Date.now()
                 try {
                     var parsed = JSON.parse(this.text)
+                    var parseDuration = Date.now() - parseT0
                     if (Array.isArray(parsed)) {
                         root.allItems = parsed
                         root.filterItems()
+                        console.info("[PERF] HotkeysModel: Fetched " + parsed.length + " shortcuts in " + fetchDuration + "ms (JSON parse: " + parseDuration + "ms)")
                     }
                 } catch (e) {
-                    console.error("Failed to parse shortcut metadata: " + e + ", raw output: " + this.text)
+                    console.error("[ERROR] HotkeysModel: Failed to parse shortcut metadata: " + e + ", raw output: " + this.text)
                     root.statusMessage = "Failed to parse shortcut metadata: " + e
                 }
             }
@@ -169,13 +189,16 @@ QtObject {
         stderr: StdioCollector {
             onStreamFinished: {
                 if (this.text && this.text.trim()) {
-                    console.error("runProcess stderr: " + this.text.trim())
+                    console.error("[ERROR] runProcess stderr: " + this.text.trim())
                 }
             }
         }
         onExited: function(code) {
+            var elapsed = root.runStartTime > 0 ? (Date.now() - root.runStartTime) : 0
             if (code !== 0) {
-                console.error("runProcess exited with code: " + code)
+                console.error("[ERROR] runProcess exited with code " + code + " after " + elapsed + "ms")
+            } else {
+                console.info("[PERF] runProcess finished successfully in " + elapsed + "ms")
             }
         }
     }
@@ -187,13 +210,15 @@ QtObject {
         stderr: StdioCollector {
             onStreamFinished: {
                 if (this.text && this.text.trim()) {
-                    console.error("setProcess stderr: " + this.text.trim())
+                    console.error("[ERROR] setProcess stderr: " + this.text.trim())
                 }
             }
         }
         onExited: function(code) {
             if (code !== 0) {
-                console.error("setProcess exited with code: " + code)
+                console.error("[ERROR] setProcess exited with code: " + code)
+            } else {
+                console.info("[PERF] setProcess completed successfully")
             }
             root.reload()
         }
@@ -206,13 +231,15 @@ QtObject {
         stderr: StdioCollector {
             onStreamFinished: {
                 if (this.text && this.text.trim()) {
-                    console.error("unsetProcess stderr: " + this.text.trim())
+                    console.error("[ERROR] unsetProcess stderr: " + this.text.trim())
                 }
             }
         }
         onExited: function(code) {
             if (code !== 0) {
-                console.error("unsetProcess exited with code: " + code)
+                console.error("[ERROR] unsetProcess exited with code: " + code)
+            } else {
+                console.info("[PERF] unsetProcess completed successfully")
             }
             root.reload()
         }

@@ -31,12 +31,13 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-# Workstation issue and crash logging
+# Workstation issue, crash, and performance logging
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/workstation"
 mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="/tmp"
 HOTKEYS_LOG="$LOG_DIR/hotkeys.log"
 CRASH_LOG="$LOG_DIR/crashes.log"
 AURELIA_LOG="$LOG_DIR/aurelia.log"
+PERF_LOG="$LOG_DIR/performance.log"
 
 log_event() {
     local level="$1"
@@ -48,6 +49,9 @@ log_event() {
         printf '%s [%s] %s\n' "$ts" "$level" "$msg" >> "$HOTKEYS_LOG" 2>/dev/null || true
         if [[ "$level" == "CRASH" || "$level" == "FATAL" || "$level" == "ERROR" ]]; then
             printf '%s [%s] %s\n' "$ts" "$level" "$msg" >> "$CRASH_LOG" 2>/dev/null || true
+        fi
+        if [[ "$level" == "PERF" || "$level" == "PERF-WARN" ]]; then
+            printf '%s [%s] %s\n' "$ts" "$level" "$msg" >> "$PERF_LOG" 2>/dev/null || true
         fi
     fi
 }
@@ -738,9 +742,12 @@ if [[ "$active_provider" == "aurelia" ]]; then
                 logger -t workstation-hotkeys "Aurelia configuration not found at '$aurelia_shell'; falling back to legacy fzf interface." 2>/dev/null || true
             else
                 # 1. Warm path: check non-mutating readiness via ping with explicit configuration path
+                t_warm_start="$(date +%s%3N 2>/dev/null || date +%s)"
                 if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping >/dev/null 2>&1; then
                     # Mutate / toggle EXACTLY ONCE only after readiness is confirmed
                     if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys toggle >/dev/null 2>&1; then
+                        t_warm_end="$(date +%s%3N 2>/dev/null || date +%s)"
+                        log_event "PERF" "Aurelia warm toggle roundtrip: $((t_warm_end - t_warm_start))ms"
                         log_event "INFO" "Aurelia hotkeys toggled successfully on warm instance."
                         exit 0
                     else
@@ -749,7 +756,8 @@ if [[ "$active_provider" == "aurelia" ]]; then
                     fi
                 else
                     # 2. Cold path: start Aurelia daemon with explicit configuration path
-                    if ! "$qs_bin" --no-duplicate --daemonize --path "$aurelia_shell" >>"$AURELIA_LOG" 2>&1; then
+                    t_cold_start="$(date +%s%3N 2>/dev/null || date +%s)"
+                    if ! QSG_INFO=1 "$qs_bin" --no-duplicate --daemonize --log-times -v --path "$aurelia_shell" >>"$AURELIA_LOG" 2>&1; then
                         log_event "CRASH" "Aurelia process launch failed; falling back to legacy fzf interface."
                         logger -t workstation-hotkeys "Aurelia process launch failed; falling back to legacy fzf interface." 2>/dev/null || true
                     else
@@ -765,7 +773,11 @@ if [[ "$active_provider" == "aurelia" ]]; then
 
                         # 4. Invoke mutating toggle EXACTLY ONCE only after cold readiness is confirmed
                         if [[ "$is_ready" -eq 1 ]]; then
+                            t_cold_ready="$(date +%s%3N 2>/dev/null || date +%s)"
+                            log_event "PERF" "Aurelia cold launch to ping readiness: $((t_cold_ready - t_cold_start))ms"
                             if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys toggle >/dev/null 2>&1; then
+                                t_cold_end="$(date +%s%3N 2>/dev/null || date +%s)"
+                                log_event "PERF" "Aurelia cold toggle completed in $((t_cold_end - t_cold_ready))ms (total cold start: $((t_cold_end - t_cold_start))ms)"
                                 log_event "INFO" "Aurelia hotkeys toggled successfully after cold readiness."
                                 exit 0
                             else

@@ -12,6 +12,10 @@ ShellRoot {
 
     property bool hotkeysEnabled: true
 
+    Component.onCompleted: {
+        console.info("[PERF] ShellRoot: Aurelia shell initialization complete (hotkeysEnabled=" + root.hotkeysEnabled + ")")
+    }
+
     // IPC Endpoint for Aurelia Hotkeys Component
     IpcHandler {
         target: "hotkeys"
@@ -22,18 +26,24 @@ ShellRoot {
 
         function toggle(): void {
             if (hotkeysLoader.item) {
-                hotkeysLoader.item.visible = !hotkeysLoader.item.visible
+                var next = !hotkeysLoader.item.visible
+                console.info("[IPC] hotkeys.toggle() -> visible=" + next)
+                hotkeysLoader.item.visible = next
+            } else {
+                console.warn("[IPC-WARN] hotkeys.toggle() called but item not loaded")
             }
         }
 
         function open(): void {
             if (hotkeysLoader.item) {
+                console.info("[IPC] hotkeys.open()")
                 hotkeysLoader.item.visible = true
             }
         }
 
         function close(): void {
             if (hotkeysLoader.item) {
+                console.info("[IPC] hotkeys.close()")
                 hotkeysLoader.item.visible = false
             }
         }
@@ -48,6 +58,9 @@ ShellRoot {
     Loader {
         id: hotkeysLoader
         active: root.hotkeysEnabled
+        onLoaded: {
+            console.info("[PERF] ShellRoot: HotkeysWindow component loaded successfully")
+        }
         sourceComponent: HotkeysWindow {
             visible: false
         }

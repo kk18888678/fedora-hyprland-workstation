@@ -66,11 +66,16 @@ PanelWindow {
 
     onVisibleChanged: {
         if (visible) {
+            var openT0 = Date.now()
             isRecording = false
             recordingItem = null
             hotkeysModel.searchQuery = ""
+            hotkeysModel.selectedIndex = 0
             hotkeysModel.reload()
             searchInput.forceActiveFocus()
+            console.info("[PERF] HotkeysWindow: Window displayed and input focused in " + (Date.now() - openT0) + "ms")
+        } else {
+            console.info("[PERF] HotkeysWindow: Window hidden")
         }
     }
 
@@ -263,61 +268,63 @@ PanelWindow {
                     anchors.fill: parent
                     spacing: 16
 
-                    // ↵ Run (only when runnable)
+                    // ↵ Run (active when runnable, subdued when non-executable)
                     RowLayout {
                         spacing: 4
-                        visible: hotkeysModel.selectedItem && hotkeysModel.selectedItem.runnable === true
+                        property bool isRunnable: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.runnable === true) : false
+                        opacity: isRunnable ? 1.0 : 0.35
 
                         Text {
                             text: "↵"
-                            color: Theme.accent
+                            color: parent.isRunnable ? Theme.accent : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                         Text {
                             text: "Run"
-                            color: Theme.textMuted
+                            color: parent.isRunnable ? Theme.textMuted : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
 
-                    // Alt+S Set (only when editable)
+                    // Alt+S Set (active when editable, subdued when fixed)
                     RowLayout {
                         spacing: 4
-                        visible: hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === true
+                        property bool isEditable: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true) : false
+                        opacity: isEditable ? 1.0 : 0.35
 
                         Text {
                             text: "Alt+S"
-                            color: Theme.gold
+                            color: parent.isEditable ? Theme.gold : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                         Text {
                             text: "Set"
-                            color: Theme.textMuted
+                            color: parent.isEditable ? Theme.textMuted : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
 
-                    // Alt+U Unset (only when editable and bound)
+                    // Alt+U Unset (active when editable and bound, subdued otherwise)
                     RowLayout {
                         spacing: 4
-                        visible: hotkeysModel.selectedItem &&
-                                 hotkeysModel.selectedItem.editable === true &&
-                                 hotkeysModel.selectedItem.display_key &&
-                                 hotkeysModel.selectedItem.display_key !== "None (Unbound)"
+                        property bool canUnset: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true &&
+                                                                             hotkeysModel.selectedItem.display_key &&
+                                                                             hotkeysModel.selectedItem.display_key !== "None (Unbound)") : false
+                        opacity: canUnset ? 1.0 : 0.35
 
                         Text {
                             text: "Alt+U"
-                            color: Theme.love
+                            color: parent.canUnset ? Theme.love : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                         Text {
                             text: "Unset"
-                            color: Theme.textMuted
+                            color: parent.canUnset ? Theme.textMuted : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
@@ -325,6 +332,16 @@ PanelWindow {
 
                     Item {
                         Layout.fillWidth: true
+                    }
+
+                    // Context indicator for non-editable system bindings
+                    Text {
+                        text: (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === false) ? "Fixed System Binding" : ""
+                        color: Theme.textSubtle
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeXs
+                        visible: text !== ""
+                        Layout.alignment: Qt.AlignVCenter
                     }
 
                     // Esc Close (always available)
