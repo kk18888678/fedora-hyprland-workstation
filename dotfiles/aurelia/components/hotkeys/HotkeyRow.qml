@@ -6,6 +6,7 @@ Rectangle {
     id: rowRoot
 
     required property var modelData
+    required property int index
     required property bool isSelected
 
     width: ListView.view ? ListView.view.width : 760

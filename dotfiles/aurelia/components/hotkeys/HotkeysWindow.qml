@@ -32,9 +32,7 @@ PanelWindow {
     // Modal surface: clean floating card with single subtle border and Rosé Pine Moon background
     Rectangle {
         id: surfaceCard
-        anchors.centerIn: parent
-        width: 800
-        height: 480
+        anchors.fill: parent
         radius: Theme.radiusMd
         color: Theme.background
         border.color: Theme.border
@@ -126,7 +124,6 @@ PanelWindow {
                     currentIndex: hotkeysModel.selectedIndex
 
                     delegate: HotkeyRow {
-                        modelData: model
                         isSelected: index === hotkeysModel.selectedIndex
                     }
 

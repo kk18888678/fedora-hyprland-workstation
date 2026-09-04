@@ -84,6 +84,18 @@ QtObject {
         }
     }
 
+    readonly property string hotkeysBin: {
+        var home = Quickshell.env("HOME") || ""
+        if (home && home.length > 0) {
+            return home + "/.local/bin/workstation-hotkeys"
+        }
+        return "workstation-hotkeys"
+    }
+
+    readonly property var procEnv: ({
+        "PATH": (Quickshell.env("HOME") ? Quickshell.env("HOME") + "/.local/bin:" : "") + (Quickshell.env("PATH") || "/usr/local/bin:/usr/bin")
+    })
+
     function runSelected() {
         var item = selectedItem
         if (!item) return false
@@ -92,26 +104,30 @@ QtObject {
         }
 
         // Direct structured argv execution through hardened backend
-        runProcess.command = ["workstation-hotkeys", "run", item.id]
+        runProcess.command = [root.hotkeysBin, "run", item.id]
+        runProcess.environment = root.procEnv
         runProcess.running = true
         return true
     }
 
     function setShortcut(actionId) {
         if (!actionId) return
-        setProcess.command = ["workstation-hotkeys", "set", actionId]
+        setProcess.command = [root.hotkeysBin, "set", actionId]
+        setProcess.environment = root.procEnv
         setProcess.running = true
     }
 
     function unsetShortcut(actionId) {
         if (!actionId) return
-        unsetProcess.command = ["workstation-hotkeys", "unset", actionId]
+        unsetProcess.command = [root.hotkeysBin, "unset", actionId]
+        unsetProcess.environment = root.procEnv
         unsetProcess.running = true
     }
 
     // Backend process to fetch structured JSON
     property Process fetchProcess: Process {
-        command: ["workstation-hotkeys", "json"]
+        command: [root.hotkeysBin, "json"]
+        environment: root.procEnv
         stdout: StdioCollector {
             onStreamFinished: {
                 root.isLoading = false
@@ -130,12 +146,14 @@ QtObject {
 
     // Backend process to run actions detached
     property Process runProcess: Process {
-        command: ["workstation-hotkeys", "run", ""]
+        command: [root.hotkeysBin, "run", ""]
+        environment: root.procEnv
     }
 
     // Backend process to capture physical key
     property Process setProcess: Process {
-        command: ["workstation-hotkeys", "set", ""]
+        command: [root.hotkeysBin, "set", ""]
+        environment: root.procEnv
         onExited: function(code) {
             root.reload()
         }
@@ -143,9 +161,11 @@ QtObject {
 
     // Backend process to unset shortcut
     property Process unsetProcess: Process {
-        command: ["workstation-hotkeys", "unset", ""]
+        command: [root.hotkeysBin, "unset", ""]
+        environment: root.procEnv
         onExited: function(code) {
             root.reload()
         }
     }
 }
+
