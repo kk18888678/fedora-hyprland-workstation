@@ -667,7 +667,14 @@ configure_legacy_hotkeys() {
 detect_aurelia_hotkeys() {
     [[ -f "${TARGET_HOME:-$HOME}/.config/aurelia/components/hotkeys/HotkeysWindow.qml" ]]
 }
+validate_aurelia_hotkeys() {
+    detect_quickshell && detect_aurelia_hotkeys
+}
 configure_aurelia_hotkeys() {
+    if ! detect_quickshell; then
+        warn "Cannot set hotkeys provider to 'aurelia': quickshell runtime is not available."
+        return 1
+    fi
     if declare -F set_workstation_hotkeys_provider >/dev/null 2>&1; then
         set_workstation_hotkeys_provider "aurelia"
     fi
@@ -861,6 +868,8 @@ init_default_components() {
         provides "hotkeys_provider" \
         dependencies "quickshell" \
         detect_fn "detect_aurelia_hotkeys" \
+        install_fn "install_aurelia_adapter" \
+        validate_fn "validate_aurelia_hotkeys" \
         configure_fn "configure_aurelia_hotkeys"
 
     register_component \

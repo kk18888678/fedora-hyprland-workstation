@@ -151,6 +151,39 @@ _reconciler_invoke() {
     fi
 }
 
+# Check if all required dependencies for a component are satisfied
+# Arguments:
+#   comp_id: component ID to check
+#   out_failed_var (optional): variable name to store the ID of the first failed/unsatisfied dependency
+# Returns:
+#   0 if all dependencies are satisfied
+#   1 if any dependency failed, was blocked, was removed, or is unsatisfied
+_reconciler_check_dependencies() {
+    local comp_id="$1"
+    local out_failed_var="${2:-}"
+
+    local deps
+    deps="$(get_component_attr "$comp_id" dependencies 2>/dev/null || true)"
+    if [[ -z "$deps" ]]; then
+        return 0
+    fi
+
+    for dep in $deps; do
+        local outcome="${_comp_outcomes[$dep]:-}"
+        if [[ "$outcome" == "failed" || "$outcome" == "blocked" || "$outcome" == "removed" ]]; then
+            [[ -n "$out_failed_var" ]] && printf -v "$out_failed_var" '%s' "$dep"
+            return 1
+        elif [[ "$outcome" != "success" ]]; then
+            if ! detect_component_presence "$dep"; then
+                [[ -n "$out_failed_var" ]] && printf -v "$out_failed_var" '%s' "$dep"
+                return 1
+            fi
+        fi
+    done
+
+    return 0
+}
+
 # Execute a validated Plan
 # Arguments:
 #   plan_prefix: name of plan structure
@@ -183,6 +216,15 @@ execute_plan() {
     fi
 
     local had_failure=0
+    declare -A _comp_outcomes=()
+
+    # Pre-populate KEEP actions as successfully satisfied
+    for idx in "${actions_list[@]}"; do
+        if [[ "${type_map[$idx]}" == "KEEP" ]]; then
+            local k_id="${target_map[$idx]}"
+            _comp_outcomes["$k_id"]="success"
+        fi
+    done
 
     # 1. Execute REMOVE actions first (safe uninstallation; remove != purge)
     for idx in "${actions_list[@]}"; do
@@ -198,6 +240,9 @@ execute_plan() {
                     record_deferred "components" "$comp_id" "Failed to remove component: $comp_id"
                 fi
                 had_failure=1
+                _comp_outcomes["$comp_id"]="failed"
+            else
+                _comp_outcomes["$comp_id"]="removed"
             fi
         fi
     done
@@ -215,6 +260,24 @@ execute_plan() {
             local is_req
             is_req="$(get_component_attr "$comp_id" required 2>/dev/null || true)"
 
+            # Dependency guard: fail closed if any required dependency failed or is unsatisfied
+            local failed_dep=""
+            if ! _reconciler_check_dependencies "$comp_id" failed_dep; then
+                warn "Reconciling INSTALL: $comp_id blocked because required dependency '$failed_dep' failed or is unsatisfied"
+                if [[ "$is_req" == "true" ]]; then
+                    if type record_required >/dev/null 2>&1; then
+                        record_required "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
+                    fi
+                else
+                    if type record_deferred >/dev/null 2>&1; then
+                        record_deferred "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
+                    fi
+                fi
+                _comp_outcomes["$comp_id"]="blocked"
+                had_failure=1
+                continue
+            fi
+
             info "Reconciling INSTALL: $comp_id (${details_map[$idx]})"
             if ! _reconciler_invoke "$inst_fn" "$comp_id" "INSTALL"; then
                 if [[ "$is_req" == "true" ]]; then
@@ -226,8 +289,24 @@ execute_plan() {
                         record_deferred "components" "$comp_id" "Optional component installation failed: $comp_id"
                     fi
                 fi
+                _comp_outcomes["$comp_id"]="failed"
                 had_failure=1
                 continue
+            fi
+
+            # Run validate callback if present BEFORE configuration commit (validation before activation)
+            if [[ -n "$val_fn" ]]; then
+                if ! _reconciler_invoke "$val_fn" "$comp_id" "VALIDATE"; then
+                    warn "Validation failed for component: $comp_id"
+                    if [[ "$is_req" == "true" ]]; then
+                        type record_required >/dev/null 2>&1 && record_required "components" "$comp_id" "Validation failed for required component: $comp_id"
+                    else
+                        type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Validation failed for optional component: $comp_id"
+                    fi
+                    _comp_outcomes["$comp_id"]="failed"
+                    had_failure=1
+                    continue
+                fi
             fi
 
             # Run configure callback if present
@@ -239,22 +318,13 @@ execute_plan() {
                     else
                         type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Configuration failed for optional component: $comp_id"
                     fi
+                    _comp_outcomes["$comp_id"]="failed"
                     had_failure=1
+                    continue
                 fi
             fi
 
-            # Run validate callback if present
-            if [[ -n "$val_fn" ]]; then
-                if ! _reconciler_invoke "$val_fn" "$comp_id" "VALIDATE"; then
-                    warn "Validation failed for component: $comp_id"
-                    if [[ "$is_req" == "true" ]]; then
-                        type record_required >/dev/null 2>&1 && record_required "components" "$comp_id" "Validation failed for required component: $comp_id"
-                    else
-                        type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Validation failed for optional component: $comp_id"
-                    fi
-                    had_failure=1
-                fi
-            fi
+            _comp_outcomes["$comp_id"]="success"
         fi
     done
 
@@ -264,10 +334,46 @@ execute_plan() {
             local comp_id="${target_map[$idx]}"
             local cfg_fn
             cfg_fn="$(get_component_attr "$comp_id" configure_fn)"
+            local val_fn
+            val_fn="$(get_component_attr "$comp_id" validate_fn)"
             local is_req
             is_req="$(get_component_attr "$comp_id" required 2>/dev/null || true)"
 
+            # Dependency guard: fail closed if any required dependency failed or is unsatisfied
+            local failed_dep=""
+            if ! _reconciler_check_dependencies "$comp_id" failed_dep; then
+                warn "Reconciling CONFIGURE: $comp_id blocked because required dependency '$failed_dep' failed or is unsatisfied"
+                if [[ "$is_req" == "true" ]]; then
+                    if type record_required >/dev/null 2>&1; then
+                        record_required "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
+                    fi
+                else
+                    if type record_deferred >/dev/null 2>&1; then
+                        record_deferred "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
+                    fi
+                fi
+                _comp_outcomes["$comp_id"]="blocked"
+                had_failure=1
+                continue
+            fi
+
             info "Reconciling CONFIGURE: $comp_id (${details_map[$idx]})"
+
+            # Run validate callback if present BEFORE configuration commit
+            if [[ -n "$val_fn" ]]; then
+                if ! _reconciler_invoke "$val_fn" "$comp_id" "VALIDATE"; then
+                    warn "Validation failed for component: $comp_id"
+                    if [[ "$is_req" == "true" ]]; then
+                        type record_required >/dev/null 2>&1 && record_required "components" "$comp_id" "Validation failed for required component: $comp_id"
+                    else
+                        type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Validation failed for optional component: $comp_id"
+                    fi
+                    _comp_outcomes["$comp_id"]="failed"
+                    had_failure=1
+                    continue
+                fi
+            fi
+
             if ! _reconciler_invoke "$cfg_fn" "$comp_id" "CONFIGURE"; then
                 warn "Configuration failed for component: $comp_id"
                 if [[ "$is_req" == "true" ]]; then
@@ -275,8 +381,12 @@ execute_plan() {
                 else
                     type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Configuration failed for optional component: $comp_id"
                 fi
+                _comp_outcomes["$comp_id"]="failed"
                 had_failure=1
+                continue
             fi
+
+            _comp_outcomes["$comp_id"]="success"
         fi
     done
 
@@ -287,6 +397,17 @@ execute_plan() {
             local details="${details_map[$idx]}"
             # details format: "role: old -> new"
             local role="${details%%:*}"
+
+            # Fail-safe guard: target component must not be failed or blocked
+            local outcome="${_comp_outcomes[$comp_id]:-}"
+            if [[ "$outcome" == "failed" || "$outcome" == "blocked" || "$outcome" == "removed" ]]; then
+                warn "Skipping CHANGE_DEFAULT for $role -> $comp_id: target component outcome is '$outcome'"
+                if type record_deferred >/dev/null 2>&1; then
+                    record_deferred "roles" "$role" "Failed to set default provider for role: $role -> $comp_id (target component $outcome)"
+                fi
+                had_failure=1
+                continue
+            fi
 
             info "Reconciling CHANGE_DEFAULT: $role -> $comp_id"
             if ! set_system_role_default "$role" "$comp_id"; then
