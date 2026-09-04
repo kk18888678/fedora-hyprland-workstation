@@ -83,15 +83,35 @@ PanelWindow {
         id: hotkeysModel
     }
 
-    // Modal surface: clean floating card with single subtle border and Rosé Pine Moon background
+    Connections {
+        target: hotkeysModel
+        function onSelectedIndexChanged() {
+            if (hotkeysModel.selectedIndex >= 0 && hotkeysModel.selectedIndex < listView.count) {
+                listView.positionViewAtIndex(hotkeysModel.selectedIndex, ListView.Contain)
+            }
+        }
+    }
+
+    // Modal surface: clean floating card with dynamic active border highlight on hover/focus
     Rectangle {
         id: surfaceCard
         anchors.fill: parent
         radius: Theme.radiusMd
         color: Theme.background
-        border.color: Theme.border
-        border.width: 1
+        border.color: (surfaceHover.hovered || searchInput.activeFocus) ? Theme.accent : Theme.border
+        border.width: (surfaceHover.hovered || searchInput.activeFocus) ? 2 : 1
         clip: true
+
+        HoverHandler {
+            id: surfaceHover
+        }
+
+        Behavior on border.color {
+            ColorAnimation { duration: 120 }
+        }
+        Behavior on border.width {
+            NumberAnimation { duration: 120 }
+        }
 
         Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Escape) {
@@ -268,63 +288,63 @@ PanelWindow {
                     anchors.fill: parent
                     spacing: 16
 
-                    // ↵ Run (active when runnable, subdued when non-executable)
+                    // ↵ Run (active when runnable, crisp muted when non-executable)
                     RowLayout {
                         spacing: 4
                         property bool isRunnable: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.runnable === true) : false
-                        opacity: isRunnable ? 1.0 : 0.35
 
                         Text {
                             text: "↵"
-                            color: parent.isRunnable ? Theme.accent : Theme.textSubtle
+                            color: parent.isRunnable ? Theme.accent : Theme.textMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
+                            font.bold: parent.isRunnable
                         }
                         Text {
                             text: "Run"
-                            color: parent.isRunnable ? Theme.textMuted : Theme.textSubtle
+                            color: parent.isRunnable ? Theme.text : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
 
-                    // Alt+S Set (active when editable, subdued when fixed)
+                    // Alt+S Set (active when editable, crisp muted when fixed)
                     RowLayout {
                         spacing: 4
                         property bool isEditable: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true) : false
-                        opacity: isEditable ? 1.0 : 0.35
 
                         Text {
                             text: "Alt+S"
-                            color: parent.isEditable ? Theme.gold : Theme.textSubtle
+                            color: parent.isEditable ? Theme.gold : Theme.textMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
+                            font.bold: parent.isEditable
                         }
                         Text {
                             text: "Set"
-                            color: parent.isEditable ? Theme.textMuted : Theme.textSubtle
+                            color: parent.isEditable ? Theme.text : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
 
-                    // Alt+U Unset (active when editable and bound, subdued otherwise)
+                    // Alt+U Unset (active when editable and bound, crisp muted otherwise)
                     RowLayout {
                         spacing: 4
                         property bool canUnset: hotkeysModel.selectedItem ? (hotkeysModel.selectedItem.editable === true &&
                                                                              hotkeysModel.selectedItem.display_key &&
                                                                              hotkeysModel.selectedItem.display_key !== "None (Unbound)") : false
-                        opacity: canUnset ? 1.0 : 0.35
 
                         Text {
                             text: "Alt+U"
-                            color: parent.canUnset ? Theme.love : Theme.textSubtle
+                            color: parent.canUnset ? Theme.love : Theme.textMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
+                            font.bold: parent.canUnset
                         }
                         Text {
                             text: "Unset"
-                            color: parent.canUnset ? Theme.textMuted : Theme.textSubtle
+                            color: parent.canUnset ? Theme.text : Theme.textSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                         }
@@ -334,31 +354,36 @@ PanelWindow {
                         Layout.fillWidth: true
                     }
 
-                    // Context indicator for non-editable system bindings
-                    Text {
-                        text: (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === false) ? "Fixed System Binding" : ""
-                        color: Theme.textSubtle
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeXs
-                        visible: text !== ""
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-
-                    // Esc Close (always available)
+                    // Right grouping: status context + Esc Close
                     RowLayout {
-                        spacing: 4
+                        spacing: 16
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
+                        // Context indicator for non-editable system bindings
                         Text {
-                            text: "Esc"
-                            color: Theme.textSubtle
+                            text: (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === false) ? "• System Binding" : ""
+                            color: Theme.foam
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
+                            font.pixelSize: Theme.fontSizeXs
+                            visible: text !== ""
                         }
-                        Text {
-                            text: "Close"
-                            color: Theme.textSubtle
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
+
+                        // Esc Close (always available)
+                        RowLayout {
+                            spacing: 4
+
+                            Text {
+                                text: "Esc"
+                                color: Theme.textSubtle
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                            }
+                            Text {
+                                text: "Close"
+                                color: Theme.textSubtle
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                            }
                         }
                     }
                 }

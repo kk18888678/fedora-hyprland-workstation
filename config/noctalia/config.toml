@@ -11,7 +11,7 @@ radius = 8
 background_opacity = 0.92
 start = [ "workspaces" ]
 center = [ "clock" ]
-end = [ "media", "tray", "volume", "control-center", "session" ]
+end = [ "media", "tray", "network", "battery", "notifications", "volume", "control-center", "session" ]
 
 [widget.workspaces]
 type = "workspaces"
@@ -27,23 +27,24 @@ type = "media"
 hide_when_no_media = true
 max_length = 200.0
 
+[widget.tray]
+type = "tray"
+
+[widget.network]
+type = "network"
+
 [widget.battery]
 type = "battery"
-hide_when_plugged = true
-hide_when_full = true
 
 [widget.notifications]
 type = "notifications"
-hide_when_no_unread = true
-
-[widget.bluetooth]
-type = "bluetooth"
-hide_when_no_connected_device = true
-
-[widget.keyboard_layout]
-type = "keyboard_layout"
-hide_when_single_layout = true
 
 [widget.volume]
 type = "volume"
 device = "output"
+
+[widget.control-center]
+type = "control-center"
+
+[widget.session]
+type = "session"

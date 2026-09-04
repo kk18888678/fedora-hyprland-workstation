@@ -68,4 +68,25 @@ Rectangle {
             elide: Text.ElideRight
         }
     }
+
+    MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onEntered: {
+            if (typeof hotkeysModel !== "undefined") {
+                hotkeysModel.selectedIndex = rowRoot.index
+            }
+        }
+        onClicked: {
+            if (typeof hotkeysModel !== "undefined") {
+                hotkeysModel.selectedIndex = rowRoot.index
+                if (hotkeysModel.selectedItem && hotkeysModel.selectedItem.runnable) {
+                    if (hotkeysModel.runSelected() && typeof windowRoot !== "undefined") {
+                        windowRoot.visible = false
+                    }
+                }
+            }
+        }
+    }
 }
