@@ -68,6 +68,10 @@ local function register_binding(item)
         hl.bind(item.key, function()
             hl.exec_cmd("hyprctl dispatch resizeactive " .. args)
         end, flags)
+    elseif item.action_type == "focus_workspace" then
+        hl.bind(item.key, hl.dsp.focus({ workspace = item.workspace }), flags)
+    elseif item.action_type == "move_to_workspace" then
+        hl.bind(item.key, hl.dsp.window.move({ workspace = item.workspace }), flags)
     elseif item.action_type == "focus_workspace_relative" then
         hl.bind(item.key, hl.dsp.focus({ workspace = item.workspace }), flags)
     elseif item.action_type == "mouse_drag" then

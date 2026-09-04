@@ -129,18 +129,123 @@ function M.normalize_key(k)
     return table.concat(canonical_parts, " + ")
 end
 
--- Validate key syntax
-function M.validate_key(k)
+-- Media and hardware keys intentionally supported without requiring Super/Ctrl/Alt
+local MEDIA_KEYS = {
+    ["PRINT"] = true,
+    ["PRINTSCREEN"] = true,
+    ["XF86AUDIOMUTE"] = true,
+    ["XF86AUDIOLOWERVOLUME"] = true,
+    ["XF86AUDIOEFFECTS"] = true,
+    ["XF86AUDIOMICMUTE"] = true,
+    ["XF86AUDIOPREV"] = true,
+    ["XF86AUDIONEXT"] = true,
+    ["XF86AUDIOPAUSE"] = true,
+    ["XF86AUDIOPLAY"] = true,
+    ["XF86AUDIOSTOP"] = true,
+    ["XF86AUDIORAISEVOLUME"] = true,
+    ["XF86MONBRIGHTNESSUP"] = true,
+    ["XF86MONBRIGHTNESSDOWN"] = true,
+    ["XF86SEARCH"] = true,
+    ["XF86HOMEPAGE"] = true,
+    ["XF86CALCULATOR"] = true,
+    ["XF86MAIL"] = true,
+    ["XF86SLEEP"] = true,
+    ["XF86WAKEUP"] = true,
+}
+
+-- Centralized workstation shortcut policy validation:
+-- Returns: valid (bool), invalid_reason (string or nil), normalized_shortcut (string or nil)
+function M.validate_shortcut_policy(k)
     if not k or type(k) ~= "string" or k:match("^%s*$") then
-        return false, "Keybinding cannot be empty"
+        return false, "malformed-combination", nil
     end
     -- Reject shell metacharacters and control characters
     if k:find("[;&|`$><\"'\\]") or k:find("[%c]") then
-        return false, "Keybinding contains invalid or dangerous characters"
+        return false, "malformed-combination", nil
     end
+
+    local has_super = false
+    local has_ctrl = false
+    local has_alt = false
+    local has_shift = false
+    local main_keys = {}
+
+    for part in k:gmatch("[^%+]+") do
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part ~= "" then
+            local upper = part:upper()
+            if upper == "SUPER" or upper == "MOD4" or upper == "WIN" then
+                has_super = true
+            elseif upper == "CTRL" or upper == "CONTROL" then
+                has_ctrl = true
+            elseif upper == "ALT" or upper == "MOD1" then
+                has_alt = true
+            elseif upper == "SHIFT" then
+                has_shift = true
+            else
+                table.insert(main_keys, upper)
+            end
+        end
+    end
+
+    -- Standalone modifier keys alone
+    if #main_keys == 0 then
+        return false, "reserved-capture-control", nil
+    end
+
+    -- Multiple non-modifier keys (e.g. SUPER + A + B)
+    if #main_keys > 1 then
+        return false, "malformed-combination", nil
+    end
+
+    local key = main_keys[1]
+
+    -- Reserved capture control keys: bare ESC / ESCAPE alone
+    if (key == "ESC" or key == "ESCAPE") and not has_super and not has_ctrl and not has_alt then
+        return false, "reserved-capture-control", nil
+    end
+
+    -- Function keys (F1 .. F24) are allowed alone or with modifiers
+    local f_num = key:match("^F(%d+)$")
+    if f_num then
+        local fn = tonumber(f_num)
+        if fn and fn >= 1 and fn <= 24 then
+            local norm = M.normalize_key(k)
+            return true, nil, norm
+        end
+    end
+
+    -- Media / hardware keys are allowed alone or with modifiers
+    if MEDIA_KEYS[key] then
+        local norm = M.normalize_key(k)
+        return true, nil, norm
+    end
+
+    -- For ordinary global workstation actions (printable alphanumeric, punctuation,
+    -- navigation/editing keys like Return, Tab, Backspace, Delete, Arrows, Space):
+    -- MUST have at least one global workstation modifier: SUPER, CTRL, or ALT.
+    -- SHIFT alone is NOT sufficient.
+    local has_global_modifier = (has_super or has_ctrl or has_alt)
+    if not has_global_modifier then
+        return false, "printable-key-requires-global-modifier", nil
+    end
+
     local norm = M.normalize_key(k)
     if not norm or #norm == 0 then
-        return false, "Invalid key combination format"
+        return false, "malformed-combination", nil
+    end
+
+    return true, nil, norm
+end
+
+-- Validate key syntax and workstation policy
+function M.validate_key(k)
+    local ok, reason, norm = M.validate_shortcut_policy(k)
+    if not ok then
+        if reason == "malformed-combination" then
+            return false, "Key combination is invalid or dangerous: " .. tostring(reason)
+        end
+        return false, reason
     end
     return true, norm
 end
@@ -202,6 +307,86 @@ function M.format_friendly_key(k)
     return table.concat(parts, " + ")
 end
 
+-- Expand declarative aggregate generators into concrete individual actions.
+-- Must occur BEFORE effective bindings resolution, overrides validation, or registration.
+function M.expand_manifest_bindings(manifest)
+    if not manifest then return nil end
+    local expanded = {}
+    local mainMod = manifest.mainMod or "SUPER"
+    local mainMod_friendly = FRIENDLY_NAMES[mainMod] or "Super"
+
+    for _, orig in ipairs(manifest.bindings or {}) do
+        if orig.generator == "workspaces_1_10" then
+            for i = 1, 9 do
+                local item = {
+                    id = "workspace_" .. i,
+                    priority = 200 + i,
+                    editable = true,
+                    category = orig.category or "Workspaces",
+                    key = mainMod .. " + " .. i,
+                    display_key = mainMod_friendly .. " + " .. i,
+                    description = "Workspace " .. i,
+                    action_type = "focus_workspace",
+                    workspace = i,
+                    runnable = false,
+                }
+                table.insert(expanded, item)
+            end
+            local item10 = {
+                id = "workspace_10",
+                priority = 210,
+                editable = true,
+                category = orig.category or "Workspaces",
+                key = mainMod .. " + 0",
+                display_key = mainMod_friendly .. " + 0",
+                description = "Workspace 10",
+                action_type = "focus_workspace",
+                workspace = 10,
+                runnable = false,
+            }
+            table.insert(expanded, item10)
+        elseif orig.generator == "workspaces_move_1_10" then
+            for i = 1, 9 do
+                local item = {
+                    id = "workspace_move_" .. i,
+                    priority = 210 + i,
+                    editable = true,
+                    category = orig.category or "Workspaces",
+                    key = mainMod .. " + SHIFT + " .. i,
+                    display_key = mainMod_friendly .. " + Shift + " .. i,
+                    description = "Move to Workspace " .. i,
+                    action_type = "move_to_workspace",
+                    workspace = i,
+                    runnable = false,
+                }
+                table.insert(expanded, item)
+            end
+            local item10 = {
+                id = "workspace_move_10",
+                priority = 220,
+                editable = true,
+                category = orig.category or "Workspaces",
+                key = mainMod .. " + SHIFT + 0",
+                display_key = mainMod_friendly .. " + Shift + 0",
+                description = "Move to Workspace 10",
+                action_type = "move_to_workspace",
+                workspace = 10,
+                runnable = false,
+            }
+            table.insert(expanded, item10)
+        else
+            table.insert(expanded, orig)
+        end
+    end
+
+    local expanded_manifest = {}
+    for k, v in pairs(manifest) do
+        expanded_manifest[k] = v
+    end
+    expanded_manifest.bindings = expanded
+    return expanded_manifest
+end
+
 -- Strict, fail-closed JSON decoder for keybindings overrides schema:
 -- {
 --   "<stable-action-id>": "<normalized-key>",
@@ -211,10 +396,28 @@ function M.parse_strict_overrides(str, manifest)
     if not str or str:match("^%s*$") then return {} end
 
     local valid_actions = {}
-    if manifest and manifest.bindings then
-        for _, b in ipairs(manifest.bindings) do
-            if b.id and b.editable ~= false then
-                valid_actions[b.id] = b
+    if manifest then
+        manifest = M.expand_manifest_bindings(manifest)
+        if manifest.bindings then
+            for _, b in ipairs(manifest.bindings) do
+                if b.id and b.editable ~= false then
+                    valid_actions[b.id] = b
+                end
+            end
+        end
+    end
+    -- Also include user-created actions from user_actions.json
+    local user_acts = M.load_user_actions()
+    if user_acts and user_acts.actions then
+        for _, act in ipairs(user_acts.actions) do
+            if type(act) == "table" then
+                if act.type == "application" and act.desktop_id then
+                    valid_actions["app:" .. act.desktop_id] = true
+                elseif act.type == "executable" and act.id then
+                    valid_actions[act.id] = true
+                end
+            elseif type(act) == "string" then
+                valid_actions["app:" .. act] = true
             end
         end
     end
@@ -310,7 +513,8 @@ function M.parse_strict_overrides(str, manifest)
         if not key then return nil, k_err end
 
         local is_app_action = key:match("^app:[a-zA-Z0-9][%w%-%._]*%.desktop$")
-        if manifest and not valid_actions[key] and not (key == "hotkeys" and valid_actions["keybindings"]) and not is_app_action then
+        local is_custom_action = key:match("^exec:[a-zA-Z0-9_.:-]+$") or key:match("^custom:[a-zA-Z0-9_.:-]+$")
+        if manifest and not valid_actions[key] and not (key == "hotkeys" and valid_actions["keybindings"]) and not is_app_action and not is_custom_action then
             return nil, "Unknown or uneditable action ID in overrides: " .. tostring(key)
         end
 
@@ -481,15 +685,56 @@ local function utf8_encode(code)
     end
 end
 
--- Strict, fail-closed JSON and schema decoder for user_actions.json:
--- Schema:
+-- POSIX shell single-quote escaper
+local function sh_quote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+-- Check if a filepath exists, is a regular file, and is executable
+local function check_executable_file(path)
+    if not path or type(path) ~= "string" or #path == 0 or #path > 1024 then
+        return false, "Invalid path"
+    end
+    if path:find("[%c]") or path:find("[;&|`$><\"'\\]") or path:find("%.%./") or path:find("/%.%.$") then
+        return false, "Path contains dangerous characters or path traversal"
+    end
+    local resolved = path
+    if resolved:sub(1, 2) == "~/" then
+        local home = os.getenv("HOME") or ""
+        resolved = home .. resolved:sub(2)
+    elseif resolved:sub(1, 1) ~= "/" then
+        return false, "Path must be absolute or start with ~/"
+    end
+    local f = io.open(resolved, "r")
+    if not f then
+        return false, "File does not exist or is not readable: " .. path
+    end
+    f:close()
+    local cmd = "test -f " .. sh_quote(resolved) .. " && test -x " .. sh_quote(resolved)
+    local ret = os.execute(cmd)
+    if ret ~= 0 and ret ~= true then
+        return false, "File is not an executable regular file: " .. path
+    end
+    return true, resolved
+end
+
+-- Strict, fail-closed JSON and schema decoder for user_actions.json (supports v1 and v2):
+-- Schema v1:
 -- {
 --   "version": 1,
 --   "actions": [ "foo.desktop", ... ]
 -- }
+-- Schema v2:
+-- {
+--   "version": 2,
+--   "actions": [
+--     { "type": "application", "desktop_id": "foo.desktop" },
+--     { "type": "executable", "id": "exec:my-script", "name": "Script", "executable_path": "/path/to/bin", "argv": [...] }
+--   ]
+-- }
 function M.parse_strict_user_actions(str)
     if not str or type(str) ~= "string" or str:match("^%s*$") then
-        return { version = 1, actions = {} }
+        return { version = 2, actions = {} }
     end
 
     if #str > 65536 then
@@ -567,6 +812,142 @@ function M.parse_strict_user_actions(str)
         return n
     end
 
+    local function parse_string_array()
+        if pos > len or str:sub(pos, pos) ~= "[" then
+            return nil, "Expected array starting with ["
+        end
+        pos = pos + 1
+        local arr = {}
+        skip_ws()
+        if pos <= len and str:sub(pos, pos) == "]" then
+            pos = pos + 1
+            return arr
+        end
+        while pos <= len do
+            skip_ws()
+            local s, err = parse_string()
+            if not s then return nil, err end
+            table.insert(arr, s)
+            skip_ws()
+            if pos <= len and str:sub(pos, pos) == "]" then
+                pos = pos + 1
+                return arr
+            elseif pos <= len and str:sub(pos, pos) == "," then
+                pos = pos + 1
+            else
+                return nil, "Expected , or ] in string array at byte " .. pos
+            end
+        end
+        return nil, "Unterminated string array"
+    end
+
+    local function parse_action_object()
+        if pos > len or str:sub(pos, pos) ~= "{" then
+            return nil, "Expected object starting with {"
+        end
+        pos = pos + 1
+        local obj = {}
+        local seen = {}
+        skip_ws()
+        if pos <= len and str:sub(pos, pos) == "}" then
+            pos = pos + 1
+            return nil, "Empty action object not allowed"
+        end
+        while pos <= len do
+            skip_ws()
+            local k, k_err = parse_string()
+            if not k then return nil, k_err end
+            if seen[k] then return nil, "Duplicate key in action object: " .. k end
+            seen[k] = true
+            skip_ws()
+            if pos > len or str:sub(pos, pos) ~= ":" then
+                return nil, "Expected : after key in action object"
+            end
+            pos = pos + 1
+            skip_ws()
+            if k == "argv" then
+                local a_arr, a_err = parse_string_array()
+                if not a_arr then return nil, a_err end
+                obj[k] = a_arr
+            else
+                local val, v_err = parse_string()
+                if not val then return nil, v_err end
+                obj[k] = val
+            end
+            skip_ws()
+            if pos <= len and str:sub(pos, pos) == "}" then
+                pos = pos + 1
+                break
+            elseif pos <= len and str:sub(pos, pos) == "," then
+                pos = pos + 1
+            else
+                return nil, "Expected , or } in action object at byte " .. pos
+            end
+        end
+
+        local act_type = obj.type
+        if act_type ~= "application" and act_type ~= "executable" then
+            return nil, "Invalid or missing action type: " .. tostring(act_type)
+        end
+
+        if act_type == "application" then
+            if not obj.desktop_id then
+                return nil, "Missing desktop_id in application action"
+            end
+            local did = obj.desktop_id
+            if not did:match("^[a-zA-Z0-9][%w%-%._]*%.desktop$") or did:find("%.%./") or did:sub(1, 1) == "-" then
+                return nil, "Invalid desktop ID in application action: " .. tostring(did)
+            end
+            for key in pairs(obj) do
+                if key ~= "type" and key ~= "desktop_id" and key ~= "description" and key ~= "icon" then
+                    return nil, "Unknown field in application action: " .. key
+                end
+            end
+            return {
+                type = "application",
+                desktop_id = did,
+                description = obj.description,
+                icon = obj.icon,
+            }
+        elseif act_type == "executable" then
+            if not obj.id or not obj.id:match("^[a-zA-Z0-9_.:-]+$") or #obj.id > 128 then
+                return nil, "Invalid or missing id in executable action"
+            end
+            if not obj.name or #obj.name == 0 or #obj.name > 128 or obj.name:find("[%c]") then
+                return nil, "Invalid or missing name in executable action"
+            end
+            local p = obj.executable_path
+            if not p or #p == 0 or #p > 1024 or p:find("[%c]") or p:find("%.%./") or p:find("/%.%.$") or p:find("[;&|`$><\"'\\]") then
+                return nil, "Invalid or dangerous executable_path in executable action: " .. tostring(p)
+            end
+            if p:sub(1, 1) ~= "/" and p:sub(1, 2) ~= "~/" then
+                return nil, "executable_path must be absolute or start with ~/: " .. tostring(p)
+            end
+            if not obj.argv or type(obj.argv) ~= "table" or #obj.argv == 0 or #obj.argv > 32 then
+                return nil, "Invalid or missing argv in executable action (must be 1-32 elements)"
+            end
+            for _, arg in ipairs(obj.argv) do
+                if type(arg) ~= "string" or #arg > 1024 or arg:find("[%c]") then
+                    return nil, "Invalid element in argv"
+                end
+            end
+            for key in pairs(obj) do
+                if key ~= "type" and key ~= "id" and key ~= "name" and key ~= "executable_path" and key ~= "argv" and key ~= "description" and key ~= "icon" then
+                    return nil, "Unknown field in executable action: " .. key
+                end
+            end
+            return {
+                type = "executable",
+                id = obj.id,
+                name = obj.name,
+                executable_path = obj.executable_path,
+                argv = obj.argv,
+                description = obj.description or obj.name,
+                icon = obj.icon or "utilities-terminal",
+            }
+        end
+    end
+
     skip_ws()
     if pos > len or str:sub(pos, pos) ~= "{" then
         return nil, "Invalid JSON: root must be an object beginning with {"
@@ -609,8 +990,8 @@ function M.parse_strict_user_actions(str)
         if key == "version" then
             local v_num, n_err = parse_number()
             if not v_num then return nil, n_err end
-            if v_num ~= 1 then
-                return nil, "Unsupported user_actions schema version: " .. tostring(v_num) .. " (expected 1)"
+            if v_num ~= 1 and v_num ~= 2 then
+                return nil, "Unsupported user_actions schema version: " .. tostring(v_num) .. " (expected 1 or 2)"
             end
             version = v_num
         elseif key == "actions" then
@@ -619,7 +1000,7 @@ function M.parse_strict_user_actions(str)
             end
             pos = pos + 1
             actions = {}
-            local seen_actions = {}
+            local seen_ids = {}
 
             skip_ws()
             if pos <= len and str:sub(pos, pos) == "]" then
@@ -627,17 +1008,27 @@ function M.parse_strict_user_actions(str)
             else
                 while pos <= len do
                     skip_ws()
-                    local act_str, a_err = parse_string()
-                    if not act_str then return nil, a_err end
-
-                    -- Validate desktop ID syntax: must start with alphanumeric, contain only valid chars, end with .desktop, no traversal, no leading dash
-                    if not act_str:match("^[a-zA-Z0-9][%w%-%._]*%.desktop$") or act_str:find("%.%./") or act_str:sub(1, 1) == "-" then
-                        return nil, "Invalid desktop ID in actions array: " .. tostring(act_str)
+                    local next_c = str:sub(pos, pos)
+                    local act_entry = nil
+                    if next_c == "\"" then
+                        local act_str, a_err = parse_string()
+                        if not act_str then return nil, a_err end
+                        if not act_str:match("^[a-zA-Z0-9][%w%-%._]*%.desktop$") or act_str:find("%.%./") or act_str:sub(1, 1) == "-" then
+                            return nil, "Invalid desktop ID in actions array: " .. tostring(act_str)
+                        end
+                        act_entry = { type = "application", desktop_id = act_str }
+                    elseif next_c == "{" then
+                        local act_obj, o_err = parse_action_object()
+                        if not act_obj then return nil, o_err end
+                        act_entry = act_obj
+                    else
+                        return nil, "Expected string or object in actions array at byte " .. pos
                     end
 
-                    if not seen_actions[act_str] then
-                        seen_actions[act_str] = true
-                        table.insert(actions, act_str)
+                    local act_id = (act_entry.type == "application") and act_entry.desktop_id or act_entry.id
+                    if not seen_ids[act_id] then
+                        seen_ids[act_id] = true
+                        table.insert(actions, act_entry)
                     end
 
                     skip_ws()
@@ -686,14 +1077,14 @@ function M.load_user_actions(path)
     path = path or M.get_user_actions_path()
     local f = io.open(path, "r")
     if not f then
-        return { version = 1, actions = {} }
+        return { version = 2, actions = {} }
     end
     -- Bounded read to 64KB
     local content = f:read(65536)
     f:close()
 
     if not content or content:match("^%s*$") then
-        return { version = 1, actions = {} }
+        return { version = 2, actions = {} }
     end
 
     return M.parse_strict_user_actions(content)
@@ -702,12 +1093,35 @@ end
 -- Serialize user-created actions
 function M.encode_user_actions(tbl)
     local actions = (tbl and tbl.actions) or {}
-    table.sort(actions)
-    local lines = {}
-    for _, did in ipairs(actions) do
-        table.insert(lines, string.format("    %q", did))
+    local sorted = {}
+    for _, act in ipairs(actions) do
+        table.insert(sorted, act)
     end
-    return "{\n  \"version\": 1,\n  \"actions\": [\n" .. table.concat(lines, ",\n") .. "\n  ]\n}\n"
+    table.sort(sorted, function(a, b)
+        local ida = type(a) == "table" and (a.type == "executable" and a.id or ("app:" .. (a.desktop_id or ""))) or ("app:" .. tostring(a))
+        local idb = type(b) == "table" and (b.type == "executable" and b.id or ("app:" .. (b.desktop_id or ""))) or ("app:" .. tostring(b))
+        return ida < idb
+    end)
+
+    local lines = {}
+    for _, act in ipairs(sorted) do
+        if type(act) == "string" then
+            table.insert(lines, string.format('    {\n      "type": "application",\n      "desktop_id": %q\n    }', act))
+        elseif type(act) == "table" then
+            if act.type == "application" then
+                table.insert(lines, string.format('    {\n      "type": "application",\n      "desktop_id": %q\n    }', act.desktop_id))
+            elseif act.type == "executable" then
+                local argv_lines = {}
+                for _, arg in ipairs(act.argv or { act.executable_path }) do
+                    table.insert(argv_lines, string.format('        %q', arg))
+                end
+                local exec_str = string.format('    {\n      "type": "executable",\n      "id": %q,\n      "name": %q,\n      "executable_path": %q,\n      "argv": [\n%s\n      ]\n    }',
+                    act.id, act.name, act.executable_path, table.concat(argv_lines, ",\n"))
+                table.insert(lines, exec_str)
+            end
+        end
+    end
+    return "{\n  \"version\": 2,\n  \"actions\": [\n" .. table.concat(lines, ",\n") .. "\n  ]\n}\n"
 end
 
 -- Save user-created actions atomically
@@ -736,7 +1150,8 @@ function M.add_user_application_action(desktop_id, user_actions_path, overrides_
     end
 
     local exists = false
-    for _, did in ipairs(current.actions) do
+    for _, act in ipairs(current.actions) do
+        local did = (type(act) == "table") and act.desktop_id or act
         if did == desktop_id then
             exists = true
             break
@@ -744,7 +1159,7 @@ function M.add_user_application_action(desktop_id, user_actions_path, overrides_
     end
 
     if not exists then
-        table.insert(current.actions, desktop_id)
+        table.insert(current.actions, { type = "application", desktop_id = desktop_id })
         local ok_save, save_err = M.save_user_actions(current, user_actions_path)
         if not ok_save then
             return false, "Failed to save user actions: " .. tostring(save_err)
@@ -755,10 +1170,79 @@ function M.add_user_application_action(desktop_id, user_actions_path, overrides_
     return true, "Application action added: " .. (app_info.name or desktop_id)
 end
 
--- Remove a user-created application action
-function M.remove_user_application_action(desktop_id, user_actions_path, overrides_path, reload_fn)
-    if not desktop_id or type(desktop_id) ~= "string" or not desktop_id:match("^[a-zA-Z0-9][%w%-%._]*%.desktop$") then
-        return false, "Invalid desktop ID: must start with alphanumeric character and end with .desktop"
+-- Add a user-created executable or script action
+function M.add_user_executable_action(action_def, user_actions_path, overrides_path, reload_fn)
+    if not action_def or type(action_def) ~= "table" then
+        return false, "action_def must be a table"
+    end
+    local id = action_def.id
+    if not id or type(id) ~= "string" or not id:match("^exec:[a-zA-Z0-9_.:-]+$") or #id > 128 then
+        return false, "Invalid action ID: must match ^exec:[a-zA-Z0-9_.:-]+$"
+    end
+    local name = action_def.name
+    if not name or type(name) ~= "string" or #name == 0 or #name > 128 or name:find("[%c]") then
+        return false, "Invalid name: must be 1-128 characters without control characters"
+    end
+    local path = action_def.executable_path or action_def.path
+    local ok_file, res_or_err = check_executable_file(path)
+    if not ok_file then
+        return false, res_or_err
+    end
+
+    local argv = action_def.argv
+    if not argv or type(argv) ~= "table" or #argv == 0 then
+        argv = { path }
+    else
+        if argv[1] ~= path then
+            table.insert(argv, 1, path)
+        end
+        if #argv > 32 then
+            return false, "argv exceeds maximum length of 32 arguments"
+        end
+        for _, arg in ipairs(argv) do
+            if type(arg) ~= "string" or #arg > 1024 or arg:find("[%c]") then
+                return false, "Invalid argument in argv"
+            end
+        end
+    end
+
+    user_actions_path = user_actions_path or M.get_user_actions_path()
+    reload_fn = reload_fn or M.reload_session
+
+    local current, err = M.load_user_actions(user_actions_path)
+    if not current then
+        return false, "Failed to load user actions: " .. tostring(err)
+    end
+
+    for _, act in ipairs(current.actions) do
+        local existing_id = (type(act) == "table") and act.id or nil
+        if existing_id == id then
+            return false, "Action ID already exists: " .. id
+        end
+    end
+
+    local new_entry = {
+        type = "executable",
+        id = id,
+        name = name,
+        executable_path = path,
+        argv = argv,
+    }
+    table.insert(current.actions, new_entry)
+
+    local ok_save, save_err = M.save_user_actions(current, user_actions_path)
+    if not ok_save then
+        return false, "Failed to save user actions: " .. tostring(save_err)
+    end
+
+    reload_fn()
+    return true, "Executable action added: " .. name
+end
+
+-- Remove a user-created action (application or executable)
+function M.remove_user_action(action_id, user_actions_path, overrides_path, reload_fn)
+    if not action_id or type(action_id) ~= "string" then
+        return false, "Invalid action ID"
     end
 
     user_actions_path = user_actions_path or M.get_user_actions_path()
@@ -770,29 +1254,70 @@ function M.remove_user_application_action(desktop_id, user_actions_path, overrid
         return false, "Failed to load user actions: " .. tostring(err)
     end
 
+    local target_desktop_id = nil
+    if action_id:match("^app:") then
+        target_desktop_id = action_id:sub(5)
+    elseif action_id:match("%.desktop$") then
+        target_desktop_id = action_id
+    end
+
     local new_actions = {}
-    for _, did in ipairs(current.actions) do
-        if did ~= desktop_id then
-            table.insert(new_actions, did)
+    local found = false
+    for _, act in ipairs(current.actions) do
+        local match = false
+        if type(act) == "table" then
+            if act.type == "executable" and act.id == action_id then
+                match = true
+            elseif act.type == "application" and (act.desktop_id == target_desktop_id or ("app:" .. act.desktop_id) == action_id) then
+                match = true
+            end
+        elseif type(act) == "string" then
+            if act == target_desktop_id or ("app:" .. act) == action_id then
+                match = true
+            end
+        end
+
+        if match then
+            found = true
+        else
+            table.insert(new_actions, act)
         end
     end
-    current.actions = new_actions
 
+    if not found then
+        return false, "Action not found in user actions: " .. action_id
+    end
+
+    current.actions = new_actions
     local ok_save, save_err = M.save_user_actions(current, user_actions_path)
     if not ok_save then
         return false, "Failed to save user actions: " .. tostring(save_err)
     end
 
-    -- Also remove override for app:<desktop_id> if present
+    -- Also remove override for action_id if present
     local overrides = M.load_overrides(overrides_path)
-    local action_id = "app:" .. desktop_id
-    if overrides and overrides[action_id] ~= nil then
-        overrides[action_id] = nil
-        M.save_overrides(overrides, overrides_path)
+    if overrides then
+        local changed = false
+        if overrides[action_id] ~= nil then
+            overrides[action_id] = nil
+            changed = true
+        end
+        if target_desktop_id and overrides["app:" .. target_desktop_id] ~= nil then
+            overrides["app:" .. target_desktop_id] = nil
+            changed = true
+        end
+        if changed then
+            M.save_overrides(overrides, overrides_path)
+        end
     end
 
     reload_fn()
-    return true, "Application action removed: " .. desktop_id
+    return true, "Action removed: " .. action_id
+end
+
+-- Backward compatibility alias
+function M.remove_user_application_action(desktop_id, user_actions_path, overrides_path, reload_fn)
+    return M.remove_user_action("app:" .. desktop_id, user_actions_path, overrides_path, reload_fn)
 end
 
 -- Forward legacy desktop entry functions through the Application Registry
@@ -815,6 +1340,7 @@ end
 -- Resolve effective bindings by applying overrides and user actions onto manifest defaults
 function M.resolve_bindings(manifest, overrides)
     manifest = manifest or require("keybindings_manifest")
+    manifest = M.expand_manifest_bindings(manifest)
     if overrides == nil then
         local loaded, err = M.load_overrides(nil, manifest)
         if not loaded then
@@ -935,54 +1461,118 @@ function M.resolve_bindings(manifest, overrides)
         table.insert(effective.bindings, item)
     end
 
-    -- Process user-created application actions from user_actions.json
+    -- Process user-created actions from user_actions.json
     local user_actions_data = M.load_user_actions()
     if user_actions_data and user_actions_data.actions then
-        for _, did in ipairs(user_actions_data.actions) do
-            local action_id = "app:" .. did
-            if not known_ids[action_id] then
-                known_ids[action_id] = true
-                local app_info = app_reg.find_application(did)
-                local app_name = (app_info and app_info.name) or did:gsub("%.desktop$", "")
-                local app_icon = (app_info and app_info.icon) or ""
-                local is_runnable = (app_info ~= nil)
-                local desc = app_name
-                if not is_runnable then
-                    desc = desc .. " (unavailable)"
+        for _, act in ipairs(user_actions_data.actions) do
+            if type(act) == "table" and act.type == "executable" then
+                local action_id = act.id
+                if not known_ids[action_id] then
+                    known_ids[action_id] = true
+                    local ok_exec = false
+                    local resolved_path = act.executable_path
+                    if resolved_path:sub(1, 2) == "~/" then
+                        local home = os.getenv("HOME") or ""
+                        resolved_path = home .. resolved_path:sub(2)
+                    end
+                    local f = io.open(resolved_path, "r")
+                    if f then
+                        f:close()
+                        local cmd = "test -f " .. sh_quote(resolved_path) .. " && test -x " .. sh_quote(resolved_path)
+                        local ret = os.execute(cmd)
+                        if ret == 0 or ret == true then
+                            ok_exec = true
+                        end
+                    end
+                    local desc = act.name or action_id
+                    if not ok_exec then
+                        desc = desc .. " (unavailable)"
+                    end
+                    local argv = act.argv or { act.executable_path }
+                    local cmd_parts = {}
+                    for _, a in ipairs(argv) do
+                        table.insert(cmd_parts, sh_quote(a))
+                    end
+                    local cmd_str = table.concat(cmd_parts, " ")
+                    local item = {
+                        id = action_id,
+                        priority = 150,
+                        editable = true,
+                        runnable = ok_exec,
+                        category = "User Executables & Scripts",
+                        description = desc,
+                        icon = act.icon or "utilities-terminal",
+                        action_type = "exec",
+                        command = ok_exec and cmd_str or nil,
+                        command_argv = ok_exec and argv or nil,
+                        executable_path = act.executable_path,
+                        user_created = true,
+                    }
+                    local ov = overrides[action_id]
+                    if ov == false or ov == "" or ov == "none" then
+                        item.key = nil
+                        item.display_key = "None (Unbound)"
+                        item.unbound = true
+                        item.user_overridden = true
+                    elseif type(ov) == "string" then
+                        local norm = M.normalize_key(ov)
+                        item.key = norm
+                        item.display_key = M.format_friendly_key(norm)
+                        item.unbound = false
+                        item.user_overridden = true
+                    else
+                        item.key = nil
+                        item.display_key = "None (Unbound)"
+                        item.unbound = true
+                    end
+                    table.insert(effective.bindings, item)
                 end
-                local item = {
-                    id = action_id,
-                    priority = 100,
-                    editable = true,
-                    runnable = is_runnable,
-                    category = "Applications & Launchers",
-                    desktop_id = did,
-                    description = desc,
-                    icon = app_icon,
-                    action_type = "exec",
-                    command = is_runnable and ("gtk-launch -- " .. did) or nil,
-                    command_argv = is_runnable and { "gtk-launch", "--", did } or nil,
-                    user_created = true,
-                }
-                local ov = overrides[action_id]
-                if ov == false or ov == "" or ov == "none" then
-                    item.key = nil
-                    item.display_key = "None (Unbound)"
-                    item.unbound = true
-                    item.user_overridden = true
-                elseif type(ov) == "string" then
-                    local norm = M.normalize_key(ov)
-                    item.key = norm
-                    item.display_key = M.format_friendly_key(norm)
-                    item.unbound = false
-                    item.user_overridden = true
-                else
-                    -- Default unassigned application action
-                    item.key = nil
-                    item.display_key = "None (Unbound)"
-                    item.unbound = true
+            elseif (type(act) == "table" and act.type == "application") or type(act) == "string" then
+                local did = (type(act) == "table") and act.desktop_id or act
+                local action_id = "app:" .. did
+                if not known_ids[action_id] then
+                    known_ids[action_id] = true
+                    local app_info = app_reg.find_application(did)
+                    local app_name = (app_info and app_info.name) or did:gsub("%.desktop$", "")
+                    local app_icon = (app_info and app_info.icon) or ""
+                    local is_runnable = (app_info ~= nil)
+                    local desc = app_name
+                    if not is_runnable then
+                        desc = desc .. " (unavailable)"
+                    end
+                    local item = {
+                        id = action_id,
+                        priority = 100,
+                        editable = true,
+                        runnable = is_runnable,
+                        category = "Applications & Launchers",
+                        desktop_id = did,
+                        description = desc,
+                        icon = app_icon,
+                        action_type = "exec",
+                        command = is_runnable and ("gtk-launch -- " .. did) or nil,
+                        command_argv = is_runnable and { "gtk-launch", "--", did } or nil,
+                        user_created = true,
+                    }
+                    local ov = overrides[action_id]
+                    if ov == false or ov == "" or ov == "none" then
+                        item.key = nil
+                        item.display_key = "None (Unbound)"
+                        item.unbound = true
+                        item.user_overridden = true
+                    elseif type(ov) == "string" then
+                        local norm = M.normalize_key(ov)
+                        item.key = norm
+                        item.display_key = M.format_friendly_key(norm)
+                        item.unbound = false
+                        item.user_overridden = true
+                    else
+                        item.key = nil
+                        item.display_key = "None (Unbound)"
+                        item.unbound = true
+                    end
+                    table.insert(effective.bindings, item)
                 end
-                table.insert(effective.bindings, item)
             end
         end
     end
@@ -1108,7 +1698,7 @@ function M.reload_session()
 end
 
 -- Transactional set/edit binding with rollback on reload failure
-function M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path, reload_fn)
+function M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path, reload_fn, force)
     overrides_path = overrides_path or M.get_overrides_path()
     local manifest
     if manifest_path then
@@ -1116,6 +1706,7 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
     else
         manifest = require("keybindings_manifest")
     end
+    manifest = M.expand_manifest_bindings(manifest)
 
     reload_fn = reload_fn or M.reload_session
 
@@ -1126,6 +1717,41 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
             target_item = item
             action_id = item.id
             break
+        end
+    end
+    if not target_item then
+        -- Check user_actions.json
+        local user_acts = M.load_user_actions()
+        if user_acts and user_acts.actions then
+            for _, act in ipairs(user_acts.actions) do
+                if type(act) == "table" and act.type == "executable" and act.id == action_id then
+                    target_item = {
+                        id = act.id,
+                        priority = 150,
+                        editable = true,
+                        runnable = true,
+                        category = "User Executables & Scripts",
+                        description = act.name,
+                        action_type = "exec",
+                        user_created = true,
+                    }
+                    break
+                elseif (type(act) == "table" and act.type == "application" and ("app:" .. act.desktop_id) == action_id) or (type(act) == "string" and ("app:" .. act) == action_id) then
+                    local did = (type(act) == "table") and act.desktop_id or act
+                    target_item = {
+                        id = action_id,
+                        priority = 100,
+                        editable = true,
+                        runnable = true,
+                        category = "Applications & Launchers",
+                        desktop_id = did,
+                        description = did,
+                        action_type = "exec",
+                        user_created = true,
+                    }
+                    break
+                end
+            end
         end
     end
     if not target_item then
@@ -1151,7 +1777,7 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
                 return false, "Desktop application not found: " .. app_desktop
             end
         else
-            return false, "Action ID not found in manifest: " .. tostring(action_id)
+            return false, "Action ID not found in manifest or user actions: " .. tostring(action_id)
         end
     end
 
@@ -1210,9 +1836,16 @@ function M.set_action_binding(action_id, new_key_input, manifest_path, overrides
 
         local conflict = M.find_conflict(action_id, norm_key, manifest, candidate)
         if conflict then
-            local conflict_desc = conflict.description or conflict.id or "another action"
-            return false, string.format("Conflict: '%s' is already assigned to %s (%s). Cannot reassign without unbinding first.",
-                norm_key, conflict_desc, conflict.id or "unnamed")
+            if force then
+                if not conflict.editable or conflict.immutable then
+                    return false, string.format("Conflict with immutable system binding '%s' (%s). Cannot reassign.", conflict.id, conflict.description or conflict.id)
+                end
+                candidate[conflict.id] = false
+            else
+                local conflict_desc = conflict.description or conflict.id or "another action"
+                return false, string.format("Conflict: '%s' is already assigned to %s (%s). To reassign, confirm reassignment or pass --force.",
+                    norm_key, conflict_desc, conflict.id or "unnamed")
+            end
         end
 
         candidate[action_id] = norm_key
@@ -1291,12 +1924,13 @@ function M.assign_application_shortcut(desktop_id, new_key_input, manifest_path,
         action_id = "app:" .. desktop_id
     end
 
-    return M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path, reload_fn)
+    return M.set_action_binding(action_id, new_key_input, manifest_path, overrides_path, reload_fn, force)
 end
 
 -- Retrieve structured command_argv for a runnable action
 function M.get_action_argv(action_id, manifest)
     manifest = manifest or require("keybindings_manifest")
+    manifest = M.expand_manifest_bindings(manifest)
 
     -- Check direct aliases for role actions
     if action_id == "terminal" or action_id == "terminal.default" then
@@ -1352,7 +1986,32 @@ function M.get_action_argv(action_id, manifest)
         end
         return { "gtk-launch", "--", app_desktop }
     end
-    return nil, "Action ID not found in manifest: " .. tostring(action_id)
+
+    -- Check user_actions.json for executable actions
+    local user_acts = M.load_user_actions()
+    if user_acts and user_acts.actions then
+        for _, act in ipairs(user_acts.actions) do
+            if type(act) == "table" and act.type == "executable" and act.id == action_id then
+                local resolved_path = act.executable_path
+                if resolved_path:sub(1, 2) == "~/" then
+                    local home = os.getenv("HOME") or ""
+                    resolved_path = home .. resolved_path:sub(2)
+                end
+                local f = io.open(resolved_path, "r")
+                if f then
+                    f:close()
+                    local cmd = "test -f " .. sh_quote(resolved_path) .. " && test -x " .. sh_quote(resolved_path)
+                    local ret = os.execute(cmd)
+                    if ret == 0 or ret == true then
+                        return act.argv or { act.executable_path }
+                    end
+                end
+                return nil, "Executable action is not runnable or missing: " .. tostring(act.executable_path)
+            end
+        end
+    end
+
+    return nil, "Action ID not found in manifest or user actions: " .. tostring(action_id)
 end
 
 -- Serialize effective bindings into structured JSON consumed by modern UIs (e.g. Aurelia Quickshell)
@@ -1379,6 +2038,22 @@ function M.serialize_bindings_json(effective)
         end
         if b.icon and b.icon ~= "" then
             table.insert(fields, string.format('    "icon": %q', b.icon))
+        end
+        if b.user_created then
+            table.insert(fields, '    "user_created": true')
+        end
+        if b.action_type then
+            table.insert(fields, string.format('    "action_type": %q', b.action_type))
+        end
+        if b.executable_path then
+            table.insert(fields, string.format('    "executable_path": %q', b.executable_path))
+        end
+        if b.command_argv and type(b.command_argv) == "table" then
+            local argv_strs = {}
+            for _, a in ipairs(b.command_argv) do
+                table.insert(argv_strs, string.format('%q', a))
+            end
+            table.insert(fields, string.format('    "command_argv": [%s]', table.concat(argv_strs, ", ")))
         end
         local item_str = "  {\n" .. table.concat(fields, ",\n") .. "\n  }"
         if i < count then

@@ -129,7 +129,11 @@ fi
 SUBCOMMAND=""
 TARGET_ID=""
 NEW_KEY=""
+EXEC_NAME=""
+EXEC_PATH=""
+EXEC_ARGV=()
 PROVIDER_OVERRIDE=""
+FORCE=0
 
 remaining_args=()
 while [[ $# -gt 0 ]]; do
@@ -168,6 +172,25 @@ while [[ $# -gt 0 ]]; do
             TARGET_ID="${2:-}"
             shift 2 2>/dev/null || shift
             ;;
+        add-exec|--add-exec)
+            SUBCOMMAND="add-exec"
+            TARGET_ID="${2:-}"
+            EXEC_NAME="${3:-}"
+            EXEC_PATH="${4:-}"
+            shift 4 2>/dev/null || shift $#
+            EXEC_ARGV=("$@")
+            shift $#
+            ;;
+        remove-action|--remove-action)
+            SUBCOMMAND="remove-action"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        validate-shortcut|--validate-shortcut)
+            SUBCOMMAND="validate-shortcut"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
         run|--run)
             SUBCOMMAND="run"
             TARGET_ID="${2:-}"
@@ -186,6 +209,10 @@ while [[ $# -gt 0 ]]; do
             SUBCOMMAND="unset"
             TARGET_ID="${2:-}"
             shift 2 2>/dev/null || shift
+            ;;
+        --force|-f)
+            FORCE=1
+            shift
             ;;
         toggle|--toggle)
             SUBCOMMAND="toggle"
@@ -381,19 +408,22 @@ apply_binding_edit() {
     local action_id="$1"
     local new_input="$2"
     local overrides_path="${KEYBINDINGS_OVERRIDES:-${HOTKEYS_OVERRIDES:-}}"
+    local force_flag="${FORCE:-0}"
 
-    "$lua_bin" - "$manifest_path" "$manifest_dir" "$action_id" "$new_input" "$overrides_path" <<'LUA_SCRIPT'
+    "$lua_bin" - "$manifest_path" "$manifest_dir" "$action_id" "$new_input" "$overrides_path" "$force_flag" <<'LUA_SCRIPT'
 local manifest_path  = arg[1]
 local manifest_dir   = arg[2]
 local action_id      = arg[3]
 local new_input      = arg[4]
 local overrides_path = arg[5]
+local force_flag     = arg[6]
 if overrides_path == "" then overrides_path = nil end
+local force = (force_flag == "1" or force_flag == "true")
 
 package.path = manifest_dir .. "/?.lua;" .. package.path
 local eff = require("effective_bindings")
 
-local ok, result = eff.set_action_binding(action_id, new_input, manifest_path, overrides_path)
+local ok, result = eff.set_action_binding(action_id, new_input, manifest_path, overrides_path, nil, force)
 if not ok then
     io.stderr:write(tostring(result) .. "\n")
     os.exit(1)
@@ -499,6 +529,32 @@ if [[ "$SUBCOMMAND" == "apps" ]]; then
     exit 0
 fi
 
+if [[ "$SUBCOMMAND" == "validate-shortcut" ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "INVALID: missing-shortcut" >&2
+        exit 1
+    fi
+    if out="$("$lua_bin" - "$manifest_dir" "$TARGET_ID" 2>&1 <<'LUA_SCRIPT'
+local manifest_dir = arg[1]
+local key_input    = arg[2]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, reason, norm = eff.validate_shortcut_policy(key_input)
+if not ok then
+    io.stderr:write(tostring(reason) .. "\n")
+    os.exit(1)
+end
+print(tostring(norm))
+LUA_SCRIPT
+)"; then
+        printf 'VALID: %s\n' "$out"
+        exit 0
+    else
+        printf 'INVALID: %s\n' "$out" >&2
+        exit 1
+    fi
+fi
+
 if [[ "$SUBCOMMAND" == "add-app" ]]; then
     if [[ -z "$TARGET_ID" ]]; then
         printf '%s\n' "Error: Missing desktop ID for add-app" >&2
@@ -536,26 +592,51 @@ LUA_SCRIPT
     fi
 fi
 
-if [[ "$SUBCOMMAND" == "remove-app" ]]; then
-    if [[ -z "$TARGET_ID" ]]; then
-        printf '%s\n' "Error: Missing desktop ID for remove-app" >&2
+if [[ "$SUBCOMMAND" == "add-exec" ]]; then
+    if [[ -z "$TARGET_ID" || -z "$EXEC_NAME" || -z "$EXEC_PATH" ]]; then
+        printf '%s\n' "Error: add-exec requires <id> <name> <executable_path>" >&2
         exit 1
     fi
-    if [[ ! "$TARGET_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.desktop$ ]]; then
-        printf '%s\n' "Error: Invalid desktop ID: $TARGET_ID" >&2
+    if [[ ! "$TARGET_ID" =~ ^exec: ]]; then
+        TARGET_ID="exec:$TARGET_ID"
+    fi
+    if [[ ! "$TARGET_ID" =~ ^exec:[a-zA-Z0-9_.:-]+$ ]]; then
+        printf '%s\n' "Error: Invalid action ID: $TARGET_ID" >&2
         exit 1
     fi
     user_actions_path="${KEYBINDINGS_USER_ACTIONS:-${USER_ACTIONS_PATH:-}}"
-    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$user_actions_path" 2>&1 <<'LUA_SCRIPT'
+    argv_str="$EXEC_PATH"$'\n'
+    if [[ ${#EXEC_ARGV[@]} -gt 0 ]]; then
+        for a in "${EXEC_ARGV[@]}"; do
+            argv_str+="$a"$'\n'
+        done
+    fi
+    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$EXEC_NAME" "$EXEC_PATH" "$user_actions_path" "$argv_str" 2>&1 <<'LUA_SCRIPT'
 local manifest_path     = arg[1]
 local manifest_dir      = arg[2]
-local desktop_id        = arg[3]
-local user_actions_path = arg[4]
+local id                = arg[3]
+local name              = arg[4]
+local exec_path         = arg[5]
+local user_actions_path = arg[6]
+local argv_raw          = arg[7]
 if user_actions_path == "" then user_actions_path = nil end
+
+local argv = nil
+if argv_raw and argv_raw ~= "" then
+    argv = {}
+    for line in argv_raw:gmatch("[^\r\n]+") do
+        table.insert(argv, line)
+    end
+end
 
 package.path = manifest_dir .. "/?.lua;" .. package.path
 local eff = require("effective_bindings")
-local ok, result = eff.remove_user_application_action(desktop_id, user_actions_path)
+local ok, result = eff.add_user_executable_action({
+    id = id,
+    name = name,
+    executable_path = exec_path,
+    argv = argv,
+}, user_actions_path)
 if not ok then
     io.stderr:write(tostring(result) .. "\n")
     os.exit(1)
@@ -563,12 +644,53 @@ end
 print(tostring(result))
 LUA_SCRIPT
 )"; then
-        log_event "INFO" "Successfully removed application action '$TARGET_ID'" "remove-app"
-        printf '%s\n' "REMOVE_APP_OK"
+        log_event "INFO" "Successfully added executable action '$TARGET_ID' ($EXEC_NAME)" "add-exec"
+        printf '%s\n' "ADD_EXEC_OK"
         exit 0
     else
-        log_event "ERROR" "Failed to remove application action '$TARGET_ID': $err_msg" "remove-app"
-        printf 'REMOVE_APP_FAIL: %s\n' "$err_msg" >&2
+        log_event "ERROR" "Failed to add executable action '$TARGET_ID': $err_msg" "add-exec"
+        printf 'ADD_EXEC_FAIL: %s\n' "$err_msg" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$SUBCOMMAND" == "remove-app" || "$SUBCOMMAND" == "remove-action" ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing action ID for $SUBCOMMAND" >&2
+        exit 1
+    fi
+    user_actions_path="${KEYBINDINGS_USER_ACTIONS:-${USER_ACTIONS_PATH:-}}"
+    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$user_actions_path" 2>&1 <<'LUA_SCRIPT'
+local manifest_path     = arg[1]
+local manifest_dir      = arg[2]
+local action_id         = arg[3]
+local user_actions_path = arg[4]
+if user_actions_path == "" then user_actions_path = nil end
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, result = eff.remove_user_action(action_id, user_actions_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+)"; then
+        log_event "INFO" "Successfully removed action '$TARGET_ID'" "$SUBCOMMAND"
+        if [[ "$SUBCOMMAND" == "remove-app" ]]; then
+            printf '%s\n' "REMOVE_APP_OK"
+        else
+            printf '%s\n' "REMOVE_ACTION_OK"
+        fi
+        exit 0
+    else
+        log_event "ERROR" "Failed to remove action '$TARGET_ID': $err_msg" "$SUBCOMMAND"
+        if [[ "$SUBCOMMAND" == "remove-app" ]]; then
+            printf 'REMOVE_APP_FAIL: %s\n' "$err_msg" >&2
+        else
+            printf 'REMOVE_ACTION_FAIL: %s\n' "$err_msg" >&2
+        fi
         exit 1
     fi
 fi

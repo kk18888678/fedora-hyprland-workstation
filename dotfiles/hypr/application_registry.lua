@@ -604,6 +604,7 @@ function M.find_application(query)
     query = trim(query)
     if query == "" then return nil end
 
+    local query_raw_ext = query:match("%.desktop$") and query or (query .. ".desktop")
     local query_lower = query:lower()
     local query_with_ext = query_lower:match("%.desktop$") and query_lower or (query_lower .. ".desktop")
 
@@ -612,8 +613,15 @@ function M.find_application(query)
     local search_fn = M.get_applications_search_dirs or M.get_search_dirs
     local search_dirs = search_fn()
     for _, dir in ipairs(search_dirs) do
-        local candidate_paths = { dir .. "/" .. query_with_ext }
-        if query_with_ext:find("-") then
+        local candidate_paths = { dir .. "/" .. query_raw_ext }
+        if query_raw_ext ~= query_with_ext then
+            table.insert(candidate_paths, dir .. "/" .. query_with_ext)
+        end
+        if query_raw_ext:find("-") then
+            local sub_rel = query_raw_ext:gsub("%-", "/")
+            table.insert(candidate_paths, dir .. "/" .. sub_rel)
+        end
+        if query_with_ext ~= query_raw_ext and query_with_ext:find("-") then
             local sub_rel = query_with_ext:gsub("%-", "/")
             table.insert(candidate_paths, dir .. "/" .. sub_rel)
         end
@@ -622,7 +630,7 @@ function M.find_application(query)
             local f = io.open(candidate_path, "r")
             if f then
                 f:close()
-                local app = M.parse_desktop_file(candidate_path, query_with_ext)
+                local app = M.parse_desktop_file(candidate_path, query_raw_ext)
                 if app then
                     -- If Hidden=true at this precedence level, it masks lower-precedence entries
                     if app.hidden then

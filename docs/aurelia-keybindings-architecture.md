@@ -96,42 +96,76 @@ Aurelia Keybindings implements a hybrid **resident surface with lazy activation*
 
 ---
 
-## 4. Inline Keybinding Capture State Machine
+## 4. Inline Keybinding Capture State Machine & Interaction Model
 
 Keybinding modification is handled entirely inline within the native layer-shell interface without opening external terminal windows or secondary dialogs.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle
+    [*] --> idle
 
-    Idle --> Capturing : Alt+S / Edit Shortcut
-    Capturing --> Idle : Escape (Cancel Capture)
-    Capturing --> Applying : Valid Key Combination Pressed
-    Capturing --> Capturing : Standalone Modifier (Super/Ctrl/Alt/Shift)
+    idle --> entering_capture : 's' pressed (initiatingKey recorded)
+    idle --> capture_armed : Click 'Set' / Start Capture without key
+    entering_capture --> capture_armed : initiatingKey released (leak protection)
+    capture_armed --> idle : Esc (Cancel Capture)
+    capture_armed --> idle : Backspace / Delete (Unset Shortcut)
+    capture_armed --> validating : Valid Combination Pressed
+    capture_armed --> capture_armed : Standalone Modifier (Super/Ctrl/Alt/Shift)
 
-    Idle --> Applying : Alt+U / Unset Shortcut (sets 'none')
+    idle --> validating : 'u' pressed / Unset Shortcut (sets 'none')
 
-    Applying --> Validating : Backend Dispatched
+    validating --> idle : Valid & Committed Atomically (Success feedback)
+    validating --> conflict : Conflict Detected (Existing Action)
+    validating --> capture_armed : Policy Rejection / Error (Armed for retry)
 
-    Validating --> Success : Valid & Applied Atomically
-    Validating --> Conflict : Conflict Detected (Existing Action)
-    Validating --> Error : Syntax Error / Immutable Refusal
-
-    Success --> Idle : Success Message Timed (1.5s) or Escape
-    Conflict --> Capturing : Auto-retry or Escape
-    Error --> Idle : Escape / Input Reset
+    conflict --> idle : Enter (Force Reassign) or Esc (Cancel)
 ```
 
-### 4.1 State Definitions
-- **`idle`**: Normal navigation state. Arrow keys move focus; typing filters search; Return launches runnable applications.
-- **`capturing`**: Modal input capture active. Input is locked to recording; search input is disabled.
-  - Raw key events are normalized into canonical Hyprland notation (`SUPER + CTRL + ALT + SHIFT + KEY`).
-  - Standalone modifier presses (e.g., tapping `Super` alone) are ignored without leaving capture mode.
-  - Pressing `Escape` immediately transitions the state machine back to `idle` with zero mutations.
-- **`validating` & `applying`**: Asynchronous mutation request dispatched to backend (`workstation-keybindings set <id> <key>`).
-- **`conflict`**: The key combination is already owned by another action. The UI displays the conflicting action description inline in warning amber (`Theme.warning`).
-- **`error`**: The key combination is invalid or the target action is immutable (e.g. workspace gestures). The error is displayed in error red (`Theme.error`).
-- **`success`**: The mutation succeeded and was committed atomically to `keybindings_overrides.json`. Confirmation is shown in success green (`Theme.success`) before returning to `idle`.
+### 4.1 State Definitions & Invariants
+- **`idle`**: Normal palette navigation state.
+  - Arrow keys navigate rows; typing filters search; Return executes runnable applications or navigates sub-views.
+  - Single-key actions in list view:
+    - **`s`**: Initiate capture on the selected action (or `Alt+s`).
+    - **`u`**: Unset the selected action (or `Alt+u`).
+    - **`a`**: Toggle between action views and the Add Action picker (or `Alt+a`).
+  - In `searchInput`, typing characters `s`, `u`, `a` types into the search query normally, while `Alt+s`, `Alt+u`, and `Alt+a` trigger actions without losing input focus.
+  - All UI badges and footer hints strictly display lowercase **`s`**, **`u`**, and **`a`** (preventing user confusion with Shift-modified shortcuts).
+- **`entering_capture`**: Initiating trigger key leak protection state.
+  - When the user presses `s` to configure a binding, `initiatingKey` records the keycode.
+  - All intermediate keypresses are swallowed until `handleRecordingKeyRelease` detects the initiating key release.
+  - Prevents the initiating key from inadvertently being registered as part of the candidate combination.
+- **`capture_armed`**: Live shortcut recording state.
+  - `ShortcutInhibitor` is dynamically enabled, preventing Hyprland compositor global bindings from intercepting keystrokes.
+  - `WlrLayershell.keyboardFocus` is dynamically elevated to `WlrKeyboardFocus.Exclusive`.
+  - Standalone modifiers (Super, Ctrl, Alt, Shift) update the live display while remaining armed.
+  - Standalone Backspace or Delete immediately unsets the shortcut and returns to idle.
+  - `Esc` unconditionally cancels capture, returning to `idle` with zero mutation and restoring `OnDemand` focus.
+- **`validating`**: Policy validation state.
+  - Evaluates candidate key against centralized workstation shortcut policy (`effective_bindings.validate_shortcut_policy`).
+  - Rejects naked printable keys (`s`, `a`, `1`, `space`), Shift+printable combinations, and bare Esc.
+  - Reorders modifiers into canonical sorting: `SUPER + CTRL + ALT + SHIFT + KEY`.
+- **`conflict`**: Conflict resolution state.
+  - If candidate shortcut is already owned by another action, the conflicting action name is displayed in warning amber.
+  - Pressing `Enter` confirms force reassignment (`--force`), atomically unbinding the conflicting action and binding the new action in a single transactional write.
+  - Pressing `Esc` cancels the operation with zero mutation.
+- **`error`**: Error feedback state.
+  - Informs the user of immutable system bindings, uneditable aggregate actions, or malformed combinations.
+  - Remains armed for immediate retry or cancellation with `Esc`.
+
+### 4.2 Fullscreen Layer-Shell & Outside-Click Dismissal
+- **Window Surface Geometry**: `PanelWindow` configures full-screen transparent anchoring:
+  ```qml
+  anchors { top: true; bottom: true; left: true; right: true }
+  exclusionMode: ExclusionMode.Ignore
+  color: "transparent"
+  ```
+- **Outside-Click Dismissal (`outsideDismissArea`)**:
+  - A fullscreen transparent `MouseArea` lies underneath the centered surface card.
+  - Clicking outside the 800x480 command palette frame immediately closes the window (`windowRoot.visible = false`).
+  - If clicked during active key recording, it safely cancels capture (`cancelCapture()`) without abruptly closing the window.
+- **Centered Surface Card (`surfaceCard`)**:
+  - The visual command palette is centered within the parent surface (`anchors.centerIn: parent`) with explicit design token geometry: `width: Theme.paletteWidth` (800) and `height: Theme.paletteHeight` (480).
+  - An internal click-absorbing `MouseArea` covers `surfaceCard`, preventing clicks inside the palette card from bubbling through to `outsideDismissArea`.
 
 ---
 
@@ -261,29 +295,65 @@ graph TD
 - **Installed Applications Discovery**: Emitted via `workstation-keybindings apps` as structured JSON consumed on-demand by the UI.
 
 ### 10.2 Action Registry vs. Application Registry vs. Effective Bindings
-- **Application Registry**: Tracks all valid, launchable graphical desktop applications installed on the operating system.
-- **Action Registry**: Defines the universe of actions eligible for shortcut assignment. Composed of static system actions (`keybindings_manifest.lua`) and explicitly added user application actions (`user_actions.json`).
-- **Effective Bindings**: The runtime merged state of the Action Registry with user keybinding overrides (`keybindings_overrides.json`), serialized as structured JSON for UI display.
+- **Application Registry (`application_registry.lua`)**: Dynamically discovers launchable graphical desktop applications from standard XDG data directories. **Crucial Invariant**: Discovered applications do NOT automatically populate the Action Registry or Unbound actions. Discovery is strictly lazy and on-demand.
+- **Action Registry**: Defines the universe of actions eligible for shortcut assignment. Composed strictly of:
+  1. Curated core system actions (`keybindings_manifest.lua`).
+  2. 20 expanded discrete workspace actions (`workspace_1`..`workspace_10` and `move_workspace_1`..`move_workspace_10`), generated ahead of effective binding resolution.
+  3. Explicitly added user application actions (`type: "application"` in `user_actions.json`).
+  4. Explicitly added user custom executable/script actions (`type: "executable"` in `user_actions.json`).
+- **Effective Bindings (`effective_bindings.lua`)**: The single source of truth for runtime keyboard shortcuts:
+  - **Bound ∩ Unbound = ∅**: Every action in the Action Registry belongs to exactly one of `Bound` (assigned exactly 1 shortcut) or `Unbound` (assigned no shortcut).
+  - **Bound ∪ Unbound = Action Registry**: The exact union of Bound and Unbound equals the complete Action Registry with zero unclassified or orphaned actions.
+  - If bound, the shortcut is registered with Hyprland (`hl.bind`). If unbound, Hyprland registers nothing.
 
 ### 10.3 Bound and Unbound View Architecture
 `KeybindingsWindow.qml` and `KeybindingsModel.qml` partition the effective bindings into distinct operational views:
 - **Bound View (Default)**:
   - Displays all active keyboard shortcuts (`unbound: false`).
   - Fast warm opening (< 100ms) with zero application enumeration overhead.
-  - Alt+U unsets a shortcut, automatically moving it to the Unbound view.
-  - Enter runs runnable actions directly.
+  - Pressing `u` unsets a shortcut, atomically moving it to the Unbound view and unregistering it from Hyprland.
+  - Pressing `s` initiates inline shortcut capture.
+  - Return runs runnable actions directly.
 - **Unbound View**:
   - Displays actions without assigned shortcuts (`unbound: true`).
   - Displays `—` in the shortcut column.
-  - Alt+S captures and assigns a new shortcut, moving the item to the Bound view.
-  - Alt+A opens the Add Application picker view.
+  - Pressing `s` captures and assigns a new shortcut, moving the item to the Bound view and registering it with Hyprland.
+  - Pressing `a` opens the Add Action type selector.
 - **View Navigation**:
-  - Minimal command-palette tab bar: `[ Bound (N) ]` and `[ Unbound (M) ]`.
+  - Minimal command-palette tab bar: `[ Bound (N) ]`, `[ Unbound (M) ]`, and `[ + Add Action (a) ]`.
   - `Tab` key toggles between Bound and Unbound views instantly.
-  - Search input filtering is scoped in-memory to the currently active view.
+  - Pressing `a` toggles into the Add Action flow or returns back to shortcuts.
+  - Footer hints clearly show lowercase `s`, `u`, `a`, `Tab`, and `Esc`.
 
-### 10.4 Explicit Application Action Provisioning (`add-app`)
-- **On-Demand Discovery**: Installed applications are discovered via `workstation-keybindings apps` only when entering the Add Application view (`Alt+A`).
-- **Validated Persistence**: Adding an application validates the desktop ID syntax (rejecting path traversal and leading dashes), writes atomically to `user_actions.json` with 0600 permissions, and emits an observability log.
-- **Immediate Assignment**: Newly added applications instantly appear in the Unbound view as `app:<desktop_id>` and can immediately receive a key combination via `Alt+S`.
-- **Clean Removal**: `workstation-keybindings remove-app <desktop_id>` cleans up both the user action registration and any associated shortcut overrides atomically.
+### 10.4 Add Action Lifecycle: Applications & Custom Executables
+The Add Action workflow provides two distinct mechanisms for extending workstation actions:
+
+1. **Installed Desktop Applications (`add_app`)**:
+   - Discovers installed `.desktop` files via `application_registry.list_applications()`.
+   - Adding an application validates the desktop ID syntax (rejecting path traversal and leading dashes), writes atomically to `user_actions.json` with 0600 permissions, and emits an observability log.
+   - Newly added applications begin in the Unbound state (`app:<desktop_id>`) and can immediately receive a key combination via `s`.
+   - `workstation-keybindings remove-app <desktop_id>` cleans up both the user action registration and any associated shortcut overrides atomically.
+
+2. **Custom Executables and Scripts (`add_exec`)**:
+   - Persisted using Schema v2 in `user_actions.json`:
+     ```json
+     {
+       "version": 2,
+       "actions": [
+         {
+           "type": "executable",
+           "id": "exec:my_script",
+           "name": "My Custom Script",
+           "path": "/usr/local/bin/my-script",
+           "argv": ["/usr/local/bin/my-script", "--profile", "work"]
+         }
+       ]
+     }
+     ```
+   - **Path & Execution Security**:
+     - Requires absolute paths without path traversal (`..`).
+     - Rejects non-existent paths, directories, and non-executable files.
+     - Strictly rejects shell injection characters (`;&|`$><"'\`).
+     - Arguments are stored as structured `argv` arrays with zero shell interpolation.
+   - **Graceful Degradation**:
+     - If a configured executable file is deleted or unmounted later, the action is safely marked `runnable = false` with friendly "(executable not found)" status without corrupting the Action Registry or breaking other shortcuts.

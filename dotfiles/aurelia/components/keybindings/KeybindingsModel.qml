@@ -11,7 +11,7 @@ QtObject {
     property var availableApplications: []
     property var filteredItems: []
 
-    // Views: "bound" | "unbound" | "add_app"
+    // Views: "bound" | "unbound" | "add_action_type" | "add_app" | "add_exec"
     property string activeView: "bound"
     readonly property int boundCount: boundItems.length
     readonly property int unboundCount: unboundItems.length
@@ -25,14 +25,14 @@ QtObject {
     property string appsStatusMessage: ""
 
     // Inline Keybinding Operation State Machine
-    // States: "idle" | "capturing" | "applying" | "success" | "conflict" | "error"
+    // States: "idle" | "entering_capture" | "capture_armed" | "validating" | "applying" | "success" | "conflict" | "error"
     property string operationState: "idle"
     property string operationMessage: ""
 
     // Concurrency state bounds
     property bool isReloading: fetchProcess.running
     property bool isExecuting: runProcess.running
-    property bool isMutating: setProcess.running || unsetProcess.running || addAppProcess.running
+    property bool isMutating: setProcess.running || unsetProcess.running || addAppProcess.running || addExecProcess.running || removeActionProcess.running
 
     readonly property var selectedItem: (filteredItems && filteredItems.length > selectedIndex && selectedIndex >= 0)
         ? filteredItems[selectedIndex]
@@ -62,7 +62,7 @@ QtObject {
     }
 
     function switchView(view) {
-        if (view !== "bound" && view !== "unbound" && view !== "add_app") return;
+        if (view !== "bound" && view !== "unbound" && view !== "add_action_type" && view !== "add_app" && view !== "add_exec") return;
         if (root.activeView === view) return;
         root.activeView = view;
         root.searchQuery = "";
@@ -106,16 +106,70 @@ QtObject {
         addAppProcess.running = true
     }
 
+    function addExecutable(id, name, path, argv) {
+        if (!id || !name || !path) return;
+        if (root.isMutating) return;
+        if (addExecProcess.running) {
+            console.warn("[PERF-WARN] KeybindingsModel: addExecutable() ignored because addExecProcess is currently running")
+            return;
+        }
+        console.info("[PERF] KeybindingsModel: Adding executable action for '" + id + "' (" + path + ")")
+        root.operationState = "applying"
+        root.operationMessage = "Adding executable action..."
+        var cmd = [root.backendBin, "add-exec", id, name, path]
+        if (Array.isArray(argv)) {
+            for (var i = 0; i < argv.length; i++) {
+                cmd.push(argv[i])
+            }
+        }
+        addExecProcess.command = cmd
+        addExecProcess.environment = root.procEnv
+        addExecProcess.running = true
+    }
+
+    function removeAction(actionId) {
+        if (!actionId) return;
+        if (root.isMutating) return;
+        if (removeActionProcess.running) return;
+        console.info("[PERF] KeybindingsModel: Removing action '" + actionId + "'")
+        root.operationState = "applying"
+        root.operationMessage = "Removing action..."
+        removeActionProcess.command = [root.backendBin, "remove-action", actionId]
+        removeActionProcess.environment = root.procEnv
+        removeActionProcess.running = true
+    }
+
     function filterItems() {
         var t0 = Date.now()
         var query = (searchQuery || "").trim().toLowerCase()
         var currentSelectedId = selectedItem ? selectedItem.id : ""
 
         var sourceList = []
-        if (root.activeView === "add_app") {
+        if (root.activeView === "add_action_type") {
+            sourceList = [
+                {
+                    id: "type_app",
+                    action_type_kind: "application",
+                    display_key: "Application",
+                    description: "Desktop Application — choose from installed applications",
+                    editable: false,
+                    runnable: false
+                },
+                {
+                    id: "type_exec",
+                    action_type_kind: "executable",
+                    display_key: "Script / Binary",
+                    description: "Custom Executable / Script — specify binary path and arguments",
+                    editable: false,
+                    runnable: false
+                }
+            ]
+        } else if (root.activeView === "add_app") {
             sourceList = root.availableApplications
         } else if (root.activeView === "unbound") {
             sourceList = root.unboundItems
+        } else if (root.activeView === "add_exec") {
+            sourceList = []
         } else {
             sourceList = root.boundItems
         }
@@ -249,19 +303,75 @@ QtObject {
         return true
     }
 
-    function setShortcut(actionId, newKey) {
+    function normalizeKey(str) {
+        if (!str) return ""
+        var parts = str.split("+").map(function(s) { return s.trim().toUpperCase(); }).filter(function(s) { return s.length > 0; })
+        var hasSuper = false, hasCtrl = false, hasAlt = false, hasShift = false
+        var mainKey = ""
+        for (var i = 0; i < parts.length; i++) {
+            var p = parts[i]
+            if (p === "SUPER" || p === "MOD4" || p === "WIN") hasSuper = true
+            else if (p === "CTRL" || p === "CONTROL") hasCtrl = true
+            else if (p === "ALT" || p === "MOD1") hasAlt = true
+            else if (p === "SHIFT") hasShift = true
+            else mainKey = p
+        }
+        var res = []
+        if (hasSuper) res.push("SUPER")
+        if (hasCtrl) res.push("CTRL")
+        if (hasAlt) res.push("ALT")
+        if (hasShift) res.push("SHIFT")
+        if (mainKey !== "") res.push(mainKey)
+        return res.join(" + ")
+    }
+
+    function findConflict(actionId, candidateKey) {
+        if (!candidateKey || !root.allItems) return null
+        var candCanon = normalizeKey(candidateKey)
+        if (!candCanon) return null
+        for (var i = 0; i < root.allItems.length; i++) {
+            var it = root.allItems[i]
+            if (it.id !== actionId && it.key) {
+                var itCanon = normalizeKey(it.key)
+                if (itCanon === candCanon) {
+                    return it
+                }
+            }
+        }
+        return null
+    }
+
+    function setShortcut(actionId, newKey, force) {
         if (!actionId || !newKey) return
         if (root.isMutating) return;
         if (setProcess.running) {
             console.warn("[PERF-WARN] KeybindingsModel: setShortcut() ignored because setProcess is currently running")
             return
         }
-        console.info("[PERF] KeybindingsModel: Setting shortcut for '" + actionId + "' to '" + newKey + "'")
+        console.info("[PERF] KeybindingsModel: Setting shortcut for '" + actionId + "' to '" + newKey + "'" + (force ? " (force)" : ""))
         root.operationState = "applying"
         root.operationMessage = "Applying shortcut..."
-        setProcess.command = [root.backendBin, "set", actionId, newKey]
+        if (force === true) {
+            setProcess.command = [root.backendBin, "set", actionId, newKey, "--force"]
+        } else {
+            setProcess.command = [root.backendBin, "set", actionId, newKey]
+        }
         setProcess.environment = root.procEnv
         setProcess.running = true
+    }
+
+    property var validationCallback: null
+
+    function validateShortcut(keyStr, actionId, callback) {
+        if (validateProcess.running) {
+            console.warn("[PERF-WARN] KeybindingsModel: validateShortcut ignored, already running")
+            return
+        }
+        root.validationCallback = callback
+        validateProcess.stdoutText = ""
+        validateProcess.stderrText = ""
+        validateProcess.command = [root.backendBin, "validate-shortcut", keyStr]
+        validateProcess.running = true
     }
 
     function unsetShortcut(actionId) {
@@ -414,6 +524,53 @@ QtObject {
         }
     }
 
+    // Backend process to add executable action
+    property Process addExecProcess: Process {
+        command: [root.backendBin, "add-exec", "", "", ""]
+        environment: root.procEnv
+        property string errorText: ""
+        stderr: StdioCollector {
+            onStreamFinished: {
+                addExecProcess.errorText = this.text ? this.text.trim() : ""
+            }
+        }
+        onExited: function(code) {
+            if (code === 0) {
+                root.operationState = "success"
+                root.operationMessage = "Executable action added to Unbound actions."
+                console.info("[PERF] KeybindingsModel: addExecProcess completed successfully")
+                root.reload()
+                root.switchView("unbound")
+            } else {
+                root.operationState = "error"
+                root.operationMessage = addExecProcess.errorText || "Failed to add executable action."
+                console.error("[ERROR] KeybindingsModel: addExecProcess failed (code " + code + "): " + root.operationMessage)
+            }
+        }
+    }
+
+    // Backend process to remove user action
+    property Process removeActionProcess: Process {
+        command: [root.backendBin, "remove-action", ""]
+        environment: root.procEnv
+        property string errorText: ""
+        stderr: StdioCollector {
+            onStreamFinished: {
+                removeActionProcess.errorText = this.text ? this.text.trim() : ""
+            }
+        }
+        onExited: function(code) {
+            if (code === 0) {
+                root.operationState = "success"
+                root.operationMessage = "Action removed successfully."
+                root.reload()
+            } else {
+                root.operationState = "error"
+                root.operationMessage = removeActionProcess.errorText || "Failed to remove action."
+            }
+        }
+    }
+
     // Backend process to run actions detached
     property Process runProcess: Process {
         command: [root.backendBin, "run", ""]
@@ -484,6 +641,37 @@ QtObject {
                 root.operationState = "error"
                 root.operationMessage = unsetProcess.errorText || "Failed to unbind shortcut."
                 console.error("[ERROR] KeybindingsModel: unsetProcess failed (code " + code + "): " + root.operationMessage)
+            }
+        }
+    }
+
+    // Backend process to validate candidate shortcut against policy
+    property Process validateProcess: Process {
+        command: [root.backendBin, "validate-shortcut", ""]
+        environment: root.procEnv
+        property string stdoutText: ""
+        property string stderrText: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                validateProcess.stdoutText = this.text ? this.text.trim() : ""
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                validateProcess.stderrText = this.text ? this.text.trim() : ""
+            }
+        }
+        onExited: function(code) {
+            var cb = root.validationCallback
+            root.validationCallback = null
+            if (cb) {
+                if (code === 0) {
+                    var norm = validateProcess.stdoutText.replace(/^VALID:\s*/, "").trim()
+                    cb(true, "", norm)
+                } else {
+                    var err = validateProcess.stderrText || validateProcess.stdoutText || "Invalid shortcut"
+                    cb(false, err, "")
+                }
             }
         }
     }

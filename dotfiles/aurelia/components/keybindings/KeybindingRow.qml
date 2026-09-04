@@ -88,7 +88,23 @@ Rectangle {
                 if (ListView.view) {
                     ListView.view.forceActiveFocus()
                 }
-                if (keybindingsModel.activeView === "add_app") {
+            }
+        }
+        onDoubleClicked: {
+            if (typeof keybindingsModel !== "undefined") {
+                keybindingsModel.selectedIndex = rowRoot.index
+                if (ListView.view) {
+                    ListView.view.forceActiveFocus()
+                }
+                if (keybindingsModel.activeView === "add_action_type") {
+                    if (keybindingsModel.selectedItem) {
+                        if (keybindingsModel.selectedItem.action_type_kind === "application") {
+                            keybindingsModel.switchView("add_app")
+                        } else if (keybindingsModel.selectedItem.action_type_kind === "executable") {
+                            keybindingsModel.switchView("add_exec")
+                        }
+                    }
+                } else if (keybindingsModel.activeView === "add_app") {
                     if (keybindingsModel.selectedItem && keybindingsModel.selectedItem.desktop_id) {
                         keybindingsModel.addApplication(keybindingsModel.selectedItem.desktop_id)
                     }

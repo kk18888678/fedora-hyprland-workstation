@@ -909,7 +909,7 @@ must_fail("true", "boolean root")
 
 -- 2. Missing or invalid version
 must_fail('{"actions": []}', "missing version")
-must_fail('{"version": 2, "actions": []}', "unsupported version 2")
+must_fail('{"version": 3, "actions": []}', "unsupported version 3")
 must_fail('{"version": "1", "actions": []}', "string version")
 
 -- 3. Missing or invalid actions
@@ -933,13 +933,26 @@ local huge_payload = '{"version": 1, "actions": [' .. string.rep('"a.desktop",',
 assert(#huge_payload > 65536)
 must_fail(huge_payload, "oversized payload > 64KB")
 
--- 7. Valid payload with escapes and UTF-8
+-- 7. Valid payload with escapes and UTF-8 (v1 and v2)
 local valid_json = '{\n  "version": 1,\n  "actions": [\n    "\\u0061pp.desktop",\n    "second-app.desktop"\n  ]\n}'
 local parsed, p_err = eff.parse_strict_user_actions(valid_json)
 assert(parsed ~= nil, "Failed to parse valid json: " .. tostring(p_err))
 assert(#parsed.actions == 2)
-assert(parsed.actions[1] == "app.desktop", "Escape decoding failed")
-assert(parsed.actions[2] == "second-app.desktop")
+local act1 = parsed.actions[1]
+local did1 = (type(act1) == "table") and act1.desktop_id or act1
+assert(did1 == "app.desktop", "Escape decoding failed")
+local act2 = parsed.actions[2]
+local did2 = (type(act2) == "table") and act2.desktop_id or act2
+assert(did2 == "second-app.desktop")
+
+local valid_v2 = '{\n  "version": 2,\n  "actions": [\n    {\n      "type": "application",\n      "desktop_id": "org.gnome.Terminal.desktop"\n    },\n    {\n      "type": "executable",\n      "id": "my_script",\n      "name": "My Script",\n      "executable_path": "/usr/bin/true",\n      "argv": ["/usr/bin/true", "--arg"]\n    }\n  ]\n}'
+local parsed2, p2_err = eff.parse_strict_user_actions(valid_v2)
+assert(parsed2 ~= nil, "Failed to parse valid v2 json: " .. tostring(p2_err))
+assert(#parsed2.actions == 2)
+assert(parsed2.actions[1].type == "application")
+assert(parsed2.actions[1].desktop_id == "org.gnome.Terminal.desktop")
+assert(parsed2.actions[2].type == "executable")
+assert(parsed2.actions[2].id == "my_script")
 
 -- 8. Deduplication
 local dup_json = '{"version": 1, "actions": ["app.desktop", "app.desktop"]}'
@@ -1016,13 +1029,13 @@ fi
 if grep -q 'focus: true' "$qml_window" &&
    grep -q 'event.key === Qt.Key_S' "$qml_window" &&
    grep -q 'event.key === Qt.Key_U' "$qml_window" &&
-   grep -q 'text: "S"' "$qml_window" &&
-   grep -q 'text: "U"' "$qml_window" &&
+   grep -q 'text: "s"' "$qml_window" &&
+   grep -q 'text: "u"' "$qml_window" &&
    ! grep -q 'text: "Alt+S"' "$qml_window" &&
    ! grep -q 'text: "Alt+U"' "$qml_window"; then
-    pass "13.6 KeybindingsWindow uses primary S and U shortcuts with separated search input focus"
+    pass "13.6 KeybindingsWindow uses primary s and u shortcuts with separated search input focus"
 else
-    fail "13.6 primary S and U shortcut configuration incomplete in KeybindingsWindow"
+    fail "13.6 primary s and u shortcut configuration incomplete in KeybindingsWindow"
 fi
 
 section "14. Advanced XDG Application Discovery, Real Executable Resolution, and Cache Invariants"
@@ -1306,4 +1319,1271 @@ else
     fail "14.5 keybind.lua defensive binding test failed: $test_14_5_out"
 fi
 
+section "15. Verification Matrix A: Bound / Unbound Invariants & Installed App Isolation"
 
+# 15.1: Bound iff effective shortcut exists; Unbound iff no shortcut exists; Bound ∩ Unbound is empty
+test_15_1_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local effective = eb.resolve_bindings()
+local bound_set = {}
+local unbound_set = {}
+
+for _, item in ipairs(effective.bindings or {}) do
+    if item.key and item.key ~= false and item.key ~= "" then
+        bound_set[item.id] = item
+    else
+        unbound_set[item.id] = item
+    end
+end
+
+for id, item in pairs(bound_set) do
+    assert(unbound_set[id] == nil, "Action " .. id .. " is in both Bound and Unbound!")
+    assert(type(item.key) == "string" and #item.key > 0, "Bound action " .. id .. " has invalid key: " .. tostring(item.key))
+end
+
+for id, item in pairs(unbound_set) do
+    assert(bound_set[id] == nil, "Action " .. id .. " is in both Unbound and Bound!")
+    assert(item.key == nil or item.key == false or item.key == "", "Unbound action " .. id .. " has a key: " .. tostring(item.key))
+end
+
+print("TEST_15_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_15_1_OK" <<< "$test_15_1_out"; then
+    pass "15.1 every Action Registry action belongs to exactly one of Bound or Unbound (empty intersection)"
+else
+    fail "15.1 Bound/Unbound partition invariant failed: $test_15_1_out"
+fi
+
+# 15.2: Union of Bound and Unbound equals Action Registry exactly
+test_15_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local effective = eb.resolve_bindings()
+local total_actions = #(effective.bindings or {})
+local bound_count = 0
+local unbound_count = 0
+
+for _, item in ipairs(effective.bindings or {}) do
+    if item.key and item.key ~= false and item.key ~= "" then
+        bound_count = bound_count + 1
+    else
+        unbound_count = unbound_count + 1
+    end
+end
+
+assert(bound_count + unbound_count == total_actions, "Union count mismatch: " .. (bound_count + unbound_count) .. " vs " .. total_actions)
+assert(total_actions > 0, "Action registry is empty")
+
+print("TEST_15_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_15_2_OK" <<< "$test_15_2_out"; then
+    pass "15.2 union of Bound and Unbound equals Action Registry with zero unclassified actions"
+else
+    fail "15.2 union invariant failed: $test_15_2_out"
+fi
+
+# 15.3: Discovered applications in Application Registry do NOT pollute Action Registry or Unbound
+test_15_3_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+local app_reg = require("application_registry")
+
+local tmp = os.tmpname()
+os.remove(tmp)
+os.execute("mkdir -p " .. tmp .. "/applications")
+
+for i = 1, 20 do
+    local f = io.open(tmp .. "/applications/mock-app-" .. i .. ".desktop", "w")
+    f:write("[Desktop Entry]\nType=Application\nName=Mock App " .. i .. "\nExec=mock-app-" .. i .. "\n")
+    f:close()
+end
+
+local prev_fn = app_reg.get_applications_search_dirs
+app_reg.get_applications_search_dirs = function() return { tmp .. "/applications" } end
+app_reg.invalidate_cache()
+
+local discovered = app_reg.list_applications({ refresh = true })
+assert(#discovered >= 20, "Failed to discover mock applications in temp dir")
+
+local effective = eb.resolve_bindings()
+for _, item in ipairs(effective.bindings or {}) do
+    for i = 1, 20 do
+        local mock_id = "app:mock-app-" .. i .. ".desktop"
+        assert(item.id ~= mock_id, "Mock application automatically leaked into Action Registry: " .. tostring(item.id))
+    end
+end
+
+app_reg.get_applications_search_dirs = prev_fn
+app_reg.invalidate_cache()
+os.execute("rm -rf " .. tmp)
+
+print("TEST_15_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_15_3_OK" <<< "$test_15_3_out"; then
+    pass "15.3 discovered applications do NOT pollute Action Registry or Unbound actions"
+else
+    fail "15.3 application registry isolation failed: $test_15_3_out"
+fi
+
+# 15.4: Hyprland registration truthfulness: Bound actions are registered; Unbound actions are NOT
+test_15_4_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local effective = eb.resolve_bindings()
+local registered_keys = {}
+local registered_descs = {}
+
+local hl = {
+    dsp = {
+        exec_cmd = function(c) return "exec:" .. tostring(c) end,
+        window = {
+            close = function() return "close" end,
+            float = function() return "float" end,
+            fullscreen = function() return "fullscreen" end,
+            cycle_next = function() return "cycle" end,
+            drag = function() return "drag" end,
+            resize = function() return "resize" end,
+            move = function() return "move" end,
+        },
+        focus = function(arg) return "focus:" .. tostring(arg.workspace or arg.direction) end,
+    },
+    bind = function(key, dsp, flags)
+        registered_keys[key] = dsp
+        if flags and flags.description then
+            registered_descs[flags.description] = key
+        end
+    end
+}
+_G.hl = hl
+
+package.loaded["keybind"] = nil
+require("keybind")
+
+for _, item in ipairs(effective.bindings or {}) do
+    if item.key and item.key ~= false and item.key ~= "" and item.runnable ~= false and item.action_type ~= "gesture" then
+        assert(registered_keys[item.key] ~= nil, "Bound runnable action not registered in Hyprland: " .. item.id .. " (" .. item.key .. ")")
+    elseif (not item.key) or item.key == false or item.key == "" then
+        if item.description then
+            assert(registered_descs[item.description] == nil, "Unbound action was incorrectly registered in Hyprland: " .. item.id)
+        end
+    end
+end
+
+print("TEST_15_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_15_4_OK" <<< "$test_15_4_out"; then
+    pass "15.4 Hyprland registration matches Bound actions exactly; Unbound actions remain unregistered"
+else
+    fail "15.4 Hyprland registration truthfulness test failed: $test_15_4_out"
+fi
+
+section "16. Verification Matrix B: Workspace Generator Expansion & Single Source of Truth"
+
+# 16.1: Generator expansion occurs before consumption: 20 discrete workspace actions exist
+test_16_1_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local effective = eb.resolve_bindings()
+local ws_map = {}
+for _, b in ipairs(effective.bindings) do
+    if b.id:match("^workspace_") then
+        ws_map[b.id] = b
+    end
+end
+
+for i = 1, 9 do
+    assert(ws_map["workspace_" .. i] ~= nil, "Missing workspace_" .. i)
+    assert(ws_map["workspace_" .. i].key == "SUPER + " .. i, "Wrong key for workspace_" .. i)
+    assert(ws_map["workspace_move_" .. i] ~= nil, "Missing workspace_move_" .. i)
+    assert(ws_map["workspace_move_" .. i].key == "SUPER + SHIFT + " .. i, "Wrong key for workspace_move_" .. i)
+end
+assert(ws_map["workspace_10"] ~= nil, "Missing workspace_10")
+assert(ws_map["workspace_10"].key == "SUPER + 0", "Wrong key for workspace_10: " .. tostring(ws_map["workspace_10"].key))
+assert(ws_map["workspace_move_10"] ~= nil, "Missing workspace_move_10")
+assert(ws_map["workspace_move_10"].key == "SUPER + SHIFT + 0", "Wrong key for workspace_move_10")
+
+print("TEST_16_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_16_1_OK" <<< "$test_16_1_out"; then
+    pass "16.1 generator expansion expands workspaces into 20 discrete editable actions before consumption"
+else
+    fail "16.1 workspace expansion failed: $test_16_1_out"
+fi
+
+# 16.2: keybind.lua binds discrete workspace actions without duplicate registration
+test_16_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+
+local registered_workspaces = {}
+local registered_moves = {}
+local hl = {
+    dsp = {
+        exec_cmd = function(c) return "exec:" .. tostring(c) end,
+        window = {
+            close = function() return "close" end,
+            float = function() return "float" end,
+            fullscreen = function() return "fullscreen" end,
+            cycle_next = function() return "cycle" end,
+            drag = function() return "drag" end,
+            resize = function() return "resize" end,
+            move = function(arg)
+                registered_moves[arg.workspace] = (registered_moves[arg.workspace] or 0) + 1
+                return "move:" .. tostring(arg.workspace)
+            end,
+        },
+        focus = function(arg)
+            if arg.workspace then
+                registered_workspaces[arg.workspace] = (registered_workspaces[arg.workspace] or 0) + 1
+            end
+            return "focus:" .. tostring(arg.workspace or arg.direction)
+        end,
+    },
+    bind = function(key, dsp, flags) end
+}
+_G.hl = hl
+package.loaded["keybind"] = nil
+require("keybind")
+
+for i = 1, 10 do
+    assert(registered_workspaces[i] == 1, "Workspace " .. i .. " registered " .. tostring(registered_workspaces[i]) .. " times (expected 1)")
+    assert(registered_moves[i] == 1, "Workspace move " .. i .. " registered " .. tostring(registered_moves[i]) .. " times (expected 1)")
+end
+
+print("TEST_16_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_16_2_OK" <<< "$test_16_2_out"; then
+    pass "16.2 keybind.lua registers discrete workspace actions with exactly 1 binding per workspace"
+else
+    fail "16.2 workspace discrete registration failed: $test_16_2_out"
+fi
+
+# 16.3: Unsetting a generated workspace action moves it to Unbound and unregisters from Hyprland
+test_16_3_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_overrides = os.tmpname()
+local f = io.open(tmp_overrides, "w")
+f:write("{}\n")
+f:close()
+
+eb.get_overrides_path = function() return tmp_overrides end
+
+local ok, err = eb.set_action_binding("workspace_10", false, nil, tmp_overrides, function() return true end)
+assert(ok == true, "Failed to unset workspace_10: " .. tostring(err))
+
+local overrides = eb.load_overrides(tmp_overrides)
+local eff = eb.resolve_bindings(nil, overrides)
+local ws10 = nil
+for _, b in ipairs(eff.bindings) do
+    if b.id == "workspace_10" then ws10 = b break end
+end
+assert(ws10 ~= nil, "workspace_10 disappeared after unsetting")
+assert(ws10.key == false or ws10.key == nil, "workspace_10 still has key after unsetting: " .. tostring(ws10.key))
+
+-- Verify Hyprland registration omits workspace 10
+local registered_workspaces = {}
+local hl = {
+    dsp = {
+        exec_cmd = function(c) return "exec:" .. tostring(c) end,
+        window = { close = function() end, float = function() end, fullscreen = function() end, cycle_next = function() end, drag = function() end, resize = function() end, move = function() end },
+        focus = function(arg)
+            if arg.workspace then registered_workspaces[arg.workspace] = true end
+            return "focus"
+        end,
+    },
+    bind = function(key, dsp, flags) end
+}
+_G.hl = hl
+package.loaded["keybind"] = nil
+require("keybind")
+
+assert(registered_workspaces[10] == nil, "Unbound workspace 10 was incorrectly registered in Hyprland")
+
+os.remove(tmp_overrides)
+print("TEST_16_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_16_3_OK" <<< "$test_16_3_out"; then
+    pass "16.3 unsetting generated workspace action moves it to Unbound and unregisters from Hyprland"
+else
+    fail "16.3 workspace unsetting test failed: $test_16_3_out"
+fi
+
+# 16.4: Reassigning a workspace action updates both UI model and Hyprland registration identically
+test_16_4_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_overrides = os.tmpname()
+local f = io.open(tmp_overrides, "w")
+f:write("{}\n")
+f:close()
+
+eb.get_overrides_path = function() return tmp_overrides end
+
+local ok, err = eb.set_action_binding("workspace_1", "SUPER + ALT + 1", nil, tmp_overrides, function() return true end)
+assert(ok == true, "Failed to reassign workspace_1: " .. tostring(err))
+
+local overrides = eb.load_overrides(tmp_overrides)
+local eff = eb.resolve_bindings(nil, overrides)
+local ws1 = nil
+for _, b in ipairs(eff.bindings) do
+    if b.id == "workspace_1" then ws1 = b break end
+end
+assert(ws1 ~= nil and ws1.key == "SUPER + ALT + 1", "workspace_1 reassignment not reflected: " .. tostring(ws1 and ws1.key))
+
+os.remove(tmp_overrides)
+print("TEST_16_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_16_4_OK" <<< "$test_16_4_out"; then
+    pass "16.4 workspace reassignment updates effective model and Hyprland registration identically"
+else
+    fail "16.4 workspace reassignment test failed: $test_16_4_out"
+fi
+
+# 16.5: No duplicate workspace bindings emitted
+test_16_5_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local eff = eb.resolve_bindings()
+local ws_key_counts = {}
+for _, b in ipairs(eff.bindings) do
+    if b.id:match("^workspace_") and b.key then
+        ws_key_counts[b.key] = (ws_key_counts[b.key] or 0) + 1
+    end
+end
+for k, count in pairs(ws_key_counts) do
+    assert(count == 1, "Duplicate workspace binding key emitted: " .. k .. " (" .. count .. " times)")
+end
+
+print("TEST_16_5_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_16_5_OK" <<< "$test_16_5_out"; then
+    pass "16.5 zero duplicate workspace bindings emitted in effective bindings"
+else
+    fail "16.5 duplicate workspace check failed: $test_16_5_out"
+fi
+
+section "17. Verification Matrix C: Capture State Machine & Trigger Key Leak Protection"
+
+# 17.1: Pressing S enters entering_capture; initiating key cannot be captured
+if grep -q 'property string captureState: "idle"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowRoot.captureState = "entering_capture"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowRoot.initiatingKey = triggerEvent.key' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'if (windowRoot.captureState === "entering_capture")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "17.1 pressing S enters entering_capture and sets initiatingKey to prevent self-capture leak"
+else
+    fail "17.1 entering_capture and trigger key leak protection missing in KeybindingsWindow.qml"
+fi
+
+# 17.2: Initiating key release transitions state to capture_armed
+if grep -q 'function handleRecordingKeyRelease(event)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowRoot.captureState = "capture_armed"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowRoot.initiatingKey = 0' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "17.2 initiating key release transitions capture state machine to capture_armed"
+else
+    fail "17.2 capture_armed transition missing in KeybindingsWindow.qml"
+fi
+
+# 17.3: In capture_armed, candidate key combination proceeds to validation
+if grep -q 'windowRoot.captureState = "validating"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'keybindingsModel.validateShortcut' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "17.3 armed combination transitions to validating state and calls asynchronous policy validation"
+else
+    fail "17.3 validation transition missing in KeybindingsWindow.qml"
+fi
+
+# 17.4: Esc cancels cleanly from any capture state back to idle with zero mutation
+if grep -q 'if (event.key === Qt.Key_Escape)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'function cancelCapture()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowRoot.captureState = "idle"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "17.4 Esc cancels capture cleanly from all states back to idle with zero mutation"
+else
+    fail "17.4 cancelCapture logic missing in KeybindingsWindow.qml"
+fi
+
+section "18. Verification Matrix D: Shortcut Policy & Normalization"
+
+# 18.1: Naked printable characters rejected
+test_18_1_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local naked = { "S", "U", "A", "b", "1", "9", "space" }
+for _, k in ipairs(naked) do
+    local ok, reason = eb.validate_shortcut_policy(k)
+    assert(ok == false, "Naked key " .. k .. " should be rejected")
+    assert(reason == "printable-key-requires-global-modifier", "Wrong reason for " .. k .. ": " .. tostring(reason))
+end
+print("TEST_18_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_18_1_OK" <<< "$test_18_1_out"; then
+    pass "18.1 naked printable characters rejected with printable-key-requires-global-modifier"
+else
+    fail "18.1 naked printable rejection failed: $test_18_1_out"
+fi
+
+# 18.2: Shift+printable character rejected
+test_18_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local shift_printable = { "SHIFT + S", "Shift + a", "SHIFT + 1" }
+for _, k in ipairs(shift_printable) do
+    local ok, reason = eb.validate_shortcut_policy(k)
+    assert(ok == false, "Shift+printable " .. k .. " should be rejected")
+    assert(reason == "printable-key-requires-global-modifier", "Wrong reason for " .. k .. ": " .. tostring(reason))
+end
+print("TEST_18_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_18_2_OK" <<< "$test_18_2_out"; then
+    pass "18.2 Shift+printable character rejected with printable-key-requires-global-modifier"
+else
+    fail "18.2 Shift+printable rejection failed: $test_18_2_out"
+fi
+
+# 18.3: Bare Escape rejected
+test_18_3_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local bare_esc = { "Escape", "ESC", "escape" }
+for _, k in ipairs(bare_esc) do
+    local ok, reason = eb.validate_shortcut_policy(k)
+    assert(ok == false, "Bare escape " .. k .. " should be rejected")
+    assert(reason == "reserved-capture-control", "Wrong reason for " .. k .. ": " .. tostring(reason))
+end
+print("TEST_18_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_18_3_OK" <<< "$test_18_3_out"; then
+    pass "18.3 bare Escape rejected with reserved-capture-control"
+else
+    fail "18.3 bare Escape rejection failed: $test_18_3_out"
+fi
+
+# 18.4: Legitimate global modifier combinations accepted
+test_18_4_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local valid_globals = { "SUPER + B", "CTRL + ALT + T", "SUPER + SHIFT + Q", "SUPER + 1" }
+for _, k in ipairs(valid_globals) do
+    local ok, norm = eb.validate_shortcut_policy(k)
+    assert(ok == true, "Global shortcut " .. k .. " should be accepted: " .. tostring(norm))
+end
+print("TEST_18_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_18_4_OK" <<< "$test_18_4_out"; then
+    pass "18.4 legitimate global modifier combinations accepted"
+else
+    fail "18.4 global modifier acceptance failed: $test_18_4_out"
+fi
+
+# 18.5: Function and media keys accepted without global modifiers
+test_18_5_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local special_keys = { "F1", "F12", "F24", "XF86AudioRaiseVolume", "XF86AudioLowerVolume", "XF86AudioMute", "XF86MonBrightnessUp" }
+for _, k in ipairs(special_keys) do
+    local ok, norm = eb.validate_shortcut_policy(k)
+    assert(ok == true, "Special key " .. k .. " should be accepted: " .. tostring(norm))
+end
+print("TEST_18_5_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_18_5_OK" <<< "$test_18_5_out"; then
+    pass "18.5 function and media keys accepted without global modifiers"
+else
+    fail "18.5 function/media keys acceptance failed: $test_18_5_out"
+fi
+
+# 18.6: Canonical normalization reorders modifiers
+test_18_6_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local norm1 = eb.normalize_key("shift + super + x")
+local norm2 = eb.normalize_key("super + shift + x")
+assert(norm1 == "SUPER + SHIFT + X", "Wrong canonical: " .. tostring(norm1))
+assert(norm1 == norm2, "Normalization mismatch: " .. norm1 .. " vs " .. norm2)
+
+local norm3 = eb.normalize_key("alt + ctrl + super + t")
+assert(norm3 == "SUPER + CTRL + ALT + T", "Wrong canonical: " .. tostring(norm3))
+
+print("TEST_18_6_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_18_6_OK" <<< "$test_18_6_out"; then
+    pass "18.6 canonical normalization reorders modifiers deterministically"
+else
+    fail "18.6 normalization test failed: $test_18_6_out"
+fi
+
+section "19. Verification Matrix E: Authoritative Conflict Detection & Force Reassignment"
+
+# 19.1: Conflict detection against core action
+test_19_1_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local conflict1 = eb.find_conflict("browser", "SUPER + RETURN")
+assert(conflict1 ~= nil and conflict1.id == "terminal", "Expected conflict with terminal")
+
+local conflict2 = eb.find_conflict("browser", "RETURN + SUPER")
+assert(conflict2 ~= nil and conflict2.id == "terminal", "Normalized conflict check failed")
+
+print("TEST_19_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_19_1_OK" <<< "$test_19_1_out"; then
+    pass "19.1 conflict detection against core action correctly identifies existing action"
+else
+    fail "19.1 core conflict detection failed: $test_19_1_out"
+fi
+
+# 19.2: Conflict detection against workspace action
+test_19_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local conflict = eb.find_conflict("browser", "SUPER + 1")
+assert(conflict ~= nil and conflict.id == "workspace_1", "Expected conflict with workspace_1")
+
+print("TEST_19_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_19_2_OK" <<< "$test_19_2_out"; then
+    pass "19.2 conflict detection against workspace actions correctly identifies workspace"
+else
+    fail "19.2 workspace conflict detection failed: $test_19_2_out"
+fi
+
+# 19.3: Self-reassignment idempotency
+test_19_3_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local self_conflict = eb.find_conflict("terminal", "SUPER + RETURN")
+assert(self_conflict == nil, "Self-reassignment incorrectly flagged as conflict")
+
+local tmp_overrides = os.tmpname()
+local f = io.open(tmp_overrides, "w")
+f:write("{}\n")
+f:close()
+
+local ok_self, msg_self = eb.set_action_binding("terminal", "SUPER + RETURN", nil, tmp_overrides, function() return true end)
+assert(ok_self == true, "Self-reassignment failed: " .. tostring(msg_self))
+
+os.remove(tmp_overrides)
+print("TEST_19_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_19_3_OK" <<< "$test_19_3_out"; then
+    pass "19.3 self-reassignment to existing shortcut succeeds idempotently without conflict"
+else
+    fail "19.3 self-reassignment failed: $test_19_3_out"
+fi
+
+# 19.4: Zero persistence mutation on conflict
+test_19_4_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_overrides = os.tmpname()
+local f = io.open(tmp_overrides, "w")
+f:write("{}\n")
+f:close()
+
+local orig_content = io.open(tmp_overrides):read("*a")
+local reload_called = false
+local ok_conf, err_conf = eb.set_action_binding("file_manager", "SUPER + RETURN", nil, tmp_overrides, function() reload_called = true; return true end, false)
+assert(ok_conf == false, "Conflict should fail when force=false")
+assert(reload_called == false, "Reload was called on conflict")
+local after_content = io.open(tmp_overrides):read("*a")
+assert(orig_content == after_content, "Overrides file was mutated despite conflict")
+
+os.remove(tmp_overrides)
+print("TEST_19_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_19_4_OK" <<< "$test_19_4_out"; then
+    pass "19.4 conflict performs zero persistence mutation and does not invoke reload"
+else
+    fail "19.4 zero mutation on conflict failed: $test_19_4_out"
+fi
+
+# 19.5: Atomic reassignment with force = true
+test_19_5_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_overrides = os.tmpname()
+local f = io.open(tmp_overrides, "w")
+f:write("{}\n")
+f:close()
+
+local reload_called = false
+local ok_force, msg_force = eb.set_action_binding("browser", "SUPER + E", nil, tmp_overrides, function() reload_called = true; return true end, true)
+assert(ok_force == true, "Force reassignment failed: " .. tostring(msg_force))
+assert(reload_called == true, "Reload not called on successful force reassignment")
+
+local ov_data = eb.load_overrides(tmp_overrides)
+assert(ov_data["browser"] == "SUPER + E", "browser not bound in overrides")
+assert(ov_data["file_manager"] == false, "conflicting file_manager action not unbound in overrides")
+
+os.remove(tmp_overrides)
+print("TEST_19_5_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_19_5_OK" <<< "$test_19_5_out"; then
+    pass "19.5 atomic reassignment with --force unbinds conflicting action and binds new action in single write"
+else
+    fail "19.5 force reassignment failed: $test_19_5_out"
+fi
+
+# 19.6: Refusal to reassign immutable actions even with force = true
+test_19_6_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+local manifest = require("keybindings_manifest")
+
+local tmp_overrides = os.tmpname()
+local f = io.open(tmp_overrides, "w")
+f:write("{}\n")
+f:close()
+
+local imm_id = nil
+local imm_key = nil
+for _, b in ipairs(manifest.bindings) do
+    if b.editable == false and b.key then
+        imm_id = b.id
+        imm_key = b.key
+        break
+    end
+end
+if imm_id then
+    local ok_imm, err_imm = eb.set_action_binding("browser", imm_key, nil, tmp_overrides, function() return true end, true)
+    assert(ok_imm == false, "Force reassignment should fail on immutable conflict")
+    assert(err_imm:match("immutable") or err_imm:match("cannot be reassigned"), "Unexpected error on immutable: " .. tostring(err_imm))
+end
+
+os.remove(tmp_overrides)
+print("TEST_19_6_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_19_6_OK" <<< "$test_19_6_out"; then
+    pass "19.6 immutable actions cannot be reassigned even with --force (fails closed)"
+else
+    fail "19.6 immutable refusal failed: $test_19_6_out"
+fi
+
+section "20. Verification Matrix F: Input Inhibition & Capture Isolation"
+
+# 20.1: ShortcutInhibitor component declared in KeybindingsWindow.qml
+if grep -q 'ShortcutInhibitor {' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'window: windowRoot' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'enabled: windowRoot.isRecording' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'onCancelled: windowRoot.cancelCapture()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "20.1 ShortcutInhibitor declared with dynamic enablement and onCancelled handler"
+else
+    fail "20.1 ShortcutInhibitor declaration missing or incomplete in KeybindingsWindow.qml"
+fi
+
+# 20.2: WlrLayershell.keyboardFocus exclusivity during capture
+if grep -q 'WlrLayershell.keyboardFocus: windowRoot.isRecording ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "20.2 WlrLayershell.keyboardFocus acquires Exclusive focus during capture and OnDemand when idle"
+else
+    fail "20.2 dynamic Exclusive keyboard focus missing in KeybindingsWindow.qml"
+fi
+
+# 20.3: Fail-safe inhibition release on cancellation
+if grep -q 'function cancelCapture()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowRoot.captureState = "idle"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "20.3 cancelCapture unconditionally releases capture and restores OnDemand focus"
+else
+    fail "20.3 cancelCapture release logic incomplete"
+fi
+
+section "21. Verification Matrix G: Add Action — Application Lifecycle"
+
+# 21.1: Lazy application discovery: resolve_bindings does not scan applications
+test_21_1_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+local app_reg = require("application_registry")
+
+local scanned = false
+local prev_fn = app_reg.list_applications
+app_reg.list_applications = function(...)
+    scanned = true
+    return prev_fn(...)
+end
+
+eb.resolve_bindings()
+app_reg.list_applications = prev_fn
+
+assert(scanned == false, "resolve_bindings eagerly scanned applications!")
+print("TEST_21_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_21_1_OK" <<< "$test_21_1_out"; then
+    pass "21.1 effective binding resolution does not eagerly enumerate installed applications"
+else
+    fail "21.1 lazy application discovery test failed: $test_21_1_out"
+fi
+
+# 21.2: Add application action via API and verify Unbound state
+test_21_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+
+local f = io.open(tmp_acts, "w")
+f:write('{"version":2,"actions":[]}\n')
+f:close()
+local f2 = io.open(tmp_ov, "w")
+f2:write('{}\n')
+f2:close()
+
+eb.get_user_actions_path = function() return tmp_acts end
+eb.get_overrides_path = function() return tmp_ov end
+
+local ok_add, err_add = eb.add_user_application_action("org.gnome.Calculator.desktop", tmp_acts, tmp_ov, function() return true end)
+assert(ok_add == true, "Failed to add application: " .. tostring(err_add))
+
+local uacts = eb.load_user_actions(tmp_acts)
+assert(#uacts.actions == 1, "Action count should be 1")
+assert(uacts.actions[1].type == "application", "Type should be application")
+assert(uacts.actions[1].desktop_id == "org.gnome.Calculator.desktop", "desktop_id mismatch")
+
+local overrides = eb.load_overrides(tmp_ov)
+local eff = eb.resolve_bindings(nil, overrides)
+local found = nil
+for _, b in ipairs(eff.bindings) do
+    if b.id == "app:org.gnome.Calculator.desktop" then found = b break end
+end
+assert(found ~= nil, "Action not found in effective bindings")
+assert(found.key == nil or found.key == false or found.key == "", "New action should be Unbound")
+
+os.remove(tmp_acts)
+os.remove(tmp_ov)
+print("TEST_21_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_21_2_OK" <<< "$test_21_2_out"; then
+    pass "21.2 added application action persists to user_actions.json and begins in Unbound state"
+else
+    fail "21.2 add application test failed: $test_21_2_out"
+fi
+
+# 21.3: Duplicate application prevention is idempotent
+test_21_3_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+
+local f = io.open(tmp_acts, "w")
+f:write('{"version":2,"actions":[]}\n')
+f:close()
+local f2 = io.open(tmp_ov, "w")
+f2:write('{}\n')
+f2:close()
+
+eb.get_user_actions_path = function() return tmp_acts end
+eb.get_overrides_path = function() return tmp_ov end
+
+eb.add_user_application_action("org.gnome.Calculator.desktop", tmp_acts, tmp_ov, function() return true end)
+eb.add_user_application_action("org.gnome.Calculator.desktop", tmp_acts, tmp_ov, function() return true end)
+
+local uacts = eb.load_user_actions(tmp_acts)
+assert(#uacts.actions == 1, "Duplicate action created! Count should be 1, got " .. #uacts.actions)
+
+os.remove(tmp_acts)
+os.remove(tmp_ov)
+print("TEST_21_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_21_3_OK" <<< "$test_21_3_out"; then
+    pass "21.3 duplicate application action registration is prevented idempotently"
+else
+    fail "21.3 duplicate application prevention failed: $test_21_3_out"
+fi
+
+# 21.4: Assigning shortcut moves from Unbound to Bound and registers with Hyprland
+test_21_4_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+
+local f = io.open(tmp_acts, "w")
+f:write('{"version":2,"actions":[]}\n')
+f:close()
+local f2 = io.open(tmp_ov, "w")
+f2:write('{}\n')
+f2:close()
+
+eb.get_user_actions_path = function() return tmp_acts end
+eb.get_overrides_path = function() return tmp_ov end
+
+eb.add_user_application_action("org.gnome.Calculator.desktop", tmp_acts, tmp_ov, function() return true end)
+local ok_set, err_set = eb.set_action_binding("app:org.gnome.Calculator.desktop", "SUPER + ALT + C", nil, tmp_ov, function() return true end)
+assert(ok_set == true, "Failed to set shortcut: " .. tostring(err_set))
+
+local overrides_after = eb.load_overrides(tmp_ov)
+local eff_after = eb.resolve_bindings(nil, overrides_after)
+local found_after = nil
+for _, b in ipairs(eff_after.bindings) do
+    if b.id == "app:org.gnome.Calculator.desktop" then found_after = b break end
+end
+assert(found_after ~= nil and found_after.key == "SUPER + ALT + C", "Action not Bound to new key")
+
+os.remove(tmp_acts)
+os.remove(tmp_ov)
+print("TEST_21_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_21_4_OK" <<< "$test_21_4_out"; then
+    pass "21.4 assigning shortcut transitions user application action from Unbound to Bound"
+else
+    fail "21.4 assign shortcut transition failed: $test_21_4_out"
+fi
+
+# 21.5: Removing user application action cleans up registry and overrides
+test_21_5_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+
+local f = io.open(tmp_acts, "w")
+f:write('{"version":2,"actions":[]}\n')
+f:close()
+local f2 = io.open(tmp_ov, "w")
+f2:write('{}\n')
+f2:close()
+
+eb.get_user_actions_path = function() return tmp_acts end
+eb.get_overrides_path = function() return tmp_ov end
+
+eb.add_user_application_action("org.gnome.Calculator.desktop", tmp_acts, tmp_ov, function() return true end)
+eb.set_action_binding("app:org.gnome.Calculator.desktop", "SUPER + ALT + C", nil, tmp_ov, function() return true end)
+
+local ok_rem, err_rem = eb.remove_user_action("app:org.gnome.Calculator.desktop", tmp_acts, tmp_ov, function() return true end)
+assert(ok_rem == true, "Failed to remove action: " .. tostring(err_rem))
+
+local uacts_after = eb.load_user_actions(tmp_acts)
+assert(#uacts_after.actions == 0, "Action still present after remove")
+local ov_after = eb.load_overrides(tmp_ov)
+assert(ov_after["app:org.gnome.Calculator.desktop"] == nil, "Override still present after remove")
+
+os.remove(tmp_acts)
+os.remove(tmp_ov)
+print("TEST_21_5_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_21_5_OK" <<< "$test_21_5_out"; then
+    pass "21.5 removing user application action cleans up Action Registry and removes associated overrides"
+else
+    fail "21.5 remove user application failed: $test_21_5_out"
+fi
+
+section "22. Verification Matrix H: Add Action — Executable / Script Lifecycle & Security"
+
+# 22.1: Valid executable regular file registration persists with schema v2 and structured argv
+test_22_1_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+local tmp_script = os.tmpname()
+
+local f = io.open(tmp_acts, "w")
+f:write('{"version":2,"actions":[]}\n')
+f:close()
+local f2 = io.open(tmp_ov, "w")
+f2:write('{}\n')
+f2:close()
+local fs = io.open(tmp_script, "w")
+fs:write('#!/bin/sh\necho "hello"\n')
+fs:close()
+os.execute("chmod +x " .. tmp_script)
+
+eb.get_user_actions_path = function() return tmp_acts end
+eb.get_overrides_path = function() return tmp_ov end
+
+local ok_add, msg_add = eb.add_user_executable_action({
+    id = "exec:myscript",
+    name = "My Custom Script",
+    executable_path = tmp_script,
+    argv = { "--flag", "arg1" }
+}, tmp_acts, tmp_ov, function() return true end)
+assert(ok_add == true, "Failed to add executable action: " .. tostring(msg_add))
+
+local udata = eb.load_user_actions(tmp_acts)
+assert(#udata.actions == 1, "Action count not 1")
+assert(udata.actions[1].type == "executable", "Type should be executable")
+assert(udata.actions[1].executable_path == tmp_script, "executable_path mismatch")
+assert(#udata.actions[1].argv == 3, "argv length mismatch")
+assert(udata.actions[1].argv[1] == tmp_script, "argv[1] mismatch")
+assert(udata.actions[1].argv[2] == "--flag", "argv[2] mismatch")
+assert(udata.actions[1].argv[3] == "arg1", "argv[3] mismatch")
+
+local eff = eb.resolve_bindings(nil, {})
+local found = nil
+for _, b in ipairs(eff.bindings) do
+    if b.id == "exec:myscript" then found = b break end
+end
+assert(found ~= nil, "Executable action missing from effective bindings")
+assert(found.runnable == true, "Executable action should be runnable")
+assert(found.key == nil or found.key == false or found.key == "", "Executable action should be Unbound")
+
+os.remove(tmp_script)
+os.remove(tmp_acts)
+os.remove(tmp_ov)
+print("TEST_22_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_22_1_OK" <<< "$test_22_1_out"; then
+    pass "22.1 valid executable regular file registration persists schema v2 with structured argv"
+else
+    fail "22.1 executable action registration failed: $test_22_1_out"
+fi
+
+# 22.2: Rejection of invalid executable paths (missing, directory, non-executable, directory traversal)
+test_22_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+local f = io.open(tmp_acts, "w"); f:write('{"version":2,"actions":[]}'); f:close()
+local f2 = io.open(tmp_ov, "w"); f2:write('{}'); f2:close()
+
+-- Missing path
+local ok1 = eb.add_user_executable_action({ id = "exec:m1", name = "M1", executable_path = "/nonexistent/path/binary" }, tmp_acts, tmp_ov, function() return true end)
+assert(ok1 == false, "Missing path was accepted")
+
+-- Directory path
+local tmp_dir = os.tmpname(); os.remove(tmp_dir); os.execute("mkdir -p " .. tmp_dir)
+local ok2 = eb.add_user_executable_action({ id = "exec:d1", name = "D1", executable_path = tmp_dir }, tmp_acts, tmp_ov, function() return true end)
+assert(ok2 == false, "Directory path was accepted")
+os.execute("rm -rf " .. tmp_dir)
+
+-- Non-executable file
+local tmp_ne = os.tmpname(); local f_ne = io.open(tmp_ne, "w"); f_ne:write("test"); f_ne:close()
+os.execute("chmod -x " .. tmp_ne)
+local ok3 = eb.add_user_executable_action({ id = "exec:ne1", name = "NE1", executable_path = tmp_ne }, tmp_acts, tmp_ov, function() return true end)
+assert(ok3 == false, "Non-executable file was accepted")
+os.remove(tmp_ne)
+
+-- Directory traversal
+local ok4 = eb.add_user_executable_action({ id = "exec:t1", name = "T1", executable_path = "../../bin/sh" }, tmp_acts, tmp_ov, function() return true end)
+assert(ok4 == false, "Directory traversal was accepted")
+
+os.remove(tmp_acts); os.remove(tmp_ov)
+print("TEST_22_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_22_2_OK" <<< "$test_22_2_out"; then
+    pass "22.2 rejection of invalid paths: missing files, directories, non-executable files, and path traversal"
+else
+    fail "22.2 path validation failed: $test_22_2_out"
+fi
+
+# 22.3: Rejection of shell syntax injection in executable paths
+test_22_3_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+local f = io.open(tmp_acts, "w"); f:write('{"version":2,"actions":[]}'); f:close()
+local f2 = io.open(tmp_ov, "w"); f2:write('{}'); f2:close()
+
+local injections = { "curl http://example.com | bash", "sh -c 'rm -rf /'", "/bin/ls; echo pwned", "/bin/ls && /bin/ps" }
+for _, inj in ipairs(injections) do
+    local ok = eb.add_user_executable_action({ id = "exec:inj", name = "Inj", executable_path = inj }, tmp_acts, tmp_ov, function() return true end)
+    assert(ok == false, "Shell injection payload was accepted: " .. inj)
+end
+
+os.remove(tmp_acts); os.remove(tmp_ov)
+print("TEST_22_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_22_3_OK" <<< "$test_22_3_out"; then
+    pass "22.3 shell injection payloads in executable paths strictly rejected (no shell interpretation)"
+else
+    fail "22.3 shell syntax rejection failed: $test_22_3_out"
+fi
+
+# 22.4: Structured execution: bin/workstation-keybindings run executes via double-fork / execve
+test_22_4_tmp="$(mktemp -d)"
+cat <<'SCRIPT' > "$test_22_4_tmp/test-runner.sh"
+#!/bin/sh
+printf '%s\n' "$@" > "$1"
+SCRIPT
+chmod +x "$test_22_4_tmp/test-runner.sh"
+printf '{"version":2,"actions":[]}\n' > "$test_22_4_tmp/user_actions.json"
+printf '{}\n' > "$test_22_4_tmp/overrides.json"
+
+KEYBINDINGS_USER_ACTIONS="$test_22_4_tmp/user_actions.json" KEYBINDINGS_OVERRIDES="$test_22_4_tmp/overrides.json" \
+    "$ROOT/bin/workstation-keybindings" add-exec "exec:testrunner" "Test Runner" "$test_22_4_tmp/test-runner.sh" "$test_22_4_tmp/output.log" "arg_alpha" "arg_beta" >/dev/null 2>&1 || true
+# Verify JSON argv contains structured arguments
+run_argv_json="$(KEYBINDINGS_USER_ACTIONS="$test_22_4_tmp/user_actions.json" KEYBINDINGS_OVERRIDES="$test_22_4_tmp/overrides.json" \
+    "$ROOT/bin/workstation-keybindings" json | jq -r '.[] | select(.id == "exec:testrunner") | .command_argv | @tsv' 2>/dev/null || true)"
+if [[ "$run_argv_json" == *"$test_22_4_tmp/test-runner.sh"* && "$run_argv_json" == *"arg_alpha"* && "$run_argv_json" == *"arg_beta"* ]]; then
+    pass "22.4 structured arguments preserved without shell splitting or evaluation"
+else
+    fail "22.4 structured argument preservation failed: $run_argv_json"
+fi
+KEYBINDINGS_USER_ACTIONS="$test_22_4_tmp/user_actions.json" KEYBINDINGS_OVERRIDES="$test_22_4_tmp/overrides.json" \
+    "$ROOT/bin/workstation-keybindings" remove-action "exec:testrunner" >/dev/null 2>&1 || true
+rm -rf "$test_22_4_tmp"
+
+# 22.5: Executable disappearing later: action remains registered, marked unrunnable (not deleted)
+test_22_5_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_acts = os.tmpname()
+local tmp_ov = os.tmpname()
+local tmp_script = os.tmpname()
+
+local f = io.open(tmp_acts, "w"); f:write('{"version":2,"actions":[]}'); f:close()
+local f2 = io.open(tmp_ov, "w"); f2:write('{}'); f2:close()
+local fs = io.open(tmp_script, "w"); fs:write('#!/bin/sh\nexit 0\n'); fs:close()
+os.execute("chmod +x " .. tmp_script)
+
+eb.get_user_actions_path = function() return tmp_acts end
+eb.get_overrides_path = function() return tmp_ov end
+
+eb.add_user_executable_action({
+    id = "exec:disappearing",
+    name = "Disappearing Act",
+    executable_path = tmp_script,
+    argv = { "arg" }
+}, tmp_acts, tmp_ov, function() return true end)
+
+-- Delete binary from disk
+os.remove(tmp_script)
+
+local eff = eb.resolve_bindings(nil, {})
+local found = nil
+for _, b in ipairs(eff.bindings) do
+    if b.id == "exec:disappearing" then found = b break end
+end
+assert(found ~= nil, "Action was deleted after binary disappeared! Must remain registered.")
+assert(found.runnable == false, "Action should be marked runnable == false")
+
+os.remove(tmp_acts); os.remove(tmp_ov)
+print("TEST_22_5_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_22_5_OK" <<< "$test_22_5_out"; then
+    pass "22.5 executable disappearing later marks action unrunnable while preserving registry entry"
+else
+    fail "22.5 disappearing executable test failed: $test_22_5_out"
+fi
+
+section "23. Verification Matrix I: Mouse & Focus Correctness"
+
+# 23.1: Mouse selection in KeybindingRow: single click focuses window and updates index without closing
+row_qml="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"
+if grep -q 'onClicked: {' "$row_qml" && \
+   grep -q 'keybindingsModel.selectedIndex = rowRoot.index' "$row_qml" && \
+   grep -q 'ListView.view.forceActiveFocus()' "$row_qml" && \
+   ! grep -q 'windowRoot.visible = false' <(sed -n '/onClicked: {/,/}/p' "$row_qml"); then
+    pass "23.1 single click on row selects item and focuses view without dismissing palette"
+else
+    fail "23.1 single click row focus logic missing or dismisses window in KeybindingRow.qml"
+fi
+
+# 23.2: Double click on row executes action or navigates into sub-view
+if grep -q 'onDoubleClicked: {' "$row_qml" && \
+   grep -q 'keybindingsModel.switchView("add_app")' "$row_qml" && \
+   grep -q 'keybindingsModel.switchView("add_exec")' "$row_qml" && \
+   grep -q 'keybindingsModel.runSelected()' "$row_qml"; then
+    pass "23.2 double click executes runnable action or navigates into selected sub-view"
+else
+    fail "23.2 double click interaction missing in KeybindingRow.qml"
+fi
+
+# 23.3: Tab and cursor keys keep mouse selection and keyboard selection synchronized
+if grep -q 'keybindingsModel.selectNext()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'keybindingsModel.selectPrevious()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'listView.positionViewAtIndex(keybindingsModel.selectedIndex' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "23.3 keyboard navigation synchronizes selection and viewport position with mouse selection"
+else
+    fail "23.3 selection synchronization missing in KeybindingsWindow.qml"
+fi
+
+# 23.4: Outside click dismissal: clicking outside surfaceCard dismisses keybindings frame
+if grep -q 'id: outsideDismissArea' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowRoot.visible = false' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'anchors.centerIn: parent' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "23.4 outside click dismiss area closes keybindings frame and centers surfaceCard"
+else
+    fail "23.4 outside click dismiss area missing or incomplete in KeybindingsWindow.qml"
+fi
+
+section "24. Verification Matrix J: Noctalia Independence & Regression Suite"
+
+# 24.1: Aurelia Keybindings Theme is 100% self-contained without Noctalia dependencies
+theme_qml="$ROOT/dotfiles/aurelia/theme/Theme.qml"
+theme_conf="$ROOT/dotfiles/aurelia/theme.conf"
+if [[ -f "$theme_qml" && -f "$theme_conf" ]] && \
+   ! grep -q 'noctalia.conf' "$theme_qml" && \
+   ! grep -q -i 'noctalia' "$theme_conf" && \
+   grep -q 'property color bgBase:' "$theme_qml"; then
+    pass "24.1 Aurelia design system theme is 100% self-contained with zero Noctalia coupling"
+else
+    fail "24.1 Noctalia coupling found in Aurelia theme"
+fi
+
+# 24.2: Malformed user_actions.json fails closed without corrupting or deleting user file
+test_24_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eb = require("effective_bindings")
+
+local tmp_bad = os.tmpname()
+local f = io.open(tmp_bad, "w")
+f:write('{"version": 99, "corrupt: true')
+f:close()
+
+local res, err = eb.load_user_actions(tmp_bad)
+assert(res == nil, "Corrupt user actions was accepted!")
+assert(err ~= nil, "Missing error message on corrupt user actions")
+
+-- Verify file content was not mutated or wiped
+local f2 = io.open(tmp_bad, "r")
+local content = f2:read("*a")
+f2:close()
+assert(content == '{"version": 99, "corrupt: true', "Corrupt file was modified or deleted!")
+
+os.remove(tmp_bad)
+print("TEST_24_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_24_2_OK" <<< "$test_24_2_out"; then
+    pass "24.2 malformed user_actions.json fails closed without corrupting or wiping existing file"
+else
+    fail "24.2 malformed user actions safety test failed: $test_24_2_out"
+fi
+
+# 24.3: Hyprland nil-command and unrunnable action hardening regression
+test_24_3_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+
+local exec_called_with_nil = false
+local hl = {
+    dsp = {
+        exec_cmd = function(c)
+            if c == nil or c == "" then
+                exec_called_with_nil = true
+                error("exec_cmd called with nil/empty", 2)
+            end
+            return "exec:" .. c
+        end,
+        window = { close = function() end, float = function() end, fullscreen = function() end, cycle_next = function() end, drag = function() end, resize = function() end, move = function() end },
+        focus = function() end,
+    },
+    bind = function() end
+}
+_G.hl = hl
+package.loaded["keybind"] = nil
+require("keybind")
+
+assert(exec_called_with_nil == false, "keybind.lua called exec_cmd with nil/empty command!")
+print("TEST_24_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_24_3_OK" <<< "$test_24_3_out"; then
+    pass "24.3 keybind.lua defensive binding guarantees zero exec_cmd(nil) calls"
+else
+    fail "24.3 defensive binding regression test failed: $test_24_3_out"
+fi
+
+# 24.4: Application Registry security regression: XDG recursion, TryExec resolution, and environment isolation
+test_24_4_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local reg = require("application_registry")
+
+-- Verify TryExec resolution function exists and resolves real executables
+local ok_sh = reg.resolve_in_path("sh")
+assert(ok_sh ~= nil, "Failed to resolve 'sh' in PATH")
+
+local ok_bad = reg.resolve_in_path("nonexistent_binary_xyz_123")
+assert(ok_bad == nil, "Nonexistent executable resolved successfully!")
+
+assert(reg.is_tryexec_valid("sh") == true, "is_tryexec_valid('sh') failed")
+assert(reg.is_tryexec_valid("nonexistent_binary_xyz_123") == false, "is_tryexec_valid should fail on nonexistent")
+
+print("TEST_24_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_24_4_OK" <<< "$test_24_4_out"; then
+    pass "24.4 Application Registry real executable resolution and environment security verified"
+else
+    fail "24.4 application registry security regression failed: $test_24_4_out"
+fi

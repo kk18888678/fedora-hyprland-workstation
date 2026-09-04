@@ -275,14 +275,24 @@ for _, cat in ipairs(manifest.categories) do
 end
 
 for idx, b in ipairs(manifest.bindings) do
-    local key_str = b.display_key or b.key
-    if key_str and not rendered:find(key_str, 1, true) then
-        print("ERR: Key string missing from rendered output: " .. key_str)
-        os.exit(1)
-    end
+    if not b.generator then
+        local key_str = b.display_key or b.key
+        if key_str and not rendered:find(key_str, 1, true) then
+            print("ERR: Key string missing from rendered output: " .. key_str)
+            os.exit(1)
+        end
 
-    if b.description and not rendered:find(b.description, 1, true) then
-        print("ERR: Description missing from rendered output: " .. b.description)
+        if b.description and not rendered:find(b.description, 1, true) then
+            print("ERR: Description missing from rendered output: " .. b.description)
+            os.exit(1)
+        end
+    end
+end
+
+for w = 1, 10 do
+    local key_w = (w == 10) and "Super + 0" or ("Super + " .. w)
+    if not rendered:find(key_w, 1, true) then
+        print("ERR: Expanded workspace key missing: " .. key_w)
         os.exit(1)
     end
 end
