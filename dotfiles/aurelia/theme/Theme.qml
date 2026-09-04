@@ -1,24 +1,53 @@
 pragma Singleton
 import QtQuick
+import Quickshell
+import Quickshell.Io
 
 QtObject {
-    // Rosé Pine Moon Color Palette
-    readonly property color background: "#232136"
-    readonly property color surface: "#2a273f"
-    readonly property color overlay: "#393552"
-    readonly property color highlight: "#44415a"
-    readonly property color border: "#44415a"
-    readonly property color borderActive: "#9ccfd8"
-    readonly property color text: "#e0def4"
-    readonly property color textMuted: "#908caa"
-    readonly property color textSubtle: "#6e6a86"
-    readonly property color accent: "#9ccfd8"       // Foam (Cyan)
-    readonly property color accentAlt: "#c4a7e7"    // Iris (Purple)
-    readonly property color gold: "#f6c177"         // Gold (Yellow)
-    readonly property color love: "#eb6f92"         // Love (Red/Rose)
-    readonly property color pine: "#3e8fb0"         // Pine (Teal)
-    readonly property color selection: "#393552"
-    readonly property color selectionActive: "#44415a"
+    id: themeRoot
+
+    // Dynamic system theme observation from Noctalia's generated configuration
+    property FileView themeFile: FileView {
+        path: (Quickshell.env("HOME") || "") + "/.config/kitty/themes/noctalia.conf"
+    }
+
+    readonly property var colors: {
+        var map = {}
+        var txt = ""
+        try {
+            txt = themeFile.text()
+        } catch (e) {}
+        if (txt) {
+            var lines = txt.split("\n")
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim()
+                if (!line || line.startsWith("#")) continue
+                var parts = line.split(/\s+/)
+                if (parts.length >= 2) {
+                    map[parts[0]] = parts[1]
+                }
+            }
+        }
+        return map
+    }
+
+    // Active theme colors dynamically derived from system palette with Rosé Pine Moon fallback
+    readonly property color background: colors["background"] || "#232136"
+    readonly property color surface: colors["selection_background"] || "#2a273f"
+    readonly property color overlay: colors["selection_background"] || "#393552"
+    readonly property color highlight: colors["selection_background"] || "#44415a"
+    readonly property color border: colors["inactive_border_color"] || "#44415a"
+    readonly property color borderActive: colors["active_border_color"] || "#9ccfd8"
+    readonly property color text: colors["foreground"] || "#e0def4"
+    readonly property color textMuted: colors["color8"] || "#908caa"
+    readonly property color textSubtle: colors["color0"] || "#6e6a86"
+    readonly property color accent: colors["color4"] || colors["active_border_color"] || "#9ccfd8"
+    readonly property color accentAlt: colors["color2"] || colors["color12"] || "#c4a7e7"
+    readonly property color gold: colors["color3"] || "#f6c177"
+    readonly property color love: colors["color1"] || "#eb6f92"
+    readonly property color pine: colors["color6"] || "#3e8fb0"
+    readonly property color selection: colors["selection_background"] || "#393552"
+    readonly property color selectionActive: colors["color0"] || "#44415a"
 
     // Spacing scale
     readonly property int spacingXs: 4

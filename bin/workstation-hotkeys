@@ -31,6 +31,27 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
+# Workstation issue and crash logging
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/workstation"
+mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="/tmp"
+HOTKEYS_LOG="$LOG_DIR/hotkeys.log"
+CRASH_LOG="$LOG_DIR/crashes.log"
+AURELIA_LOG="$LOG_DIR/aurelia.log"
+
+log_event() {
+    local level="$1"
+    local msg="$2"
+    local ts
+    ts="$(date -Iseconds 2>/dev/null || date)"
+    logger -t workstation-hotkeys "[$level] $msg" 2>/dev/null || true
+    if [[ -d "$LOG_DIR" ]]; then
+        printf '%s [%s] %s\n' "$ts" "$level" "$msg" >> "$HOTKEYS_LOG" 2>/dev/null || true
+        if [[ "$level" == "CRASH" || "$level" == "FATAL" || "$level" == "ERROR" ]]; then
+            printf '%s [%s] %s\n' "$ts" "$level" "$msg" >> "$CRASH_LOG" 2>/dev/null || true
+        fi
+    fi
+}
+
 # Locate keybindings manifest
 manifest_path=""
 if [[ -n "${HOTKEYS_MANIFEST:-}" && -f "$HOTKEYS_MANIFEST" ]]; then
@@ -98,6 +119,10 @@ while [[ $# -gt 0 ]]; do
             HOTKEYS_SUBCOMMAND="set"
             HOTKEYS_TARGET_ID="${2:-}"
             shift 2 2>/dev/null || shift
+            if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+                HOTKEYS_NEW_KEY="$1"
+                shift
+            fi
             ;;
         unset|--unset)
             HOTKEYS_SUBCOMMAND="unset"
@@ -273,6 +298,7 @@ execute_action() {
 
     local exe="${cmd_argv[0]}"
     if ! command -v "$exe" >/dev/null 2>&1; then
+        log_event "ERROR" "Action '$action_id' ($description) failed: command '$exe' not found"
         logger -t workstation-hotkeys "Action '$action_id' ($description) failed: command '$exe' not found" 2>/dev/null || true
         if command -v notify-send >/dev/null 2>&1; then
             notify-send -u critical "Launch Failed" "Command not found: $exe" 2>/dev/null || true
@@ -288,6 +314,7 @@ execute_action() {
         if [[ -n "$err_log" ]]; then
             if ! "${cmd_argv[@]}" </dev/null >/dev/null 2>"$err_log"; then
                 err_msg="$(head -n 2 "$err_log" 2>/dev/null || true)"
+                log_event "ERROR" "Action '$action_id' ($description) failed: ${err_msg:-exited with error}"
                 logger -t workstation-hotkeys "Action '$action_id' ($description) failed: ${err_msg:-exited with error}" 2>/dev/null || true
                 if command -v notify-send >/dev/null 2>&1; then
                     notify-send -u critical "Launch Failed" "$description: ${err_msg:-Failed to start}" 2>/dev/null || true
@@ -506,15 +533,28 @@ fi
 
 if [[ "$HOTKEYS_SUBCOMMAND" == "unset" ]]; then
     if err_msg="$(apply_binding_edit "$HOTKEYS_TARGET_ID" "none" 2>&1)"; then
+        log_event "INFO" "Successfully unset shortcut for '$HOTKEYS_TARGET_ID'"
         printf '%s\n' "UNSET_OK"
         exit 0
     else
+        log_event "ERROR" "Failed to unset shortcut for '$HOTKEYS_TARGET_ID': $err_msg"
         printf 'UNSET_FAIL: %s\n' "$err_msg" >&2
         exit 1
     fi
 fi
 
 if [[ "$HOTKEYS_SUBCOMMAND" == "set" ]]; then
+    if [[ -n "${HOTKEYS_NEW_KEY:-}" ]]; then
+        if err_msg="$(apply_binding_edit "$HOTKEYS_TARGET_ID" "$HOTKEYS_NEW_KEY" 2>&1)"; then
+            log_event "INFO" "Successfully set shortcut for '$HOTKEYS_TARGET_ID' to '$HOTKEYS_NEW_KEY'"
+            exit 0
+        else
+            log_event "ERROR" "Failed to set shortcut for '$HOTKEYS_TARGET_ID' to '$HOTKEYS_NEW_KEY': $err_msg"
+            printf '%s\n' "$err_msg" >&2
+            exit 1
+        fi
+    fi
+
     if [[ ! -t 0 || ! -t 1 ]] && [[ -z "${HOTKEYS_CAPTURE_MOCK_INPUT:-}" ]]; then
         if command -v foot >/dev/null 2>&1; then
             exec foot --app-id=workstation-hotkeys-capture --title="Set Shortcut" "$0" set "$HOTKEYS_TARGET_ID"
@@ -685,6 +725,7 @@ if [[ "$active_provider" == "aurelia" ]]; then
     if [[ "${HOTKEYS_SIMULATE_AURELIA_FAIL:-0}" != "1" ]]; then
         qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
         if [[ -z "$qs_bin" ]]; then
+            log_event "WARN" "Quickshell runtime binary not found; falling back to legacy fzf interface."
             logger -t workstation-hotkeys "Quickshell runtime binary not found; falling back to legacy fzf interface." 2>/dev/null || true
         else
             # Locate the Aurelia shell QML configuration
@@ -693,19 +734,23 @@ if [[ "$active_provider" == "aurelia" ]]; then
                 aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
             fi
             if [[ ! -f "$aurelia_shell" ]]; then
+                log_event "WARN" "Aurelia configuration not found at '$aurelia_shell'; falling back to legacy fzf interface."
                 logger -t workstation-hotkeys "Aurelia configuration not found at '$aurelia_shell'; falling back to legacy fzf interface." 2>/dev/null || true
             else
                 # 1. Warm path: check non-mutating readiness via ping with explicit configuration path
                 if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping >/dev/null 2>&1; then
                     # Mutate / toggle EXACTLY ONCE only after readiness is confirmed
                     if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys toggle >/dev/null 2>&1; then
+                        log_event "INFO" "Aurelia hotkeys toggled successfully on warm instance."
                         exit 0
                     else
+                        log_event "ERROR" "Aurelia toggle failed on warm instance; falling back to legacy fzf interface."
                         logger -t workstation-hotkeys "Aurelia toggle failed on warm instance; falling back to legacy fzf interface." 2>/dev/null || true
                     fi
                 else
                     # 2. Cold path: start Aurelia daemon with explicit configuration path
-                    if ! "$qs_bin" --no-duplicate --daemonize --path "$aurelia_shell" >/dev/null 2>&1; then
+                    if ! "$qs_bin" --no-duplicate --daemonize --path "$aurelia_shell" >>"$AURELIA_LOG" 2>&1; then
+                        log_event "CRASH" "Aurelia process launch failed; falling back to legacy fzf interface."
                         logger -t workstation-hotkeys "Aurelia process launch failed; falling back to legacy fzf interface." 2>/dev/null || true
                     else
                         # 3. Bounded readiness polling using NON-MUTATING ping probe (~2s budget: 40 * 50ms)
@@ -721,11 +766,20 @@ if [[ "$active_provider" == "aurelia" ]]; then
                         # 4. Invoke mutating toggle EXACTLY ONCE only after cold readiness is confirmed
                         if [[ "$is_ready" -eq 1 ]]; then
                             if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys toggle >/dev/null 2>&1; then
+                                log_event "INFO" "Aurelia hotkeys toggled successfully after cold readiness."
                                 exit 0
                             else
+                                log_event "ERROR" "Aurelia toggle failed after cold readiness; falling back to legacy fzf interface."
                                 logger -t workstation-hotkeys "Aurelia toggle failed after cold readiness; falling back to legacy fzf interface." 2>/dev/null || true
                             fi
                         else
+                            log_event "CRASH" "Aurelia readiness timed out after ~2000ms; falling back to legacy fzf interface."
+                            if [[ -f "$AURELIA_LOG" ]]; then
+                                tail_diag="$(tail -n 10 "$AURELIA_LOG" 2>/dev/null || true)"
+                                if [[ -n "$tail_diag" ]]; then
+                                    log_event "CRASH_DIAGNOSTIC" "Recent Aurelia engine output: $tail_diag"
+                                fi
+                            fi
                             logger -t workstation-hotkeys "Aurelia readiness timed out after ~2000ms; falling back to legacy fzf interface." 2>/dev/null || true
                         fi
                     fi

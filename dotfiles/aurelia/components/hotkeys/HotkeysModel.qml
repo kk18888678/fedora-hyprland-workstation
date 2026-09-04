@@ -110,9 +110,13 @@ QtObject {
         return true
     }
 
-    function setShortcut(actionId) {
+    function setShortcut(actionId, newKey) {
         if (!actionId) return
-        setProcess.command = [root.hotkeysBin, "set", actionId]
+        if (newKey && newKey !== "") {
+            setProcess.command = [root.hotkeysBin, "set", actionId, newKey]
+        } else {
+            setProcess.command = [root.hotkeysBin, "set", actionId]
+        }
         setProcess.environment = root.procEnv
         setProcess.running = true
     }
@@ -138,8 +142,22 @@ QtObject {
                         root.filterItems()
                     }
                 } catch (e) {
+                    console.error("Failed to parse shortcut metadata: " + e + ", raw output: " + this.text)
                     root.statusMessage = "Failed to parse shortcut metadata: " + e
                 }
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (this.text && this.text.trim()) {
+                    console.error("fetchProcess stderr: " + this.text.trim())
+                }
+            }
+        }
+        onExited: function(code) {
+            if (code !== 0) {
+                console.error("fetchProcess exited with code: " + code)
+                root.statusMessage = "Failed to fetch shortcut metadata (exit " + code + ")"
             }
         }
     }
@@ -148,13 +166,35 @@ QtObject {
     property Process runProcess: Process {
         command: [root.hotkeysBin, "run", ""]
         environment: root.procEnv
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (this.text && this.text.trim()) {
+                    console.error("runProcess stderr: " + this.text.trim())
+                }
+            }
+        }
+        onExited: function(code) {
+            if (code !== 0) {
+                console.error("runProcess exited with code: " + code)
+            }
+        }
     }
 
     // Backend process to capture physical key
     property Process setProcess: Process {
         command: [root.hotkeysBin, "set", ""]
         environment: root.procEnv
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (this.text && this.text.trim()) {
+                    console.error("setProcess stderr: " + this.text.trim())
+                }
+            }
+        }
         onExited: function(code) {
+            if (code !== 0) {
+                console.error("setProcess exited with code: " + code)
+            }
             root.reload()
         }
     }
@@ -163,7 +203,17 @@ QtObject {
     property Process unsetProcess: Process {
         command: [root.hotkeysBin, "unset", ""]
         environment: root.procEnv
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (this.text && this.text.trim()) {
+                    console.error("unsetProcess stderr: " + this.text.trim())
+                }
+            }
+        }
         onExited: function(code) {
+            if (code !== 0) {
+                console.error("unsetProcess exited with code: " + code)
+            }
             root.reload()
         }
     }

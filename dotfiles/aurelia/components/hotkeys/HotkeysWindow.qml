@@ -8,17 +8,66 @@ import "../../theme"
 PanelWindow {
     id: windowRoot
 
-    // Layer-shell Wayland configuration: centered overlay surface with exclusive focus
+    // Layer-shell Wayland configuration: centered overlay surface with on-demand focus
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
-    // Window dimensions: restrained command palette proportions (800x480)
-    implicitWidth: 800
-    implicitHeight: 480
+    // Window dimensions: restrained command palette proportions (640x460)
+    implicitWidth: 640
+    implicitHeight: 460
     color: "transparent"
+
+    property bool isRecording: false
+    property var recordingItem: null
+
+    function formatKeyEvent(event): string {
+        var k = event.key
+        if (k === Qt.Key_Control || k === Qt.Key_Shift || k === Qt.Key_Alt || k === Qt.Key_Meta) {
+            return ""
+        }
+
+        var parts = []
+        if (event.modifiers & Qt.MetaModifier) parts.push("SUPER")
+        if (event.modifiers & Qt.ControlModifier) parts.push("CTRL")
+        if (event.modifiers & Qt.AltModifier) parts.push("ALT")
+        if (event.modifiers & Qt.ShiftModifier) parts.push("SHIFT")
+
+        var keyName = ""
+        if (k >= Qt.Key_A && k <= Qt.Key_Z) {
+            keyName = String.fromCharCode(k)
+        } else if (k >= Qt.Key_0 && k <= Qt.Key_9) {
+            keyName = String.fromCharCode(k)
+        } else if (k === Qt.Key_Return || k === Qt.Key_Enter) {
+            keyName = "RETURN"
+        } else if (k === Qt.Key_Space) {
+            keyName = "SPACE"
+        } else if (k === Qt.Key_Tab) {
+            keyName = "TAB"
+        } else if (k === Qt.Key_Left) {
+            keyName = "LEFT"
+        } else if (k === Qt.Key_Right) {
+            keyName = "RIGHT"
+        } else if (k === Qt.Key_Up) {
+            keyName = "UP"
+        } else if (k === Qt.Key_Down) {
+            keyName = "DOWN"
+        } else if (k >= Qt.Key_F1 && k <= Qt.Key_F12) {
+            keyName = "F" + (k - Qt.Key_F1 + 1)
+        } else if (event.text && event.text.length > 0) {
+            keyName = event.text.toUpperCase()
+        }
+
+        if (keyName && keyName !== "") {
+            parts.push(keyName)
+            return parts.join(" + ")
+        }
+        return ""
+    }
 
     onVisibleChanged: {
         if (visible) {
+            isRecording = false
+            recordingItem = null
             hotkeysModel.searchQuery = ""
             hotkeysModel.reload()
             searchInput.forceActiveFocus()
@@ -38,6 +87,18 @@ PanelWindow {
         border.color: Theme.border
         border.width: 1
         clip: true
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape) {
+                if (windowRoot.isRecording) {
+                    windowRoot.isRecording = false
+                    windowRoot.recordingItem = null
+                } else {
+                    windowRoot.visible = false
+                }
+                event.accepted = true
+            }
+        }
 
         ColumnLayout {
             anchors.fill: parent
@@ -62,6 +123,7 @@ PanelWindow {
                     selectByMouse: true
                     selectionColor: Theme.selection
                     selectedTextColor: Theme.text
+                    readOnly: windowRoot.isRecording
 
                     Text {
                         anchors.fill: parent
@@ -69,14 +131,53 @@ PanelWindow {
                         text: "keybindings_"
                         color: Theme.textSubtle
                         font: parent.font
-                        visible: !searchInput.text
+                        visible: !searchInput.text && !windowRoot.isRecording
+                    }
+
+                    Text {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        text: windowRoot.isRecording ? ("Set " + (windowRoot.recordingItem ? windowRoot.recordingItem.description : "Shortcut") + " — press key combination...") : ""
+                        color: Theme.accent
+                        font: parent.font
+                        visible: windowRoot.isRecording
                     }
 
                     onTextChanged: {
-                        hotkeysModel.searchQuery = text
+                        if (!windowRoot.isRecording) {
+                            hotkeysModel.searchQuery = text
+                        }
                     }
 
                     Keys.onPressed: function(event) {
+                        if (windowRoot.isRecording) {
+                            if (event.key === Qt.Key_Escape) {
+                                windowRoot.isRecording = false
+                                windowRoot.recordingItem = null
+                                event.accepted = true
+                                return
+                            }
+                            if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+                                if (windowRoot.recordingItem) {
+                                    hotkeysModel.unsetShortcut(windowRoot.recordingItem.id)
+                                }
+                                windowRoot.isRecording = false
+                                windowRoot.recordingItem = null
+                                event.accepted = true
+                                return
+                            }
+                            var formatted = windowRoot.formatKeyEvent(event)
+                            if (formatted && formatted !== "") {
+                                if (windowRoot.recordingItem) {
+                                    hotkeysModel.setShortcut(windowRoot.recordingItem.id, formatted)
+                                }
+                                windowRoot.isRecording = false
+                                windowRoot.recordingItem = null
+                            }
+                            event.accepted = true
+                            return
+                        }
+
                         if (event.key === Qt.Key_Escape) {
                             windowRoot.visible = false
                             event.accepted = true
@@ -95,7 +196,8 @@ PanelWindow {
                             event.accepted = true
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
                             if (hotkeysModel.selectedItem && hotkeysModel.selectedItem.editable === true) {
-                                hotkeysModel.setShortcut(hotkeysModel.selectedItem.id)
+                                windowRoot.recordingItem = hotkeysModel.selectedItem
+                                windowRoot.isRecording = true
                             }
                             event.accepted = true
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U) {

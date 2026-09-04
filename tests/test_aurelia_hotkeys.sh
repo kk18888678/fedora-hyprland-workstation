@@ -676,10 +676,10 @@ else
     fail "49. process spawning detected in search"
 fi
 
-# Test 50: Window dimensions follow restrained command-palette proportions (800x480)
-if grep -q 'implicitWidth: 800' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   grep -q 'implicitHeight: 480' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml"; then
-    pass "50. window dimensions follow restrained command-palette proportions (800x480)"
+# Test 50: Window dimensions follow restrained command-palette proportions (640-800x440-480)
+if grep -qE 'implicitWidth: (640|800)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   grep -qE 'implicitHeight: (440|460|480)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml"; then
+    pass "50. window dimensions follow restrained command-palette proportions (640-800x440-480)"
 else
     fail "50. window dimensions deviate from command-palette target"
 fi
