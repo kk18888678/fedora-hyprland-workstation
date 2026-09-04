@@ -684,49 +684,65 @@ if [[ "$active_provider" == "aurelia" ]]; then
     fi
     if [[ "${HOTKEYS_SIMULATE_AURELIA_FAIL:-0}" != "1" ]]; then
         qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
-        if [[ -n "$qs_bin" ]]; then
-            # 1. Warm path: attempt toggle on an existing running Aurelia instance
-            if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
-                exit 0
-            fi
-
-            # 2. Cold path: locate the Aurelia shell QML configuration
+        if [[ -z "$qs_bin" ]]; then
+            logger -t workstation-hotkeys "Quickshell runtime binary not found; falling back to legacy fzf interface." 2>/dev/null || true
+        else
+            # Locate the Aurelia shell QML configuration
             aurelia_shell="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
             if [[ ! -f "$aurelia_shell" ]]; then
                 aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
             fi
-            if [[ -f "$aurelia_shell" ]]; then
-                # 3. Start Aurelia safely with --no-duplicate to prevent duplicate instances
-                "$qs_bin" --no-duplicate --daemonize --path "$aurelia_shell" >/dev/null 2>&1 || true
-
-                # 4. Bounded readiness check using NON-MUTATING ping probe (~2s budget: 40 * 50ms)
-                is_ready=0
-                for _ in {1..40}; do
-                    if "$qs_bin" ipc call hotkeys ping >/dev/null 2>&1; then
-                        is_ready=1
-                        break
-                    fi
-                    sleep 0.05
-                done
-
-                # 5. Invoke mutating toggle EXACTLY ONCE only after readiness is confirmed
-                if [[ "$is_ready" -eq 1 ]]; then
-                    if "$qs_bin" ipc call hotkeys toggle >/dev/null 2>&1; then
+            if [[ ! -f "$aurelia_shell" ]]; then
+                logger -t workstation-hotkeys "Aurelia configuration not found at '$aurelia_shell'; falling back to legacy fzf interface." 2>/dev/null || true
+            else
+                # 1. Warm path: check non-mutating readiness via ping with explicit configuration path
+                if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping >/dev/null 2>&1; then
+                    # Mutate / toggle EXACTLY ONCE only after readiness is confirmed
+                    if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys toggle >/dev/null 2>&1; then
                         exit 0
+                    else
+                        logger -t workstation-hotkeys "Aurelia toggle failed on warm instance; falling back to legacy fzf interface." 2>/dev/null || true
+                    fi
+                else
+                    # 2. Cold path: start Aurelia daemon with explicit configuration path
+                    if ! "$qs_bin" --no-duplicate --daemonize --path "$aurelia_shell" >/dev/null 2>&1; then
+                        logger -t workstation-hotkeys "Aurelia process launch failed; falling back to legacy fzf interface." 2>/dev/null || true
+                    else
+                        # 3. Bounded readiness polling using NON-MUTATING ping probe (~2s budget: 40 * 50ms)
+                        is_ready=0
+                        for _ in {1..40}; do
+                            if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping >/dev/null 2>&1; then
+                                is_ready=1
+                                break
+                            fi
+                            sleep 0.05
+                        done
+
+                        # 4. Invoke mutating toggle EXACTLY ONCE only after cold readiness is confirmed
+                        if [[ "$is_ready" -eq 1 ]]; then
+                            if "$qs_bin" ipc --path "$aurelia_shell" call hotkeys toggle >/dev/null 2>&1; then
+                                exit 0
+                            else
+                                logger -t workstation-hotkeys "Aurelia toggle failed after cold readiness; falling back to legacy fzf interface." 2>/dev/null || true
+                            fi
+                        else
+                            logger -t workstation-hotkeys "Aurelia readiness timed out after ~2000ms; falling back to legacy fzf interface." 2>/dev/null || true
+                        fi
                     fi
                 fi
             fi
         fi
+    else
+        logger -t workstation-hotkeys "Aurelia simulated failure; falling back to legacy fzf interface." 2>/dev/null || true
     fi
-    logger -t workstation-hotkeys "Aurelia Hotkeys unavailable or failed readiness; falling back to legacy fzf interface." 2>/dev/null || true
 fi
 
 # Legacy fallback / direct fzf mode: if not in an interactive terminal, spawn terminal
 if [[ ! -t 1 ]]; then
     if command -v foot >/dev/null 2>&1; then
-        exec foot --app-id=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
+        exec foot --app-id=workstation-hotkeys --title="Workstation Hotkeys" "$0" --provider=legacy "$@"
     elif command -v kitty >/dev/null 2>&1; then
-        exec kitty --class=workstation-hotkeys --title="Workstation Hotkeys" "$0" "$@"
+        exec kitty --class=workstation-hotkeys --title="Workstation Hotkeys" "$0" --provider=legacy "$@"
     else
         notify-send "Hotkeys" "No supported terminal found to display hotkeys." 2>/dev/null || true
         exit 1

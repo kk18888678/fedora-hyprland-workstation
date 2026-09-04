@@ -653,7 +653,10 @@ EOF_MANIFEST
 
 # Verify execution captures exact argv elements without shell word-splitting
 HOTKEYS_MANIFEST="$mock_manifest" HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_EXEC=1 HOTKEYS_TEST_ID="test_custom_action" "$ROOT/bin/workstation-hotkeys" >/dev/null
-sleep 0.2
+for _ in {1..40}; do
+    [[ -s "$capture_log" ]] && break
+    sleep 0.05
+done
 
 readarray -t captured_args < "$capture_log"
 if [[ "${#captured_args[@]}" -eq 7 && \

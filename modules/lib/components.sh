@@ -646,7 +646,14 @@ install_noctalia_adapter() {
 }
 
 detect_aurelia() {
-    [[ -f "${TARGET_HOME:-$HOME}/.config/aurelia/shell.qml" ]]
+    local aurelia_dir="${TARGET_HOME:-$HOME}/.config/aurelia"
+    [[ -e "$aurelia_dir" ]] || return 1
+    if [[ -L "$aurelia_dir" ]]; then
+        local real_target
+        real_target="$(readlink -f "$aurelia_dir" 2>/dev/null || true)"
+        [[ -n "$real_target" && -d "$real_target" ]] || return 1
+    fi
+    [[ -f "$aurelia_dir/shell.qml" ]]
 }
 install_aurelia_adapter() {
     if declare -F deploy_aurelia_config >/dev/null 2>&1; then
@@ -665,10 +672,40 @@ configure_legacy_hotkeys() {
 }
 
 detect_aurelia_hotkeys() {
-    [[ -f "${TARGET_HOME:-$HOME}/.config/aurelia/components/hotkeys/HotkeysWindow.qml" ]]
+    local aurelia_dir="${TARGET_HOME:-$HOME}/.config/aurelia"
+    [[ -e "$aurelia_dir" ]] || return 1
+    if [[ -L "$aurelia_dir" ]]; then
+        local real_target
+        real_target="$(readlink -f "$aurelia_dir" 2>/dev/null || true)"
+        [[ -n "$real_target" && -d "$real_target" ]] || return 1
+    fi
+    [[ -f "$aurelia_dir/components/hotkeys/HotkeysWindow.qml" && \
+       -f "$aurelia_dir/components/hotkeys/HotkeysModel.qml" && \
+       -f "$aurelia_dir/components/hotkeys/HotkeyRow.qml" && \
+       -f "$aurelia_dir/theme/Theme.qml" && \
+       -f "$aurelia_dir/theme/qmldir" ]]
 }
 validate_aurelia_hotkeys() {
-    detect_quickshell && detect_aurelia_hotkeys
+    # 1. Quickshell runtime binary exists and satisfies provenance
+    detect_quickshell || return 1
+    (command -v qs >/dev/null 2>&1 || command -v quickshell >/dev/null 2>&1) || return 1
+
+    # 2. Aurelia shell and hotkeys QML component tree
+    detect_aurelia || return 1
+    detect_aurelia_hotkeys || return 1
+
+    # 3. Target directory ownership matches expected target user
+    local aurelia_dir="${TARGET_HOME:-$HOME}/.config/aurelia"
+    local expected_user="${TARGET_USER:-$USER}"
+    if [[ -n "$expected_user" ]] && command -v stat >/dev/null 2>&1; then
+        local dir_user
+        dir_user="$(stat -c '%U' "$aurelia_dir" 2>/dev/null || true)"
+        if [[ -n "$dir_user" && "$dir_user" != "$expected_user" && "$dir_user" != "UNKNOWN" ]]; then
+            warn "Aurelia directory $aurelia_dir is owned by $dir_user, expected $expected_user"
+            return 1
+        fi
+    fi
+    return 0
 }
 configure_aurelia_hotkeys() {
     if ! detect_quickshell; then

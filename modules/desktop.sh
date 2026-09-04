@@ -38,7 +38,6 @@ deploy_aurelia_config() {
     local destination="$TARGET_HOME/.config/aurelia"
 
     if [[ -d "$source" ]]; then
-        ensure_directory "$destination"
         ensure_symlink "$source" "$destination"
         info "Aurelia configuration deployed."
     fi

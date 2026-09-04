@@ -542,17 +542,21 @@ section "41-43. Cold-Start and Warm-Start Single-Toggle Invariants"
     mock_log="$(mktemp)"
     cat << "EOF" > "$mock_dir/qs"
 #!/usr/bin/env bash
-if [[ "$1" == "ipc" && "$2" == "call" && "$3" == "hotkeys" ]]; then
-    if [[ "$4" == "toggle" ]]; then
-        echo "toggle" >> "$MOCK_LOG"
-        cnt=$(grep -c "toggle" "$MOCK_LOG")
-        if [[ "$cnt" -eq 1 ]]; then
-            exit 1
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    echo "ipc_path:$3" >> "$MOCK_LOG"
+    if [[ "$4" == "call" && "$5" == "hotkeys" ]]; then
+        if [[ "$6" == "ping" ]]; then
+            echo "ping" >> "$MOCK_LOG"
+            cnt=$(grep -c "^ping$" "$MOCK_LOG")
+            # First ping (warm probe before daemon start) fails
+            if [[ "$cnt" -eq 1 ]]; then
+                exit 1
+            fi
+            exit 0
+        elif [[ "$6" == "toggle" ]]; then
+            echo "toggle" >> "$MOCK_LOG"
+            exit 0
         fi
-        exit 0
-    elif [[ "$4" == "ping" ]]; then
-        echo "ping" >> "$MOCK_LOG"
-        exit 0
     fi
 elif [[ "$1" == "--no-duplicate" ]]; then
     echo "daemon_start" >> "$MOCK_LOG"
@@ -566,27 +570,30 @@ EOF
     ping_count="$(grep -c '^ping$' "$mock_log" || true)"
     daemon_count="$(grep -c '^daemon_start$' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
-    # Initial warm probe failed (1 toggle attempt), daemon started (1), ping probe succeeded, exactly 1 mutating toggle after readiness
-    if [[ "$toggle_count" -eq 2 && "$ping_count" -ge 1 && "$daemon_count" -eq 1 ]]; then
+    # Initial warm probe used ping (1), daemon started (1), cold ping probe succeeded (1), exactly 1 mutating toggle after readiness
+    if [[ "$toggle_count" -eq 1 && "$ping_count" -ge 2 && "$daemon_count" -eq 1 ]]; then
         pass "41. cold startup uses non-mutating ping probe and invokes toggle exactly once after readiness"
     else
         fail "41. cold startup toggle/ping invariant violated: toggles=$toggle_count pings=$ping_count daemons=$daemon_count"
     fi
 )
 
-# Test 42: Warm start invokes mutating toggle exactly once without starting daemon or polling ping
+# Test 42: Warm start invokes mutating toggle exactly once without starting daemon
 (
     mock_dir="$(mktemp -d)"
     mock_log="$(mktemp)"
     cat << "EOF" > "$mock_dir/qs"
 #!/usr/bin/env bash
-if [[ "$1" == "ipc" && "$2" == "call" && "$3" == "hotkeys" ]]; then
-    if [[ "$4" == "toggle" ]]; then
-        echo "toggle" >> "$MOCK_LOG"
-        exit 0
-    elif [[ "$4" == "ping" ]]; then
-        echo "ping" >> "$MOCK_LOG"
-        exit 0
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    echo "ipc_path:$3" >> "$MOCK_LOG"
+    if [[ "$4" == "call" && "$5" == "hotkeys" ]]; then
+        if [[ "$6" == "ping" ]]; then
+            echo "ping" >> "$MOCK_LOG"
+            exit 0
+        elif [[ "$6" == "toggle" ]]; then
+            echo "toggle" >> "$MOCK_LOG"
+            exit 0
+        fi
     fi
 elif [[ "$1" == "--no-duplicate" ]]; then
     echo "daemon_start" >> "$MOCK_LOG"
@@ -600,7 +607,7 @@ EOF
     daemon_count="$(grep -c '^daemon_start$' "$mock_log" || true)"
     ping_count="$(grep -c '^ping$' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
-    if [[ "$toggle_count" -eq 1 && "$daemon_count" -eq 0 && "$ping_count" -eq 0 ]]; then
+    if [[ "$toggle_count" -eq 1 && "$daemon_count" -eq 0 && "$ping_count" -eq 1 ]]; then
         pass "42. warm startup invokes toggle exactly once without starting daemon"
     else
         fail "42. warm startup invariant violated: toggles=$toggle_count daemons=$daemon_count pings=$ping_count"
@@ -930,3 +937,362 @@ if ! grep -E '(quickshell|desktop\.hotkeys\.aurelia)' "$ROOT/modules/lib/reconci
 else
     fail "60. special-cased component IDs found in reconciler.sh"
 fi
+
+section "61-75. Aurelia Runtime, Readiness, IPC Addressing, and Deployment Validation Invariants"
+
+# Test 61: Warm Aurelia instance + successful ping -> toggle once, no process launched
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    echo "ipc:$6" >> "$MOCK_LOG"
+    exit 0
+elif [[ "$1" == "--no-duplicate" ]]; then
+    echo "daemon_start" >> "$MOCK_LOG"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    pings="$(grep -c '^ipc:ping$' "$mock_log" || true)"
+    toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
+    daemons="$(grep -c '^daemon_start$' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$pings" -eq 1 && "$toggles" -eq 1 && "$daemons" -eq 0 ]]; then
+        pass "61. warm Aurelia instance + successful ping -> toggle once, no new process launched"
+    else
+        fail "61. warm Aurelia invariant failed: pings=$pings toggles=$toggles daemons=$daemons"
+    fi
+)
+
+# Test 62: Cold path launches exactly one instance, waits for ping, toggles once
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    echo "ipc:$6" >> "$MOCK_LOG"
+    cnt=$(grep -c '^ipc:ping$' "$MOCK_LOG")
+    if [[ "$6" == "ping" && "$cnt" -eq 1 ]]; then
+        exit 1
+    fi
+    exit 0
+elif [[ "$1" == "--no-duplicate" ]]; then
+    echo "daemon_start" >> "$MOCK_LOG"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    pings="$(grep -c '^ipc:ping$' "$mock_log" || true)"
+    toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
+    daemons="$(grep -c '^daemon_start$' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$pings" -ge 2 && "$toggles" -eq 1 && "$daemons" -eq 1 ]]; then
+        pass "62. cold path launches exactly one instance, waits for non-mutating ping, and toggles once"
+    else
+        fail "62. cold path invariant failed: pings=$pings toggles=$toggles daemons=$daemons"
+    fi
+)
+
+# Test 63: Readiness failure (ping fails) -> toggle is NEVER invoked before fallback
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/foot"
+#!/usr/bin/env bash
+echo "fallback_foot:$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$mock_dir/foot"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    echo "ipc:$6" >> "$MOCK_LOG"
+    exit 1
+elif [[ "$1" == "--no-duplicate" ]]; then
+    echo "daemon_start" >> "$MOCK_LOG"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
+        "$1" >/dev/null 2>&1 || true
+    ' _ "$ROOT/bin/workstation-hotkeys"
+    toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
+    fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$toggles" -eq 0 && "$fallback_called" -ge 1 ]]; then
+        pass "63. ping failure never invokes toggle before fallback"
+    else
+        fail "63. toggle was incorrectly called or fallback failed: toggles=$toggles fallback=$fallback_called"
+    fi
+)
+
+# Test 64: Toggle failure produces distinct diagnostic and falls back
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/foot"
+#!/usr/bin/env bash
+echo "fallback_foot:$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$mock_dir/foot"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    echo "ipc:$6" >> "$MOCK_LOG"
+    if [[ "$6" == "ping" ]]; then
+        exit 0
+    elif [[ "$6" == "toggle" ]]; then
+        exit 1
+    fi
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
+        "$1" >/dev/null 2>&1 || true
+    ' _ "$ROOT/bin/workstation-hotkeys"
+    pings="$(grep -c '^ipc:ping$' "$mock_log" || true)"
+    toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
+    fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$pings" -eq 1 && "$toggles" -eq 1 && "$fallback_called" -ge 1 ]]; then
+        pass "64. toggle failure produces distinct diagnostic and invokes fallback"
+    else
+        fail "64. toggle failure handling violated: pings=$pings toggles=$toggles fallback=$fallback_called"
+    fi
+)
+
+# Test 65: Quickshell process existence alone is NOT considered readiness
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/foot"
+#!/usr/bin/env bash
+echo "fallback_foot:$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$mock_dir/foot"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" ]]; then
+    exit 255
+elif [[ "$1" == "--no-duplicate" ]]; then
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
+        "$1" >/dev/null 2>&1 || true
+    ' _ "$ROOT/bin/workstation-hotkeys"
+    fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$fallback_called" -ge 1 ]]; then
+        pass "65. Quickshell process existence alone is not considered readiness"
+    else
+        fail "65. Process existence incorrectly satisfied readiness without ping"
+    fi
+)
+
+# Test 66: Correct Aurelia instance/config identity is used for ping and toggle
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    echo "path:$3" >> "$MOCK_LOG"
+    echo "action:$6" >> "$MOCK_LOG"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    used_path="$(grep '^path:' "$mock_log" | head -n 1 | cut -d ':' -f2-)"
+    used_action="$(grep '^action:' "$mock_log" | head -n 1 | cut -d ':' -f2-)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$used_path" == *"aurelia/shell.qml" && "$used_action" == "ping" ]]; then
+        pass "66. correct Aurelia instance/config identity (--path) is used for ping and toggle"
+    else
+        fail "66. incorrect path or action used: path=$used_path action=$used_action"
+    fi
+)
+
+# Test 67: Noctalia/other Quickshell instance cannot satisfy Aurelia readiness
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/foot"
+#!/usr/bin/env bash
+echo "fallback_foot" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$mock_dir/foot"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+if [[ "$1" == "ipc" && "$2" == "--path" ]]; then
+    target_path="$3"
+    if [[ "$target_path" == *"/aurelia/shell.qml" ]]; then
+        exit 255
+    else
+        exit 0
+    fi
+elif [[ "$1" == "--no-duplicate" ]]; then
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
+        "$1" >/dev/null 2>&1 || true
+    ' _ "$ROOT/bin/workstation-hotkeys"
+    fallback_called="$(grep -c 'fallback_foot' "$mock_log" || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$fallback_called" -ge 1 ]]; then
+        pass "67. Noctalia/other Quickshell instance cannot satisfy Aurelia readiness"
+    else
+        fail "67. Other instance incorrectly satisfied Aurelia readiness"
+    fi
+)
+
+# Test 68: Deployment validator rejects missing shell.qml
+(
+    sb="$(mktemp -d)"
+    mkdir -p "$sb/.config/aurelia/components/hotkeys" "$sb/.config/aurelia/theme"
+    touch "$sb/.config/aurelia/components/hotkeys/HotkeysWindow.qml"
+    touch "$sb/.config/aurelia/components/hotkeys/HotkeysModel.qml"
+    touch "$sb/.config/aurelia/components/hotkeys/HotkeyRow.qml"
+    touch "$sb/.config/aurelia/theme/Theme.qml"
+    touch "$sb/.config/aurelia/theme/qmldir"
+    val_rc=0
+    detect_quickshell() { return 0; }
+    TARGET_HOME="$sb" TARGET_USER="$(id -un)" validate_aurelia_hotkeys || val_rc=$?
+    rm -rf "$sb"
+    if [[ "$val_rc" -ne 0 ]]; then
+        pass "68. deployment validator rejects missing shell.qml"
+    else
+        fail "68. deployment validator accepted missing shell.qml"
+    fi
+)
+
+# Test 69: Deployment validator rejects broken symlink
+(
+    sb="$(mktemp -d)"
+    mkdir -p "$sb/.config"
+    ln -s "/nonexistent/target/path/for/aurelia" "$sb/.config/aurelia"
+    val_rc=0
+    detect_quickshell() { return 0; }
+    TARGET_HOME="$sb" TARGET_USER="$(id -un)" validate_aurelia_hotkeys || val_rc=$?
+    rm -rf "$sb"
+    if [[ "$val_rc" -ne 0 ]]; then
+        pass "69. deployment validator rejects broken symlink"
+    else
+        fail "69. deployment validator accepted broken symlink"
+    fi
+)
+
+# Test 70: Deployment validator accepts valid deployed tree
+(
+    sb="$(mktemp -d)"
+    mkdir -p "$sb/.config/aurelia/components/hotkeys" "$sb/.config/aurelia/theme"
+    touch "$sb/.config/aurelia/shell.qml"
+    touch "$sb/.config/aurelia/components/hotkeys/HotkeysWindow.qml"
+    touch "$sb/.config/aurelia/components/hotkeys/HotkeysModel.qml"
+    touch "$sb/.config/aurelia/components/hotkeys/HotkeyRow.qml"
+    touch "$sb/.config/aurelia/theme/Theme.qml"
+    touch "$sb/.config/aurelia/theme/qmldir"
+    val_rc=0
+    detect_quickshell() { return 0; }
+    TARGET_HOME="$sb" TARGET_USER="$(id -un)" validate_aurelia_hotkeys || val_rc=$?
+    rm -rf "$sb"
+    if [[ "$val_rc" -eq 0 ]]; then
+        pass "70. deployment validator accepts valid deployed tree"
+    else
+        fail "70. deployment validator rejected valid tree: rc=$val_rc"
+    fi
+)
+
+# Test 71: Fallback terminal is passed --provider=legacy preventing nested delay
+(
+    mock_dir="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    cat << "EOF" > "$mock_dir/foot"
+#!/usr/bin/env bash
+echo "args:$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$mock_dir/foot"
+    cat << "EOF" > "$mock_dir/qs"
+#!/usr/bin/env bash
+exit 255
+EOF
+    chmod +x "$mock_dir/qs"
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
+        "$1" >/dev/null 2>&1 || true
+    ' _ "$ROOT/bin/workstation-hotkeys"
+    foot_args="$(cat "$mock_log" 2>/dev/null || true)"
+    rm -rf "$mock_dir" "$mock_log"
+    if [[ "$foot_args" == *"--provider=legacy"* ]]; then
+        pass "71. fallback terminal is passed --provider=legacy preventing nested delay"
+    else
+        fail "71. fallback terminal missing --provider=legacy: '$foot_args'"
+    fi
+)
+
+# Test 72: Legacy fallback remains functional
+leg_out="$(HOTKEYS_FORCE_STDOUT=1 "$ROOT/bin/workstation-hotkeys" --provider=legacy)"
+if [[ "$leg_out" == *"Keyboard Shortcuts"* && "$leg_out" == *"Terminal"* ]]; then
+    pass "72. legacy fallback remains fully functional"
+else
+    fail "72. legacy fallback failed: $leg_out"
+fi
+
+# Test 73: Persisted hotkeys.provider remains aurelia on runtime fallback
+(
+    sb="$(mktemp -d)"
+    mkdir -p "$sb/.config/workstation"
+    echo "hotkeys.provider = aurelia" > "$sb/.config/workstation/desktop.conf"
+    XDG_CONFIG_HOME="$sb/.config" HOTKEYS_SIMULATE_AURELIA_FAIL=1 HOTKEYS_FORCE_STDOUT=1 "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    persisted="$(grep -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
+    rm -rf "$sb"
+    if [[ "$persisted" == "aurelia" ]]; then
+        pass "73. persisted hotkeys.provider remains aurelia on runtime fallback"
+    else
+        fail "73. runtime fallback mutated persisted config: $persisted"
+    fi
+)
+
+# Test 74: Keybindings manifest and Hyprland bind Super+K to workstation-hotkeys
+if grep -q 'key = "SUPER + K"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'command = "workstation-hotkeys"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua"; then
+    pass "74. keybindings manifest binds SUPER+K directly to workstation-hotkeys"
+else
+    fail "74. SUPER+K binding missing or incorrect in keybindings manifest"
+fi
+
+# Test 75: Component deploy_aurelia_config links dotfiles/aurelia without creating directory conflict
+(
+    sb="$(mktemp -d)"
+    SCRIPT_DIR="$ROOT" TARGET_HOME="$sb" deploy_aurelia_config >/dev/null 2>&1
+    dest="$sb/.config/aurelia"
+    dest_is_link=$([[ -L "$dest" ]] && echo 1 || echo 0)
+    dest_target="$(readlink "$dest" 2>/dev/null || true)"
+    bak_exists=$([[ -d "$sb/.config/aurelia.bak" || $(ls -d "$sb/.config"/aurelia.bak.* 2>/dev/null | wc -l) -gt 0 ]] && echo 1 || echo 0)
+    rm -rf "$sb"
+    if [[ "$dest_is_link" -eq 1 && "$dest_target" == "$ROOT/dotfiles/aurelia" && "$bak_exists" -eq 0 ]]; then
+        pass "75. deploy_aurelia_config creates clean symlink without spurious backup"
+    else
+        fail "75. deploy_aurelia_config failed: is_link=$dest_is_link target=$dest_target bak_exists=$bak_exists"
+    fi
+)
