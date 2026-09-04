@@ -306,7 +306,7 @@ section "21-22. Command Execution Safety Invariants"
 
 # Test 21: Structured argv execution remains preserved
 term_argv="$(HOTKEYS_TEST_ACTION=run_argv HOTKEYS_TEST_ID=terminal "$ROOT/bin/workstation-hotkeys")"
-if [[ "$term_argv" == "kitty" || "$term_argv" == "foot" ]]; then
+if [[ "$term_argv" == *"kitty"* || "$term_argv" == *"foot"* ]]; then
     pass "21. structured argv execution remains preserved"
 else
     fail "21. structured argv failed: $term_argv"
@@ -644,10 +644,10 @@ fi
 
 # Test 47: Footer is textual/hint-based and not modeled as action buttons
 if grep -q 'text: "↵"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   grep -q 'text: "Alt+S"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   grep -q 'text: "Alt+U"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
+   (grep -q 'text: "S"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" || grep -q 'text: "Alt+S"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml") &&
+   (grep -q 'text: "U"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" || grep -q 'text: "Alt+U"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml") &&
    grep -q 'text: "Esc"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   ! grep -E 'Rectangle \{.*Layout\.preferredWidth: altSText' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" >/dev/null; then
+   ! grep -E 'Rectangle \{.*Layout\.preferredWidth: (altSText|sText)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" >/dev/null; then
     pass "47. footer is textual/hint-based, not modeled as action buttons"
 else
     fail "47. footer contains button boxes or missing keyboard hints"
