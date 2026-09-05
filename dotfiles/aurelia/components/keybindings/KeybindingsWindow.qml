@@ -1,8 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import QtQuick.Dialogs
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import "../../theme"
 
@@ -11,7 +11,7 @@ PanelWindow {
 
     // Layer-shell Wayland configuration: full-screen transparent overlay surface with exclusive focus during capture
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: windowRoot.isRecording ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
+    WlrLayershell.keyboardFocus: windowRoot.browseActive ? WlrKeyboardFocus.None : (windowRoot.isRecording ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand)
 
     anchors {
         top: true
@@ -25,6 +25,9 @@ PanelWindow {
     implicitWidth: Theme.paletteWidth // 800
     implicitHeight: Theme.paletteHeight // 480
     color: "transparent"
+
+    // Browse modal/dialog state: when active, layer-shell keyboard focus is released (WlrKeyboardFocus.None)
+    property bool browseActive: false
 
     // 3-State Capture Machine: "idle", "entering_capture", "capture_armed", "validating", "conflict"
     property string captureState: "idle"
@@ -42,7 +45,7 @@ PanelWindow {
     ShortcutInhibitor {
         id: shortcutInhibitor
         window: windowRoot
-        enabled: windowRoot.isRecording
+        enabled: !windowRoot.browseActive && windowRoot.isRecording
         onCancelled: windowRoot.cancelCapture()
     }
 
@@ -1074,22 +1077,60 @@ PanelWindow {
                         keybindingsModel.addExecutable(actionId, name, path, argv)
                     }
 
-                    FileDialog {
-                        id: fileDialog
-                        title: "Select Executable or Script"
-                        fileMode: FileDialog.OpenFile
-                        onAccepted: {
-                            var p = selectedFile.toString()
-                            if (p.indexOf("file://") === 0) {
-                                p = decodeURIComponent(p.substring(7))
+                    property Process browseProcess: Process {
+                        id: browseProcess
+                        command: [keybindingsModel.backendBin, "choose-file"]
+                        environment: keybindingsModel.procEnv
+                        property string chosenPath: ""
+                        property string errorMsg: ""
+
+                        stdout: StdioCollector {
+                            onStreamFinished: {
+                                browseProcess.chosenPath = this.text ? this.text.trim() : ""
                             }
-                            execPathInput.text = p
-                            addExecForm.internalFormError = ""
-                            execPathInput.forceActiveFocus()
                         }
-                        onRejected: {
-                            browseButton.forceActiveFocus()
+                        stderr: StdioCollector {
+                            onStreamFinished: {
+                                browseProcess.errorMsg = this.text ? this.text.trim() : ""
+                            }
                         }
+                        onExited: function(code) {
+                            console.info("[LIFECYCLE] keybindings.browse.focus_restore")
+                            windowRoot.browseActive = false
+                            if (code === 0 && browseProcess.chosenPath.length > 0) {
+                                console.info("[LIFECYCLE] keybindings.browse.accept has_selection=true")
+                                execPathInput.text = browseProcess.chosenPath
+                                addExecForm.internalFormError = ""
+                                execPathInput.forceActiveFocus()
+                            } else if (code === 1 || (code === 0 && browseProcess.chosenPath.length === 0)) {
+                                console.info("[LIFECYCLE] keybindings.browse.cancel")
+                                browseButton.forceActiveFocus()
+                            } else {
+                                console.warn("[LIFECYCLE] keybindings.browse.error exit_code=" + code)
+                                addExecForm.internalFormError = "File chooser failed: " + (browseProcess.errorMsg || "Process exited with code " + code)
+                                browseButton.forceActiveFocus()
+                            }
+                        }
+                    }
+
+                    function triggerBrowse() {
+                        if (windowRoot.isRecording || windowRoot.captureState !== "idle" || keybindingsModel.operationState === "capturing" || keybindingsModel.operationState === "conflict") {
+                            console.warn("[LIFECYCLE] keybindings.browse.rejected reason=capture_active")
+                            return
+                        }
+                        if (browseProcess.running) {
+                            console.warn("[LIFECYCLE] keybindings.browse.rejected reason=already_running")
+                            return
+                        }
+                        console.info("[LIFECYCLE] keybindings.browse.request")
+                        console.info("[LIFECYCLE] keybindings.browse.focus_release")
+                        windowRoot.browseActive = true
+                        addExecForm.internalFormError = ""
+                        browseProcess.chosenPath = ""
+                        browseProcess.errorMsg = ""
+                        browseProcess.command = [keybindingsModel.backendBin, "choose-file"]
+                        browseProcess.running = true
+                        console.info("[LIFECYCLE] keybindings.browse.open")
                     }
 
                     onVisibleChanged: {
@@ -1097,8 +1138,14 @@ PanelWindow {
                             execNameInput.text = ""
                             execPathInput.text = ""
                             execArgsInput.text = ""
+                            execPathInput.showSuggestions = false
+                            execPathInput.suggestionIndex = -1
                             internalFormError = ""
                             focusFirstField()
+                        } else {
+                            execPathInput.showSuggestions = false
+                            execPathInput.suggestionIndex = -1
+                            windowRoot.browseActive = false
                         }
                     }
 
@@ -1193,12 +1240,15 @@ PanelWindow {
                                 spacing: Theme.spacingSm
 
                                 Rectangle {
+                                    id: pathInputContainer
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 36
                                     radius: Theme.radiusSm
                                     color: Theme.inputBg
                                     border.color: execPathInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder
                                     border.width: 1
+                                    z: 10
+
                                     TextInput {
                                         id: execPathInput
                                         anchors.fill: parent
@@ -1211,6 +1261,37 @@ PanelWindow {
                                         selectByMouse: true
                                         selectionColor: Theme.inputSelection
                                         selectedTextColor: Theme.inputSelectionText
+
+                                        property int suggestionIndex: -1
+                                        property bool showSuggestions: false
+                                        property var suggestions: keybindingsModel.pathCompletions
+
+                                        function acceptSuggestion(val) {
+                                            if (!val) return
+                                            execPathInput.text = val
+                                            execPathInput.cursorPosition = val.length
+                                            if (val.endsWith("/")) {
+                                                execPathInput.suggestionIndex = -1
+                                                keybindingsModel.fetchPathCompletions(val)
+                                                execPathInput.showSuggestions = true
+                                            } else {
+                                                execPathInput.showSuggestions = false
+                                                execPathInput.suggestionIndex = -1
+                                            }
+                                            execPathInput.forceActiveFocus()
+                                        }
+
+                                        onTextChanged: {
+                                            if (text && text.trim().length > 0) {
+                                                showSuggestions = true
+                                                suggestionIndex = -1
+                                                keybindingsModel.fetchPathCompletions(text)
+                                            } else {
+                                                showSuggestions = false
+                                                suggestionIndex = -1
+                                            }
+                                        }
+
                                         Text {
                                             anchors.fill: parent
                                             verticalAlignment: Text.AlignVCenter
@@ -1219,11 +1300,47 @@ PanelWindow {
                                             color: Theme.inputPlaceholder
                                             visible: !execPathInput.text
                                         }
+
                                         Keys.onPressed: function(event) {
-                                            if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right) {
+                                            var hasSuggestions = execPathInput.showSuggestions && execPathInput.suggestions && execPathInput.suggestions.length > 0
+
+                                            if (hasSuggestions && event.key === Qt.Key_Down) {
+                                                if (execPathInput.suggestionIndex < execPathInput.suggestions.length - 1) {
+                                                    execPathInput.suggestionIndex++
+                                                } else {
+                                                    execPathInput.suggestionIndex = 0
+                                                }
+                                                event.accepted = true
+                                            } else if (hasSuggestions && event.key === Qt.Key_Up) {
+                                                if (execPathInput.suggestionIndex > 0) {
+                                                    execPathInput.suggestionIndex--
+                                                } else {
+                                                    execPathInput.suggestionIndex = -1
+                                                }
+                                                event.accepted = true
+                                            } else if (hasSuggestions && event.key === Qt.Key_Tab) {
+                                                var targetVal = ""
+                                                if (execPathInput.suggestionIndex >= 0 && execPathInput.suggestionIndex < execPathInput.suggestions.length) {
+                                                    targetVal = execPathInput.suggestions[execPathInput.suggestionIndex]
+                                                } else if (execPathInput.suggestions.length > 0) {
+                                                    targetVal = execPathInput.suggestions[0]
+                                                }
+                                                if (targetVal !== "") {
+                                                    execPathInput.acceptSuggestion(targetVal)
+                                                }
+                                                event.accepted = true
+                                            } else if (hasSuggestions && execPathInput.suggestionIndex >= 0 && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                                                var chosenVal = execPathInput.suggestions[execPathInput.suggestionIndex]
+                                                execPathInput.acceptSuggestion(chosenVal)
+                                                event.accepted = true
+                                            } else if (hasSuggestions && event.key === Qt.Key_Escape) {
+                                                execPathInput.showSuggestions = false
+                                                execPathInput.suggestionIndex = -1
+                                                event.accepted = true
+                                            } else if (!hasSuggestions && (event.key === Qt.Key_Tab || event.key === Qt.Key_Right)) {
                                                 browseButton.forceActiveFocus()
                                                 event.accepted = true
-                                            } else if (event.key === Qt.Key_Down) {
+                                            } else if (!hasSuggestions && event.key === Qt.Key_Down) {
                                                 execArgsInput.forceActiveFocus()
                                                 event.accepted = true
                                             } else if (event.key === Qt.Key_Up) {
@@ -1235,6 +1352,80 @@ PanelWindow {
                                             } else if (event.key === Qt.Key_Escape) {
                                                 windowRoot.goBack()
                                                 event.accepted = true
+                                            }
+                                        }
+                                    }
+
+                                    // Autocomplete suggestions dropdown
+                                    Rectangle {
+                                        id: suggestionPopup
+                                        z: 100
+                                        visible: execPathInput.showSuggestions && execPathInput.suggestions && execPathInput.suggestions.length > 0 && execPathInput.activeFocus
+                                        anchors.top: pathInputContainer.bottom
+                                        anchors.topMargin: 4
+                                        anchors.left: pathInputContainer.left
+                                        anchors.right: pathInputContainer.right
+                                        height: Math.min(execPathInput.suggestions.length * 30 + 8, 160)
+                                        color: Theme.surfaceElevated
+                                        border.color: Theme.border
+                                        border.width: 1
+                                        radius: Theme.radiusSm
+                                        clip: true
+
+                                        ListView {
+                                            id: suggestionListView
+                                            anchors.fill: parent
+                                            anchors.margins: 4
+                                            model: execPathInput.suggestions
+                                            currentIndex: execPathInput.suggestionIndex
+                                            clip: true
+                                            boundsBehavior: Flickable.StopAtBounds
+
+                                            delegate: Rectangle {
+                                                id: suggestionDelegate
+                                                required property string modelData
+                                                required property int index
+
+                                                width: ListView.view.width
+                                                height: 28
+                                                radius: Theme.radiusSm
+                                                color: (execPathInput.suggestionIndex === index) ? Theme.selection : "transparent"
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: Theme.spacingSm
+                                                    anchors.rightMargin: Theme.spacingSm
+                                                    spacing: Theme.spacingSm
+
+                                                    Text {
+                                                        text: modelData.endsWith("/") ? "📁" : "📄"
+                                                        font.pixelSize: Theme.fontSizeXs
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                    }
+
+                                                    Text {
+                                                        text: modelData
+                                                        color: (execPathInput.suggestionIndex === index) ? Theme.accent : Theme.text
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: Theme.fontSizeSm
+                                                        font.weight: (execPathInput.suggestionIndex === index) ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                                                        Layout.fillWidth: true
+                                                        elide: Text.ElideMiddle
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onEntered: {
+                                                        execPathInput.suggestionIndex = index
+                                                    }
+                                                    onClicked: {
+                                                        execPathInput.acceptSuggestion(modelData)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1255,7 +1446,7 @@ PanelWindow {
                                         id: browseLabel
                                         anchors.centerIn: parent
                                         text: "Browse…"
-                                        color: browseButton.activeFocus ? Theme.bgBase : Theme.textPrimary
+                                        color: browseButton.activeFocus ? Theme.bgBase : Theme.text
                                         font.family: Theme.fontFamily
                                         font.pixelSize: Theme.fontSizeSm
                                         font.weight: Theme.fontWeightMedium
@@ -1264,12 +1455,12 @@ PanelWindow {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: fileDialog.open()
+                                        onClicked: addExecForm.triggerBrowse()
                                     }
 
                                     Keys.onPressed: function(event) {
                                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                                            fileDialog.open()
+                                            addExecForm.triggerBrowse()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
                                             windowRoot.goBack()
@@ -1451,17 +1642,32 @@ PanelWindow {
                         visible: (windowRoot.captureState === "capture_armed" || windowRoot.captureState === "entering_capture" || windowRoot.captureState === "validating")
 
                         Text {
-                            text: "Esc Cancel"
+                            text: "ESC"
                             color: Theme.rose
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                             font.bold: true
                         }
                         Text {
-                            text: "Backspace Unset"
+                            text: "Cancel"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+                        Text {
+                            text: "BACKSPACE"
                             color: Theme.textMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Unset"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
                         }
                     }
 
@@ -1485,7 +1691,7 @@ PanelWindow {
                             font.weight: Theme.fontWeightMedium
                         }
                         Text {
-                            text: "Tab"
+                            text: "TAB"
                             color: Theme.textMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1541,13 +1747,13 @@ PanelWindow {
                         }
                     }
 
-                    // 6. s Set / Assign (active when editable, in bound or unbound view, and not capturing)
+                    // 6. S Set / Assign (active when editable, in bound or unbound view, and not capturing)
                     RowLayout {
                         spacing: Theme.spacingXs
                         visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true
 
                         Text {
-                            text: "s"
+                            text: "S"
                             color: Theme.gold
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1562,7 +1768,7 @@ PanelWindow {
                         }
                     }
 
-                    // 7. u Unset (active in bound view when editable, bound, and not capturing)
+                    // 7. U Unset (active in bound view when editable, bound, and not capturing)
                     RowLayout {
                         spacing: Theme.spacingXs
                         visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView === "bound" && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true &&
@@ -1570,7 +1776,7 @@ PanelWindow {
                                   keybindingsModel.selectedItem.display_key !== "None (Unbound)"
 
                         Text {
-                            text: "u"
+                            text: "U"
                             color: Theme.love
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1585,13 +1791,13 @@ PanelWindow {
                         }
                     }
 
-                    // 8. Alt+A Add Action / b Back
+                    // 8. ALT + A Add Action / B Back
                     RowLayout {
                         spacing: Theme.spacingXs
                         visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView.indexOf("add_") !== 0
 
                         Text {
-                            text: "Alt+A"
+                            text: "ALT + A"
                             color: Theme.foam
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1611,7 +1817,7 @@ PanelWindow {
                         visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView.indexOf("add_") === 0
 
                         Text {
-                            text: "b"
+                            text: "B"
                             color: Theme.foam
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1626,13 +1832,13 @@ PanelWindow {
                         }
                     }
 
-                    // 9. Tab Switch View hint
+                    // 9. TAB Switch View hint
                     RowLayout {
                         spacing: Theme.spacingXs
                         visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound")
 
                         Text {
-                            text: "Tab"
+                            text: "TAB"
                             color: Theme.textMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1693,13 +1899,13 @@ PanelWindow {
                         Layout.fillWidth: true
                     }
 
-                    // Esc Close / Cancel / Back hint
+                    // ESC Close / Cancel / Back hint
                     RowLayout {
                         spacing: Theme.spacingSm
                         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
                         Text {
-                            text: "Esc"
+                            text: "ESC"
                             color: Theme.rose
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm

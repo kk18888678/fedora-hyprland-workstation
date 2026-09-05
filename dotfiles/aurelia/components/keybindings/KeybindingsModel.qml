@@ -246,6 +246,11 @@ QtObject {
         printErrors: false
     }
 
+    property FileView binUserLocalCheck: FileView {
+        path: Quickshell.env("HOME") ? (Quickshell.env("HOME") + "/.local/bin/workstation-keybindings") : ""
+        printErrors: false
+    }
+
     property FileView binHotkeysCheck: FileView {
         path: "/usr/local/bin/workstation-hotkeys"
         printErrors: false
@@ -253,15 +258,20 @@ QtObject {
 
     // Deterministic backend executable resolution:
     // 1. Test override via WORKSTATION_KEYBINDINGS_BIN environment variable
-    // 2. Managed system installation: /usr/local/bin/workstation-keybindings
-    // 3. System PATH: workstation-keybindings
-    // 4. Compatibility fallback: /usr/local/bin/workstation-hotkeys, workstation-hotkeys
-    // Invariant: Stale ~/.local/bin cannot shadow the managed workstation installation.
+    // 2. User-local override: ~/.local/bin/workstation-keybindings
+    // 3. Managed system installation: /usr/local/bin/workstation-keybindings
+    // 4. Compatibility fallback: /usr/local/bin/workstation-hotkeys, workstation-keybindings
     readonly property string backendBin: {
         var testOverride = Quickshell.env("WORKSTATION_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_HOTKEYS_BIN") || ""
         if (testOverride !== "") {
             return testOverride
         }
+        try {
+            var ulTxt = binUserLocalCheck.text()
+            if (ulTxt && ulTxt.length > 0) {
+                return Quickshell.env("HOME") + "/.local/bin/workstation-keybindings"
+            }
+        } catch (e) {}
         try {
             var kbTxt = binKeybindingsCheck.text()
             if (kbTxt && kbTxt.length > 0) {
@@ -274,11 +284,11 @@ QtObject {
                 return "/usr/local/bin/workstation-hotkeys"
             }
         } catch (e) {}
-        return "/usr/local/bin/workstation-keybindings"
+        return "workstation-keybindings"
     }
 
     readonly property var procEnv: ({
-        "PATH": "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : "")
+        "PATH": (Quickshell.env("HOME") ? (Quickshell.env("HOME") + "/.local/bin:") : "") + "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : "")
     })
 
     property var runStartTime: 0
@@ -687,5 +697,52 @@ QtObject {
                 }
             }
         }
+    }
+
+    // Backend process to complete filesystem paths for Executable / Script
+    property var pathCompletions: []
+    property bool isCompletingPath: completeProcess.running
+    property var completeStartTime: 0
+
+    property Process completeProcess: Process {
+        id: completeProcess
+        command: [root.backendBin, "complete-path", ""]
+        environment: root.procEnv
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    if (this.text && this.text.trim()) {
+                        var parsed = JSON.parse(this.text.trim())
+                        if (Array.isArray(parsed)) {
+                            root.pathCompletions = parsed
+                            return
+                        }
+                    }
+                } catch (e) {}
+                root.pathCompletions = []
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {}
+        }
+        onExited: function(code) {
+            var elapsed = root.completeStartTime > 0 ? (Date.now() - root.completeStartTime) : 0
+            if (elapsed > 100) {
+                console.warn("[PERF-WARN] keybindings.autocomplete.slow duration=" + elapsed + "ms count=" + root.pathCompletions.length)
+            }
+            if (code !== 0) {
+                root.pathCompletions = []
+            }
+        }
+    }
+
+    function fetchPathCompletions(prefix) {
+        if (!prefix || prefix.trim() === "") {
+            root.pathCompletions = []
+            return
+        }
+        root.completeStartTime = Date.now()
+        completeProcess.command = [root.backendBin, "complete-path", prefix]
+        completeProcess.running = true
     }
 }

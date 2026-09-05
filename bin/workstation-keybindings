@@ -247,6 +247,15 @@ while [[ $# -gt 0 ]]; do
             TARGET_ID="${2:-}"
             shift 2 2>/dev/null || shift
             ;;
+        choose-file|--choose-file|browse-file)
+            SUBCOMMAND="choose-file"
+            shift
+            ;;
+        complete-path|--complete-path)
+            SUBCOMMAND="complete-path"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
         set|--set)
             SUBCOMMAND="set"
             TARGET_ID="${2:-}"
@@ -270,7 +279,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         help|-h|--help)
-            printf 'Usage: workstation-keybindings [toggle|json|apps|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>]\n'
+            printf 'Usage: workstation-keybindings [toggle|json|apps|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>|choose-file|complete-path <prefix>]\n'
             exit 0
             ;;
         *)
@@ -585,6 +594,214 @@ fi
 
 if [[ "$SUBCOMMAND" == "apps" ]]; then
     get_apps_json
+    exit 0
+fi
+
+if [[ "$SUBCOMMAND" == "choose-file" ]]; then
+    if [[ -n "${WORKSTATION_TEST_CHOOSE_FILE:-}" ]]; then
+        if [[ "$WORKSTATION_TEST_CHOOSE_FILE" == "cancel" ]]; then
+            exit 1
+        elif [[ "$WORKSTATION_TEST_CHOOSE_FILE" == error* ]]; then
+            err_msg="${WORKSTATION_TEST_CHOOSE_FILE#error:}"
+            printf '%s\n' "${err_msg:-Simulated file chooser error}" >&2
+            exit 2
+        elif [[ "$WORKSTATION_TEST_CHOOSE_FILE" == accept:* ]]; then
+            printf '%s\n' "${WORKSTATION_TEST_CHOOSE_FILE#accept:}"
+            exit 0
+        else
+            printf '%s\n' "$WORKSTATION_TEST_CHOOSE_FILE"
+            exit 0
+        fi
+    fi
+
+    python3 - << 'PY_CHOOSER'
+import sys
+import os
+import urllib.parse
+
+def try_portal():
+    try:
+        import gi
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        # Bounded synchronous call with 2.5s timeout to avoid hangs
+        res = bus.call_sync(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.FileChooser",
+            "OpenFile",
+            GLib.Variant("(ssa{sv})", ("", "Select Executable or Script", {"multiple": GLib.Variant("b", False)})),
+            None,
+            Gio.DBusCallFlags.NONE,
+            2500,
+            None
+        )
+        if not res:
+            return None
+        handle = res.unpack()[0]
+        loop = GLib.MainLoop()
+        result = {"path": None, "code": 1}
+
+        def on_response(conn, sender, path, iface, signal, params):
+            code, data = params.unpack()
+            result["code"] = code
+            if code == 0 and "uris" in data:
+                uris = data["uris"]
+                if uris:
+                    parsed = urllib.parse.urlparse(uris[0])
+                    result["path"] = urllib.parse.unquote(parsed.path)
+            loop.quit()
+
+        sub_id = bus.signal_subscribe(
+            "org.freedesktop.portal.Desktop",
+            "org.freedesktop.portal.Request",
+            "Response",
+            handle,
+            None,
+            Gio.DBusSignalFlags.NONE,
+            on_response
+        )
+        loop.run()
+        bus.signal_unsubscribe(sub_id)
+        if result["code"] == 0 and result["path"]:
+            return (0, result["path"])
+        elif result["code"] == 1:
+            return (1, None)
+        else:
+            return (1, None)
+    except Exception:
+        return None
+
+def try_gtk():
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+        dialog = Gtk.FileChooserDialog(
+            title="Select Executable or Script",
+            parent=None,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Select", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        res = dialog.run()
+        selected = None
+        if res == Gtk.ResponseType.OK:
+            selected = dialog.get_filename()
+        dialog.destroy()
+        while Gtk.events_pending():
+            Gtk.main_iteration()
+        if selected:
+            return (0, selected)
+        else:
+            return (1, None)
+    except Exception as e:
+        sys.stderr.write("File chooser error: " + str(e) + "\n")
+        return (2, None)
+
+portal_res = try_portal()
+if portal_res is not None:
+    code, path = portal_res
+    if code == 0 and path:
+        print(path)
+        sys.exit(0)
+    elif code == 1:
+        sys.exit(1)
+
+gtk_res = try_gtk()
+code, path = gtk_res
+if code == 0 and path:
+    print(path)
+    sys.exit(0)
+elif code == 1:
+    sys.exit(1)
+else:
+    sys.exit(2)
+PY_CHOOSER
+    exit $?
+fi
+
+if [[ "$SUBCOMMAND" == "complete-path" ]]; then
+    python3 - "$TARGET_ID" << 'PY_COMPLETE'
+import sys
+import os
+import json
+
+raw_input = sys.argv[1] if len(sys.argv) > 1 else ""
+
+def complete_path(raw_input, max_results=15):
+    if not raw_input:
+        return []
+    for c in ['$', '`', '*', '?', '[', ';', '&', '|', '(', ')']:
+        if c in raw_input:
+            return []
+
+    is_tilde = raw_input.startswith('~')
+    home = os.path.expanduser('~')
+
+    if is_tilde:
+        if raw_input == '~':
+            expanded = home + '/'
+        elif raw_input.startswith('~/'):
+            expanded = home + raw_input[1:]
+        else:
+            return []
+        if expanded.endswith('/'):
+            search_dir = expanded[:-1] if expanded != '/' else '/'
+            prefix = ''
+            base_display = expanded
+        else:
+            search_dir = os.path.dirname(expanded) or '/'
+            prefix = os.path.basename(expanded)
+            base_display = os.path.dirname(expanded)
+            if base_display and not base_display.endswith('/'):
+                base_display += '/'
+    else:
+        expanded = raw_input
+        if expanded.endswith('/'):
+            search_dir = expanded[:-1] if expanded != '/' else '/'
+            prefix = ''
+            base_display = raw_input
+        else:
+            search_dir = os.path.dirname(expanded) or '/'
+            prefix = os.path.basename(expanded)
+            base_display = os.path.dirname(raw_input)
+            if base_display and not base_display.endswith('/'):
+                base_display += '/'
+
+    if not os.path.isdir(search_dir):
+        return []
+
+    try:
+        entries = []
+        with os.scandir(search_dir) as it:
+            for entry in it:
+                name = entry.name
+                if not prefix.startswith('.') and name.startswith('.'):
+                    continue
+                if name.startswith(prefix):
+                    is_dir = False
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=True)
+                    except OSError:
+                        pass
+                    entries.append((name + ('/' if is_dir else ''), is_dir))
+    except (PermissionError, OSError):
+        return []
+
+    entries.sort(key=lambda x: (not x[1], x[0]))
+    results = []
+    for name, _ in entries[:max_results]:
+        if base_display:
+            results.append(base_display + name)
+        else:
+            results.append(('/' if raw_input.startswith('/') else '') + name)
+    return results
+
+completions = complete_path(raw_input)
+print(json.dumps(completions))
+PY_COMPLETE
     exit 0
 fi
 
