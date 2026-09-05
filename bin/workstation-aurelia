@@ -76,12 +76,13 @@ case "$cmd" in
     diagnostics)
         if [[ "${1:-}" == "runtime" ]]; then
             shift
-            if command -v aurelia-shell-keybindings >/dev/null 2>&1; then
-                exec aurelia-shell-keybindings diagnostics runtime "$@"
-            elif [[ -x "$script_dir/aurelia-shell-keybindings" ]]; then
+            if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+               [[ -x "$script_dir/aurelia-shell-keybindings" ]]; then
                 exec "$script_dir/aurelia-shell-keybindings" diagnostics runtime "$@"
-            elif [[ -x "$HOME/.local/bin/aurelia-shell-keybindings" ]]; then
-                exec "$HOME/.local/bin/aurelia-shell-keybindings" diagnostics runtime "$@"
+            elif [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" && -n "${AURELIA_SHELL_KEYBINDINGS_BIN:-}" && -x "$AURELIA_SHELL_KEYBINDINGS_BIN" ]]; then
+                exec "$AURELIA_SHELL_KEYBINDINGS_BIN" diagnostics runtime "$@"
+            elif [[ -x "/usr/local/bin/aurelia-shell-keybindings" ]]; then
+                exec "/usr/local/bin/aurelia-shell-keybindings" diagnostics runtime "$@"
             else
                 printf '%s\n' "Error: aurelia-shell-keybindings not found; cannot gather runtime diagnostics." >&2
                 exit 1
@@ -99,14 +100,23 @@ local pref = require("preferences")
 
 local diag = pref.get_diagnostics()
 
--- Enrich with Quickshell and system runtime details
-local qs_bin = os.getenv("QUICKSHELL_BIN") or ""
-if qs_bin == "" then
-    local p = io.popen("command -v qs 2>/dev/null || command -v quickshell 2>/dev/null", "r")
-    if p then
-        qs_bin = (p:read("*l") or ""):gsub("%s+$", "")
-        p:close()
+-- Enrich with Quickshell and system runtime details. Production diagnostics
+-- use the managed runtime path; overrides are test/development-only.
+local qs_bin = ""
+local function readable(path)
+    local handle = io.open(path, "r")
+    if handle then
+        handle:close()
+        return true
     end
+    return false
+end
+if (os.getenv("AURELIA_DEVELOPMENT_MODE") == "1" or os.getenv("WORKSTATION_TEST_MODE") == "1") and os.getenv("QUICKSHELL_BIN") then
+    qs_bin = os.getenv("QUICKSHELL_BIN")
+elseif readable("/usr/bin/qs") then
+    qs_bin = "/usr/bin/qs"
+elseif readable("/usr/bin/quickshell") then
+    qs_bin = "/usr/bin/quickshell"
 end
 diag.runtime = {
     quickshell_binary = (qs_bin ~= "") and qs_bin or "not found",

@@ -11,10 +11,12 @@
 set -Eeuo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-target_bin="$script_dir/workstation-keybindings"
-
-if [[ ! -x "$target_bin" ]]; then
-    target_bin="$(command -v workstation-keybindings 2>/dev/null || true)"
+target_bin=""
+if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+   [[ -x "$script_dir/workstation-keybindings" ]]; then
+    target_bin="$script_dir/workstation-keybindings"
+elif [[ -x "/usr/local/bin/workstation-keybindings" ]]; then
+    target_bin="/usr/local/bin/workstation-keybindings"
 fi
 
 if [[ -z "$target_bin" || ! -x "$target_bin" ]]; then

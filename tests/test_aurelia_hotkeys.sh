@@ -133,7 +133,7 @@ fi
 section "9. Canonical Shortcut Truth Invariance"
 
 # Ensure QML files contain zero hardcoded shortcut definitions (single source of truth in Lua)
-qml_hardcoded="$(grep -E '(Super \+ [A-Za-z0-9]|SUPER \+ [A-Za-z0-9])' "$ROOT/dotfiles/aurelia/components/hotkeys/"*.qml 2>/dev/null || true)"
+qml_hardcoded="$(grep -E '(Super \+ [A-Za-z0-9]|SUPER \+ [A-Za-z0-9])' "$ROOT/dotfiles/aurelia/components/keybindings/"*.qml 2>/dev/null || true)"
 if [[ -z "$qml_hardcoded" ]]; then
     pass "9. UI does not duplicate canonical shortcut truth (100% derived from backend)"
 else
@@ -444,7 +444,7 @@ fi
 section "33. Single-Instance and Path Option Dispatch Invariants"
 
 # Test 33: Quickshell dispatch must use --no-duplicate and --path
-dispatch_src="$(grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/workstation-keybindings" 2>/dev/null || grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/workstation-hotkeys" || true)"
+dispatch_src="$(grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/aurelia-shell-keybindings" 2>/dev/null || true)"
 if [[ -n "$dispatch_src" ]]; then
     pass "33. repeated dispatch cannot create duplicate instances (uses --no-duplicate and --path)"
 else
@@ -608,8 +608,8 @@ EOF
 )
 
 # Test 43: Startup timeout is bounded around 2s (~40 attempts * 50ms)
-timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/workstation-keybindings" 2>/dev/null || grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/workstation-hotkeys" || true)"
-sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/workstation-keybindings" 2>/dev/null || grep -E 'sleep 0\.05' "$ROOT/bin/workstation-hotkeys" || true)"
+timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/aurelia-shell-keybindings" 2>/dev/null || true)"
+sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/aurelia-shell-keybindings" 2>/dev/null || true)"
 if [[ -n "$timeout_spec" && -n "$sleep_spec" ]]; then
     pass "43. startup timeout is bounded around 2s (40 * 50ms) without arbitrary long sleeps"
 else
@@ -643,11 +643,11 @@ else
 fi
 
 # Test 47: Footer is textual/hint-based and not modeled as action buttons
-if grep -q 'text: "↵"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   (grep -q 'text: "S"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" || grep -q 'text: "Alt+S"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml") &&
-   (grep -q 'text: "U"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" || grep -q 'text: "Alt+U"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml") &&
-   grep -q 'text: "Esc"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   ! grep -E 'Rectangle \{.*Layout\.preferredWidth: (altSText|sText)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" >/dev/null; then
+if grep -q 'text: "↵"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
+   grep -q 'text: Theme.shortcutSet' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
+   grep -q 'text: Theme.shortcutUnset' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
+   grep -q 'text: "ESC"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
+   ! grep -E 'Rectangle \{.*Layout\.preferredWidth: (altSText|sText)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" >/dev/null; then
     pass "47. footer is textual/hint-based, not modeled as action buttons"
 else
     fail "47. footer contains button boxes or missing keyboard hints"
@@ -670,8 +670,8 @@ else
 fi
 
 # Test 50: Window dimensions follow restrained command-palette proportions (640-800x440-480)
-if grep -qE 'implicitWidth:.*(640|800|paletteWidth)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   grep -qE 'implicitHeight:.*(440|460|480|paletteHeight)' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml"; then
+if grep -qE 'implicitWidth:.*(640|800|palettePreferredWidth)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
+   grep -qE 'implicitHeight:.*(440|460|480|palettePreferredHeight)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
     pass "50. window dimensions follow restrained command-palette proportions (640-800x440-480)"
 else
     fail "50. window dimensions deviate from command-palette target"
@@ -1274,10 +1274,10 @@ fi
     fi
 )
 
-# Test 74: Keybindings manifest and Hyprland bind Super+K to workstation-keybindings
+# Test 74: Keybindings manifest and Hyprland bind Super+K to canonical Aurelia Keybindings
 if grep -q 'key = "SUPER + K"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
-   (grep -q 'command = "workstation-keybindings"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" || grep -q 'command = "workstation-hotkeys"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua"); then
-    pass "74. keybindings manifest binds SUPER+K to workstation-keybindings/workstation-hotkeys"
+   grep -q 'command = "aurelia-shell-keybindings"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua"; then
+    pass "74. keybindings manifest binds SUPER+K to canonical aurelia-shell-keybindings"
 else
     fail "74. SUPER+K binding missing or incorrect in keybindings manifest"
 fi

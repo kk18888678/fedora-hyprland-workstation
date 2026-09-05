@@ -103,12 +103,21 @@ relative_xdg_status=0
 ) || relative_xdg_status=$?
 echo "relative_xdg_rejected=$([[ $relative_xdg_status -ne 0 ]] && echo 1 || echo 0)"
 
-# 11. Safe /run/user/$UID candidate behavior
-run_user_status=0
-if [[ -d "/run/user/${current_uid}" ]]; then
-    validate_lock_directory "/run/user/${current_uid}" "$current_uid" || run_user_status=$?
+# 11. Safe per-user runtime-directory candidate behavior.
+# The managed test sandbox may expose /run/user/$UID read-only even when its
+# Unix metadata is correct, so use an isolated equivalent fixture when the host
+# path cannot be probed without touching live runtime state.
+run_user_candidate="/run/user/${current_uid}"
+run_user_fixture=""
+if [[ ! -w "$run_user_candidate" ]]; then
+    run_user_fixture="$(mktemp -d)"
+    chmod 0700 "$run_user_fixture"
+    run_user_candidate="$run_user_fixture"
 fi
+run_user_status=0
+validate_lock_directory "$run_user_candidate" "$current_uid" || run_user_status=$?
 echo "run_user_ok=$([[ $run_user_status -eq 0 ]] && echo 1 || echo 0)"
+rm -rf "$run_user_fixture"
 
 # 12. Fallback to safe private directory in /tmp when XDG_RUNTIME_DIR and /run/user are unavailable
 unset XDG_RUNTIME_DIR

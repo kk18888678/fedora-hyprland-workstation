@@ -10,21 +10,14 @@ end
 local mainMod = effective.mainMod or manifest.mainMod or "SUPER"
 
 local function resolve_keybindings_bin()
-    local home = os.getenv("HOME") or ""
-    local candidates = {
-        "/usr/local/bin/aurelia-shell-keybindings",
-        home .. "/.local/bin/aurelia-shell-keybindings",
-        "/usr/local/bin/workstation-keybindings",
-        home .. "/.local/bin/workstation-keybindings",
-    }
-    for _, path in ipairs(candidates) do
-        local f = io.open(path, "r")
-        if f then
-            f:close()
-            return path
+    if os.getenv("AURELIA_DEVELOPMENT_MODE") == "1" then
+        local override = os.getenv("AURELIA_SHELL_KEYBINDINGS_BIN") or ""
+        if override ~= "" then
+            return override
         end
     end
-    return "aurelia-shell-keybindings"
+    -- Production binds to the reconciler-owned path; do not resolve through PATH.
+    return "/usr/local/bin/aurelia-shell-keybindings"
 end
 
 local keybindings_bin = resolve_keybindings_bin()

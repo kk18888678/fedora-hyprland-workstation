@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# aurelia-shell-keybindings — Workstation Keybindings Backend & IPC Dispatcher
+# aurelia-shell-keybindings — Aurelia Keybindings Backend & IPC Dispatcher
 #
 # Owns environment-independent keybinding capabilities:
 # - Authoritative manifest querying and effective resolution
@@ -17,8 +17,9 @@
 set -Eeuo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-export AURELIA_SHELL_KEYBINDINGS_BIN="${AURELIA_SHELL_KEYBINDINGS_BIN:-$script_dir/aurelia-shell-keybindings}"
-export WORKSTATION_KEYBINDINGS_BIN="${WORKSTATION_KEYBINDINGS_BIN:-$AURELIA_SHELL_KEYBINDINGS_BIN}"
+if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]]; then
+    export AURELIA_SHELL_KEYBINDINGS_BIN="${AURELIA_SHELL_KEYBINDINGS_BIN:-$script_dir/aurelia-shell-keybindings}"
+fi
 
 # Workstation diagnostic, crash, and performance logging
 if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -z "${XDG_STATE_HOME:-}" ]]; then
@@ -128,25 +129,114 @@ fi
 
 # Helper to resolve workstation-aurelia executable deterministically
 resolve_aurelia_bin() {
-    if [[ -n "${WORKSTATION_AURELIA_BIN:-}" ]]; then
+    if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+       [[ -n "${WORKSTATION_AURELIA_BIN:-}" ]]; then
         if [[ -x "$WORKSTATION_AURELIA_BIN" ]]; then
             printf '%s\n' "$WORKSTATION_AURELIA_BIN"
             return 0
         fi
         return 1
     fi
-    local candidate
-    for candidate in "/usr/local/bin/workstation-aurelia" "$script_dir/workstation-aurelia"; do
-        if [[ -x "$candidate" ]]; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-    if command -v workstation-aurelia >/dev/null 2>&1; then
-        command -v workstation-aurelia
+    if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+       [[ -x "$script_dir/workstation-aurelia" ]]; then
+        printf '%s\n' "$script_dir/workstation-aurelia"
+        return 0
+    fi
+    if [[ -x "/usr/local/bin/workstation-aurelia" ]]; then
+        printf '%s\n' "/usr/local/bin/workstation-aurelia"
         return 0
     fi
     return 1
+}
+
+find_quickshell_runtime() {
+    local current_uid="${UID:-$(id -u)}"
+    local expected_root="${1:-}"
+    local line pid comm args process_root
+
+    while IFS= read -r line; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -n "$line" ]] || continue
+        pid="${line%%[[:space:]]*}"
+        args="${line#"$pid"}"
+        args="${args#"${args%%[![:space:]]*}"}"
+        comm="${args%%[[:space:]]*}"
+        args="${args#"$comm"}"
+        args="${args#"${args%%[![:space:]]*}"}"
+        comm="${comm##*/}"
+        [[ -n "$pid" && "$pid" != "$$" ]] || continue
+        [[ "$comm" == "qs" || "$comm" == "quickshell" ]] || continue
+        [[ "$args" == *shell.qml* ]] || continue
+        if [[ "$args" =~ --path[[:space:]]+([^[:space:]]+) ]]; then
+            process_root="${BASH_REMATCH[1]}"
+            if [[ -d "$process_root" && -f "$process_root/shell.qml" ]]; then
+                process_root="$process_root/shell.qml"
+            fi
+            if [[ -n "$expected_root" && "$process_root" != "$expected_root" ]]; then
+                continue
+            fi
+            printf '%s\t%s\n' "$pid" "$args"
+            return 0
+        fi
+    done < <(ps -u "$current_uid" -o pid=,args= 2>/dev/null || true)
+
+    return 1
+}
+
+runtime_manifest_path() {
+    if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+       [[ -n "${AURELIA_KEYBINDINGS_MANIFEST_PATH:-}" ]]; then
+        printf '%s\n' "$AURELIA_KEYBINDINGS_MANIFEST_PATH"
+    else
+        printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/aurelia/keybindings/deployment-manifest.json"
+    fi
+}
+
+runtime_backend_path() {
+    if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" && -n "${AURELIA_SHELL_KEYBINDINGS_BIN:-}" && -x "$AURELIA_SHELL_KEYBINDINGS_BIN" ]]; then
+        printf '%s\n' "$AURELIA_SHELL_KEYBINDINGS_BIN"
+    else
+        printf '%s\n' "/usr/local/bin/aurelia-shell-keybindings"
+    fi
+}
+
+runtime_provider() {
+    if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -n "${KEYBINDINGS_TEST_PROVIDER:-}" ]]; then
+        printf '%s\n' "$KEYBINDINGS_TEST_PROVIDER"
+        return 0
+    fi
+    if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -n "${HOTKEYS_TEST_PROVIDER:-}" ]]; then
+        printf '%s\n' "$HOTKEYS_TEST_PROVIDER"
+        return 0
+    fi
+
+    local config_file="${XDG_CONFIG_HOME:-$HOME/.config}/workstation/desktop.conf"
+    if [[ -f "$config_file" ]]; then
+        local provider
+        provider="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$config_file" 2>/dev/null | tail -n 1 | cut -d '=' -f2 | tr -d ' "[:space:]' || true)"
+        if [[ -n "$provider" ]]; then
+            printf '%s\n' "$provider"
+            return 0
+        fi
+    fi
+    printf '%s\n' "aurelia"
+}
+
+resolve_quickshell_bin() {
+    if [[ ("${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1") &&
+          -n "${QUICKSHELL_BIN:-}" && -x "$QUICKSHELL_BIN" ]]; then
+        printf '%s\n' "$QUICKSHELL_BIN"
+    elif [[ "${WORKSTATION_TEST_MODE:-0}" == "1" ]] && command -v qs >/dev/null 2>&1; then
+        # Test-only PATH injection keeps the isolated mock harness deterministic;
+        # production dispatch uses the fixed managed runtime paths below.
+        command -v qs
+    elif [[ -x "/usr/bin/qs" ]]; then
+        printf '%s\n' "/usr/bin/qs"
+    elif [[ -x "/usr/bin/quickshell" ]]; then
+        printf '%s\n' "/usr/bin/quickshell"
+    else
+        return 1
+    fi
 }
 
 run_diagnostics_runtime() {
@@ -157,48 +247,87 @@ run_diagnostics_runtime() {
         fi
     done
 
-    local exe_path exe_hash active_qml_root component_path running_pid live_revision layer_namespace motion_enabled motion_scale active_view
-
-    exe_path="$(readlink -f "${BASH_SOURCE[0]}")"
-    exe_hash="$(sha256sum "$exe_path" 2>/dev/null | awk '{print $1}')"
-
-    active_qml_root=""
-    if [[ -n "${AURELIA_QML_ROOT:-}" && -f "$AURELIA_QML_ROOT" ]]; then
+    local source_qml_root="$script_dir/../dotfiles/aurelia"
+    local active_qml_root=""
+    if [[ ("${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1") &&
+          -n "${AURELIA_QML_ROOT:-}" && -f "$AURELIA_QML_ROOT" ]]; then
         active_qml_root="$AURELIA_QML_ROOT"
     elif [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml" ]]; then
         active_qml_root="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
-    elif [[ -f "$script_dir/../dotfiles/aurelia/shell.qml" ]]; then
-        active_qml_root="$script_dir/../dotfiles/aurelia/shell.qml"
+    elif [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+         [[ -f "$source_qml_root/shell.qml" ]]; then
+        active_qml_root="$source_qml_root/shell.qml"
     fi
 
-    component_path=""
-    if [[ -n "$active_qml_root" ]]; then
-        component_path="$(dirname "$active_qml_root")/components/keybindings"
+    local running_pid="" running_args="" running_qml_root=""
+    local runtime_info=""
+    if ! runtime_info="$(find_quickshell_runtime "$active_qml_root" 2>/dev/null)" &&
+       [[ -n "$active_qml_root" ]]; then
+        # If the configured Aurelia tree is not the resident process, expose
+        # the other Quickshell root so a stale or wrong instance is diagnosable.
+        runtime_info="$(find_quickshell_runtime 2>/dev/null || true)"
+    fi
+    if [[ -n "$runtime_info" ]]; then
+        IFS=$'\t' read -r running_pid running_args <<< "$runtime_info"
+        if [[ "$running_args" =~ --path[[:space:]]+([^[:space:]]+) ]]; then
+            running_qml_root="${BASH_REMATCH[1]}"
+            if [[ -d "$running_qml_root" && -f "$running_qml_root/shell.qml" ]]; then
+                running_qml_root="$running_qml_root/shell.qml"
+            fi
+        fi
+    fi
+    if [[ -z "$running_qml_root" ]]; then
+        running_qml_root="not running"
     fi
 
-    running_pid="$(pgrep -u "$UID" -f "qs.*shell\.qml" 2>/dev/null | head -n1 || true)"
-    if [[ -z "$running_pid" ]]; then
-        running_pid="$(pgrep -u "$UID" -f "quickshell.*shell\.qml" 2>/dev/null | head -n1 || true)"
+    local ipc_qml_root="$running_qml_root"
+    if [[ "$ipc_qml_root" == "not running" ]]; then
+        ipc_qml_root="$active_qml_root"
     fi
 
-    live_revision="not running"
-    active_view="none"
-    if [[ -n "$running_pid" && -n "$active_qml_root" ]] && command -v qs >/dev/null 2>&1; then
+    local live_revision="not running"
+    local active_view="none"
+    local qs_bin=""
+    if qs_bin="$(resolve_quickshell_bin 2>/dev/null)" &&
+       [[ -n "$running_pid" && "$running_pid" =~ ^[0-9]+$ ]] &&
+       [[ -n "$ipc_qml_root" && -f "$ipc_qml_root" ]]; then
         local q_rev q_view
-        q_rev="$(qs ipc -p "$active_qml_root" call keybindings revision 2>/dev/null || true)"
+        q_rev="$("$qs_bin" ipc --path "$ipc_qml_root" call keybindings revision 2>/dev/null || true)"
         if [[ -n "$q_rev" ]]; then
             live_revision="$q_rev"
         fi
-        q_view="$(qs ipc -p "$active_qml_root" call keybindings activeView 2>/dev/null || true)"
+        q_view="$("$qs_bin" ipc --path "$ipc_qml_root" call keybindings activeView 2>/dev/null || true)"
         if [[ -n "$q_view" ]]; then
             active_view="$q_view"
         fi
     fi
 
-    layer_namespace="aurelia-keybindings"
+    local managed_component_root=""
+    local deployed_qml_root=""
+    if [[ -n "$active_qml_root" ]]; then
+        deployed_qml_root="$(dirname "$active_qml_root")"
+        managed_component_root="$deployed_qml_root/components/keybindings"
+    fi
+    # When a resident process is present, compare the actual running tree so
+    # a stale copied configuration cannot appear healthy merely because the
+    # current managed symlink/configuration is up to date.
+    if [[ "$running_qml_root" != "not running" && -f "$running_qml_root" ]]; then
+        deployed_qml_root="$(dirname "$running_qml_root")"
+        if [[ -z "$managed_component_root" ]]; then
+            managed_component_root="$deployed_qml_root/components/keybindings"
+        fi
+    fi
 
-    motion_enabled="true"
-    motion_scale="1.0"
+    local canonical_backend_path canonical_backend_hash=""
+    canonical_backend_path="$(runtime_backend_path)"
+    if [[ -f "$canonical_backend_path" ]]; then
+        canonical_backend_hash="$(sha256sum "$canonical_backend_path" 2>/dev/null | awk '{print $1}')"
+    fi
+
+    local provider
+    provider="$(runtime_provider)"
+    local motion_enabled="true" motion_scale="1.0"
+    local aurelia_bin=""
     if aurelia_bin="$(resolve_aurelia_bin 2>/dev/null)"; then
         local me ms
         me="$("$aurelia_bin" preference get components.keybindings.motion.enabled 2>/dev/null || true)"
@@ -207,42 +336,217 @@ run_diagnostics_runtime() {
         [[ -n "$ms" ]] && motion_scale="$ms"
     fi
 
-    if [[ "$format_json" -eq 1 ]]; then
-        if command -v python3 >/dev/null 2>&1; then
-            python3 -c "
-import json, sys
-data = {
-    'executable_path': sys.argv[1],
-    'executable_sha256': sys.argv[2],
-    'active_qml_root': sys.argv[3],
-    'component_path': sys.argv[4],
-    'running_pid': int(sys.argv[5]) if sys.argv[5].isdigit() else None,
-    'live_ui_revision': sys.argv[6],
-    'layer_namespace': sys.argv[7],
-    'motion_state': {
-        'enabled': sys.argv[8] == 'true',
-        'scale': float(sys.argv[9]) if sys.argv[9].replace('.', '', 1).isdigit() else 1.0
-    },
-    'active_view': sys.argv[10]
-}
-print(json.dumps(data, indent=2))
-" "$exe_path" "$exe_hash" "$active_qml_root" "$component_path" "$running_pid" "$live_revision" "$layer_namespace" "$motion_enabled" "$motion_scale" "$active_view"
-        else
-            printf '{\n  "executable_path": "%s",\n  "executable_sha256": "%s",\n  "active_qml_root": "%s",\n  "component_path": "%s",\n  "running_pid": %s,\n  "live_ui_revision": "%s",\n  "layer_namespace": "%s",\n  "motion_state": {\n    "enabled": %s,\n    "scale": %s\n  },\n  "active_view": "%s"\n}\n' \
-                "$exe_path" "$exe_hash" "$active_qml_root" "$component_path" "${running_pid:-null}" "$live_revision" "$layer_namespace" "$([ "$motion_enabled" == "true" ] && echo "true" || echo "false")" "$motion_scale" "$active_view"
-        fi
-    else
-        printf '=== Aurelia Shell Keybindings Runtime Diagnostics ===\n'
-        printf 'Executable Path   : %s\n' "$exe_path"
-        printf 'Executable SHA256 : %s\n' "$exe_hash"
-        printf 'Active QML Root   : %s\n' "$active_qml_root"
-        printf 'Component Path    : %s\n' "$component_path"
-        printf 'Quickshell PID    : %s\n' "${running_pid:-not running}"
-        printf 'Live UI Revision  : %s\n' "$live_revision"
-        printf 'Layer Namespace   : %s\n' "$layer_namespace"
-        printf 'Motion State      : %s (scale: %s)\n' "$([ "$motion_enabled" == "true" ] && echo "enabled" || echo "disabled")" "$motion_scale"
-        printf 'Active View       : %s\n' "$active_view"
+    local manifest_path
+    manifest_path="$(runtime_manifest_path)"
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        printf '%s\n' "Error: python3 is required for authoritative runtime diagnostics." >&2
+        return 1
     fi
+
+    python3 - "$format_json" "$canonical_backend_path" "$canonical_backend_hash" \
+        "$active_qml_root" "$running_qml_root" "$managed_component_root" \
+        "$running_pid" "$live_revision" "$active_view" "$provider" \
+        "$motion_enabled" "$motion_scale" "aurelia-keybindings" "$manifest_path" \
+        "$source_qml_root" "$deployed_qml_root" "$script_dir/aurelia-shell-keybindings" <<'PY_DIAGNOSTICS'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+RELATIVE_FILES = (
+    "shell.qml",
+    "components/keybindings/KeybindingsWindow.qml",
+    "components/keybindings/KeybindingsSettings.qml",
+    "components/keybindings/KeybindingsConfig.qml",
+    "components/keybindings/KeybindingsModel.qml",
+    "components/keybindings/KeybindingRow.qml",
+    "components/keybindings/qmldir",
+    "theme/Theme.qml",
+)
+
+def digest(path):
+    try:
+        with open(path, "rb") as handle:
+            hasher = hashlib.sha256()
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+            return hasher.hexdigest()
+    except (OSError, TypeError):
+        return None
+
+def entries(root):
+    if not root:
+        return [{"path": rel, "sha256": None} for rel in RELATIVE_FILES]
+    root_path = Path(root)
+    return [{"path": rel, "sha256": digest(root_path / rel)} for rel in RELATIVE_FILES]
+
+def entry_map(items):
+    if not isinstance(items, list):
+        return {}
+    result = {}
+    for item in items:
+        if isinstance(item, dict) and isinstance(item.get("path"), str):
+            result[item["path"]] = item.get("sha256")
+    return result
+
+(
+    format_json,
+    canonical_backend_path,
+    canonical_backend_hash,
+    active_qml_root,
+    running_qml_root,
+    managed_component_root,
+    running_pid,
+    live_revision,
+    active_view,
+    provider,
+    motion_enabled,
+    motion_scale,
+    layer_namespace,
+    manifest_path,
+    source_qml_root,
+    deployed_qml_root,
+    source_backend_path,
+) = sys.argv[1:18]
+
+source_backend_hash = digest(source_backend_path)
+source_entries = entries(source_qml_root)
+manifest_source = "repository-fallback"
+manifest_errors = []
+raw_expected = None
+
+if manifest_path:
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if isinstance(payload, dict) and isinstance(payload.get("expected"), dict):
+            raw_expected = payload["expected"]
+            manifest_source = "deployment"
+        else:
+            manifest_errors.append("deployment manifest malformed: expected object missing")
+    except FileNotFoundError:
+        manifest_errors.append("deployment manifest missing")
+    except (OSError, ValueError, TypeError):
+        manifest_errors.append("deployment manifest unreadable or invalid JSON")
+
+if raw_expected is None:
+    expected_backend_hash = source_backend_hash
+    expected_files = source_entries
+    expected_backend_path = source_backend_path
+else:
+    expected_backend_hash = raw_expected.get("backend_sha256")
+    expected_backend_path = raw_expected.get("backend_path") or source_backend_path
+    expected_by_path = entry_map(raw_expected.get("files"))
+    expected_files = []
+    for relative_path in RELATIVE_FILES:
+        if relative_path in expected_by_path:
+            expected_files.append({
+                "path": relative_path,
+                "sha256": expected_by_path[relative_path],
+            })
+        else:
+            expected_files.append({"path": relative_path, "sha256": None})
+            manifest_errors.append("deployment manifest missing expected hash: " + relative_path)
+    if not isinstance(expected_backend_hash, str) or not expected_backend_hash:
+        manifest_errors.append("deployment manifest missing expected backend hash")
+        expected_backend_hash = None
+
+expected_manifest = {
+    "schema": 1,
+    "component": "aurelia-keybindings",
+    "qml_root": raw_expected.get("qml_root", source_qml_root) if raw_expected else source_qml_root,
+    "backend_path": expected_backend_path,
+    "backend_sha256": expected_backend_hash,
+    "files": expected_files,
+}
+
+deployed_manifest = {
+    "schema": 1,
+    "component": "aurelia-keybindings",
+    "qml_root": deployed_qml_root,
+    "backend_path": canonical_backend_path,
+    "backend_sha256": canonical_backend_hash or None,
+    "files": entries(deployed_qml_root),
+}
+
+mismatches = list(manifest_errors)
+if expected_backend_hash != canonical_backend_hash:
+    mismatches.append(
+        "backend: expected " + str(expected_backend_hash or "missing") +
+        ", deployed " + str(canonical_backend_hash or "missing")
+    )
+deployed_by_path = entry_map(deployed_manifest["files"])
+for expected_file in expected_files:
+    relative_path = expected_file["path"]
+    expected_hash = expected_file.get("sha256")
+    deployed_hash = deployed_by_path.get(relative_path)
+    if expected_hash != deployed_hash:
+        mismatches.append(
+            "files/" + relative_path + ": expected " +
+            str(expected_hash or "missing") + ", deployed " +
+            str(deployed_hash or "missing")
+        )
+
+try:
+    motion_scale_value = float(motion_scale)
+except (TypeError, ValueError):
+    motion_scale_value = None
+
+diagnostics = {
+    "component": "aurelia-keybindings",
+    "canonical_backend": {
+        "path": canonical_backend_path,
+        "sha256": canonical_backend_hash or None,
+    },
+    "executable_path": canonical_backend_path,
+    "executable_sha256": canonical_backend_hash or None,
+    "active_qml_root": active_qml_root or None,
+    "running_qml_root": running_qml_root if running_qml_root != "not running" else None,
+    "managed_component_root": managed_component_root or None,
+    "component_path": managed_component_root or None,
+    "running_quickshell_pid": int(running_pid) if running_pid.isdigit() else None,
+    "running_pid": int(running_pid) if running_pid.isdigit() else None,
+    "live_ui_revision": live_revision,
+    "active_view": active_view,
+    "provider": provider,
+    "motion_state": {
+        "enabled": str(motion_enabled).lower() in ("1", "true", "yes"),
+        "scale": motion_scale_value,
+    },
+    "effective_motion": {
+        "enabled": str(motion_enabled).lower() in ("1", "true", "yes"),
+        "scale": motion_scale_value,
+    },
+    "layer_namespace": layer_namespace,
+    "expected_manifest_path": manifest_path or None,
+    "manifest_source": manifest_source,
+    "expected_manifest": expected_manifest,
+    "deployed_manifest": deployed_manifest,
+    "manifest_mismatches": mismatches,
+}
+if format_json == "1":
+    print(json.dumps(diagnostics, indent=2, sort_keys=True))
+else:
+    print("=== Aurelia Shell Keybindings Runtime Diagnostics ===")
+    print("Canonical Backend Path : " + str(canonical_backend_path))
+    print("Canonical Backend SHA256: " + str(canonical_backend_hash or "missing"))
+    print("Running Quickshell PID : " + str(diagnostics["running_quickshell_pid"] or "not running"))
+    print("Running QML Root       : " + str(running_qml_root))
+    print("Managed Component Root : " + str(managed_component_root or "missing"))
+    print("Expected Manifest Path : " + str(manifest_path or "missing"))
+    print("Manifest Source        : " + manifest_source)
+    print("Expected Manifest      : " + json.dumps(expected_manifest, sort_keys=True))
+    print("Deployed Manifest      : " + json.dumps(deployed_manifest, sort_keys=True))
+    print("Manifest Mismatches    : " + ("none" if not mismatches else "; ".join(mismatches)))
+    print("Provider               : " + str(provider))
+    print("Live UI Revision       : " + str(live_revision))
+    print("Layer Namespace        : " + str(layer_namespace))
+    print("Motion State           : enabled=" + str(diagnostics["motion_state"]["enabled"]).lower() +
+          " scale=" + str(motion_scale_value))
+    print("Active View            : " + str(active_view))
+PY_DIAGNOSTICS
 }
 
 # Subcommands delegating to workstation-aurelia Shell Core
@@ -381,7 +685,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         help|-h|--help)
-            printf 'Usage: workstation-keybindings [toggle|json|apps|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>|choose-file|complete-path <prefix>]\n'
+            printf 'Usage: aurelia-shell-keybindings [toggle|json|apps|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>|choose-file|complete-path <prefix>]\n'
             exit 0
             ;;
         *)
@@ -1287,7 +1591,7 @@ if [[ "${AURELIA_SIMULATE_FAIL:-${HOTKEYS_SIMULATE_AURELIA_FAIL:-0}}" == "1" ]];
     exit 1
 fi
 
-qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
+qs_bin="$(resolve_quickshell_bin 2>/dev/null || true)"
 if [[ -z "$qs_bin" ]]; then
     log_event "ERROR" "Quickshell runtime binary not found" "dispatch"
     notify_user critical "Keybindings Error" "Quickshell runtime binary not found."
@@ -1295,9 +1599,18 @@ if [[ -z "$qs_bin" ]]; then
     exit 1
 fi
 
-# Locate the Aurelia shell QML configuration
-aurelia_shell="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
-if [[ ! -f "$aurelia_shell" ]]; then
+# Locate the Aurelia shell QML configuration. An explicit root is restricted
+# to development mode so production cannot silently route around the managed
+# deployment path.
+aurelia_shell=""
+if [[ ("${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1") &&
+      -n "${AURELIA_QML_ROOT:-}" && -f "$AURELIA_QML_ROOT" ]]; then
+    aurelia_shell="$AURELIA_QML_ROOT"
+else
+    aurelia_shell="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
+fi
+if [[ ! -f "$aurelia_shell" &&
+      ("${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1") ]]; then
     aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
 fi
 if [[ ! -f "$aurelia_shell" ]]; then

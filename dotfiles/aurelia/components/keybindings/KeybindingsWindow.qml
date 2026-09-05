@@ -175,18 +175,19 @@ PanelWindow {
 
         console.info("[EVENT] keybindings.view.cycle from=" + current + " to=" + nextView + " forward=" + forward)
         keybindingsModel.switchView(nextView)
+        focusActiveView(nextView)
+    }
 
-        Qt.callLater(function() {
-            if (nextView === "bound" || nextView === "unbound") {
-                searchInput.forceActiveFocus()
-            } else if (nextView === "add_action_type") {
-                listView.forceActiveFocus()
-            } else if (nextView === "settings") {
-                if (typeof settingsView !== "undefined" && settingsView) {
-                    settingsView.forceActiveFocus()
-                }
-            }
-        })
+    function focusActiveView(view): void {
+        if (view === "bound" || view === "unbound" || view === "add_app") {
+            searchInput.forceActiveFocus()
+        } else if (view === "add_action_type") {
+            listView.forceActiveFocus()
+        } else if (view === "add_exec") {
+            addExecForm.focusFirstField()
+        } else if (view === "settings" && settingsView) {
+            settingsView.forceActiveFocus()
+        }
     }
 
     // 3-State Capture Machine: "idle", "entering_capture", "capture_armed", "validating", "conflict"
@@ -228,7 +229,7 @@ PanelWindow {
             windowRoot.initiatingKey = 0
             windowRoot.captureState = "capture_armed"
             keybindingsModel.operationState = "capturing"
-            keybindingsModel.operationMessage = "Set " + (item.description || "Shortcut") + " — press key combination (e.g. SUPER + SHIFT + T)..."
+            keybindingsModel.operationMessage = "Set " + (item.description || "Shortcut") + " — press a modifier and key combination..."
         }
     }
 
@@ -255,7 +256,7 @@ PanelWindow {
             return
         }
         keybindingsModel.switchView("add_action_type")
-        Qt.callLater(function() { listView.forceActiveFocus() })
+        focusActiveView("add_action_type")
     }
 
     function requestClose(reason) {
@@ -263,7 +264,7 @@ PanelWindow {
             console.warn("[LIFECYCLE] keybindings.window.close.request rejected reason=" + (reason || "unknown") + " (browseActive=true)")
             return
         }
-        console.info("[LIFECYCLE] keybindings.window.close.request reason=" + (reason || "unknown") + " view=" + keybindingsModel.activeView + " stack=" + new Error().stack)
+        console.info("[LIFECYCLE] keybindings.window.close.request reason=" + (reason || "unknown") + " view=" + keybindingsModel.activeView)
         windowRoot.visible = false
     }
 
@@ -280,17 +281,43 @@ PanelWindow {
         console.info("[EVENT] keybindings.navigation.back from_view=" + view)
         if (view === "add_app" || view === "add_exec") {
             keybindingsModel.switchView("add_action_type")
-            Qt.callLater(function() { listView.forceActiveFocus() })
+            focusActiveView("add_action_type")
         } else if (view === "add_action_type" || view === "settings") {
             var dest = keybindingsModel.previousRootView || "bound"
             keybindingsModel.switchView(dest)
-            Qt.callLater(function() { searchInput.forceActiveFocus() })
+            focusActiveView(dest)
         } else {
             windowRoot.requestClose("escape-from-root")
         }
     }
 
-    property double activationCooldownUntil: 0
+    // Keyboard activation ownership is tied to the physical key gesture, not elapsed time.
+    // A Return/Enter press is claimed once and remains owned until its matching release.
+    // This prevents a held key from activating the destination view after focus changes.
+    property bool activationGestureHeld: false
+    property int activationGestureKey: 0
+
+    function isReturnOrEnter(event): bool {
+        return event && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+    }
+
+    function claimActivationKey(event): bool {
+        if (!isReturnOrEnter(event)) return true
+        if (event.isAutoRepeat === true || activationGestureHeld) return false
+        activationGestureHeld = true
+        activationGestureKey = event.key
+        return true
+    }
+
+    function handleActivationKeyRelease(event): bool {
+        if (!isReturnOrEnter(event)) return false
+        if (activationGestureHeld && activationGestureKey === event.key) {
+            activationGestureHeld = false
+            activationGestureKey = 0
+        }
+        event.accepted = true
+        return true
+    }
 
     Component.onCompleted: {
         console.info("[PROVENANCE] keybindings.ui.revision=" + KeybindingsConfig.uiRevision)
@@ -298,11 +325,7 @@ PanelWindow {
 
     function activateSelected(): bool {
         var source = arguments.length > 0 ? arguments[0] : "keyboard"
-        console.info("[EVENT] keybindings.activate.begin source=" + source + " view=" + keybindingsModel.activeView + " selIdx=" + keybindingsModel.selectedIndex + " item=" + (keybindingsModel.selectedItem ? (keybindingsModel.selectedItem.id || keybindingsModel.selectedItem.display_key) : "null") + " stack=" + new Error().stack)
-        if (Date.now() < activationCooldownUntil) {
-            console.warn("[EVENT] keybindings.activate.rejected reason=view_transition_cooldown source=" + source)
-            return false
-        }
+        console.info("[EVENT] keybindings.activate.begin source=" + source + " view=" + keybindingsModel.activeView + " selIdx=" + keybindingsModel.selectedIndex + " item=" + (keybindingsModel.selectedItem ? (keybindingsModel.selectedItem.id || keybindingsModel.selectedItem.display_key) : "null"))
         if (keybindingsModel.isMutating) {
             console.warn("[EVENT] keybindings.activate.rejected reason=mutating source=" + source)
             return false
@@ -324,18 +347,12 @@ PanelWindow {
                 if (item.action_type_kind === "application") {
                     console.info("[EVENT] keybindings.application_picker.open")
                     keybindingsModel.switchView("add_app")
-                    Qt.callLater(function() { searchInput.forceActiveFocus() })
+                    focusActiveView("add_app")
                     return true
                 } else if (item.action_type_kind === "executable") {
                     console.info("[EVENT] keybindings.executable_form.open")
                     keybindingsModel.switchView("add_exec")
-                    Qt.callLater(function() {
-                        if (typeof addExecForm !== "undefined" && typeof addExecForm.focusFirstField === "function") {
-                            addExecForm.focusFirstField()
-                        } else if (typeof execNameInput !== "undefined") {
-                            execNameInput.forceActiveFocus()
-                        }
-                    })
+                    focusActiveView("add_exec")
                     return true
                 } else {
                     console.warn("[NAV] activateSelected: unexpected action_type_kind: " + (item.action_type_kind || "undefined"))
@@ -384,7 +401,7 @@ PanelWindow {
                 windowRoot.initiatingKey = 0
                 windowRoot.captureState = "capture_armed"
                 keybindingsModel.operationState = "capturing"
-                keybindingsModel.operationMessage = "Set " + (windowRoot.recordingItem ? windowRoot.recordingItem.description : "Shortcut") + " — press key combination (e.g. SUPER + SHIFT + T)..."
+                keybindingsModel.operationMessage = "Set " + (windowRoot.recordingItem ? windowRoot.recordingItem.description : "Shortcut") + " — press a modifier and key combination..."
             }
             event.accepted = true
             return
@@ -393,6 +410,16 @@ PanelWindow {
 
     function handleRecordingKeyPress(event): bool {
         if (!windowRoot.isRecording) return false
+
+        // Repeated key events never become a second capture or confirmation.
+        if (event.isAutoRepeat === true) {
+            event.accepted = true
+            return true
+        }
+        if (windowRoot.isReturnOrEnter(event) && !windowRoot.claimActivationKey(event)) {
+            event.accepted = true
+            return true
+        }
 
         // Escape cancels capture unconditionally
         if (event.key === Qt.Key_Escape) {
@@ -607,7 +634,6 @@ PanelWindow {
     onVisibleChanged: {
         if (visible) {
             console.info("[LIFECYCLE] keybindings.window.visible=true")
-            var openT0 = Date.now()
             keybindingsModel.operationState = "idle"
             keybindingsModel.operationMessage = ""
             recordingItem = null
@@ -620,12 +646,16 @@ PanelWindow {
                 keybindingsModel.filterItems()
             }
             searchInput.forceActiveFocus()
-            console.info("[PERF] KeybindingsWindow: Window displayed and input focused in " + (Date.now() - openT0) + "ms")
         } else {
             console.info("[LIFECYCLE] keybindings.window.hidden")
             keybindingsModel.operationState = "idle"
             keybindingsModel.operationMessage = ""
             recordingItem = null
+            // A close can move focus away before the physical key-up arrives.
+            // Clear the per-window claim so the next visible physical gesture
+            // is not blocked by stale state.
+            activationGestureHeld = false
+            activationGestureKey = 0
             console.info("[PERF] KeybindingsWindow: Window hidden")
         }
     }
@@ -636,30 +666,9 @@ PanelWindow {
 
     Connections {
         target: keybindingsModel
-        function onActiveViewChanged() {
-            windowRoot.activationCooldownUntil = Date.now() + 400
-        }
         function onSelectedIndexChanged() {
             if (keybindingsModel.selectedIndex >= 0 && keybindingsModel.selectedIndex < listView.count) {
                 listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
-            }
-        }
-        function onOperationStateChanged() {
-            if (keybindingsModel.operationState === "success") {
-                successResetTimer.restart()
-            }
-        }
-    }
-
-    Timer {
-        id: successResetTimer
-        interval: 2500
-        repeat: false
-        onTriggered: {
-            if (keybindingsModel.operationState === "success") {
-                keybindingsModel.operationState = "idle"
-                keybindingsModel.operationMessage = ""
-                windowRoot.recordingItem = null
             }
         }
     }
@@ -736,6 +745,9 @@ PanelWindow {
         }
 
         Keys.onReleased: function(event) {
+            if (windowRoot.handleActivationKeyRelease(event)) {
+                return
+            }
             if (windowRoot.isRecording) {
                 windowRoot.handleRecordingKeyRelease(event)
                 event.accepted = true
@@ -869,6 +881,9 @@ PanelWindow {
                     }
 
                     Keys.onReleased: function(event) {
+                        if (windowRoot.handleActivationKeyRelease(event)) {
+                            return
+                        }
                         if (windowRoot.isRecording) {
                             windowRoot.handleRecordingKeyRelease(event)
                             event.accepted = true
@@ -913,12 +928,11 @@ PanelWindow {
                             event.accepted = true
                             return
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
+                            event.accepted = true
+                            if (!windowRoot.claimActivationKey(event)) {
                                 return
                             }
                             console.info("[EVENT] keybindings.input.enter target=searchInput activeView=" + keybindingsModel.activeView)
-                            event.accepted = true
                             windowRoot.activateSelected("keyboard")
                             return
                         }
@@ -1106,6 +1120,9 @@ PanelWindow {
                     }
 
                     Keys.onReleased: function(event) {
+                        if (windowRoot.handleActivationKeyRelease(event)) {
+                            return
+                        }
                         if (windowRoot.isRecording) {
                             windowRoot.handleRecordingKeyRelease(event)
                             event.accepted = true
@@ -1168,12 +1185,11 @@ PanelWindow {
 
                         // 6. Return / Enter: Authoritative activation
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
+                            event.accepted = true
+                            if (!windowRoot.claimActivationKey(event)) {
                                 return
                             }
                             console.info("[EVENT] keybindings.input.enter target=listView activeView=" + keybindingsModel.activeView)
-                            event.accepted = true
                             windowRoot.activateSelected("keyboard")
                             return
                         }
@@ -1227,6 +1243,14 @@ PanelWindow {
                         execNameInput.forceActiveFocus()
                     }
 
+                    function stableActionSuffix(value): string {
+                        var hash = 7
+                        for (var i = 0; i < value.length; i++) {
+                            hash = (hash * 31 + value.charCodeAt(i)) % 2147483647
+                        }
+                        return Math.abs(hash).toString(16)
+                    }
+
                     function submitExecForm() {
                         var name = execNameInput.text.trim()
                         var path = execPathInput.text.trim()
@@ -1245,7 +1269,7 @@ PanelWindow {
 
                         var idPart = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
                         if (!idPart) {
-                            idPart = "custom_exec_" + Date.now()
+                            idPart = "custom_exec_" + addExecForm.stableActionSuffix(name + "\n" + path + "\n" + args)
                         }
                         var actionId = "exec:" + idPart
 
@@ -1425,6 +1449,10 @@ PanelWindow {
                                         visible: !execNameInput.text
                                     }
                                     Keys.onPressed: function(event) {
+                                        if (windowRoot.isReturnOrEnter(event)) {
+                                            event.accepted = true
+                                            if (!windowRoot.claimActivationKey(event)) return
+                                        }
                                         if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
                                             windowRoot.goBack()
                                             event.accepted = true
@@ -1440,6 +1468,9 @@ PanelWindow {
                                             windowRoot.goBack()
                                             event.accepted = true
                                         }
+                                    }
+                                    Keys.onReleased: function(event) {
+                                        windowRoot.handleActivationKeyRelease(event)
                                     }
                                 }
                             }
@@ -1523,6 +1554,10 @@ PanelWindow {
                                         }
 
                                         Keys.onPressed: function(event) {
+                                            if (windowRoot.isReturnOrEnter(event)) {
+                                                event.accepted = true
+                                                if (!windowRoot.claimActivationKey(event)) return
+                                            }
                                             if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
                                                 windowRoot.goBack()
                                                 event.accepted = true
@@ -1580,6 +1615,9 @@ PanelWindow {
                                                 windowRoot.goBack()
                                                 event.accepted = true
                                             }
+                                        }
+                                        Keys.onReleased: function(event) {
+                                            windowRoot.handleActivationKeyRelease(event)
                                         }
                                     }
 
@@ -1686,6 +1724,14 @@ PanelWindow {
                                     }
 
                                     Keys.onPressed: function(event) {
+                                        if (event.isAutoRepeat === true) {
+                                            event.accepted = true
+                                            return
+                                        }
+                                        if (windowRoot.isReturnOrEnter(event)) {
+                                            event.accepted = true
+                                            if (!windowRoot.claimActivationKey(event)) return
+                                        }
                                         if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
                                             windowRoot.goBack()
                                             event.accepted = true
@@ -1707,6 +1753,9 @@ PanelWindow {
                                             execNameInput.forceActiveFocus()
                                             event.accepted = true
                                         }
+                                    }
+                                    Keys.onReleased: function(event) {
+                                        windowRoot.handleActivationKeyRelease(event)
                                     }
                                 }
                             }
@@ -1751,6 +1800,10 @@ PanelWindow {
                                         visible: !execArgsInput.text
                                     }
                                     Keys.onPressed: function(event) {
+                                        if (windowRoot.isReturnOrEnter(event)) {
+                                            event.accepted = true
+                                            if (!windowRoot.claimActivationKey(event)) return
+                                        }
                                         if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
                                             windowRoot.goBack()
                                             event.accepted = true
@@ -1766,6 +1819,9 @@ PanelWindow {
                                             windowRoot.goBack()
                                             event.accepted = true
                                         }
+                                    }
+                                    Keys.onReleased: function(event) {
+                                        windowRoot.handleActivationKeyRelease(event)
                                     }
                                 }
                             }

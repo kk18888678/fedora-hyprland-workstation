@@ -47,8 +47,6 @@ QtObject {
         reload()
     }
 
-    property var reloadStartTime: 0
-
     function reload() {
         // Concurrency guard: avoid re-entry if a fetch operation is already in progress
         if (root.isReloading) return;
@@ -58,7 +56,6 @@ QtObject {
         }
         isLoading = true
         statusMessage = ""
-        reloadStartTime = Date.now()
         fetchProcess.running = true
     }
 
@@ -151,7 +148,6 @@ QtObject {
     }
 
     function filterItems() {
-        var t0 = Date.now()
         var query = (searchQuery || "").trim().toLowerCase()
         var currentSelectedId = selectedItem ? selectedItem.id : ""
 
@@ -234,10 +230,9 @@ QtObject {
             }
         }
 
-        var filterElapsed = Date.now() - t0
-        if (filterElapsed > 15) {
-            console.warn("[PERF-WARN] KeybindingsModel: filterItems took " + filterElapsed + "ms (query length: " + query.length + ", " + filteredItems.length + " matches)")
-        }
+        // Keep diagnostics useful without ever recording search text itself.
+        console.info("[PERF] KeybindingsModel: Filtered " + filteredItems.length + " items; query length: " + query.length)
+
     }
 
     function selectNext() {
@@ -254,81 +249,30 @@ QtObject {
         }
     }
 
-    property FileView binAureliaKeybindingsCheck: FileView {
-        path: "/usr/local/bin/aurelia-shell-keybindings"
-        printErrors: false
-    }
-
-    property FileView binUserLocalAureliaCheck: FileView {
-        path: Quickshell.env("HOME") ? (Quickshell.env("HOME") + "/.local/bin/aurelia-shell-keybindings") : ""
-        printErrors: false
-    }
-
-    property FileView binKeybindingsCheck: FileView {
-        path: "/usr/local/bin/workstation-keybindings"
-        printErrors: false
-    }
-
-    property FileView binUserLocalCheck: FileView {
-        path: Quickshell.env("HOME") ? (Quickshell.env("HOME") + "/.local/bin/workstation-keybindings") : ""
-        printErrors: false
-    }
-
-    property FileView binHotkeysCheck: FileView {
-        path: "/usr/local/bin/workstation-hotkeys"
-        printErrors: false
-    }
-
-    // Deterministic backend executable resolution:
-    // 1. Explicit development/test override via AURELIA_SHELL_KEYBINDINGS_BIN, AURELIA_KEYBINDINGS_BIN, or WORKSTATION_KEYBINDINGS_BIN
-    // 2. Canonical managed system installation: /usr/local/bin/aurelia-shell-keybindings
-    // 3. User-local canonical binary: ~/.local/bin/aurelia-shell-keybindings
-    // 4. User-local override: ~/.local/bin/workstation-keybindings
-    // 5. Compatibility system fallback: /usr/local/bin/workstation-keybindings
-    // 6. Compatibility fallback: /usr/local/bin/workstation-hotkeys, aurelia-shell-keybindings
+    // Production always uses the reconciler-owned canonical executable. A
+    // development override is available only when explicitly opted into.
+    readonly property bool developmentMode: Quickshell.env("AURELIA_DEVELOPMENT_MODE") === "1"
     readonly property string backendBin: {
-        var testOverride = Quickshell.env("AURELIA_SHELL_KEYBINDINGS_BIN") || Quickshell.env("AURELIA_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_HOTKEYS_BIN") || ""
-        if (testOverride !== "") {
-            return testOverride
+        if (root.developmentMode) {
+            var explicitOverride = Quickshell.env("AURELIA_SHELL_KEYBINDINGS_BIN") || ""
+            if (explicitOverride !== "") return explicitOverride
         }
-        try {
-            var akbTxt = binAureliaKeybindingsCheck.text()
-            if (akbTxt && akbTxt.length > 0) {
-                return "/usr/local/bin/aurelia-shell-keybindings"
-            }
-        } catch (e) {}
-        try {
-            var ulAkbTxt = binUserLocalAureliaCheck.text()
-            if (ulAkbTxt && ulAkbTxt.length > 0) {
-                return Quickshell.env("HOME") + "/.local/bin/aurelia-shell-keybindings"
-            }
-        } catch (e) {}
-        try {
-            var ulTxt = binUserLocalCheck.text()
-            if (ulTxt && ulTxt.length > 0) {
-                return Quickshell.env("HOME") + "/.local/bin/workstation-keybindings"
-            }
-        } catch (e) {}
-        try {
-            var kbTxt = binKeybindingsCheck.text()
-            if (kbTxt && kbTxt.length > 0) {
-                return "/usr/local/bin/workstation-keybindings"
-            }
-        } catch (e) {}
-        try {
-            var hkTxt = binHotkeysCheck.text()
-            if (hkTxt && hkTxt.length > 0) {
-                return "/usr/local/bin/workstation-hotkeys"
-            }
-        } catch (e) {}
-        return "aurelia-shell-keybindings"
+        return "/usr/local/bin/aurelia-shell-keybindings"
     }
 
-    readonly property var procEnv: ({
-        "PATH": (Quickshell.env("HOME") ? (Quickshell.env("HOME") + "/.local/bin:") : "") + "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : "")
-    })
-
-    property var runStartTime: 0
+    readonly property var procEnv: {
+        var env = {
+            "PATH": "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : "")
+        }
+        if (root.developmentMode) {
+            env["AURELIA_DEVELOPMENT_MODE"] = "1"
+            var explicitOverride = Quickshell.env("AURELIA_SHELL_KEYBINDINGS_BIN") || ""
+            if (explicitOverride !== "") {
+                env["AURELIA_SHELL_KEYBINDINGS_BIN"] = explicitOverride
+            }
+        }
+        return env
+    }
 
     function resetOperation() {
         root.operationState = "idle"
@@ -349,7 +293,6 @@ QtObject {
         }
 
         // Direct structured argv execution through hardened backend
-        runStartTime = Date.now()
         runProcess.command = [root.backendBin, "run", item.id]
         runProcess.environment = root.procEnv
         runProcess.running = true
@@ -450,11 +393,8 @@ QtObject {
         stdout: StdioCollector {
             onStreamFinished: {
                 root.isLoading = false
-                var fetchDuration = root.reloadStartTime > 0 ? (Date.now() - root.reloadStartTime) : 0
-                var parseT0 = Date.now()
                 try {
                     var parsed = JSON.parse(this.text)
-                    var parseDuration = Date.now() - parseT0
                     if (Array.isArray(parsed)) {
                         root.allItems = parsed
                         var bList = []
@@ -474,11 +414,7 @@ QtObject {
                         root.boundItems = bList
                         root.unboundItems = uList
                         root.filterItems()
-                        if (fetchDuration > 300 || parseDuration > 20) {
-                            console.warn("[PERF-WARN] KeybindingsModel: Fetched " + parsed.length + " shortcuts in " + fetchDuration + "ms (JSON parse: " + parseDuration + "ms)")
-                        } else {
-                            console.info("[PERF] KeybindingsModel: Fetched " + parsed.length + " shortcuts in " + fetchDuration + "ms (JSON parse: " + parseDuration + "ms)")
-                        }
+                        console.info("[PERF] KeybindingsModel: Fetched " + parsed.length + " shortcuts")
                     }
                 } catch (e) {
                     console.error("[ERROR] KeybindingsModel: Failed to parse shortcut metadata: " + e + ", raw: " + this.text)
@@ -649,11 +585,10 @@ QtObject {
             }
         }
         onExited: function(code) {
-            var elapsed = root.runStartTime > 0 ? (Date.now() - root.runStartTime) : 0
             if (code !== 0) {
-                console.error("[ERROR] KeybindingsModel: runProcess exited with code " + code + " after " + elapsed + "ms")
+                console.error("[ERROR] KeybindingsModel: runProcess exited with code " + code)
             } else {
-                console.info("[PERF] KeybindingsModel: runProcess finished successfully in " + elapsed + "ms")
+                console.info("[PERF] KeybindingsModel: runProcess finished successfully")
             }
         }
     }
@@ -745,7 +680,6 @@ QtObject {
     // Backend process to complete filesystem paths for Executable / Script
     property var pathCompletions: []
     property bool isCompletingPath: completeProcess.running
-    property var completeStartTime: 0
 
     property Process completeProcess: Process {
         id: completeProcess
@@ -769,10 +703,6 @@ QtObject {
             onStreamFinished: {}
         }
         onExited: function(code) {
-            var elapsed = root.completeStartTime > 0 ? (Date.now() - root.completeStartTime) : 0
-            if (elapsed > 100) {
-                console.warn("[PERF-WARN] keybindings.autocomplete.slow duration=" + elapsed + "ms count=" + root.pathCompletions.length)
-            }
             if (code !== 0) {
                 root.pathCompletions = []
             }
@@ -784,7 +714,6 @@ QtObject {
             root.pathCompletions = []
             return
         }
-        root.completeStartTime = Date.now()
         completeProcess.command = [root.backendBin, "complete-path", prefix]
         completeProcess.running = true
     }

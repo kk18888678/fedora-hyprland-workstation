@@ -125,11 +125,12 @@ fi
 
 section "4. Deterministic Backend Executable Resolution"
 
-# 4.1: KeybindingsModel resolves /usr/local/bin before ~/.local/bin
+# 4.1: KeybindingsModel resolves the managed canonical executable
 qml_model="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"
 if [[ -f "$qml_model" ]] &&
-   grep -q '/usr/local/bin/workstation-keybindings' "$qml_model"; then
-    pass "4.1 KeybindingsModel deterministically references managed /usr/local/bin/workstation-keybindings"
+   grep -q '/usr/local/bin/aurelia-shell-keybindings' "$qml_model" &&
+   ! grep -q 'workstation-keybindings' "$qml_model"; then
+    pass "4.1 KeybindingsModel deterministically references managed /usr/local/bin/aurelia-shell-keybindings"
 else
     fail "4.1 KeybindingsModel missing deterministic /usr/local/bin resolution"
 fi
@@ -138,18 +139,18 @@ fi
 res_order="$(python3 -c '
 with open("'"$qml_model"'") as f:
     content = f.read()
-# Extract candidates array in resolveBackendBinary()
-idx_usr = content.find("/usr/local/bin/workstation-keybindings")
-idx_home = content.find(".local/bin/workstation-keybindings")
-if idx_usr != -1 and (idx_home == -1 or idx_usr < idx_home):
+# Production QML has one canonical path and no compatibility fallback.
+idx_usr = content.find("/usr/local/bin/aurelia-shell-keybindings")
+idx_home = content.find(".local/bin/aurelia-shell-keybindings")
+if idx_usr != -1 and idx_home == -1 and "workstation-keybindings" not in content:
     print("RESOLUTION_OK")
 else:
     print("SHADOW_RISK")
 ')"
 if [[ "$res_order" == "RESOLUTION_OK" ]]; then
-    pass "4.2 stale ~/.local/bin cannot shadow managed workstation installation"
+    pass "4.2 stale ~/.local/bin and compatibility names cannot shadow managed installation"
 else
-    fail "4.2 ~/.local/bin shadows /usr/local/bin in backend resolution"
+    fail "4.2 production QML backend resolution has an undocumented shadow path"
 fi
 
 section "5. Process Lifecycle: Double-Fork Detached Launch & Resource Bounds"
@@ -684,6 +685,9 @@ fi
     sb_cycle="$(mktemp -d)"
     export XDG_CONFIG_HOME="$sb_cycle/.config"
     export XDG_DATA_HOME="$sb_cycle/.local/share"
+    # Keep this isolated registry lifecycle test from touching a live Hyprland
+    # instance when the suite runs inside a graphical development session.
+    export HYPRLAND_INSTANCE_SIGNATURE=""
     mkdir -p "$XDG_CONFIG_HOME/hypr"
     mkdir -p "$XDG_DATA_HOME/applications"
     cat << "EOF" > "$XDG_DATA_HOME/applications/custom.app.desktop"
@@ -2457,13 +2461,14 @@ else
     fail "23.1 single click row focus logic missing or dismisses window in KeybindingRow.qml"
 fi
 
-# 23.2: Double click on row executes action or navigates into sub-view (via centralized activateSelected)
-if grep -q 'onDoubleClicked: {' "$row_qml" && \
-   ( ( grep -q 'activateSelected' "$row_qml" && grep -q 'function activateSelected' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && grep -q 'keybindingsModel.switchView("add_app")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" ) || \
-     ( grep -q 'keybindingsModel.switchView("add_app")' "$row_qml" && grep -q 'keybindingsModel.switchView("add_exec")' "$row_qml" && grep -q 'keybindingsModel.runSelected()' "$row_qml") ); then
-    pass "23.2 double click executes runnable action or navigates into selected sub-view"
+# 23.2: A type click owns navigation; application clicks only select
+if ! grep -q 'onDoubleClicked: {' "$row_qml" && \
+   grep -q 'viewAtClick' "$row_qml" && \
+   grep -q 'viewAtClick === "add_action_type"' "$row_qml" && \
+   grep -q 'windowRoot.activateSelected("mouse")' "$row_qml"; then
+    pass "23.2 click ownership prevents cross-view double-click fallthrough and keeps app selection non-activating"
 else
-    fail "23.2 double click interaction missing in KeybindingRow.qml"
+    fail "23.2 click ownership or application-picker safety missing in KeybindingRow.qml"
 fi
 
 # 23.3: Tab and cursor keys keep mouse selection and keyboard selection synchronized
@@ -2593,7 +2598,7 @@ section "25. Verification Matrix K: Add Action Enter Navigation Correctness & Re
 # 25.1: activateSelected centralizes row activation and prevents Enter fall-through to runSelected
 qml_win="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"
 if grep -q "function activateSelected(): bool" "$qml_win" && \
-   grep -q "windowRoot.activateSelected()" "$qml_win" && \
+   grep -q 'windowRoot.activateSelected("keyboard")' "$qml_win" && \
    grep -q "event.accepted = true" "$qml_win"; then
     pass "25.1 activateSelected centralizes row activation and explicitly consumes event"
 else
@@ -2606,7 +2611,7 @@ with open(\"$qml_win\") as f:
     c = f.read()
 idx_fn = c.find(\"function activateSelected(): bool\")
 if idx_fn != -1:
-    body = c[idx_fn:idx_fn+1500]
+    body = c[idx_fn:idx_fn+4000]
     if \"keybindingsModel.switchView(\\\"add_app\\\")\" in body and \"action_type_kind === \\\"application\\\"\" in body:
         idx_app = body.find(\"keybindingsModel.switchView(\\\"add_app\\\")\")
         app_branch = body[idx_app-100:idx_app+200]
@@ -2631,7 +2636,7 @@ with open(\"$qml_win\") as f:
     c = f.read()
 idx_fn = c.find(\"function activateSelected(): bool\")
 if idx_fn != -1:
-    body = c[idx_fn:idx_fn+1500]
+    body = c[idx_fn:idx_fn+4000]
     if \"keybindingsModel.switchView(\\\"add_exec\\\")\" in body and \"action_type_kind === \\\"executable\\\"\" in body:
         idx_exec = body.find(\"keybindingsModel.switchView(\\\"add_exec\\\")\")
         exec_branch = body[idx_exec-100:idx_exec+200]
@@ -2662,13 +2667,13 @@ else
     fail "25.4 structural re-entrancy protection missing or arbitrary timing suppression found in KeybindingsWindow.qml"
 fi
 
-# 25.5: Mouse double-click and keyboard Enter share identical activateSelected semantics
+# 25.5: Mouse type selection and keyboard Enter use the centralized activation path
 qml_row="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"
-if grep -q "windowRoot.activateSelected()" "$qml_row" && \
-   grep -q "windowRoot.activateSelected()" "$qml_win"; then
-    pass "25.5 mouse double-click and keyboard Enter share identical activateSelected semantics"
+if grep -q 'windowRoot.activateSelected("mouse")' "$qml_row" && \
+   grep -q 'windowRoot.activateSelected("keyboard")' "$qml_win"; then
+    pass "25.5 mouse Add Action type selection and keyboard Enter share centralized activation semantics"
 else
-    fail "25.5 mouse double-click does not delegate to activateSelected"
+    fail "25.5 mouse Add Action selection does not delegate to activateSelected"
 fi
 
 section "26. Verification Matrix L: Aurelia User Preferences & Layered Configuration"
@@ -3179,11 +3184,12 @@ else
     fail "34.3 S/U shortcut scoping missing or search input intercepts plain s/u in KeybindingsWindow.qml"
 fi
 
-# 34.4: Single-click activates add_action_type immediately; double-click activates bound/unbound rows
+# 34.4: Single-click activates add_action_type immediately; application rows only select
 if grep -q 'keybindingsModel.selectedIndex = rowRoot.index' "$qml_row" && \
-   grep -q 'keybindingsModel.activeView === "add_action_type"' "$qml_row" && \
-   grep -q 'windowRoot.activateSelected()' "$qml_row"; then
-    pass "34.4 single-click activates add_action_type immediately while double-click activates bound/unbound rows"
+   grep -q 'viewAtClick === "add_action_type"' "$qml_row" && \
+   grep -q 'windowRoot.activateSelected("mouse")' "$qml_row" && \
+   ! grep -q 'onDoubleClicked: {' "$qml_row"; then
+    pass "34.4 single-click activates add_action_type without double-click or app-picker fallthrough"
 else
     fail "34.4 mouse interaction model check failed in KeybindingRow.qml"
 fi
@@ -3535,12 +3541,14 @@ else
     fail "36.21 Return shortcut glyph ↵ missing in KeybindingsWindow.qml"
 fi
 
-# 36.22: QML static check: KeybindingsModel.qml checks WORKSTATION_KEYBINDINGS_BIN and ~/.local/bin
-if grep -q 'WORKSTATION_KEYBINDINGS_BIN' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
-   grep -q '/\.local/bin/workstation-keybindings' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"; then
-    pass "36.22 KeybindingsModel.qml dynamically discovers runtime binary with override and local precedence"
+# 36.22: QML static check: production uses canonical path; development override is explicit
+if grep -q 'AURELIA_DEVELOPMENT_MODE' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
+   grep -q 'AURELIA_SHELL_KEYBINDINGS_BIN' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
+   grep -q '/usr/local/bin/aurelia-shell-keybindings' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
+   ! grep -q '/\.local/bin/' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"; then
+    pass "36.22 KeybindingsModel.qml uses canonical production binary with explicit development override"
 else
-    fail "36.22 KeybindingsModel.qml missing WORKSTATION_KEYBINDINGS_BIN or local bin check"
+    fail "36.22 KeybindingsModel.qml production/development binary authority check failed"
 fi
 
 # 36.23: QML static check: KeybindingsModel.qml provides pathCompletions and fetchPathCompletions
@@ -3551,7 +3559,7 @@ else
     fail "36.23 KeybindingsModel.qml missing pathCompletions or fetchPathCompletions"
 fi
 
-section "37. Verification Matrix W: Browse Layer Mask & Suppression, Single-Click Type Navigation, ALT+B Back Navigation, Preferences Shortcuts Registry, Form Tabs Isolation, and Gesture Model Filtering"
+section "37. Verification Matrix W: Browse Layer Mask & Suppression, Click Ownership, ALT+B Back Navigation, Preferences Shortcuts Registry, Form Tabs Isolation, and Gesture Model Filtering"
 
 # 37.1: QML static check: Browse dismissal suppression & layer-shell mask with Region
 if grep -q 'mask: windowRoot\.browseActive ? browseRegion : null' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
@@ -3566,11 +3574,12 @@ else
     fail "37.1 browse dismissal suppression or layer-shell mask check failed"
 fi
 
-# 37.2: QML static check: Single-click Add Action navigation and double-click safety in KeybindingRow.qml
-if grep -q 'keybindingsModel\.activeView === "add_action_type"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml" && \
-   grep -q 'windowRoot\.activateSelected()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml" && \
-   grep -q 'if (keybindingsModel\.activeView === "add_action_type")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"; then
-    pass "37.2 single-click activates add_action_type immediately while double-click is guarded"
+# 37.2: QML static check: Single-click Add Action navigation and no double-click fallthrough
+if grep -q 'viewAtClick === "add_action_type"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml" && \
+   grep -q 'windowRoot.activateSelected("mouse")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml" && \
+   grep -q 'viewAtClick' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml" && \
+   ! grep -q 'onDoubleClicked: {' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"; then
+    pass "37.2 single-click activates add_action_type immediately with explicit click ownership"
 else
     fail "37.2 single-click navigation check failed in KeybindingRow.qml"
 fi
@@ -4048,7 +4057,7 @@ else
     fail "38.26 KeybindingsModel.qml binary resolution check failed"
 fi
 
-section "39. Verification Matrix Y: Runtime Provenance, Autorepeat Suppression, Cooldown Guards, Responsive Layout & Diagnostics"
+section "39. Verification Matrix Y: Runtime Provenance, Gesture Ownership, Responsive Layout & Diagnostics"
 
 # 39.1: KeybindingsConfig.qml registers uiRevision and design tokens
 if grep -q 'readonly property string uiRevision: "2026.09.05.r2"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsConfig.qml" && \
@@ -4079,20 +4088,25 @@ else
     fail "39.3 shell.qml missing required IPC methods"
 fi
 
-# 39.4: Return/Enter key handlers suppress auto-repeat
+# 39.4: Return/Enter key handlers suppress auto-repeat and claim the physical gesture
 if grep -q 'isAutoRepeat' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'activationCooldownUntil' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
-    pass "39.4 KeybindingsWindow.qml suppresses auto-repeated Return/Enter events"
+   grep -q 'function claimActivationKey(event)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'function handleActivationKeyRelease(event)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'activationGestureHeld' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "39.4 Return/Enter ownership suppresses auto-repeat and tracks the matching release"
 else
-    fail "39.4 KeybindingsWindow.qml missing auto-repeat suppression"
+    fail "39.4 KeybindingsWindow.qml missing physical Return/Enter gesture ownership"
 fi
 
-# 39.5: Activation cooldown on view change prevents event leaks
-if grep -q 'activationCooldownUntil' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'Date.now() < activationCooldownUntil' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
-    pass "39.5 KeybindingsWindow.qml enforces activation cooldown guard on view transition"
+# 39.5: No timing-based activation workaround or delayed focus remains
+if ! grep -q 'activationCooldownUntil' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   ! grep -q 'Date.now() <' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   ! grep -q 'Qt.callLater' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   ! grep -E -q 'Timer\s*\{' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'function focusActiveView(view)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "39.5 activation cooldown/debounce replacement is absent; focus follows synchronous view ownership"
 else
-    fail "39.5 KeybindingsWindow.qml missing activation cooldown guard"
+    fail "39.5 timing-based activation or delayed-focus workaround remains in KeybindingsWindow.qml"
 fi
 
 # 39.6: KeybindingsModel implements pendingSelectActionId for selection retention
@@ -4130,10 +4144,15 @@ fi
 # 39.10: aurelia-shell-keybindings diagnostics runtime text output
 diag_text="$("$ROOT/bin/aurelia-shell-keybindings" diagnostics runtime)"
 if grep -q '=== Aurelia Shell Keybindings Runtime Diagnostics ===' <<< "$diag_text" && \
-   grep -q 'Executable Path' <<< "$diag_text" && \
-   grep -q 'Executable SHA256' <<< "$diag_text" && \
-   grep -q 'Active QML Root' <<< "$diag_text" && \
-   grep -q 'Component Path' <<< "$diag_text" && \
+   grep -q 'Canonical Backend Path' <<< "$diag_text" && \
+   grep -q 'Canonical Backend SHA256' <<< "$diag_text" && \
+   grep -q 'Running Quickshell PID' <<< "$diag_text" && \
+   grep -q 'Running QML Root' <<< "$diag_text" && \
+   grep -q 'Managed Component Root' <<< "$diag_text" && \
+   grep -q 'Expected Manifest' <<< "$diag_text" && \
+   grep -q 'Deployed Manifest' <<< "$diag_text" && \
+   grep -q 'Manifest Mismatches' <<< "$diag_text" && \
+   grep -q 'Provider' <<< "$diag_text" && \
    grep -q 'Live UI Revision' <<< "$diag_text" && \
    grep -q 'Layer Namespace' <<< "$diag_text" && \
    grep -q 'Motion State' <<< "$diag_text" && \
@@ -4145,11 +4164,12 @@ fi
 
 # 39.11: aurelia-shell-keybindings diagnostics runtime --json produces valid JSON
 diag_json="$("$ROOT/bin/aurelia-shell-keybindings" diagnostics runtime --json)"
-json_valid="$(echo "$diag_json" | jq -r '.executable_path, .active_qml_root, .layer_namespace, .live_ui_revision' 2>/dev/null || true)"
-if [[ -n "$json_valid" && "$diag_json" == *"aurelia-keybindings"* ]]; then
-    pass "39.11 aurelia-shell-keybindings diagnostics runtime --json produces valid parseable JSON"
+json_valid="$(echo "$diag_json" | jq -r '.canonical_backend.path, .canonical_backend.sha256, .managed_component_root, (.expected_manifest.files | length)' 2>/dev/null || true)"
+if [[ -n "$json_valid" && "$diag_json" == *"aurelia-keybindings"* && \
+      "$diag_json" == *"manifest_mismatches"* && "$diag_json" == *"provider"* ]]; then
+    pass "39.11 aurelia-shell-keybindings diagnostics runtime --json produces authoritative provenance JSON"
 else
-    fail "39.11 diagnostics runtime --json output invalid: $diag_json"
+    fail "39.11 diagnostics runtime --json output invalid or incomplete: $diag_json"
 fi
 
 # 39.12: workstation-aurelia diagnostics runtime forwards to aurelia-shell-keybindings
@@ -4160,6 +4180,181 @@ else
     fail "39.12 workstation-aurelia diagnostics runtime forwarding failed: $wa_diag"
 fi
 
+section "40. Corrective Behavioral Regression: Event Identity, TAB, and Provenance"
 
+# 40.1-40.4: Deterministic event-identity model for held Return, repeat events,
+# immediate release/repress, and application-add ownership.  This deliberately
+# has no clock or elapsed-time branch: timing cannot affect correctness.
+behavior_out="$(python3 - <<'PY'
+class KeybindingsModel:
+    def __init__(self):
+        self.view = "add_action_type"
+        self.held = False
+        self.selected = None
+        self.add_count = 0
+        self.run_count = 0
 
+    def press_return(self, auto_repeat=False):
+        if auto_repeat or self.held:
+            return False
+        self.held = True
+        if self.view == "add_action_type":
+            self.view = "add_app"
+            return True
+        if self.view == "add_app":
+            self.add_count += 1
+            self.view = "unbound"
+            self.selected = "app:ulaa.desktop"
+            return True
+        if self.view == "unbound":
+            self.run_count += 1
+            return True
+        return False
 
+    def release_return(self):
+        self.held = False
+
+    def click_row(self, index):
+        view_at_click = self.view
+        self.selected = index
+        if view_at_click == "add_action_type":
+            self.view = "add_app"
+            return "navigate"
+        return "select"
+
+    def tab(self, reverse=False):
+        views = ("bound", "unbound", "add_action_type", "settings")
+        index = views.index(self.view)
+        self.view = views[(index - 1 if reverse else index + 1) % len(views)]
+        return self.view
+
+# Held Return enters the picker once, crosses the transition without falling
+# through, adds once, and permits a new press immediately after release.
+model = KeybindingsModel()
+assert model.press_return() is True and model.view == "add_app"
+assert model.press_return(auto_repeat=True) is False
+assert model.press_return() is False
+assert model.add_count == 0 and model.run_count == 0
+model.release_return()
+assert model.press_return() is True
+assert model.add_count == 1 and model.run_count == 0
+assert model.view == "unbound" and model.selected == "app:ulaa.desktop"
+assert model.press_return(auto_repeat=True) is False and model.run_count == 0
+model.release_return()
+assert model.press_return() is True and model.run_count == 1
+model.release_return()
+print("INPUT_OWNERSHIP_OK")
+
+# A type row click owns its navigation; the following application click only
+# selects, so a click sequence cannot become Add + Run.
+mouse = KeybindingsModel()
+assert mouse.click_row(0) == "navigate" and mouse.view == "add_app"
+assert mouse.click_row(0) == "select" and mouse.add_count == 0 and mouse.run_count == 0
+mouse.release_return()
+assert mouse.press_return() is True and mouse.add_count == 1
+assert mouse.view == "unbound" and mouse.run_count == 0
+print("MOUSE_OWNERSHIP_OK")
+
+tab = KeybindingsModel()
+tab.view = "bound"
+assert [tab.tab() for _ in range(4)] == ["unbound", "add_action_type", "settings", "bound"]
+assert [tab.tab(reverse=True) for _ in range(4)] == ["settings", "add_action_type", "unbound", "bound"]
+print("TAB_SEQUENCE_OK")
+PY
+)"
+if grep -q 'INPUT_OWNERSHIP_OK' <<< "$behavior_out" &&
+   grep -q 'MOUSE_OWNERSHIP_OK' <<< "$behavior_out"; then
+    pass "40.1-40.4 held Return, auto-repeat, release/repress, and single-add ownership model verified without timing"
+else
+    fail "40.1-40.4 event-identity regression model failed: $behavior_out"
+fi
+
+# 40.5-40.7: TAB transitions are immediate and reversible in the model, while
+# source checks ensure the production router has no delayed activation path.
+if grep -q 'TAB_SEQUENCE_OK' <<< "$behavior_out" &&
+   grep -q 'cycleTopLevelView(true)' "$qml_win" &&
+   grep -q 'cycleTopLevelView(false)' "$qml_win" &&
+   ! grep -q 'activationCooldownUntil' "$qml_win" &&
+   ! grep -q 'Qt.callLater' "$qml_win" &&
+   ! grep -E -q 'Timer\\s*\\{' "$qml_win"; then
+    pass "40.5-40.7 TAB forward/reverse sequence is immediate with no cooldown, Timer, or delayed focus"
+else
+    fail "40.5-40.7 TAB/event timing regression checks failed: $behavior_out"
+fi
+
+# 40.8-40.10: Verify the generated manifest detects stale managed QML files
+# without touching the live configuration.
+provenance_check="$(bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+root="$1"
+sb="$(mktemp -d)"
+trap 'rm -rf "$sb"' EXIT
+home="$sb/home"
+bin_dir="$sb/bin"
+mkdir -p "$home/.config" "$bin_dir"
+cp -a "$root/dotfiles/aurelia" "$home/.config/aurelia"
+cp "$root/bin/aurelia-shell-keybindings" "$bin_dir/aurelia-shell-keybindings"
+chmod 0755 "$bin_dir/aurelia-shell-keybindings"
+
+SCRIPT_DIR="$root"
+TARGET_HOME="$home"
+TARGET_USER="$USER"
+KEYBINDINGS_BIN_DIR="$bin_dir"
+AURELIA_KEYBINDINGS_MANIFEST_PATH="$home/.local/state/aurelia/keybindings/deployment-manifest.json"
+source "$root/modules/common.sh"
+source "$root/modules/status.sh"
+source "$root/modules/desktop.sh"
+
+write_aurelia_keybindings_manifest
+printf '\\n// stale fixture\\n' >> "$home/.config/aurelia/components/keybindings/KeybindingsWindow.qml"
+printf '\\n// stale fixture\\n' >> "$home/.config/aurelia/components/keybindings/KeybindingsSettings.qml"
+printf '\\n# stale fixture\\n' >> "$home/.config/aurelia/components/keybindings/qmldir"
+
+diag="$(
+    HOME="$home" \
+    XDG_CONFIG_HOME="$home/.config" \
+    XDG_STATE_HOME="$home/.local/state" \
+    AURELIA_DEVELOPMENT_MODE=1 \
+    AURELIA_SHELL_KEYBINDINGS_BIN="$bin_dir/aurelia-shell-keybindings" \
+    AURELIA_QML_ROOT="$home/.config/aurelia/shell.qml" \
+    AURELIA_KEYBINDINGS_MANIFEST_PATH="$AURELIA_KEYBINDINGS_MANIFEST_PATH" \
+    WORKSTATION_TEST_MODE=1 \
+    "$root/bin/aurelia-shell-keybindings" diagnostics runtime --json
+)"
+python3 - "$diag" "$bin_dir/aurelia-shell-keybindings" <<'PY'
+import json
+import sys
+report = json.loads(sys.argv[1])
+assert report["canonical_backend"]["path"] == sys.argv[2]
+assert report["canonical_backend"]["sha256"]
+assert report["expected_manifest"]["files"]
+mismatches = "\n".join(report["manifest_mismatches"])
+for name in ("KeybindingsWindow.qml", "KeybindingsSettings.qml", "qmldir"):
+    assert name in mismatches, mismatches
+print("STALE_MANAGED_FILES_DETECTED")
+print("MANIFEST_FIELDS_OK")
+PY
+EOS
+)"
+if grep -q 'STALE_MANAGED_FILES_DETECTED' <<< "$provenance_check" &&
+   grep -q 'MANIFEST_FIELDS_OK' <<< "$provenance_check"; then
+    pass "40.8-40.10 generated provenance detects stale Window, Settings, and qmldir files"
+else
+    fail "40.8-40.10 stale-file provenance detection failed: $provenance_check"
+fi
+
+# 40.11: Keep the live benchmark explicit, bounded, and honest about
+# unobservable compositor/focus stages. The benchmark itself is never run by
+# the repository suite because it requires the user's active Wayland session.
+benchmark_file="$ROOT/tests/benchmark_aurelia_keybindings.sh"
+if [[ -x "$benchmark_file" || -f "$benchmark_file" ]] &&
+   grep -q 'SAMPLES = 20' "$benchmark_file" &&
+   grep -q 'time.monotonic_ns' "$benchmark_file" &&
+   grep -q '1 discarded open/close cycle' "$benchmark_file" &&
+   grep -q 'Direct IPC open request' "$benchmark_file" &&
+   grep -q 'not externally observable' "$benchmark_file" &&
+   ! grep -q 'Date.now' "$benchmark_file"; then
+    pass "40.11 live benchmark harness uses bounded monotonic timing, 20 samples, separate IPC, and explicit unobservable stages"
+else
+    fail "40.11 live benchmark harness is missing required timing and observability safeguards"
+fi

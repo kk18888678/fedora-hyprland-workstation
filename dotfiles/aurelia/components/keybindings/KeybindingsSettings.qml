@@ -171,6 +171,14 @@ Item {
     Keys.onPressed: function(event) {
         // 1. In-flight shortcut capture
         if (editingPrefKey !== "") {
+            if (event.isAutoRepeat === true) {
+                event.accepted = true
+                return
+            }
+            if (window.isReturnOrEnter(event) && !window.claimActivationKey(event)) {
+                event.accepted = true
+                return
+            }
             if (event.key === Qt.Key_Escape) {
                 cancelEditing()
                 event.accepted = true
@@ -226,9 +234,26 @@ Item {
             return
         }
 
-        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            event.accepted = true
+            if (!window.claimActivationKey(event)) return
+            activateRow(selectedIndex)
+            return
+        }
+
+        if (event.key === Qt.Key_Space) {
+            if (event.isAutoRepeat === true) {
+                event.accepted = true
+                return
+            }
             activateRow(selectedIndex)
             event.accepted = true
+            return
+        }
+    }
+
+    Keys.onReleased: function(event) {
+        if (window && typeof window.handleActivationKeyRelease === "function" && window.handleActivationKeyRelease(event)) {
             return
         }
     }

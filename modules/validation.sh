@@ -429,8 +429,10 @@ validate_application_environment() {
         fi
     fi
 
-    if [[ -f "$SCRIPT_DIR/bin/workstation-hotkeys" ]] && ! command_exists workstation-hotkeys && [[ ! -x "/usr/local/bin/workstation-hotkeys" ]]; then
-        record_deferred "validation" "workstation-hotkeys" "Workstation hotkeys utility was not installed."
+    if [[ -f "$SCRIPT_DIR/bin/aurelia-shell-keybindings" ]] &&
+       ! command_exists aurelia-shell-keybindings &&
+       [[ ! -x "/usr/local/bin/aurelia-shell-keybindings" ]]; then
+        record_deferred "validation" "aurelia-shell-keybindings" "Aurelia Keybindings utility was not installed."
     fi
 
     if [[ "${DESKTOP:-}" == "hyprland" ]]; then

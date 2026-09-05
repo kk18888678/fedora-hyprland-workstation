@@ -8,12 +8,13 @@ set -Eeuo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-if [[ -x "$script_dir/aurelia-shell-keybindings" ]]; then
+if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+   [[ -x "$script_dir/aurelia-shell-keybindings" ]]; then
     exec "$script_dir/aurelia-shell-keybindings" "$@"
+elif [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" && -n "${AURELIA_SHELL_KEYBINDINGS_BIN:-}" && -x "$AURELIA_SHELL_KEYBINDINGS_BIN" ]]; then
+    exec "$AURELIA_SHELL_KEYBINDINGS_BIN" "$@"
 elif [[ -x "/usr/local/bin/aurelia-shell-keybindings" ]]; then
     exec "/usr/local/bin/aurelia-shell-keybindings" "$@"
-elif command -v aurelia-shell-keybindings >/dev/null 2>&1; then
-    exec aurelia-shell-keybindings "$@"
 else
     printf 'Error: aurelia-shell-keybindings executable not found.\n' >&2
     exit 1

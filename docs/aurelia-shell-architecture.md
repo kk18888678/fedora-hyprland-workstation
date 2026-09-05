@@ -148,7 +148,7 @@ graph TD
     end
 
     subgraph "Host Capabilities"
-        Backend["bin/workstation-keybindings"]
+        Backend["bin/aurelia-shell-keybindings"]
         Apps["Desktop Applications"]
     end
 
@@ -174,7 +174,7 @@ graph TD
 To prepare for future AI-assisted capabilities (e.g. contextual command recommendations, natural language shortcut queries, diagnostic log analysis) without compromising workstation safety, the following architectural seam is established:
 
 1. **Strict Interface Boundaries**:
-   - Any future AI component or assistant must interface exclusively through defined CLI subcommands emitting structured JSON (e.g., `workstation-keybindings query --format=json`) or standard Quickshell IPC endpoints.
+   - Any future AI component or assistant must interface exclusively through defined CLI subcommands emitting structured JSON (e.g., `aurelia-shell-keybindings json`) or standard Quickshell IPC endpoints.
    - AI components must never directly mutate compositor memory, inject arbitrary shell scripts, or execute unverified commands.
 2. **Zero `eval` / Zero Dynamic Script Injection**:
    - Commands suggested or triggered by AI must match declared manifest action IDs or pass strict application desktop-entry verification (`app:<id>.desktop`).
@@ -244,4 +244,3 @@ To prepare for future portable workstation preference synchronization without bu
 
 ### 8.7 Keybindings as First Vertical Slice
 Aurelia Keybindings is the first component integrated with Aurelia Shell Core, establishing verified production implementations of centralized preferences, motion scaling, structured diagnostics, and privacy protection.
-

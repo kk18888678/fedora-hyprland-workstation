@@ -97,7 +97,7 @@ for idx, b in ipairs(manifest.bindings) do
         seen_keys[b.key] = true
     end
 
-    if b.key == "SUPER + K" and (b.command == "workstation-keybindings" or b.command == "workstation-hotkeys") then
+    if b.key == "SUPER + K" and b.command == "aurelia-shell-keybindings" then
         has_super_k = true
     end
 
@@ -347,7 +347,11 @@ TARGET_USER="hotkeytest"
 TARGET_HOME="$(mktemp -d)"
 HOTKEYS_BIN_DIR="$(mktemp -d)"
 HOTKEYS_APPS_DIR="$(mktemp -d)"
+mkdir -p "$TARGET_HOME/.config"
+ln -s "$SCRIPT_DIR/dotfiles/aurelia" "$TARGET_HOME/.config/aurelia"
+AURELIA_KEYBINDINGS_MANIFEST_PATH="$TARGET_HOME/.local/state/aurelia/keybindings/deployment-manifest.json"
 export HOTKEYS_BIN_DIR HOTKEYS_APPS_DIR
+export AURELIA_KEYBINDINGS_MANIFEST_PATH
 OVERRIDE_TARGET_UID=1000
 
 # shellcheck source=/dev/null
@@ -380,10 +384,25 @@ install_workstation_hotkeys
 bin_installed=$([[ -x "$HOTKEYS_BIN_DIR/workstation-hotkeys" ]] && echo 1 || echo 0)
 cap_installed=$([[ -x "$HOTKEYS_BIN_DIR/workstation-hotkey-capture" ]] && echo 1 || echo 0)
 desktop_installed=$([[ -f "$HOTKEYS_APPS_DIR/workstation-hotkeys.desktop" ]] && echo 1 || echo 0)
+manifest_installed=0
+if [[ -f "$AURELIA_KEYBINDINGS_MANIFEST_PATH" ]] &&
+   python3 - "$AURELIA_KEYBINDINGS_MANIFEST_PATH" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assert manifest["component"] == "aurelia-keybindings"
+assert len(manifest["expected"]["files"]) == 8
+assert manifest["mismatches"] == []
+PY
+then
+    manifest_installed=1
+fi
 
 echo "bin-installed=$bin_installed"
 echo "cap-installed=$cap_installed"
 echo "desktop-installed=$desktop_installed"
+echo "manifest-installed=$manifest_installed"
 
 rm -rf "$TARGET_HOME" "$HOTKEYS_BIN_DIR" "$HOTKEYS_APPS_DIR"
 EOS
@@ -391,8 +410,9 @@ EOS
 
 if printf '%s\n' "$hotkeys_install_output" | grep -q 'bin-installed=1' &&
    printf '%s\n' "$hotkeys_install_output" | grep -q 'cap-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'desktop-installed=1'; then
-    pass "install_workstation_hotkeys deploys executable and desktop entry into isolated target paths"
+   printf '%s\n' "$hotkeys_install_output" | grep -q 'desktop-installed=1' &&
+   printf '%s\n' "$hotkeys_install_output" | grep -q 'manifest-installed=1'; then
+    pass "install_workstation_hotkeys deploys binaries, desktop entry, and verified provenance manifest in isolation"
 else
     fail "install_workstation_hotkeys failed in sandbox: $hotkeys_install_output"
 fi
@@ -492,10 +512,10 @@ print("NOT_FOUND")
 LUA_CHECK
 )"
 
-if [[ "$manifest_hotkeys_cmd" == "workstation-keybindings" || "$manifest_hotkeys_cmd" == "workstation-hotkeys" ]]; then
-    pass "keybindings_manifest.lua binds SUPER+K to workstation-keybindings reference"
+if [[ "$manifest_hotkeys_cmd" == "aurelia-shell-keybindings" ]]; then
+    pass "keybindings_manifest.lua binds SUPER+K to the canonical aurelia-shell-keybindings command"
 else
-    fail "SUPER+K does not bind to workstation-keybindings: $manifest_hotkeys_cmd"
+    fail "SUPER+K does not bind to aurelia-shell-keybindings: $manifest_hotkeys_cmd"
 fi
 
 # Ensure no dead standalone workstation-launcher architecture remains
@@ -1301,6 +1321,4 @@ else
 fi
 
 rm -rf "$order_sandbox"
-
-
 

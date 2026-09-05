@@ -11,8 +11,8 @@ This document specifies the architecture, lifecycle model, failure isolation bou
 | **Internal Product Name** | `Aurelia Keybindings` | Engineering documentation, git commits, code comments |
 | **User-Facing App Name** | `Keybindings` | Desktop entries (`Name=Keybindings`), window titles, UI header |
 | **Generic Descriptor** | `Keyboard Shortcuts` | Desktop entry (`GenericName=Keyboard Shortcuts`) |
-| **Primary Backend Binary** | `bin/workstation-keybindings` | System installation path: `/usr/local/bin/workstation-keybindings` |
-| **Compatibility Wrapper** | `bin/workstation-hotkeys` | 25-line thin forwarding wrapper delegating to `workstation-keybindings` |
+| **Primary Backend Binary** | `bin/aurelia-shell-keybindings` | System installation path: `/usr/local/bin/aurelia-shell-keybindings` |
+| **Compatibility Wrappers** | `bin/workstation-keybindings`, `bin/workstation-hotkeys` | Thin forwarding wrappers; production code resolves the canonical binary explicitly |
 | **Component Registry ID** | `desktop.keybindings.aurelia` | Primary installer component (`desktop.hotkeys.aurelia` is compatibility alias) |
 | **QML Component Directory** | `dotfiles/aurelia/components/keybindings/` | Source tree for `KeybindingsWindow.qml`, `KeybindingsModel.qml`, `KeybindingRow.qml` |
 | **IPC Target** | `keybindings` | Quickshell IPC target (`hotkeys` preserved as forwarding alias) |
@@ -37,7 +37,7 @@ graph TD
     end
 
     subgraph "Backend Execution Boundary (Double-Fork)"
-        Backend["/usr/local/bin/workstation-keybindings"]
+        Backend["/usr/local/bin/aurelia-shell-keybindings"]
         LuaEngine["effective_bindings.lua / keybindings_manifest.lua"]
         Launcher["Double-Fork Grandchild (PPID=1 / init)"]
     end
@@ -61,7 +61,7 @@ graph TD
 - **Pure Native Wayland Layer-Shell**: The UI operates exclusively within the Wayland layer-shell protocol. No terminal emulators (`foot`, `kitty`, `xterm`) are ever spawned for UI presentation, key capture, or error reporting.
 
 ### 2.2 Process Level (Backend Execution)
-- **Double-Fork Process Launch**: Action execution through `workstation-keybindings run <action_id>` uses a POSIX double-fork pattern:
+- **Double-Fork Process Launch**: Action execution through `aurelia-shell-keybindings run <action_id>` uses a POSIX double-fork pattern:
   1. The parent orchestrator forks a launcher subshell.
   2. The launcher subshell invokes `( "$@" ) >/dev/null 2>&1 &` to spawn the target application and immediately terminates with status 0.
   3. The target application (grandchild) is instantly reparented to `systemd` / `init` (`PPID=1`).
@@ -81,7 +81,7 @@ Aurelia Keybindings implements a hybrid **resident surface with lazy activation*
 1. **Sub-100ms Warm Toggle**:
    - The Wayland layer-shell window remains resident in memory within the primary Aurelia Quickshell daemon.
    - When the user presses `Super+K`, the backend issues a non-mutating `ping` check to the Quickshell socket. Upon confirmation of socket readiness, it delivers an IPC message to target `keybindings` with argument `toggle`.
-   - In production VM benchmarks, end-to-end warm opening latency averages **76.8ms** (min=67.8ms, max=82.3ms, comfortably within the <= 100ms budget). Direct `qs ipc ping` takes ~27.6ms and `qs ipc toggle` takes ~36.1ms; Lua resolution and JSON serialization require just 0.196ms.
+   - The repository provides `tests/benchmark_aurelia_keybindings.sh` for an explicit live-session benchmark. It uses monotonic high-resolution timing, discards one warm-up operation, measures 20 warm opens and 20 warm closes, reports min/max/mean/median/p95, and keeps direct IPC measurements separate from CLI measurements. Compositor mapping and focus completion are reported as unobservable unless an external profiler is supplied.
 
 2. **Zero Idle CPU Overhead**:
    - When the window is hidden (`visible: false`), **all timers and animations are strictly disabled**.
@@ -192,7 +192,7 @@ Located at `~/.config/aurelia/theme.conf` (symlinked from `dotfiles/aurelia/them
 
 ### 5.3 Test Suite Isolation & Zero Desktop Spam
 - Automated test suites export `WORKSTATION_TEST_MODE=1`.
-- `bin/workstation-keybindings` provides `notify_user()` which suppresses `notify-send` desktop popups during automated test execution.
+- `bin/aurelia-shell-keybindings` provides `notify_user()` which suppresses `notify-send` desktop popups during automated test execution.
 - Test logs are isolated to `/tmp/workstation-tests-${UID}` to prevent polluting user crash logs.
 
 ---
@@ -202,11 +202,11 @@ Located at `~/.config/aurelia/theme.conf` (symlinked from `dotfiles/aurelia/them
 To prevent unconstrained resource growth on production workstations:
 
 1. **Diagnostic Log Bounding**:
-   - All backend operations log to `~/.local/state/workstation-keybindings/`.
+   - All backend operations log to `~/.local/state/workstation/`.
    - Every log file (`keybindings.log`, `crashes.log`, `performance.log`) is monitored by `bound_logfile()`:
    - When a log file exceeds 2000 lines, it is atomically rotated via temporary file to retain the most recent 2000 lines.
 2. **Performance Telemetry (`[PERF]`)**:
-   - Critical milestones (cold start readiness, warm IPC roundtrip, JSON load and parse durations) are tagged with `[PERF]` and duration timestamps.
+   - Critical milestones (cold start readiness and warm IPC request completion) are tagged with `[PERF]` and bounded duration timestamps. The benchmark harness is the authoritative source for end-to-end latency claims.
    - Operations exceeding warning thresholds (e.g. warm toggle > 100ms) emit `[PERF-WARN]` diagnostics.
 3. **Structured Crash Logging**:
    - Unhandled backend failures and timeouts append to `crashes.log` with timestamp, operation context, exit code, and captured stderr.
@@ -217,7 +217,7 @@ To prevent unconstrained resource growth on production workstations:
 
 ### 7.1 Future AI Diagnostics Seam
 A future local diagnostic bundle generator can integrate cleanly at the logging and telemetry boundary:
-- **Local Sanitized Bundle**: A dedicated maintenance command (`workstation-keybindings diagnose`) can package bounded logs (`crashes.log`, `performance.log`), system package EVR, and Hyprland bind state into an encrypted local archive.
+- **Local Sanitized Bundle**: A future dedicated maintenance command (`aurelia-shell-keybindings diagnose`) can package bounded logs (`crashes.log`, `performance.log`), system package EVR, and Hyprland bind state into an encrypted local archive.
 - **Privacy & User Consent**: The seam enforces strict privacy invariants: zero automatic network egress, zero exfiltration of user passwords or tokens, and explicit user confirmation before generating or presenting diagnostic bundles.
 - **Vendor Agnosticism**: Diagnostics generation is decoupled from specific AI vendor APIs; bundles are emitted as standard local JSON/tar.gz artifacts.
 
@@ -264,7 +264,7 @@ graph TD
     subgraph "Application Registry (Discovery)"
         XDG["XDG Data Dirs (~/.local/share, /usr/share)"]
         Parser["application_registry.lua (Safe Desktop Parser)"]
-        AppsCLI["workstation-keybindings apps"]
+        AppsCLI["aurelia-shell-keybindings apps"]
         XDG --> Parser --> AppsCLI
     end
 
@@ -279,7 +279,7 @@ graph TD
     subgraph "Effective Bindings & Aurelia Shell UI"
         Overrides["~/.config/hypr/keybindings_overrides.json"]
         EffectiveEngine["effective_bindings.lua"]
-        JSON["workstation-keybindings json"]
+        JSON["aurelia-shell-keybindings json"]
         UI["Aurelia Keybindings (Bound / Unbound / Add App)"]
 
         ActionReg --> EffectiveEngine
@@ -292,7 +292,7 @@ graph TD
 - **Standards-Compliant Desktop Parsing**: Recursively scans standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`) respecting user shadowing and `Hidden=true` masking.
 - **Trusted Launcher Platform Delegation**: Delegates execution directly to trusted platform launcher (`gtk-launch`) with structured arguments, eliminating custom Exec tokenizers and shell interpolation.
 - **In-Memory Cache**: Lazy process-lifetime cache with explicit invalidation/refresh prevents redundant filesystem operations while ensuring responsive CLI output (< 20ms).
-- **Installed Applications Discovery**: Emitted via `workstation-keybindings apps` as structured JSON consumed on-demand by the UI.
+- **Installed Applications Discovery**: Emitted via `aurelia-shell-keybindings apps` as structured JSON consumed on-demand by the UI.
 
 ### 10.2 Action Registry vs. Application Registry vs. Effective Bindings
 - **Application Registry (`application_registry.lua`)**: Dynamically discovers launchable graphical desktop applications from standard XDG data directories. **Crucial Invariant**: Discovered applications do NOT automatically populate the Action Registry or Unbound actions. Discovery is strictly lazy and on-demand.
@@ -332,7 +332,7 @@ The Add Action workflow provides two distinct mechanisms for extending workstati
    - Discovers installed `.desktop` files via `application_registry.list_applications()`.
    - Adding an application validates the desktop ID syntax (rejecting path traversal and leading dashes), writes atomically to `user_actions.json` with 0600 permissions, and emits an observability log.
    - Newly added applications begin in the Unbound state (`app:<desktop_id>`) and can immediately receive a key combination via `s`.
-   - `workstation-keybindings remove-app <desktop_id>` cleans up both the user action registration and any associated shortcut overrides atomically.
+   - `aurelia-shell-keybindings remove-app <desktop_id>` cleans up both the user action registration and any associated shortcut overrides atomically.
 
 2. **Custom Executables and Scripts (`add_exec`)**:
    - Persisted using Schema v2 in `user_actions.json`:
@@ -366,12 +366,12 @@ To guarantee navigation correctness and semantic parity:
    - Implemented as a single, authoritative method on `KeybindingsWindow.qml`.
    - Explicitly evaluates active view states:
      - `add_action_type`: When `item.action_type_kind === "application"`, transitions to `add_app`. When `"executable"`, transitions to `add_exec`. The palette window remains open (`visible` is never set to false).
-     - `add_app`: Adds the application to `user_actions.json` via `keybindingsModel.addApplication()` and schedules focus restoration.
+     - `add_app`: Adds the application to `user_actions.json` via `keybindingsModel.addApplication()` while keeping the palette open and preserving the selected action after reload.
      - `bound` / `unbound`: Runs the selected runnable item via `keybindingsModel.runSelected()`, closing the palette only upon confirmed execution launch.
-2. **Re-entrancy Deduplication**:
-   - A 200ms debounce threshold (`now - lastActivationTime < 200`) guards against double-activation from simultaneous key press/release or rapid repeat events.
+2. **Physical Gesture Identity**:
+   - Return/Enter handlers ignore auto-repeat and claim a key-down only once until the matching key-up arrives. A held Return cannot activate a newly entered view, while a new press after release is accepted immediately. No cooldown, timer, sleep, or delayed focus is used for correctness.
 3. **Mouse & Keyboard Semantic Parity**:
-   - `KeybindingRow.qml` double-click delegates directly to `windowRoot.activateSelected()`, ensuring 100% behavioral parity between mouse and keyboard interaction paths.
+   - A single click on an Add Action type navigates immediately. A single click in the application picker selects only; Return performs the add. There is no double-click activation path or cross-view fallthrough.
 
 ---
 
@@ -380,5 +380,5 @@ To guarantee navigation correctness and semantic parity:
 Aurelia Keybindings consumes and integrates with the centralized Shell Core foundation services:
 - **User Preferences**: Default view (`components.keybindings.default_view = "bound"`), component-level reset (`workstation-aurelia preference reset --component=keybindings`), and atomic overrides.
 - **Motion Scaling**: Border animations, row selection transitions, and view switches consume `Theme.effectiveDurationFast` and `Theme.effectiveDurationNormal`. When motion is disabled, all durations collapse to 0ms (instantaneous transitions).
-- **Structured CLI Diagnostics**: Accessible via `workstation-keybindings diagnostics [--json]` or `workstation-aurelia diagnostics [--json]`, reporting version, schema, preference health, motion status, and privacy boundaries.
+- **Structured CLI Diagnostics**: Accessible via `aurelia-shell-keybindings diagnostics runtime [--json]` or `workstation-aurelia diagnostics runtime [--json]`, reporting the canonical backend path/hash, running Quickshell PID and QML root, managed component root, expected/deployed manifest and exact mismatches, provider, active view/revision, effective motion, and layer namespace without action or search dumps.
 - **Privacy Boundary**: Search queries are strictly protected; filter timing logs record query length rather than raw query strings. Raw tokens, credentials, and passwords are redacted before log emission.

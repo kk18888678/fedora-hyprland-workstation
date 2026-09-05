@@ -1,7 +1,7 @@
 -- Module: effective_bindings
 -- Single source of truth for resolving effective keybindings by combining
 -- the declarative manifest (defaults) with user-owned overrides and user-created actions.
--- Consumed by both Hyprland runtime session (keybind.lua) and workstation-keybindings.
+-- Consumed by both Hyprland runtime session (keybind.lua) and Aurelia Keybindings.
 
 local M = {}
 
@@ -1731,7 +1731,9 @@ function M.reload_session()
     if os.getenv("HOTKEYS_SIMULATE_RELOAD_FAIL") == "1" then
         return false, "Simulated reload failure"
     end
-    if os.getenv("HYPRLAND_INSTANCE_SIGNATURE") and os.getenv("HYPRLAND_INSTANCE_SIGNATURE") ~= "" then
+    if os.getenv("WORKSTATION_TEST_MODE") ~= "1" and
+       os.getenv("HYPRLAND_INSTANCE_SIGNATURE") and
+       os.getenv("HYPRLAND_INSTANCE_SIGNATURE") ~= "" then
         local ret = os.execute("hyprctl reload config-only >/dev/null 2>&1 || hyprctl reload >/dev/null 2>&1")
         if ret ~= 0 and ret ~= true then
             return false, "hyprctl reload exited with failure status"

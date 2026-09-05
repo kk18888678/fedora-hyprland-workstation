@@ -45,7 +45,7 @@ QtObject {
     readonly property int headerSpacing: 8
     readonly property int tabHeight: 30
     readonly property int tabPaddingHorizontal: 12
-    readonly property int tabBorderRadius: 6
+    readonly property int tabBorderRadius: Theme.radiusSm
     readonly property int cogHitTargetWidth: 34
     readonly property int cogHitTargetHeight: 28
     readonly property int cogIconSize: 21
@@ -94,7 +94,7 @@ QtObject {
     readonly property int formLabelWidth: 110
     readonly property int formFieldHeight: 38
     readonly property int formFieldSpacing: 10
-    readonly property int formBorderRadius: 6
+    readonly property int formBorderRadius: Theme.radiusSm
     readonly property int formButtonHeight: 36
     readonly property int formButtonMinWidth: 80
 
@@ -104,11 +104,5 @@ QtObject {
     readonly property int autocompleteRowHeight: 32
     readonly property int autocompleteMaxVisibleRows: 5
     readonly property int autocompleteDropdownMaxHeight: 160
-    readonly property int autocompleteRadius: 6
-
-    // =========================================================================
-    // 9. Motion (Component Baseline Animation Defaults)
-    // =========================================================================
-    readonly property int defaultTransitionFast: Theme.durationFast
-    readonly property int defaultTransitionNormal: Theme.durationNormal
+    readonly property int autocompleteRadius: Theme.radiusSm
 }

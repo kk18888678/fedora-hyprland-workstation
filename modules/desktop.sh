@@ -43,6 +43,177 @@ deploy_aurelia_config() {
     fi
 }
 
+# The Aurelia Keybindings deployment manifest is the runtime provenance
+# authority.  Keep this list deliberately fixed: diagnostics and deployment
+# must agree on the exact managed surface rather than guessing at arbitrary
+# files in the QML tree.
+aurelia_keybindings_manifest_files() {
+    printf '%s\n' \
+        "shell.qml" \
+        "components/keybindings/KeybindingsWindow.qml" \
+        "components/keybindings/KeybindingsSettings.qml" \
+        "components/keybindings/KeybindingsConfig.qml" \
+        "components/keybindings/KeybindingsModel.qml" \
+        "components/keybindings/KeybindingRow.qml" \
+        "components/keybindings/qmldir" \
+        "theme/Theme.qml"
+}
+
+aurelia_keybindings_manifest_path() {
+    local manifest_path="${AURELIA_KEYBINDINGS_MANIFEST_PATH:-}"
+    if [[ -z "$manifest_path" ]]; then
+        local state_home="${XDG_STATE_HOME:-${TARGET_HOME:-$HOME}/.local/state}"
+        manifest_path="$state_home/aurelia/keybindings/deployment-manifest.json"
+    fi
+
+    [[ "$manifest_path" == /* && "$manifest_path" != "/" ]] || return 1
+    printf '%s\n' "$manifest_path"
+}
+
+aurelia_keybindings_sha256() {
+    local path="$1"
+    [[ -f "$path" ]] || return 1
+    sha256sum "$path" | awk '{print $1}'
+}
+
+write_aurelia_keybindings_manifest() {
+    local source_root="$SCRIPT_DIR/dotfiles/aurelia"
+    local deployed_root="${TARGET_HOME:-$HOME}/.config/aurelia"
+    local bin_dir="${KEYBINDINGS_BIN_DIR:-${HOTKEYS_BIN_DIR:-/usr/local/bin}}"
+    local source_backend="$SCRIPT_DIR/bin/aurelia-shell-keybindings"
+    local deployed_backend="$bin_dir/aurelia-shell-keybindings"
+    local manifest_path state_dir tmp_file
+
+    manifest_path="$(aurelia_keybindings_manifest_path 2>/dev/null || true)"
+    [[ -n "$manifest_path" ]] || return 1
+    [[ -f "$source_backend" ]] || return 1
+    [[ -f "$deployed_root/shell.qml" ]] || return 1
+    command_exists python3 || return 1
+
+    local -a relative_files source_hashes deployed_hashes
+    mapfile -t relative_files < <(aurelia_keybindings_manifest_files)
+    [[ "${#relative_files[@]}" -eq 8 ]] || return 1
+
+    local relative_path source_hash deployed_hash
+    for relative_path in "${relative_files[@]}"; do
+        [[ -f "$source_root/$relative_path" ]] || return 1
+        if ! source_hash="$(aurelia_keybindings_sha256 "$source_root/$relative_path")"; then
+            return 1
+        fi
+        source_hashes+=("$source_hash")
+
+        deployed_hash=""
+        if [[ -f "$deployed_root/$relative_path" ]]; then
+            if ! deployed_hash="$(aurelia_keybindings_sha256 "$deployed_root/$relative_path")"; then
+                return 1
+            fi
+        fi
+        deployed_hashes+=("$deployed_hash")
+    done
+
+    local source_backend_hash deployed_backend_hash=""
+    if ! source_backend_hash="$(aurelia_keybindings_sha256 "$source_backend")"; then
+        return 1
+    fi
+    if [[ -f "$deployed_backend" ]]; then
+        if ! deployed_backend_hash="$(aurelia_keybindings_sha256 "$deployed_backend")"; then
+            return 1
+        fi
+    fi
+
+    state_dir="$(dirname -- "$manifest_path")"
+    if ! mkdir -p "$state_dir"; then
+        return 1
+    fi
+    if [[ -L "$manifest_path" ]]; then
+        warn "Refusing to replace symlinked generated manifest: $manifest_path"
+        return 1
+    fi
+    tmp_file="$(mktemp "$state_dir/.deployment-manifest.XXXXXX" 2>/dev/null || true)"
+    [[ -n "$tmp_file" ]] || return 1
+
+    local generation_rc=0
+    python3 - "$source_root" "$deployed_root" "$source_backend" "$deployed_backend" \
+        "$source_backend_hash" "$deployed_backend_hash" \
+        "${source_hashes[@]}" "${deployed_hashes[@]}" > "$tmp_file" <<'PY_MANIFEST' || generation_rc=$?
+import json
+import sys
+
+relative_files = (
+    "shell.qml",
+    "components/keybindings/KeybindingsWindow.qml",
+    "components/keybindings/KeybindingsSettings.qml",
+    "components/keybindings/KeybindingsConfig.qml",
+    "components/keybindings/KeybindingsModel.qml",
+    "components/keybindings/KeybindingRow.qml",
+    "components/keybindings/qmldir",
+    "theme/Theme.qml",
+)
+
+source_root, deployed_root, source_backend, deployed_backend = sys.argv[1:5]
+source_backend_hash, deployed_backend_hash = sys.argv[5:7]
+source_hashes = sys.argv[7:15]
+deployed_hashes = sys.argv[15:23]
+
+expected_files = [
+    {"path": relative_path, "sha256": digest}
+    for relative_path, digest in zip(relative_files, source_hashes)
+]
+deployed_files = [
+    {"path": relative_path, "sha256": digest or None}
+    for relative_path, digest in zip(relative_files, deployed_hashes)
+]
+
+deployed_by_path = {item["path"]: item["sha256"] for item in deployed_files}
+mismatches = []
+if source_backend_hash != deployed_backend_hash:
+    mismatches.append(
+        "backend: expected " + (source_backend_hash or "missing") +
+        ", deployed " + (deployed_backend_hash or "missing")
+    )
+for expected in expected_files:
+    relative_path = expected["path"]
+    expected_hash = expected["sha256"]
+    deployed_hash = deployed_by_path[relative_path]
+    if expected_hash != deployed_hash:
+        mismatches.append(
+            "files/" + relative_path + ": expected " +
+            (expected_hash or "missing") + ", deployed " +
+            (deployed_hash or "missing")
+        )
+
+manifest = {
+    "schema": 1,
+    "component": "aurelia-keybindings",
+    "expected": {
+        "qml_root": source_root,
+        "backend_path": source_backend,
+        "backend_sha256": source_backend_hash,
+        "files": expected_files,
+    },
+    "deployed": {
+        "qml_root": deployed_root,
+        "backend_path": deployed_backend,
+        "backend_sha256": deployed_backend_hash or None,
+        "files": deployed_files,
+    },
+    "mismatches": mismatches,
+}
+print(json.dumps(manifest, indent=2, sort_keys=True))
+sys.exit(1 if mismatches else 0)
+PY_MANIFEST
+
+    if [[ "$generation_rc" -gt 1 ]]; then
+        rm -f "$tmp_file"
+        return 1
+    fi
+    if ! mv -f "$tmp_file" "$manifest_path"; then
+        rm -f "$tmp_file"
+        return 1
+    fi
+    return "$generation_rc"
+}
+
 set_workstation_keybindings_provider() {
     local provider="$1"
     local dest_dir="${TARGET_HOME:-$HOME}/.config/workstation"
@@ -823,6 +994,19 @@ install_workstation_keybindings() {
     fi
 
     info "Workstation keybindings installed."
+    if write_aurelia_keybindings_manifest; then
+        info "Aurelia Keybindings deployment manifest verified."
+        record_success "aurelia-keybindings-provenance"
+    else
+        if declare -F record_deferred >/dev/null 2>&1; then
+            record_deferred \
+                "desktop" \
+                "aurelia-keybindings-provenance" \
+                "Could not verify the generated Aurelia Keybindings deployment manifest."
+        else
+            warn "Could not verify the generated Aurelia Keybindings deployment manifest."
+        fi
+    fi
     record_success "aurelia-shell-keybindings"
     record_success "workstation-keybindings"
     record_success "workstation-aurelia"

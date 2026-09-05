@@ -84,30 +84,18 @@ Rectangle {
         }
         onClicked: {
             if (typeof keybindingsModel !== "undefined") {
-                console.info("[EVENT] keybindings.input.mouse_click index=" + rowRoot.index + " view=" + keybindingsModel.activeView)
+                var viewAtClick = keybindingsModel.activeView
+                console.info("[EVENT] keybindings.input.mouse_click index=" + rowRoot.index + " view=" + viewAtClick)
                 keybindingsModel.selectedIndex = rowRoot.index
                 if (ListView.view) {
                     ListView.view.forceActiveFocus()
                 }
-                if (keybindingsModel.activeView === "add_action_type") {
+                // A type-picker click owns exactly one navigation gesture. The
+                // destination view only receives later explicit input.
+                if (viewAtClick === "add_action_type") {
                     if (typeof windowRoot !== "undefined" && typeof windowRoot.activateSelected === "function") {
-                        windowRoot.activateSelected()
+                        windowRoot.activateSelected("mouse")
                     }
-                }
-            }
-        }
-        onDoubleClicked: {
-            if (typeof keybindingsModel !== "undefined") {
-                console.info("[EVENT] keybindings.input.mouse_double_click index=" + rowRoot.index + " view=" + keybindingsModel.activeView)
-                keybindingsModel.selectedIndex = rowRoot.index
-                if (ListView.view) {
-                    ListView.view.forceActiveFocus()
-                }
-                if (keybindingsModel.activeView === "add_action_type") {
-                    return
-                }
-                if (typeof windowRoot !== "undefined" && typeof windowRoot.activateSelected === "function") {
-                    windowRoot.activateSelected()
                 }
             }
         }
