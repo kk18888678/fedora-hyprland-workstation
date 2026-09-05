@@ -2649,12 +2649,16 @@ else
     fail "25.3 executable navigation check failed: $act_exec_check"
 fi
 
-# 25.4: One event causes one activation (200ms re-entrancy deduplication)
-if grep -q "lastActivationTime" "$qml_win" && \
-   grep -q "now - lastActivationTime < 200" "$qml_win"; then
-    pass "25.4 one event causes one activation: 200ms re-entrancy deduplication guards activateSelected"
+# 25.4: Structural event ownership with synchronous re-entrancy protection (isActivating) and zero arbitrary timing suppression
+if grep -q "property bool isActivating: false" "$qml_win" && \
+   grep -q "if (isActivating)" "$qml_win" && \
+   grep -q "isActivating = true" "$qml_win" && \
+   grep -q "isActivating = false" "$qml_win" && \
+   ! grep -q "lastActivationTime" "$qml_win" && \
+   ! grep -q "200" "$qml_win"; then
+    pass "25.4 structural event ownership: synchronous isActivating flag guards activateSelected with zero arbitrary timing suppression"
 else
-    fail "25.4 re-entrancy deduplication missing in KeybindingsWindow.qml"
+    fail "25.4 structural re-entrancy protection missing or arbitrary timing suppression found in KeybindingsWindow.qml"
 fi
 
 # 25.5: Mouse double-click and keyboard Enter share identical activateSelected semantics
@@ -2671,8 +2675,8 @@ section "26. Verification Matrix L: Aurelia User Preferences & Layered Configura
 # 26.1: Preference defaults return shipped defaults when no override exists
 test_26_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local def_motion = pref.get_effective("aurelia.motion.enabled", "/nonexistent/test_pref.json")
 local def_scale  = pref.get_effective("aurelia.motion.scale", "/nonexistent/test_pref.json")
@@ -2693,8 +2697,8 @@ fi
 # 26.2: User override takes precedence over shipped defaults
 test_26_2_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 local f = io.open(tmp, "w")
@@ -2721,8 +2725,8 @@ fi
 # 26.3: Malformed preference file fails safe without crashing or file mutation
 test_26_3_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 local f = io.open(tmp, "w")
@@ -2750,8 +2754,8 @@ fi
 # 26.4: Atomic preference write: set_override uses 0600 mode and atomic rename
 test_26_4_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 os.remove(tmp)
@@ -2782,8 +2786,8 @@ section "27. Verification Matrix M: Component and Shell Reset Semantics & Isolat
 # 27.1: Component reset resets only target component namespace
 test_27_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 os.remove(tmp)
@@ -2811,8 +2815,8 @@ fi
 # 27.2: Shell reset resets all overrides back to shipped defaults
 test_27_2_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 os.remove(tmp)
@@ -2848,8 +2852,8 @@ fi
     pref_file="$sb_rst/preferences.json"
     "$lua_bin" - "$ROOT" "$pref_file" << 'LUA_CHECK'
 local root, pfile = arg[1], arg[2]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 pref.set_override("aurelia.motion.enabled", false, pfile)
 pref.reset_shell(pfile)
 LUA_CHECK
@@ -2867,16 +2871,17 @@ section "28. Verification Matrix N: Portable Preference Export & Runtime Exclusi
 # 28.1: export_portable strictly excludes machine/runtime keys and secrets
 test_28_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
-os.remove(tmp)
-pref.set_override("aurelia.motion.enabled", false, tmp)
-pref.set_override("runtime", { pid = 9999, socket = "/tmp/aurelia.sock" }, tmp)
-pref.set_override("secrets", { token = "secret-12345" }, tmp)
-pref.set_override("machine_id", "fedora-vm-host", tmp)
-pref.set_override("components.keybindings.default_view", "unbound", tmp)
+local f = io.open(tmp, "w")
+f:write('{"aurelia": {"motion": {"enabled": false}}, "runtime": {"pid": 9999, "socket": "/tmp/aurelia.sock"}, "secrets": {"token": "secret-12345"}, "machine_id": "fedora-vm-host", "components": {"keybindings": {"default_view": "unbound"}} }')
+f:close()
+
+-- Strict schema validation: arbitrary unknown keys fail closed
+local ok_bad, err_bad = pref.set_override("runtime", { pid = 9999 }, tmp)
+assert(ok_bad == false, "set_override on unallowlisted key 'runtime' should fail closed")
 
 local exp = pref.export_portable(tmp)
 os.remove(tmp)
@@ -2918,8 +2923,8 @@ fi
 # 29.3: Malformed or negative motion scale falls back safely
 test_29_3_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 local f = io.open(tmp, "w")
@@ -2943,8 +2948,8 @@ section "30. Verification Matrix P: Structured Logging, Privacy Boundary & Bound
 # 30.1: Supported logging levels format timestamp, level, component, and event
 test_30_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 pref.get_log_path = function() return tmp end
@@ -2971,8 +2976,8 @@ fi
 # 30.2: Privacy boundary: raw user search queries and secrets are redacted
 test_30_2_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local redacted_token = pref.redact_sensitive("User token=secret_auth_token_xyz")
 assert(redacted_token:find("secret_auth_token_xyz") == nil, "Token was not redacted!")
@@ -2996,8 +3001,8 @@ fi
 # 30.3: Bounded logging behavior: log file size is strictly bounded to <= 2000 lines
 test_30_3_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 local tmp = os.tmpname()
 local f = io.open(tmp, "w")
@@ -3025,8 +3030,8 @@ fi
 # 30.4: Logging failure isolation: unwritable log destination does not crash
 test_30_4_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
 local root = arg[1]
-package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
 
 pref.get_log_path = function() return "/dev/null/impossible/path/aurelia.log" end
 
@@ -3107,3 +3112,210 @@ if ! grep -q 'noctalia' "$ROOT/dotfiles/aurelia/shell.qml" && \
 else
     fail "32.2 unexpected Noctalia coupling found in Aurelia components"
 fi
+
+section "33. Verification Matrix S: Core Deployment, CLI Delegation & Path Isolation"
+
+# 33.1: workstation-aurelia deployed to /usr/local/bin/workstation-aurelia (mode 0755) in modules/desktop.sh
+desktop_mod="$ROOT/modules/desktop.sh"
+if grep -q 'aur_bin_source=.*bin/workstation-aurelia' "$desktop_mod" && \
+   grep -q 'aur_bin_target=.*bin_dir/workstation-aurelia' "$desktop_mod" && \
+   grep -q 'chmod 0755.*aur_bin_target' "$desktop_mod"; then
+    pass "33.1 workstation-aurelia deployed to /usr/local/bin/workstation-aurelia with mode 0755 in modules/desktop.sh"
+else
+    fail "33.1 workstation-aurelia deployment declaration missing or incorrect in modules/desktop.sh"
+fi
+
+# 33.2: workstation-keybindings delegates to workstation-aurelia and fails closed if missing
+test_33_2_out="$(WORKSTATION_AURELIA_BIN="/nonexistent/workstation-aurelia" "$ROOT/bin/workstation-keybindings" preference get 2>&1 || true)"
+test_33_2_code="$(WORKSTATION_AURELIA_BIN="/nonexistent/workstation-aurelia" "$ROOT/bin/workstation-keybindings" preference get >/dev/null 2>&1; echo $?)"
+if [[ "$test_33_2_code" -eq 1 && "$test_33_2_out" == *"workstation-aurelia"* && "$test_33_2_out" == *"not found"* ]]; then
+    pass "33.2 workstation-keybindings delegation fails closed with exit code 1 when workstation-aurelia missing"
+else
+    fail "33.2 workstation-keybindings missing delegation check failed (code=$test_33_2_code, out=$test_33_2_out)"
+fi
+
+# 33.3: Aurelia preferences owned under dotfiles/aurelia/core/preferences.lua (and dotfiles/hypr/aurelia_preferences.lua is removed)
+if [[ -f "$ROOT/dotfiles/aurelia/core/preferences.lua" && ! -f "$ROOT/dotfiles/hypr/aurelia_preferences.lua" ]]; then
+    pass "33.3 Aurelia preferences canonically owned under dotfiles/aurelia/core/preferences.lua with hypr/ removal"
+else
+    fail "33.3 Aurelia preferences ownership violation: missing core/preferences.lua or stale hypr/aurelia_preferences.lua exists"
+fi
+
+# 33.4: Zero references to ~/.config/hypr/ in workstation-aurelia
+if ! grep -q 'config/hypr' "$ROOT/bin/workstation-aurelia" && \
+   ! grep -q 'config/hypr' "$ROOT/dotfiles/aurelia/core/preferences.lua"; then
+    pass "33.4 zero references to ~/.config/hypr/ in workstation-aurelia or core preferences engine"
+else
+    fail "33.4 found legacy ~/.config/hypr/ references in workstation-aurelia or core preferences"
+fi
+
+section "34. Verification Matrix T: Interaction Model, Navigation & Input Theming"
+
+# 34.1: Alt+A opens Add Action view without toggling back
+if grep -q 'function openAddAction()' "$qml_win" && \
+   grep -q 'keybindingsModel.activeView.indexOf("add_") === 0' "$qml_win" && \
+   grep -q 'return' <(sed -n '/function openAddAction()/,/}/p' "$qml_win"); then
+    pass "34.1 Alt+A opens Add Action view without toggling back into previous view"
+else
+    fail "34.1 Alt+A toggle-back prevention missing in KeybindingsWindow.qml"
+fi
+
+# 34.2: B or b navigates back in list/navigation context while search input permits typing b
+if grep -q 'event.key === Qt.Key_B' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$qml_win") && \
+   grep -q 'windowRoot.goBack()' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$qml_win") && \
+   ! grep -q 'event.key === Qt.Key_B' <(sed -n '/id: searchInput/,/RowLayout/p' "$qml_win"); then
+    pass "34.2 B/b navigates back in list context while search input allows standard b typing"
+else
+    fail "34.2 B-as-Back or search input typing isolation missing in KeybindingsWindow.qml"
+fi
+
+# 34.3: S and U shortcuts restricted to list context in bound/unbound view
+if grep -q 'keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound"' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$qml_win") && \
+   ! grep -q 'event.key === Qt.Key_S &&' <(sed -n '/id: searchInput/,/RowLayout/p' "$qml_win"); then
+    pass "34.3 S/U shortcuts strictly restricted to list context and bound/unbound view"
+else
+    fail "34.3 S/U shortcut scoping missing or search input intercepts plain s/u in KeybindingsWindow.qml"
+fi
+
+# 34.4: Single click in add_action_type activates selected type without closing
+if grep -q 'keybindingsModel.activeView === "add_action_type"' "$qml_row" && \
+   grep -q 'windowRoot.activateSelected()' "$qml_row" && \
+   grep -q 'rowRoot.modelData.action_type_kind' "$qml_row"; then
+    pass "34.4 single click in add_action_type activates selected type without closing or double-activation"
+else
+    fail "34.4 single click action type activation missing in KeybindingRow.qml"
+fi
+
+# 34.5: Executable / Script form uses Theme.input* tokens and entered text is high-contrast
+if grep -q 'color: Theme.inputBg' "$qml_win" && \
+   grep -q 'color: Theme.inputText' "$qml_win" && \
+   grep -q 'border.color: execNameInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder' "$qml_win" && \
+   grep -q 'color: Theme.inputPlaceholder' "$qml_win" && \
+   ! grep -q 'color: Theme.bgCard' "$qml_win"; then
+    pass "34.5 Executable / Script form inputs use semantic Theme.input* tokens without undefined bgCard"
+else
+    fail "34.5 semantic input theming tokens missing or bgCard found in KeybindingsWindow.qml"
+fi
+
+# 34.6: Terminology is Executable / Script across UI and models
+if grep -q 'Executable / Script' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
+   grep -q 'Add Custom Executable / Script' "$qml_win" && \
+   ! grep -q 'Binary / Shell' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"; then
+    pass "34.6 Terminology is Executable / Script across UI, forms, and models"
+else
+    fail "34.6 legacy Binary / Shell terminology found or Executable / Script missing"
+fi
+
+section "35. Verification Matrix U: Strict Schema Validation & Allowlisted Export"
+
+# 35.1: Unknown preference key fails closed with exit code 1
+test_35_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
+
+local ok, err = pref.set_override("aurelia.unregistered.key", true)
+assert(ok == false, "set_override accepted unknown key")
+assert(err:find("Unknown preference key") ~= nil, "Missing unknown key error message")
+print("TEST_35_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_35_1_OK" <<< "$test_35_1_out"; then
+    pass "35.1 unknown preference key fails closed with explicit error"
+else
+    fail "35.1 unknown preference key validation failed: $test_35_1_out"
+fi
+
+# 35.2: Strict typing, bounds, and enum constraints enforced
+test_35_2_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
+
+-- Boolean validation
+local ok_b, _ = pref.set_override("aurelia.motion.enabled", "not_a_boolean")
+assert(ok_b == false, "Invalid boolean was accepted")
+
+-- Float minimum bound validation
+local ok_f, _ = pref.set_override("aurelia.motion.scale", -0.5)
+assert(ok_f == false, "Negative float below minimum was accepted")
+
+-- Enum constraint validation
+local ok_e, _ = pref.set_override("components.keybindings.default_view", "invalid_view")
+assert(ok_e == false, "Invalid enum value was accepted")
+
+print("TEST_35_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_35_2_OK" <<< "$test_35_2_out"; then
+    pass "35.2 strict typing, range checking, and enum constraints enforced"
+else
+    fail "35.2 type and constraint validation failed: $test_35_2_out"
+fi
+
+# 35.3: Schema-driven allowlisted export ensures zero leakage of runtime/machine/secret state
+test_35_3_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
+
+local tmp = os.tmpname()
+local f = io.open(tmp, "w")
+f:write('{"aurelia": {"motion": {"enabled": true, "scale": 1.0}}, "arbitrary_nested": {"secret": "leak_me"}, "password": "clear", "components": {"keybindings": {"default_view": "bound"}} }')
+f:close()
+
+local exp = pref.export_portable(tmp)
+os.remove(tmp)
+
+assert(exp:find("arbitrary_nested") == nil, "Export leaked arbitrary_nested")
+assert(exp:find("leak_me") == nil, "Export leaked secret value")
+assert(exp:find("clear") == nil, "Export leaked password")
+assert(exp:find("aurelia") ~= nil, "Export missing aurelia namespace")
+assert(exp:find("keybindings") ~= nil, "Export missing keybindings component")
+print("TEST_35_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_35_3_OK" <<< "$test_35_3_out"; then
+    pass "35.3 schema-driven allowlisted export guarantees zero leakage of unallowlisted state"
+else
+    fail "35.3 allowlisted export check failed: $test_35_3_out"
+fi
+
+# 35.4: Destination path safety and atomic write with 0600 mode
+test_35_4_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
+
+-- Relative path or path traversal rejected
+local ok_rel, _ = pref.set_override("aurelia.motion.enabled", true, "relative/path.json")
+assert(ok_rel == false, "Relative destination path was accepted")
+
+local ok_trav, _ = pref.set_override("aurelia.motion.enabled", true, "/tmp/../tmp/test.json")
+assert(ok_trav == false, "Path traversal destination was accepted")
+
+print("TEST_35_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_35_4_OK" <<< "$test_35_4_out"; then
+    pass "35.4 destination path safety validates absolute paths and rejects traversal"
+else
+    fail "35.4 destination path safety validation failed: $test_35_4_out"
+fi
+
+# 35.5: Lightweight bounded logging uses O(1) file seek without table buffering
+if grep -q 'f:seek("end")' "$ROOT/dotfiles/aurelia/core/preferences.lua" && \
+   ! grep -q 'read_all_lines' "$ROOT/dotfiles/aurelia/core/preferences.lua"; then
+    pass "35.5 lightweight bounded logging writes directly and checks size with O(1) seek"
+else
+    fail "35.5 O(1) seek logging missing in dotfiles/aurelia/core/preferences.lua"
+fi
+
+# 35.6: Motion architecture distinction: QML internal durations vs Hyprland layer-shell compositor animations
+if grep -q "Compositor Animation Boundary" "$ROOT/docs/aurelia-shell-architecture.md" && \
+   grep -q "layerrule = noanim" "$ROOT/docs/aurelia-shell-architecture.md"; then
+    pass "35.6 motion architecture distinction documented (QML tokens vs Hyprland layer-shell rules)"
+else
+    fail "35.6 motion architecture documentation missing in docs/aurelia-shell-architecture.md"
+fi
+

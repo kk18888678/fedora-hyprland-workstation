@@ -80,63 +80,103 @@ PanelWindow {
         }
     }
 
-    // Authoritative activation & navigation operation:
-    // Guarantees one physical Enter event results in at most one semantic activation.
+    // Authoritative activation & navigation operations:
+    // Guarantees one physical event results in at most one semantic activation.
+    // Structural event ownership with synchronous re-entrancy protection (isActivating).
     // Navigation events (e.g. Add Action type selection) NEVER fall through to action execution.
-    property real lastActivationTime: 0
+    property bool isActivating: false
+
+    function openAddAction() {
+        if (keybindingsModel.activeView.indexOf("add_") === 0) {
+            return
+        }
+        keybindingsModel.switchView("add_action_type")
+        Qt.callLater(function() { listView.forceActiveFocus() })
+    }
+
+    function goBack() {
+        if (windowRoot.isRecording) {
+            cancelCapture()
+            return
+        }
+        if (keybindingsModel.operationState !== "idle") {
+            cancelCapture()
+            return
+        }
+        var view = keybindingsModel.activeView
+        if (view === "add_app" || view === "add_exec") {
+            keybindingsModel.switchView("add_action_type")
+            Qt.callLater(function() { listView.forceActiveFocus() })
+        } else if (view === "add_action_type") {
+            var dest = keybindingsModel.previousRootView || "unbound"
+            keybindingsModel.switchView(dest)
+            Qt.callLater(function() { searchInput.forceActiveFocus() })
+        } else {
+            windowRoot.visible = false
+        }
+    }
 
     function activateSelected(): bool {
-        var now = Date.now()
-        if (now - lastActivationTime < 200) {
-            console.warn("[EVENT-DEDUP] activateSelected() suppressed re-entrant activation (" + (now - lastActivationTime) + "ms)")
+        if (isActivating) {
             return false
         }
-        lastActivationTime = now
+        isActivating = true
+        try {
+            var view = keybindingsModel.activeView
+            var item = keybindingsModel.selectedItem
 
-        var view = keybindingsModel.activeView
-        var item = keybindingsModel.selectedItem
-
-        if (view === "add_action_type") {
-            if (!item) {
-                console.warn("[NAV] activateSelected: add_action_type with no selected item")
-                return false
-            }
-            if (item.action_type_kind === "application") {
-                keybindingsModel.switchView("add_app")
-                Qt.callLater(function() { searchInput.forceActiveFocus() })
-                return true
-            } else if (item.action_type_kind === "executable") {
-                keybindingsModel.switchView("add_exec")
-                Qt.callLater(function() { execNameInput.forceActiveFocus() })
-                return true
-            } else {
-                console.warn("[NAV] activateSelected: unexpected action_type_kind: " + (item.action_type_kind || "undefined"))
-                return false
-            }
-        } else if (view === "add_app") {
-            if (item && item.desktop_id) {
-                keybindingsModel.addApplication(item.desktop_id)
-                return true
-            } else {
-                console.warn("[NAV] activateSelected: add_app with no desktop_id")
-                return false
-            }
-        } else if (view === "bound" || view === "unbound") {
-            if (item && item.runnable === true) {
-                if (keybindingsModel.runSelected()) {
-                    windowRoot.visible = false
-                    return true
+            if (view === "add_action_type") {
+                if (!item) {
+                    console.warn("[NAV] activateSelected: add_action_type with no selected item")
+                    return false
                 }
+                if (item.action_type_kind === "application") {
+                    keybindingsModel.switchView("add_app")
+                    Qt.callLater(function() { searchInput.forceActiveFocus() })
+                    return true
+                } else if (item.action_type_kind === "executable") {
+                    keybindingsModel.switchView("add_exec")
+                    Qt.callLater(function() {
+                        if (typeof addExecForm !== "undefined" && typeof addExecForm.focusFirstField === "function") {
+                            addExecForm.focusFirstField()
+                        } else if (typeof execNameInput !== "undefined") {
+                            execNameInput.forceActiveFocus()
+                        }
+                    })
+                    return true
+                } else {
+                    console.warn("[NAV] activateSelected: unexpected action_type_kind: " + (item.action_type_kind || "undefined"))
+                    return false
+                }
+            } else if (view === "add_app") {
+                if (item && item.desktop_id) {
+                    keybindingsModel.addApplication(item.desktop_id)
+                    return true
+                } else {
+                    console.warn("[NAV] activateSelected: add_app with no desktop_id")
+                    return false
+                }
+            } else if (view === "bound" || view === "unbound") {
+                if (item && item.runnable === true) {
+                    if (keybindingsModel.runSelected()) {
+                        windowRoot.visible = false
+                        return true
+                    }
+                    return false
+                }
+                // Non-runnable actions in bound/unbound view: fail-closed, do not execute, do not close palette
+                return false
+            } else if (view === "add_exec") {
+                if (typeof addExecForm !== "undefined" && typeof addExecForm.submitExecForm === "function") {
+                    addExecForm.submitExecForm()
+                }
+                return true
+            } else {
+                console.warn("[NAV] activateSelected: unknown view: " + view)
                 return false
             }
-            // Non-runnable actions in bound/unbound view: fail-closed, do not execute, do not close palette
-            return false
-        } else if (view === "add_exec") {
-            submitExecForm()
-            return true
-        } else {
-            console.warn("[NAV] activateSelected: unknown view: " + view)
-            return false
+        } finally {
+            isActivating = false
         }
     }
 
@@ -468,24 +508,12 @@ PanelWindow {
                 return
             }
             if (event.key === Qt.Key_Escape) {
-                if (keybindingsModel.operationState !== "idle") {
-                    windowRoot.cancelCapture()
-                } else if (keybindingsModel.activeView === "add_app" || keybindingsModel.activeView === "add_exec") {
-                    keybindingsModel.switchView("add_action_type")
-                } else if (keybindingsModel.activeView === "add_action_type") {
-                    keybindingsModel.switchView("unbound")
-                } else {
-                    windowRoot.visible = false
-                }
+                windowRoot.goBack()
                 event.accepted = true
                 return
             }
-            if ((event.key === Qt.Key_A && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A)) {
-                if (keybindingsModel.activeView.indexOf("add_") === 0) {
-                    keybindingsModel.switchView("unbound")
-                } else {
-                    keybindingsModel.switchView("add_action_type")
-                }
+            if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
+                windowRoot.openAddAction()
                 event.accepted = true
                 return
             }
@@ -661,48 +689,38 @@ PanelWindow {
 
                         // 4. Normal idle navigation, view switching, and execution
                         if (event.key === Qt.Key_Escape) {
-                            if (keybindingsModel.activeView === "add_app" || keybindingsModel.activeView === "add_exec") {
-                                keybindingsModel.switchView("add_action_type")
-                            } else if (keybindingsModel.activeView === "add_action_type") {
-                                keybindingsModel.switchView("unbound")
-                            } else {
-                                windowRoot.visible = false
-                            }
+                            windowRoot.goBack()
                             event.accepted = true
+                            return
                         } else if (event.key === Qt.Key_Down) {
                             keybindingsModel.selectNext()
                             listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
                             listView.forceActiveFocus()
                             event.accepted = true
+                            return
                         } else if (event.key === Qt.Key_Up) {
                             keybindingsModel.selectPrevious()
                             listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
                             listView.forceActiveFocus()
                             event.accepted = true
+                            return
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                             event.accepted = true
                             windowRoot.activateSelected()
                             return
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
-                            if (keybindingsModel.activeView.indexOf("add_") === 0) {
-                                keybindingsModel.switchView("unbound")
-                            } else {
-                                keybindingsModel.switchView("add_action_type")
-                            }
+                            windowRoot.openAddAction()
                             event.accepted = true
+                            return
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
-                            if (keybindingsModel.activeView === "add_app") {
-                                var appToAdd = keybindingsModel.selectedItem
-                                if (appToAdd && appToAdd.desktop_id) {
-                                    keybindingsModel.addApplication(appToAdd.desktop_id)
-                                }
-                            } else if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
+                            if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
                                 var item = keybindingsModel.selectedItem
                                 if (item) {
                                     windowRoot.startCapture(item, event)
                                 }
                             }
                             event.accepted = true
+                            return
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U) {
                             if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
                                 var itemUnset = keybindingsModel.selectedItem
@@ -716,7 +734,9 @@ PanelWindow {
                                 }
                             }
                             event.accepted = true
+                            return
                         }
+                        // Note: plain letters 'a', 'b', 's', 'u' fall through to standard TextInput processing
                     }
                 }
             }
@@ -808,9 +828,9 @@ PanelWindow {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             if (keybindingsModel.activeView.indexOf("add_") === 0) {
-                                keybindingsModel.switchView("unbound")
+                                windowRoot.goBack()
                             } else {
-                                keybindingsModel.switchView("add_action_type")
+                                windowRoot.openAddAction()
                             }
                         }
                     }
@@ -874,15 +894,9 @@ PanelWindow {
                             return
                         }
 
-                        // 4. Escape: back or close
+                        // 4. Escape: go back or dismiss
                         if (event.key === Qt.Key_Escape) {
-                            if (keybindingsModel.activeView === "add_app" || keybindingsModel.activeView === "add_exec") {
-                                keybindingsModel.switchView("add_action_type")
-                            } else if (keybindingsModel.activeView === "add_action_type") {
-                                keybindingsModel.switchView("unbound")
-                            } else {
-                                windowRoot.visible = false
-                            }
+                            windowRoot.goBack()
                             event.accepted = true
                             return
                         }
@@ -912,7 +926,21 @@ PanelWindow {
                             return
                         }
 
-                        // 7. S -> Set / Edit hotkey (or Alt+S)
+                        // 7. Alt+A -> Open Add Action view (never toggles back)
+                        if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
+                            windowRoot.openAddAction()
+                            event.accepted = true
+                            return
+                        }
+
+                        // 8. B / b -> Go Back (in list/navigation context)
+                        if ((event.key === Qt.Key_B && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_B)) {
+                            windowRoot.goBack()
+                            event.accepted = true
+                            return
+                        }
+
+                        // 9. S / s -> Set / Edit hotkey (or Alt+S) - restricted to bound/unbound view
                         if ((event.key === Qt.Key_S && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S)) {
                             if (keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound") {
                                 event.accepted = true
@@ -928,7 +956,7 @@ PanelWindow {
                             return
                         }
 
-                        // 8. U -> Unset / Clear hotkey (or Alt+U)
+                        // 10. U / u -> Unset / Clear hotkey (or Alt+U) - restricted to bound/unbound view
                         if ((event.key === Qt.Key_U && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U)) {
                             if (keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound") {
                                 event.accepted = true
@@ -949,18 +977,7 @@ PanelWindow {
                             return
                         }
 
-                        // 9. a -> Add Action / Back (or Alt+a)
-                        if ((event.key === Qt.Key_A && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A)) {
-                            if (keybindingsModel.activeView.indexOf("add_") === 0) {
-                                keybindingsModel.switchView("unbound")
-                            } else {
-                                keybindingsModel.switchView("add_action_type")
-                            }
-                            event.accepted = true
-                            return
-                        }
-
-                        // 10. Slash, Backspace, or printable text redirects to searchInput
+                        // 11. Slash, Backspace, or printable text redirects to searchInput
                         if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32)) {
                             searchInput.forceActiveFocus()
                             if (event.key !== Qt.Key_Slash) {
@@ -998,13 +1015,17 @@ PanelWindow {
                     anchors.fill: parent
                     visible: keybindingsModel.activeView === "add_exec"
 
+                    function focusFirstField() {
+                        execNameInput.forceActiveFocus()
+                    }
+
                     onVisibleChanged: {
                         if (visible) {
                             execNameInput.text = ""
                             execPathInput.text = ""
                             execArgsInput.text = ""
                             execFormErrorText.text = ""
-                            execNameInput.forceActiveFocus()
+                            focusFirstField()
                         }
                     }
 
@@ -1044,8 +1065,8 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 36
                                 radius: Theme.radiusSm
-                                color: Theme.bgCard
-                                border.color: execNameInput.activeFocus ? Theme.borderActive : Theme.border
+                                color: Theme.inputBg
+                                border.color: execNameInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder
                                 border.width: 1
                                 TextInput {
                                     id: execNameInput
@@ -1055,16 +1076,16 @@ PanelWindow {
                                     verticalAlignment: TextInput.AlignVCenter
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontSizeSm
-                                    color: Theme.text
+                                    color: Theme.inputText
                                     selectByMouse: true
-                                    selectionColor: Theme.selection
-                                    selectedTextColor: Theme.text
+                                    selectionColor: Theme.inputSelection
+                                    selectedTextColor: Theme.inputSelectionText
                                     Text {
                                         anchors.fill: parent
                                         verticalAlignment: Text.AlignVCenter
                                         text: "e.g. My Workspace Script"
                                         font: parent.font
-                                        color: Theme.textSubtle
+                                        color: Theme.inputPlaceholder
                                         visible: !execNameInput.text
                                     }
                                     Keys.onPressed: function(event) {
@@ -1075,7 +1096,7 @@ PanelWindow {
                                             submitExecForm()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
-                                            keybindingsModel.switchView("add_action_type")
+                                            windowRoot.goBack()
                                             event.accepted = true
                                         }
                                     }
@@ -1098,8 +1119,8 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 36
                                 radius: Theme.radiusSm
-                                color: Theme.bgCard
-                                border.color: execPathInput.activeFocus ? Theme.borderActive : Theme.border
+                                color: Theme.inputBg
+                                border.color: execPathInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder
                                 border.width: 1
                                 TextInput {
                                     id: execPathInput
@@ -1109,16 +1130,16 @@ PanelWindow {
                                     verticalAlignment: TextInput.AlignVCenter
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontSizeSm
-                                    color: Theme.text
+                                    color: Theme.inputText
                                     selectByMouse: true
-                                    selectionColor: Theme.selection
-                                    selectedTextColor: Theme.text
+                                    selectionColor: Theme.inputSelection
+                                    selectedTextColor: Theme.inputSelectionText
                                     Text {
                                         anchors.fill: parent
                                         verticalAlignment: Text.AlignVCenter
                                         text: "e.g. /usr/local/bin/my-script"
                                         font: parent.font
-                                        color: Theme.textSubtle
+                                        color: Theme.inputPlaceholder
                                         visible: !execPathInput.text
                                     }
                                     Keys.onPressed: function(event) {
@@ -1132,7 +1153,7 @@ PanelWindow {
                                             submitExecForm()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
-                                            keybindingsModel.switchView("add_action_type")
+                                            windowRoot.goBack()
                                             event.accepted = true
                                         }
                                     }
@@ -1155,8 +1176,8 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 36
                                 radius: Theme.radiusSm
-                                color: Theme.bgCard
-                                border.color: execArgsInput.activeFocus ? Theme.borderActive : Theme.border
+                                color: Theme.inputBg
+                                border.color: execArgsInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder
                                 border.width: 1
                                 TextInput {
                                     id: execArgsInput
@@ -1166,16 +1187,16 @@ PanelWindow {
                                     verticalAlignment: TextInput.AlignVCenter
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontSizeSm
-                                    color: Theme.text
+                                    color: Theme.inputText
                                     selectByMouse: true
-                                    selectionColor: Theme.selection
-                                    selectedTextColor: Theme.text
+                                    selectionColor: Theme.inputSelection
+                                    selectedTextColor: Theme.inputSelectionText
                                     Text {
                                         anchors.fill: parent
                                         verticalAlignment: Text.AlignVCenter
                                         text: "e.g. --profile work"
                                         font: parent.font
-                                        color: Theme.textSubtle
+                                        color: Theme.inputPlaceholder
                                         visible: !execArgsInput.text
                                     }
                                     Keys.onPressed: function(event) {
@@ -1186,7 +1207,7 @@ PanelWindow {
                                             submitExecForm()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
-                                            keybindingsModel.switchView("add_action_type")
+                                            windowRoot.goBack()
                                             event.accepted = true
                                         }
                                     }
@@ -1255,7 +1276,7 @@ PanelWindow {
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: keybindingsModel.switchView("add_action_type")
+                                    onClicked: windowRoot.goBack()
                                 }
                             }
                         }
@@ -1467,20 +1488,40 @@ PanelWindow {
                         }
                     }
 
-                    // 8. a Add Action / Back
+                    // 8. Alt+A Add Action / b Back
                     RowLayout {
                         spacing: Theme.spacingXs
-                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle"
+                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView.indexOf("add_") !== 0
 
                         Text {
-                            text: "a"
+                            text: "Alt+A"
                             color: Theme.foam
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                             font.bold: true
                         }
                         Text {
-                            text: (keybindingsModel.activeView.indexOf("add_") === 0) ? "Back" : "Add Action"
+                            text: "Add Action"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+                    }
+
+                    RowLayout {
+                        spacing: Theme.spacingXs
+                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView.indexOf("add_") === 0
+
+                        Text {
+                            text: "b"
+                            color: Theme.foam
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Back"
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm

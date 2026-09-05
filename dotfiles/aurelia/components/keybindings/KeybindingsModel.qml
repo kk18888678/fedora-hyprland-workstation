@@ -13,6 +13,7 @@ QtObject {
 
     // Views: "bound" | "unbound" | "add_action_type" | "add_app" | "add_exec"
     property string activeView: "bound"
+    property string previousRootView: "bound"
     readonly property int boundCount: boundItems.length
     readonly property int unboundCount: unboundItems.length
     readonly property int appsCount: availableApplications.length
@@ -64,6 +65,11 @@ QtObject {
     function switchView(view) {
         if (view !== "bound" && view !== "unbound" && view !== "add_action_type" && view !== "add_app" && view !== "add_exec") return;
         if (root.activeView === view) return;
+        if (view === "add_action_type") {
+            if (root.activeView === "bound" || root.activeView === "unbound") {
+                root.previousRootView = root.activeView;
+            }
+        }
         root.activeView = view;
         root.searchQuery = "";
         root.selectedIndex = 0;
@@ -158,7 +164,7 @@ QtObject {
                 {
                     id: "type_exec",
                     action_type_kind: "executable",
-                    display_key: "Script / Binary",
+                    display_key: "Executable / Script",
                     description: "Custom Executable / Script — specify binary path and arguments",
                     editable: false,
                     runnable: false

@@ -1,33 +1,91 @@
--- Module: aurelia_preferences
--- Single source of truth for Aurelia Desktop Shell Core preferences,
--- layered configuration resolution (Shipped Defaults + User Overrides = Effective Preferences),
--- atomic writes, component/shell reset, portable export, and structured diagnostics.
+-- Module: aurelia.core.preferences
+-- Single authoritative source of truth for Aurelia Desktop Shell Core preferences,
+-- strict schema registry, layered configuration resolution (Shipped Defaults + User Overrides = Effective Preferences),
+-- atomic writes, component/shell reset, schema-driven allowlisted portable export,
+-- and lightweight bounded diagnostics logging.
 
 local M = {}
 
--- Shipped Defaults: Immutable baseline specification
+-- 1. Explicit Schema Registry for all supported Aurelia preferences
+-- Invariant: Unknown keys fail closed. Arbitrary keys outside the schema are strictly rejected.
+M.SCHEMA = {
+    ["aurelia.motion.enabled"] = {
+        canonical_key = "aurelia.motion.enabled",
+        type = "boolean",
+        default = true,
+        portable = true,
+        scope = "shell",
+        description = "Global motion enable switch for Aurelia Shell components",
+    },
+    ["aurelia.motion.scale"] = {
+        canonical_key = "aurelia.motion.scale",
+        type = "number",
+        min = 0.0,
+        max = 10.0,
+        default = 1.0,
+        portable = true,
+        scope = "shell",
+        description = "Global motion animation duration multiplier",
+    },
+    ["components.keybindings.motion.enabled"] = {
+        canonical_key = "components.keybindings.motion.enabled",
+        type = "boolean",
+        default = true,
+        portable = true,
+        scope = "component",
+        component = "keybindings",
+        inherits_from = "aurelia.motion.enabled",
+        description = "Motion enable switch for Keybindings component",
+    },
+    ["components.keybindings.motion.scale"] = {
+        canonical_key = "components.keybindings.motion.scale",
+        type = "number",
+        min = 0.0,
+        max = 10.0,
+        default = 1.0,
+        portable = true,
+        scope = "component",
+        component = "keybindings",
+        inherits_from = "aurelia.motion.scale",
+        description = "Motion duration multiplier for Keybindings component",
+    },
+    ["components.keybindings.default_view"] = {
+        canonical_key = "components.keybindings.default_view",
+        type = "string",
+        enum = { "bound", "unbound" },
+        default = "bound",
+        portable = true,
+        scope = "component",
+        component = "keybindings",
+        description = "Initial active view when opening Keybindings palette",
+    },
+}
+
+-- Shipped Defaults derived authoritatively from the schema registry
 function M.get_shipped_defaults()
     return {
         schema_version = 1,
         aurelia = {
             motion = {
-                enabled = true,
-                scale = 1.0,
+                enabled = M.SCHEMA["aurelia.motion.enabled"].default,
+                scale = M.SCHEMA["aurelia.motion.scale"].default,
             },
         },
         components = {
             keybindings = {
                 motion = {
-                    enabled = true,
-                    scale = 1.0,
+                    enabled = M.SCHEMA["components.keybindings.motion.enabled"].default,
+                    scale = M.SCHEMA["components.keybindings.motion.scale"].default,
                 },
-                default_view = "bound",
+                default_view = M.SCHEMA["components.keybindings.default_view"].default,
             },
         },
     }
 end
 
--- Resolve preferences file path: $AURELIA_PREFERENCES_PATH -> ~/.config/aurelia/preferences.json
+-- Resolve production and test preferences file path:
+-- Production: $XDG_CONFIG_HOME/aurelia/preferences.json -> ~/.config/aurelia/preferences.json
+-- Test override allowed via $AURELIA_PREFERENCES_PATH
 function M.get_preferences_path()
     local env_path = os.getenv("AURELIA_PREFERENCES_PATH")
     if env_path and env_path ~= "" then
@@ -41,7 +99,9 @@ function M.get_preferences_path()
     return config_home .. "/aurelia/preferences.json"
 end
 
--- Resolve diagnostic logs path: $AURELIA_LOG_PATH -> ~/.local/state/workstation/aurelia.log
+-- Resolve diagnostic logs path:
+-- Production: $XDG_STATE_HOME/workstation/aurelia.log -> ~/.local/state/workstation/aurelia.log
+-- Test override allowed via $AURELIA_LOG_PATH
 function M.get_log_path()
     local env_path = os.getenv("AURELIA_LOG_PATH")
     if env_path and env_path ~= "" then
@@ -76,7 +136,6 @@ local function utf8_encode(code)
         return string.char(
             0xF0 + math.floor(code / 0x40000),
             0x80 + (math.floor(code / 0x1000) % 0x40),
-            0x80 + (math.floor(code / 0x40) % 0x40),
             0x80 + (code % 0x40)
         )
     end
@@ -300,7 +359,6 @@ function M.json_encode(val, indent)
         local escaped = val:gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\t", "\\t")
         return "\"" .. escaped .. "\""
     elseif t == "table" then
-        -- Check if it's an array or map
         local is_array = true
         local max_idx = 0
         local count = 0
@@ -320,7 +378,7 @@ function M.json_encode(val, indent)
         if is_array then
             if count == 0 then return "[]" end
             local parts = {}
-            for i = 1, max_idx do
+            for i = 1, count do
                 table.insert(parts, child_spaces .. M.json_encode(val[i], indent + 1))
             end
             return "[\n" .. table.concat(parts, ",\n") .. "\n" .. spaces .. "]"
@@ -341,8 +399,38 @@ function M.json_encode(val, indent)
     end
 end
 
+-- Validate destination path safety
+local function validate_destination_path(path)
+    if not path or type(path) ~= "string" or path:match("^%s*$") then
+        return false, "Destination path cannot be empty"
+    end
+
+    -- 1. Must be an absolute path
+    if not path:match("^/") then
+        return false, "Destination path must be an absolute path: " .. tostring(path)
+    end
+    -- 2. Reject path traversal
+    if path:match("/%.%./") or path:match("/%.%.$") or path:match("^%.%./") or path:match("^%.%.$") then
+        return false, "Directory traversal rejected in destination path: " .. tostring(path)
+    end
+
+    -- 3. In production mode: reject privileged system paths (/etc, /usr, /var)
+    if not (os.getenv("WORKSTATION_TEST_MODE") == "1" or os.getenv("AURELIA_TEST_MODE") == "1") then
+        if path:match("^/etc/") or path:match("^/usr/") or path:match("^/var/") then
+            return false, "Privileged system paths rejected for user preferences: " .. tostring(path)
+        end
+    end
+
+    return true
+end
+
 -- Safely and atomically write file with exclusive mktemp and 0600 mode
 local function atomic_write_file(path, content)
+    local ok_path, path_err = validate_destination_path(path)
+    if not ok_path then
+        return false, path_err
+    end
+
     local dir = path:match("^(.*)/[^/]+$")
     if not dir or dir == "" then dir = "." end
 
@@ -362,6 +450,8 @@ local function atomic_write_file(path, content)
     if not ok_p or not tmp_path or tmp_path == "" then
         return false, "Failed to create exclusive temporary file via mktemp"
     end
+
+    os.execute("chmod 0600 " .. sh_quote(tmp_path) .. " 2>/dev/null")
 
     local f, err = io.open(tmp_path, "w")
     if not f then
@@ -396,8 +486,7 @@ function M.read_overrides(path)
 
     local parsed, err = M.parse_json(content)
     if not parsed or type(parsed) ~= "table" then
-        -- Malformed preference fails safely to shipped default without crashing or wiping file
-        io.stderr:write("[WARN] aurelia_preferences: Malformed preferences file at " .. path .. "; failing safe to shipped defaults: " .. tostring(err) .. "\n")
+        io.stderr:write("[WARN] aurelia.core.preferences: Malformed preferences file at " .. path .. "; failing safe to shipped defaults: " .. tostring(err) .. "\n")
         return { schema_version = 1 }, err
     end
 
@@ -496,86 +585,135 @@ local function deep_merge(dst, src)
     return dst
 end
 
+-- Validate preference key and value strictly against Schema Registry
+function M.validate_key_and_value(key_path, value)
+    if not key_path or type(key_path) ~= "string" then
+        return false, "Preference key must be a non-empty string"
+    end
+
+    local spec = M.SCHEMA[key_path]
+    if not spec then
+        return false, "Unknown preference key: '" .. key_path .. "'. Supported keys are strictly defined in schema registry."
+    end
+
+    local norm_val
+    if spec.type == "boolean" then
+        if type(value) == "boolean" then
+            norm_val = value
+        elseif value == "true" or value == 1 or value == "1" then
+            norm_val = true
+        elseif value == "false" or value == 0 or value == "0" then
+            norm_val = false
+        else
+            return false, "Invalid boolean value for " .. key_path .. ": expected true/false, got " .. tostring(value)
+        end
+    elseif spec.type == "number" then
+        local n = tonumber(value)
+        if not n or (n ~= n) or (n == math.huge) or (n == -math.huge) then
+            return false, "Invalid numeric value for " .. key_path .. ": expected finite number, got " .. tostring(value)
+        end
+        if spec.min and n < spec.min then
+            return false, string.format("Value %.2f below minimum %.2f for %s", n, spec.min, key_path)
+        end
+        if spec.max and n > spec.max then
+            return false, string.format("Value %.2f exceeds maximum %.2f for %s", n, spec.max, key_path)
+        end
+        norm_val = n
+    elseif spec.type == "string" then
+        if type(value) ~= "string" then
+            return false, "Invalid string value for " .. key_path .. ": expected string, got " .. tostring(value)
+        end
+        if spec.enum then
+            local valid = false
+            for _, allowed in ipairs(spec.enum) do
+                if value == allowed then
+                    valid = true
+                    break
+                end
+            end
+            if not valid then
+                return false, "Invalid value '" .. value .. "' for " .. key_path .. " (expected one of: " .. table.concat(spec.enum, ", ") .. ")"
+            end
+        end
+        norm_val = value
+    else
+        return false, "Unsupported schema type: " .. tostring(spec.type)
+    end
+
+    return true, norm_val
+end
+
 -- Get effective preference value using layered resolution:
 -- 1. Component user override
--- 2. Shell-wide user override (for shared properties like motion)
+-- 2. Shell-wide user override (if property inherits from shell-wide setting)
 -- 3. Component shipped default
 -- 4. Shell-wide shipped default
 function M.get_effective(key_path, path)
+    local spec = M.SCHEMA[key_path]
+    if not spec then
+        return nil, "Unknown preference key: " .. tostring(key_path)
+    end
+
     local overrides = M.read_overrides(path)
     local defaults = M.get_shipped_defaults()
 
     -- 1. Direct user override
     local val = get_nested(overrides, key_path)
     if val ~= nil then
-        if key_path == "aurelia.motion.scale" or key_path:match("^components%.[%w_%-]+%.motion%.scale$") then
-            local n = tonumber(val)
-            if not n or n < 0 then
-                return 1.0
-            end
-            return n
-        end
-        return val
+        local ok, norm = M.validate_key_and_value(key_path, val)
+        if ok then return norm end
     end
 
-    -- 2. If requesting component motion, check shell-wide user override
-    local comp_id, motion_prop = key_path:match("^components%.([%w_%-]+)%.motion%.([%w_%-]+)$")
-    if comp_id and motion_prop then
-        local shell_override = get_nested(overrides, "aurelia.motion." .. motion_prop)
-        if shell_override ~= nil then return shell_override end
+    -- 2. Inheritance: if component setting inherits from a shell-wide setting, check shell-wide override
+    if spec.inherits_from then
+        local shell_override = get_nested(overrides, spec.inherits_from)
+        if shell_override ~= nil then
+            local ok, norm = M.validate_key_and_value(spec.inherits_from, shell_override)
+            if ok then return norm end
+        end
     end
 
     -- 3. Component shipped default
     local def_val = get_nested(defaults, key_path)
     if def_val ~= nil then return def_val end
 
-    -- 4. Shell-wide shipped default for motion
-    if comp_id and motion_prop then
-        return get_nested(defaults, "aurelia.motion." .. motion_prop)
+    -- 4. Inherited shipped default
+    if spec.inherits_from then
+        return get_nested(defaults, spec.inherits_from)
     end
 
-    return nil
+    return spec.default
 end
 
 -- Get all effective preferences merged into one comprehensive table
 function M.get_all_effective(path)
     local effective = deep_copy(M.get_shipped_defaults())
     local overrides = M.read_overrides(path)
-    deep_merge(effective, overrides)
+
+    -- Apply valid overrides strictly
+    for key_path, spec in pairs(M.SCHEMA) do
+        local val = get_nested(overrides, key_path)
+        if val ~= nil then
+            local ok, norm = M.validate_key_and_value(key_path, val)
+            if ok then
+                set_nested(effective, key_path, norm)
+            end
+        end
+    end
+
     return effective
 end
 
--- Validate preference key namespace:
--- Keys must be in 'aurelia.*', 'components.<id>.*', or 'plugins.<id>.*'
-local function validate_key_namespace(key_path)
-    if key_path:match("^aurelia%.[%w_%-]+") then
-        return true
-    elseif key_path:match("^components%.[%w_%-]+%.[%w_%-]+") then
-        return true
-    elseif key_path:match("^plugins%.[%w_%-]+%.[%w_%-]+") then
-        return true
-    end
-    return false, "Invalid preference key namespace: must be within 'aurelia.*', 'components.<id>.*', or 'plugins.<id>.*'"
-end
-
--- Set a user preference override atomically
+-- Set a user preference override atomically with strict validation
 function M.set_override(key_path, value, path)
-    local ok_ns, ns_err = validate_key_namespace(key_path)
-    if not ok_ns then
-        return false, ns_err
-    end
-
-    if key_path == "aurelia.motion.scale" or key_path:match("^components%.[%w_%-]+%.motion%.scale$") then
-        local n = tonumber(value)
-        if not n or n < 0 then
-            return false, "Invalid motion scale (must be a non-negative number)"
-        end
-        value = n
+    local ok_val, norm_val = M.validate_key_and_value(key_path, value)
+    if not ok_val then
+        return false, norm_val
     end
 
     path = path or M.get_preferences_path()
     local overrides = M.read_overrides(path)
-    set_nested(overrides, key_path, value)
+    set_nested(overrides, key_path, norm_val)
     overrides.schema_version = 1
 
     local encoded = M.json_encode(overrides)
@@ -584,6 +722,11 @@ end
 
 -- Remove a user preference override atomically
 function M.remove_override(key_path, path)
+    local spec = M.SCHEMA[key_path]
+    if not spec then
+        return false, "Unknown preference key: " .. tostring(key_path)
+    end
+
     path = path or M.get_preferences_path()
     local overrides = M.read_overrides(path)
     unset_nested(overrides, key_path)
@@ -595,7 +738,7 @@ end
 
 -- Reset a single component's preferences (e.g. "keybindings"):
 -- Removes only user overrides in 'components.<component_id>.*',
--- leaving shell-wide and other component/plugin overrides intact.
+-- leaving shell-wide and other component overrides intact.
 function M.reset_component(component_id, path)
     if not component_id or not component_id:match("^[%w_%-]+$") then
         return false, "Invalid component ID for reset: " .. tostring(component_id)
@@ -618,7 +761,7 @@ end
 
 -- Reset Aurelia Shell preferences:
 -- Removes all user overrides, returning effective preferences to shipped defaults.
--- Invariant: Must NOT delete logs, caches, secrets, user files, or workstation configuration.
+-- Invariant: Preserves user files, workstation configuration, caches, and logs.
 function M.reset_shell(path)
     path = path or M.get_preferences_path()
     local empty_overrides = { schema_version = 1 }
@@ -626,31 +769,30 @@ function M.reset_shell(path)
     return atomic_write_file(path, encoded)
 end
 
--- Export portable preferences:
--- Strictly separates portable preferences (syncable) from machine/runtime data.
--- Machine data (PIDs, sockets, timestamps, absolute machine paths, tokens, secrets) is excluded.
+-- Export portable preferences using strict schema allowlist:
+-- Invariant: ONLY schema keys explicitly marked portable=true may be exported.
+-- Machine data (tokens, secrets, passwords, sockets, PIDs, timestamps, machine IDs, absolute paths)
+-- cannot enter export because they are strictly absent from the allowlist.
 function M.export_portable(path)
     local overrides = M.read_overrides(path)
-    local portable = deep_copy(overrides)
+    local portable_export = { schema_version = 1 }
 
-    -- Explicitly prune non-portable or runtime domains
-    portable.runtime = nil
-    portable.logs = nil
-    portable.cache = nil
-    portable.pids = nil
-    portable.sockets = nil
-    portable.timestamps = nil
-    portable.machine_id = nil
-    portable.tokens = nil
-    portable.secrets = nil
-    portable.passwords = nil
-    portable.hardware = nil
-    portable.display = nil
+    for key_path, spec in pairs(M.SCHEMA) do
+        if spec.portable then
+            local val = get_nested(overrides, key_path)
+            if val ~= nil then
+                local ok, norm = M.validate_key_and_value(key_path, val)
+                if ok then
+                    set_nested(portable_export, key_path, norm)
+                end
+            end
+        end
+    end
 
-    return M.json_encode(portable)
+    return M.json_encode(portable_export)
 end
 
--- Redaction helper for privacy: filters tokens, secrets, passwords, and user search queries
+-- Redaction helper for privacy: filters tokens, secrets, passwords
 function M.redact_sensitive(str)
     if not str or type(str) ~= "string" then return "" end
     local s = str
@@ -661,8 +803,27 @@ function M.redact_sensitive(str)
     return s
 end
 
--- Structured logging implementation
--- Levels: DEBUG, INFO, WARN, ERROR, PERF
+-- Bounded log file truncation via tail (only called when file size exceeds bound)
+function M.bound_logfile(log_path, max_lines)
+    max_lines = max_lines or 2000
+    local p = io.popen("tail -n " .. tonumber(max_lines) .. " " .. sh_quote(log_path) .. " 2>/dev/null", "r")
+    if not p then return end
+    local content = p:read("*a")
+    p:close()
+    if content and #content > 0 then
+        local tmp = log_path .. ".tmp." .. tostring(os.time())
+        local f = io.open(tmp, "w")
+        if f then
+            f:write(content)
+            f:flush()
+            f:close()
+            os.rename(tmp, log_path)
+        end
+    end
+end
+
+-- Lightweight structured logging:
+-- Invariant: Does not read the entire log into memory on every event. Writes directly, checks size via seek.
 function M.log_event(level, component, event_id, msg, dur_ms, context)
     local allowed_levels = { DEBUG = true, INFO = true, WARN = true, ERROR = true, PERF = true }
     level = (level or "INFO"):upper()
@@ -672,7 +833,7 @@ function M.log_event(level, component, event_id, msg, dur_ms, context)
     event_id = event_id or "core"
     dur_ms = dur_ms or 0
 
-    -- Redact message and context for privacy
+    -- Redact sensitive payloads
     msg = M.redact_sensitive(msg or "")
 
     local ts = os.date("!%Y-%m-%dT%H:%M:%SZ")
@@ -683,47 +844,27 @@ function M.log_event(level, component, event_id, msg, dur_ms, context)
         entry = entry .. string.format(" (dur=%dms)", dur_ms)
     end
 
-    -- Write to bounded log file with error isolation (failure must not crash Aurelia)
     local dir = log_path:match("^(.*)/[^/]+$")
     if dir and dir ~= "" then
         os.execute("mkdir -p -m 0700 " .. sh_quote(dir) .. " 2>/dev/null")
     end
 
+    -- Append directly without reading file into memory
     local f = io.open(log_path, "a")
     if f then
         f:write(entry .. "\n")
         f:flush()
+        local sz = f:seek("end") or 0
         f:close()
-        M.bound_logfile(log_path, 2000)
+
+        -- Bounded log check: only truncate if file exceeds 256KB (~2500 lines)
+        if sz > 262144 then
+            M.bound_logfile(log_path, 2000)
+        end
     else
-        -- Fallback to stderr without throwing
         io.stderr:write(entry .. "\n")
     end
     return true
-end
-
--- Bound log file growth to prevent disk exhaustion (<= 2000 lines)
-function M.bound_logfile(log_path, max_lines)
-    max_lines = max_lines or 2000
-    local f = io.open(log_path, "r")
-    if not f then return end
-    local lines = {}
-    for line in f:lines() do
-        table.insert(lines, line)
-    end
-    f:close()
-    if #lines > max_lines then
-        local start_idx = #lines - max_lines + 1
-        local tmp_path = log_path .. ".tmp." .. tostring(os.time())
-        local f_out = io.open(tmp_path, "w")
-        if f_out then
-            for i = start_idx, #lines do
-                f_out:write(lines[i] .. "\n")
-            end
-            f_out:close()
-            os.rename(tmp_path, log_path)
-        end
-    end
 end
 
 -- Gather diagnostics bundle (non-sensitive, privacy-preserving)

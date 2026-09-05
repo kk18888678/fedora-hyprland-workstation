@@ -125,28 +125,54 @@ if [[ -z "$lua_bin" ]]; then
     exit 1
 fi
 
+# Helper to resolve workstation-aurelia executable deterministically
+resolve_aurelia_bin() {
+    if [[ -n "${WORKSTATION_AURELIA_BIN:-}" ]]; then
+        if [[ -x "$WORKSTATION_AURELIA_BIN" ]]; then
+            printf '%s\n' "$WORKSTATION_AURELIA_BIN"
+            return 0
+        fi
+        return 1
+    fi
+    local candidate
+    for candidate in "/usr/local/bin/workstation-aurelia" "$script_dir/workstation-aurelia"; do
+        if [[ -x "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    if command -v workstation-aurelia >/dev/null 2>&1; then
+        command -v workstation-aurelia
+        return 0
+    fi
+    return 1
+}
+
 # Subcommands delegating to workstation-aurelia Shell Core
 case "${1:-}" in
     diagnostics|--diagnostics)
         shift
-        aurelia_bin="$script_dir/workstation-aurelia"
-        if [[ -x "$aurelia_bin" ]]; then
+        if aurelia_bin="$(resolve_aurelia_bin)"; then
             exec "$aurelia_bin" diagnostics "$@"
         fi
+        printf '%s\n' "Error: workstation-aurelia command not found; cannot delegate diagnostics." >&2
+        exit 1
         ;;
     preference|--preference|pref)
         shift
-        aurelia_bin="$script_dir/workstation-aurelia"
-        if [[ -x "$aurelia_bin" ]]; then
+        if aurelia_bin="$(resolve_aurelia_bin)"; then
             exec "$aurelia_bin" preference "$@"
         fi
+        printf '%s\n' "Error: workstation-aurelia command not found; cannot delegate preference." >&2
+        exit 1
         ;;
     motion|--motion)
         shift
-        aurelia_bin="$script_dir/workstation-aurelia"
-        if [[ -x "$aurelia_bin" ]]; then
+        if aurelia_bin="$(resolve_aurelia_bin)"; then
             exec "$aurelia_bin" motion "$@"
         fi
+        printf '%s\n' "Error: workstation-aurelia command not found; cannot delegate motion." >&2
+        exit 1
         ;;
 esac
 

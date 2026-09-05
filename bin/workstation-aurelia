@@ -24,16 +24,19 @@ if [[ -z "$lua_bin" ]]; then
     exit 1
 fi
 
-# Locate aurelia_preferences.lua
+# Locate Aurelia Core preferences module:
+# 1. Repository development path: $script_dir/../dotfiles/aurelia/core/preferences.lua
+# 2. Deployed system path: ${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/core/preferences.lua
+# Invariant: Never look in Hyprland configuration directory (Aurelia Shell Core is independent of Hyprland).
 pref_lua=""
-if [[ -f "$script_dir/../dotfiles/hypr/aurelia_preferences.lua" ]]; then
-    pref_lua="$script_dir/../dotfiles/hypr/aurelia_preferences.lua"
-elif [[ -f "${HOME:-}/.config/hypr/aurelia_preferences.lua" ]]; then
-    pref_lua="${HOME:-}/.config/hypr/aurelia_preferences.lua"
+if [[ -f "$script_dir/../dotfiles/aurelia/core/preferences.lua" ]]; then
+    pref_lua="$script_dir/../dotfiles/aurelia/core/preferences.lua"
+elif [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/core/preferences.lua" ]]; then
+    pref_lua="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/core/preferences.lua"
 fi
 
 if [[ -z "$pref_lua" || ! -f "$pref_lua" ]]; then
-    printf '%s\n' "Error: aurelia_preferences.lua engine not found." >&2
+    printf '%s\n' "Error: Aurelia Core preferences engine not found." >&2
     exit 1
 fi
 

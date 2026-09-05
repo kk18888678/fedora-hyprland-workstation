@@ -190,7 +190,7 @@ To prepare for future AI-assisted capabilities (e.g. contextual command recommen
 Aurelia Shell Core provides the centralized system services, layered configuration model, motion preferences, and privacy boundaries for all desktop shell components.
 
 ### 8.1 Preference Ownership & Configuration API Boundary
-Individual shell components do not independently parse or write configuration files. All configuration is owned and mediated through the centralized Aurelia Preferences Service (`dotfiles/hypr/aurelia_preferences.lua`) and CLI utility (`bin/workstation-aurelia`):
+Individual shell components do not independently parse or write configuration files. All configuration is owned and mediated through the centralized Aurelia Preferences Service (`dotfiles/aurelia/core/preferences.lua`) and CLI utility (`bin/workstation-aurelia`):
 - **Configuration Path**: `~/.config/aurelia/preferences.json` (overridable via `AURELIA_PREFERENCES_PATH`).
 - **Permissions**: Atomic writes enforce secure `0600` file permissions.
 - **Operations**:
@@ -226,6 +226,7 @@ Aurelia establishes a centralized motion preference system:
 - **`aurelia.motion.enabled`**: Master boolean toggle (default: `true`).
 - **`aurelia.motion.scale`**: Float duration multiplier (default: `1.0`, clamped >= `0.0`).
 - **Immediate Transitions**: When motion is disabled, `Theme.effectiveDurationFast` and `Theme.effectiveDurationNormal` resolve immediately to `0ms`. Component transitions and animations become instantaneous across all Aurelia surfaces without requiring QML edits.
+- **Compositor Animation Boundary**: Aurelia QML components control internal animation durations (e.g., border color fades, focus transitions) via Theme duration tokens. Note that window-level surface transitions on Wayland layer-shell are managed directly by the Hyprland compositor's layer rules (e.g. `layerrule = noanim, quickshell`). Controlling window open/close animation requires compositor configuration.
 
 ### 8.5 Portable Preferences vs Machine/Runtime Data Boundary
 To prepare for future portable workstation preference synchronization without building complex network services:

@@ -186,6 +186,17 @@ QtObject {
     readonly property color warning: _getColor("warning", "", _gold)
     readonly property color error: _getColor("error", "", _love)
 
+    // 3b. Semantic Input Tokens (Shared across all Aurelia text fields)
+    readonly property color inputBg: surface
+    readonly property color bgCard: surface
+    readonly property color inputBorder: border
+    readonly property color inputBorderFocused: borderActive
+    readonly property color inputText: text
+    readonly property color inputPlaceholder: textSubtle
+    readonly property color inputSelection: selection
+    readonly property color inputSelectionText: text
+    readonly property color inputCursor: accent
+
     // 4. Semantic Typography Tokens (Configurable via theme.conf)
     readonly property string fontFamily: _getString("fontFamily", "JetBrainsMono Nerd Font, Hack Nerd Font, monospace")
     readonly property string fontFamilyProse: _getString("fontFamilyProse", "sans-serif")
@@ -224,25 +235,17 @@ QtObject {
     readonly property int rowSpacing: _getInt("rowSpacing", 3)
     readonly property int scrollBarWidth: _getInt("scrollBarWidth", 4)
 
-    // 7. Semantic Motion Tokens & Layered Preferences
+    // 7. Semantic Motion Tokens & Layered Preferences (Authoritative Schema Adapter)
     readonly property int durationFast: _getInt("durationFast", 100)
     readonly property int durationNormal: _getInt("durationNormal", 200)
 
-    // Layered Motion Preferences:
-    // Shipped Defaults + User Overrides = Effective Motion
+    // Effective Motion: Shipped Defaults + User Overrides from canonical preferences.json
     readonly property bool motionEnabled: {
-        if (loadedOverrides["motion_enabled"] !== undefined) {
-            return loadedOverrides["motion_enabled"] === "true" || loadedOverrides["motion_enabled"] === "1"
-        }
         var p = getPreference("aurelia.motion.enabled", true)
         return p === true || p === "true"
     }
 
     readonly property real motionScale: {
-        if (loadedOverrides["motion_scale"] !== undefined) {
-            var s = parseFloat(loadedOverrides["motion_scale"])
-            if (!isNaN(s) && s >= 0) return s
-        }
         var p = getPreference("aurelia.motion.scale", 1.0)
         var num = parseFloat(p)
         return (!isNaN(num) && num >= 0) ? num : 1.0

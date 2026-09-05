@@ -690,12 +690,14 @@ install_workstation_keybindings() {
     local kb_bin_source="$SCRIPT_DIR/bin/workstation-keybindings"
     local hk_bin_source="$SCRIPT_DIR/bin/workstation-hotkeys"
     local cap_source="$SCRIPT_DIR/bin/workstation-hotkey-capture"
+    local aur_bin_source="$SCRIPT_DIR/bin/workstation-aurelia"
     local kb_desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-keybindings.desktop"
     local hk_desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-hotkeys.desktop"
 
     local kb_bin_target="$bin_dir/workstation-keybindings"
     local hk_bin_target="$bin_dir/workstation-hotkeys"
     local cap_target="$bin_dir/workstation-hotkey-capture"
+    local aur_bin_target="$bin_dir/workstation-aurelia"
     local kb_desktop_target="$apps_dir/workstation-keybindings.desktop"
     local hk_desktop_target="$apps_dir/workstation-hotkeys.desktop"
 
@@ -715,6 +717,20 @@ install_workstation_keybindings() {
             mkdir -p "$(dirname "$kb_bin_target")"
             cp "$kb_bin_source" "$kb_bin_target"
             chmod 0755 "$kb_bin_target"
+        fi
+    fi
+
+    # Install Aurelia Shell Core CLI executable
+    if [[ -f "$aur_bin_source" ]]; then
+        info "Installing workstation-aurelia command to $aur_bin_target."
+        if [[ "$is_privileged" -eq 1 ]]; then
+            sudo mkdir -p "$(dirname "$aur_bin_target")"
+            sudo cp "$aur_bin_source" "$aur_bin_target"
+            sudo chmod 0755 "$aur_bin_target"
+        else
+            mkdir -p "$(dirname "$aur_bin_target")"
+            cp "$aur_bin_source" "$aur_bin_target"
+            chmod 0755 "$aur_bin_target"
         fi
     fi
 
@@ -776,6 +792,7 @@ install_workstation_keybindings() {
 
     info "Workstation keybindings installed."
     record_success "workstation-keybindings"
+    record_success "workstation-aurelia"
     record_success "workstation-hotkeys"
 }
 
