@@ -355,5 +355,30 @@ The Add Action workflow provides two distinct mechanisms for extending workstati
      - Rejects non-existent paths, directories, and non-executable files.
      - Strictly rejects shell injection characters (`;&|`$><"'\`).
      - Arguments are stored as structured `argv` arrays with zero shell interpolation.
-   - **Graceful Degradation**:
-     - If a configured executable file is deleted or unmounted later, the action is safely marked `runnable = false` with friendly "(executable not found)" status without corrupting the Action Registry or breaking other shortcuts.
+    - **Graceful Degradation**:
+      - If a configured executable file is deleted or unmounted later, the action is safely marked `runnable = false` with friendly "(executable not found)" status without corrupting the Action Registry or breaking other shortcuts.
+
+### 10.5 Add Action Navigation Correctness & `activateSelected()` Invariants
+Prior implementations contained duplicate `Keys.onPressed` handlers across `searchInput` and `listView` that could allow navigation Enter keypresses to fall through to `runSelected()`, erroneously closing the command palette window (`windowRoot.visible = false`).
+
+To guarantee navigation correctness and semantic parity:
+1. **Centralized Authoritative Operation (`activateSelected(): bool`)**:
+   - Implemented as a single, authoritative method on `KeybindingsWindow.qml`.
+   - Explicitly evaluates active view states:
+     - `add_action_type`: When `item.action_type_kind === "application"`, transitions to `add_app`. When `"executable"`, transitions to `add_exec`. The palette window remains open (`visible` is never set to false).
+     - `add_app`: Adds the application to `user_actions.json` via `keybindingsModel.addApplication()` and schedules focus restoration.
+     - `bound` / `unbound`: Runs the selected runnable item via `keybindingsModel.runSelected()`, closing the palette only upon confirmed execution launch.
+2. **Re-entrancy Deduplication**:
+   - A 200ms debounce threshold (`now - lastActivationTime < 200`) guards against double-activation from simultaneous key press/release or rapid repeat events.
+3. **Mouse & Keyboard Semantic Parity**:
+   - `KeybindingRow.qml` double-click delegates directly to `windowRoot.activateSelected()`, ensuring 100% behavioral parity between mouse and keyboard interaction paths.
+
+---
+
+## 11. Aurelia Shell Core Integration: Preferences, Motion & Diagnostics
+
+Aurelia Keybindings consumes and integrates with the centralized Shell Core foundation services:
+- **User Preferences**: Default view (`components.keybindings.default_view = "bound"`), component-level reset (`workstation-aurelia preference reset --component=keybindings`), and atomic overrides.
+- **Motion Scaling**: Border animations, row selection transitions, and view switches consume `Theme.effectiveDurationFast` and `Theme.effectiveDurationNormal`. When motion is disabled, all durations collapse to 0ms (instantaneous transitions).
+- **Structured CLI Diagnostics**: Accessible via `workstation-keybindings diagnostics [--json]` or `workstation-aurelia diagnostics [--json]`, reporting version, schema, preference health, motion status, and privacy boundaries.
+- **Privacy Boundary**: Search queries are strictly protected; filter timing logs record query length rather than raw query strings. Raw tokens, credentials, and passwords are redacted before log emission.

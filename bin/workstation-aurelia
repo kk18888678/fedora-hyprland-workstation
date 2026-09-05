@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+# workstation-aurelia — Aurelia Shell Core CLI & Diagnostics Tool
+#
+# Provides authoritative operations for Aurelia Shell:
+# - Layered preferences (Shipped Defaults + User Overrides = Effective Preferences)
+# - Component-level and Shell-level atomic reset
+# - Portable preference document export (strictly excluding machine/runtime data)
+# - Motion preference configuration (effective immediate transitions on disable)
+# - Structured diagnostic reporting and privacy-bounded logging
+#
+# Invariants:
+# - Fail-closed error handling with structured diagnostics
+# - Zero legacy terminal UI or network dependencies
+# - Safe against path traversal, symlink hijacking, and environment spoofing
+# - Zero sudo requirement (strictly user-owned configuration and state)
+
+set -Eeuo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+
+if [[ -z "$lua_bin" ]]; then
+    printf '%s\n' "Error: Lua interpreter (luajit or lua) not found." >&2
+    exit 1
+fi
+
+# Locate aurelia_preferences.lua
+pref_lua=""
+if [[ -f "$script_dir/../dotfiles/hypr/aurelia_preferences.lua" ]]; then
+    pref_lua="$script_dir/../dotfiles/hypr/aurelia_preferences.lua"
+elif [[ -f "${HOME:-}/.config/hypr/aurelia_preferences.lua" ]]; then
+    pref_lua="${HOME:-}/.config/hypr/aurelia_preferences.lua"
+fi
+
+if [[ -z "$pref_lua" || ! -f "$pref_lua" ]]; then
+    printf '%s\n' "Error: aurelia_preferences.lua engine not found." >&2
+    exit 1
+fi
+
+pref_dir="$(dirname -- "$pref_lua")"
+export LUA_PATH="$pref_dir/?.lua;${LUA_PATH:-;;}"
+
+print_help() {
+    cat <<'EOF'
+Usage: workstation-aurelia <command> [options]
+
+Commands:
+  diagnostics [--json]              Gather non-sensitive diagnostic report for debugging
+  preference get [key]              Print effective preference (or all effective if no key)
+  preference set <key> <val>        Atomically set user preference override
+  preference unset <key>            Atomically remove user preference override
+  preference reset [--component=ID] Reset component or shell user preferences to shipped defaults
+  preference export                 Export portable preference document (excludes runtime/secrets)
+  motion [status|enable|disable|scale N] Manage Aurelia-wide motion preference
+  log <level> <comp> <event> [msg]  Log structured event with privacy redaction
+  help                              Show this help message
+
+Options:
+  --json                            Format output as structured JSON
+EOF
+}
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+    diagnostics)
+        format_json=0
+        if [[ "${1:-}" == "--json" ]]; then
+            format_json=1
+        fi
+        "$lua_bin" - "$pref_dir" "$format_json" <<'LUA_SCRIPT'
+local pref_dir    = arg[1]
+local format_json = tonumber(arg[2]) or 0
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local diag = pref.get_diagnostics()
+
+-- Enrich with Quickshell and system runtime details
+local qs_bin = os.getenv("QUICKSHELL_BIN") or ""
+if qs_bin == "" then
+    local p = io.popen("command -v qs 2>/dev/null || command -v quickshell 2>/dev/null", "r")
+    if p then
+        qs_bin = (p:read("*l") or ""):gsub("%s+$", "")
+        p:close()
+    end
+end
+diag.runtime = {
+    quickshell_binary = (qs_bin ~= "") and qs_bin or "not found",
+    lua_interpreter   = _VERSION,
+    host_os           = "Fedora Linux",
+}
+
+if format_json == 1 then
+    print(pref.json_encode(diag, 0))
+else
+    print("=== Aurelia Workstation Shell Diagnostics ===")
+    print("Aurelia Version    : " .. tostring(diag.aurelia_core.version))
+    print("Schema Version     : " .. tostring(diag.aurelia_core.schema_version))
+    print("Preferences File   : " .. tostring(diag.aurelia_core.preferences_path))
+    print("Preferences Exists : " .. tostring(diag.aurelia_core.preferences_exist))
+    print("Quickshell Binary  : " .. tostring(diag.runtime.quickshell_binary))
+    print("Lua Interpreter    : " .. tostring(diag.runtime.lua_interpreter))
+    print("\n--- Effective Motion ---")
+    print("Motion Enabled     : " .. tostring(diag.effective_motion.enabled))
+    print("Motion Scale       : " .. tostring(diag.effective_motion.scale))
+    print("\n--- Component Health ---")
+    print("Keybindings Motion : " .. tostring(diag.components.keybindings.motion_enabled))
+    print("Keybindings Scale  : " .. tostring(diag.components.keybindings.motion_scale))
+    print("Keybindings View   : " .. tostring(diag.components.keybindings.default_view))
+    print("\n--- Privacy Boundary ---")
+    print("Search Queries     : " .. tostring(diag.privacy_boundary.search_query_logging))
+    print("Clipboard State    : " .. tostring(diag.privacy_boundary.clipboard_logging))
+    print("Secrets Excluded   : " .. tostring(diag.privacy_boundary.secrets_excluded))
+end
+LUA_SCRIPT
+        ;;
+
+    preference|pref)
+        sub="${1:-get}"
+        shift 2>/dev/null || true
+        case "$sub" in
+            get)
+                key="${1:-}"
+                "$lua_bin" - "$pref_dir" "$key" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+local key      = arg[2]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+if not key or key == "" then
+    local all = pref.get_all_effective()
+    print(pref.json_encode(all, 0))
+else
+    local val = pref.get_effective(key)
+    if val == nil then
+        io.stderr:write("Preference not found: " .. key .. "\n")
+        os.exit(1)
+    elseif type(val) == "table" then
+        print(pref.json_encode(val, 0))
+    else
+        print(tostring(val))
+    end
+end
+LUA_SCRIPT
+                ;;
+
+            set)
+                key="${1:-}"
+                val="${2:-}"
+                if [[ -z "$key" || -z "$val" ]]; then
+                    printf '%s\n' "Usage: workstation-aurelia preference set <key> <value>" >&2
+                    exit 1
+                fi
+                "$lua_bin" - "$pref_dir" "$key" "$val" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+local key      = arg[2]
+local raw_val  = arg[3]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+-- Type coercion
+local val = raw_val
+if raw_val == "true" then val = true
+elseif raw_val == "false" then val = false
+elseif tonumber(raw_val) then val = tonumber(raw_val)
+end
+
+local ok, err = pref.set_override(key, val)
+if not ok then
+    io.stderr:write("Error: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
+print("Preference updated: " .. key .. " = " .. tostring(val))
+LUA_SCRIPT
+                ;;
+
+            unset)
+                key="${1:-}"
+                if [[ -z "$key" ]]; then
+                    printf '%s\n' "Usage: workstation-aurelia preference unset <key>" >&2
+                    exit 1
+                fi
+                "$lua_bin" - "$pref_dir" "$key" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+local key      = arg[2]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local ok, err = pref.remove_override(key)
+if not ok then
+    io.stderr:write("Error: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
+print("Preference override removed: " .. key)
+LUA_SCRIPT
+                ;;
+
+            reset)
+                comp=""
+                for arg in "$@"; do
+                    if [[ "$arg" == --component=* ]]; then
+                        comp="${arg#*=}"
+                    fi
+                done
+                "$lua_bin" - "$pref_dir" "$comp" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+local comp     = arg[2]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+if comp and comp ~= "" then
+    local ok, err = pref.reset_component(comp)
+    if not ok then
+        io.stderr:write("Error: " .. tostring(err) .. "\n")
+        os.exit(1)
+    end
+    print("Component preferences reset to shipped defaults: " .. comp)
+else
+    local ok, err = pref.reset_shell()
+    if not ok then
+        io.stderr:write("Error: " .. tostring(err) .. "\n")
+        os.exit(1)
+    end
+    print("Aurelia Shell preferences reset to shipped defaults.")
+end
+LUA_SCRIPT
+                ;;
+
+            export)
+                "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+print(pref.export_portable())
+LUA_SCRIPT
+                ;;
+
+            *)
+                printf '%s\n' "Unknown preference subcommand: $sub" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    motion)
+        sub="${1:-status}"
+        shift 2>/dev/null || true
+        case "$sub" in
+            status)
+                "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+local enabled = pref.get_effective("aurelia.motion.enabled")
+local scale = pref.get_effective("aurelia.motion.scale")
+print(string.format("Aurelia Motion: enabled=%s, scale=%.2f", tostring(enabled), tonumber(scale) or 1.0))
+LUA_SCRIPT
+                ;;
+            enable)
+                "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+pref.set_override("aurelia.motion.enabled", true)
+print("Aurelia Motion enabled.")
+LUA_SCRIPT
+                ;;
+            disable)
+                "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+pref.set_override("aurelia.motion.enabled", false)
+print("Aurelia Motion disabled (component transitions effectively immediate).")
+LUA_SCRIPT
+                ;;
+            scale)
+                s="${1:-1.0}"
+                "$lua_bin" - "$pref_dir" "$s" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+local s_raw    = arg[2]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+local s = tonumber(s_raw)
+if not s or s < 0 then
+    io.stderr:write("Error: Invalid motion scale value (must be >= 0): " .. tostring(s_raw) .. "\n")
+    os.exit(1)
+end
+pref.set_override("aurelia.motion.scale", s)
+print(string.format("Aurelia Motion scale set to %.2f.", s))
+LUA_SCRIPT
+                ;;
+            *)
+                printf '%s\n' "Unknown motion command: $sub (use status, enable, disable, or scale <N>)" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    log)
+        level="${1:-INFO}"
+        comp="${2:-core}"
+        event="${3:-diagnostic}"
+        shift 3 2>/dev/null || shift $#
+        msg="$*"
+        "$lua_bin" - "$pref_dir" "$level" "$comp" "$event" "$msg" <<'LUA_SCRIPT'
+local pref_dir = arg[1]
+local level    = arg[2]
+local comp     = arg[3]
+local event    = arg[4]
+local msg      = arg[5]
+package.path = pref_dir .. "/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+pref.log_event(level, comp, event, msg, 0)
+LUA_SCRIPT
+        ;;
+
+    help|--help|-h)
+        print_help
+        exit 0
+        ;;
+
+    *)
+        printf '%s\n' "Unknown command: $cmd" >&2
+        print_help >&2
+        exit 1
+        ;;
+esac

@@ -125,6 +125,31 @@ if [[ -z "$lua_bin" ]]; then
     exit 1
 fi
 
+# Subcommands delegating to workstation-aurelia Shell Core
+case "${1:-}" in
+    diagnostics|--diagnostics)
+        shift
+        aurelia_bin="$script_dir/workstation-aurelia"
+        if [[ -x "$aurelia_bin" ]]; then
+            exec "$aurelia_bin" diagnostics "$@"
+        fi
+        ;;
+    preference|--preference|pref)
+        shift
+        aurelia_bin="$script_dir/workstation-aurelia"
+        if [[ -x "$aurelia_bin" ]]; then
+            exec "$aurelia_bin" preference "$@"
+        fi
+        ;;
+    motion|--motion)
+        shift
+        aurelia_bin="$script_dir/workstation-aurelia"
+        if [[ -x "$aurelia_bin" ]]; then
+            exec "$aurelia_bin" motion "$@"
+        fi
+        ;;
+esac
+
 # Parse CLI arguments and subcommands
 SUBCOMMAND=""
 TARGET_ID=""

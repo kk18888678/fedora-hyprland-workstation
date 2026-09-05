@@ -216,7 +216,7 @@ QtObject {
 
         var filterElapsed = Date.now() - t0
         if (filterElapsed > 15) {
-            console.warn("[PERF-WARN] KeybindingsModel: filterItems took " + filterElapsed + "ms for query '" + query + "' (" + filteredItems.length + " matches)")
+            console.warn("[PERF-WARN] KeybindingsModel: filterItems took " + filterElapsed + "ms (query length: " + query.length + ", " + filteredItems.length + " matches)")
         }
     }
 

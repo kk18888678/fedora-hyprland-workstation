@@ -80,6 +80,66 @@ PanelWindow {
         }
     }
 
+    // Authoritative activation & navigation operation:
+    // Guarantees one physical Enter event results in at most one semantic activation.
+    // Navigation events (e.g. Add Action type selection) NEVER fall through to action execution.
+    property real lastActivationTime: 0
+
+    function activateSelected(): bool {
+        var now = Date.now()
+        if (now - lastActivationTime < 200) {
+            console.warn("[EVENT-DEDUP] activateSelected() suppressed re-entrant activation (" + (now - lastActivationTime) + "ms)")
+            return false
+        }
+        lastActivationTime = now
+
+        var view = keybindingsModel.activeView
+        var item = keybindingsModel.selectedItem
+
+        if (view === "add_action_type") {
+            if (!item) {
+                console.warn("[NAV] activateSelected: add_action_type with no selected item")
+                return false
+            }
+            if (item.action_type_kind === "application") {
+                keybindingsModel.switchView("add_app")
+                Qt.callLater(function() { searchInput.forceActiveFocus() })
+                return true
+            } else if (item.action_type_kind === "executable") {
+                keybindingsModel.switchView("add_exec")
+                Qt.callLater(function() { execNameInput.forceActiveFocus() })
+                return true
+            } else {
+                console.warn("[NAV] activateSelected: unexpected action_type_kind: " + (item.action_type_kind || "undefined"))
+                return false
+            }
+        } else if (view === "add_app") {
+            if (item && item.desktop_id) {
+                keybindingsModel.addApplication(item.desktop_id)
+                return true
+            } else {
+                console.warn("[NAV] activateSelected: add_app with no desktop_id")
+                return false
+            }
+        } else if (view === "bound" || view === "unbound") {
+            if (item && item.runnable === true) {
+                if (keybindingsModel.runSelected()) {
+                    windowRoot.visible = false
+                    return true
+                }
+                return false
+            }
+            // Non-runnable actions in bound/unbound view: fail-closed, do not execute, do not close palette
+            return false
+        } else if (view === "add_exec") {
+            submitExecForm()
+            return true
+        } else {
+            console.warn("[NAV] activateSelected: unknown view: " + view)
+            return false
+        }
+    }
+
     function handleRecordingKeyRelease(event) {
         if (windowRoot.captureState === "entering_capture") {
             if (event.key === windowRoot.initiatingKey || event.modifiers === Qt.NoModifier) {
@@ -398,7 +458,7 @@ PanelWindow {
         }
 
         Behavior on border.color {
-            ColorAnimation { duration: Theme.durationFast }
+            ColorAnimation { duration: Theme.effectiveDurationFast }
         }
 
         Keys.onPressed: function(event) {
@@ -620,24 +680,9 @@ PanelWindow {
                             listView.forceActiveFocus()
                             event.accepted = true
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (keybindingsModel.activeView === "add_action_type") {
-                                var selType = keybindingsModel.selectedItem
-                                if (selType) {
-                                    if (selType.action_type_kind === "application") {
-                                        keybindingsModel.switchView("add_app")
-                                    } else if (selType.action_type_kind === "executable") {
-                                        keybindingsModel.switchView("add_exec")
-                                    }
-                                }
-                            } else if (keybindingsModel.activeView === "add_app") {
-                                var appItem = keybindingsModel.selectedItem
-                                if (appItem && appItem.desktop_id) {
-                                    keybindingsModel.addApplication(appItem.desktop_id)
-                                }
-                            } else if (keybindingsModel.runSelected()) {
-                                windowRoot.visible = false
-                            }
                             event.accepted = true
+                            windowRoot.activateSelected()
+                            return
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
                             if (keybindingsModel.activeView.indexOf("add_") === 0) {
                                 keybindingsModel.switchView("unbound")
@@ -860,26 +905,10 @@ PanelWindow {
                             return
                         }
 
-                        // 6. Return / Enter: Run, Select, or Add
+                        // 6. Return / Enter: Authoritative activation
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (keybindingsModel.activeView === "add_action_type") {
-                                var selType = keybindingsModel.selectedItem
-                                if (selType) {
-                                    if (selType.action_type_kind === "application") {
-                                        keybindingsModel.switchView("add_app")
-                                    } else if (selType.action_type_kind === "executable") {
-                                        keybindingsModel.switchView("add_exec")
-                                    }
-                                }
-                            } else if (keybindingsModel.activeView === "add_app") {
-                                var appItem = keybindingsModel.selectedItem
-                                if (appItem && appItem.desktop_id) {
-                                    keybindingsModel.addApplication(appItem.desktop_id)
-                                }
-                            } else if (keybindingsModel.runSelected()) {
-                                windowRoot.visible = false
-                            }
                             event.accepted = true
+                            windowRoot.activateSelected()
                             return
                         }
 

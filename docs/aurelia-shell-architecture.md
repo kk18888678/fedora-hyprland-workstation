@@ -182,3 +182,65 @@ To prepare for future AI-assisted capabilities (e.g. contextual command recommen
 3. **Privacy & Data Locality**:
    - Workstation diagnostic bundles and shortcut manifests are processed strictly locally.
    - Zero telemetry, keypress logging, or unconsented network egress is permitted.
+
+---
+
+## 8. Aurelia Shell Core: Foundations & Preference Model
+
+Aurelia Shell Core provides the centralized system services, layered configuration model, motion preferences, and privacy boundaries for all desktop shell components.
+
+### 8.1 Preference Ownership & Configuration API Boundary
+Individual shell components do not independently parse or write configuration files. All configuration is owned and mediated through the centralized Aurelia Preferences Service (`dotfiles/hypr/aurelia_preferences.lua`) and CLI utility (`bin/workstation-aurelia`):
+- **Configuration Path**: `~/.config/aurelia/preferences.json` (overridable via `AURELIA_PREFERENCES_PATH`).
+- **Permissions**: Atomic writes enforce secure `0600` file permissions.
+- **Operations**:
+  - `preference get [key]`: Read effective configuration.
+  - `preference set <key> <val>`: Atomically apply a user override.
+  - `preference unset <key>`: Atomically remove a user override.
+  - `preference reset [--component=ID]`: Reset a component or full shell to shipped defaults.
+  - `preference export`: Export portable preference documents excluding runtime state and secrets.
+
+### 8.2 Layered Configuration Model
+Configuration resolves across three deterministic layers:
+
+```
+Shipped Defaults (Lua Core)
+        +
+User Overrides (~/.config/aurelia/preferences.json)
+        =
+Effective Preferences (Runtime Model)
+```
+
+- **Fail-Safe Invariant**: If `preferences.json` is missing or corrupted by syntax errors, Aurelia safely falls back to shipped defaults without crashing or mutating the underlying file.
+- **Precedence**: User overrides take precedence over shipped defaults. Component-level overrides take precedence over shell-wide defaults.
+
+### 8.3 Namespaces, Component Reset & Plugin Extension Seams
+- **`aurelia.*`**: Shell-wide settings (e.g. `aurelia.motion.enabled`, `aurelia.motion.scale`).
+- **`components.<id>.*`**: First-party component settings (e.g. `components.keybindings.default_view`).
+- **`plugins.<id>.*`**: Reserved namespace for future extensions without building an unneeded plugin framework.
+- **Component-Level Reset**: Invoking `reset_component("keybindings")` deletes only overrides under `components.keybindings.*`, restoring that component to shipped defaults while leaving shell-wide and sibling component preferences untouched.
+- **Reset Isolation**: Reset operations strictly modify user preference overrides; they never delete logs, cache files, runtime state, or secrets.
+
+### 8.4 Motion Preferences & Immediate Transitions
+Aurelia establishes a centralized motion preference system:
+- **`aurelia.motion.enabled`**: Master boolean toggle (default: `true`).
+- **`aurelia.motion.scale`**: Float duration multiplier (default: `1.0`, clamped >= `0.0`).
+- **Immediate Transitions**: When motion is disabled, `Theme.effectiveDurationFast` and `Theme.effectiveDurationNormal` resolve immediately to `0ms`. Component transitions and animations become instantaneous across all Aurelia surfaces without requiring QML edits.
+
+### 8.5 Portable Preferences vs Machine/Runtime Data Boundary
+To prepare for future portable workstation preference synchronization without building complex network services:
+- **Portable Preferences (Syncable)**: User aesthetic and behavioral overrides (`aurelia.motion.*`, `components.<id>.*`).
+- **Machine/Runtime Data (Excluded)**: Process IDs, socket paths, timestamps, machine IDs, tokens, secrets, passwords, hardware identities, and cache/log paths.
+- **Future Sync Seam**: `workstation-aurelia preference export` emits sanitized JSON containing only portable configuration. Direct network upload, GitHub synchronization, or automated Git commits are strictly out of scope and not implemented.
+
+### 8.6 Structured Logging & Privacy Boundary
+- **Unified Log Format**: ISO-8601 UTC timestamp, log level, component name, event ID, sanitized message, and duration:
+  `2026-09-05T06:00:00Z [INFO] [keybindings.navigation] Navigated to add_app (dur=12ms)`
+- **Log Levels**: `DEBUG`, `INFO`, `WARN`, `ERROR`, `PERF`.
+- **Privacy Redaction**: All log entries pass through `redact_sensitive()`. Tokens, API keys, secrets, passwords, and raw user search queries are strictly redacted before writing to disk.
+- **Storage Bounds**: Log files are capped at `<= 2000` lines with automatic FIFO rotation.
+- **Failure Isolation**: Unwritable log paths or disk failures fall back to `stderr` without throwing unhandled exceptions or terminating the desktop shell.
+
+### 8.7 Keybindings as First Vertical Slice
+Aurelia Keybindings is the first component integrated with Aurelia Shell Core, establishing verified production implementations of centralized preferences, motion scaling, structured diagnostics, and privacy protection.
+

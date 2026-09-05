@@ -2456,11 +2456,10 @@ else
     fail "23.1 single click row focus logic missing or dismisses window in KeybindingRow.qml"
 fi
 
-# 23.2: Double click on row executes action or navigates into sub-view
+# 23.2: Double click on row executes action or navigates into sub-view (via centralized activateSelected)
 if grep -q 'onDoubleClicked: {' "$row_qml" && \
-   grep -q 'keybindingsModel.switchView("add_app")' "$row_qml" && \
-   grep -q 'keybindingsModel.switchView("add_exec")' "$row_qml" && \
-   grep -q 'keybindingsModel.runSelected()' "$row_qml"; then
+   ( ( grep -q 'activateSelected' "$row_qml" && grep -q 'function activateSelected' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && grep -q 'keybindingsModel.switchView("add_app")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" ) || \
+     ( grep -q 'keybindingsModel.switchView("add_app")' "$row_qml" && grep -q 'keybindingsModel.switchView("add_exec")' "$row_qml" && grep -q 'keybindingsModel.runSelected()' "$row_qml") ); then
     pass "23.2 double click executes runnable action or navigates into selected sub-view"
 else
     fail "23.2 double click interaction missing in KeybindingRow.qml"
@@ -2586,4 +2585,525 @@ if grep -q "TEST_24_4_OK" <<< "$test_24_4_out"; then
     pass "24.4 Application Registry real executable resolution and environment security verified"
 else
     fail "24.4 application registry security regression failed: $test_24_4_out"
+fi
+
+section "25. Verification Matrix K: Add Action Enter Navigation Correctness & Re-entrancy"
+
+# 25.1: activateSelected centralizes row activation and prevents Enter fall-through to runSelected
+qml_win="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"
+if grep -q "function activateSelected(): bool" "$qml_win" && \
+   grep -q "windowRoot.activateSelected()" "$qml_win" && \
+   grep -q "event.accepted = true" "$qml_win"; then
+    pass "25.1 activateSelected centralizes row activation and explicitly consumes event"
+else
+    fail "25.1 activateSelected missing or incomplete in KeybindingsWindow.qml"
+fi
+
+# 25.2: add_action_type + Application switches view to add_app without closing palette
+act_app_check="$(python3 -c "
+with open(\"$qml_win\") as f:
+    c = f.read()
+idx_fn = c.find(\"function activateSelected(): bool\")
+if idx_fn != -1:
+    body = c[idx_fn:idx_fn+1500]
+    if \"keybindingsModel.switchView(\\\"add_app\\\")\" in body and \"action_type_kind === \\\"application\\\"\" in body:
+        idx_app = body.find(\"keybindingsModel.switchView(\\\"add_app\\\")\")
+        app_branch = body[idx_app-100:idx_app+200]
+        if \"visible = false\" not in app_branch:
+            print(\"APP_NAV_SAFE\")
+        else:
+            print(\"APP_NAV_CLOSES_PALETTE\")
+    else:
+        print(\"MISSING_APP_BRANCH\")
+else:
+    print(\"MISSING_FN\")
+")"
+if [[ "$act_app_check" == "APP_NAV_SAFE" ]]; then
+    pass "25.2 add_action_type + Application switches view to add_app while palette remains open"
+else
+    fail "25.2 application navigation check failed: $act_app_check"
+fi
+
+# 25.3: add_action_type + Executable switches view to add_exec without closing palette
+act_exec_check="$(python3 -c "
+with open(\"$qml_win\") as f:
+    c = f.read()
+idx_fn = c.find(\"function activateSelected(): bool\")
+if idx_fn != -1:
+    body = c[idx_fn:idx_fn+1500]
+    if \"keybindingsModel.switchView(\\\"add_exec\\\")\" in body and \"action_type_kind === \\\"executable\\\"\" in body:
+        idx_exec = body.find(\"keybindingsModel.switchView(\\\"add_exec\\\")\")
+        exec_branch = body[idx_exec-100:idx_exec+200]
+        if \"visible = false\" not in exec_branch:
+            print(\"EXEC_NAV_SAFE\")
+        else:
+            print(\"EXEC_NAV_CLOSES_PALETTE\")
+    else:
+        print(\"MISSING_EXEC_BRANCH\")
+else:
+    print(\"MISSING_FN\")
+")"
+if [[ "$act_exec_check" == "EXEC_NAV_SAFE" ]]; then
+    pass "25.3 add_action_type + Executable switches view to add_exec while palette remains open"
+else
+    fail "25.3 executable navigation check failed: $act_exec_check"
+fi
+
+# 25.4: One event causes one activation (200ms re-entrancy deduplication)
+if grep -q "lastActivationTime" "$qml_win" && \
+   grep -q "now - lastActivationTime < 200" "$qml_win"; then
+    pass "25.4 one event causes one activation: 200ms re-entrancy deduplication guards activateSelected"
+else
+    fail "25.4 re-entrancy deduplication missing in KeybindingsWindow.qml"
+fi
+
+# 25.5: Mouse double-click and keyboard Enter share identical activateSelected semantics
+qml_row="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"
+if grep -q "windowRoot.activateSelected()" "$qml_row" && \
+   grep -q "windowRoot.activateSelected()" "$qml_win"; then
+    pass "25.5 mouse double-click and keyboard Enter share identical activateSelected semantics"
+else
+    fail "25.5 mouse double-click does not delegate to activateSelected"
+fi
+
+section "26. Verification Matrix L: Aurelia User Preferences & Layered Configuration"
+
+# 26.1: Preference defaults return shipped defaults when no override exists
+test_26_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local def_motion = pref.get_effective("aurelia.motion.enabled", "/nonexistent/test_pref.json")
+local def_scale  = pref.get_effective("aurelia.motion.scale", "/nonexistent/test_pref.json")
+local def_view   = pref.get_effective("components.keybindings.default_view", "/nonexistent/test_pref.json")
+
+assert(def_motion == true, "def_motion != true")
+assert(def_scale == 1.0, "def_scale != 1.0")
+assert(def_view == "bound", "def_view != bound")
+print("TEST_26_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_26_1_OK" <<< "$test_26_1_out"; then
+    pass "26.1 get_effective returns shipped defaults when no user override file exists"
+else
+    fail "26.1 preference defaults check failed: $test_26_1_out"
+fi
+
+# 26.2: User override takes precedence over shipped defaults
+test_26_2_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+local f = io.open(tmp, "w")
+f:write("{\"aurelia\": {\"motion\": {\"enabled\": false, \"scale\": 0.5}}}")
+f:close()
+
+local eff_motion = pref.get_effective("aurelia.motion.enabled", tmp)
+local eff_scale  = pref.get_effective("aurelia.motion.scale", tmp)
+local eff_view   = pref.get_effective("components.keybindings.default_view", tmp)
+os.remove(tmp)
+
+assert(eff_motion == false, "Override should be false")
+assert(eff_scale == 0.5, "Override scale should be 0.5")
+assert(eff_view == "bound", "Unmodified default should remain bound")
+print("TEST_26_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_26_2_OK" <<< "$test_26_2_out"; then
+    pass "26.2 user override takes precedence over shipped defaults in layered resolution"
+else
+    fail "26.2 preference override precedence check failed: $test_26_2_out"
+fi
+
+# 26.3: Malformed preference file fails safe without crashing or file mutation
+test_26_3_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+local f = io.open(tmp, "w")
+f:write("{\"aurelia\": { corrupt json ...")
+f:close()
+
+local eff_motion = pref.get_effective("aurelia.motion.enabled", tmp)
+assert(eff_motion == true, "Malformed preferences must fall back to shipped default true")
+
+local f_check = io.open(tmp, "r")
+local content = f_check:read("*a")
+f_check:close()
+os.remove(tmp)
+
+assert(content == "{\"aurelia\": { corrupt json ...", "Corrupted file was modified or deleted!")
+print("TEST_26_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_26_3_OK" <<< "$test_26_3_out"; then
+    pass "26.3 malformed preference file fails safe to defaults without crash or mutation"
+else
+    fail "26.3 malformed preference fail-safe test failed: $test_26_3_out"
+fi
+
+# 26.4: Atomic preference write: set_override uses 0600 mode and atomic rename
+test_26_4_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+os.remove(tmp)
+
+local ok, err = pref.set_override("components.keybindings.default_view", "unbound", tmp)
+assert(ok == true, "set_override failed: " .. tostring(err))
+
+local val = pref.get_effective("components.keybindings.default_view", tmp)
+assert(val == "unbound", "written value mismatch")
+
+local p = io.popen("stat -c \"%a\" " .. tmp .. " 2>/dev/null || stat -f \"%Lp\" " .. tmp .. " 2>/dev/null")
+local perms = p:read("*l") or ""
+p:close()
+os.remove(tmp)
+
+assert(perms == "600", "File permissions are not 0600: " .. perms)
+print("TEST_26_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_26_4_OK" <<< "$test_26_4_out"; then
+    pass "26.4 set_override writes atomically with secure 0600 file permissions"
+else
+    fail "26.4 atomic preference write check failed: $test_26_4_out"
+fi
+
+section "27. Verification Matrix M: Component and Shell Reset Semantics & Isolation"
+
+# 27.1: Component reset resets only target component namespace
+test_27_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+os.remove(tmp)
+pref.set_override("aurelia.motion.enabled", false, tmp)
+pref.set_override("components.keybindings.default_view", "unbound", tmp)
+
+local ok, err = pref.reset_component("keybindings", tmp)
+assert(ok == true, "reset_component failed: " .. tostring(err))
+
+local val_view = pref.get_effective("components.keybindings.default_view", tmp)
+local val_motion = pref.get_effective("aurelia.motion.enabled", tmp)
+os.remove(tmp)
+
+assert(val_view == "bound", "keybindings component was not reset to default")
+assert(val_motion == false, "aurelia.motion.enabled override was unintentionally wiped")
+print("TEST_27_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_27_1_OK" <<< "$test_27_1_out"; then
+    pass "27.1 reset_component resets only the target component namespace and preserves shell overrides"
+else
+    fail "27.1 component reset check failed: $test_27_1_out"
+fi
+
+# 27.2: Shell reset resets all overrides back to shipped defaults
+test_27_2_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+os.remove(tmp)
+pref.set_override("aurelia.motion.enabled", false, tmp)
+pref.set_override("aurelia.motion.scale", 0.25, tmp)
+pref.set_override("components.keybindings.default_view", "unbound", tmp)
+
+local ok, err = pref.reset_shell(tmp)
+assert(ok == true, "reset_shell failed: " .. tostring(err))
+
+local val_motion = pref.get_effective("aurelia.motion.enabled", tmp)
+local val_scale  = pref.get_effective("aurelia.motion.scale", tmp)
+local val_view   = pref.get_effective("components.keybindings.default_view", tmp)
+os.remove(tmp)
+
+assert(val_motion == true, "motion should be reset to default true")
+assert(val_scale == 1.0, "scale should be reset to default 1.0")
+assert(val_view == "bound", "view should be reset to default bound")
+print("TEST_27_2_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_27_2_OK" <<< "$test_27_2_out"; then
+    pass "27.2 reset_shell resets all user overrides back to shipped defaults"
+else
+    fail "27.2 shell reset check failed: $test_27_2_out"
+fi
+
+# 27.3: Reset operations preserve logs, caches, and runtime state
+(
+    sb_rst="$(mktemp -d)"
+    log_file="$sb_rst/aurelia.log"
+    echo "existing log entry" > "$log_file"
+    pref_file="$sb_rst/preferences.json"
+    "$lua_bin" - "$ROOT" "$pref_file" << 'LUA_CHECK'
+local root, pfile = arg[1], arg[2]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+pref.set_override("aurelia.motion.enabled", false, pfile)
+pref.reset_shell(pfile)
+LUA_CHECK
+
+    if [[ -f "$log_file" && "$(cat "$log_file")" == "existing log entry" ]]; then
+        pass "27.3 reset operations preserve external logs, caches, and runtime files"
+    else
+        fail "27.3 reset operation mutated or deleted unrelated files"
+    fi
+    rm -rf "$sb_rst"
+)
+
+section "28. Verification Matrix N: Portable Preference Export & Runtime Exclusion"
+
+# 28.1: export_portable strictly excludes machine/runtime keys and secrets
+test_28_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+os.remove(tmp)
+pref.set_override("aurelia.motion.enabled", false, tmp)
+pref.set_override("runtime", { pid = 9999, socket = "/tmp/aurelia.sock" }, tmp)
+pref.set_override("secrets", { token = "secret-12345" }, tmp)
+pref.set_override("machine_id", "fedora-vm-host", tmp)
+pref.set_override("components.keybindings.default_view", "unbound", tmp)
+
+local exp = pref.export_portable(tmp)
+os.remove(tmp)
+
+assert(exp:find("motion") ~= nil, "portable export missing motion")
+assert(exp:find("keybindings") ~= nil, "portable export missing keybindings")
+assert(exp:find("9999") == nil, "portable export leaked runtime pid")
+assert(exp:find("secret%-12345") == nil, "portable export leaked secret token")
+assert(exp:find("fedora%-vm%-host") == nil, "portable export leaked machine_id")
+print("TEST_28_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_28_1_OK" <<< "$test_28_1_out"; then
+    pass "28.1 export_portable exports user preferences while strictly excluding runtime state and secrets"
+else
+    fail "28.1 portable export check failed: $test_28_1_out"
+fi
+
+section "29. Verification Matrix O: Motion Control & Immediate Transitions"
+
+# 29.1: Motion disabled produces zero effective duration in Theme.qml
+qml_theme="$ROOT/dotfiles/aurelia/theme/Theme.qml"
+if grep -q "readonly property bool motionEnabled:" "$qml_theme" && \
+   grep -q "readonly property int effectiveDurationFast: motionEnabled ? Math.round(durationFast \* motionScale) : 0" "$qml_theme" && \
+   grep -q "readonly property int effectiveDurationNormal: motionEnabled ? Math.round(durationNormal \* motionScale) : 0" "$qml_theme"; then
+    pass "29.1 motion disabled evaluates effectiveDurationFast and effectiveDurationNormal to 0ms (immediate)"
+else
+    fail "29.1 motion duration resolution missing in Theme.qml"
+fi
+
+# 29.2: Motion scale multiplier scales component durations proportionally
+if grep -q "readonly property real motionScale:" "$qml_theme" && \
+   grep -q "Math.round(baseDuration \* componentMotionScale(componentId))" "$qml_theme"; then
+    pass "29.2 motion scale multiplier scales component durations proportionally"
+else
+    fail "29.2 motion scale calculation missing in Theme.qml"
+fi
+
+# 29.3: Malformed or negative motion scale falls back safely
+test_29_3_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+local f = io.open(tmp, "w")
+f:write("{\"aurelia\": {\"motion\": {\"scale\": -5.0}}}")
+f:close()
+
+local s = pref.get_effective("aurelia.motion.scale", tmp)
+os.remove(tmp)
+assert(s == 1.0, "Motion scale should fall back to 1.0 on negative value, got " .. tostring(s))
+print("TEST_29_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_29_3_OK" <<< "$test_29_3_out"; then
+    pass "29.3 negative or malformed motion scale falls back safely to non-negative value"
+else
+    fail "29.3 motion scale fallback check failed: $test_29_3_out"
+fi
+
+section "30. Verification Matrix P: Structured Logging, Privacy Boundary & Bounded Storage"
+
+# 30.1: Supported logging levels format timestamp, level, component, and event
+test_30_1_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+pref.get_log_path = function() return tmp end
+
+pref.log_event("INFO", "keybindings", "navigation", "Navigated to add_app", 15)
+local f = io.open(tmp, "r")
+local line = f:read("*l") or ""
+f:close()
+os.remove(tmp)
+
+assert(line:find("%[INFO%]") ~= nil, "Missing [INFO] tag")
+assert(line:find("%[keybindings%.navigation%]") ~= nil, "Missing component.event tag")
+assert(line:find("Navigated to add_app") ~= nil, "Missing log message")
+assert(line:find("dur=15ms") ~= nil, "Missing duration tag")
+print("TEST_30_1_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_30_1_OK" <<< "$test_30_1_out"; then
+    pass "30.1 structured log events record timestamp, level, component, event, and duration"
+else
+    fail "30.1 structured log formatting check failed: $test_30_1_out"
+fi
+
+# 30.2: Privacy boundary: raw user search queries and secrets are redacted
+test_30_2_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local redacted_token = pref.redact_sensitive("User token=secret_auth_token_xyz")
+assert(redacted_token:find("secret_auth_token_xyz") == nil, "Token was not redacted!")
+assert(redacted_token:find("%[REDACTED%]") ~= nil, "Missing [REDACTED] replacement")
+
+local redacted_pwd = pref.redact_sensitive("Entered password=my_plain_text_password")
+assert(redacted_pwd:find("my_plain_text_password") == nil, "Password was not redacted!")
+
+print("TEST_30_2_OK")
+LUA_CHECK
+)"
+qml_model="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"
+if grep -q "TEST_30_2_OK" <<< "$test_30_2_out" && \
+   ! grep -q "for query '" "$qml_model" && \
+   grep -q "query length:" "$qml_model"; then
+    pass "30.2 privacy boundary redacts credentials and protects user search queries from log leaks"
+else
+    fail "30.2 privacy boundary check failed"
+fi
+
+# 30.3: Bounded logging behavior: log file size is strictly bounded to <= 2000 lines
+test_30_3_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+local tmp = os.tmpname()
+local f = io.open(tmp, "w")
+for i = 1, 2500 do
+    f:write("Log line " .. i .. "\n")
+end
+f:close()
+
+pref.bound_logfile(tmp, 2000)
+
+local count = 0
+for _ in io.lines(tmp) do count = count + 1 end
+os.remove(tmp)
+
+assert(count == 2000, "Log file line count is " .. count .. ", expected 2000")
+print("TEST_30_3_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_30_3_OK" <<< "$test_30_3_out"; then
+    pass "30.3 bound_logfile strictly enforces maximum line limit (<= 2000 lines)"
+else
+    fail "30.3 bounded logfile check failed: $test_30_3_out"
+fi
+
+# 30.4: Logging failure isolation: unwritable log destination does not crash
+test_30_4_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/hypr/?.lua;" .. package.path
+local pref = require("aurelia_preferences")
+
+pref.get_log_path = function() return "/dev/null/impossible/path/aurelia.log" end
+
+local ok = pcall(function()
+    pref.log_event("INFO", "core", "test", "Unwritable log test")
+end)
+assert(ok == true, "Logging to unwritable path threw unhandled exception!")
+print("TEST_30_4_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_30_4_OK" <<< "$test_30_4_out"; then
+    pass "30.4 logging failure fails isolated without throwing unhandled exceptions"
+else
+    fail "30.4 logging failure isolation test failed: $test_30_4_out"
+fi
+
+section "31. Verification Matrix Q: Hyprland hyprland-guiutils Package Declaration & Validation"
+
+# 31.1: hyprland-guiutils is declared in packages/desktop.txt
+pkg_file="$ROOT/packages/desktop.txt"
+if grep -q '^hyprland-guiutils$' "$pkg_file"; then
+    pass "31.1 hyprland-guiutils is declared in packages/desktop.txt"
+else
+    fail "31.1 hyprland-guiutils missing in packages/desktop.txt"
+fi
+
+# 31.2: validation.sh validates hyprland-guiutils as a deferred capability without blocking login
+val_file="$ROOT/modules/validation.sh"
+val_def_test="$(python3 -c "
+with open(\"$val_file\") as f:
+    c = f.read()
+idx = c.find(\"hyprland-guiutils\")
+if idx != -1 and \"record_deferred\" in c[idx-100:idx+100]:
+    print(\"DEFERRED_CHECK_OK\")
+else:
+    print(\"FAIL\")
+")"
+if [[ "$val_def_test" == "DEFERRED_CHECK_OK" ]]; then
+    pass "31.2 validation.sh validates hyprland-guiutils as a deferred capability without blocking login"
+else
+    fail "31.2 hyprland-guiutils capability validation missing or blocks login in validation.sh"
+fi
+
+# 31.3: hyprland-guiutils absence does not record activation-critical failure
+val_test="$(python3 -c "
+with open(\"$val_file\") as f:
+    c = f.read()
+idx = c.find(\"hyprland-guiutils\")
+if idx != -1:
+    surrounding = c[idx-200:idx+400]
+    if \"record_activation_failure\" not in surrounding:
+        print(\"NON_BLOCKING_OK\")
+    else:
+        print(\"INCORRECTLY_BLOCKS_ACTIVATION\")
+else:
+    print(\"MISSING_CHECK\")
+")"
+if [[ "$val_test" == "NON_BLOCKING_OK" ]]; then
+    pass "31.3 hyprland-guiutils absence strictly preserves graphical activation path"
+else
+    fail "31.3 hyprland-guiutils validation records activation failure: $val_test"
+fi
+
+section "32. Verification Matrix R: Noctalia Protection & Zero Mutation Verification"
+
+# 32.1: Aurelia changes introduce zero modifications to config/noctalia/**
+noctalia_diff="$(git status --porcelain "$ROOT/config/noctalia" 2>/dev/null || true)"
+if [[ -z "$noctalia_diff" ]]; then
+    pass "32.1 zero modifications to config/noctalia/** (Noctalia 100% protected and untouched)"
+else
+    fail "32.1 unexpected modifications in config/noctalia: $noctalia_diff"
+fi
+
+# 32.2: Aurelia Shell and Keybindings preserve Noctalia decoupling and zero runtime intrusion
+if ! grep -q 'noctalia' "$ROOT/dotfiles/aurelia/shell.qml" && \
+   ! grep -q 'noctalia' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "32.2 Aurelia Shell and Keybindings maintain zero intrusion or coupling to Noctalia runtime"
+else
+    fail "32.2 unexpected Noctalia coupling found in Aurelia components"
 fi

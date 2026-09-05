@@ -8,6 +8,7 @@
 
 # Hyprland
 hyprland
+hyprland-guiutils
 
 # Desktop shell
 noctalia

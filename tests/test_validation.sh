@@ -19,3 +19,17 @@ for mtool in "${media_expected_tools[@]}"; do
     fi
 done
 
+section "Hyprland GUI Utilities Capability & Manifest Validation"
+
+if grep -qxF "hyprland-guiutils" "$ROOT/packages/desktop.txt"; then
+    pass "packages/desktop.txt declares hyprland-guiutils under Hyprland ownership"
+else
+    fail "packages/desktop.txt missing hyprland-guiutils declaration"
+fi
+
+if grep -qF "hyprland-guiutils" "$ROOT/modules/validation.sh" && grep -qF "hyprland-dialog" "$ROOT/modules/validation.sh"; then
+    pass "validation.sh checks hyprland-guiutils / hyprland-dialog capability"
+else
+    fail "validation.sh missing check for hyprland-guiutils or hyprland-dialog"
+fi
+

@@ -433,6 +433,15 @@ validate_application_environment() {
         record_deferred "validation" "workstation-hotkeys" "Workstation hotkeys utility was not installed."
     fi
 
+    if [[ "${DESKTOP:-}" == "hyprland" ]]; then
+        if ! command_exists hyprland-dialog && ! package_installed hyprland-guiutils; then
+            record_deferred \
+                "validation" \
+                "hyprland-guiutils" \
+                "Hyprland GUI utilities (hyprland-guiutils) are not installed."
+        fi
+    fi
+
     return 0
 }
 

@@ -25,6 +25,52 @@ QtObject {
         path: themeRoot.themePath
     }
 
+    // 1b. Aurelia User Preferences File (XDG layered configuration)
+    property string preferencesPath: {
+        var envPath = Quickshell.env("AURELIA_PREFERENCES_PATH") || ""
+        if (envPath !== "") return envPath
+        var configHome = Quickshell.env("XDG_CONFIG_HOME") || ""
+        if (configHome === "") {
+            var home = Quickshell.env("HOME") || ""
+            configHome = home + "/.config"
+        }
+        return configHome + "/aurelia/preferences.json"
+    }
+
+    property FileView preferencesFile: FileView {
+        path: themeRoot.preferencesPath
+    }
+
+    readonly property var loadedPreferences: {
+        var txt = ""
+        try {
+            txt = preferencesFile.text()
+        } catch (e) {
+            return {}
+        }
+        if (!txt || typeof txt !== "string" || txt.trim() === "") return {}
+        try {
+            var parsed = JSON.parse(txt)
+            return (parsed && typeof parsed === "object") ? parsed : {}
+        } catch (err) {
+            console.warn("[WARN] Theme.qml: Failed to parse preferences.json; using shipped defaults")
+            return {}
+        }
+    }
+
+    function getPreference(key: string, fallback: var): var {
+        var parts = key.split(".")
+        var curr = loadedPreferences
+        for (var i = 0; i < parts.length; i++) {
+            if (curr && typeof curr === "object" && curr[parts[i]] !== undefined) {
+                curr = curr[parts[i]]
+            } else {
+                return fallback
+            }
+        }
+        return (curr !== undefined && curr !== null) ? curr : fallback
+    }
+
     readonly property var loadedOverrides: {
         var map = {}
         var txt = ""
@@ -178,7 +224,54 @@ QtObject {
     readonly property int rowSpacing: _getInt("rowSpacing", 3)
     readonly property int scrollBarWidth: _getInt("scrollBarWidth", 4)
 
-    // 7. Semantic Motion Tokens (Configurable via theme.conf)
+    // 7. Semantic Motion Tokens & Layered Preferences
     readonly property int durationFast: _getInt("durationFast", 100)
     readonly property int durationNormal: _getInt("durationNormal", 200)
+
+    // Layered Motion Preferences:
+    // Shipped Defaults + User Overrides = Effective Motion
+    readonly property bool motionEnabled: {
+        if (loadedOverrides["motion_enabled"] !== undefined) {
+            return loadedOverrides["motion_enabled"] === "true" || loadedOverrides["motion_enabled"] === "1"
+        }
+        var p = getPreference("aurelia.motion.enabled", true)
+        return p === true || p === "true"
+    }
+
+    readonly property real motionScale: {
+        if (loadedOverrides["motion_scale"] !== undefined) {
+            var s = parseFloat(loadedOverrides["motion_scale"])
+            if (!isNaN(s) && s >= 0) return s
+        }
+        var p = getPreference("aurelia.motion.scale", 1.0)
+        var num = parseFloat(p)
+        return (!isNaN(num) && num >= 0) ? num : 1.0
+    }
+
+    function componentMotionEnabled(componentId: string): bool {
+        var compPref = getPreference("components." + componentId + ".motion.enabled", undefined)
+        if (compPref !== undefined) {
+            return compPref === true || compPref === "true"
+        }
+        return motionEnabled
+    }
+
+    function componentMotionScale(componentId: string): real {
+        var compScale = getPreference("components." + componentId + ".motion.scale", undefined)
+        if (compScale !== undefined) {
+            var s = parseFloat(compScale)
+            if (!isNaN(s) && s >= 0) return s
+        }
+        return motionScale
+    }
+
+    // Effective transformed durations consumed across Aurelia components:
+    // motionEnabled = false immediately produces 0ms duration without QML editing.
+    readonly property int effectiveDurationFast: motionEnabled ? Math.round(durationFast * motionScale) : 0
+    readonly property int effectiveDurationNormal: motionEnabled ? Math.round(durationNormal * motionScale) : 0
+
+    function getComponentDuration(componentId: string, baseDuration: int): int {
+        if (!componentMotionEnabled(componentId)) return 0
+        return Math.round(baseDuration * componentMotionScale(componentId))
+    }
 }
