@@ -3162,16 +3162,17 @@ else
 fi
 
 # 34.2: B or b navigates back in list/navigation context while search input permits typing b
-if grep -q 'event.key === Qt.Key_B' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$qml_win") && \
-   grep -q 'windowRoot.goBack()' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$qml_win") && \
-   ! grep -q 'event.key === Qt.Key_B' <(sed -n '/id: searchInput/,/RowLayout/p' "$qml_win"); then
-    pass "34.2 B/b navigates back in list context while search input allows standard b typing"
+if grep -q 'cmd === "back"' "$qml_win" && \
+   grep -q 'windowRoot.goBack()' "$qml_win" && \
+   ! grep -E 'event\.key === Qt\.Key_B([^_a-zA-Z]|$)' <(sed -n '/id: searchInput/,/RowLayout/p' "$qml_win"); then
+    pass "34.2 B/b navigates back via authoritative router while search input allows standard b typing"
 else
     fail "34.2 B-as-Back or search input typing isolation missing in KeybindingsWindow.qml"
 fi
 
 # 34.3: S and U shortcuts restricted to list context in bound/unbound view
-if grep -q 'keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound"' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$qml_win") && \
+if grep -q 'keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound"' "$qml_win" && \
+   grep -q 'resolveSemanticCommand' "$qml_win" && \
    ! grep -q 'event.key === Qt.Key_S &&' <(sed -n '/id: searchInput/,/RowLayout/p' "$qml_win"); then
     pass "34.3 S/U shortcuts strictly restricted to list context and bound/unbound view"
 else
@@ -3656,13 +3657,13 @@ else
     fail "37.5 component reset check failed: $test_37_5_out"
 fi
 
-# 37.6: QML static check: Settings surface in KeybindingsWindow.qml with Ctrl+, shortcut and reset
+# 37.6: QML static check: Settings surface in KeybindingsWindow.qml with modular KeybindingsSettings component and reset
 if grep -q 'id: settingsView' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'Key_Comma' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'KeybindingsSettings' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
    grep -q 'resetComponentPreferences' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
    grep -q 'setComponentPreference' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
    grep -q 'reloadPreferences' "$ROOT/dotfiles/aurelia/theme/Theme.qml"; then
-    pass "37.6 settings surface, Ctrl+, shortcut, and preference update methods verified"
+    pass "37.6 settings surface, modular KeybindingsSettings component, and preference update methods verified"
 else
     fail "37.6 settings surface check failed"
 fi
@@ -3718,6 +3719,259 @@ if grep -q "TEST_37_8_OK" <<< "$test_37_8_out" && \
 else
     fail "37.8 gesture model isolation check failed: $test_37_8_out"
 fi
+
+section "38. Verification Matrix X: Production Hardening: Authoritative Command Routing, TAB Header Navigation, Settings Cog, Layout Isolation, and Component Motion Policy"
+
+# 38.1: QML static check: Authoritative semantic command router in KeybindingsWindow.qml
+if grep -q 'function resolveSemanticCommand(event, context): string' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'function handleComponentKey(event, context): bool' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'handleComponentKey(event, "text_input")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'handleComponentKey(event, "list")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.1 Authoritative semantic command router (resolveSemanticCommand, handleComponentKey) established across input contexts"
+else
+    fail "38.1 Authoritative semantic command router check failed in KeybindingsWindow.qml"
+fi
+
+# 38.2: QML static check: Elimination of hardcoded accelerators from searchInput and listView
+if ! grep -q '(event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S' <(sed -n '/id: searchInput/,/RowLayout/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   ! grep -q '(event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U' <(sed -n '/id: searchInput/,/RowLayout/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   ! grep -q '(event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma' <(sed -n '/id: searchInput/,/RowLayout/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   ! grep -q '((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S)' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   ! grep -q '((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U)' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   ! grep -q '(event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma' <(sed -n '/id: listView/,/ScrollBar.vertical:/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"); then
+    pass "38.2 Hidden and hardcoded accelerators (ALT+S, ALT+U, CTRL+,) completely eliminated from input and list handlers"
+else
+    fail "38.2 Hardcoded accelerators still present in searchInput or listView"
+fi
+
+# 38.3: QML static check: Footer accelerator elimination and authoritative hint bindings
+if ! grep -q 'Ctrl+,' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   grep -q 'Theme\.shortcutSet' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   grep -q 'Theme\.shortcutUnset' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   grep -q 'Theme\.shortcutAddAction' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   grep -q 'Theme\.shortcutBack' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"); then
+    pass "38.3 Footer hints eliminate Ctrl+, and authoritatively consume Theme.shortcut* preference bindings"
+else
+    fail "38.3 Footer hints still contain Ctrl+, or lack authoritative Theme.shortcut* bindings"
+fi
+
+# 38.4: QML static check: Header focus navigation properties and methods
+if grep -q 'property int focusedHeaderIndex: -1' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'function focusHeader(index: int)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'function activateFocusedHeader()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.4 Header focus navigation state and methods (focusedHeaderIndex, focusHeader, activateFocusedHeader) verified"
+else
+    fail "38.4 Header focus navigation state or methods missing in KeybindingsWindow.qml"
+fi
+
+# 38.5: QML static check: Forward and backward header cycle calculations
+if grep -q 'focusedHeaderIndex = (windowRoot\.focusedHeaderIndex + 1) % 4' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'focusedHeaderIndex = (windowRoot\.focusedHeaderIndex + 3) % 4' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.5 TAB and SHIFT+TAB correctly cycle header controls in 4-item modulo sequence"
+else
+    fail "38.5 Modulo cycle calculation missing or incorrect in KeybindingsWindow.qml"
+fi
+
+# 38.6: QML static check: Focus without premature activation
+# TAB and Backtab must only adjust focusedHeaderIndex without invoking switchView or changing activeView
+if ! grep -q 'keybindingsModel\.toggleView' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   ! grep -q 'switchView' <(sed -n '/if (event.key === Qt.Key_Tab/,/return/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"); then
+    pass "38.6 TAB / SHIFT+TAB strictly focuses header controls without prematurely altering active view"
+else
+    fail "38.6 TAB still prematurely switches or toggles active view"
+fi
+
+# 38.7: QML static check: Explicit activation via Enter / Return / Space
+if grep -q 'event\.key === Qt\.Key_Return || event\.key === Qt\.Key_Enter || event\.key === Qt\.Key_Space' <(sed -n '/Header navigation key handling/,/handleComponentKey/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
+   grep -q 'windowRoot\.activateFocusedHeader()' <(sed -n '/Header navigation key handling/,/handleComponentKey/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"); then
+    pass "38.7 Explicit activation of focused header control requires Return / Enter / Space"
+else
+    fail "38.7 Header explicit activation keys check failed in KeybindingsWindow.qml"
+fi
+
+# 38.8: QML static check: Subtle Aurelia header focus styling
+if grep -q '(windowRoot\.focusedHeaderIndex === 0) ? Theme\.selectionActive' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q '(windowRoot\.focusedHeaderIndex === 0) ? Theme\.borderActive' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q '(windowRoot\.focusedHeaderIndex === 3) ? Theme\.selectionActive' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q '(windowRoot\.focusedHeaderIndex === 3) ? Theme\.borderActive' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.8 Header controls present clean, subtle Aurelia design system focus treatment (selectionActive and borderActive)"
+else
+    fail "38.8 Header focus styling missing or incorrect in KeybindingsWindow.qml"
+fi
+
+# 38.9: QML static check: Settings Cog visual hierarchy (+50% icon scale, balanced 34x28 hit target)
+if grep -q 'Math\.round(Theme\.fontSizeMd \* 1\.5)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'Layout\.preferredWidth: 34' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'Layout\.preferredHeight: 28' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.9 Settings Cog icon size enlarged by ~50% (21px) with balanced 34x28px hit target"
+else
+    fail "38.9 Settings Cog visual hierarchy or hit target dimensions check failed in KeybindingsWindow.qml"
+fi
+
+# 38.10: QML static check: Modular KeybindingsSettings component file separation
+if [[ -f "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml" ]] && \
+   grep -q 'id: settingsView' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'KeybindingsSettings {' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.10 KeybindingsSettings.qml cleanly isolated into self-contained modular component"
+else
+    fail "38.10 KeybindingsSettings.qml modular separation missing or not instantiated in KeybindingsWindow.qml"
+fi
+
+# 38.11: QML static check: Vertically aligned columns and fixed 100px shortcut badges in Settings
+if grep -q 'Layout\.preferredWidth: 100' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml" && \
+   grep -q 'Layout\.alignment: Qt\.AlignRight' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml"; then
+    pass "38.11 KeybindingsSettings.qml uses vertically aligned columns with fixed-width 100px shortcut badges"
+else
+    fail "38.11 Settings badge column alignment or 100px fixed width check failed in KeybindingsSettings.qml"
+fi
+
+# 38.12: QML static check: Empty-state visibility isolation (never renders behind settings)
+if grep -q 'keybindingsModel\.filteredItems\.length === 0 && (keybindingsModel\.activeView === "bound" || keybindingsModel\.activeView === "unbound" || keybindingsModel\.activeView === "add_action_type" || keybindingsModel\.activeView === "add_app")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.12 Empty state text visibility strictly isolated to list views; never renders behind Settings or Add Exec"
+else
+    fail "38.12 Empty state text visibility condition allows bleed-through behind Settings"
+fi
+
+# 38.13: Lua preferences check: Component motion schema registration
+test_38_13_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
+
+assert(pref.SCHEMA["components.keybindings.motion.enabled"] ~= nil, "components.keybindings.motion.enabled missing from schema")
+assert(pref.SCHEMA["components.keybindings.motion.enabled"].type == "boolean", "motion.enabled must be boolean")
+assert(pref.SCHEMA["components.keybindings.motion.enabled"].default == true, "motion.enabled default must be true")
+
+assert(pref.SCHEMA["components.keybindings.motion.scale"] ~= nil, "components.keybindings.motion.scale missing from schema")
+assert(pref.SCHEMA["components.keybindings.motion.scale"].type == "number", "motion.scale must be number")
+assert(pref.SCHEMA["components.keybindings.motion.scale"].default == 1.0, "motion.scale default must be 1.0")
+
+print("TEST_38_13_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_38_13_OK" <<< "$test_38_13_out"; then
+    pass "38.13 components.keybindings.motion.* registered in schema with correct types and defaults"
+else
+    fail "38.13 component motion schema registration failed: $test_38_13_out"
+fi
+
+# 38.14: Lua preferences check: Component motion preference isolation from global aurelia.motion.*
+test_38_14_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
+
+local tmp = os.tmpname()
+-- Set component motion override to disabled (false)
+local ok1, _ = pref.set_override("components.keybindings.motion.enabled", false, tmp)
+assert(ok1 == true, "Failed to set components.keybindings.motion.enabled override")
+
+-- Global aurelia.motion.enabled must remain default true
+assert(pref.get_effective("aurelia.motion.enabled", tmp) == true, "Global aurelia.motion.enabled was mutated by component override")
+assert(pref.get_effective("components.keybindings.motion.enabled", tmp) == false, "Component override not effective")
+
+-- Set component motion scale to 0.5
+local ok2, _ = pref.set_override("components.keybindings.motion.scale", 0.5, tmp)
+assert(ok2 == true, "Failed to set components.keybindings.motion.scale override")
+
+-- Global aurelia.motion.scale must remain default 1.0
+assert(pref.get_effective("aurelia.motion.scale", tmp) == 1.0, "Global aurelia.motion.scale was mutated by component override")
+assert(pref.get_effective("components.keybindings.motion.scale", tmp) == 0.5, "Component scale override not effective")
+
+os.remove(tmp)
+print("TEST_38_14_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_38_14_OK" <<< "$test_38_14_out"; then
+    pass "38.14 Modifying Keybindings component motion preferences strictly preserves global Aurelia motion settings"
+else
+    fail "38.14 Component motion isolation check failed: $test_38_14_out"
+fi
+
+# 38.15: Theme.qml check: Component motion duration functions and 0ms when disabled
+if grep -q 'function getComponentDuration(componentId: string, baseDuration: int): int' "$ROOT/dotfiles/aurelia/theme/Theme.qml" && \
+   grep -q 'readonly property int keybindingsDurationFast: getComponentDuration("keybindings", durationFast)' "$ROOT/dotfiles/aurelia/theme/Theme.qml" && \
+   grep -q 'readonly property int keybindingsDurationNormal: getComponentDuration("keybindings", durationNormal)' "$ROOT/dotfiles/aurelia/theme/Theme.qml"; then
+    pass "38.15 Theme.qml defines getComponentDuration and keybindingsDuration* tokens producing 0ms when motion disabled"
+else
+    fail "38.15 getComponentDuration or keybindingsDuration tokens missing in Theme.qml"
+fi
+
+# 38.16: Lua preferences check: Atomic component reset restores both shortcuts and motion to shipped defaults
+test_38_16_out="$("$lua_bin" - "$ROOT" << 'LUA_CHECK'
+local root = arg[1]
+package.path = root .. "/dotfiles/aurelia/core/?.lua;" .. package.path
+local pref = require("preferences")
+
+local tmp = os.tmpname()
+-- Apply multiple custom overrides
+pref.set_override("components.keybindings.shortcuts.set_binding", "ALT + S", tmp)
+pref.set_override("components.keybindings.shortcuts.unset_binding", "ALT + U", tmp)
+pref.set_override("components.keybindings.motion.enabled", false, tmp)
+pref.set_override("components.keybindings.motion.scale", 1.5, tmp)
+
+-- Verify overrides are active
+assert(pref.get_effective("components.keybindings.shortcuts.set_binding", tmp) == "ALT + S", "set_binding override failed")
+assert(pref.get_effective("components.keybindings.motion.enabled", tmp) == false, "motion.enabled override failed")
+
+-- Reset keybindings component
+local ok_rst, err_rst = pref.reset_component("keybindings", tmp)
+assert(ok_rst == true, "reset_component failed: " .. tostring(err_rst))
+
+-- Verify all preferences reverted to shipped defaults
+assert(pref.get_effective("components.keybindings.shortcuts.set_binding", tmp) == "S", "Reset did not restore default S")
+assert(pref.get_effective("components.keybindings.shortcuts.unset_binding", tmp) == "U", "Reset did not restore default U")
+assert(pref.get_effective("components.keybindings.shortcuts.add_action", tmp) == "ALT + A", "Reset did not restore default ALT + A")
+assert(pref.get_effective("components.keybindings.shortcuts.back", tmp) == "ALT + B", "Reset did not restore default ALT + B")
+assert(pref.get_effective("components.keybindings.motion.enabled", tmp) == true, "Reset did not restore default motion.enabled true")
+assert(pref.get_effective("components.keybindings.motion.scale", tmp) == 1.0, "Reset did not restore default motion.scale 1.0")
+
+os.remove(tmp)
+print("TEST_38_16_OK")
+LUA_CHECK
+)"
+if grep -q "TEST_38_16_OK" <<< "$test_38_16_out"; then
+    pass "38.16 reset_component atomically restores shortcuts and motion preferences to shipped defaults"
+else
+    fail "38.16 Component reset test failed: $test_38_16_out"
+fi
+
+# 38.17: QML static check: Context-aware routing preserves typing s/u/a/b in text_input context
+if grep -q 'var isTextInput = (context === "text_input")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'if (!isTextInput || hasModifier(Theme\.shortcutSet)) return "set_binding"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'if (!isTextInput || hasModifier(Theme\.shortcutUnset)) return "unset_binding"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'if (!isTextInput || hasModifier(Theme\.shortcutAddAction)) return "add_action"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'if (!isTextInput || hasModifier(Theme\.shortcutBack)) return "back"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.17 Context-aware router strictly ignores bare unadorned shortcuts in text_input context (typing preserved)"
+else
+    fail "38.17 Context-aware router missing text_input modifier guards in KeybindingsWindow.qml"
+fi
+
+# 38.18: QML static check: Strict preference authority (S alone is Set, ALT+S is rejected when default S)
+if grep -q 'function eventMatchesShortcut(event, shortcutStr): bool' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'var actual = formatKeyEvent(event)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'if (actual === target) return true' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "38.18 Exact matching against formatKeyEvent enforces strict preference authority (no accidental modifier fallbacks)"
+else
+    fail "38.18 Exact shortcut matching check failed in KeybindingsWindow.qml"
+fi
+
+# 38.19: QML static check: KeybindingsSettings modifier requirement for add_action and back
+if grep -q 'var isBackOrAdd = (targetKey === "components\.keybindings\.shortcuts\.add_action" || targetKey === "components\.keybindings\.shortcuts\.back")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml" && \
+   grep -q 'if (isBackOrAdd && !window\.hasModifier(formattedKey))' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml"; then
+    pass "38.19 KeybindingsSettings strictly enforces modifier requirement on add_action and back to protect text entry"
+else
+    fail "38.19 KeybindingsSettings modifier enforcement check failed"
+fi
+
+# 38.20: QML static check: KeybindingsSettings cross-shortcut conflict prevention
+if grep -q 'Conflict: Shortcut' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml" && \
+   grep -q 'already assigned to' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml"; then
+    pass "38.20 KeybindingsSettings rejects duplicate shortcut assignments with clear conflict feedback"
+else
+    fail "38.20 KeybindingsSettings conflict rejection check failed"
+fi
+
 
 
 

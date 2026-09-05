@@ -53,6 +53,132 @@ PanelWindow {
         return false
     }
 
+    function hasModifier(shortcutStr): bool {
+        if (!shortcutStr) return false
+        var upper = shortcutStr.toUpperCase()
+        return upper.indexOf("ALT") !== -1 || upper.indexOf("CTRL") !== -1 || upper.indexOf("SUPER") !== -1 || upper.indexOf("MOD") !== -1
+    }
+
+    // Authoritative semantic command resolution:
+    // Guarantees one effective preference mapping per semantic command with context awareness.
+    function resolveSemanticCommand(event, context): string {
+        if (!event) return ""
+        var isTextInput = (context === "text_input")
+
+        // 1. Add Action (requires modifier if inside text input)
+        if (eventMatchesShortcut(event, Theme.shortcutAddAction)) {
+            if (!isTextInput || hasModifier(Theme.shortcutAddAction)) return "add_action"
+        }
+
+        // 2. Back (requires modifier if inside text input)
+        if (eventMatchesShortcut(event, Theme.shortcutBack)) {
+            if (!isTextInput || hasModifier(Theme.shortcutBack)) return "back"
+        }
+
+        // 3. Set Binding (naked printable S/U ignored in text input to preserve typing; active in list context)
+        if (eventMatchesShortcut(event, Theme.shortcutSet)) {
+            if (!isTextInput || hasModifier(Theme.shortcutSet)) return "set_binding"
+        }
+
+        // 4. Unset Binding
+        if (eventMatchesShortcut(event, Theme.shortcutUnset)) {
+            if (!isTextInput || hasModifier(Theme.shortcutUnset)) return "unset_binding"
+        }
+
+        return ""
+    }
+
+    function handleComponentKey(event, context): bool {
+        if (windowRoot.isRecording) {
+            return windowRoot.handleRecordingKeyPress(event)
+        }
+
+        if (event.key === Qt.Key_Escape) {
+            if (windowRoot.focusedHeaderIndex !== -1) {
+                windowRoot.focusedHeaderIndex = -1
+                searchInput.forceActiveFocus()
+                event.accepted = true
+                return true
+            }
+            windowRoot.goBack()
+            event.accepted = true
+            return true
+        }
+
+        var cmd = resolveSemanticCommand(event, context)
+        if (cmd === "add_action") {
+            windowRoot.openAddAction()
+            event.accepted = true
+            return true
+        } else if (cmd === "back") {
+            windowRoot.goBack()
+            event.accepted = true
+            return true
+        } else if (cmd === "set_binding") {
+            if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
+                var item = keybindingsModel.selectedItem
+                if (item) {
+                    windowRoot.startCapture(item, event)
+                    event.accepted = true
+                    return true
+                }
+            }
+            event.accepted = true
+            return true
+        } else if (cmd === "unset_binding") {
+            if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
+                var itemUnset = keybindingsModel.selectedItem
+                if (itemUnset) {
+                    if (itemUnset.editable !== true) {
+                        keybindingsModel.operationState = "error"
+                        keybindingsModel.operationMessage = "Immutable: System binding cannot be modified."
+                    } else {
+                        keybindingsModel.unsetShortcut(itemUnset.id)
+                    }
+                    event.accepted = true
+                    return true
+                }
+            }
+            event.accepted = true
+            return true
+        }
+        return false
+    }
+
+    // Header focus navigation state: -1 = content (searchInput or listView), 0 = Bound, 1 = Unbound, 2 = Add Action, 3 = Settings
+    property int focusedHeaderIndex: -1
+
+    function focusHeader(index: int) {
+        focusedHeaderIndex = Math.max(0, Math.min(3, index))
+        surfaceCard.forceActiveFocus()
+    }
+
+    function activateFocusedHeader() {
+        var idx = focusedHeaderIndex
+        focusedHeaderIndex = -1
+        if (idx === 0) {
+            keybindingsModel.switchView("bound")
+            Qt.callLater(function() { searchInput.forceActiveFocus() })
+        } else if (idx === 1) {
+            keybindingsModel.switchView("unbound")
+            Qt.callLater(function() {
+                if (keybindingsModel.unboundCount > 0) {
+                    listView.forceActiveFocus()
+                } else {
+                    searchInput.forceActiveFocus()
+                }
+            })
+        } else if (idx === 2) {
+            if (keybindingsModel.activeView.indexOf("add_") === 0) {
+                goBack()
+            } else {
+                openAddAction()
+            }
+        } else if (idx === 3) {
+            keybindingsModel.switchView("settings")
+        }
+    }
+
     // 3-State Capture Machine: "idle", "entering_capture", "capture_armed", "validating", "conflict"
     property string captureState: "idle"
     property int initiatingKey: 0
@@ -554,7 +680,7 @@ PanelWindow {
         }
 
         Behavior on border.color {
-            ColorAnimation { duration: Theme.effectiveDurationFast }
+            ColorAnimation { duration: Theme.keybindingsDurationFast }
         }
 
         Keys.onPressed: function(event) {
@@ -563,28 +689,39 @@ PanelWindow {
                 event.accepted = true
                 return
             }
-            if (event.key === Qt.Key_Escape) {
-                windowRoot.goBack()
-                event.accepted = true
-                return
-            }
-            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma) {
-                if (keybindingsModel.activeView === "settings") {
-                    windowRoot.goBack()
-                } else {
-                    keybindingsModel.switchView("settings")
+
+            // Header navigation key handling
+            if (windowRoot.focusedHeaderIndex >= 0) {
+                if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
+                    windowRoot.focusedHeaderIndex = (windowRoot.focusedHeaderIndex + 1) % 4
+                    event.accepted = true
+                    return
                 }
-                event.accepted = true
-                return
+                if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
+                    windowRoot.focusedHeaderIndex = (windowRoot.focusedHeaderIndex + 3) % 4
+                    event.accepted = true
+                    return
+                }
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                    windowRoot.activateFocusedHeader()
+                    event.accepted = true
+                    return
+                }
+                if (event.key === Qt.Key_Down) {
+                    windowRoot.focusedHeaderIndex = -1
+                    searchInput.forceActiveFocus()
+                    event.accepted = true
+                    return
+                }
+                if (event.key === Qt.Key_Escape) {
+                    windowRoot.focusedHeaderIndex = -1
+                    searchInput.forceActiveFocus()
+                    event.accepted = true
+                    return
+                }
             }
-            if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
-                windowRoot.goBack()
-                event.accepted = true
-                return
-            }
-            if (windowRoot.eventMatchesShortcut(event, Theme.shortcutAddAction)) {
-                windowRoot.openAddAction()
-                event.accepted = true
+
+            if (windowRoot.handleComponentKey(event, "surface")) {
                 return
             }
         }
@@ -746,56 +883,28 @@ PanelWindow {
                             }
                         }
 
-                        // 3. Tab toggles Bound vs Unbound view
-                        if (event.key === Qt.Key_Tab) {
-                            if (keybindingsModel.activeView.indexOf("add_") === 0) {
-                                keybindingsModel.switchView("unbound")
-                            } else {
-                                keybindingsModel.toggleView()
+                        // 3. Tab enters header navigation
+                        if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
+                            windowRoot.focusHeader(0)
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
+                            windowRoot.focusHeader(3)
+                            event.accepted = true
+                            return
+                        }
+
+                        // 4. Down arrow moves focus to list
+                        if (event.key === Qt.Key_Down) {
+                            if (keybindingsModel.filteredItems.length > 0) {
+                                listView.positionViewAtIndex(keybindingsModel.selectedIndex >= 0 ? keybindingsModel.selectedIndex : 0, ListView.Contain)
+                                listView.forceActiveFocus()
                             }
                             event.accepted = true
                             return
-                        }
-
-                        // 4. Escape: go back
-                        if (event.key === Qt.Key_Escape) {
-                            windowRoot.goBack()
-                            event.accepted = true
-                            return
-                        }
-
-                        // 5. Ctrl+, -> Settings
-                        if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma) {
-                            keybindingsModel.switchView("settings")
-                            event.accepted = true
-                            return
-                        }
-
-                        // 6. Back shortcut (e.g. ALT + B)
-                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
-                            windowRoot.goBack()
-                            event.accepted = true
-                            return
-                        }
-
-                        // 7. Add Action shortcut (e.g. ALT + A)
-                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutAddAction)) {
-                            windowRoot.openAddAction()
-                            event.accepted = true
-                            return
-                        }
-
-                        // 8. Navigation keys
-                        if (event.key === Qt.Key_Down) {
-                            keybindingsModel.selectNext()
-                            listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
-                            listView.forceActiveFocus()
-                            event.accepted = true
-                            return
                         } else if (event.key === Qt.Key_Up) {
-                            keybindingsModel.selectPrevious()
-                            listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
-                            listView.forceActiveFocus()
+                            windowRoot.focusHeader(0)
                             event.accepted = true
                             return
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -803,31 +912,12 @@ PanelWindow {
                             event.accepted = true
                             windowRoot.activateSelected()
                             return
-                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
-                            if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
-                                var item = keybindingsModel.selectedItem
-                                if (item) {
-                                    windowRoot.startCapture(item, event)
-                                }
-                            }
-                            event.accepted = true
-                            return
-                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U) {
-                            if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
-                                var itemUnset = keybindingsModel.selectedItem
-                                if (itemUnset) {
-                                    if (itemUnset.editable !== true) {
-                                        keybindingsModel.operationState = "error"
-                                        keybindingsModel.operationMessage = "Immutable: System binding cannot be modified."
-                                    } else {
-                                        keybindingsModel.unsetShortcut(itemUnset.id)
-                                    }
-                                }
-                            }
-                            event.accepted = true
+                        }
+
+                        // 5. Component router in text_input context (preserves plain typing of s/u/a/b)
+                        if (windowRoot.handleComponentKey(event, "text_input")) {
                             return
                         }
-                        // Note: plain letters 'a', 'b', 's', 'u' fall through to standard TextInput processing
                     }
                 }
             }
@@ -842,53 +932,65 @@ PanelWindow {
                 spacing: Theme.spacingMd
                 visible: keybindingsModel.activeView !== "add_exec" && keybindingsModel.activeView !== "settings"
 
-                // Bound tab
+                // Bound tab (Header item 0)
                 Rectangle {
-                    Layout.preferredHeight: 24
+                    Layout.preferredHeight: 28
                     Layout.preferredWidth: boundText.implicitWidth + Theme.spacingMd * 2
                     radius: Theme.radiusSm
-                    color: (keybindingsModel.activeView === "bound") ? Theme.selection : "transparent"
+                    color: (windowRoot.focusedHeaderIndex === 0) ? Theme.selectionActive : ((keybindingsModel.activeView === "bound") ? Theme.selection : "transparent")
+                    border.color: (windowRoot.focusedHeaderIndex === 0) ? Theme.borderActive : "transparent"
+                    border.width: (windowRoot.focusedHeaderIndex === 0) ? 1 : 0
+
+                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
+                    Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     Text {
                         id: boundText
                         anchors.centerIn: parent
                         text: "Bound (" + keybindingsModel.boundCount + ")"
-                        color: (keybindingsModel.activeView === "bound") ? Theme.accent : Theme.textSecondary
+                        color: (windowRoot.focusedHeaderIndex === 0 || keybindingsModel.activeView === "bound") ? Theme.accent : Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSm
-                        font.weight: (keybindingsModel.activeView === "bound") ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                        font.weight: (keybindingsModel.activeView === "bound" || windowRoot.focusedHeaderIndex === 0) ? Theme.fontWeightMedium : Theme.fontWeightNormal
                     }
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            windowRoot.focusedHeaderIndex = 0
                             keybindingsModel.switchView("bound")
                         }
                     }
                 }
 
-                // Unbound tab
+                // Unbound tab (Header item 1)
                 Rectangle {
-                    Layout.preferredHeight: 24
+                    Layout.preferredHeight: 28
                     Layout.preferredWidth: unboundText.implicitWidth + Theme.spacingMd * 2
                     radius: Theme.radiusSm
-                    color: (keybindingsModel.activeView === "unbound") ? Theme.selection : "transparent"
+                    color: (windowRoot.focusedHeaderIndex === 1) ? Theme.selectionActive : ((keybindingsModel.activeView === "unbound") ? Theme.selection : "transparent")
+                    border.color: (windowRoot.focusedHeaderIndex === 1) ? Theme.borderActive : "transparent"
+                    border.width: (windowRoot.focusedHeaderIndex === 1) ? 1 : 0
+
+                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
+                    Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     Text {
                         id: unboundText
                         anchors.centerIn: parent
                         text: "Unbound (" + keybindingsModel.unboundCount + ")"
-                        color: (keybindingsModel.activeView === "unbound") ? Theme.accent : Theme.textSecondary
+                        color: (windowRoot.focusedHeaderIndex === 1 || keybindingsModel.activeView === "unbound") ? Theme.accent : Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSm
-                        font.weight: (keybindingsModel.activeView === "unbound") ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                        font.weight: (keybindingsModel.activeView === "unbound" || windowRoot.focusedHeaderIndex === 1) ? Theme.fontWeightMedium : Theme.fontWeightNormal
                     }
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            windowRoot.focusedHeaderIndex = 1
                             keybindingsModel.switchView("unbound")
                         }
                     }
@@ -898,12 +1000,17 @@ PanelWindow {
                     Layout.fillWidth: true
                 }
 
-                // Add Action / Back tab
+                // Add Action / Back tab (Header item 2)
                 Rectangle {
-                    Layout.preferredHeight: 24
+                    Layout.preferredHeight: 28
                     Layout.preferredWidth: addActionText.implicitWidth + Theme.spacingMd * 2
                     radius: Theme.radiusSm
-                    color: (keybindingsModel.activeView.indexOf("add_") === 0) ? Theme.selection : "transparent"
+                    color: (windowRoot.focusedHeaderIndex === 2) ? Theme.selectionActive : ((keybindingsModel.activeView.indexOf("add_") === 0) ? Theme.selection : "transparent")
+                    border.color: (windowRoot.focusedHeaderIndex === 2) ? Theme.borderActive : "transparent"
+                    border.width: (windowRoot.focusedHeaderIndex === 2) ? 1 : 0
+
+                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
+                    Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     Text {
                         id: addActionText
@@ -919,6 +1026,7 @@ PanelWindow {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            windowRoot.focusedHeaderIndex = 2
                             if (keybindingsModel.activeView.indexOf("add_") === 0) {
                                 windowRoot.goBack()
                             } else {
@@ -928,12 +1036,17 @@ PanelWindow {
                     }
                 }
 
-                // Settings Cog Button
+                // Settings Cog Button (Header item 3)
                 Rectangle {
-                    Layout.preferredHeight: 24
-                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    Layout.preferredWidth: 34
                     radius: Theme.radiusSm
-                    color: (keybindingsModel.activeView === "settings" || cogHover.hovered) ? Theme.selection : "transparent"
+                    color: (windowRoot.focusedHeaderIndex === 3) ? Theme.selectionActive : ((keybindingsModel.activeView === "settings" || cogHover.hovered) ? Theme.selection : "transparent")
+                    border.color: (windowRoot.focusedHeaderIndex === 3) ? Theme.borderActive : "transparent"
+                    border.width: (windowRoot.focusedHeaderIndex === 3) ? 1 : 0
+
+                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
+                    Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     HoverHandler {
                         id: cogHover
@@ -942,14 +1055,15 @@ PanelWindow {
                     Text {
                         anchors.centerIn: parent
                         text: "⚙"
-                        color: (keybindingsModel.activeView === "settings") ? Theme.accent : Theme.textSecondary
-                        font.pixelSize: Theme.fontSizeMd
+                        color: (windowRoot.focusedHeaderIndex === 3 || keybindingsModel.activeView === "settings") ? Theme.accent : Theme.textSecondary
+                        font.pixelSize: Math.round(Theme.fontSizeMd * 1.5)
                     }
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            windowRoot.focusedHeaderIndex = 3
                             if (keybindingsModel.activeView === "settings") {
                                 windowRoot.goBack()
                             } else {
@@ -1006,13 +1120,14 @@ PanelWindow {
                             }
                         }
 
-                        // 3. Tab toggles Bound vs Unbound view
-                        if (event.key === Qt.Key_Tab) {
-                            if (keybindingsModel.activeView.indexOf("add_") === 0) {
-                                keybindingsModel.switchView("unbound")
-                            } else {
-                                keybindingsModel.toggleView()
-                            }
+                        // 3. Tab enters header navigation
+                        if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
+                            windowRoot.focusHeader(0)
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
+                            windowRoot.focusHeader(3)
                             event.accepted = true
                             return
                         }
@@ -1050,66 +1165,13 @@ PanelWindow {
                             return
                         }
 
-                        // 7. Ctrl+, -> Settings
-                        if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma) {
-                            keybindingsModel.switchView("settings")
-                            event.accepted = true
+                        // 7. Component router in list context (handles Theme.shortcutSet, Theme.shortcutUnset, Theme.shortcutAddAction, Theme.shortcutBack)
+                        if (windowRoot.handleComponentKey(event, "list")) {
                             return
                         }
 
-                        // 8. Add Action shortcut (e.g. ALT + A)
-                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutAddAction)) {
-                            windowRoot.openAddAction()
-                            event.accepted = true
-                            return
-                        }
-
-                        // 9. Back shortcut (e.g. ALT + B)
-                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
-                            windowRoot.goBack()
-                            event.accepted = true
-                            return
-                        }
-
-                        // 10. Set / Edit shortcut (e.g. S or ALT + S) - restricted to bound/unbound view
-                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutSet) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S)) {
-                            if (keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound") {
-                                event.accepted = true
-                                return
-                            }
-                            var item = keybindingsModel.selectedItem
-                            if (!item) {
-                                event.accepted = true
-                                return
-                            }
-                            windowRoot.startCapture(item, event)
-                            event.accepted = true
-                            return
-                        }
-
-                        // 11. Unset / Clear shortcut (e.g. U or ALT + U) - restricted to bound/unbound view
-                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutUnset) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U)) {
-                            if (keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound") {
-                                event.accepted = true
-                                return
-                            }
-                            var itemUnset = keybindingsModel.selectedItem
-                            if (!itemUnset) {
-                                event.accepted = true
-                                return
-                            }
-                            if (itemUnset.editable !== true) {
-                                keybindingsModel.operationState = "error"
-                                keybindingsModel.operationMessage = "Immutable: System binding cannot be modified."
-                            } else {
-                                keybindingsModel.unsetShortcut(itemUnset.id)
-                            }
-                            event.accepted = true
-                            return
-                        }
-
-                        // 12. Slash, Backspace, or printable text redirects to searchInput
-                        if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32)) {
+                        // 8. Slash, Backspace, or printable text redirects to searchInput
+                        if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))) {
                             searchInput.forceActiveFocus()
                             if (event.key !== Qt.Key_Slash) {
                                 searchInput.text = searchInput.text + event.text
@@ -1133,11 +1195,11 @@ PanelWindow {
                 // Minimal empty state message
                 Text {
                     anchors.centerIn: parent
-                    text: (keybindingsModel.activeView === "add_app") ? (keybindingsModel.isLoadingApps ? "Discovering installed applications..." : "No matching applications found") : ((keybindingsModel.activeView === "add_action_type") ? "No action types available" : (keybindingsModel.activeView === "unbound" ? "No unbound shortcuts (press a to add an action)" : "No matching shortcuts"))
+                    text: (keybindingsModel.activeView === "add_app") ? (keybindingsModel.isLoadingApps ? "Discovering installed applications..." : "No matching applications found") : ((keybindingsModel.activeView === "add_action_type") ? "No action types available" : (keybindingsModel.activeView === "unbound" ? ("No unbound shortcuts (press " + Theme.shortcutAddAction + " to add an action)") : "No matching shortcuts"))
                     color: Theme.textSubtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSm
-                    visible: keybindingsModel.filteredItems.length === 0 && keybindingsModel.activeView !== "add_exec"
+                    visible: keybindingsModel.filteredItems.length === 0 && (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound" || keybindingsModel.activeView === "add_action_type" || keybindingsModel.activeView === "add_app")
                 }
 
                 // Add Custom Executable / Script Form
@@ -1765,375 +1827,13 @@ PanelWindow {
                 }
 
                 // Keybindings Component Settings Surface
-                Item {
+                KeybindingsSettings {
                     id: settingsView
                     anchors.fill: parent
                     visible: keybindingsModel.activeView === "settings"
-                    focus: visible
-
-                    property string editingPrefKey: ""
-                    property string statusMessage: ""
-                    property string statusType: "info" // "info", "error", "success"
-                    property int selectedIndex: 0
-
-                    readonly property var prefItems: [
-                        {
-                            key: "components.keybindings.shortcuts.add_action",
-                            label: "Add Action",
-                            desc: "Open action creation dialog (requires modifier)",
-                            getVal: function() { return Theme.shortcutAddAction },
-                            requiresModifier: true
-                        },
-                        {
-                            key: "components.keybindings.shortcuts.back",
-                            label: "Back",
-                            desc: "Return to previous view / dismiss (requires modifier)",
-                            getVal: function() { return Theme.shortcutBack },
-                            requiresModifier: true
-                        },
-                        {
-                            key: "components.keybindings.shortcuts.set_binding",
-                            label: "Set Shortcut",
-                            desc: "Assign or edit shortcut for selected action",
-                            getVal: function() { return Theme.shortcutSet },
-                            requiresModifier: false
-                        },
-                        {
-                            key: "components.keybindings.shortcuts.unset_binding",
-                            label: "Unset Shortcut",
-                            desc: "Clear shortcut for selected action",
-                            getVal: function() { return Theme.shortcutUnset },
-                            requiresModifier: false
-                        }
-                    ]
-
-                    function startEditing(idx) {
-                        if (idx < 0 || idx >= prefItems.length) return
-                        editingPrefKey = prefItems[idx].key
-                        statusMessage = "Press key combination for " + prefItems[idx].label + " (Esc to cancel)..."
-                        statusType = "info"
-                        settingsView.forceActiveFocus()
-                    }
-
-                    function cancelEditing() {
-                        editingPrefKey = ""
-                        statusMessage = ""
-                        statusType = "info"
-                    }
-
-                    function resetToDefaults() {
-                        cancelEditing()
-                        statusMessage = "Resetting preferences to defaults..."
-                        statusType = "info"
-                        keybindingsModel.resetComponentPreferences(function(ok, err) {
-                            if (ok) {
-                                Theme.reloadPreferences()
-                                settingsView.statusMessage = "Component preferences reset to shipped defaults."
-                                settingsView.statusType = "success"
-                            } else {
-                                settingsView.statusMessage = "Error: " + err
-                                settingsView.statusType = "error"
-                            }
-                        })
-                    }
-
-                    onVisibleChanged: {
-                        if (visible) {
-                            editingPrefKey = ""
-                            statusMessage = ""
-                            statusType = "info"
-                            selectedIndex = 0
-                            settingsView.forceActiveFocus()
-                        }
-                    }
-
-                    Keys.onPressed: function(event) {
-                        // Capture mode for editing a shortcut
-                        if (editingPrefKey !== "") {
-                            if (event.key === Qt.Key_Escape) {
-                                cancelEditing()
-                                event.accepted = true
-                                return
-                            }
-                            var k = event.key
-                            if (k === Qt.Key_Control || k === Qt.Key_Shift || k === Qt.Key_Alt || k === Qt.Key_Meta) {
-                                event.accepted = true
-                                return
-                            }
-                            var formatted = formatKeyEvent(event)
-                            if (!formatted || formatted === "") {
-                                event.accepted = true
-                                return
-                            }
-
-                            // Find target def
-                            var def = null
-                            for (var i = 0; i < prefItems.length; i++) {
-                                if (prefItems[i].key === editingPrefKey) {
-                                    def = prefItems[i]
-                                    break
-                                }
-                            }
-
-                            // Validate modifier requirement
-                            if (def && def.requiresModifier) {
-                                var hasMod = (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) !== 0
-                                if (!hasMod) {
-                                    statusMessage = "Error: " + def.label + " requires a modifier key (e.g. ALT) to prevent text input conflicts."
-                                    statusType = "error"
-                                    event.accepted = true
-                                    return
-                                }
-                            }
-
-                            // Conflict check against other 3 shortcuts
-                            for (var j = 0; j < prefItems.length; j++) {
-                                if (prefItems[j].key !== editingPrefKey) {
-                                    var otherVal = prefItems[j].getVal()
-                                    if (otherVal && otherVal.trim().toUpperCase() === formatted.trim().toUpperCase()) {
-                                        statusMessage = "Error: Conflict: Shortcut '" + formatted + "' is already assigned to " + prefItems[j].label + "."
-                                        statusType = "error"
-                                        event.accepted = true
-                                        return
-                                    }
-                                }
-                            }
-
-                            // Valid: update via backend
-                            var targetKey = editingPrefKey
-                            var chosenKey = formatted
-                            var targetLabel = def ? def.label : "Shortcut"
-                            editingPrefKey = ""
-                            statusMessage = "Updating preference..."
-                            statusType = "info"
-                            keybindingsModel.setComponentPreference(targetKey, chosenKey, function(ok, err) {
-                                if (ok) {
-                                    Theme.reloadPreferences()
-                                    settingsView.statusMessage = "Updated " + targetLabel + " = " + chosenKey
-                                    settingsView.statusType = "success"
-                                } else {
-                                    settingsView.statusMessage = "Error: " + err
-                                    settingsView.statusType = "error"
-                                }
-                            })
-                            event.accepted = true
-                            return
-                        }
-
-                        // Normal navigation in settings
-                        if (event.key === Qt.Key_Escape || windowRoot.eventMatchesShortcut(event, Theme.shortcutBack) || ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma)) {
-                            windowRoot.goBack()
-                            event.accepted = true
-                            return
-                        }
-                        if (event.key === Qt.Key_Down) {
-                            if (selectedIndex < prefItems.length - 1) selectedIndex++
-                            event.accepted = true
-                            return
-                        }
-                        if (event.key === Qt.Key_Up) {
-                            if (selectedIndex > 0) selectedIndex--
-                            event.accepted = true
-                            return
-                        }
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                            startEditing(selectedIndex)
-                            event.accepted = true
-                            return
-                        }
-                    }
-
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        width: Math.min(parent.width - 64, 600)
-                        spacing: Theme.spacingMd
-
-                        // Header row
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMd
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-
-                                Text {
-                                    text: "⚙ Keybindings Preferences"
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeLg
-                                    font.weight: Theme.fontWeightBold
-                                    color: Theme.accent
-                                }
-
-                                Text {
-                                    text: "Configure keyboard shortcuts for Keybindings navigation and actions."
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeSm
-                                    color: Theme.textSecondary
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.preferredHeight: 28
-                                Layout.preferredWidth: backSettingsLabel.implicitWidth + Theme.spacingLg * 2
-                                radius: Theme.radiusSm
-                                color: backSettingsHover.hovered ? Theme.selection : "transparent"
-                                border.color: Theme.border
-                                border.width: 1
-
-                                HoverHandler {
-                                    id: backSettingsHover
-                                }
-
-                                Text {
-                                    id: backSettingsLabel
-                                    anchors.centerIn: parent
-                                    text: "← Back"
-                                    color: Theme.gold
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeSm
-                                    font.weight: Theme.fontWeightMedium
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: windowRoot.goBack()
-                                }
-                            }
-                        }
-
-                        // Shortcut rows
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingSm
-                            Layout.topMargin: Theme.spacingSm
-
-                            Repeater {
-                                model: settingsView.prefItems
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 44
-                                    radius: Theme.radiusSm
-                                    color: (settingsView.selectedIndex === index) ? Theme.selection : (rowHover.hovered ? Theme.surfaceElevated : Theme.inputBg)
-                                    border.color: (settingsView.editingPrefKey === modelData.key) ? Theme.accent : ((settingsView.selectedIndex === index) ? Theme.borderActive : Theme.border)
-                                    border.width: 1
-
-                                    HoverHandler {
-                                        id: rowHover
-                                    }
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: Theme.spacingMd
-                                        anchors.rightMargin: Theme.spacingMd
-                                        spacing: Theme.spacingMd
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 2
-
-                                            Text {
-                                                text: modelData.label
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: Theme.fontSizeSm
-                                                font.weight: Theme.fontWeightMedium
-                                                color: Theme.text
-                                            }
-
-                                            Text {
-                                                text: modelData.desc
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: Theme.fontSizeXs
-                                                color: Theme.textMuted
-                                            }
-                                        }
-
-                                        // Shortcut key badge
-                                        Rectangle {
-                                            Layout.preferredHeight: 26
-                                            Layout.preferredWidth: Math.max(badgeText.implicitWidth + 16, 60)
-                                            radius: Theme.radiusSm
-                                            color: (settingsView.editingPrefKey === modelData.key) ? Theme.accent : Theme.surfaceElevated
-                                            border.color: (settingsView.editingPrefKey === modelData.key) ? Theme.accent : Theme.border
-                                            border.width: 1
-
-                                            Text {
-                                                id: badgeText
-                                                anchors.centerIn: parent
-                                                text: (settingsView.editingPrefKey === modelData.key) ? "Press key…" : modelData.getVal()
-                                                color: (settingsView.editingPrefKey === modelData.key) ? Theme.bgBase : Theme.gold
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: Theme.fontSizeSm
-                                                font.weight: Theme.fontWeightBold
-                                            }
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            settingsView.selectedIndex = index
-                                            settingsView.startEditing(index)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Status message text
-                        Text {
-                            Layout.fillWidth: true
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            color: (settingsView.statusType === "error") ? Theme.error : ((settingsView.statusType === "success") ? Theme.success : Theme.accent)
-                            font.bold: true
-                            wrapMode: Text.Wrap
-                            visible: settingsView.statusMessage !== ""
-                            text: settingsView.statusMessage
-                        }
-
-                        // Actions row: Reset to Defaults
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingSm
-                            spacing: Theme.spacingMd
-
-                            Rectangle {
-                                Layout.preferredHeight: 32
-                                Layout.preferredWidth: resetLabel.implicitWidth + Theme.spacingLg * 2
-                                radius: Theme.radiusSm
-                                color: resetHover.hovered ? Theme.selection : "transparent"
-                                border.color: Theme.border
-                                border.width: 1
-
-                                HoverHandler {
-                                    id: resetHover
-                                }
-
-                                Text {
-                                    id: resetLabel
-                                    anchors.centerIn: parent
-                                    text: "↺ Reset Keybindings Preferences"
-                                    color: Theme.textSecondary
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeSm
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: settingsView.resetToDefaults()
-                                }
-                            }
-
-                            Item {
-                                Layout.fillWidth: true
-                            }
-                        }
-                    }
+                    model: keybindingsModel
+                    window: windowRoot
+                    onBackRequested: windowRoot.goBack()
                 }
             }
 
@@ -2372,38 +2072,25 @@ PanelWindow {
                         visible: !windowRoot.isRecording && keybindingsModel.activeView === "settings"
 
                         Text {
-                            text: "↵"
+                            text: "↵ / Space"
                             color: Theme.accent
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                             font.bold: true
                         }
                         Text {
-                            text: "Edit Shortcut"
+                            text: "Edit / Toggle"
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                             font.weight: Theme.fontWeightMedium
                         }
-                        Text {
-                            text: "Ctrl+,"
-                            color: Theme.foam
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.bold: true
-                        }
-                        Text {
-                            text: "Toggle Settings"
-                            color: Theme.textSecondary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                        }
                     }
 
-                    // 9. TAB Switch View hint
+                    // 9. TAB Header Navigation hint
                     RowLayout {
                         spacing: Theme.spacingXs
-                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound")
+                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView !== "settings" && keybindingsModel.activeView !== "add_exec"
 
                         Text {
                             text: "TAB"
@@ -2413,7 +2100,7 @@ PanelWindow {
                             font.bold: true
                         }
                         Text {
-                            text: (keybindingsModel.activeView === "bound") ? "Unbound" : "Bound"
+                            text: "Header Nav"
                             color: Theme.textSecondary
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm

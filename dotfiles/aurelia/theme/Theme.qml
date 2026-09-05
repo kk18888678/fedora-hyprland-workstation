@@ -292,4 +292,7 @@ QtObject {
         if (!componentMotionEnabled(componentId)) return 0
         return Math.round(baseDuration * componentMotionScale(componentId))
     }
+
+    readonly property int keybindingsDurationFast: getComponentDuration("keybindings", durationFast)
+    readonly property int keybindingsDurationNormal: getComponentDuration("keybindings", durationNormal)
 }
