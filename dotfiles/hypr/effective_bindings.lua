@@ -1583,8 +1583,8 @@ function M.resolve_bindings(manifest, overrides)
                         description = desc,
                         icon = app_icon,
                         action_type = "exec",
-                        command = is_runnable and ("gtk-launch -- " .. did) or nil,
-                        command_argv = is_runnable and { "gtk-launch", "--", did } or nil,
+                        command = is_runnable and ((app_info and app_info.command) or ("gtk-launch -- " .. did)) or nil,
+                        command_argv = is_runnable and ((app_info and app_info.command_argv) or { "gtk-launch", "--", did }) or nil,
                         user_created = true,
                         keyboard_bindable = true,
                         trigger_type = "keyboard",
@@ -1636,8 +1636,8 @@ function M.resolve_bindings(manifest, overrides)
                     description = desc,
                     icon = app_icon,
                     action_type = "exec",
-                    command = is_runnable and ("gtk-launch -- " .. app_desktop) or nil,
-                    command_argv = is_runnable and { "gtk-launch", "--", app_desktop } or nil,
+                    command = is_runnable and ((app_info and app_info.command) or ("gtk-launch -- " .. app_desktop)) or nil,
+                    command_argv = is_runnable and ((app_info and app_info.command_argv) or { "gtk-launch", "--", app_desktop }) or nil,
                     user_overridden = true,
                     user_created = true,
                     keyboard_bindable = true,
@@ -2018,10 +2018,10 @@ function M.get_action_argv(action_id, manifest)
     local app_desktop = tostring(action_id):match("^app:([a-zA-Z0-9][%w%-%._]*%.desktop)$")
     if app_desktop then
         local app_info = app_reg.find_application(app_desktop)
-        if not app_info then
+        if not app_info or not app_info.command_argv then
             return nil, "Desktop application not found in Application Registry: " .. app_desktop
         end
-        return { "gtk-launch", "--", app_desktop }
+        return app_info.command_argv
     end
 
     -- Check user_actions.json for executable actions

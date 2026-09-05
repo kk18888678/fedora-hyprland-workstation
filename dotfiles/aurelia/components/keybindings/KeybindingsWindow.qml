@@ -11,6 +11,7 @@ PanelWindow {
 
     // Layer-shell Wayland configuration: full-screen transparent overlay surface with exclusive focus during capture
     WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "aurelia-keybindings"
     WlrLayershell.keyboardFocus: windowRoot.browseActive ? WlrKeyboardFocus.None : (windowRoot.isRecording ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand)
     mask: windowRoot.browseActive ? browseRegion : null
 
@@ -27,9 +28,9 @@ PanelWindow {
     }
     exclusionMode: ExclusionMode.Ignore
 
-    // Window dimensions: restrained command palette proportions from design system (800x480)
-    implicitWidth: Theme.paletteWidth // 800
-    implicitHeight: Theme.paletteHeight // 480
+    // Window dimensions: restrained command palette proportions from component config (800x480)
+    implicitWidth: KeybindingsConfig.palettePreferredWidth
+    implicitHeight: KeybindingsConfig.palettePreferredHeight
     color: "transparent"
 
     // Browse modal/dialog state: when active, layer-shell keyboard focus is released (WlrKeyboardFocus.None)
@@ -94,12 +95,6 @@ PanelWindow {
         }
 
         if (event.key === Qt.Key_Escape) {
-            if (windowRoot.focusedHeaderIndex !== -1) {
-                windowRoot.focusedHeaderIndex = -1
-                searchInput.forceActiveFocus()
-                event.accepted = true
-                return true
-            }
             windowRoot.goBack()
             event.accepted = true
             return true
@@ -145,38 +140,53 @@ PanelWindow {
         return false
     }
 
-    // Header focus navigation state: -1 = content (searchInput or listView), 0 = Bound, 1 = Unbound, 2 = Add Action, 3 = Settings
-    property int focusedHeaderIndex: -1
-
-    function focusHeader(index: int) {
-        focusedHeaderIndex = Math.max(0, Math.min(3, index))
-        surfaceCard.forceActiveFocus()
-    }
-
-    function activateFocusedHeader() {
-        var idx = focusedHeaderIndex
-        focusedHeaderIndex = -1
-        if (idx === 0) {
-            keybindingsModel.switchView("bound")
-            Qt.callLater(function() { searchInput.forceActiveFocus() })
-        } else if (idx === 1) {
-            keybindingsModel.switchView("unbound")
-            Qt.callLater(function() {
-                if (keybindingsModel.unboundCount > 0) {
-                    listView.forceActiveFocus()
-                } else {
-                    searchInput.forceActiveFocus()
-                }
-            })
-        } else if (idx === 2) {
-            if (keybindingsModel.activeView.indexOf("add_") === 0) {
-                goBack()
-            } else {
-                openAddAction()
-            }
-        } else if (idx === 3) {
-            keybindingsModel.switchView("settings")
+    // Immediate Top-Level View Cycling:
+    // TAB: Bound -> Unbound -> + Add Action (Action Type Picker) -> Settings -> Bound
+    // SHIFT+TAB: Reverses this sequence immediately.
+    // Invariant: Zero intermediate focus-only state; activates destination view immediately on keypress.
+    function cycleTopLevelView(forward: bool) {
+        if (windowRoot.isRecording) {
+            return
         }
+        var current = keybindingsModel.activeView
+        var nextView = "bound"
+
+        if (forward) {
+            if (current === "bound") {
+                nextView = "unbound"
+            } else if (current === "unbound") {
+                nextView = "add_action_type"
+            } else if (current.indexOf("add_") === 0) {
+                nextView = "settings"
+            } else {
+                nextView = "bound"
+            }
+        } else {
+            if (current === "bound") {
+                nextView = "settings"
+            } else if (current === "settings") {
+                nextView = "add_action_type"
+            } else if (current.indexOf("add_") === 0) {
+                nextView = "unbound"
+            } else {
+                nextView = "bound"
+            }
+        }
+
+        console.info("[EVENT] keybindings.view.cycle from=" + current + " to=" + nextView + " forward=" + forward)
+        keybindingsModel.switchView(nextView)
+
+        Qt.callLater(function() {
+            if (nextView === "bound" || nextView === "unbound") {
+                searchInput.forceActiveFocus()
+            } else if (nextView === "add_action_type") {
+                listView.forceActiveFocus()
+            } else if (nextView === "settings") {
+                if (typeof settingsView !== "undefined" && settingsView) {
+                    settingsView.forceActiveFocus()
+                }
+            }
+        })
     }
 
     // 3-State Capture Machine: "idle", "entering_capture", "capture_armed", "validating", "conflict"
@@ -661,9 +671,10 @@ PanelWindow {
     Rectangle {
         id: surfaceCard
         anchors.centerIn: parent
-        width: Theme.paletteWidth
-        height: Theme.paletteHeight
-        radius: Theme.radiusMd
+        // Theme.paletteWidth: KeybindingsConfig.palettePreferredWidth
+        width: KeybindingsConfig.palettePreferredWidth
+        height: KeybindingsConfig.palettePreferredHeight
+        radius: KeybindingsConfig.surfaceRadius
         color: Theme.bgBase
         border.color: (surfaceHover.hovered || searchInput.activeFocus) ? Theme.borderActive : Theme.border
         border.width: Theme.borderWidthFocus
@@ -690,35 +701,16 @@ PanelWindow {
                 return
             }
 
-            // Header navigation key handling
-            if (windowRoot.focusedHeaderIndex >= 0) {
-                if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
-                    windowRoot.focusedHeaderIndex = (windowRoot.focusedHeaderIndex + 1) % 4
-                    event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
-                    windowRoot.focusedHeaderIndex = (windowRoot.focusedHeaderIndex + 3) % 4
-                    event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                    windowRoot.activateFocusedHeader()
-                    event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Down) {
-                    windowRoot.focusedHeaderIndex = -1
-                    searchInput.forceActiveFocus()
-                    event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Escape) {
-                    windowRoot.focusedHeaderIndex = -1
-                    searchInput.forceActiveFocus()
-                    event.accepted = true
-                    return
-                }
+            // Tab immediate top-level view cycling
+            if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
+                windowRoot.cycleTopLevelView(true)
+                event.accepted = true
+                return
+            }
+            if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
+                windowRoot.cycleTopLevelView(false)
+                event.accepted = true
+                return
             }
 
             if (windowRoot.handleComponentKey(event, "surface")) {
@@ -883,14 +875,14 @@ PanelWindow {
                             }
                         }
 
-                        // 3. Tab enters header navigation
+                        // 3. Tab immediate top-level view cycling
                         if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
-                            windowRoot.focusHeader(0)
+                            windowRoot.cycleTopLevelView(true)
                             event.accepted = true
                             return
                         }
                         if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
-                            windowRoot.focusHeader(3)
+                            windowRoot.cycleTopLevelView(false)
                             event.accepted = true
                             return
                         }
@@ -901,10 +893,6 @@ PanelWindow {
                                 listView.positionViewAtIndex(keybindingsModel.selectedIndex >= 0 ? keybindingsModel.selectedIndex : 0, ListView.Contain)
                                 listView.forceActiveFocus()
                             }
-                            event.accepted = true
-                            return
-                        } else if (event.key === Qt.Key_Up) {
-                            windowRoot.focusHeader(0)
                             event.accepted = true
                             return
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -925,73 +913,71 @@ PanelWindow {
             // View Selector Tabs: Minimal command-palette tabs [ Bound (N) ] [ Unbound (M) ] [ + Add Action ] [ ⚙ ]
             RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: KeybindingsConfig.headerHeight
                 Layout.leftMargin: Theme.spacingXl
                 Layout.rightMargin: Theme.spacingXl
                 Layout.bottomMargin: Theme.spacingSm
-                spacing: Theme.spacingMd
+                spacing: KeybindingsConfig.headerSpacing
                 visible: keybindingsModel.activeView !== "add_exec" && keybindingsModel.activeView !== "settings"
 
                 // Bound tab (Header item 0)
                 Rectangle {
-                    Layout.preferredHeight: 28
-                    Layout.preferredWidth: boundText.implicitWidth + Theme.spacingMd * 2
-                    radius: Theme.radiusSm
-                    color: (windowRoot.focusedHeaderIndex === 0) ? Theme.selectionActive : ((keybindingsModel.activeView === "bound") ? Theme.selection : "transparent")
-                    border.color: (windowRoot.focusedHeaderIndex === 0) ? Theme.borderActive : "transparent"
-                    border.width: (windowRoot.focusedHeaderIndex === 0) ? 1 : 0
+                    Layout.preferredHeight: KeybindingsConfig.tabHeight
+                    Layout.preferredWidth: boundText.implicitWidth + (KeybindingsConfig.tabPaddingHorizontal * 2)
+                    radius: KeybindingsConfig.tabBorderRadius
+                    color: (keybindingsModel.activeView === "bound") ? Theme.selection : "transparent"
+                    border.color: "transparent"
+                    border.width: 0
 
-                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
                     Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     Text {
                         id: boundText
                         anchors.centerIn: parent
                         text: "Bound (" + keybindingsModel.boundCount + ")"
-                        color: (windowRoot.focusedHeaderIndex === 0 || keybindingsModel.activeView === "bound") ? Theme.accent : Theme.textSecondary
+                        color: (keybindingsModel.activeView === "bound") ? Theme.accent : Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSm
-                        font.weight: (keybindingsModel.activeView === "bound" || windowRoot.focusedHeaderIndex === 0) ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                        font.weight: (keybindingsModel.activeView === "bound") ? Theme.fontWeightMedium : Theme.fontWeightNormal
                     }
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            windowRoot.focusedHeaderIndex = 0
                             keybindingsModel.switchView("bound")
+                            searchInput.forceActiveFocus()
                         }
                     }
                 }
 
                 // Unbound tab (Header item 1)
                 Rectangle {
-                    Layout.preferredHeight: 28
-                    Layout.preferredWidth: unboundText.implicitWidth + Theme.spacingMd * 2
-                    radius: Theme.radiusSm
-                    color: (windowRoot.focusedHeaderIndex === 1) ? Theme.selectionActive : ((keybindingsModel.activeView === "unbound") ? Theme.selection : "transparent")
-                    border.color: (windowRoot.focusedHeaderIndex === 1) ? Theme.borderActive : "transparent"
-                    border.width: (windowRoot.focusedHeaderIndex === 1) ? 1 : 0
+                    Layout.preferredHeight: KeybindingsConfig.tabHeight
+                    Layout.preferredWidth: unboundText.implicitWidth + (KeybindingsConfig.tabPaddingHorizontal * 2)
+                    radius: KeybindingsConfig.tabBorderRadius
+                    color: (keybindingsModel.activeView === "unbound") ? Theme.selection : "transparent"
+                    border.color: "transparent"
+                    border.width: 0
 
-                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
                     Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     Text {
                         id: unboundText
                         anchors.centerIn: parent
                         text: "Unbound (" + keybindingsModel.unboundCount + ")"
-                        color: (windowRoot.focusedHeaderIndex === 1 || keybindingsModel.activeView === "unbound") ? Theme.accent : Theme.textSecondary
+                        color: (keybindingsModel.activeView === "unbound") ? Theme.accent : Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSm
-                        font.weight: (keybindingsModel.activeView === "unbound" || windowRoot.focusedHeaderIndex === 1) ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                        font.weight: (keybindingsModel.activeView === "unbound") ? Theme.fontWeightMedium : Theme.fontWeightNormal
                     }
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            windowRoot.focusedHeaderIndex = 1
                             keybindingsModel.switchView("unbound")
+                            searchInput.forceActiveFocus()
                         }
                     }
                 }
@@ -1002,14 +988,13 @@ PanelWindow {
 
                 // Add Action / Back tab (Header item 2)
                 Rectangle {
-                    Layout.preferredHeight: 28
-                    Layout.preferredWidth: addActionText.implicitWidth + Theme.spacingMd * 2
-                    radius: Theme.radiusSm
-                    color: (windowRoot.focusedHeaderIndex === 2) ? Theme.selectionActive : ((keybindingsModel.activeView.indexOf("add_") === 0) ? Theme.selection : "transparent")
-                    border.color: (windowRoot.focusedHeaderIndex === 2) ? Theme.borderActive : "transparent"
-                    border.width: (windowRoot.focusedHeaderIndex === 2) ? 1 : 0
+                    Layout.preferredHeight: KeybindingsConfig.tabHeight
+                    Layout.preferredWidth: addActionText.implicitWidth + (KeybindingsConfig.tabPaddingHorizontal * 2)
+                    radius: KeybindingsConfig.tabBorderRadius
+                    color: (keybindingsModel.activeView.indexOf("add_") === 0) ? Theme.selection : "transparent"
+                    border.color: "transparent"
+                    border.width: 0
 
-                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
                     Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     Text {
@@ -1026,7 +1011,6 @@ PanelWindow {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            windowRoot.focusedHeaderIndex = 2
                             if (keybindingsModel.activeView.indexOf("add_") === 0) {
                                 windowRoot.goBack()
                             } else {
@@ -1038,14 +1022,15 @@ PanelWindow {
 
                 // Settings Cog Button (Header item 3)
                 Rectangle {
-                    Layout.preferredHeight: 28
-                    Layout.preferredWidth: 34
-                    radius: Theme.radiusSm
-                    color: (windowRoot.focusedHeaderIndex === 3) ? Theme.selectionActive : ((keybindingsModel.activeView === "settings" || cogHover.hovered) ? Theme.selection : "transparent")
-                    border.color: (windowRoot.focusedHeaderIndex === 3) ? Theme.borderActive : "transparent"
-                    border.width: (windowRoot.focusedHeaderIndex === 3) ? 1 : 0
+                    // Layout.preferredWidth: 34
+                    Layout.preferredWidth: KeybindingsConfig.cogHitTargetWidth
+                    // Layout.preferredHeight: 28
+                    Layout.preferredHeight: KeybindingsConfig.cogHitTargetHeight
+                    radius: KeybindingsConfig.tabBorderRadius
+                    color: (keybindingsModel.activeView === "settings" || cogHover.hovered) ? Theme.selection : "transparent"
+                    border.color: "transparent"
+                    border.width: 0
 
-                    Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
                     Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
                     HoverHandler {
@@ -1055,19 +1040,22 @@ PanelWindow {
                     Text {
                         anchors.centerIn: parent
                         text: "⚙"
-                        color: (windowRoot.focusedHeaderIndex === 3 || keybindingsModel.activeView === "settings") ? Theme.accent : Theme.textSecondary
-                        font.pixelSize: Math.round(Theme.fontSizeMd * 1.5)
+                        color: (keybindingsModel.activeView === "settings") ? Theme.accent : Theme.textSecondary
+                        // font.pixelSize: Math.round(Theme.fontSizeMd * 1.5)
+                        font.pixelSize: KeybindingsConfig.cogIconSize
                     }
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            windowRoot.focusedHeaderIndex = 3
                             if (keybindingsModel.activeView === "settings") {
                                 windowRoot.goBack()
                             } else {
                                 keybindingsModel.switchView("settings")
+                                if (typeof settingsView !== "undefined" && settingsView) {
+                                    settingsView.forceActiveFocus()
+                                }
                             }
                         }
                     }
@@ -1120,14 +1108,14 @@ PanelWindow {
                             }
                         }
 
-                        // 3. Tab enters header navigation
+                        // 3. Tab immediate top-level view cycling
                         if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
-                            windowRoot.focusHeader(0)
+                            windowRoot.cycleTopLevelView(true)
                             event.accepted = true
                             return
                         }
                         if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
-                            windowRoot.focusHeader(3)
+                            windowRoot.cycleTopLevelView(false)
                             event.accepted = true
                             return
                         }

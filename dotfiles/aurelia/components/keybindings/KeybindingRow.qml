@@ -9,9 +9,9 @@ Rectangle {
     required property int index
     required property bool isSelected
 
-    width: ListView.view ? ListView.view.width : (Theme.paletteWidth - Theme.spacingXl * 2)
-    height: Theme.rowHeight
-    radius: Theme.radiusSm
+    width: ListView.view ? ListView.view.width : (KeybindingsConfig.palettePreferredWidth - KeybindingsConfig.rowPaddingHorizontal * 2)
+    height: KeybindingsConfig.rowHeight
+    radius: KeybindingsConfig.rowRadius
     color: isSelected ? Theme.selection : "transparent"
 
     // Understated horizontal highlight without box borders or card elevation
@@ -33,13 +33,13 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingXl
-        anchors.rightMargin: Theme.spacingXl
+        anchors.leftMargin: KeybindingsConfig.rowPaddingHorizontal
+        anchors.rightMargin: KeybindingsConfig.rowPaddingHorizontal
         spacing: Theme.spacingLg
 
         // Column 1: Shortcut (stable width across every row)
         Text {
-            Layout.preferredWidth: Theme.colShortcutWidth
+            Layout.preferredWidth: KeybindingsConfig.shortcutColumnWidth
             Layout.alignment: Qt.AlignVCenter
             text: rowRoot.formattedShortcut()
             color: rowRoot.isSelected ? Theme.accent : Theme.textSecondary
@@ -51,7 +51,7 @@ Rectangle {
 
         // Column separator arrow (clearly visible, theme accent on selection)
         Text {
-            Layout.preferredWidth: Theme.colSeparatorWidth
+            Layout.preferredWidth: KeybindingsConfig.separatorColumnWidth
             Layout.alignment: Qt.AlignVCenter
             text: "→"
             color: rowRoot.isSelected ? Theme.accent : Theme.textMuted

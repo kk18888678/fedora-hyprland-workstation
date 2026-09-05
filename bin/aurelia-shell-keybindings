@@ -1,0 +1,1295 @@
+#!/usr/bin/env bash
+# aurelia-shell-keybindings — Workstation Keybindings Backend & IPC Dispatcher
+#
+# Owns environment-independent keybinding capabilities:
+# - Authoritative manifest querying and effective resolution
+# - Machine-readable JSON export for modern desktop shells
+# - Structured argv execution with clean process detachment
+# - Atomic shortcut mutation (set, unset) and conflict validation
+# - Aurelia Quickshell IPC dispatch (warm toggle & cold readiness)
+#
+# Invariants:
+# - Structured argv execution only (no eval, no /bin/sh -c)
+# - No persistent helper subshell or leaked temp files on launch
+# - Fail-closed error handling with structured diagnostics
+# - Zero legacy terminal UI dependencies
+
+set -Eeuo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+export AURELIA_SHELL_KEYBINDINGS_BIN="${AURELIA_SHELL_KEYBINDINGS_BIN:-$script_dir/aurelia-shell-keybindings}"
+export WORKSTATION_KEYBINDINGS_BIN="${WORKSTATION_KEYBINDINGS_BIN:-$AURELIA_SHELL_KEYBINDINGS_BIN}"
+
+# Workstation diagnostic, crash, and performance logging
+if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -z "${XDG_STATE_HOME:-}" ]]; then
+    LOG_DIR="/tmp/workstation-tests-${UID:-1000}"
+else
+    LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/workstation"
+fi
+mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="/tmp"
+KEYBINDINGS_LOG="$LOG_DIR/keybindings.log"
+CRASH_LOG="$LOG_DIR/crashes.log"
+AURELIA_LOG="$LOG_DIR/aurelia.log"
+PERF_LOG="$LOG_DIR/performance.log"
+
+# Bound log file growth to prevent disk exhaustion (<= 2000 lines)
+bound_logfile() {
+    local logfile="$1"
+    local max_lines=2000
+    if [[ -f "$logfile" ]]; then
+        local line_count
+        line_count="$(wc -l < "$logfile" 2>/dev/null || echo 0)"
+        if [[ "$line_count" -gt "$max_lines" ]]; then
+            local tmp_log
+            tmp_log="$(mktemp "${logfile}.tmp.XXXXXX" 2>/dev/null || true)"
+            if [[ -n "$tmp_log" ]]; then
+                tail -n 2000 "$logfile" > "$tmp_log" 2>/dev/null || true
+                mv -f "$tmp_log" "$logfile" 2>/dev/null || rm -f "$tmp_log"
+            fi
+        fi
+    fi
+}
+
+log_event() {
+    local level="$1"
+    local msg="$2"
+    local op="${3:-core}"
+    local dur="${4:-0}"
+    local ts
+    ts="$(date -Iseconds 2>/dev/null || date)"
+    logger -t workstation-keybindings "[$level] [$op] $msg" 2>/dev/null || true
+    if [[ -d "$LOG_DIR" ]]; then
+        printf '%s [%s] [%s] %s\n' "$ts" "$level" "$op" "$msg" >> "$KEYBINDINGS_LOG" 2>/dev/null || true
+        bound_logfile "$KEYBINDINGS_LOG"
+        if [[ "$level" == "CRASH" || "$level" == "FATAL" || "$level" == "ERROR" ]]; then
+            printf '%s [%s] [%s] %s\n' "$ts" "$level" "$op" "$msg" >> "$CRASH_LOG" 2>/dev/null || true
+            bound_logfile "$CRASH_LOG"
+        fi
+        if [[ "$level" == "PERF" || "$level" == "PERF-WARN" ]]; then
+            # [PERF] milestones recorded to performance.log with bounded rotation
+            printf '%s [%s] [%s] %s (dur=%sms)\n' "$ts" "$level" "$op" "$msg" "$dur" >> "$PERF_LOG" 2>/dev/null || true
+            bound_logfile "$PERF_LOG"
+        fi
+    fi
+}
+
+notify_user() {
+    local urgency="$1"
+    local title="$2"
+    local message="$3"
+    # Never fire desktop notifications during automated test executions
+    if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" || -n "${HOTKEYS_TEST_PROVIDER:-}" || -n "${HOTKEYS_SIMULATE_AURELIA_FAIL:-}" || -n "${AURELIA_TEST_MODE:-}" ]]; then
+        return 0
+    fi
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u "$urgency" "$title" "$message" 2>/dev/null || true
+    fi
+}
+
+# Locate authoritative keybindings manifest
+manifest_path=""
+if [[ -n "${KEYBINDINGS_MANIFEST:-}" && -f "$KEYBINDINGS_MANIFEST" ]]; then
+    manifest_path="$KEYBINDINGS_MANIFEST"
+elif [[ -n "${HOTKEYS_MANIFEST:-}" && -f "$HOTKEYS_MANIFEST" ]]; then
+    manifest_path="$HOTKEYS_MANIFEST"
+elif [[ -f "${HOME:-}/.config/hypr/keybindings_manifest.lua" ]]; then
+    manifest_path="${HOME:-}/.config/hypr/keybindings_manifest.lua"
+elif [[ -f "$script_dir/../dotfiles/hypr/keybindings_manifest.lua" ]]; then
+    manifest_path="$script_dir/../dotfiles/hypr/keybindings_manifest.lua"
+fi
+
+if [[ -z "$manifest_path" || ! -f "$manifest_path" ]]; then
+    printf '%s\n' "Error: Keybindings manifest not found." >&2
+    exit 1
+fi
+
+manifest_dir="$(dirname -- "$manifest_path")"
+
+effective_lua=""
+if [[ -f "$manifest_dir/effective_bindings.lua" ]]; then
+    effective_lua="$manifest_dir/effective_bindings.lua"
+else
+    script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+    effective_lua="$script_dir/../dotfiles/hypr/effective_bindings.lua"
+fi
+
+if [[ ! -f "$effective_lua" ]]; then
+    printf '%s\n' "Error: effective_bindings.lua loader not found." >&2
+    exit 1
+fi
+effective_dir="$(dirname -- "$effective_lua")"
+export LUA_PATH="$manifest_dir/?.lua;$effective_dir/?.lua;${LUA_PATH:-;;}"
+
+lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+if [[ -z "$lua_bin" ]]; then
+    printf '%s\n' "Error: Lua interpreter not found." >&2
+    exit 1
+fi
+
+# Helper to resolve workstation-aurelia executable deterministically
+resolve_aurelia_bin() {
+    if [[ -n "${WORKSTATION_AURELIA_BIN:-}" ]]; then
+        if [[ -x "$WORKSTATION_AURELIA_BIN" ]]; then
+            printf '%s\n' "$WORKSTATION_AURELIA_BIN"
+            return 0
+        fi
+        return 1
+    fi
+    local candidate
+    for candidate in "/usr/local/bin/workstation-aurelia" "$script_dir/workstation-aurelia"; do
+        if [[ -x "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    if command -v workstation-aurelia >/dev/null 2>&1; then
+        command -v workstation-aurelia
+        return 0
+    fi
+    return 1
+}
+
+# Subcommands delegating to workstation-aurelia Shell Core
+case "${1:-}" in
+    diagnostics|--diagnostics)
+        shift
+        if aurelia_bin="$(resolve_aurelia_bin)"; then
+            exec "$aurelia_bin" diagnostics "$@"
+        fi
+        printf '%s\n' "Error: workstation-aurelia command not found; cannot delegate diagnostics." >&2
+        exit 1
+        ;;
+    preference|--preference|pref)
+        shift
+        if aurelia_bin="$(resolve_aurelia_bin)"; then
+            exec "$aurelia_bin" preference "$@"
+        fi
+        printf '%s\n' "Error: workstation-aurelia command not found; cannot delegate preference." >&2
+        exit 1
+        ;;
+    motion|--motion)
+        shift
+        if aurelia_bin="$(resolve_aurelia_bin)"; then
+            exec "$aurelia_bin" motion "$@"
+        fi
+        printf '%s\n' "Error: workstation-aurelia command not found; cannot delegate motion." >&2
+        exit 1
+        ;;
+esac
+
+# Parse CLI arguments and subcommands
+SUBCOMMAND=""
+TARGET_ID=""
+NEW_KEY=""
+EXEC_NAME=""
+EXEC_PATH=""
+EXEC_ARGV=()
+PROVIDER_OVERRIDE=""
+FORCE=0
+
+remaining_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --provider=legacy)
+            printf '%s\n' "Error: Legacy provider has been removed." >&2
+            exit 1
+            ;;
+        --provider=*)
+            PROVIDER_OVERRIDE="${1#*=}"
+            shift
+            ;;
+        --provider)
+            if [[ "${2:-}" == "legacy" ]]; then
+                printf '%s\n' "Error: Legacy provider has been removed." >&2
+                exit 1
+            fi
+            PROVIDER_OVERRIDE="${2:-}"
+            shift 2
+            ;;
+        json|--json)
+            SUBCOMMAND="json"
+            shift
+            ;;
+        apps|--apps)
+            SUBCOMMAND="apps"
+            shift
+            ;;
+        add-app|--add-app)
+            SUBCOMMAND="add-app"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        remove-app|--remove-app)
+            SUBCOMMAND="remove-app"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        add-exec|--add-exec)
+            SUBCOMMAND="add-exec"
+            TARGET_ID="${2:-}"
+            EXEC_NAME="${3:-}"
+            EXEC_PATH="${4:-}"
+            shift 4 2>/dev/null || shift $#
+            EXEC_ARGV=("$@")
+            shift $#
+            ;;
+        remove-action|--remove-action)
+            SUBCOMMAND="remove-action"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        validate-shortcut|--validate-shortcut)
+            SUBCOMMAND="validate-shortcut"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        run|--run)
+            SUBCOMMAND="run"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        choose-file|--choose-file|browse-file)
+            SUBCOMMAND="choose-file"
+            shift
+            ;;
+        complete-path|--complete-path)
+            SUBCOMMAND="complete-path"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        set|--set)
+            SUBCOMMAND="set"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+                NEW_KEY="$1"
+                shift
+            fi
+            ;;
+        unset|--unset)
+            SUBCOMMAND="unset"
+            TARGET_ID="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        --force|-f)
+            FORCE=1
+            shift
+            ;;
+        toggle|--toggle)
+            SUBCOMMAND="toggle"
+            shift
+            ;;
+        help|-h|--help)
+            printf 'Usage: workstation-keybindings [toggle|json|apps|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>|choose-file|complete-path <prefix>]\n'
+            exit 0
+            ;;
+        *)
+            remaining_args+=("$1")
+            shift
+            ;;
+    esac
+done
+if [[ ${#remaining_args[@]} -gt 0 ]]; then
+    set -- "${remaining_args[@]}"
+    if [[ -z "$SUBCOMMAND" ]]; then
+        printf 'Error: Unrecognized command or option: %s\n' "$1" >&2
+        exit 1
+    fi
+fi
+
+get_provider() {
+    if [[ -n "${PROVIDER_OVERRIDE:-}" ]]; then
+        printf '%s\n' "$PROVIDER_OVERRIDE"
+        return 0
+    fi
+    if [[ -n "${KEYBINDINGS_TEST_PROVIDER:-}" ]]; then
+        printf '%s\n' "$KEYBINDINGS_TEST_PROVIDER"
+        return 0
+    fi
+    if [[ -n "${HOTKEYS_TEST_PROVIDER:-}" ]]; then
+        printf '%s\n' "$HOTKEYS_TEST_PROVIDER"
+        return 0
+    fi
+    local config_file="${XDG_CONFIG_HOME:-$HOME/.config}/workstation/desktop.conf"
+    if [[ -f "$config_file" ]]; then
+        local prov
+        prov="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$config_file" 2>/dev/null | tail -n 1 | cut -d '=' -f2 | tr -d ' "[:space:]' || true)"
+        if [[ -n "$prov" ]]; then
+            printf '%s\n' "$prov"
+            return 0
+        fi
+    fi
+    printf '%s\n' "aurelia"
+}
+
+render_output() {
+    "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local manifest = dofile(manifest_path)
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local effective, err = eff.resolve_bindings(manifest)
+if not effective then
+    io.stderr:write("Error: Keybindings overrides file is corrupt or invalid: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
+
+local C_RESET = "\27[0m"
+local C_BOLD  = "\27[1m"
+local C_DIM   = "\27[2m"
+local C_FOAM  = "\27[38;2;156;207;216m"  -- #9ccfd8
+local C_GOLD  = "\27[38;2;246;193;119m"  -- #f6c177
+local C_IRIS  = "\27[38;2;196;167;231m"  -- #c4a7e7
+local C_TEXT  = "\27[38;2;224;222;244m"  -- #e0def4
+local C_MUTED = "\27[38;2;110;106;134m"  -- #6e6a86
+
+print()
+print(string.format("%s%s Fedora Hyprland Workstation — Keyboard Shortcuts %s", C_BOLD, C_IRIS, C_RESET))
+print(string.format("%s───────────────────────────────────────────────────────────────────%s", C_MUTED, C_RESET))
+
+for _, cat in ipairs(effective.categories or {}) do
+    local cat_items = {}
+    for _, item in ipairs(effective.bindings or {}) do
+        if item.category == cat then
+            table.insert(cat_items, item)
+        end
+    end
+
+    if #cat_items > 0 then
+        print(string.format("\n%s%s%s%s", C_BOLD, C_FOAM, cat, C_RESET))
+        for _, item in ipairs(cat_items) do
+            local key_str = item.display_key or item.key or "None (Unbound)"
+            local desc_str = item.description or ""
+            local pad = 37 - #key_str
+            if pad < 2 then pad = 2 end
+            local spaces = string.rep(" ", pad)
+            print(string.format("  %s%s%s%s%s%s%s", C_BOLD, C_GOLD, key_str, C_RESET, spaces, C_TEXT, desc_str, C_RESET))
+        end
+    end
+end
+
+print(string.format("\n%s───────────────────────────────────────────────────────────────────%s", C_MUTED, C_RESET))
+print(string.format("%sPress %sq%s%s, %sEsc%s%s, or %sCtrl+C%s%s to close.%s\n", C_DIM, C_BOLD, C_RESET, C_DIM, C_BOLD, C_RESET, C_DIM, C_BOLD, C_RESET, C_DIM, C_RESET))
+LUA_SCRIPT
+}
+
+# Fetch TSV rows for test mode / listing parity:
+# ID \t DISPLAY_ROW \t KEY \t DESCRIPTION \t CATEGORY \t RUNNABLE \t EDITABLE \t COMMAND \t ACTION_TYPE
+get_tsv_rows() {
+    "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local manifest = dofile(manifest_path)
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local effective, err = eff.resolve_bindings(manifest)
+if not effective then
+    io.stderr:write("Error: Keybindings overrides file is corrupt or invalid: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
+
+for _, item in ipairs(effective.bindings or {}) do
+    local id = item.id or ""
+    local key = item.display_key or item.key or "None (Unbound)"
+    local desc = item.description or ""
+    local cat = item.category or ""
+    local runnable = (item.runnable == true) and "true" or "false"
+    local editable = (item.editable ~= false) and "true" or "false"
+    local cmd = item.command or ""
+    local act = item.action_type or ""
+
+    local display_col = string.format("  %-28s  %s", key, desc)
+
+    print(string.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+        id, display_col, key, desc, cat, runnable, editable, cmd, act))
+end
+LUA_SCRIPT
+}
+
+# Fetch structured command_argv as a NUL-delimited stream
+get_action_argv() {
+    local target_id="$1"
+    "$lua_bin" - "$manifest_path" "$manifest_dir" "$target_id" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local target_id     = arg[3]
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = dofile(manifest_path)
+
+local argv, err = eff.get_action_argv(target_id, manifest)
+if not argv then
+    io.stderr:write(tostring(err) .. "\n")
+    os.exit(2)
+end
+
+for _, a in ipairs(argv) do
+    io.write(a, "\0")
+end
+LUA_SCRIPT
+}
+
+# Execute action safely using structured argv and immediate double-fork detachment.
+# Guarantee:
+# - No persistent helper subshell remains running while child application runs
+# - No temp files created or leaked
+# - No file descriptors leaked
+# - No zombies accumulated
+execute_action() {
+    local action_id="$1"
+    local description="$2"
+
+    local cmd_argv=()
+    while IFS= read -r -d '' arg; do
+        cmd_argv+=("$arg")
+    done < <(get_action_argv "$action_id" 2>/dev/null)
+    local status=$?
+
+    if [[ "$status" -ne 0 || ${#cmd_argv[@]} -eq 0 ]]; then
+        printf '%s\n' "Unavailable: This action requires desktop context and cannot be run from the keybindings manager."
+        return 1
+    fi
+
+    local exe="${cmd_argv[0]}"
+    if ! command -v "$exe" >/dev/null 2>&1; then
+        log_event "ERROR" "Action '$action_id' ($description) failed: command '$exe' not found" "run"
+        notify_user critical "Launch Failed" "Command not found: $exe"
+        printf 'Error: Command "%s" is not installed or not executable.\n' "$exe" >&2
+        return 1
+    fi
+
+    # Detached launch in independent session: child is completely detached from the caller
+    # and reparented to init (PID 1), preventing any persistent wrapper process or SIGHUP propagation.
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -f "${cmd_argv[@]}" </dev/null >/dev/null 2>&1
+    else
+        (
+            nohup "${cmd_argv[@]}" </dev/null >/dev/null 2>&1 &
+        )
+    fi
+
+    log_event "INFO" "Launched action '$action_id' ($description) via structured argv" "run"
+    printf '%s\n' "Running: $description"
+    return 0
+}
+
+apply_binding_edit() {
+    local action_id="$1"
+    local new_input="$2"
+    local overrides_path="${KEYBINDINGS_OVERRIDES:-${HOTKEYS_OVERRIDES:-}}"
+    local force_flag="${FORCE:-0}"
+
+    "$lua_bin" - "$manifest_path" "$manifest_dir" "$action_id" "$new_input" "$overrides_path" "$force_flag" <<'LUA_SCRIPT'
+local manifest_path  = arg[1]
+local manifest_dir   = arg[2]
+local action_id      = arg[3]
+local new_input      = arg[4]
+local overrides_path = arg[5]
+local force_flag     = arg[6]
+if overrides_path == "" then overrides_path = nil end
+local force = (force_flag == "1" or force_flag == "true")
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+
+local ok, result = eff.set_action_binding(action_id, new_input, manifest_path, overrides_path, nil, force)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+}
+
+# Fetch installed desktop applications TSV:
+# DESKTOP_ID \t DISPLAY_COL \t NAME \t SHORTCUT \t ROLE
+get_app_rows() {
+    "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local manifest = dofile(manifest_path)
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local apps = eff.list_installed_applications()
+local effective, _ = eff.resolve_bindings(manifest)
+
+local assigned_keys = {}
+for _, b in ipairs(effective.bindings or {}) do
+    if b.desktop_id then
+        assigned_keys[b.desktop_id] = b.display_key or b.key or "Unbound"
+    end
+end
+
+for _, app in ipairs(apps) do
+    local did = app.desktop_id
+    local name = app.name or did
+    local role = app.default_role or ""
+    local shortcut = assigned_keys[did] or "None"
+
+    local pad = 35 - #name
+    if pad < 2 then pad = 2 end
+    local role_badge = (role ~= "") and (" [" .. role .. "]") or ""
+    local display_col = string.format("%s%s%-24s%s", name, string.rep(" ", pad), "[" .. shortcut .. "]", role_badge)
+    print(string.format("%s\t%s\t%s\t%s\t%s", did, display_col, name, shortcut, role))
+end
+LUA_SCRIPT
+}
+
+# Fetch JSON rows for Aurelia / modern UI consumption
+get_json_rows() {
+    "$lua_bin" - "$manifest_path" "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local manifest = dofile(manifest_path)
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local effective, err = eff.resolve_bindings(manifest)
+if not effective then
+    io.stderr:write("Error: " .. tostring(err) .. "\n")
+    os.exit(1)
+end
+
+io.write(eff.serialize_bindings_json(effective))
+LUA_SCRIPT
+}
+
+# Fetch discovered desktop applications JSON for modern UI / Launcher consumption
+get_apps_json() {
+    "$lua_bin" - "$manifest_dir" <<'LUA_SCRIPT'
+local manifest_dir = arg[1]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local reg = require("application_registry")
+local apps = reg.list_applications()
+local parts = {}
+table.insert(parts, "[\n")
+local count = #apps
+for i, a in ipairs(apps) do
+    local fields = {
+        string.format('    "desktop_id": %q', a.desktop_id or ""),
+        string.format('    "name": %q', a.name or ""),
+        string.format('    "generic_name": %q', a.generic_name or ""),
+        string.format('    "comment": %q', a.comment or ""),
+        string.format('    "icon": %q', a.icon or ""),
+        string.format('    "categories": %q', a.categories or ""),
+        string.format('    "default_role": %q', a.default_role or ""),
+        string.format('    "source": %q', a.source or "")
+    }
+    local item_str = "  {\n" .. table.concat(fields, ",\n") .. "\n  }"
+    if i < count then
+        item_str = item_str .. ","
+    end
+    table.insert(parts, item_str .. "\n")
+end
+table.insert(parts, "]\n")
+io.write(table.concat(parts))
+LUA_SCRIPT
+}
+
+# Handle explicit subcommands immediately
+if [[ "$SUBCOMMAND" == "json" || "${KEYBINDINGS_TEST_ACTION:-}" == "json" || "${HOTKEYS_TEST_ACTION:-}" == "json" ]]; then
+    get_json_rows
+    exit 0
+fi
+
+if [[ "$SUBCOMMAND" == "apps" ]]; then
+    get_apps_json
+    exit 0
+fi
+
+if [[ "$SUBCOMMAND" == "choose-file" ]]; then
+    if [[ -n "${WORKSTATION_TEST_CHOOSE_FILE:-}" ]]; then
+        if [[ "$WORKSTATION_TEST_CHOOSE_FILE" == "cancel" ]]; then
+            exit 1
+        elif [[ "$WORKSTATION_TEST_CHOOSE_FILE" == error* ]]; then
+            err_msg="${WORKSTATION_TEST_CHOOSE_FILE#error:}"
+            printf '%s\n' "${err_msg:-Simulated file chooser error}" >&2
+            exit 2
+        elif [[ "$WORKSTATION_TEST_CHOOSE_FILE" == accept:* ]]; then
+            printf '%s\n' "${WORKSTATION_TEST_CHOOSE_FILE#accept:}"
+            exit 0
+        else
+            printf '%s\n' "$WORKSTATION_TEST_CHOOSE_FILE"
+            exit 0
+        fi
+    fi
+
+    python3 - << 'PY_CHOOSER'
+import sys
+import os
+import urllib.parse
+
+def try_portal():
+    try:
+        import gi
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        # Bounded synchronous call with 2.5s timeout to avoid hangs
+        res = bus.call_sync(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.FileChooser",
+            "OpenFile",
+            GLib.Variant("(ssa{sv})", ("", "Select Executable or Script", {"multiple": GLib.Variant("b", False)})),
+            None,
+            Gio.DBusCallFlags.NONE,
+            2500,
+            None
+        )
+        if not res:
+            return None
+        handle = res.unpack()[0]
+        loop = GLib.MainLoop()
+        result = {"path": None, "code": 1}
+
+        def on_response(conn, sender, path, iface, signal, params):
+            code, data = params.unpack()
+            result["code"] = code
+            if code == 0 and "uris" in data:
+                uris = data["uris"]
+                if uris:
+                    parsed = urllib.parse.urlparse(uris[0])
+                    result["path"] = urllib.parse.unquote(parsed.path)
+            loop.quit()
+
+        sub_id = bus.signal_subscribe(
+            "org.freedesktop.portal.Desktop",
+            "org.freedesktop.portal.Request",
+            "Response",
+            handle,
+            None,
+            Gio.DBusSignalFlags.NONE,
+            on_response
+        )
+        loop.run()
+        bus.signal_unsubscribe(sub_id)
+        if result["code"] == 0 and result["path"]:
+            return (0, result["path"])
+        elif result["code"] == 1:
+            return (1, None)
+        else:
+            return (1, None)
+    except Exception:
+        return None
+
+def try_gtk():
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+        dialog = Gtk.FileChooserDialog(
+            title="Select Executable or Script",
+            parent=None,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Select", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        res = dialog.run()
+        selected = None
+        if res == Gtk.ResponseType.OK:
+            selected = dialog.get_filename()
+        dialog.destroy()
+        while Gtk.events_pending():
+            Gtk.main_iteration()
+        if selected:
+            return (0, selected)
+        else:
+            return (1, None)
+    except Exception as e:
+        sys.stderr.write("File chooser error: " + str(e) + "\n")
+        return (2, None)
+
+portal_res = try_portal()
+if portal_res is not None:
+    code, path = portal_res
+    if code == 0 and path:
+        print(path)
+        sys.exit(0)
+    elif code == 1:
+        sys.exit(1)
+
+gtk_res = try_gtk()
+code, path = gtk_res
+if code == 0 and path:
+    print(path)
+    sys.exit(0)
+elif code == 1:
+    sys.exit(1)
+else:
+    sys.exit(2)
+PY_CHOOSER
+    exit $?
+fi
+
+if [[ "$SUBCOMMAND" == "complete-path" ]]; then
+    python3 - "$TARGET_ID" << 'PY_COMPLETE'
+import sys
+import os
+import json
+
+raw_input = sys.argv[1] if len(sys.argv) > 1 else ""
+
+def complete_path(raw_input, max_results=15):
+    if not raw_input:
+        return []
+    for c in ['$', '`', '*', '?', '[', ';', '&', '|', '(', ')']:
+        if c in raw_input:
+            return []
+
+    is_tilde = raw_input.startswith('~')
+    home = os.path.expanduser('~')
+
+    if is_tilde:
+        if raw_input == '~':
+            expanded = home + '/'
+        elif raw_input.startswith('~/'):
+            expanded = home + raw_input[1:]
+        else:
+            return []
+        if expanded.endswith('/'):
+            search_dir = expanded[:-1] if expanded != '/' else '/'
+            prefix = ''
+            base_display = expanded
+        else:
+            search_dir = os.path.dirname(expanded) or '/'
+            prefix = os.path.basename(expanded)
+            base_display = os.path.dirname(expanded)
+            if base_display and not base_display.endswith('/'):
+                base_display += '/'
+    else:
+        expanded = raw_input
+        if expanded.endswith('/'):
+            search_dir = expanded[:-1] if expanded != '/' else '/'
+            prefix = ''
+            base_display = raw_input
+        else:
+            search_dir = os.path.dirname(expanded) or '/'
+            prefix = os.path.basename(expanded)
+            base_display = os.path.dirname(raw_input)
+            if base_display and not base_display.endswith('/'):
+                base_display += '/'
+
+    if not os.path.isdir(search_dir):
+        return []
+
+    try:
+        entries = []
+        with os.scandir(search_dir) as it:
+            for entry in it:
+                name = entry.name
+                if not prefix.startswith('.') and name.startswith('.'):
+                    continue
+                if name.startswith(prefix):
+                    is_dir = False
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=True)
+                    except OSError:
+                        pass
+                    entries.append((name + ('/' if is_dir else ''), is_dir))
+    except (PermissionError, OSError):
+        return []
+
+    entries.sort(key=lambda x: (not x[1], x[0]))
+    results = []
+    for name, _ in entries[:max_results]:
+        if base_display:
+            results.append(base_display + name)
+        else:
+            results.append(('/' if raw_input.startswith('/') else '') + name)
+    return results
+
+completions = complete_path(raw_input)
+print(json.dumps(completions))
+PY_COMPLETE
+    exit 0
+fi
+
+if [[ "$SUBCOMMAND" == "validate-shortcut" ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "INVALID: missing-shortcut" >&2
+        exit 1
+    fi
+    if out="$("$lua_bin" - "$manifest_dir" "$TARGET_ID" 2>&1 <<'LUA_SCRIPT'
+local manifest_dir = arg[1]
+local key_input    = arg[2]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, reason, norm = eff.validate_shortcut_policy(key_input)
+if not ok then
+    io.stderr:write(tostring(reason) .. "\n")
+    os.exit(1)
+end
+print(tostring(norm))
+LUA_SCRIPT
+)"; then
+        printf 'VALID: %s\n' "$out"
+        exit 0
+    else
+        printf 'INVALID: %s\n' "$out" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$SUBCOMMAND" == "add-app" ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing desktop ID for add-app" >&2
+        exit 1
+    fi
+    if [[ ! "$TARGET_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.desktop$ ]]; then
+        printf '%s\n' "Error: Invalid desktop ID: $TARGET_ID" >&2
+        exit 1
+    fi
+    user_actions_path="${KEYBINDINGS_USER_ACTIONS:-${USER_ACTIONS_PATH:-}}"
+    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$user_actions_path" 2>&1 <<'LUA_SCRIPT'
+local manifest_path     = arg[1]
+local manifest_dir      = arg[2]
+local desktop_id        = arg[3]
+local user_actions_path = arg[4]
+if user_actions_path == "" then user_actions_path = nil end
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, result = eff.add_user_application_action(desktop_id, user_actions_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+)"; then
+        log_event "INFO" "Successfully added application action '$TARGET_ID'" "add-app"
+        printf '%s\n' "ADD_APP_OK"
+        exit 0
+    else
+        log_event "ERROR" "Failed to add application action '$TARGET_ID': $err_msg" "add-app"
+        printf 'ADD_APP_FAIL: %s\n' "$err_msg" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$SUBCOMMAND" == "add-exec" ]]; then
+    if [[ -z "$TARGET_ID" || -z "$EXEC_NAME" || -z "$EXEC_PATH" ]]; then
+        printf '%s\n' "Error: add-exec requires <id> <name> <executable_path>" >&2
+        exit 1
+    fi
+    if [[ ! "$TARGET_ID" =~ ^exec: ]]; then
+        TARGET_ID="exec:$TARGET_ID"
+    fi
+    if [[ ! "$TARGET_ID" =~ ^exec:[a-zA-Z0-9_.:-]+$ ]]; then
+        printf '%s\n' "Error: Invalid action ID: $TARGET_ID" >&2
+        exit 1
+    fi
+    user_actions_path="${KEYBINDINGS_USER_ACTIONS:-${USER_ACTIONS_PATH:-}}"
+    argv_str="$EXEC_PATH"$'\n'
+    if [[ ${#EXEC_ARGV[@]} -gt 0 ]]; then
+        for a in "${EXEC_ARGV[@]}"; do
+            argv_str+="$a"$'\n'
+        done
+    fi
+    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$EXEC_NAME" "$EXEC_PATH" "$user_actions_path" "$argv_str" 2>&1 <<'LUA_SCRIPT'
+local manifest_path     = arg[1]
+local manifest_dir      = arg[2]
+local id                = arg[3]
+local name              = arg[4]
+local exec_path         = arg[5]
+local user_actions_path = arg[6]
+local argv_raw          = arg[7]
+if user_actions_path == "" then user_actions_path = nil end
+
+local argv = nil
+if argv_raw and argv_raw ~= "" then
+    argv = {}
+    for line in argv_raw:gmatch("[^\r\n]+") do
+        table.insert(argv, line)
+    end
+end
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, result = eff.add_user_executable_action({
+    id = id,
+    name = name,
+    executable_path = exec_path,
+    argv = argv,
+}, user_actions_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+)"; then
+        log_event "INFO" "Successfully added executable action '$TARGET_ID' ($EXEC_NAME)" "add-exec"
+        printf '%s\n' "ADD_EXEC_OK"
+        exit 0
+    else
+        log_event "ERROR" "Failed to add executable action '$TARGET_ID': $err_msg" "add-exec"
+        printf 'ADD_EXEC_FAIL: %s\n' "$err_msg" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$SUBCOMMAND" == "remove-app" || "$SUBCOMMAND" == "remove-action" ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing action ID for $SUBCOMMAND" >&2
+        exit 1
+    fi
+    user_actions_path="${KEYBINDINGS_USER_ACTIONS:-${USER_ACTIONS_PATH:-}}"
+    if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" "$user_actions_path" 2>&1 <<'LUA_SCRIPT'
+local manifest_path     = arg[1]
+local manifest_dir      = arg[2]
+local action_id         = arg[3]
+local user_actions_path = arg[4]
+if user_actions_path == "" then user_actions_path = nil end
+
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, result = eff.remove_user_action(action_id, user_actions_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA_SCRIPT
+)"; then
+        log_event "INFO" "Successfully removed action '$TARGET_ID'" "$SUBCOMMAND"
+        if [[ "$SUBCOMMAND" == "remove-app" ]]; then
+            printf '%s\n' "REMOVE_APP_OK"
+        else
+            printf '%s\n' "REMOVE_ACTION_OK"
+        fi
+        exit 0
+    else
+        log_event "ERROR" "Failed to remove action '$TARGET_ID': $err_msg" "$SUBCOMMAND"
+        if [[ "$SUBCOMMAND" == "remove-app" ]]; then
+            printf 'REMOVE_APP_FAIL: %s\n' "$err_msg" >&2
+        else
+            printf 'REMOVE_ACTION_FAIL: %s\n' "$err_msg" >&2
+        fi
+        exit 1
+    fi
+fi
+
+# Validate action ID format strictly before execution or mutation
+if [[ -n "$SUBCOMMAND" && "$SUBCOMMAND" =~ ^(run|set|unset)$ ]]; then
+    if [[ -z "$TARGET_ID" ]]; then
+        printf '%s\n' "Error: Missing action ID for $SUBCOMMAND" >&2
+        exit 1
+    fi
+    if [[ ! "$TARGET_ID" =~ ^[a-zA-Z0-9_.:-]+$ ]]; then
+        printf '%s\n' "Error: Invalid action ID: $TARGET_ID" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$SUBCOMMAND" == "run" ]]; then
+    desc="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$TARGET_ID" 2>/dev/null <<'LUA'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local target_id     = arg[3]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local manifest = dofile(manifest_path)
+local effective = eff.resolve_bindings(manifest)
+for _, b in ipairs(effective.bindings or {}) do
+    if b.id == target_id then print(b.description or b.id); os.exit(0) end
+end
+os.exit(1)
+LUA
+)" || {
+        printf '%s\n' "Error: Unknown action ID: $TARGET_ID" >&2
+        exit 1
+    }
+    execute_action "$TARGET_ID" "${desc:-$TARGET_ID}"
+    exit $?
+fi
+
+if [[ "$SUBCOMMAND" == "unset" ]]; then
+    if err_msg="$(apply_binding_edit "$TARGET_ID" "none" 2>&1)"; then
+        log_event "INFO" "Successfully unset shortcut for '$TARGET_ID'" "unset"
+        printf '%s\n' "UNSET_OK"
+        exit 0
+    else
+        log_event "ERROR" "Failed to unset shortcut for '$TARGET_ID': $err_msg" "unset"
+        printf 'UNSET_FAIL: %s\n' "$err_msg" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$SUBCOMMAND" == "set" ]]; then
+    if [[ -z "${NEW_KEY:-}" ]]; then
+        NEW_KEY="${KEYBINDINGS_CAPTURE_MOCK_INPUT:-${HOTKEYS_CAPTURE_MOCK_INPUT:-}}"
+    fi
+    if [[ -z "${NEW_KEY:-}" ]]; then
+        printf '%s\n' "Error: Missing key combination for set" >&2
+        exit 1
+    fi
+    if err_msg="$(apply_binding_edit "$TARGET_ID" "$NEW_KEY" 2>&1)"; then
+        log_event "INFO" "Successfully set shortcut for '$TARGET_ID' to '$NEW_KEY'" "set"
+        printf '%s\n' "SET_OK"
+        exit 0
+    else
+        log_event "ERROR" "Failed to set shortcut for '$TARGET_ID' to '$NEW_KEY': $err_msg" "set"
+        printf '%s\n' "$err_msg" >&2
+        exit 1
+    fi
+fi
+
+# Handle test actions non-interactively
+TEST_ACT="${KEYBINDINGS_TEST_ACTION:-${HOTKEYS_TEST_ACTION:-}}"
+if [[ -n "$TEST_ACT" ]]; then
+    case "$TEST_ACT" in
+        list)
+            get_tsv_rows
+            exit 0
+            ;;
+        apps)
+            get_app_rows
+            exit 0
+            ;;
+        assign_app)
+            target_id="${KEYBINDINGS_TEST_ID:-${HOTKEYS_TEST_ID:-}}"
+            target_input="${KEYBINDINGS_TEST_INPUT:-${HOTKEYS_TEST_INPUT:-}}"
+            if err_msg="$("$lua_bin" - "$manifest_path" "$manifest_dir" "$target_id" "$target_input" 2>&1 <<'LUA'
+local manifest_path = arg[1]
+local manifest_dir  = arg[2]
+local desktop_id    = arg[3]
+local new_input     = arg[4]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local ok, result = eff.assign_application_shortcut(desktop_id, new_input, manifest_path)
+if not ok then
+    io.stderr:write(tostring(result) .. "\n")
+    os.exit(1)
+end
+print(tostring(result))
+LUA
+)"; then
+                printf '%s\n' "ASSIGN_APP_OK"
+                exit 0
+            else
+                printf '%s\n' "ASSIGN_APP_FAIL: $err_msg" >&2
+                exit 1
+            fi
+            ;;
+        run)
+            target_id="${KEYBINDINGS_TEST_ID:-${HOTKEYS_TEST_ID:-}}"
+            cmd_argv=()
+            while IFS= read -r -d '' arg; do
+                cmd_argv+=("$arg")
+            done < <(get_action_argv "$target_id" 2>/dev/null)
+            if [[ ${#cmd_argv[@]} -gt 0 ]]; then
+                printf '%s\n' "RUN:${cmd_argv[*]}"
+                if [[ "${KEYBINDINGS_TEST_EXEC:-${HOTKEYS_TEST_EXEC:-0}}" == "1" ]]; then
+                    nohup "${cmd_argv[@]}" >/dev/null 2>&1 &
+                fi
+                exit 0
+            else
+                desc="$("$lua_bin" - "$manifest_path" "$target_id" 2>/dev/null <<'LUA'
+local m = dofile(arg[1])
+for _, b in ipairs(m.bindings or {}) do
+    if b.id == arg[2] then print(b.description or b.id); os.exit(0) end
+end
+LUA
+)"
+                if [[ -z "$desc" ]]; then
+                    printf '%s\n' "ERROR: Action not found: $target_id" >&2
+                    exit 1
+                fi
+                printf '%s\n' "UNAVAILABLE:$desc"
+                exit 2
+            fi
+            ;;
+        run_argv)
+            target_id="${KEYBINDINGS_TEST_ID:-${HOTKEYS_TEST_ID:-}}"
+            cmd_argv=()
+            while IFS= read -r -d '' arg; do
+                cmd_argv+=("$arg")
+            done < <(get_action_argv "$target_id" 2>/dev/null)
+            if [[ ${#cmd_argv[@]} -gt 0 ]]; then
+                for a in "${cmd_argv[@]}"; do
+                    printf '%s\n' "$a"
+                done
+                exit 0
+            else
+                exit 2
+            fi
+            ;;
+
+        edit|conflict|invalid)
+            target_id="${KEYBINDINGS_TEST_ID:-${HOTKEYS_TEST_ID:-}}"
+            target_input="${KEYBINDINGS_TEST_INPUT:-${HOTKEYS_TEST_INPUT:-}}"
+            if err_msg="$(apply_binding_edit "$target_id" "$target_input" 2>&1)"; then
+                printf '%s\n' "EDIT_OK"
+                exit 0
+            else
+                printf '%s\n' "EDIT_FAIL: $err_msg" >&2
+                exit 1
+            fi
+            ;;
+        unset)
+            target_id="${KEYBINDINGS_TEST_ID:-${HOTKEYS_TEST_ID:-}}"
+            if err_msg="$(apply_binding_edit "$target_id" "none" 2>&1)"; then
+                printf '%s\n' "UNSET_OK"
+                exit 0
+            else
+                printf '%s\n' "UNSET_FAIL: $err_msg" >&2
+                exit 1
+            fi
+            ;;
+        reset)
+            target_id="${KEYBINDINGS_TEST_ID:-${HOTKEYS_TEST_ID:-}}"
+            if err_msg="$(apply_binding_edit "$target_id" "default" 2>&1)"; then
+                printf '%s\n' "RESET_OK"
+                exit 0
+            else
+                printf '%s\n' "RESET_FAIL: $err_msg" >&2
+                exit 1
+            fi
+            ;;
+
+        provider)
+            get_provider
+            exit 0
+            ;;
+        quit)
+            exit 0
+            ;;
+        *)
+            printf '%s\n' "Unknown TEST_ACTION: $TEST_ACT" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Force stdout mode (preserves non-interactive stdout output)
+if [[ "${KEYBINDINGS_FORCE_STDOUT:-${HOTKEYS_FORCE_STDOUT:-0}}" == "1" ]]; then
+    render_output
+    exit 0
+fi
+
+# Dispatch to Aurelia Quickshell UI
+if [[ "${AURELIA_SIMULATE_SUCCESS:-${HOTKEYS_SIMULATE_AURELIA_SUCCESS:-0}}" == "1" ]]; then
+    printf '%s\n' "AURELIA_TOGGLE_OK"
+    exit 0
+fi
+
+if [[ "${AURELIA_SIMULATE_FAIL:-${HOTKEYS_SIMULATE_AURELIA_FAIL:-0}}" == "1" ]]; then
+    log_event "ERROR" "Aurelia simulated failure; failing closed." "dispatch"
+    printf '%s\n' "Error: Aurelia simulated failure." >&2
+    exit 1
+fi
+
+qs_bin="$(command -v qs 2>/dev/null || command -v quickshell 2>/dev/null || true)"
+if [[ -z "$qs_bin" ]]; then
+    log_event "ERROR" "Quickshell runtime binary not found" "dispatch"
+    notify_user critical "Keybindings Error" "Quickshell runtime binary not found."
+    printf '%s\n' "Error: Quickshell runtime binary not found." >&2
+    exit 1
+fi
+
+# Locate the Aurelia shell QML configuration
+aurelia_shell="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
+if [[ ! -f "$aurelia_shell" ]]; then
+    aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
+fi
+if [[ ! -f "$aurelia_shell" ]]; then
+    log_event "ERROR" "Aurelia configuration not found at '$aurelia_shell'" "dispatch"
+    notify_user critical "Keybindings Error" "Aurelia configuration not found at '$aurelia_shell'."
+    printf '%s\n' "Error: Aurelia configuration not found at '$aurelia_shell'." >&2
+    exit 1
+fi
+
+# 1. Warm path: check non-mutating readiness via ping with explicit configuration path
+t_warm_start="$(date +%s%3N 2>/dev/null || date +%s)"
+ipc_ping_target="keybindings"
+ping_out="$("$qs_bin" ipc --path "$aurelia_shell" call "$ipc_ping_target" ping 2>&1 || true)"
+if [[ "$ping_out" != *"true"* && "$ping_out" != *"pong"* ]]; then
+    # Compatibility fallback to old target name if shell is running old code
+    ping_hotk="$("$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping 2>&1 || true)"
+    if [[ "$ping_hotk" == *"true"* || "$ping_hotk" == *"pong"* ]]; then
+        ipc_ping_target="hotkeys"
+    else
+        ipc_ping_target=""
+    fi
+fi
+
+if [[ -n "$ipc_ping_target" ]]; then
+    # Mutate / toggle EXACTLY ONCE only after readiness is confirmed
+    if "$qs_bin" ipc --path "$aurelia_shell" call "$ipc_ping_target" toggle >/dev/null 2>&1; then
+        t_warm_end="$(date +%s%3N 2>/dev/null || date +%s)"
+        dur=$((t_warm_end - t_warm_start))
+        log_event "PERF" "Aurelia warm toggle roundtrip: ${dur}ms" "toggle" "$dur"
+        log_event "INFO" "Aurelia keybindings toggled successfully on warm instance." "toggle"
+        exit 0
+    else
+        log_event "ERROR" "Aurelia toggle failed on warm instance" "toggle"
+        notify_user critical "Keybindings Error" "Failed to toggle keybindings window."
+        printf '%s\n' "Error: Aurelia toggle failed on warm instance." >&2
+        exit 1
+    fi
+fi
+
+# 2. Cold path: start Aurelia daemon with explicit configuration path
+t_cold_start="$(date +%s%3N 2>/dev/null || date +%s)"
+if ! QSG_INFO=1 "$qs_bin" --no-duplicate --daemonize --log-times -v --path "$aurelia_shell" >>"$AURELIA_LOG" 2>&1; then
+    log_event "CRASH" "Aurelia process launch failed" "launch"
+    notify_user critical "Keybindings Error" "Failed to launch Aurelia Quickshell process."
+    printf '%s\n' "Error: Aurelia process launch failed." >&2
+    exit 1
+fi
+
+# 3. Bounded readiness polling using NON-MUTATING ping probe (~2s budget: 40 * 50ms)
+is_ready=0
+ready_target="keybindings"
+for _ in {1..40}; do
+    kb_out="$("$qs_bin" ipc --path "$aurelia_shell" call keybindings ping 2>&1 || true)"
+    if [[ "$kb_out" == *"true"* || "$kb_out" == *"pong"* ]]; then
+        is_ready=1
+        ready_target="keybindings"
+        break
+    fi
+    hk_out="$("$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping 2>&1 || true)"
+    if [[ "$hk_out" == *"true"* || "$hk_out" == *"pong"* ]]; then
+        is_ready=1
+        ready_target="hotkeys"
+        break
+    fi
+    sleep 0.05
+done
+
+# 4. Invoke mutating toggle EXACTLY ONCE only after cold readiness is confirmed
+if [[ "$is_ready" -eq 1 ]]; then
+    t_cold_ready="$(date +%s%3N 2>/dev/null || date +%s)"
+    dur_ready=$((t_cold_ready - t_cold_start))
+    log_event "PERF" "Aurelia cold launch to ping readiness: ${dur_ready}ms" "launch" "$dur_ready"
+    if "$qs_bin" ipc --path "$aurelia_shell" call "$ready_target" toggle >/dev/null 2>&1; then
+        t_cold_end="$(date +%s%3N 2>/dev/null || date +%s)"
+        dur_total=$((t_cold_end - t_cold_start))
+        log_event "PERF" "Aurelia cold toggle completed in ${dur_total}ms" "launch" "$dur_total"
+        log_event "INFO" "Aurelia keybindings toggled successfully after cold readiness." "toggle"
+        exit 0
+    else
+        log_event "ERROR" "Aurelia toggle failed after cold readiness" "toggle"
+        notify_user critical "Keybindings Error" "Failed to toggle keybindings after startup."
+        printf '%s\n' "Error: Aurelia toggle failed after cold readiness." >&2
+        exit 1
+    fi
+else
+    log_event "CRASH" "Aurelia readiness timed out after ~2000ms" "launch" "2000"
+    if [[ -f "$AURELIA_LOG" ]]; then
+        tail_diag="$(tail -n 10 "$AURELIA_LOG" 2>/dev/null || true)"
+        if [[ -n "$tail_diag" ]]; then
+            log_event "CRASH_DIAGNOSTIC" "Recent Aurelia engine output: $tail_diag" "launch"
+        fi
+    fi
+    notify_user critical "Keybindings Error" "Aurelia readiness timed out."
+    printf '%s\n' "Error: Keybindings interface timed out waiting for Quickshell readiness." >&2
+    exit 1
+fi

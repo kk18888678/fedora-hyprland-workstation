@@ -155,6 +155,93 @@ function M.is_tryexec_valid(tryexec)
     return (M.resolve_in_path(te) ~= nil)
 end
 
+-- Safely parse Freedesktop Exec line into structured argument vector
+-- Handles single quotes, double quotes, escape sequences, and strips field codes (%f, %F, %u, %U, etc.)
+function M.parse_exec_line(exec_str)
+    if not exec_str or type(exec_str) ~= "string" then return {} end
+    local tokens = {}
+    local i = 1
+    local len = #exec_str
+
+    while i <= len do
+        while i <= len and exec_str:sub(i, i):match("%s") do
+            i = i + 1
+        end
+        if i > len then break end
+
+        local current = {}
+        local in_dquote = false
+        local in_squote = false
+
+        while i <= len do
+            local c = exec_str:sub(i, i)
+            if not in_dquote and not in_squote and c:match("%s") then
+                break
+            elseif not in_dquote and c == "'" then
+                in_squote = not in_squote
+                i = i + 1
+            elseif not in_squote and c == '"' then
+                in_dquote = not in_dquote
+                i = i + 1
+            elseif c == "\\" and (in_dquote or not in_squote) and i < len then
+                local next_c = exec_str:sub(i + 1, i + 1)
+                if in_dquote and (next_c == '"' or next_c == "`" or next_c == "$" or next_c == "\\") then
+                    table.insert(current, next_c)
+                    i = i + 2
+                elseif not in_dquote and (next_c == " " or next_c == '"' or next_c == "'" or next_c == "\\") then
+                    table.insert(current, next_c)
+                    i = i + 2
+                else
+                    table.insert(current, c)
+                    i = i + 1
+                end
+            elseif c == "%" and not in_squote then
+                local next_c = exec_str:sub(i + 1, i + 1)
+                if next_c == "%" then
+                    table.insert(current, "%")
+                    i = i + 2
+                elseif next_c:match("[fFuUdDnNickvm]") then
+                    -- Field code to expand or drop when launching without file arguments
+                    i = i + 2
+                else
+                    table.insert(current, c)
+                    i = i + 1
+                end
+            else
+                table.insert(current, c)
+                i = i + 1
+            end
+        end
+
+        local token = table.concat(current)
+        if #token > 0 then
+            table.insert(tokens, token)
+        end
+    end
+    return tokens
+end
+
+-- Resolve terminal emulator command for launching console applications (Terminal=true)
+function M.resolve_terminal_executable()
+    local conf = M.read_desktop_config()
+    local configured_term = conf["terminal.default"] or conf["terminal_default"] or conf["terminal"]
+    if configured_term and configured_term ~= "" then
+        local base = configured_term:gsub("%.desktop$", "")
+        if M.resolve_in_path(base) then
+            return base
+        end
+    end
+
+    -- Supported workstation terminals in order of preference
+    for _, candidate in ipairs({ "kitty", "foot", "xdg-terminal-exec", "gnome-terminal", "xterm" }) do
+        if M.resolve_in_path(candidate) then
+            return candidate
+        end
+    end
+
+    return nil
+end
+
 -- Resolve application search paths following XDG Desktop Entry Specification
 function M.get_search_dirs()
     local dirs = {}
@@ -466,10 +553,36 @@ function M.parse_desktop_file(filepath, explicit_desktop_id)
         icon = ""
     end
 
-    -- Safe structured launcher: trusted Freedesktop platform launch via gtk-launch
-    -- Avoids custom Exec tokenization, shell interpretation, or eval.
-    local launch_cmd = "gtk-launch -- " .. desktop_id
-    local launch_argv = { "gtk-launch", "--", desktop_id }
+    -- Safe structured launcher:
+    -- Standard Freedesktop launch delegates to gtk-launch for graphical applications.
+    -- For console applications (Terminal=true), gtk-launch fails when no GNOME terminal or xdg-terminal-exec is present.
+    -- Terminal applications are wrapped deterministically using the workstation terminal.
+    local is_terminal_app = (data.Terminal == "true")
+    local launch_cmd = nil
+    local launch_argv = nil
+
+    if is_terminal_app and exec_str ~= "" then
+        local exec_tokens = M.parse_exec_line(exec_str)
+        if #exec_tokens > 0 then
+            local term_bin = M.resolve_terminal_executable()
+            if term_bin then
+                launch_argv = { term_bin, "--" }
+                for _, tok in ipairs(exec_tokens) do
+                    table.insert(launch_argv, tok)
+                end
+                local quoted_parts = { sh_quote(term_bin), "--" }
+                for _, tok in ipairs(exec_tokens) do
+                    table.insert(quoted_parts, sh_quote(tok))
+                end
+                launch_cmd = table.concat(quoted_parts, " ")
+            end
+        end
+    end
+
+    if not launch_argv then
+        launch_cmd = "gtk-launch -- " .. desktop_id
+        launch_argv = { "gtk-launch", "--", desktop_id }
+    end
 
     return {
         desktop_id = desktop_id,

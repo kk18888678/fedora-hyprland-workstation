@@ -9,6 +9,26 @@ if not effective then
 end
 local mainMod = effective.mainMod or manifest.mainMod or "SUPER"
 
+local function resolve_keybindings_bin()
+    local home = os.getenv("HOME") or ""
+    local candidates = {
+        "/usr/local/bin/aurelia-shell-keybindings",
+        home .. "/.local/bin/aurelia-shell-keybindings",
+        "/usr/local/bin/workstation-keybindings",
+        home .. "/.local/bin/workstation-keybindings",
+    }
+    for _, path in ipairs(candidates) do
+        local f = io.open(path, "r")
+        if f then
+            f:close()
+            return path
+        end
+    end
+    return "aurelia-shell-keybindings"
+end
+
+local keybindings_bin = resolve_keybindings_bin()
+
 local function register_binding(item)
     if item.generator then
         if item.generator == "workspaces_1_10" then
@@ -46,7 +66,19 @@ local function register_binding(item)
             -- Action has no runnable command available: do not register broken binding
             return
         end
-        hl.bind(item.key, hl.dsp.exec_cmd(item.command), flags)
+        -- Single action execution authority:
+        -- Keybindings dispatch via the authoritative workstation runner:
+        -- aurelia-shell-keybindings run <action_id>
+        -- This guarantees identical execution authority and semantics between UI Run and physical keybinding.
+        local cmd = item.command
+        if item.id and (item.id:match("^[a-zA-Z0-9][%w%-%._]*$") or item.id:match("^[a-zA-Z0-9][%w%-%._]*:[a-zA-Z0-9][%w%-%._]*$")) then
+            if item.id == "keybindings" or item.id == "hotkeys" then
+                cmd = keybindings_bin .. " toggle"
+            else
+                cmd = keybindings_bin .. " run " .. item.id
+            end
+        end
+        hl.bind(item.key, hl.dsp.exec_cmd(cmd), flags)
     elseif item.action_type == "exec_locked" then
         flags.locked = true
         if not item.command or item.command == "" or item.runnable == false then

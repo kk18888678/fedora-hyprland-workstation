@@ -687,17 +687,21 @@ install_workstation_keybindings() {
     local bin_dir="${KEYBINDINGS_BIN_DIR:-${HOTKEYS_BIN_DIR:-/usr/local/bin}}"
     local apps_dir="${KEYBINDINGS_APPS_DIR:-${HOTKEYS_APPS_DIR:-/usr/local/share/applications}}"
 
+    local canonical_bin_source="$SCRIPT_DIR/bin/aurelia-shell-keybindings"
     local kb_bin_source="$SCRIPT_DIR/bin/workstation-keybindings"
     local hk_bin_source="$SCRIPT_DIR/bin/workstation-hotkeys"
     local cap_source="$SCRIPT_DIR/bin/workstation-hotkey-capture"
     local aur_bin_source="$SCRIPT_DIR/bin/workstation-aurelia"
+    local canonical_desktop_source="$SCRIPT_DIR/config/desktop-entries/aurelia-shell-keybindings.desktop"
     local kb_desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-keybindings.desktop"
     local hk_desktop_source="$SCRIPT_DIR/config/desktop-entries/workstation-hotkeys.desktop"
 
+    local canonical_bin_target="$bin_dir/aurelia-shell-keybindings"
     local kb_bin_target="$bin_dir/workstation-keybindings"
     local hk_bin_target="$bin_dir/workstation-hotkeys"
     local cap_target="$bin_dir/workstation-hotkey-capture"
     local aur_bin_target="$bin_dir/workstation-aurelia"
+    local canonical_desktop_target="$apps_dir/aurelia-shell-keybindings.desktop"
     local kb_desktop_target="$apps_dir/workstation-keybindings.desktop"
     local hk_desktop_target="$apps_dir/workstation-hotkeys.desktop"
 
@@ -706,9 +710,23 @@ install_workstation_keybindings() {
         is_privileged=1
     fi
 
-    # Install primary workstation-keybindings executable
+    # Install canonical aurelia-shell-keybindings executable
+    if [[ -f "$canonical_bin_source" ]]; then
+        info "Installing aurelia-shell-keybindings command to $canonical_bin_target."
+        if [[ "$is_privileged" -eq 1 ]]; then
+            sudo mkdir -p "$(dirname "$canonical_bin_target")"
+            sudo cp "$canonical_bin_source" "$canonical_bin_target"
+            sudo chmod 0755 "$canonical_bin_target"
+        else
+            mkdir -p "$(dirname "$canonical_bin_target")"
+            cp "$canonical_bin_source" "$canonical_bin_target"
+            chmod 0755 "$canonical_bin_target"
+        fi
+    fi
+
+    # Install workstation-keybindings forwarding shim
     if [[ -f "$kb_bin_source" ]]; then
-        info "Installing workstation-keybindings command to $kb_bin_target."
+        info "Installing workstation-keybindings forwarding shim to $kb_bin_target."
         if [[ "$is_privileged" -eq 1 ]]; then
             sudo mkdir -p "$(dirname "$kb_bin_target")"
             sudo cp "$kb_bin_source" "$kb_bin_target"
@@ -762,7 +780,21 @@ install_workstation_keybindings() {
         fi
     fi
 
-    # Install primary workstation-keybindings desktop entry
+    # Install canonical aurelia-shell-keybindings desktop entry
+    if [[ -f "$canonical_desktop_source" ]]; then
+        info "Installing aurelia-shell-keybindings desktop entry to $canonical_desktop_target."
+        if [[ "$is_privileged" -eq 1 ]]; then
+            sudo mkdir -p "$(dirname "$canonical_desktop_target")"
+            sudo cp "$canonical_desktop_source" "$canonical_desktop_target"
+            sudo chmod 0644 "$canonical_desktop_target"
+        else
+            mkdir -p "$(dirname "$canonical_desktop_target")"
+            cp "$canonical_desktop_source" "$canonical_desktop_target"
+            chmod 0644 "$canonical_desktop_target"
+        fi
+    fi
+
+    # Install compatibility workstation-keybindings desktop entry
     if [[ -f "$kb_desktop_source" ]]; then
         info "Installing workstation-keybindings desktop entry to $kb_desktop_target."
         if [[ "$is_privileged" -eq 1 ]]; then
@@ -791,6 +823,7 @@ install_workstation_keybindings() {
     fi
 
     info "Workstation keybindings installed."
+    record_success "aurelia-shell-keybindings"
     record_success "workstation-keybindings"
     record_success "workstation-aurelia"
     record_success "workstation-hotkeys"

@@ -241,6 +241,11 @@ QtObject {
         }
     }
 
+    property FileView binAureliaKeybindingsCheck: FileView {
+        path: "/usr/local/bin/aurelia-shell-keybindings"
+        printErrors: false
+    }
+
     property FileView binKeybindingsCheck: FileView {
         path: "/usr/local/bin/workstation-keybindings"
         printErrors: false
@@ -257,15 +262,22 @@ QtObject {
     }
 
     // Deterministic backend executable resolution:
-    // 1. Test override via WORKSTATION_KEYBINDINGS_BIN environment variable
-    // 2. User-local override: ~/.local/bin/workstation-keybindings
-    // 3. Managed system installation: /usr/local/bin/workstation-keybindings
-    // 4. Compatibility fallback: /usr/local/bin/workstation-hotkeys, workstation-keybindings
+    // 1. Explicit development/test override via AURELIA_SHELL_KEYBINDINGS_BIN, AURELIA_KEYBINDINGS_BIN, or WORKSTATION_KEYBINDINGS_BIN
+    // 2. Canonical managed system installation: /usr/local/bin/aurelia-shell-keybindings
+    // 3. User-local override: ~/.local/bin/workstation-keybindings
+    // 4. Compatibility system fallback: /usr/local/bin/workstation-keybindings
+    // 5. Compatibility fallback: /usr/local/bin/workstation-hotkeys, aurelia-shell-keybindings
     readonly property string backendBin: {
-        var testOverride = Quickshell.env("WORKSTATION_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_HOTKEYS_BIN") || ""
+        var testOverride = Quickshell.env("AURELIA_SHELL_KEYBINDINGS_BIN") || Quickshell.env("AURELIA_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_HOTKEYS_BIN") || ""
         if (testOverride !== "") {
             return testOverride
         }
+        try {
+            var akbTxt = binAureliaKeybindingsCheck.text()
+            if (akbTxt && akbTxt.length > 0) {
+                return "/usr/local/bin/aurelia-shell-keybindings"
+            }
+        } catch (e) {}
         try {
             var ulTxt = binUserLocalCheck.text()
             if (ulTxt && ulTxt.length > 0) {
@@ -284,7 +296,7 @@ QtObject {
                 return "/usr/local/bin/workstation-hotkeys"
             }
         } catch (e) {}
-        return "workstation-keybindings"
+        return "aurelia-shell-keybindings"
     }
 
     readonly property var procEnv: ({

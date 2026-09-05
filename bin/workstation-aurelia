@@ -43,6 +43,12 @@ fi
 pref_dir="$(dirname -- "$pref_lua")"
 export LUA_PATH="$pref_dir/?.lua;${LUA_PATH:-;;}"
 
+reload_compositor_motion_rules() {
+    if [[ "${WORKSTATION_TEST_MODE:-0}" != "1" ]] && command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+        hyprctl reload config-only >/dev/null 2>&1 || true
+    fi
+}
+
 print_help() {
     cat <<'EOF'
 Usage: workstation-aurelia <command> [options]
@@ -177,6 +183,9 @@ if not ok then
 end
 print("Preference updated: " .. key .. " = " .. tostring(val))
 LUA_SCRIPT
+                if [[ "$key" == *motion* ]]; then
+                    reload_compositor_motion_rules
+                fi
                 ;;
 
             unset)
@@ -198,6 +207,9 @@ if not ok then
 end
 print("Preference override removed: " .. key)
 LUA_SCRIPT
+                if [[ "$key" == *motion* ]]; then
+                    reload_compositor_motion_rules
+                fi
                 ;;
 
             reset)
@@ -229,6 +241,7 @@ else
     print("Aurelia Shell preferences reset to shipped defaults.")
 end
 LUA_SCRIPT
+                reload_compositor_motion_rules
                 ;;
 
             export)
@@ -270,6 +283,7 @@ local pref = require("preferences")
 pref.set_override("aurelia.motion.enabled", true)
 print("Aurelia Motion enabled.")
 LUA_SCRIPT
+                reload_compositor_motion_rules
                 ;;
             disable)
                 "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
@@ -279,6 +293,7 @@ local pref = require("preferences")
 pref.set_override("aurelia.motion.enabled", false)
 print("Aurelia Motion disabled (component transitions effectively immediate).")
 LUA_SCRIPT
+                reload_compositor_motion_rules
                 ;;
             scale)
                 s="${1:-1.0}"

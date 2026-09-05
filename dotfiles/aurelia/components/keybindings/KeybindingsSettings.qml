@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import "../../theme"
 
 Item {
@@ -68,15 +69,12 @@ Item {
         var nextScale = 1.0
         var nextLabel = "Normal"
         if (currentScale <= 0.7) {
-            // Faster -> Slower (1.5x)
             nextScale = 1.5
             nextLabel = "Slower"
         } else if (currentScale >= 1.3) {
-            // Slower -> Normal (1.0x)
             nextScale = 1.0
             nextLabel = "Normal"
         } else {
-            // Normal -> Faster (0.5x)
             nextScale = 0.5
             nextLabel = "Faster"
         }
@@ -157,7 +155,15 @@ Item {
             statusMessage = ""
             statusType = "info"
             selectedIndex = 0
+            settingsFlickable.contentY = 0
             settingsRoot.forceActiveFocus()
+        }
+    }
+
+    onSelectedIndexChanged: {
+        var rowItems = [row0, row1, row2, row3, row4, row5, row6]
+        if (selectedIndex >= 0 && selectedIndex < rowItems.length && rowItems[selectedIndex]) {
+            settingsFlickable.ensureVisible(rowItems[selectedIndex])
         }
     }
 
@@ -184,7 +190,23 @@ Item {
             return
         }
 
-        // 2. Navigation and activation in settings view
+        // 2. Tab immediate top-level view cycling (when not capturing)
+        if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
+            if (window && typeof window.cycleTopLevelView === "function") {
+                window.cycleTopLevelView(true)
+            }
+            event.accepted = true
+            return
+        }
+        if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
+            if (window && typeof window.cycleTopLevelView === "function") {
+                window.cycleTopLevelView(false)
+            }
+            event.accepted = true
+            return
+        }
+
+        // 3. Navigation and activation in settings view
         if (event.key === Qt.Key_Escape || window.eventMatchesShortcut(event, Theme.shortcutBack)) {
             backRequested()
             event.accepted = true
@@ -228,541 +250,601 @@ Item {
         }
     }
 
-    ColumnLayout {
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 64, 580)
-        spacing: Theme.spacingMd
+    Flickable {
+        id: settingsFlickable
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: settingsContent.implicitHeight + (KeybindingsConfig.settingsMarginVertical * 2)
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
 
-        // Header row
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMd
+        ScrollBar.vertical: ScrollBar {
+            policy: ScrollBar.AsNeeded
+            width: KeybindingsConfig.scrollBarWidth
+            contentItem: Rectangle {
+                color: Theme.selection
+                radius: KeybindingsConfig.scrollBarWidth / 2
+            }
+        }
 
+        function ensureVisible(item) {
+            if (!item) return
+            var pos = item.mapToItem(settingsContent, 0, 0)
+            var yInContent = pos.y
+            var itemH = item.height
+            if (yInContent < settingsFlickable.contentY) {
+                settingsFlickable.contentY = yInContent
+            } else if (yInContent + itemH > settingsFlickable.contentY + settingsFlickable.height) {
+                settingsFlickable.contentY = Math.max(0, yInContent + itemH - settingsFlickable.height)
+            }
+        }
+
+        ColumnLayout {
+            id: settingsContent
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: KeybindingsConfig.settingsMarginVertical
+            width: Math.min(parent.width - (KeybindingsConfig.settingsMarginHorizontal * 2), KeybindingsConfig.settingsContentMaxWidth)
+            spacing: KeybindingsConfig.settingsRowSpacing
+
+            // Header row
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMd
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Text {
+                        text: "⚙ Keybindings Preferences"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeLg
+                        font.weight: Theme.fontWeightBold
+                        color: Theme.accent
+                    }
+
+                    Text {
+                        text: "Configure keyboard shortcuts and motion for Keybindings."
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSm
+                        color: Theme.textSecondary
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                }
+
+                Rectangle {
+                    Layout.preferredHeight: KeybindingsConfig.tabHeight
+                    Layout.preferredWidth: backSettingsLabel.implicitWidth + (KeybindingsConfig.tabPaddingHorizontal * 2)
+                    radius: KeybindingsConfig.tabBorderRadius
+                    color: backSettingsHover.hovered ? Theme.selection : "transparent"
+                    border.color: Theme.border
+                    border.width: 1
+
+                    HoverHandler {
+                        id: backSettingsHover
+                    }
+
+                    Text {
+                        id: backSettingsLabel
+                        anchors.centerIn: parent
+                        text: "← Back"
+                        color: Theme.gold
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSm
+                        font.weight: Theme.fontWeightMedium
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: backRequested()
+                    }
+                }
+            }
+
+            // Section 1: Interface Shortcuts
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: KeybindingsConfig.settingsRowSpacing
+                Layout.topMargin: KeybindingsConfig.settingsSectionSpacing / 2
 
                 Text {
-                    text: "⚙ Keybindings Preferences"
+                    text: "Interface Shortcuts"
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeLg
+                    font.pixelSize: Theme.fontSizeSm
                     font.weight: Theme.fontWeightBold
                     color: Theme.accent
                 }
 
-                Text {
-                    text: "Configure keyboard shortcuts and motion for Keybindings."
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSm
-                    color: Theme.textSecondary
+                // Row 0: Add Action
+                Rectangle {
+                    id: row0
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    radius: Theme.radiusSm
+                    color: (settingsRoot.selectedIndex === 0) ? Theme.selection : (row0Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : ((settingsRoot.selectedIndex === 0) ? Theme.borderActive : Theme.border)
+                    border.width: 1
+
+                    HoverHandler { id: row0Hover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMd
+                        anchors.rightMargin: Theme.spacingMd
+                        spacing: Theme.spacingMd
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Text {
+                                text: "Add Action"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightMedium
+                                color: Theme.text
+                            }
+                            Text {
+                                text: "Open action creation dialog (requires modifier)"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeXs
+                                color: Theme.textMuted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
+                            Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText0.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
+                            radius: KeybindingsConfig.settingsBadgeRadius
+                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : Theme.surfaceElevated
+                            border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : Theme.border
+                            border.width: 1
+
+                            Text {
+                                id: badgeText0
+                                anchors.centerIn: parent
+                                text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? "Press key…" : Theme.shortcutAddAction
+                                color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.bgBase : Theme.foam
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightBold
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            settingsRoot.selectedIndex = 0
+                            startEditingShortcut("components.keybindings.shortcuts.add_action", "Add Action")
+                        }
+                    }
+                }
+
+                // Row 1: Back
+                Rectangle {
+                    id: row1
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    radius: Theme.radiusSm
+                    color: (settingsRoot.selectedIndex === 1) ? Theme.selection : (row1Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : ((settingsRoot.selectedIndex === 1) ? Theme.borderActive : Theme.border)
+                    border.width: 1
+
+                    HoverHandler { id: row1Hover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMd
+                        anchors.rightMargin: Theme.spacingMd
+                        spacing: Theme.spacingMd
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Text {
+                                text: "Back"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightMedium
+                                color: Theme.text
+                            }
+                            Text {
+                                text: "Return to previous view / dismiss (requires modifier)"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeXs
+                                color: Theme.textMuted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
+                            Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText1.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
+                            radius: KeybindingsConfig.settingsBadgeRadius
+                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : Theme.surfaceElevated
+                            border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : Theme.border
+                            border.width: 1
+
+                            Text {
+                                id: badgeText1
+                                anchors.centerIn: parent
+                                text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? "Press key…" : Theme.shortcutBack
+                                color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.bgBase : Theme.foam
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightBold
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            settingsRoot.selectedIndex = 1
+                            startEditingShortcut("components.keybindings.shortcuts.back", "Back")
+                        }
+                    }
+                }
+
+                // Row 2: Set / Change
+                Rectangle {
+                    id: row2
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    radius: Theme.radiusSm
+                    color: (settingsRoot.selectedIndex === 2) ? Theme.selection : (row2Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 2) ? Theme.borderActive : Theme.border)
+                    border.width: 1
+
+                    HoverHandler { id: row2Hover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMd
+                        anchors.rightMargin: Theme.spacingMd
+                        spacing: Theme.spacingMd
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Text {
+                                text: "Set / Change"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightMedium
+                                color: Theme.text
+                            }
+                            Text {
+                                text: "Assign or edit shortcut for selected action"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeXs
+                                color: Theme.textMuted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
+                            Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText2.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
+                            radius: KeybindingsConfig.settingsBadgeRadius
+                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : Theme.surfaceElevated
+                            border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : Theme.border
+                            border.width: 1
+
+                            Text {
+                                id: badgeText2
+                                anchors.centerIn: parent
+                                text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? "Press key…" : Theme.shortcutSet
+                                color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.bgBase : Theme.gold
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightBold
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            settingsRoot.selectedIndex = 2
+                            startEditingShortcut("components.keybindings.shortcuts.set_binding", "Set / Change")
+                        }
+                    }
+                }
+
+                // Row 3: Unset
+                Rectangle {
+                    id: row3
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    radius: Theme.radiusSm
+                    color: (settingsRoot.selectedIndex === 3) ? Theme.selection : (row3Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 3) ? Theme.borderActive : Theme.border)
+                    border.width: 1
+
+                    HoverHandler { id: row3Hover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMd
+                        anchors.rightMargin: Theme.spacingMd
+                        spacing: Theme.spacingMd
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Text {
+                                text: "Unset"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightMedium
+                                color: Theme.text
+                            }
+                            Text {
+                                text: "Clear shortcut for selected action"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeXs
+                                color: Theme.textMuted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
+                            Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText3.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
+                            radius: KeybindingsConfig.settingsBadgeRadius
+                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : Theme.surfaceElevated
+                            border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : Theme.border
+                            border.width: 1
+
+                            Text {
+                                id: badgeText3
+                                anchors.centerIn: parent
+                                text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? "Press key…" : Theme.shortcutUnset
+                                color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.bgBase : Theme.love
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightBold
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            settingsRoot.selectedIndex = 3
+                            startEditingShortcut("components.keybindings.shortcuts.unset_binding", "Unset")
+                        }
+                    }
                 }
             }
 
-            Rectangle {
-                Layout.preferredHeight: 28
-                Layout.preferredWidth: backSettingsLabel.implicitWidth + Theme.spacingLg * 2
-                radius: Theme.radiusSm
-                color: backSettingsHover.hovered ? Theme.selection : "transparent"
-                border.color: Theme.border
-                border.width: 1
-
-                HoverHandler {
-                    id: backSettingsHover
-                }
+            // Section 2: Motion
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: KeybindingsConfig.settingsRowSpacing
+                Layout.topMargin: KeybindingsConfig.settingsSectionSpacing / 2
 
                 Text {
-                    id: backSettingsLabel
-                    anchors.centerIn: parent
-                    text: "← Back"
-                    color: Theme.gold
+                    text: "Motion"
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSm
-                    font.weight: Theme.fontWeightMedium
+                    font.weight: Theme.fontWeightBold
+                    color: Theme.accent
                 }
 
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: backRequested()
+                // Row 4: Animations (On / Off)
+                Rectangle {
+                    id: row4
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    radius: Theme.radiusSm
+                    color: (settingsRoot.selectedIndex === 4) ? Theme.selection : (row4Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    border.color: (settingsRoot.selectedIndex === 4) ? Theme.borderActive : Theme.border
+                    border.width: 1
+
+                    HoverHandler { id: row4Hover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMd
+                        anchors.rightMargin: Theme.spacingMd
+                        spacing: Theme.spacingMd
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Text {
+                                text: "Animations"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightMedium
+                                color: Theme.text
+                            }
+                            Text {
+                                text: "Enable visual transitions in Keybindings"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeXs
+                                color: Theme.textMuted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
+                            Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText4.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
+                            radius: KeybindingsConfig.settingsBadgeRadius
+                            color: Theme.componentMotionEnabled("keybindings") ? Theme.surfaceElevated : Theme.selection
+                            border.color: Theme.componentMotionEnabled("keybindings") ? Theme.accent : Theme.border
+                            border.width: 1
+
+                            Text {
+                                id: badgeText4
+                                anchors.centerIn: parent
+                                text: Theme.componentMotionEnabled("keybindings") ? "On" : "Off"
+                                color: Theme.componentMotionEnabled("keybindings") ? Theme.accent : Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightBold
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            settingsRoot.selectedIndex = 4
+                            toggleAnimations()
+                        }
+                    }
+                }
+
+                // Row 5: Animation Speed
+                Rectangle {
+                    id: row5
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    radius: Theme.radiusSm
+                    color: (settingsRoot.selectedIndex === 5) ? Theme.selection : (row5Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    border.color: (settingsRoot.selectedIndex === 5) ? Theme.borderActive : Theme.border
+                    border.width: 1
+
+                    HoverHandler { id: row5Hover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMd
+                        anchors.rightMargin: Theme.spacingMd
+                        spacing: Theme.spacingMd
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Text {
+                                text: "Animation Speed"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightMedium
+                                color: Theme.text
+                            }
+                            Text {
+                                text: "Visual transition duration multiplier"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeXs
+                                color: Theme.textMuted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
+                            Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText5.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
+                            radius: KeybindingsConfig.settingsBadgeRadius
+                            color: Theme.surfaceElevated
+                            border.color: Theme.border
+                            border.width: 1
+
+                            Text {
+                                id: badgeText5
+                                anchors.centerIn: parent
+                                text: formatSpeedLabel(Theme.componentMotionScale("keybindings"))
+                                color: Theme.gold
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightBold
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            settingsRoot.selectedIndex = 5
+                            cycleAnimationSpeed()
+                        }
+                    }
                 }
             }
-        }
 
-        // Section 1: Interface Shortcuts
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingXs
-            Layout.topMargin: Theme.spacingSm
-
+            // Status message text
             Text {
-                text: "Interface Shortcuts"
+                Layout.fillWidth: true
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm
-                font.weight: Theme.fontWeightBold
-                color: Theme.accent
+                color: (settingsRoot.statusType === "error") ? Theme.error : ((settingsRoot.statusType === "success") ? Theme.success : Theme.accent)
+                font.bold: true
+                wrapMode: Text.Wrap
+                visible: settingsRoot.statusMessage !== ""
+                text: settingsRoot.statusMessage
             }
 
-            // Row 0: Add Action
-            Rectangle {
+            // Row 6: Reset to Defaults
+            RowLayout {
+                id: row6
                 Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: Theme.radiusSm
-                color: (settingsRoot.selectedIndex === 0) ? Theme.selection : (row0Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
-                border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : ((settingsRoot.selectedIndex === 0) ? Theme.borderActive : Theme.border)
-                border.width: 1
+                Layout.topMargin: KeybindingsConfig.settingsSectionSpacing / 2
+                spacing: Theme.spacingMd
 
-                HoverHandler { id: row0Hover }
+                Rectangle {
+                    Layout.preferredHeight: KeybindingsConfig.tabHeight
+                    Layout.preferredWidth: resetLabel.implicitWidth + (KeybindingsConfig.tabPaddingHorizontal * 2)
+                    radius: KeybindingsConfig.tabBorderRadius
+                    color: (settingsRoot.selectedIndex === 6) ? Theme.selectionActive : (resetHover.hovered ? Theme.selection : "transparent")
+                    border.color: (settingsRoot.selectedIndex === 6) ? Theme.borderActive : Theme.border
+                    border.width: 1
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMd
-                    anchors.rightMargin: Theme.spacingMd
-                    spacing: Theme.spacingMd
+                    HoverHandler { id: resetHover }
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 1
-
-                        Text {
-                            text: "Add Action"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            color: Theme.text
-                        }
-                        Text {
-                            text: "Open action creation dialog (requires modifier)"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            color: Theme.textMuted
-                        }
+                    Text {
+                        id: resetLabel
+                        anchors.centerIn: parent
+                        text: "↺ Reset Keybindings Preferences"
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSm
                     }
 
-                    Rectangle {
-                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                        Layout.preferredHeight: 26
-                        Layout.preferredWidth: 100
-                        radius: Theme.radiusSm
-                        color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : Theme.surfaceElevated
-                        border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : Theme.border
-                        border.width: 1
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? "Press key…" : Theme.shortcutAddAction
-                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.bgBase : Theme.foam
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightBold
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            settingsRoot.selectedIndex = 6
+                            resetToDefaults()
                         }
                     }
                 }
 
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        settingsRoot.selectedIndex = 0
-                        startEditingShortcut("components.keybindings.shortcuts.add_action", "Add Action")
-                    }
+                Item {
+                    Layout.fillWidth: true
                 }
-            }
-
-            // Row 1: Back
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: Theme.radiusSm
-                color: (settingsRoot.selectedIndex === 1) ? Theme.selection : (row1Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
-                border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : ((settingsRoot.selectedIndex === 1) ? Theme.borderActive : Theme.border)
-                border.width: 1
-
-                HoverHandler { id: row1Hover }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMd
-                    anchors.rightMargin: Theme.spacingMd
-                    spacing: Theme.spacingMd
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 1
-
-                        Text {
-                            text: "Back"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            color: Theme.text
-                        }
-                        Text {
-                            text: "Return to previous view / dismiss (requires modifier)"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            color: Theme.textMuted
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                        Layout.preferredHeight: 26
-                        Layout.preferredWidth: 100
-                        radius: Theme.radiusSm
-                        color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : Theme.surfaceElevated
-                        border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : Theme.border
-                        border.width: 1
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? "Press key…" : Theme.shortcutBack
-                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.bgBase : Theme.foam
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightBold
-                        }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        settingsRoot.selectedIndex = 1
-                        startEditingShortcut("components.keybindings.shortcuts.back", "Back")
-                    }
-                }
-            }
-
-            // Row 2: Set / Change
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: Theme.radiusSm
-                color: (settingsRoot.selectedIndex === 2) ? Theme.selection : (row2Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
-                border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 2) ? Theme.borderActive : Theme.border)
-                border.width: 1
-
-                HoverHandler { id: row2Hover }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMd
-                    anchors.rightMargin: Theme.spacingMd
-                    spacing: Theme.spacingMd
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 1
-
-                        Text {
-                            text: "Set / Change"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            color: Theme.text
-                        }
-                        Text {
-                            text: "Assign or edit shortcut for selected action"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            color: Theme.textMuted
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                        Layout.preferredHeight: 26
-                        Layout.preferredWidth: 100
-                        radius: Theme.radiusSm
-                        color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : Theme.surfaceElevated
-                        border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : Theme.border
-                        border.width: 1
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? "Press key…" : Theme.shortcutSet
-                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.bgBase : Theme.gold
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightBold
-                        }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        settingsRoot.selectedIndex = 2
-                        startEditingShortcut("components.keybindings.shortcuts.set_binding", "Set / Change")
-                    }
-                }
-            }
-
-            // Row 3: Unset
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: Theme.radiusSm
-                color: (settingsRoot.selectedIndex === 3) ? Theme.selection : (row3Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
-                border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 3) ? Theme.borderActive : Theme.border)
-                border.width: 1
-
-                HoverHandler { id: row3Hover }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMd
-                    anchors.rightMargin: Theme.spacingMd
-                    spacing: Theme.spacingMd
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 1
-
-                        Text {
-                            text: "Unset"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            color: Theme.text
-                        }
-                        Text {
-                            text: "Clear shortcut for selected action"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            color: Theme.textMuted
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                        Layout.preferredHeight: 26
-                        Layout.preferredWidth: 100
-                        radius: Theme.radiusSm
-                        color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : Theme.surfaceElevated
-                        border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : Theme.border
-                        border.width: 1
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? "Press key…" : Theme.shortcutUnset
-                            color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.bgBase : Theme.love
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightBold
-                        }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        settingsRoot.selectedIndex = 3
-                        startEditingShortcut("components.keybindings.shortcuts.unset_binding", "Unset")
-                    }
-                }
-            }
-        }
-
-        // Section 2: Motion
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingXs
-            Layout.topMargin: Theme.spacingSm
-
-            Text {
-                text: "Motion"
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSm
-                font.weight: Theme.fontWeightBold
-                color: Theme.accent
-            }
-
-            // Row 4: Animations (On / Off)
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: Theme.radiusSm
-                color: (settingsRoot.selectedIndex === 4) ? Theme.selection : (row4Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
-                border.color: (settingsRoot.selectedIndex === 4) ? Theme.borderActive : Theme.border
-                border.width: 1
-
-                HoverHandler { id: row4Hover }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMd
-                    anchors.rightMargin: Theme.spacingMd
-                    spacing: Theme.spacingMd
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 1
-
-                        Text {
-                            text: "Animations"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            color: Theme.text
-                        }
-                        Text {
-                            text: "Enable visual transitions in Keybindings"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            color: Theme.textMuted
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                        Layout.preferredHeight: 26
-                        Layout.preferredWidth: 100
-                        radius: Theme.radiusSm
-                        color: Theme.componentMotionEnabled("keybindings") ? Theme.surfaceElevated : Theme.selection
-                        border.color: Theme.componentMotionEnabled("keybindings") ? Theme.accent : Theme.border
-                        border.width: 1
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: Theme.componentMotionEnabled("keybindings") ? "On" : "Off"
-                            color: Theme.componentMotionEnabled("keybindings") ? Theme.accent : Theme.textMuted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightBold
-                        }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        settingsRoot.selectedIndex = 4
-                        toggleAnimations()
-                    }
-                }
-            }
-
-            // Row 5: Animation Speed
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: Theme.radiusSm
-                color: (settingsRoot.selectedIndex === 5) ? Theme.selection : (row5Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
-                border.color: (settingsRoot.selectedIndex === 5) ? Theme.borderActive : Theme.border
-                border.width: 1
-
-                HoverHandler { id: row5Hover }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMd
-                    anchors.rightMargin: Theme.spacingMd
-                    spacing: Theme.spacingMd
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 1
-
-                        Text {
-                            text: "Animation Speed"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            color: Theme.text
-                        }
-                        Text {
-                            text: "Visual transition duration multiplier"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            color: Theme.textMuted
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                        Layout.preferredHeight: 26
-                        Layout.preferredWidth: 100
-                        radius: Theme.radiusSm
-                        color: Theme.surfaceElevated
-                        border.color: Theme.border
-                        border.width: 1
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: formatSpeedLabel(Theme.componentMotionScale("keybindings"))
-                            color: Theme.gold
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightBold
-                        }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        settingsRoot.selectedIndex = 5
-                        cycleAnimationSpeed()
-                    }
-                }
-            }
-        }
-
-        // Status message text
-        Text {
-            Layout.fillWidth: true
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSm
-            color: (settingsRoot.statusType === "error") ? Theme.error : ((settingsRoot.statusType === "success") ? Theme.success : Theme.accent)
-            font.bold: true
-            wrapMode: Text.Wrap
-            visible: settingsRoot.statusMessage !== ""
-            text: settingsRoot.statusMessage
-        }
-
-        // Row 6: Reset to Defaults
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingSm
-            spacing: Theme.spacingMd
-
-            Rectangle {
-                Layout.preferredHeight: 32
-                Layout.preferredWidth: resetLabel.implicitWidth + Theme.spacingLg * 2
-                radius: Theme.radiusSm
-                color: (settingsRoot.selectedIndex === 6) ? Theme.selectionActive : (resetHover.hovered ? Theme.selection : "transparent")
-                border.color: (settingsRoot.selectedIndex === 6) ? Theme.borderActive : Theme.border
-                border.width: 1
-
-                HoverHandler { id: resetHover }
-
-                Text {
-                    id: resetLabel
-                    anchors.centerIn: parent
-                    text: "↺ Reset Keybindings Preferences"
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSm
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        settingsRoot.selectedIndex = 6
-                        resetToDefaults()
-                    }
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
             }
         }
     }
