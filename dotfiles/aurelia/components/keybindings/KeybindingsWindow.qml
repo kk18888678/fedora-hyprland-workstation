@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Dialogs
 import Quickshell
 import Quickshell.Wayland
 import "../../theme"
@@ -94,6 +95,11 @@ PanelWindow {
         Qt.callLater(function() { listView.forceActiveFocus() })
     }
 
+    function requestClose(reason) {
+        console.info("[LIFECYCLE] keybindings.window.close.request reason=" + (reason || "unknown") + " view=" + keybindingsModel.activeView + " stack=" + new Error().stack)
+        windowRoot.visible = false
+    }
+
     function goBack() {
         if (windowRoot.isRecording) {
             cancelCapture()
@@ -104,6 +110,7 @@ PanelWindow {
             return
         }
         var view = keybindingsModel.activeView
+        console.info("[EVENT] keybindings.navigation.back from_view=" + view)
         if (view === "add_app" || view === "add_exec") {
             keybindingsModel.switchView("add_action_type")
             Qt.callLater(function() { listView.forceActiveFocus() })
@@ -112,12 +119,15 @@ PanelWindow {
             keybindingsModel.switchView(dest)
             Qt.callLater(function() { searchInput.forceActiveFocus() })
         } else {
-            windowRoot.visible = false
+            windowRoot.requestClose("escape-from-root")
         }
     }
 
     function activateSelected(): bool {
+        var source = arguments.length > 0 ? arguments[0] : "keyboard"
+        console.info("[EVENT] keybindings.activate.begin source=" + source + " view=" + keybindingsModel.activeView + " selIdx=" + keybindingsModel.selectedIndex + " item=" + (keybindingsModel.selectedItem ? (keybindingsModel.selectedItem.id || keybindingsModel.selectedItem.display_key) : "null") + " stack=" + new Error().stack)
         if (isActivating) {
+            console.warn("[EVENT] keybindings.activate.rejected reason=reentrancy_guard")
             return false
         }
         isActivating = true
@@ -131,10 +141,12 @@ PanelWindow {
                     return false
                 }
                 if (item.action_type_kind === "application") {
+                    console.info("[EVENT] keybindings.application_picker.open")
                     keybindingsModel.switchView("add_app")
                     Qt.callLater(function() { searchInput.forceActiveFocus() })
                     return true
                 } else if (item.action_type_kind === "executable") {
+                    console.info("[EVENT] keybindings.executable_form.open")
                     keybindingsModel.switchView("add_exec")
                     Qt.callLater(function() {
                         if (typeof addExecForm !== "undefined" && typeof addExecForm.focusFirstField === "function") {
@@ -150,6 +162,7 @@ PanelWindow {
                 }
             } else if (view === "add_app") {
                 if (item && item.desktop_id) {
+                    console.info("[EVENT] keybindings.application.add desktop_id=" + item.desktop_id)
                     keybindingsModel.addApplication(item.desktop_id)
                     return true
                 } else {
@@ -158,10 +171,13 @@ PanelWindow {
                 }
             } else if (view === "bound" || view === "unbound") {
                 if (item && item.runnable === true) {
+                    console.info("[EVENT] keybindings.run.request action_id=" + item.id)
                     if (keybindingsModel.runSelected()) {
-                        windowRoot.visible = false
+                        console.info("[EVENT] keybindings.run.result ok=true")
+                        windowRoot.requestClose("action-run-success")
                         return true
                     }
+                    console.warn("[EVENT] keybindings.run.result ok=false")
                     return false
                 }
                 // Non-runnable actions in bound/unbound view: fail-closed, do not execute, do not close palette
@@ -177,6 +193,7 @@ PanelWindow {
             }
         } finally {
             isActivating = false
+            console.info("[EVENT] keybindings.activate.end")
         }
     }
 
@@ -408,6 +425,7 @@ PanelWindow {
 
     onVisibleChanged: {
         if (visible) {
+            console.info("[LIFECYCLE] keybindings.window.visible=true")
             var openT0 = Date.now()
             keybindingsModel.operationState = "idle"
             keybindingsModel.operationMessage = ""
@@ -423,6 +441,7 @@ PanelWindow {
             searchInput.forceActiveFocus()
             console.info("[PERF] KeybindingsWindow: Window displayed and input focused in " + (Date.now() - openT0) + "ms")
         } else {
+            console.info("[LIFECYCLE] keybindings.window.hidden")
             keybindingsModel.operationState = "idle"
             keybindingsModel.operationMessage = ""
             recordingItem = null
@@ -467,10 +486,11 @@ PanelWindow {
         anchors.fill: parent
         cursorShape: Qt.ArrowCursor
         onClicked: {
+            console.info("[EVENT] keybindings.input.outside_click")
             if (windowRoot.isRecording) {
                 windowRoot.cancelCapture()
             } else {
-                windowRoot.visible = false
+                windowRoot.requestClose("outside-click")
             }
         }
     }
@@ -705,6 +725,7 @@ PanelWindow {
                             event.accepted = true
                             return
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            console.info("[EVENT] keybindings.input.enter target=searchInput activeView=" + keybindingsModel.activeView)
                             event.accepted = true
                             windowRoot.activateSelected()
                             return
@@ -921,6 +942,7 @@ PanelWindow {
 
                         // 6. Return / Enter: Authoritative activation
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            console.info("[EVENT] keybindings.input.enter target=listView activeView=" + keybindingsModel.activeView)
                             event.accepted = true
                             windowRoot.activateSelected()
                             return
@@ -1015,8 +1037,59 @@ PanelWindow {
                     anchors.fill: parent
                     visible: keybindingsModel.activeView === "add_exec"
 
+                    property string internalFormError: ""
+
                     function focusFirstField() {
                         execNameInput.forceActiveFocus()
+                    }
+
+                    function submitExecForm() {
+                        var name = execNameInput.text.trim()
+                        var path = execPathInput.text.trim()
+                        var args = execArgsInput.text.trim()
+
+                        if (!name) {
+                            addExecForm.internalFormError = "Error: Action Name cannot be empty."
+                            execNameInput.forceActiveFocus()
+                            return
+                        }
+                        if (!path) {
+                            addExecForm.internalFormError = "Error: Executable Path cannot be empty."
+                            execPathInput.forceActiveFocus()
+                            return
+                        }
+
+                        var idPart = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
+                        if (!idPart) {
+                            idPart = "custom_exec_" + Date.now()
+                        }
+                        var actionId = "exec:" + idPart
+
+                        var argv = []
+                        if (args) {
+                            argv = args.split(/\s+/).filter(function(a) { return a.length > 0; })
+                        }
+
+                        addExecForm.internalFormError = ""
+                        keybindingsModel.addExecutable(actionId, name, path, argv)
+                    }
+
+                    FileDialog {
+                        id: fileDialog
+                        title: "Select Executable or Script"
+                        fileMode: FileDialog.OpenFile
+                        onAccepted: {
+                            var p = selectedFile.toString()
+                            if (p.indexOf("file://") === 0) {
+                                p = decodeURIComponent(p.substring(7))
+                            }
+                            execPathInput.text = p
+                            addExecForm.internalFormError = ""
+                            execPathInput.forceActiveFocus()
+                        }
+                        onRejected: {
+                            browseButton.forceActiveFocus()
+                        }
                     }
 
                     onVisibleChanged: {
@@ -1024,7 +1097,7 @@ PanelWindow {
                             execNameInput.text = ""
                             execPathInput.text = ""
                             execArgsInput.text = ""
-                            execFormErrorText.text = ""
+                            internalFormError = ""
                             focusFirstField()
                         }
                     }
@@ -1093,7 +1166,7 @@ PanelWindow {
                                             execPathInput.forceActiveFocus()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                            submitExecForm()
+                                            addExecForm.submitExecForm()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
                                             windowRoot.goBack()
@@ -1115,45 +1188,100 @@ PanelWindow {
                                 font.weight: Theme.fontWeightMedium
                                 color: Theme.textMuted
                             }
-                            Rectangle {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 36
-                                radius: Theme.radiusSm
-                                color: Theme.inputBg
-                                border.color: execPathInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder
-                                border.width: 1
-                                TextInput {
-                                    id: execPathInput
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.spacingSm
-                                    anchors.rightMargin: Theme.spacingSm
-                                    verticalAlignment: TextInput.AlignVCenter
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeSm
-                                    color: Theme.inputText
-                                    selectByMouse: true
-                                    selectionColor: Theme.inputSelection
-                                    selectedTextColor: Theme.inputSelectionText
-                                    Text {
+                                spacing: Theme.spacingSm
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 36
+                                    radius: Theme.radiusSm
+                                    color: Theme.inputBg
+                                    border.color: execPathInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder
+                                    border.width: 1
+                                    TextInput {
+                                        id: execPathInput
                                         anchors.fill: parent
-                                        verticalAlignment: Text.AlignVCenter
-                                        text: "e.g. /usr/local/bin/my-script"
-                                        font: parent.font
-                                        color: Theme.inputPlaceholder
-                                        visible: !execPathInput.text
+                                        anchors.leftMargin: Theme.spacingSm
+                                        anchors.rightMargin: Theme.spacingSm
+                                        verticalAlignment: TextInput.AlignVCenter
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.fontSizeSm
+                                        color: Theme.inputText
+                                        selectByMouse: true
+                                        selectionColor: Theme.inputSelection
+                                        selectedTextColor: Theme.inputSelectionText
+                                        Text {
+                                            anchors.fill: parent
+                                            verticalAlignment: Text.AlignVCenter
+                                            text: "e.g. /usr/local/bin/my-script"
+                                            font: parent.font
+                                            color: Theme.inputPlaceholder
+                                            visible: !execPathInput.text
+                                        }
+                                        Keys.onPressed: function(event) {
+                                            if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right) {
+                                                browseButton.forceActiveFocus()
+                                                event.accepted = true
+                                            } else if (event.key === Qt.Key_Down) {
+                                                execArgsInput.forceActiveFocus()
+                                                event.accepted = true
+                                            } else if (event.key === Qt.Key_Up) {
+                                                execNameInput.forceActiveFocus()
+                                                event.accepted = true
+                                            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                                addExecForm.submitExecForm()
+                                                event.accepted = true
+                                            } else if (event.key === Qt.Key_Escape) {
+                                                windowRoot.goBack()
+                                                event.accepted = true
+                                            }
+                                        }
                                     }
+                                }
+
+                                Rectangle {
+                                    id: browseButton
+                                    Layout.preferredHeight: 36
+                                    Layout.preferredWidth: browseLabel.implicitWidth + Theme.spacingLg * 2
+                                    radius: Theme.radiusSm
+                                    color: browseButton.activeFocus ? Theme.accent : Theme.surfaceElevated
+                                    border.color: browseButton.activeFocus ? Theme.accent : Theme.border
+                                    border.width: 1
+                                    focus: true
+                                    activeFocusOnTab: true
+
+                                    Text {
+                                        id: browseLabel
+                                        anchors.centerIn: parent
+                                        text: "Browse…"
+                                        color: browseButton.activeFocus ? Theme.bgBase : Theme.textPrimary
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.fontSizeSm
+                                        font.weight: Theme.fontWeightMedium
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: fileDialog.open()
+                                    }
+
                                     Keys.onPressed: function(event) {
-                                        if (event.key === Qt.Key_Down || event.key === Qt.Key_Tab) {
-                                            execArgsInput.forceActiveFocus()
-                                            event.accepted = true
-                                        } else if (event.key === Qt.Key_Up) {
-                                            execNameInput.forceActiveFocus()
-                                            event.accepted = true
-                                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                            submitExecForm()
+                                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                            fileDialog.open()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
                                             windowRoot.goBack()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Down) {
+                                            execArgsInput.forceActiveFocus()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Backtab || event.key === Qt.Key_Left) {
+                                            execPathInput.forceActiveFocus()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Up) {
+                                            execNameInput.forceActiveFocus()
                                             event.accepted = true
                                         }
                                     }
@@ -1204,7 +1332,7 @@ PanelWindow {
                                             execPathInput.forceActiveFocus()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                            submitExecForm()
+                                            addExecForm.submitExecForm()
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
                                             windowRoot.goBack()
@@ -1225,7 +1353,7 @@ PanelWindow {
                             font.bold: true
                             wrapMode: Text.Wrap
                             visible: text !== ""
-                            text: (keybindingsModel.operationState === "error" && keybindingsModel.activeView === "add_exec") ? keybindingsModel.operationMessage : ""
+                            text: addExecForm.internalFormError !== "" ? addExecForm.internalFormError : ((keybindingsModel.operationState === "error" && keybindingsModel.activeView === "add_exec") ? keybindingsModel.operationMessage : "")
                         }
 
                         // Buttons
@@ -1252,7 +1380,7 @@ PanelWindow {
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: submitExecForm()
+                                    onClicked: addExecForm.submitExecForm()
                                 }
                             }
 
@@ -1280,37 +1408,6 @@ PanelWindow {
                                 }
                             }
                         }
-                    }
-
-                    function submitExecForm() {
-                        var name = execNameInput.text.trim()
-                        var path = execPathInput.text.trim()
-                        var args = execArgsInput.text.trim()
-
-                        if (!name) {
-                            execFormErrorText.text = "Error: Action Name cannot be empty."
-                            execNameInput.forceActiveFocus()
-                            return
-                        }
-                        if (!path) {
-                            execFormErrorText.text = "Error: Executable Path cannot be empty."
-                            execPathInput.forceActiveFocus()
-                            return
-                        }
-
-                        var idPart = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
-                        if (!idPart) {
-                            idPart = "custom_exec_" + Date.now()
-                        }
-                        var actionId = "exec:" + idPart
-
-                        var argv = []
-                        if (args) {
-                            argv = args.split(/\s+/).filter(function(a) { return a.length > 0; })
-                        }
-
-                        execFormErrorText.text = ""
-                        keybindingsModel.addExecutable(actionId, name, path, argv)
                     }
                 }
             }

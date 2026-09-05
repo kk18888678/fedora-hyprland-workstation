@@ -65,6 +65,7 @@ QtObject {
     function switchView(view) {
         if (view !== "bound" && view !== "unbound" && view !== "add_action_type" && view !== "add_app" && view !== "add_exec") return;
         if (root.activeView === view) return;
+        console.info("[EVENT] keybindings.view.change from=" + root.activeView + " to=" + view)
         if (view === "add_action_type") {
             if (root.activeView === "bound" || root.activeView === "unbound") {
                 root.previousRootView = root.activeView;
@@ -457,6 +458,12 @@ QtObject {
             onStreamFinished: {
                 root.isLoadingApps = false
                 try {
+                    if (!this.text || this.text.trim().length === 0) {
+                        console.warn("[WARN] KeybindingsModel: appsProcess returned empty output")
+                        root.availableApplications = []
+                        root.appsStatusMessage = "No desktop applications found."
+                        return
+                    }
                     var parsed = JSON.parse(this.text)
                     if (Array.isArray(parsed)) {
                         var appList = []

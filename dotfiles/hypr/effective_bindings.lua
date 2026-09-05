@@ -693,7 +693,7 @@ end
 -- Check if a filepath exists, is a regular file, and is executable
 local function check_executable_file(path)
     if not path or type(path) ~= "string" or #path == 0 or #path > 1024 then
-        return false, "Invalid path"
+        return false, "Invalid path: must be non-empty and under 1024 characters"
     end
     if path:find("[%c]") or path:find("[;&|`$><\"'\\]") or path:find("%.%./") or path:find("/%.%.$") then
         return false, "Path contains dangerous characters or path traversal"
@@ -703,17 +703,27 @@ local function check_executable_file(path)
         local home = os.getenv("HOME") or ""
         resolved = home .. resolved:sub(2)
     elseif resolved:sub(1, 1) ~= "/" then
-        return false, "Path must be absolute or start with ~/"
+        return false, "Path must be an absolute path or start with ~/"
     end
-    local f = io.open(resolved, "r")
-    if not f then
-        return false, "File does not exist or is not readable: " .. path
+    local d_ret = os.execute("test -d " .. sh_quote(resolved))
+    if d_ret == 0 or d_ret == true then
+        return false, "Path is a directory, not an executable file: " .. path
     end
-    f:close()
-    local cmd = "test -f " .. sh_quote(resolved) .. " && test -x " .. sh_quote(resolved)
-    local ret = os.execute(cmd)
-    if ret ~= 0 and ret ~= true then
-        return false, "File is not an executable regular file: " .. path
+    local e_ret = os.execute("test -e " .. sh_quote(resolved))
+    if e_ret ~= 0 and e_ret ~= true then
+        return false, "File does not exist: " .. path
+    end
+    local r_ret = os.execute("test -r " .. sh_quote(resolved))
+    if r_ret ~= 0 and r_ret ~= true then
+        return false, "File is not readable (permission denied): " .. path
+    end
+    local x_ret = os.execute("test -x " .. sh_quote(resolved))
+    if x_ret ~= 0 and x_ret ~= true then
+        return false, "File is not executable (chmod +x required): " .. path
+    end
+    local f_ret = os.execute("test -f " .. sh_quote(resolved))
+    if f_ret ~= 0 and f_ret ~= true then
+        return false, "File is not a regular file: " .. path
     end
     return true, resolved
 end

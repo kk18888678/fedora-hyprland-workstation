@@ -84,25 +84,19 @@ Rectangle {
         }
         onClicked: {
             if (typeof keybindingsModel !== "undefined") {
+                console.info("[EVENT] keybindings.input.mouse_click index=" + rowRoot.index + " view=" + keybindingsModel.activeView)
                 keybindingsModel.selectedIndex = rowRoot.index
                 if (ListView.view) {
                     ListView.view.forceActiveFocus()
-                }
-                if (keybindingsModel.activeView === "add_action_type") {
-                    if (typeof windowRoot !== "undefined" && typeof windowRoot.activateSelected === "function") {
-                        windowRoot.activateSelected()
-                    }
                 }
             }
         }
         onDoubleClicked: {
             if (typeof keybindingsModel !== "undefined") {
+                console.info("[EVENT] keybindings.input.mouse_double_click index=" + rowRoot.index + " view=" + keybindingsModel.activeView)
                 keybindingsModel.selectedIndex = rowRoot.index
                 if (ListView.view) {
                     ListView.view.forceActiveFocus()
-                }
-                if (rowRoot.modelData && rowRoot.modelData.action_type_kind) {
-                    return
                 }
                 if (typeof windowRoot !== "undefined" && typeof windowRoot.activateSelected === "function") {
                     windowRoot.activateSelected()

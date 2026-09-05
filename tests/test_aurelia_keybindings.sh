@@ -3177,13 +3177,13 @@ else
     fail "34.3 S/U shortcut scoping missing or search input intercepts plain s/u in KeybindingsWindow.qml"
 fi
 
-# 34.4: Single click in add_action_type activates selected type without closing
-if grep -q 'keybindingsModel.activeView === "add_action_type"' "$qml_row" && \
-   grep -q 'windowRoot.activateSelected()' "$qml_row" && \
-   grep -q 'rowRoot.modelData.action_type_kind' "$qml_row"; then
-    pass "34.4 single click in add_action_type activates selected type without closing or double-activation"
+# 34.4: Single click on any row strictly selects and focuses without activation; double-click activates
+if grep -q 'keybindingsModel.selectedIndex = rowRoot.index' "$qml_row" && \
+   ! grep -q 'keybindingsModel.activeView === "add_action_type"' "$qml_row" && \
+   grep -q 'windowRoot.activateSelected()' "$qml_row"; then
+    pass "34.4 unified mouse interaction model: single-click selects without activation, double-click activates"
 else
-    fail "34.4 single click action type activation missing in KeybindingRow.qml"
+    fail "34.4 unified mouse interaction model violated in KeybindingRow.qml"
 fi
 
 # 34.5: Executable / Script form uses Theme.input* tokens and entered text is high-contrast

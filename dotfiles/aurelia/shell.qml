@@ -34,8 +34,12 @@ ShellRoot {
         function toggle(): void {
             if (keybindingsLoader.item) {
                 var next = !keybindingsLoader.item.visible
-                console.info("[IPC] keybindings.toggle() -> visible=" + next)
-                keybindingsLoader.item.visible = next
+                console.info("[IPC] keybindings.toggle() -> visible=" + next + " stack=" + new Error().stack)
+                if (!next && typeof keybindingsLoader.item.requestClose === "function") {
+                    keybindingsLoader.item.requestClose("ipc-toggle")
+                } else {
+                    keybindingsLoader.item.visible = next
+                }
             } else {
                 console.warn("[IPC-WARN] keybindings.toggle() called but item not loaded")
             }
@@ -43,15 +47,19 @@ ShellRoot {
 
         function open(): void {
             if (keybindingsLoader.item) {
-                console.info("[IPC] keybindings.open()")
+                console.info("[IPC] keybindings.open() stack=" + new Error().stack)
                 keybindingsLoader.item.visible = true
             }
         }
 
         function close(): void {
             if (keybindingsLoader.item) {
-                console.info("[IPC] keybindings.close()")
-                keybindingsLoader.item.visible = false
+                console.info("[IPC] keybindings.close() stack=" + new Error().stack)
+                if (typeof keybindingsLoader.item.requestClose === "function") {
+                    keybindingsLoader.item.requestClose("ipc-close")
+                } else {
+                    keybindingsLoader.item.visible = false
+                }
             }
         }
 

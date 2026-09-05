@@ -76,7 +76,7 @@ case "$cmd" in
 local pref_dir    = arg[1]
 local format_json = tonumber(arg[2]) or 0
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 
 local diag = pref.get_diagnostics()
 
@@ -130,7 +130,7 @@ LUA_SCRIPT
 local pref_dir = arg[1]
 local key      = arg[2]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 
 if not key or key == "" then
     local all = pref.get_all_effective()
@@ -161,7 +161,7 @@ local pref_dir = arg[1]
 local key      = arg[2]
 local raw_val  = arg[3]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 
 -- Type coercion
 local val = raw_val
@@ -189,7 +189,7 @@ LUA_SCRIPT
 local pref_dir = arg[1]
 local key      = arg[2]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 
 local ok, err = pref.remove_override(key)
 if not ok then
@@ -211,7 +211,7 @@ LUA_SCRIPT
 local pref_dir = arg[1]
 local comp     = arg[2]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 
 if comp and comp ~= "" then
     local ok, err = pref.reset_component(comp)
@@ -235,7 +235,7 @@ LUA_SCRIPT
                 "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
 local pref_dir = arg[1]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 
 print(pref.export_portable())
 LUA_SCRIPT
@@ -256,7 +256,7 @@ LUA_SCRIPT
                 "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
 local pref_dir = arg[1]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 local enabled = pref.get_effective("aurelia.motion.enabled")
 local scale = pref.get_effective("aurelia.motion.scale")
 print(string.format("Aurelia Motion: enabled=%s, scale=%.2f", tostring(enabled), tonumber(scale) or 1.0))
@@ -266,7 +266,7 @@ LUA_SCRIPT
                 "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
 local pref_dir = arg[1]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 pref.set_override("aurelia.motion.enabled", true)
 print("Aurelia Motion enabled.")
 LUA_SCRIPT
@@ -275,7 +275,7 @@ LUA_SCRIPT
                 "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
 local pref_dir = arg[1]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 pref.set_override("aurelia.motion.enabled", false)
 print("Aurelia Motion disabled (component transitions effectively immediate).")
 LUA_SCRIPT
@@ -286,7 +286,7 @@ LUA_SCRIPT
 local pref_dir = arg[1]
 local s_raw    = arg[2]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 local s = tonumber(s_raw)
 if not s or s < 0 then
     io.stderr:write("Error: Invalid motion scale value (must be >= 0): " .. tostring(s_raw) .. "\n")
@@ -316,7 +316,7 @@ local comp     = arg[3]
 local event    = arg[4]
 local msg      = arg[5]
 package.path = pref_dir .. "/?.lua;" .. package.path
-local pref = require("aurelia_preferences")
+local pref = require("preferences")
 pref.log_event(level, comp, event, msg, 0)
 LUA_SCRIPT
         ;;

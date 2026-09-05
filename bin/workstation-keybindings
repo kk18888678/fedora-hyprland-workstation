@@ -269,6 +269,10 @@ while [[ $# -gt 0 ]]; do
             SUBCOMMAND="toggle"
             shift
             ;;
+        help|-h|--help)
+            printf 'Usage: workstation-keybindings [toggle|json|apps|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>]\n'
+            exit 0
+            ;;
         *)
             remaining_args+=("$1")
             shift
@@ -277,6 +281,10 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ ${#remaining_args[@]} -gt 0 ]]; then
     set -- "${remaining_args[@]}"
+    if [[ -z "$SUBCOMMAND" ]]; then
+        printf 'Error: Unrecognized command or option: %s\n' "$1" >&2
+        exit 1
+    fi
 fi
 
 get_provider() {
