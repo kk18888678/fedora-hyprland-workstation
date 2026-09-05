@@ -290,9 +290,23 @@ PanelWindow {
         }
     }
 
+    property double activationCooldownUntil: 0
+
+    Component.onCompleted: {
+        console.info("[PROVENANCE] keybindings.ui.revision=" + KeybindingsConfig.uiRevision)
+    }
+
     function activateSelected(): bool {
         var source = arguments.length > 0 ? arguments[0] : "keyboard"
         console.info("[EVENT] keybindings.activate.begin source=" + source + " view=" + keybindingsModel.activeView + " selIdx=" + keybindingsModel.selectedIndex + " item=" + (keybindingsModel.selectedItem ? (keybindingsModel.selectedItem.id || keybindingsModel.selectedItem.display_key) : "null") + " stack=" + new Error().stack)
+        if (Date.now() < activationCooldownUntil) {
+            console.warn("[EVENT] keybindings.activate.rejected reason=view_transition_cooldown source=" + source)
+            return false
+        }
+        if (keybindingsModel.isMutating) {
+            console.warn("[EVENT] keybindings.activate.rejected reason=mutating source=" + source)
+            return false
+        }
         if (isActivating) {
             console.warn("[EVENT] keybindings.activate.rejected reason=reentrancy_guard")
             return false
@@ -622,6 +636,9 @@ PanelWindow {
 
     Connections {
         target: keybindingsModel
+        function onActiveViewChanged() {
+            windowRoot.activationCooldownUntil = Date.now() + 400
+        }
         function onSelectedIndexChanged() {
             if (keybindingsModel.selectedIndex >= 0 && keybindingsModel.selectedIndex < listView.count) {
                 listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
@@ -896,9 +913,13 @@ PanelWindow {
                             event.accepted = true
                             return
                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
                             console.info("[EVENT] keybindings.input.enter target=searchInput activeView=" + keybindingsModel.activeView)
                             event.accepted = true
-                            windowRoot.activateSelected()
+                            windowRoot.activateSelected("keyboard")
                             return
                         }
 
@@ -1147,9 +1168,13 @@ PanelWindow {
 
                         // 6. Return / Enter: Authoritative activation
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
                             console.info("[EVENT] keybindings.input.enter target=listView activeView=" + keybindingsModel.activeView)
                             event.accepted = true
-                            windowRoot.activateSelected()
+                            windowRoot.activateSelected("keyboard")
                             return
                         }
 

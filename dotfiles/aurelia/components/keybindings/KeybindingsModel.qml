@@ -98,6 +98,8 @@ QtObject {
         appsProcess.running = true;
     }
 
+    property string pendingSelectActionId: ""
+
     function addApplication(desktopId) {
         if (!desktopId) return;
         if (root.isMutating) return;
@@ -106,6 +108,7 @@ QtObject {
             return;
         }
         console.info("[PERF] KeybindingsModel: Adding application action for '" + desktopId + "'")
+        root.pendingSelectActionId = "app:" + desktopId
         root.operationState = "applying"
         root.operationMessage = "Adding application..."
         addAppProcess.command = [root.backendBin, "add-app", desktopId]
@@ -121,6 +124,7 @@ QtObject {
             return;
         }
         console.info("[PERF] KeybindingsModel: Adding executable action for '" + id + "' (" + path + ")")
+        root.pendingSelectActionId = id
         root.operationState = "applying"
         root.operationMessage = "Adding executable action..."
         var cmd = [root.backendBin, "add-exec", id, name, path]
@@ -206,7 +210,16 @@ QtObject {
             selectedIndex = -1
         } else {
             var newIndex = -1
-            if (currentSelectedId !== "") {
+            if (root.pendingSelectActionId !== "") {
+                for (var p = 0; p < filteredItems.length; p++) {
+                    if (filteredItems[p].id === root.pendingSelectActionId) {
+                        newIndex = p
+                        root.pendingSelectActionId = ""
+                        break
+                    }
+                }
+            }
+            if (newIndex === -1 && currentSelectedId !== "") {
                 for (var j = 0; j < filteredItems.length; j++) {
                     if (filteredItems[j].id === currentSelectedId) {
                         newIndex = j
@@ -246,6 +259,11 @@ QtObject {
         printErrors: false
     }
 
+    property FileView binUserLocalAureliaCheck: FileView {
+        path: Quickshell.env("HOME") ? (Quickshell.env("HOME") + "/.local/bin/aurelia-shell-keybindings") : ""
+        printErrors: false
+    }
+
     property FileView binKeybindingsCheck: FileView {
         path: "/usr/local/bin/workstation-keybindings"
         printErrors: false
@@ -264,9 +282,10 @@ QtObject {
     // Deterministic backend executable resolution:
     // 1. Explicit development/test override via AURELIA_SHELL_KEYBINDINGS_BIN, AURELIA_KEYBINDINGS_BIN, or WORKSTATION_KEYBINDINGS_BIN
     // 2. Canonical managed system installation: /usr/local/bin/aurelia-shell-keybindings
-    // 3. User-local override: ~/.local/bin/workstation-keybindings
-    // 4. Compatibility system fallback: /usr/local/bin/workstation-keybindings
-    // 5. Compatibility fallback: /usr/local/bin/workstation-hotkeys, aurelia-shell-keybindings
+    // 3. User-local canonical binary: ~/.local/bin/aurelia-shell-keybindings
+    // 4. User-local override: ~/.local/bin/workstation-keybindings
+    // 5. Compatibility system fallback: /usr/local/bin/workstation-keybindings
+    // 6. Compatibility fallback: /usr/local/bin/workstation-hotkeys, aurelia-shell-keybindings
     readonly property string backendBin: {
         var testOverride = Quickshell.env("AURELIA_SHELL_KEYBINDINGS_BIN") || Quickshell.env("AURELIA_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_KEYBINDINGS_BIN") || Quickshell.env("WORKSTATION_HOTKEYS_BIN") || ""
         if (testOverride !== "") {
@@ -276,6 +295,12 @@ QtObject {
             var akbTxt = binAureliaKeybindingsCheck.text()
             if (akbTxt && akbTxt.length > 0) {
                 return "/usr/local/bin/aurelia-shell-keybindings"
+            }
+        } catch (e) {}
+        try {
+            var ulAkbTxt = binUserLocalAureliaCheck.text()
+            if (ulAkbTxt && ulAkbTxt.length > 0) {
+                return Quickshell.env("HOME") + "/.local/bin/aurelia-shell-keybindings"
             }
         } catch (e) {}
         try {
@@ -556,6 +581,7 @@ QtObject {
                 root.reload()
                 root.switchView("unbound")
             } else {
+                root.pendingSelectActionId = ""
                 root.operationState = "error"
                 root.operationMessage = addAppProcess.errorText || "Failed to add application."
                 console.error("[ERROR] KeybindingsModel: addAppProcess failed (code " + code + "): " + root.operationMessage)
@@ -581,6 +607,7 @@ QtObject {
                 root.reload()
                 root.switchView("unbound")
             } else {
+                root.pendingSelectActionId = ""
                 root.operationState = "error"
                 root.operationMessage = addExecProcess.errorText || "Failed to add executable action."
                 console.error("[ERROR] KeybindingsModel: addExecProcess failed (code " + code + "): " + root.operationMessage)

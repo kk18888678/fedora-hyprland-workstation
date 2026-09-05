@@ -72,6 +72,30 @@ ShellRoot {
                 keybindingsLoader.item.keybindingsModel.selectedIndex = idx
             }
         }
+
+        function activeView(): string {
+            return (keybindingsLoader.item && keybindingsLoader.item.keybindingsModel) ? keybindingsLoader.item.keybindingsModel.activeView : ""
+        }
+
+        function cycleView(forward: bool): string {
+            if (keybindingsLoader.item && typeof keybindingsLoader.item.cycleTopLevelView === "function") {
+                keybindingsLoader.item.cycleTopLevelView(forward)
+                return keybindingsLoader.item.keybindingsModel ? keybindingsLoader.item.keybindingsModel.activeView : ""
+            }
+            return ""
+        }
+
+        function switchView(viewName: string): bool {
+            if (keybindingsLoader.item && keybindingsLoader.item.keybindingsModel) {
+                keybindingsLoader.item.keybindingsModel.switchView(viewName)
+                return true
+            }
+            return false
+        }
+
+        function revision(): string {
+            return KeybindingsConfig.uiRevision
+        }
     }
 
     // Backwards compatibility IPC Endpoint: forwards hotkeys target to keybindings
@@ -100,6 +124,22 @@ ShellRoot {
 
         function selectIndex(idx: int): void {
             keybindingsIpc.selectIndex(idx)
+        }
+
+        function activeView(): string {
+            return keybindingsIpc.activeView()
+        }
+
+        function cycleView(forward: bool): string {
+            return keybindingsIpc.cycleView(forward)
+        }
+
+        function switchView(viewName: string): bool {
+            return keybindingsIpc.switchView(viewName)
+        }
+
+        function revision(): string {
+            return keybindingsIpc.revision()
         }
     }
 

@@ -1147,7 +1147,8 @@ function M.add_user_application_action(desktop_id, user_actions_path, overrides_
     end
 
     user_actions_path = user_actions_path or M.get_user_actions_path()
-    reload_fn = reload_fn or M.reload_session
+    -- Unbound registration modifies only user_actions.json without adding global shortcuts.
+    -- Compositor bindings are unchanged, so reload is skipped by default unless caller explicitly supplies reload_fn.
 
     local app_info = app_reg.find_application(desktop_id)
     if not app_info then
@@ -1176,7 +1177,9 @@ function M.add_user_application_action(desktop_id, user_actions_path, overrides_
         end
     end
 
-    reload_fn()
+    if reload_fn then
+        reload_fn()
+    end
     return true, "Application action added: " .. (app_info.name or desktop_id)
 end
 
@@ -1217,7 +1220,8 @@ function M.add_user_executable_action(action_def, user_actions_path, overrides_p
     end
 
     user_actions_path = user_actions_path or M.get_user_actions_path()
-    reload_fn = reload_fn or M.reload_session
+    -- Unbound registration modifies only user_actions.json without adding global shortcuts.
+    -- Compositor bindings are unchanged, so reload is skipped by default unless caller explicitly supplies reload_fn.
 
     local current, err = M.load_user_actions(user_actions_path)
     if not current then
@@ -1245,7 +1249,9 @@ function M.add_user_executable_action(action_def, user_actions_path, overrides_p
         return false, "Failed to save user actions: " .. tostring(save_err)
     end
 
-    reload_fn()
+    if reload_fn then
+        reload_fn()
+    end
     return true, "Executable action added: " .. name
 end
 

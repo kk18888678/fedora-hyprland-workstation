@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import "../../theme"
 
 // KeybindingsConfig — Authoritative Component Design Configuration
 //
@@ -15,10 +16,15 @@ import QtQuick
 // Invariants:
 // - Zero user preferences (preferences belong exclusively to preferences.json)
 // - Zero color duplication (semantic colors belong exclusively to Theme.qml)
+// - Zero duplicate tokens (shared radii, borders, spacing, durations consume Theme.qml)
 // - Responsive layout constraints rather than rigid fixed-pixel blueprints
 
 QtObject {
     id: config
+
+    // Component Metadata & Provenance Fingerprint
+    readonly property string componentName: "keybindings"
+    readonly property string uiRevision: "2026.09.05.r2"
 
     // =========================================================================
     // 1. Surface (Palette Window Dimensions & Margins)
@@ -27,10 +33,10 @@ QtObject {
     readonly property int palettePreferredHeight: 480
     readonly property int paletteMinWidth: 580
     readonly property int paletteMinHeight: 340
-    readonly property int contentPaddingHorizontal: 16
+    readonly property int contentPaddingHorizontal: Theme.spacingLg
     readonly property int contentPaddingVertical: 14
-    readonly property int surfaceRadius: 12
-    readonly property int cardBorderWidth: 1
+    readonly property int surfaceRadius: Theme.radiusLg
+    readonly property int cardBorderWidth: Theme.borderWidthDefault
 
     // =========================================================================
     // 2. Header (Navigation Tabs & Settings Cog)
@@ -48,17 +54,17 @@ QtObject {
     // 3. Search (Command Palette Search Bar)
     // =========================================================================
     readonly property int searchHeight: 40
-    readonly property int searchBorderRadius: 8
+    readonly property int searchBorderRadius: Theme.radiusMd
     readonly property int searchPaddingHorizontal: 14
 
     // =========================================================================
     // 4. List & Rows (Shortcut Table Layout)
     // =========================================================================
     readonly property int rowHeight: 38
-    readonly property int rowSpacing: 3
-    readonly property int rowRadius: 4
-    readonly property int rowPaddingHorizontal: 16
-    readonly property int scrollBarWidth: 4
+    readonly property int rowSpacing: Theme.rowSpacing
+    readonly property int rowRadius: Theme.radiusSm
+    readonly property int rowPaddingHorizontal: Theme.spacingLg
+    readonly property int scrollBarWidth: Theme.scrollBarWidth
 
     // =========================================================================
     // 5. Columns (Shortcut List Column Proportions)
@@ -69,16 +75,16 @@ QtObject {
     // =========================================================================
     // 6. Settings (Responsive Preferences Layout)
     // =========================================================================
-    readonly property int settingsContentPreferredWidth: 620
-    readonly property int settingsContentMaxWidth: 680
-    readonly property int settingsMarginHorizontal: 24
-    readonly property int settingsMarginVertical: 16
+    readonly property int settingsContentPreferredWidth: 640
+    readonly property int settingsContentMaxWidth: 720
+    readonly property int settingsMarginHorizontal: Theme.spacingXxl
+    readonly property int settingsMarginVertical: Theme.spacingLg
     readonly property int settingsBreakpointWidth: 540
     readonly property int settingsValueColumnPreferredWidth: 120
     readonly property int settingsRowMinHeight: 44
-    readonly property int settingsRowSpacing: 8
-    readonly property int settingsSectionSpacing: 16
-    readonly property int settingsBadgeRadius: 4
+    readonly property int settingsRowSpacing: Theme.spacingSm
+    readonly property int settingsSectionSpacing: Theme.spacingLg
+    readonly property int settingsBadgeRadius: Theme.radiusSm
     readonly property int settingsBadgePaddingHorizontal: 10
     readonly property int settingsBadgeHeight: 26
 
@@ -103,6 +109,6 @@ QtObject {
     // =========================================================================
     // 9. Motion (Component Baseline Animation Defaults)
     // =========================================================================
-    readonly property int defaultTransitionFast: 100
-    readonly property int defaultTransitionNormal: 200
+    readonly property int defaultTransitionFast: Theme.durationFast
+    readonly property int defaultTransitionNormal: Theme.durationNormal
 }

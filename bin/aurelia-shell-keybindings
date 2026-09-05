@@ -57,7 +57,7 @@ log_event() {
     local dur="${4:-0}"
     local ts
     ts="$(date -Iseconds 2>/dev/null || date)"
-    logger -t workstation-keybindings "[$level] [$op] $msg" 2>/dev/null || true
+    logger -t aurelia-shell-keybindings "[$level] [$op] $msg" 2>/dev/null || true
     if [[ -d "$LOG_DIR" ]]; then
         printf '%s [%s] [%s] %s\n' "$ts" "$level" "$op" "$msg" >> "$KEYBINDINGS_LOG" 2>/dev/null || true
         bound_logfile "$KEYBINDINGS_LOG"
@@ -149,10 +149,111 @@ resolve_aurelia_bin() {
     return 1
 }
 
+run_diagnostics_runtime() {
+    local format_json=0
+    for arg in "$@"; do
+        if [[ "$arg" == "--json" ]]; then
+            format_json=1
+        fi
+    done
+
+    local exe_path exe_hash active_qml_root component_path running_pid live_revision layer_namespace motion_enabled motion_scale active_view
+
+    exe_path="$(readlink -f "${BASH_SOURCE[0]}")"
+    exe_hash="$(sha256sum "$exe_path" 2>/dev/null | awk '{print $1}')"
+
+    active_qml_root=""
+    if [[ -n "${AURELIA_QML_ROOT:-}" && -f "$AURELIA_QML_ROOT" ]]; then
+        active_qml_root="$AURELIA_QML_ROOT"
+    elif [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml" ]]; then
+        active_qml_root="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/shell.qml"
+    elif [[ -f "$script_dir/../dotfiles/aurelia/shell.qml" ]]; then
+        active_qml_root="$script_dir/../dotfiles/aurelia/shell.qml"
+    fi
+
+    component_path=""
+    if [[ -n "$active_qml_root" ]]; then
+        component_path="$(dirname "$active_qml_root")/components/keybindings"
+    fi
+
+    running_pid="$(pgrep -u "$UID" -f "qs.*shell\.qml" 2>/dev/null | head -n1 || true)"
+    if [[ -z "$running_pid" ]]; then
+        running_pid="$(pgrep -u "$UID" -f "quickshell.*shell\.qml" 2>/dev/null | head -n1 || true)"
+    fi
+
+    live_revision="not running"
+    active_view="none"
+    if [[ -n "$running_pid" && -n "$active_qml_root" ]] && command -v qs >/dev/null 2>&1; then
+        local q_rev q_view
+        q_rev="$(qs ipc -p "$active_qml_root" call keybindings revision 2>/dev/null || true)"
+        if [[ -n "$q_rev" ]]; then
+            live_revision="$q_rev"
+        fi
+        q_view="$(qs ipc -p "$active_qml_root" call keybindings activeView 2>/dev/null || true)"
+        if [[ -n "$q_view" ]]; then
+            active_view="$q_view"
+        fi
+    fi
+
+    layer_namespace="aurelia-keybindings"
+
+    motion_enabled="true"
+    motion_scale="1.0"
+    if aurelia_bin="$(resolve_aurelia_bin 2>/dev/null)"; then
+        local me ms
+        me="$("$aurelia_bin" preference get components.keybindings.motion.enabled 2>/dev/null || true)"
+        ms="$("$aurelia_bin" preference get components.keybindings.motion.scale 2>/dev/null || true)"
+        [[ -n "$me" ]] && motion_enabled="$me"
+        [[ -n "$ms" ]] && motion_scale="$ms"
+    fi
+
+    if [[ "$format_json" -eq 1 ]]; then
+        if command -v python3 >/dev/null 2>&1; then
+            python3 -c "
+import json, sys
+data = {
+    'executable_path': sys.argv[1],
+    'executable_sha256': sys.argv[2],
+    'active_qml_root': sys.argv[3],
+    'component_path': sys.argv[4],
+    'running_pid': int(sys.argv[5]) if sys.argv[5].isdigit() else None,
+    'live_ui_revision': sys.argv[6],
+    'layer_namespace': sys.argv[7],
+    'motion_state': {
+        'enabled': sys.argv[8] == 'true',
+        'scale': float(sys.argv[9]) if sys.argv[9].replace('.', '', 1).isdigit() else 1.0
+    },
+    'active_view': sys.argv[10]
+}
+print(json.dumps(data, indent=2))
+" "$exe_path" "$exe_hash" "$active_qml_root" "$component_path" "$running_pid" "$live_revision" "$layer_namespace" "$motion_enabled" "$motion_scale" "$active_view"
+        else
+            printf '{\n  "executable_path": "%s",\n  "executable_sha256": "%s",\n  "active_qml_root": "%s",\n  "component_path": "%s",\n  "running_pid": %s,\n  "live_ui_revision": "%s",\n  "layer_namespace": "%s",\n  "motion_state": {\n    "enabled": %s,\n    "scale": %s\n  },\n  "active_view": "%s"\n}\n' \
+                "$exe_path" "$exe_hash" "$active_qml_root" "$component_path" "${running_pid:-null}" "$live_revision" "$layer_namespace" "$([ "$motion_enabled" == "true" ] && echo "true" || echo "false")" "$motion_scale" "$active_view"
+        fi
+    else
+        printf '=== Aurelia Shell Keybindings Runtime Diagnostics ===\n'
+        printf 'Executable Path   : %s\n' "$exe_path"
+        printf 'Executable SHA256 : %s\n' "$exe_hash"
+        printf 'Active QML Root   : %s\n' "$active_qml_root"
+        printf 'Component Path    : %s\n' "$component_path"
+        printf 'Quickshell PID    : %s\n' "${running_pid:-not running}"
+        printf 'Live UI Revision  : %s\n' "$live_revision"
+        printf 'Layer Namespace   : %s\n' "$layer_namespace"
+        printf 'Motion State      : %s (scale: %s)\n' "$([ "$motion_enabled" == "true" ] && echo "enabled" || echo "disabled")" "$motion_scale"
+        printf 'Active View       : %s\n' "$active_view"
+    fi
+}
+
 # Subcommands delegating to workstation-aurelia Shell Core
 case "${1:-}" in
     diagnostics|--diagnostics)
         shift
+        if [[ "${1:-}" == "runtime" ]]; then
+            shift
+            run_diagnostics_runtime "$@"
+            exit 0
+        fi
         if aurelia_bin="$(resolve_aurelia_bin)"; then
             exec "$aurelia_bin" diagnostics "$@"
         fi

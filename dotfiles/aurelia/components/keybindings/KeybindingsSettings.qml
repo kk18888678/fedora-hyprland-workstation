@@ -25,6 +25,7 @@ Item {
     // 5: Animation Speed (Normal / Faster / Slower)
     // 6: Reset Keybindings Preferences
     readonly property int totalRows: 7
+    readonly property bool isCompact: settingsContent.width < KeybindingsConfig.settingsBreakpointWidth
 
     function formatSpeedLabel(scale: real): string {
         if (scale <= 0.7) return "Faster"
@@ -362,7 +363,8 @@ Item {
                 Rectangle {
                     id: row0
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    implicitHeight: layout0.implicitHeight + (Theme.spacingMd * 2)
+                    Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
                     radius: Theme.radiusSm
                     color: (settingsRoot.selectedIndex === 0) ? Theme.selection : (row0Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : ((settingsRoot.selectedIndex === 0) ? Theme.borderActive : Theme.border)
@@ -370,14 +372,20 @@ Item {
 
                     HoverHandler { id: row0Hover }
 
-                    RowLayout {
-                        anchors.fill: parent
+                    GridLayout {
+                        id: layout0
+                        columns: settingsRoot.isCompact ? 1 : 2
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: Theme.spacingMd
                         anchors.rightMargin: Theme.spacingMd
-                        spacing: Theme.spacingMd
+                        rowSpacing: Theme.spacingSm
+                        columnSpacing: Theme.spacingMd
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
                             spacing: 1
 
                             Text {
@@ -392,13 +400,13 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeXs
                                 color: Theme.textMuted
-                                elide: Text.ElideRight
+                                wrapMode: Text.Wrap
                                 Layout.fillWidth: true
                             }
                         }
 
                         Rectangle {
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.alignment: settingsRoot.isCompact ? (Qt.AlignLeft | Qt.AlignVCenter) : (Qt.AlignRight | Qt.AlignVCenter)
                             Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
                             Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText0.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
                             radius: KeybindingsConfig.settingsBadgeRadius
@@ -432,7 +440,8 @@ Item {
                 Rectangle {
                     id: row1
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    implicitHeight: layout1.implicitHeight + (Theme.spacingMd * 2)
+                    Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
                     radius: Theme.radiusSm
                     color: (settingsRoot.selectedIndex === 1) ? Theme.selection : (row1Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : ((settingsRoot.selectedIndex === 1) ? Theme.borderActive : Theme.border)
@@ -440,14 +449,20 @@ Item {
 
                     HoverHandler { id: row1Hover }
 
-                    RowLayout {
-                        anchors.fill: parent
+                    GridLayout {
+                        id: layout1
+                        columns: settingsRoot.isCompact ? 1 : 2
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: Theme.spacingMd
                         anchors.rightMargin: Theme.spacingMd
-                        spacing: Theme.spacingMd
+                        rowSpacing: Theme.spacingSm
+                        columnSpacing: Theme.spacingMd
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
                             spacing: 1
 
                             Text {
@@ -462,13 +477,13 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeXs
                                 color: Theme.textMuted
-                                elide: Text.ElideRight
+                                wrapMode: Text.Wrap
                                 Layout.fillWidth: true
                             }
                         }
 
                         Rectangle {
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.alignment: settingsRoot.isCompact ? (Qt.AlignLeft | Qt.AlignVCenter) : (Qt.AlignRight | Qt.AlignVCenter)
                             Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
                             Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText1.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
                             radius: KeybindingsConfig.settingsBadgeRadius
@@ -502,7 +517,8 @@ Item {
                 Rectangle {
                     id: row2
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    implicitHeight: layout2.implicitHeight + (Theme.spacingMd * 2)
+                    Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
                     radius: Theme.radiusSm
                     color: (settingsRoot.selectedIndex === 2) ? Theme.selection : (row2Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 2) ? Theme.borderActive : Theme.border)
@@ -510,14 +526,20 @@ Item {
 
                     HoverHandler { id: row2Hover }
 
-                    RowLayout {
-                        anchors.fill: parent
+                    GridLayout {
+                        id: layout2
+                        columns: settingsRoot.isCompact ? 1 : 2
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: Theme.spacingMd
                         anchors.rightMargin: Theme.spacingMd
-                        spacing: Theme.spacingMd
+                        rowSpacing: Theme.spacingSm
+                        columnSpacing: Theme.spacingMd
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
                             spacing: 1
 
                             Text {
@@ -532,13 +554,13 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeXs
                                 color: Theme.textMuted
-                                elide: Text.ElideRight
+                                wrapMode: Text.Wrap
                                 Layout.fillWidth: true
                             }
                         }
 
                         Rectangle {
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.alignment: settingsRoot.isCompact ? (Qt.AlignLeft | Qt.AlignVCenter) : (Qt.AlignRight | Qt.AlignVCenter)
                             Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
                             Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText2.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
                             radius: KeybindingsConfig.settingsBadgeRadius
@@ -572,7 +594,8 @@ Item {
                 Rectangle {
                     id: row3
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    implicitHeight: layout3.implicitHeight + (Theme.spacingMd * 2)
+                    Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
                     radius: Theme.radiusSm
                     color: (settingsRoot.selectedIndex === 3) ? Theme.selection : (row3Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 3) ? Theme.borderActive : Theme.border)
@@ -580,14 +603,20 @@ Item {
 
                     HoverHandler { id: row3Hover }
 
-                    RowLayout {
-                        anchors.fill: parent
+                    GridLayout {
+                        id: layout3
+                        columns: settingsRoot.isCompact ? 1 : 2
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: Theme.spacingMd
                         anchors.rightMargin: Theme.spacingMd
-                        spacing: Theme.spacingMd
+                        rowSpacing: Theme.spacingSm
+                        columnSpacing: Theme.spacingMd
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
                             spacing: 1
 
                             Text {
@@ -602,13 +631,13 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeXs
                                 color: Theme.textMuted
-                                elide: Text.ElideRight
+                                wrapMode: Text.Wrap
                                 Layout.fillWidth: true
                             }
                         }
 
                         Rectangle {
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.alignment: settingsRoot.isCompact ? (Qt.AlignLeft | Qt.AlignVCenter) : (Qt.AlignRight | Qt.AlignVCenter)
                             Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
                             Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText3.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
                             radius: KeybindingsConfig.settingsBadgeRadius
@@ -657,7 +686,8 @@ Item {
                 Rectangle {
                     id: row4
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    implicitHeight: layout4.implicitHeight + (Theme.spacingMd * 2)
+                    Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
                     radius: Theme.radiusSm
                     color: (settingsRoot.selectedIndex === 4) ? Theme.selection : (row4Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
                     border.color: (settingsRoot.selectedIndex === 4) ? Theme.borderActive : Theme.border
@@ -665,14 +695,20 @@ Item {
 
                     HoverHandler { id: row4Hover }
 
-                    RowLayout {
-                        anchors.fill: parent
+                    GridLayout {
+                        id: layout4
+                        columns: settingsRoot.isCompact ? 1 : 2
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: Theme.spacingMd
                         anchors.rightMargin: Theme.spacingMd
-                        spacing: Theme.spacingMd
+                        rowSpacing: Theme.spacingSm
+                        columnSpacing: Theme.spacingMd
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
                             spacing: 1
 
                             Text {
@@ -687,13 +723,13 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeXs
                                 color: Theme.textMuted
-                                elide: Text.ElideRight
+                                wrapMode: Text.Wrap
                                 Layout.fillWidth: true
                             }
                         }
 
                         Rectangle {
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.alignment: settingsRoot.isCompact ? (Qt.AlignLeft | Qt.AlignVCenter) : (Qt.AlignRight | Qt.AlignVCenter)
                             Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
                             Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText4.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
                             radius: KeybindingsConfig.settingsBadgeRadius
@@ -727,7 +763,8 @@ Item {
                 Rectangle {
                     id: row5
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(KeybindingsConfig.settingsRowMinHeight, 40)
+                    implicitHeight: layout5.implicitHeight + (Theme.spacingMd * 2)
+                    Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
                     radius: Theme.radiusSm
                     color: (settingsRoot.selectedIndex === 5) ? Theme.selection : (row5Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
                     border.color: (settingsRoot.selectedIndex === 5) ? Theme.borderActive : Theme.border
@@ -735,14 +772,20 @@ Item {
 
                     HoverHandler { id: row5Hover }
 
-                    RowLayout {
-                        anchors.fill: parent
+                    GridLayout {
+                        id: layout5
+                        columns: settingsRoot.isCompact ? 1 : 2
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: Theme.spacingMd
                         anchors.rightMargin: Theme.spacingMd
-                        spacing: Theme.spacingMd
+                        rowSpacing: Theme.spacingSm
+                        columnSpacing: Theme.spacingMd
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
                             spacing: 1
 
                             Text {
@@ -757,13 +800,13 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeXs
                                 color: Theme.textMuted
-                                elide: Text.ElideRight
+                                wrapMode: Text.Wrap
                                 Layout.fillWidth: true
                             }
                         }
 
                         Rectangle {
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.alignment: settingsRoot.isCompact ? (Qt.AlignLeft | Qt.AlignVCenter) : (Qt.AlignRight | Qt.AlignVCenter)
                             Layout.preferredHeight: KeybindingsConfig.settingsBadgeHeight
                             Layout.preferredWidth: Math.max(KeybindingsConfig.settingsValueColumnPreferredWidth, badgeText5.implicitWidth + KeybindingsConfig.settingsBadgePaddingHorizontal * 2)
                             radius: KeybindingsConfig.settingsBadgeRadius

@@ -74,6 +74,19 @@ shift 2>/dev/null || true
 
 case "$cmd" in
     diagnostics)
+        if [[ "${1:-}" == "runtime" ]]; then
+            shift
+            if command -v aurelia-shell-keybindings >/dev/null 2>&1; then
+                exec aurelia-shell-keybindings diagnostics runtime "$@"
+            elif [[ -x "$script_dir/aurelia-shell-keybindings" ]]; then
+                exec "$script_dir/aurelia-shell-keybindings" diagnostics runtime "$@"
+            elif [[ -x "$HOME/.local/bin/aurelia-shell-keybindings" ]]; then
+                exec "$HOME/.local/bin/aurelia-shell-keybindings" diagnostics runtime "$@"
+            else
+                printf '%s\n' "Error: aurelia-shell-keybindings not found; cannot gather runtime diagnostics." >&2
+                exit 1
+            fi
+        fi
         format_json=0
         if [[ "${1:-}" == "--json" ]]; then
             format_json=1

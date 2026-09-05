@@ -4048,6 +4048,118 @@ else
     fail "38.26 KeybindingsModel.qml binary resolution check failed"
 fi
 
+section "39. Verification Matrix Y: Runtime Provenance, Autorepeat Suppression, Cooldown Guards, Responsive Layout & Diagnostics"
+
+# 39.1: KeybindingsConfig.qml registers uiRevision and design tokens
+if grep -q 'readonly property string uiRevision: "2026.09.05.r2"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsConfig.qml" && \
+   grep -q 'readonly property int settingsContentMaxWidth: 720' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsConfig.qml"; then
+    pass "39.1 KeybindingsConfig.qml registers uiRevision and design tokens"
+else
+    fail "39.1 KeybindingsConfig.qml uiRevision or design tokens missing"
+fi
+
+# 39.2: qmldir exports all 5 components
+if grep -q 'singleton KeybindingsConfig 1.0 KeybindingsConfig.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingsWindow 1.0 KeybindingsWindow.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingsSettings 1.0 KeybindingsSettings.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingsModel 1.0 KeybindingsModel.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingRow 1.0 KeybindingRow.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir"; then
+    pass "39.2 qmldir exports all 5 keybindings components"
+else
+    fail "39.2 qmldir missing required component export"
+fi
+
+# 39.3: shell.qml provides IPC methods
+if grep -q 'function activeView(): string' "$ROOT/dotfiles/aurelia/shell.qml" && \
+   grep -q 'function cycleView(forward: bool): string' "$ROOT/dotfiles/aurelia/shell.qml" && \
+   grep -q 'function switchView(viewName: string): bool' "$ROOT/dotfiles/aurelia/shell.qml" && \
+   grep -q 'function revision(): string' "$ROOT/dotfiles/aurelia/shell.qml"; then
+    pass "39.3 shell.qml exposes activeView, cycleView, switchView, and revision IPC methods"
+else
+    fail "39.3 shell.qml missing required IPC methods"
+fi
+
+# 39.4: Return/Enter key handlers suppress auto-repeat
+if grep -q 'isAutoRepeat' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'activationCooldownUntil' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "39.4 KeybindingsWindow.qml suppresses auto-repeated Return/Enter events"
+else
+    fail "39.4 KeybindingsWindow.qml missing auto-repeat suppression"
+fi
+
+# 39.5: Activation cooldown on view change prevents event leaks
+if grep -q 'activationCooldownUntil' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'Date.now() < activationCooldownUntil' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+    pass "39.5 KeybindingsWindow.qml enforces activation cooldown guard on view transition"
+else
+    fail "39.5 KeybindingsWindow.qml missing activation cooldown guard"
+fi
+
+# 39.6: KeybindingsModel implements pendingSelectActionId for selection retention
+if grep -q 'property string pendingSelectActionId' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
+   grep -q 'pendingSelectActionId = "app:" + desktopId' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"; then
+    pass "39.6 KeybindingsModel retains newly added action selection via pendingSelectActionId"
+else
+    fail "39.6 KeybindingsModel missing pendingSelectActionId logic"
+fi
+
+# 39.7: effective_bindings.lua eliminates compositor reload on user action registration
+if ! sed -n '/function M.add_user_application_action/,/^end/p' "$ROOT/dotfiles/hypr/effective_bindings.lua" | grep -q 'M.reload_session' && \
+   ! sed -n '/function M.add_user_executable_action/,/^end/p' "$ROOT/dotfiles/hypr/effective_bindings.lua" | grep -q 'M.reload_session'; then
+    pass "39.7 effective_bindings.lua avoids compositor reload fallback on action registration"
+else
+    fail "39.7 effective_bindings.lua still calls compositor reload fallback"
+fi
+
+# 39.8: KeybindingsSettings.qml implements responsive layout
+if grep -q 'readonly property bool isCompact: settingsContent.width < KeybindingsConfig.settingsBreakpointWidth' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml" && \
+   grep -q 'Layout.preferredHeight: settingsRoot.isCompact ? -1' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsSettings.qml"; then
+    pass "39.8 KeybindingsSettings.qml implements responsive layout with dynamic row heights"
+else
+    fail "39.8 KeybindingsSettings.qml missing responsive layout properties"
+fi
+
+# 39.9: aurelia-shell-keybindings uses logger -t aurelia-shell-keybindings
+if grep -q 'logger -t aurelia-shell-keybindings' "$ROOT/bin/aurelia-shell-keybindings" && \
+   ! grep -q 'logger -t workstation-keybindings' "$ROOT/bin/aurelia-shell-keybindings"; then
+    pass "39.9 aurelia-shell-keybindings uses correct syslog tag"
+else
+    fail "39.9 aurelia-shell-keybindings syslog tag incorrect"
+fi
+
+# 39.10: aurelia-shell-keybindings diagnostics runtime text output
+diag_text="$("$ROOT/bin/aurelia-shell-keybindings" diagnostics runtime)"
+if grep -q '=== Aurelia Shell Keybindings Runtime Diagnostics ===' <<< "$diag_text" && \
+   grep -q 'Executable Path' <<< "$diag_text" && \
+   grep -q 'Executable SHA256' <<< "$diag_text" && \
+   grep -q 'Active QML Root' <<< "$diag_text" && \
+   grep -q 'Component Path' <<< "$diag_text" && \
+   grep -q 'Live UI Revision' <<< "$diag_text" && \
+   grep -q 'Layer Namespace' <<< "$diag_text" && \
+   grep -q 'Motion State' <<< "$diag_text" && \
+   grep -q 'Active View' <<< "$diag_text"; then
+    pass "39.10 aurelia-shell-keybindings diagnostics runtime generates structured text report"
+else
+    fail "39.10 diagnostics runtime text output missing expected fields: $diag_text"
+fi
+
+# 39.11: aurelia-shell-keybindings diagnostics runtime --json produces valid JSON
+diag_json="$("$ROOT/bin/aurelia-shell-keybindings" diagnostics runtime --json)"
+json_valid="$(echo "$diag_json" | jq -r '.executable_path, .active_qml_root, .layer_namespace, .live_ui_revision' 2>/dev/null || true)"
+if [[ -n "$json_valid" && "$diag_json" == *"aurelia-keybindings"* ]]; then
+    pass "39.11 aurelia-shell-keybindings diagnostics runtime --json produces valid parseable JSON"
+else
+    fail "39.11 diagnostics runtime --json output invalid: $diag_json"
+fi
+
+# 39.12: workstation-aurelia diagnostics runtime forwards to aurelia-shell-keybindings
+wa_diag="$("$ROOT/bin/workstation-aurelia" diagnostics runtime)"
+if grep -q '=== Aurelia Shell Keybindings Runtime Diagnostics ===' <<< "$wa_diag"; then
+    pass "39.12 workstation-aurelia diagnostics runtime forwards seamlessly"
+else
+    fail "39.12 workstation-aurelia diagnostics runtime forwarding failed: $wa_diag"
+fi
+
 
 
 
