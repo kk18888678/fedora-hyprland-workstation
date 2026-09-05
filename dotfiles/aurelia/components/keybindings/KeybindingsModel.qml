@@ -11,7 +11,7 @@ QtObject {
     property var availableApplications: []
     property var filteredItems: []
 
-    // Views: "bound" | "unbound" | "add_action_type" | "add_app" | "add_exec"
+    // Views: "bound" | "unbound" | "add_action_type" | "add_app" | "add_exec" | "settings"
     property string activeView: "bound"
     property string previousRootView: "bound"
     readonly property int boundCount: boundItems.length
@@ -63,10 +63,10 @@ QtObject {
     }
 
     function switchView(view) {
-        if (view !== "bound" && view !== "unbound" && view !== "add_action_type" && view !== "add_app" && view !== "add_exec") return;
+        if (view !== "bound" && view !== "unbound" && view !== "add_action_type" && view !== "add_app" && view !== "add_exec" && view !== "settings") return;
         if (root.activeView === view) return;
         console.info("[EVENT] keybindings.view.change from=" + root.activeView + " to=" + view)
-        if (view === "add_action_type") {
+        if (view === "add_action_type" || view === "settings") {
             if (root.activeView === "bound" || root.activeView === "unbound") {
                 root.previousRootView = root.activeView;
             }
@@ -175,7 +175,7 @@ QtObject {
             sourceList = root.availableApplications
         } else if (root.activeView === "unbound") {
             sourceList = root.unboundItems
-        } else if (root.activeView === "add_exec") {
+        } else if (root.activeView === "add_exec" || root.activeView === "settings") {
             sourceList = []
         } else {
             sourceList = root.boundItems
@@ -424,6 +424,10 @@ QtObject {
                         var uList = []
                         for (var k = 0; k < parsed.length; k++) {
                             var it = parsed[k]
+                            // Non-keyboard-bindable actions (e.g. gestures, mouse actions) do not belong in keyboard Bound/Unbound
+                            if (it.keyboard_bindable === false || it.trigger_type === "gesture") {
+                                continue
+                            }
                             if (it.unbound === true || !it.key || it.display_key === "None (Unbound)") {
                                 uList.push(it)
                             } else {
@@ -744,5 +748,82 @@ QtObject {
         root.completeStartTime = Date.now()
         completeProcess.command = [root.backendBin, "complete-path", prefix]
         completeProcess.running = true
+    }
+
+    // Backend process to update component preferences
+    property var prefCallback: null
+    property Process prefSetProcess: Process {
+        id: prefSetProcess
+        command: [root.backendBin, "preference", "set", "", ""]
+        environment: root.procEnv
+        property string errorMsg: ""
+        stdout: StdioCollector {
+            onStreamFinished: {}
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                prefSetProcess.errorMsg = this.text ? this.text.trim() : ""
+            }
+        }
+        onExited: function(code) {
+            var cb = root.prefCallback
+            root.prefCallback = null
+            if (cb) {
+                if (code === 0) {
+                    cb(true, "")
+                } else {
+                    cb(false, prefSetProcess.errorMsg || ("Failed with exit code " + code))
+                }
+            }
+        }
+    }
+
+    function setComponentPreference(key, value, callback) {
+        if (prefSetProcess.running) {
+            if (callback) callback(false, "Preference update in progress")
+            return
+        }
+        root.prefCallback = callback
+        prefSetProcess.errorMsg = ""
+        prefSetProcess.command = [root.backendBin, "preference", "set", key, value]
+        prefSetProcess.running = true
+    }
+
+    // Backend process to reset component preferences
+    property Process prefResetProcess: Process {
+        id: prefResetProcess
+        command: [root.backendBin, "preference", "reset", "--component=keybindings"]
+        environment: root.procEnv
+        property string errorMsg: ""
+        stdout: StdioCollector {
+            onStreamFinished: {}
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                prefResetProcess.errorMsg = this.text ? this.text.trim() : ""
+            }
+        }
+        onExited: function(code) {
+            var cb = root.prefCallback
+            root.prefCallback = null
+            if (cb) {
+                if (code === 0) {
+                    cb(true, "")
+                } else {
+                    cb(false, prefResetProcess.errorMsg || ("Reset failed with exit code " + code))
+                }
+            }
+        }
+    }
+
+    function resetComponentPreferences(callback) {
+        if (prefResetProcess.running) {
+            if (callback) callback(false, "Reset in progress")
+            return
+        }
+        root.prefCallback = callback
+        prefResetProcess.errorMsg = ""
+        prefResetProcess.command = [root.backendBin, "preference", "reset", "--component=keybindings"]
+        prefResetProcess.running = true
     }
 }

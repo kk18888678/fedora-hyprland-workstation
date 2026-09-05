@@ -89,6 +89,11 @@ Rectangle {
                 if (ListView.view) {
                     ListView.view.forceActiveFocus()
                 }
+                if (keybindingsModel.activeView === "add_action_type") {
+                    if (typeof windowRoot !== "undefined" && typeof windowRoot.activateSelected === "function") {
+                        windowRoot.activateSelected()
+                    }
+                }
             }
         }
         onDoubleClicked: {
@@ -97,6 +102,9 @@ Rectangle {
                 keybindingsModel.selectedIndex = rowRoot.index
                 if (ListView.view) {
                     ListView.view.forceActiveFocus()
+                }
+                if (keybindingsModel.activeView === "add_action_type") {
+                    return
                 }
                 if (typeof windowRoot !== "undefined" && typeof windowRoot.activateSelected === "function") {
                     windowRoot.activateSelected()

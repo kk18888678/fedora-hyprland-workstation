@@ -1437,11 +1437,32 @@ function M.resolve_bindings(manifest, overrides)
             end
 
             known_ids[action_id] = true
+            -- Derive keyboard_bindable and trigger_type
+            if item.keyboard_bindable ~= nil then
+                item.keyboard_bindable = (item.keyboard_bindable == true)
+            elseif item.trigger_type == "gesture" or item.action_type == "gesture" or item.mouse == true or item.action_type == "mouse_drag" or item.action_type == "mouse_resize" then
+                item.keyboard_bindable = false
+            else
+                item.keyboard_bindable = true
+            end
+
+            if not item.trigger_type then
+                if item.action_type == "gesture" then
+                    item.trigger_type = "gesture"
+                elseif item.mouse == true or item.action_type == "mouse_drag" or item.action_type == "mouse_resize" then
+                    item.trigger_type = "mouse"
+                else
+                    item.trigger_type = "keyboard"
+                end
+            end
+
             local ov = overrides[action_id]
             if ov == nil and action_id == "keybindings" then
                 ov = overrides["hotkeys"]
             end
-            if ov ~= nil then
+            if not item.keyboard_bindable then
+                item.unbound = false
+            elseif ov ~= nil then
                 if ov == false or ov == "" or ov == "none" then
                     item.key = nil
                     item.display_key = "None (Unbound)"
@@ -1517,6 +1538,8 @@ function M.resolve_bindings(manifest, overrides)
                         command_argv = ok_exec and argv or nil,
                         executable_path = act.executable_path,
                         user_created = true,
+                        keyboard_bindable = true,
+                        trigger_type = "keyboard",
                     }
                     local ov = overrides[action_id]
                     if ov == false or ov == "" or ov == "none" then
@@ -1563,6 +1586,8 @@ function M.resolve_bindings(manifest, overrides)
                         command = is_runnable and ("gtk-launch -- " .. did) or nil,
                         command_argv = is_runnable and { "gtk-launch", "--", did } or nil,
                         user_created = true,
+                        keyboard_bindable = true,
+                        trigger_type = "keyboard",
                     }
                     local ov = overrides[action_id]
                     if ov == false or ov == "" or ov == "none" then
@@ -1615,6 +1640,8 @@ function M.resolve_bindings(manifest, overrides)
                     command_argv = is_runnable and { "gtk-launch", "--", app_desktop } or nil,
                     user_overridden = true,
                     user_created = true,
+                    keyboard_bindable = true,
+                    trigger_type = "keyboard",
                 }
                 if ov == false or ov == "" or ov == "none" then
                     item.key = nil
@@ -2031,7 +2058,9 @@ function M.serialize_bindings_json(effective)
     table.insert(json_parts, "[\n")
     local count = #(effective.bindings or {})
     for i, b in ipairs(effective.bindings or {}) do
-        local is_unbound = (b.unbound == true or b.key == nil or b.key == false or b.key == "")
+        local is_kb_bindable = (b.keyboard_bindable ~= false)
+        local is_unbound = is_kb_bindable and (b.unbound == true or b.key == nil or b.key == false or b.key == "")
+        local trig_type = b.trigger_type or (b.action_type == "gesture" and "gesture" or ((b.mouse == true or (b.action_type and b.action_type:find("^mouse_"))) and "mouse" or "keyboard"))
         local fields = {
             string.format('    "id": %q', b.id or ""),
             string.format('    "display_key": %q', b.display_key or (is_unbound and "None (Unbound)" or b.key)),
@@ -2041,7 +2070,9 @@ function M.serialize_bindings_json(effective)
             string.format('    "runnable": %s', b.runnable == true and "true" or "false"),
             string.format('    "editable": %s', b.editable ~= false and "true" or "false"),
             string.format('    "priority": %d', b.priority or 999),
-            string.format('    "unbound": %s', is_unbound and "true" or "false")
+            string.format('    "unbound": %s', is_unbound and "true" or "false"),
+            string.format('    "keyboard_bindable": %s', is_kb_bindable and "true" or "false"),
+            string.format('    "trigger_type": %q', trig_type)
         }
         if b.desktop_id then
             table.insert(fields, string.format('    "desktop_id": %q', b.desktop_id))

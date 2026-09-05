@@ -12,6 +12,12 @@ PanelWindow {
     // Layer-shell Wayland configuration: full-screen transparent overlay surface with exclusive focus during capture
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: windowRoot.browseActive ? WlrKeyboardFocus.None : (windowRoot.isRecording ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand)
+    mask: windowRoot.browseActive ? browseRegion : null
+
+    Region {
+        id: browseRegion
+        item: surfaceCard
+    }
 
     anchors {
         top: true
@@ -28,6 +34,24 @@ PanelWindow {
 
     // Browse modal/dialog state: when active, layer-shell keyboard focus is released (WlrKeyboardFocus.None)
     property bool browseActive: false
+
+    // Helper to test if a key event matches a configured UI shortcut string
+    function eventMatchesShortcut(event, shortcutStr): bool {
+        if (!shortcutStr || !event) return false
+        var target = shortcutStr.trim().toUpperCase()
+        var actual = formatKeyEvent(event)
+        if (actual === target) return true
+
+        // For single-character shortcuts without modifier (e.g. "S", "U"):
+        if (target.indexOf("+") === -1) {
+            if (!(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
+                if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
+                    return String.fromCharCode(event.key) === target
+                }
+            }
+        }
+        return false
+    }
 
     // 3-State Capture Machine: "idle", "entering_capture", "capture_armed", "validating", "conflict"
     property string captureState: "idle"
@@ -99,6 +123,10 @@ PanelWindow {
     }
 
     function requestClose(reason) {
+        if (windowRoot.browseActive) {
+            console.warn("[LIFECYCLE] keybindings.window.close.request rejected reason=" + (reason || "unknown") + " (browseActive=true)")
+            return
+        }
         console.info("[LIFECYCLE] keybindings.window.close.request reason=" + (reason || "unknown") + " view=" + keybindingsModel.activeView + " stack=" + new Error().stack)
         windowRoot.visible = false
     }
@@ -117,8 +145,8 @@ PanelWindow {
         if (view === "add_app" || view === "add_exec") {
             keybindingsModel.switchView("add_action_type")
             Qt.callLater(function() { listView.forceActiveFocus() })
-        } else if (view === "add_action_type") {
-            var dest = keybindingsModel.previousRootView || "unbound"
+        } else if (view === "add_action_type" || view === "settings") {
+            var dest = keybindingsModel.previousRootView || "bound"
             keybindingsModel.switchView(dest)
             Qt.callLater(function() { searchInput.forceActiveFocus() })
         } else {
@@ -488,7 +516,12 @@ PanelWindow {
         id: outsideDismissArea
         anchors.fill: parent
         cursorShape: Qt.ArrowCursor
+        enabled: !windowRoot.browseActive
         onClicked: {
+            if (windowRoot.browseActive) {
+                console.warn("[EVENT] keybindings.input.outside_click ignored (browseActive=true)")
+                return
+            }
             console.info("[EVENT] keybindings.input.outside_click")
             if (windowRoot.isRecording) {
                 windowRoot.cancelCapture()
@@ -535,7 +568,21 @@ PanelWindow {
                 event.accepted = true
                 return
             }
-            if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
+            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma) {
+                if (keybindingsModel.activeView === "settings") {
+                    windowRoot.goBack()
+                } else {
+                    keybindingsModel.switchView("settings")
+                }
+                event.accepted = true
+                return
+            }
+            if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
+                windowRoot.goBack()
+                event.accepted = true
+                return
+            }
+            if (windowRoot.eventMatchesShortcut(event, Theme.shortcutAddAction)) {
                 windowRoot.openAddAction()
                 event.accepted = true
                 return
@@ -561,7 +608,7 @@ PanelWindow {
                 Layout.rightMargin: Theme.spacingXl
                 Layout.topMargin: Theme.spacingLg
                 Layout.bottomMargin: Theme.spacingSm
-                visible: keybindingsModel.activeView !== "add_exec"
+                visible: keybindingsModel.activeView !== "add_exec" && keybindingsModel.activeView !== "settings"
 
                 TextInput {
                     id: searchInput
@@ -710,12 +757,36 @@ PanelWindow {
                             return
                         }
 
-                        // 4. Normal idle navigation, view switching, and execution
+                        // 4. Escape: go back
                         if (event.key === Qt.Key_Escape) {
                             windowRoot.goBack()
                             event.accepted = true
                             return
-                        } else if (event.key === Qt.Key_Down) {
+                        }
+
+                        // 5. Ctrl+, -> Settings
+                        if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma) {
+                            keybindingsModel.switchView("settings")
+                            event.accepted = true
+                            return
+                        }
+
+                        // 6. Back shortcut (e.g. ALT + B)
+                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
+                            windowRoot.goBack()
+                            event.accepted = true
+                            return
+                        }
+
+                        // 7. Add Action shortcut (e.g. ALT + A)
+                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutAddAction)) {
+                            windowRoot.openAddAction()
+                            event.accepted = true
+                            return
+                        }
+
+                        // 8. Navigation keys
+                        if (event.key === Qt.Key_Down) {
                             keybindingsModel.selectNext()
                             listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)
                             listView.forceActiveFocus()
@@ -731,10 +802,6 @@ PanelWindow {
                             console.info("[EVENT] keybindings.input.enter target=searchInput activeView=" + keybindingsModel.activeView)
                             event.accepted = true
                             windowRoot.activateSelected()
-                            return
-                        } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
-                            windowRoot.openAddAction()
-                            event.accepted = true
                             return
                         } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S) {
                             if (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") {
@@ -765,7 +832,7 @@ PanelWindow {
                 }
             }
 
-            // View Selector Tabs: Minimal command-palette tabs [ Bound (N) ] [ Unbound (M) ] [ + Add Application ]
+            // View Selector Tabs: Minimal command-palette tabs [ Bound (N) ] [ Unbound (M) ] [ + Add Action ] [ ⚙ ]
             RowLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 28
@@ -773,6 +840,7 @@ PanelWindow {
                 Layout.rightMargin: Theme.spacingXl
                 Layout.bottomMargin: Theme.spacingSm
                 spacing: Theme.spacingMd
+                visible: keybindingsModel.activeView !== "add_exec" && keybindingsModel.activeView !== "settings"
 
                 // Bound tab
                 Rectangle {
@@ -859,6 +927,37 @@ PanelWindow {
                         }
                     }
                 }
+
+                // Settings Cog Button
+                Rectangle {
+                    Layout.preferredHeight: 24
+                    Layout.preferredWidth: 28
+                    radius: Theme.radiusSm
+                    color: (keybindingsModel.activeView === "settings" || cogHover.hovered) ? Theme.selection : "transparent"
+
+                    HoverHandler {
+                        id: cogHover
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "⚙"
+                        color: (keybindingsModel.activeView === "settings") ? Theme.accent : Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeMd
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (keybindingsModel.activeView === "settings") {
+                                windowRoot.goBack()
+                            } else {
+                                keybindingsModel.switchView("settings")
+                            }
+                        }
+                    }
+                }
             }
 
             // Body: Shortcut List or Restrained Empty State or Add Exec Form
@@ -877,7 +976,7 @@ PanelWindow {
                     model: keybindingsModel.filteredItems
                     currentIndex: keybindingsModel.selectedIndex
                     focus: true
-                    visible: keybindingsModel.activeView !== "add_exec"
+                    visible: keybindingsModel.activeView !== "add_exec" && keybindingsModel.activeView !== "settings"
 
                     delegate: KeybindingRow {
                         isSelected: index === keybindingsModel.selectedIndex
@@ -951,22 +1050,29 @@ PanelWindow {
                             return
                         }
 
-                        // 7. Alt+A -> Open Add Action view (never toggles back)
-                        if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_A) {
+                        // 7. Ctrl+, -> Settings
+                        if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma) {
+                            keybindingsModel.switchView("settings")
+                            event.accepted = true
+                            return
+                        }
+
+                        // 8. Add Action shortcut (e.g. ALT + A)
+                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutAddAction)) {
                             windowRoot.openAddAction()
                             event.accepted = true
                             return
                         }
 
-                        // 8. B / b -> Go Back (in list/navigation context)
-                        if ((event.key === Qt.Key_B && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_B)) {
+                        // 9. Back shortcut (e.g. ALT + B)
+                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
                             windowRoot.goBack()
                             event.accepted = true
                             return
                         }
 
-                        // 9. S / s -> Set / Edit hotkey (or Alt+S) - restricted to bound/unbound view
-                        if ((event.key === Qt.Key_S && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S)) {
+                        // 10. Set / Edit shortcut (e.g. S or ALT + S) - restricted to bound/unbound view
+                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutSet) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_S)) {
                             if (keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound") {
                                 event.accepted = true
                                 return
@@ -981,8 +1087,8 @@ PanelWindow {
                             return
                         }
 
-                        // 10. U / u -> Unset / Clear hotkey (or Alt+U) - restricted to bound/unbound view
-                        if ((event.key === Qt.Key_U && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U)) {
+                        // 11. Unset / Clear shortcut (e.g. U or ALT + U) - restricted to bound/unbound view
+                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutUnset) || ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_U)) {
                             if (keybindingsModel.activeView !== "bound" && keybindingsModel.activeView !== "unbound") {
                                 event.accepted = true
                                 return
@@ -1002,7 +1108,7 @@ PanelWindow {
                             return
                         }
 
-                        // 11. Slash, Backspace, or printable text redirects to searchInput
+                        // 12. Slash, Backspace, or printable text redirects to searchInput
                         if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32)) {
                             searchInput.forceActiveFocus()
                             if (event.key !== Qt.Key_Slash) {
@@ -1135,12 +1241,14 @@ PanelWindow {
 
                     onVisibleChanged: {
                         if (visible) {
-                            execNameInput.text = ""
-                            execPathInput.text = ""
-                            execArgsInput.text = ""
+                            if (!windowRoot.browseActive) {
+                                execNameInput.text = ""
+                                execPathInput.text = ""
+                                execArgsInput.text = ""
+                                internalFormError = ""
+                            }
                             execPathInput.showSuggestions = false
                             execPathInput.suggestionIndex = -1
-                            internalFormError = ""
                             focusFirstField()
                         } else {
                             execPathInput.showSuggestions = false
@@ -1154,12 +1262,45 @@ PanelWindow {
                         width: Math.min(parent.width - 64, 560)
                         spacing: Theme.spacingMd
 
-                        Text {
-                            text: "Add Custom Executable / Script"
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeLg
-                            font.weight: Theme.fontWeightBold
-                            color: Theme.accent
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMd
+
+                            Text {
+                                text: "Add Custom Executable / Script"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeLg
+                                font.weight: Theme.fontWeightBold
+                                color: Theme.accent
+                                Layout.fillWidth: true
+                            }
+
+                            Rectangle {
+                                Layout.preferredHeight: 24
+                                Layout.preferredWidth: backExecLabel.implicitWidth + Theme.spacingMd * 2
+                                radius: Theme.radiusSm
+                                color: backExecHover.hovered ? Theme.selection : "transparent"
+
+                                HoverHandler {
+                                    id: backExecHover
+                                }
+
+                                Text {
+                                    id: backExecLabel
+                                    anchors.centerIn: parent
+                                    text: "← Back"
+                                    color: Theme.gold
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                    font.weight: Theme.fontWeightMedium
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: windowRoot.goBack()
+                                }
+                            }
                         }
 
                         Text {
@@ -1209,6 +1350,11 @@ PanelWindow {
                                         visible: !execNameInput.text
                                     }
                                     Keys.onPressed: function(event) {
+                                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
+                                            windowRoot.goBack()
+                                            event.accepted = true
+                                            return
+                                        }
                                         if (event.key === Qt.Key_Down || event.key === Qt.Key_Tab) {
                                             execPathInput.forceActiveFocus()
                                             event.accepted = true
@@ -1302,6 +1448,12 @@ PanelWindow {
                                         }
 
                                         Keys.onPressed: function(event) {
+                                            if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
+                                                windowRoot.goBack()
+                                                event.accepted = true
+                                                return
+                                            }
+
                                             var hasSuggestions = execPathInput.showSuggestions && execPathInput.suggestions && execPathInput.suggestions.length > 0
 
                                             if (hasSuggestions && event.key === Qt.Key_Down) {
@@ -1459,6 +1611,11 @@ PanelWindow {
                                     }
 
                                     Keys.onPressed: function(event) {
+                                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
+                                            windowRoot.goBack()
+                                            event.accepted = true
+                                            return
+                                        }
                                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                                             addExecForm.triggerBrowse()
                                             event.accepted = true
@@ -1519,6 +1676,11 @@ PanelWindow {
                                         visible: !execArgsInput.text
                                     }
                                     Keys.onPressed: function(event) {
+                                        if (windowRoot.eventMatchesShortcut(event, Theme.shortcutBack)) {
+                                            windowRoot.goBack()
+                                            event.accepted = true
+                                            return
+                                        }
                                         if (event.key === Qt.Key_Up) {
                                             execPathInput.forceActiveFocus()
                                             event.accepted = true
@@ -1597,6 +1759,378 @@ PanelWindow {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: windowRoot.goBack()
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Keybindings Component Settings Surface
+                Item {
+                    id: settingsView
+                    anchors.fill: parent
+                    visible: keybindingsModel.activeView === "settings"
+                    focus: visible
+
+                    property string editingPrefKey: ""
+                    property string statusMessage: ""
+                    property string statusType: "info" // "info", "error", "success"
+                    property int selectedIndex: 0
+
+                    readonly property var prefItems: [
+                        {
+                            key: "components.keybindings.shortcuts.add_action",
+                            label: "Add Action",
+                            desc: "Open action creation dialog (requires modifier)",
+                            getVal: function() { return Theme.shortcutAddAction },
+                            requiresModifier: true
+                        },
+                        {
+                            key: "components.keybindings.shortcuts.back",
+                            label: "Back",
+                            desc: "Return to previous view / dismiss (requires modifier)",
+                            getVal: function() { return Theme.shortcutBack },
+                            requiresModifier: true
+                        },
+                        {
+                            key: "components.keybindings.shortcuts.set_binding",
+                            label: "Set Shortcut",
+                            desc: "Assign or edit shortcut for selected action",
+                            getVal: function() { return Theme.shortcutSet },
+                            requiresModifier: false
+                        },
+                        {
+                            key: "components.keybindings.shortcuts.unset_binding",
+                            label: "Unset Shortcut",
+                            desc: "Clear shortcut for selected action",
+                            getVal: function() { return Theme.shortcutUnset },
+                            requiresModifier: false
+                        }
+                    ]
+
+                    function startEditing(idx) {
+                        if (idx < 0 || idx >= prefItems.length) return
+                        editingPrefKey = prefItems[idx].key
+                        statusMessage = "Press key combination for " + prefItems[idx].label + " (Esc to cancel)..."
+                        statusType = "info"
+                        settingsView.forceActiveFocus()
+                    }
+
+                    function cancelEditing() {
+                        editingPrefKey = ""
+                        statusMessage = ""
+                        statusType = "info"
+                    }
+
+                    function resetToDefaults() {
+                        cancelEditing()
+                        statusMessage = "Resetting preferences to defaults..."
+                        statusType = "info"
+                        keybindingsModel.resetComponentPreferences(function(ok, err) {
+                            if (ok) {
+                                Theme.reloadPreferences()
+                                settingsView.statusMessage = "Component preferences reset to shipped defaults."
+                                settingsView.statusType = "success"
+                            } else {
+                                settingsView.statusMessage = "Error: " + err
+                                settingsView.statusType = "error"
+                            }
+                        })
+                    }
+
+                    onVisibleChanged: {
+                        if (visible) {
+                            editingPrefKey = ""
+                            statusMessage = ""
+                            statusType = "info"
+                            selectedIndex = 0
+                            settingsView.forceActiveFocus()
+                        }
+                    }
+
+                    Keys.onPressed: function(event) {
+                        // Capture mode for editing a shortcut
+                        if (editingPrefKey !== "") {
+                            if (event.key === Qt.Key_Escape) {
+                                cancelEditing()
+                                event.accepted = true
+                                return
+                            }
+                            var k = event.key
+                            if (k === Qt.Key_Control || k === Qt.Key_Shift || k === Qt.Key_Alt || k === Qt.Key_Meta) {
+                                event.accepted = true
+                                return
+                            }
+                            var formatted = formatKeyEvent(event)
+                            if (!formatted || formatted === "") {
+                                event.accepted = true
+                                return
+                            }
+
+                            // Find target def
+                            var def = null
+                            for (var i = 0; i < prefItems.length; i++) {
+                                if (prefItems[i].key === editingPrefKey) {
+                                    def = prefItems[i]
+                                    break
+                                }
+                            }
+
+                            // Validate modifier requirement
+                            if (def && def.requiresModifier) {
+                                var hasMod = (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) !== 0
+                                if (!hasMod) {
+                                    statusMessage = "Error: " + def.label + " requires a modifier key (e.g. ALT) to prevent text input conflicts."
+                                    statusType = "error"
+                                    event.accepted = true
+                                    return
+                                }
+                            }
+
+                            // Conflict check against other 3 shortcuts
+                            for (var j = 0; j < prefItems.length; j++) {
+                                if (prefItems[j].key !== editingPrefKey) {
+                                    var otherVal = prefItems[j].getVal()
+                                    if (otherVal && otherVal.trim().toUpperCase() === formatted.trim().toUpperCase()) {
+                                        statusMessage = "Error: Conflict: Shortcut '" + formatted + "' is already assigned to " + prefItems[j].label + "."
+                                        statusType = "error"
+                                        event.accepted = true
+                                        return
+                                    }
+                                }
+                            }
+
+                            // Valid: update via backend
+                            var targetKey = editingPrefKey
+                            var chosenKey = formatted
+                            var targetLabel = def ? def.label : "Shortcut"
+                            editingPrefKey = ""
+                            statusMessage = "Updating preference..."
+                            statusType = "info"
+                            keybindingsModel.setComponentPreference(targetKey, chosenKey, function(ok, err) {
+                                if (ok) {
+                                    Theme.reloadPreferences()
+                                    settingsView.statusMessage = "Updated " + targetLabel + " = " + chosenKey
+                                    settingsView.statusType = "success"
+                                } else {
+                                    settingsView.statusMessage = "Error: " + err
+                                    settingsView.statusType = "error"
+                                }
+                            })
+                            event.accepted = true
+                            return
+                        }
+
+                        // Normal navigation in settings
+                        if (event.key === Qt.Key_Escape || windowRoot.eventMatchesShortcut(event, Theme.shortcutBack) || ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Comma)) {
+                            windowRoot.goBack()
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key === Qt.Key_Down) {
+                            if (selectedIndex < prefItems.length - 1) selectedIndex++
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key === Qt.Key_Up) {
+                            if (selectedIndex > 0) selectedIndex--
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                            startEditing(selectedIndex)
+                            event.accepted = true
+                            return
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        width: Math.min(parent.width - 64, 600)
+                        spacing: Theme.spacingMd
+
+                        // Header row
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMd
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Text {
+                                    text: "⚙ Keybindings Preferences"
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeLg
+                                    font.weight: Theme.fontWeightBold
+                                    color: Theme.accent
+                                }
+
+                                Text {
+                                    text: "Configure keyboard shortcuts for Keybindings navigation and actions."
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                    color: Theme.textSecondary
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.preferredHeight: 28
+                                Layout.preferredWidth: backSettingsLabel.implicitWidth + Theme.spacingLg * 2
+                                radius: Theme.radiusSm
+                                color: backSettingsHover.hovered ? Theme.selection : "transparent"
+                                border.color: Theme.border
+                                border.width: 1
+
+                                HoverHandler {
+                                    id: backSettingsHover
+                                }
+
+                                Text {
+                                    id: backSettingsLabel
+                                    anchors.centerIn: parent
+                                    text: "← Back"
+                                    color: Theme.gold
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                    font.weight: Theme.fontWeightMedium
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: windowRoot.goBack()
+                                }
+                            }
+                        }
+
+                        // Shortcut rows
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingSm
+                            Layout.topMargin: Theme.spacingSm
+
+                            Repeater {
+                                model: settingsView.prefItems
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 44
+                                    radius: Theme.radiusSm
+                                    color: (settingsView.selectedIndex === index) ? Theme.selection : (rowHover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                                    border.color: (settingsView.editingPrefKey === modelData.key) ? Theme.accent : ((settingsView.selectedIndex === index) ? Theme.borderActive : Theme.border)
+                                    border.width: 1
+
+                                    HoverHandler {
+                                        id: rowHover
+                                    }
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: Theme.spacingMd
+                                        anchors.rightMargin: Theme.spacingMd
+                                        spacing: Theme.spacingMd
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+
+                                            Text {
+                                                text: modelData.label
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.fontSizeSm
+                                                font.weight: Theme.fontWeightMedium
+                                                color: Theme.text
+                                            }
+
+                                            Text {
+                                                text: modelData.desc
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.fontSizeXs
+                                                color: Theme.textMuted
+                                            }
+                                        }
+
+                                        // Shortcut key badge
+                                        Rectangle {
+                                            Layout.preferredHeight: 26
+                                            Layout.preferredWidth: Math.max(badgeText.implicitWidth + 16, 60)
+                                            radius: Theme.radiusSm
+                                            color: (settingsView.editingPrefKey === modelData.key) ? Theme.accent : Theme.surfaceElevated
+                                            border.color: (settingsView.editingPrefKey === modelData.key) ? Theme.accent : Theme.border
+                                            border.width: 1
+
+                                            Text {
+                                                id: badgeText
+                                                anchors.centerIn: parent
+                                                text: (settingsView.editingPrefKey === modelData.key) ? "Press key…" : modelData.getVal()
+                                                color: (settingsView.editingPrefKey === modelData.key) ? Theme.bgBase : Theme.gold
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.fontSizeSm
+                                                font.weight: Theme.fontWeightBold
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            settingsView.selectedIndex = index
+                                            settingsView.startEditing(index)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Status message text
+                        Text {
+                            Layout.fillWidth: true
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            color: (settingsView.statusType === "error") ? Theme.error : ((settingsView.statusType === "success") ? Theme.success : Theme.accent)
+                            font.bold: true
+                            wrapMode: Text.Wrap
+                            visible: settingsView.statusMessage !== ""
+                            text: settingsView.statusMessage
+                        }
+
+                        // Actions row: Reset to Defaults
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.spacingSm
+                            spacing: Theme.spacingMd
+
+                            Rectangle {
+                                Layout.preferredHeight: 32
+                                Layout.preferredWidth: resetLabel.implicitWidth + Theme.spacingLg * 2
+                                radius: Theme.radiusSm
+                                color: resetHover.hovered ? Theme.selection : "transparent"
+                                border.color: Theme.border
+                                border.width: 1
+
+                                HoverHandler {
+                                    id: resetHover
+                                }
+
+                                Text {
+                                    id: resetLabel
+                                    anchors.centerIn: parent
+                                    text: "↺ Reset Keybindings Preferences"
+                                    color: Theme.textSecondary
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: settingsView.resetToDefaults()
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
                             }
                         }
                     }
@@ -1753,7 +2287,7 @@ PanelWindow {
                         visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && (keybindingsModel.activeView === "bound" || keybindingsModel.activeView === "unbound") && keybindingsModel.selectedItem && keybindingsModel.selectedItem.editable === true
 
                         Text {
-                            text: "S"
+                            text: Theme.shortcutSet
                             color: Theme.gold
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1776,7 +2310,7 @@ PanelWindow {
                                   keybindingsModel.selectedItem.display_key !== "None (Unbound)"
 
                         Text {
-                            text: "U"
+                            text: Theme.shortcutUnset
                             color: Theme.love
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1791,13 +2325,13 @@ PanelWindow {
                         }
                     }
 
-                    // 8. ALT + A Add Action / B Back
+                    // 8. Add Action / Back
                     RowLayout {
                         spacing: Theme.spacingXs
-                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView.indexOf("add_") !== 0
+                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView.indexOf("add_") !== 0 && keybindingsModel.activeView !== "settings"
 
                         Text {
-                            text: "ALT + A"
+                            text: Theme.shortcutAddAction
                             color: Theme.foam
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1814,10 +2348,10 @@ PanelWindow {
 
                     RowLayout {
                         spacing: Theme.spacingXs
-                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && keybindingsModel.activeView.indexOf("add_") === 0
+                        visible: !windowRoot.isRecording && keybindingsModel.operationState === "idle" && (keybindingsModel.activeView.indexOf("add_") === 0 || keybindingsModel.activeView === "settings")
 
                         Text {
-                            text: "B"
+                            text: Theme.shortcutBack
                             color: Theme.foam
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
@@ -1829,6 +2363,40 @@ PanelWindow {
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
                             font.weight: Theme.fontWeightMedium
+                        }
+                    }
+
+                    // Settings view hints
+                    RowLayout {
+                        spacing: Theme.spacingSm
+                        visible: !windowRoot.isRecording && keybindingsModel.activeView === "settings"
+
+                        Text {
+                            text: "↵"
+                            color: Theme.accent
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Edit Shortcut"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+                        Text {
+                            text: "Ctrl+,"
+                            color: Theme.foam
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Toggle Settings"
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
                         }
                     }
 
@@ -1912,7 +2480,7 @@ PanelWindow {
                             font.bold: true
                         }
                         Text {
-                            text: windowRoot.isRecording ? "Cancel" : ((keybindingsModel.activeView.indexOf("add_") === 0) ? "Back" : "Close")
+                            text: windowRoot.isRecording ? "Cancel" : ((keybindingsModel.activeView.indexOf("add_") === 0 || keybindingsModel.activeView === "settings") ? "Back" : "Close")
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm

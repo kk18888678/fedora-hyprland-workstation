@@ -37,11 +37,20 @@ QtObject {
         return configHome + "/aurelia/preferences.json"
     }
 
+    property int _prefReloadToken: 0
+    function reloadPreferences() {
+        var p = themeRoot.preferencesPath
+        preferencesFile.path = ""
+        preferencesFile.path = p
+        _prefReloadToken++
+    }
+
     property FileView preferencesFile: FileView {
         path: themeRoot.preferencesPath
     }
 
     readonly property var loadedPreferences: {
+        var _ = _prefReloadToken
         var txt = ""
         try {
             txt = preferencesFile.text()
@@ -70,6 +79,12 @@ QtObject {
         }
         return (curr !== undefined && curr !== null) ? curr : fallback
     }
+
+    // Keybindings Component UI Control Shortcuts (configurable via preferences.json)
+    readonly property string shortcutAddAction: getPreference("components.keybindings.shortcuts.add_action", "ALT + A")
+    readonly property string shortcutBack: getPreference("components.keybindings.shortcuts.back", "ALT + B")
+    readonly property string shortcutSet: getPreference("components.keybindings.shortcuts.set_binding", "S")
+    readonly property string shortcutUnset: getPreference("components.keybindings.shortcuts.unset_binding", "U")
 
     readonly property var loadedOverrides: {
         var map = {}

@@ -59,6 +59,42 @@ M.SCHEMA = {
         component = "keybindings",
         description = "Initial active view when opening Keybindings palette",
     },
+    ["components.keybindings.shortcuts.add_action"] = {
+        canonical_key = "components.keybindings.shortcuts.add_action",
+        type = "string",
+        default = "ALT + A",
+        portable = true,
+        scope = "component",
+        component = "keybindings",
+        description = "Component UI shortcut for Add Action",
+    },
+    ["components.keybindings.shortcuts.back"] = {
+        canonical_key = "components.keybindings.shortcuts.back",
+        type = "string",
+        default = "ALT + B",
+        portable = true,
+        scope = "component",
+        component = "keybindings",
+        description = "Component UI shortcut for Back navigation",
+    },
+    ["components.keybindings.shortcuts.set_binding"] = {
+        canonical_key = "components.keybindings.shortcuts.set_binding",
+        type = "string",
+        default = "S",
+        portable = true,
+        scope = "component",
+        component = "keybindings",
+        description = "Component UI shortcut for Set / Change binding",
+    },
+    ["components.keybindings.shortcuts.unset_binding"] = {
+        canonical_key = "components.keybindings.shortcuts.unset_binding",
+        type = "string",
+        default = "U",
+        portable = true,
+        scope = "component",
+        component = "keybindings",
+        description = "Component UI shortcut for Unset binding",
+    },
 }
 
 -- Shipped Defaults derived authoritatively from the schema registry
@@ -78,6 +114,12 @@ function M.get_shipped_defaults()
                     scale = M.SCHEMA["components.keybindings.motion.scale"].default,
                 },
                 default_view = M.SCHEMA["components.keybindings.default_view"].default,
+                shortcuts = {
+                    add_action = M.SCHEMA["components.keybindings.shortcuts.add_action"].default,
+                    back = M.SCHEMA["components.keybindings.shortcuts.back"].default,
+                    set_binding = M.SCHEMA["components.keybindings.shortcuts.set_binding"].default,
+                    unset_binding = M.SCHEMA["components.keybindings.shortcuts.unset_binding"].default,
+                },
             },
         },
     }
@@ -585,6 +627,52 @@ local function deep_merge(dst, src)
     return dst
 end
 
+-- Normalization and validation helper for Keybindings UI control shortcuts
+local function normalize_ui_shortcut(k)
+    if not k or type(k) ~= "string" then return nil end
+    k = k:gsub("^%s+", ""):gsub("%s+$", "")
+    if k == "" then return nil end
+
+    local has_super = false
+    local has_ctrl = false
+    local has_alt = false
+    local has_shift = false
+    local main_key = ""
+
+    for part in k:gmatch("[^%+]+") do
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part ~= "" then
+            local upper = part:upper()
+            if upper == "SUPER" or upper == "MOD4" or upper == "WIN" then
+                has_super = true
+            elseif upper == "CTRL" or upper == "CONTROL" then
+                has_ctrl = true
+            elseif upper == "ALT" or upper == "MOD1" then
+                has_alt = true
+            elseif upper == "SHIFT" then
+                has_shift = true
+            else
+                main_key = upper
+            end
+        end
+    end
+
+    if not has_super and not has_ctrl and not has_alt and not has_shift and main_key == "" then
+        return nil
+    end
+
+    local parts = {}
+    if has_super then table.insert(parts, "SUPER") end
+    if has_ctrl  then table.insert(parts, "CTRL") end
+    if has_alt   then table.insert(parts, "ALT") end
+    if has_shift then table.insert(parts, "SHIFT") end
+    if main_key ~= "" then table.insert(parts, main_key) end
+
+    local norm = table.concat(parts, " + ")
+    local has_mod = has_super or has_ctrl or has_alt
+    return norm, has_mod, main_key
+end
+
 -- Validate preference key and value strictly against Schema Registry
 function M.validate_key_and_value(key_path, value)
     if not key_path or type(key_path) ~= "string" then
@@ -623,7 +711,18 @@ function M.validate_key_and_value(key_path, value)
         if type(value) ~= "string" then
             return false, "Invalid string value for " .. key_path .. ": expected string, got " .. tostring(value)
         end
-        if spec.enum then
+        if key_path:find("^components%.keybindings%.shortcuts%.") then
+            local norm, has_mod, main_key = normalize_ui_shortcut(value)
+            if not norm or norm == "" then
+                return false, "Invalid shortcut format for " .. key_path .. ": " .. tostring(value)
+            end
+            if key_path == "components.keybindings.shortcuts.add_action" or key_path == "components.keybindings.shortcuts.back" then
+                if not has_mod then
+                    return false, "Unsafe shortcut: " .. key_path .. " requires a modifier key (e.g. ALT) to prevent text input conflicts."
+                end
+            end
+            norm_val = norm
+        elseif spec.enum then
             local valid = false
             for _, allowed in ipairs(spec.enum) do
                 if value == allowed then
@@ -634,8 +733,10 @@ function M.validate_key_and_value(key_path, value)
             if not valid then
                 return false, "Invalid value '" .. value .. "' for " .. key_path .. " (expected one of: " .. table.concat(spec.enum, ", ") .. ")"
             end
+            norm_val = value
+        else
+            norm_val = value
         end
-        norm_val = value
     else
         return false, "Unsupported schema type: " .. tostring(spec.type)
     end
@@ -712,6 +813,25 @@ function M.set_override(key_path, value, path)
     end
 
     path = path or M.get_preferences_path()
+
+    -- Conflict check for keybindings component UI shortcuts
+    if key_path:find("^components%.keybindings%.shortcuts%.") then
+        local shortcut_keys = {
+            "components.keybindings.shortcuts.add_action",
+            "components.keybindings.shortcuts.back",
+            "components.keybindings.shortcuts.set_binding",
+            "components.keybindings.shortcuts.unset_binding",
+        }
+        for _, other_k in ipairs(shortcut_keys) do
+            if other_k ~= key_path then
+                local other_val = M.get_effective(other_k, path)
+                if other_val and other_val == norm_val then
+                    return false, string.format("Conflict: Shortcut '%s' is already assigned to %s", norm_val, other_k)
+                end
+            end
+        end
+    end
+
     local overrides = M.read_overrides(path)
     set_nested(overrides, key_path, norm_val)
     overrides.schema_version = 1
