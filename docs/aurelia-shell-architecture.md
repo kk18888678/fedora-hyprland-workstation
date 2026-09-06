@@ -1,6 +1,6 @@
 # Aurelia Shell Architecture Specification
 
-This document establishes the foundational architecture, system boundaries, lifecycle model, component contract, and design principles for the **Aurelia Desktop Shell** within the Fedora Hyprland Workstation.
+This document establishes the foundational architecture, system boundaries, lifecycle model, plugin contract, and design principles for the **Aurelia Desktop Shell** within the Fedora Hyprland Workstation.
 
 ---
 
@@ -8,7 +8,7 @@ This document establishes the foundational architecture, system boundaries, life
 
 | Entity | Role | Ownership & Boundaries |
 | :--- | :--- | :--- |
-| **Aurelia Shell** | Workstation Desktop Shell Product | High-level desktop shell composed of modular components (Keybindings palette, App Launcher, Status Bar, Notification Center, Docks, Overlays). Owns presentation, user interaction, layout composition, and design system tokens. |
+| **Aurelia Shell** | Workstation Desktop Shell Product | High-level resident desktop shell composed of manifest-backed plugins (Keybindings palette, App Launcher, Status Bar, Notification Center, Docks, Overlays). Owns shared services, lifecycle, IPC, presentation composition, and design system tokens. |
 | **Quickshell** | Low-Level Wayland/QtQuick Engine | Low-level C++/Qt6/Wayland runtime engine. Executes QML scripts, exposes Wayland protocol extensions (layer-shell, foreign toplevel, IPC sockets), and manages hardware surfaces. |
 | **Noctalia** | Peer Workstation Desktop Environment | Independent desktop shell environment (Rust/Wayland). Coexists as a peer; not an engine or parent of Aurelia. |
 | **Workstation OS / Fedora** | Operating System & Integration | Host OS providing kernel, drivers, systemd user services, D-Bus session bus, font packages, and MIME associations. |
@@ -28,14 +28,19 @@ The Fedora Hyprland Workstation supports multiple desktop shell environments:
    - Mutual exclusion at the full environment level prevents running conflicting global desktop shells simultaneously.
 
 2. **Component-Level Modular Coexistence**:
-   - Individual Aurelia components (such as **Aurelia Keybindings**) can run alongside Noctalia without requiring the full Aurelia desktop shell.
+   - Individual Aurelia plugins (such as **Aurelia Keybindings**) can run alongside Noctalia without requiring a second desktop shell.
    - Provider selection (e.g., `keybindings.provider = aurelia`) is decoupled from desktop shell selection (`DESKTOP_SHELL=noctalia`).
-   - Inactive Aurelia components remain completely unloaded in memory via conditional `Loader` controls in `dotfiles/aurelia/shell.qml`.
+   - Inactive Aurelia plugins remain completely unloaded in memory via conditional `Loader` controls owned by `aurelia-shell/services/PluginHost.qml`.
 
 3. **Cross-Shell Portability Policy**:
    - All core business logic, application resolution, shortcut parsing, and command execution reside in independent CLI backends (`bin/workstation-*`) and Lua modules (`dotfiles/hypr/*.lua`).
    - QML layers act strictly as presentation surfaces that consume structured JSON and communicate over standard IPC.
    - Should the workstation ever switch compositors or run alternative shells, the entire keybinding and application model remains 100% portable and intact.
+
+4. **Plugin Boundary**:
+   - The canonical source package is `aurelia-shell/`; `dotfiles/aurelia` is a compatibility symlink for existing installer paths.
+   - First-party plugins live under `aurelia-shell/plugins/`; user plugins live under `~/.config/aurelia/plugins/<plugin-id>/`.
+   - `shell.qml` provides the resident host only. `services/PluginRegistry.qml` discovers and validates manifests, while `services/PluginHost.qml` owns Loader lifecycle and plugin calls.
 
 ---
 
@@ -67,33 +72,34 @@ The shell architecture enforces a strict separation between discovering installe
 
 ---
 
-## 4. Universal Aurelia Component Contract
+## 4. Universal Aurelia Plugin Contract
 
-Aurelia Shell components are heterogeneous in structure. Components may be floating palettes, full-width status bars, edge docks, notification overlays, or background services. Therefore, the component contract enforces universal lifecycle and communication guarantees rather than rigid UI file structures:
+Aurelia Shell plugins are heterogeneous in structure. Plugins may be floating palettes, full-width status bars, edge docks, notification overlays, or background services. Therefore, the plugin contract enforces universal lifecycle and communication guarantees rather than rigid UI file structures:
 
 ### 4.1 Lifecycle & Readiness
 1. **Conditional Activation**:
-   - Every component must be declared in `dotfiles/aurelia/shell.qml` with a conditional `Loader`:
+   - Every plugin is declared by a validated `manifest.json` and loaded by the resident `PluginHost` with a conditional `Loader`:
      ```qml
      Loader {
-         id: myComponentLoader
-         active: root.myComponentEnabled
-         sourceComponent: MyComponent { ... }
+         id: pluginLoader
+         active: pluginHost.shouldLoad(pluginId)
+         source: pluginRegistry.entryPointUrl(pluginId, pluginKind)
      }
      ```
    - When disabled, the component consumes 0 MB of RAM and 0% CPU.
 2. **Deterministic Readiness Probing (`ping`)**:
-   - Every component must expose an IPC endpoint with a non-mutating `ping(): bool` method.
-   - Dispatch scripts must probe readiness via `ping` before triggering state transitions (`open`, `toggle`).
+   - Panel, overlay, and menu entry points expose `open(payloadJson)` and `close()`; services may remain mounted without a window.
+   - The host exposes a non-mutating `ping()` and plugin-specific IPC targets may expose their own health methods.
+   - Dispatch scripts must probe the resident host via `ping` before triggering state transitions (`summon`, `hide`, `toggle`).
    - Process existence alone is never treated as readiness.
 
 ### 4.2 IPC Endpoint Interface
-- Component IPC handlers register unique, stable target names (e.g. `target: "keybindings"`).
-- Supported methods are explicitly typed and allowlisted (e.g. `ping()`, `toggle()`, `open()`, `close()`, `isVisible()`).
-- Deprecated or renamed targets must provide thin forwarding shims (e.g., `hotkeys` delegating directly to `keybindingsIpc`) rather than duplicating implementation blocks.
+- The resident host registers one stable `shell` target with `ping`, `summon`, `hide`, `toggle`, `call`, `rescanPlugins`, `reloadConfig`, `setPluginEnabled`, and `listPlugins`.
+- Each plugin may register a plugin-scoped target (for example, `aurelia.keybindings`) with explicitly typed methods.
+- Deprecated or renamed targets must provide thin forwarding shims (for example, `hotkeys` delegating directly to the Keybindings plugin) rather than duplicating implementation blocks.
 
 ### 4.3 Process & Execution Safety
-- **Decoupled CLI Backend**: Core data aggregation, state validation, and system actions must live in a companion CLI binary (`bin/workstation-<component>`).
+   - **Decoupled CLI Backend**: Core data aggregation, state validation, and system actions must live in a companion CLI binary (`bin/workstation-<component>`); plugin QML only presents state and dispatches approved IPC actions.
 - **Structured `argv` Dispatch**: All application launches must use structured string arrays (`["nautilus"]`, `["chromium-browser"]`). String concatenation, shell interpretation (`sh -c`, `bash -c`), and `eval` are strictly prohibited.
 - **POSIX Double-Fork Detachment**: Child applications must be cleanly detached and immediately reparented to `init` (`PPID=1`), ensuring no persistent wrapper subshells or leaked file descriptors.
 
@@ -108,13 +114,22 @@ Aurelia Shell components are heterogeneous in structure. Components may be float
 Aurelia Shell establishes a centralized, token-driven design system:
 
 ```
-dotfiles/aurelia/
-├── shell.qml              # Shell composition root & IPC handlers
+aurelia-shell/
+├── shell.qml              # Resident ShellRoot host & shell IPC
+├── services/
+│   ├── PluginRegistry.qml # Manifest discovery and validation
+│   ├── PluginHost.qml     # Loader lifecycle and plugin calls
+│   └── ShellConfig.qml    # Atomic plugin enablement state
+├── plugins/
+│   └── aurelia.keybindings/
+│       ├── manifest.json
+│       ├── KeybindingsPlugin.qml
+│       └── ui/             # Private Keybindings UI and model surfaces
 ├── theme.conf             # Declarative configuration variables
 ├── theme/
 │   └── Theme.qml          # Dynamic singleton token resolver
-└── components/
-    └── keybindings/       # Component-specific implementations
+└── core/
+    └── preferences.lua    # Shared preference logic
 ```
 
 ### 5.1 Token Scale
@@ -125,7 +140,7 @@ dotfiles/aurelia/
 - **Motion**: Restrained durations (`durationFast` = 100ms, `durationNormal` = 200ms) with ease-out transitions.
 
 ### 5.2 Ownership Boundaries
-- **Project-Owned**: `dotfiles/aurelia/theme.conf` defines workstation default values.
+- **Project-Owned**: `aurelia-shell/theme.conf` defines workstation default values.
 - **User-Owned**: `~/.config/aurelia/theme.conf` (or environment variable `AURELIA_THEME_CONF`) allows overriding specific variables without modifying component QML files.
 - **Fallback Guarantees**: `Theme.qml` guarantees valid fallback values for every token, ensuring zero visual corruption if individual variables are omitted.
 
@@ -142,9 +157,11 @@ graph TD
 
     subgraph "Aurelia Shell Host (Non-Blocking)"
         ShellRoot["shell.qml (ShellRoot)"]
-        Comp1["Loader: Keybindings"]
-        Comp2["Loader: Future Component #2"]
-        CompN["Loader: Future Component #N"]
+        Registry["PluginRegistry"]
+        Host["PluginHost + Loaders"]
+        Comp1["aurelia.keybindings"]
+        Comp2["Future plugin"]
+        CompN["User/third-party plugin"]
     end
 
     subgraph "Host Capabilities"
@@ -153,9 +170,11 @@ graph TD
     end
 
     Hyprland --> ShellRoot
-    ShellRoot --> Comp1
-    ShellRoot --> Comp2
-    ShellRoot --> CompN
+    ShellRoot --> Registry
+    Registry --> Host
+    Host --> Comp1
+    Host --> Comp2
+    Host --> CompN
     Comp1 --> Backend
     Backend --> Apps
 ```
@@ -163,9 +182,9 @@ graph TD
 1. **Decoupling from Display Manager**:
    - In accordance with `AGENTS.md` Principle 15, all Aurelia components are classified as `WORKSTATION-REQUIRED-BUT-NONBLOCKING` or `OPTIONAL`.
    - Failure of an Aurelia component, Quickshell crash, or QML syntax error records diagnostics but **never blocks graphical session activation** (`ACTIVATION_BLOCKED=1` is never set).
-2. **Single-Process Host with Isolated Loaders**:
-   - All Aurelia components execute within a single Quickshell process managed by `shell.qml`.
-   - Each component is isolated inside its own `Loader`. A runtime exception or layout failure in one component does not terminate the host shell or affect sibling components.
+2. **Single-Process Host with Isolated Plugin Loaders**:
+   - All Aurelia plugins execute within a single Quickshell process managed by `shell.qml`.
+   - Each plugin is isolated inside its own `Loader`. A plugin load/layout failure is recorded and does not require a second Quickshell process or block login activation.
 
 ---
 
@@ -190,7 +209,7 @@ To prepare for future AI-assisted capabilities (e.g. contextual command recommen
 Aurelia Shell Core provides the centralized system services, layered configuration model, motion preferences, and privacy boundaries for all desktop shell components.
 
 ### 8.1 Preference Ownership & Configuration API Boundary
-Individual shell components do not independently parse or write configuration files. All configuration is owned and mediated through the centralized Aurelia Preferences Service (`dotfiles/aurelia/core/preferences.lua`) and CLI utility (`bin/workstation-aurelia`):
+Individual shell plugins do not independently parse or write shared configuration files. All shared configuration is owned and mediated through the centralized Aurelia Preferences Service (`aurelia-shell/core/preferences.lua`) and CLI utility (`bin/workstation-aurelia`):
 - **Configuration Path**: `~/.config/aurelia/preferences.json` (overridable via `AURELIA_PREFERENCES_PATH`).
 - **Permissions**: Atomic writes enforce secure `0600` file permissions.
 - **Operations**:
@@ -217,7 +236,7 @@ Effective Preferences (Runtime Model)
 ### 8.3 Namespaces, Component Reset & Plugin Extension Seams
 - **`aurelia.*`**: Shell-wide settings (e.g. `aurelia.motion.enabled`, `aurelia.motion.scale`).
 - **`components.<id>.*`**: First-party component settings (e.g. `components.keybindings.default_view`).
-- **`plugins.<id>.*`**: Reserved namespace for future extensions without building an unneeded plugin framework.
+- **`plugins.<id>.*`**: User/plugin-owned settings namespace; plugin discovery and enablement remain owned by the shell registry/config service.
 - **Component-Level Reset**: Invoking `reset_component("keybindings")` deletes only overrides under `components.keybindings.*`, restoring that component to shipped defaults while leaving shell-wide and sibling component preferences untouched.
 - **Reset Isolation**: Reset operations strictly modify user preference overrides; they never delete logs, cache files, runtime state, or secrets.
 
@@ -242,5 +261,5 @@ To prepare for future portable workstation preference synchronization without bu
 - **Storage Bounds**: Log files are capped at `<= 2000` lines with automatic FIFO rotation.
 - **Failure Isolation**: Unwritable log paths or disk failures fall back to `stderr` without throwing unhandled exceptions or terminating the desktop shell.
 
-### 8.7 Keybindings as First Vertical Slice
-Aurelia Keybindings is the first component integrated with Aurelia Shell Core, establishing verified production implementations of centralized preferences, motion scaling, structured diagnostics, and privacy protection.
+### 8.7 Keybindings as First Plugin Vertical Slice
+Aurelia Keybindings is the first manifest-backed plugin integrated with Aurelia Shell Core. It establishes the production implementation of the plugin lifecycle, explicit plugin IPC, centralized preferences, motion scaling, structured diagnostics, and privacy protection.

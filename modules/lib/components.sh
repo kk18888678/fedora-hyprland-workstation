@@ -670,9 +670,16 @@ detect_aurelia_keybindings() {
         real_target="$(readlink -f "$aurelia_dir" 2>/dev/null || true)"
         [[ -n "$real_target" && -d "$real_target" ]] || return 1
     fi
-    [[ (-f "$aurelia_dir/components/keybindings/KeybindingsWindow.qml" || -f "$aurelia_dir/components/hotkeys/HotkeysWindow.qml") && \
-       (-f "$aurelia_dir/components/keybindings/KeybindingsModel.qml" || -f "$aurelia_dir/components/hotkeys/HotkeysModel.qml") && \
-       (-f "$aurelia_dir/components/keybindings/KeybindingRow.qml" || -f "$aurelia_dir/components/hotkeys/HotkeyRow.qml") && \
+    [[ ((-f "$aurelia_dir/plugins/aurelia.keybindings/manifest.json" && \
+        -f "$aurelia_dir/plugins/aurelia.keybindings/KeybindingsPlugin.qml" && \
+        -f "$aurelia_dir/plugins/aurelia.keybindings/ui/KeybindingsWindow.qml" && \
+        -f "$aurelia_dir/plugins/aurelia.keybindings/ui/KeybindingsModel.qml") || \
+       (-f "$aurelia_dir/components/keybindings/KeybindingsWindow.qml" || -f "$aurelia_dir/components/hotkeys/HotkeysWindow.qml")) && \
+       (-f "$aurelia_dir/plugins/aurelia.keybindings/ui/KeybindingRow.qml" || \
+        -f "$aurelia_dir/components/keybindings/KeybindingRow.qml" || \
+        -f "$aurelia_dir/components/hotkeys/HotkeyRow.qml") && \
+       -f "$aurelia_dir/services/PluginRegistry.qml" && \
+       -f "$aurelia_dir/services/PluginHost.qml" && \
        -f "$aurelia_dir/theme/Theme.qml" && \
        -f "$aurelia_dir/theme/qmldir" ]]
 }

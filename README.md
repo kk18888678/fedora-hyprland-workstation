@@ -78,8 +78,17 @@ The workstation maintains a strict separation of concerns:
 - **Podman**: Isolated development services, databases, and containerized dependencies.
 - **Git**: Reproducible desired state.
 
+The Quickshell-based Aurelia Desktop Shell is maintained as the top-level
+`aurelia-shell/` package. It provides a resident host, manifest-backed
+first-party plugins, user plugin discovery under `~/.config/aurelia/plugins/`,
+and a stable shell IPC boundary. Keybindings is the first production plugin;
+Noctalia remains a peer desktop environment and may coexist with individual
+Aurelia plugins.
+
 See detailed engineering documentation:
 - [Architecture & Ownership](docs/ARCHITECTURE.md)
+- [Aurelia Shell Architecture](docs/aurelia-shell-architecture.md)
+- [Aurelia Shell File-Size Audit](docs/aurelia-shell-file-size-audit.md)
 - [Safety & Privilege Model](docs/SAFETY.md)
 - [Release & Supply-Chain Policy](docs/RELEASE-POLICY.md)
 
@@ -108,7 +117,10 @@ See detailed engineering documentation:
 | `vm` | `profiles/vm.conf` | Virtio GPU, no Bluetooth |
 | `workstation` | `profiles/workstation.conf` | Generic GPU, Bluetooth enabled |
 
-Both set `DESKTOP=hyprland` and `DESKTOP_SHELL=noctalia`. Additional shells (for example an Omarchy-inspired Quickshell setup) are reserved and not implemented.
+Both set `DESKTOP=hyprland` and `DESKTOP_SHELL=noctalia`. Aurelia Shell is
+available as the resident Quickshell plugin host and can provide individual
+plugins alongside Noctalia; selecting Aurelia as the complete desktop
+environment remains a separate future profile decision.
 
 ## Exit codes
 
@@ -211,5 +223,3 @@ At the end of an installer run, a status summary is printed:
 ```bash
 ./tests/run.sh
 ```
-
-

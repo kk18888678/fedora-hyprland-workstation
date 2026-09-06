@@ -15,24 +15,25 @@ This document specifies the architecture, lifecycle model, failure isolation bou
 | **Backend Modules** | `bin/lib/aurelia-keybindings/` | Installed as `/usr/local/lib/aurelia-keybindings/`; deployment manifest hashes every module |
 | **Compatibility Wrappers** | `bin/workstation-keybindings`, `bin/workstation-hotkeys` | Thin forwarding wrappers; production code resolves the canonical binary explicitly |
 | **Component Registry ID** | `desktop.keybindings.aurelia` | Primary installer component (`desktop.hotkeys.aurelia` is compatibility alias) |
-| **QML Component Directory** | `dotfiles/aurelia/components/keybindings/` | First-party component tree: coordinator, model, header, action list, row, executable form, settings, footer, config, and module manifest |
-| **IPC Target** | `keybindings` | Quickshell IPC target (`hotkeys` preserved as forwarding alias) |
+| **Plugin ID** | `aurelia.keybindings` | First-party manifest-backed panel plugin hosted by the resident Aurelia Shell |
+| **Plugin Directory** | `aurelia-shell/plugins/aurelia.keybindings/` | Manifest, entry point, and private UI/logic implementation |
+| **IPC Targets** | `shell`, `aurelia.keybindings` | Host lifecycle IPC plus plugin-scoped IPC (`keybindings`/`hotkeys` remain compatibility aliases) |
 
 ### Component identity
 
-**Aurelia Keybindings is a first-party Aurelia Shell component, not a generic
-plugin framework.** `shell.qml` is the resident host and `KeybindingsWindow.qml`
-is the lifecycle and controller boundary. The Window composes focused sibling
-surfaces (`KeybindingsHeader`, `KeybindingsActionList`,
+**Aurelia Keybindings is the first-party `aurelia.keybindings` panel plugin.**
+`aurelia-shell/shell.qml` is the resident host; `PluginRegistry` discovers the
+manifest and `PluginHost` owns its Loader lifecycle. The plugin entry point
+owns the Keybindings panel lifecycle and composes focused sibling surfaces
+(`KeybindingsHeader`, `KeybindingsActionList`, `KeybindingsAddActionPicker`,
 `KeybindingsExecutableForm`, `KeybindingsSettings`, and `KeybindingsFooter`)
-over the shared `KeybindingsModel` and `KeybindingRow` delegate. Each surface
-receives explicit controller properties; it does not discover or mutate the
-host through ambient ids.
+over the shared `KeybindingsModel` and row delegates. Those files are private
+plugin implementation details, not separate plugin registrations.
 
-This is intentionally component-oriented rather than a third-party extension
-system. A future plugin mechanism would require separate lifecycle,
-permission, compatibility, and trust decisions and is therefore not implied
-by the Keybindings implementation.
+User-created and third-party plugins use the same manifest contract from
+`~/.config/aurelia/plugins/<plugin-id>/`. They run unsandboxed inside the
+resident shell only after explicit enablement, so the user must review their
+source before enabling them.
 
 ---
 
@@ -47,8 +48,8 @@ graph TD
     end
 
     subgraph "Aurelia Resident Host Process Boundary"
-        Quickshell["Single resident Quickshell host (--path dotfiles/aurelia)"]
-        IPC["IPC Endpoint: keybindings"]
+        Quickshell["Single resident Quickshell host (--path aurelia-shell)"]
+        IPC["Host IPC: shell\nPlugin IPC: aurelia.keybindings"]
         Model["KeybindingsModel.qml (In-Memory State & Concurrency Guards)"]
         UI["KeybindingsWindow.qml (Coordinator + Layer-Shell Surface)\nHeader / List / Form / Settings / Footer"]
     end
@@ -98,7 +99,7 @@ Aurelia Keybindings implements a hybrid **resident surface with lazy activation*
 
 1. **Sub-100ms Warm Toggle**:
    - The Wayland layer-shell window remains resident in memory within the primary Aurelia Quickshell daemon.
-   - When the user presses `Super+K`, the backend issues a non-mutating `ping` check to the Quickshell socket. Upon confirmation of socket readiness, it delivers an IPC message to target `keybindings` with argument `toggle`.
+   - When the user presses `Super+K`, the backend issues a non-mutating `ping` check to the resident `shell` IPC target. Upon confirmation of socket readiness, it delivers `shell toggle aurelia.keybindings "{}"`.
    - The repository provides `tests/benchmark_aurelia_keybindings.sh` for an explicit live-session benchmark. It uses monotonic high-resolution timing, discards one warm-up operation, measures 20 warm opens and 20 warm closes, reports min/max/mean/median/p95, and keeps direct IPC measurements separate from CLI measurements. Compositor mapping and focus completion are reported as unobservable unless an external profiler is supplied.
 
 2. **Zero Idle CPU Overhead**:
@@ -190,12 +191,12 @@ stateDiagram-v2
 
 ## 5. Aurelia Design System Foundation & Central Configuration
 
-Aurelia Keybindings establishes a centralized, single-source-of-truth configuration architecture. All colors, window geometry, table column dimensions, typography, spacing, and animations are defined in `dotfiles/aurelia/theme.conf` and dynamically consumed through the `dotfiles/aurelia/theme/Theme.qml` singleton.
+Aurelia Keybindings establishes a centralized, single-source-of-truth configuration architecture. All colors, window geometry, table column dimensions, typography, spacing, and animations are defined in `aurelia-shell/theme.conf` and dynamically consumed through the `aurelia-shell/theme/Theme.qml` singleton.
 
 No QML component hardcodes hex colors or layout dimensions. Editing a single variable in `theme.conf` instantly reconfigures the entire component tree.
 
 ### 5.1 Central Configuration File (`theme.conf`)
-Located at `~/.config/aurelia/theme.conf` (symlinked from `dotfiles/aurelia/theme.conf`):
+Located at `~/.config/aurelia/theme.conf` (deployed from `aurelia-shell/theme.conf`):
 - **Window Geometry**: `paletteWidth` (800), `paletteHeight` (480), `searchHeight` (40), `rowHeight` (42), `footerHeight` (34).
 - **Table Column Layout**: `colShortcutWidth` (350 for balanced 50/50 split, or 280 for ~40/60 split), `colSeparatorWidth` (28), `rowSpacing` (3), `scrollBarWidth` (4).
 - **Corner Radii & Borders**: `radiusSm` (4), `radiusMd` (8), `radiusLg` (12), `borderWidthDefault` (1), `borderWidthFocus` (2).
@@ -252,7 +253,7 @@ The keybinding system is architected to support bidirectional drift detection be
 
 ## 8. Universal Aurelia Component Contract
 
-Aurelia Keybindings serves as the reference implementation for the **Universal Aurelia Component Contract** defined in [`docs/aurelia-shell-architecture.md`](file:///home/user/Projects/fedora-hyprland-workstation/docs/aurelia-shell-architecture.md).
+Aurelia Keybindings serves as the reference implementation for the **Universal Aurelia Plugin Contract** defined in [`docs/aurelia-shell-architecture.md`](file:///home/user/Projects/fedora-hyprland-workstation/docs/aurelia-shell-architecture.md).
 
 Future components (e.g. Launcher, Status Bar, Notification Center) are **not** constrained to specific UI structures like `Window`/`Model`/`Row`, but must fulfill universal contract invariants:
 1. **Conditional Activation**: Single-process ShellRoot hosting with independent conditional `Loader` controls. Disabled components consume 0 MB RAM and 0% CPU.
@@ -402,5 +403,6 @@ Aurelia Keybindings consumes and integrates with the centralized Shell Core foun
 - **User Preferences**: Default view (`components.keybindings.default_view = "bound"`), component-level reset (`workstation-aurelia preference reset --component=keybindings`), and atomic overrides.
 - **Motion Scaling**: Border animations, row selection transitions, and view switches consume `Theme.effectiveDurationFast` and `Theme.effectiveDurationNormal`. When motion is disabled, all durations collapse to 0ms (instantaneous transitions).
 - **Structured CLI Diagnostics**: Accessible via `aurelia-shell-keybindings diagnostics runtime [--json]` or `workstation-aurelia diagnostics runtime [--json]`, reporting the canonical backend path/hash, running Quickshell PID and QML root, managed component root, expected/deployed manifest and exact mismatches, provider, active view/revision, effective motion, and layer namespace without action or search dumps.
-- **Deployment Completeness**: The generated manifest records hashes for the canonical executable, all seven backend modules, and the fixed twelve-file Keybindings QML surface. A missing or stale surface/module is therefore reported as a provenance mismatch instead of presenting a partially deployed command as healthy.
+- **Deployment Completeness**: The generated manifest records hashes for the canonical executable, all seven backend modules, the Aurelia host services, the `aurelia.keybindings` manifest/entry point, and its fixed private UI surface. A missing or stale surface/module is therefore reported as a provenance mismatch instead of presenting a partially deployed command as healthy.
+- **Host Command Completeness**: `~/.local/state/aurelia/shell/host-manifest.json` separately records the canonical IPC client, resident launcher, plugin CLI, and its three validation modules. This keeps host lifecycle tooling provenance distinct from Keybindings action execution provenance.
 - **Privacy Boundary**: Search queries are strictly protected; filter timing logs record query length rather than raw query strings. Raw tokens, credentials, and passwords are redacted before log emission.

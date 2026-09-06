@@ -77,6 +77,7 @@ graph TD
 | `modules/flatpak.sh` | Flatpak runtime, Flathub remote, and Flatpak applications (LocalSend, Ulaa). |
 | `modules/desktop.sh` | Hyprland/Noctalia desktop integration, `greetd` service and `noctalia-greeter` configuration, desktop services enablement. |
 | `modules/lib/aurelia_desktop.sh` | Aurelia configuration, Keybindings runtime deployment/provenance, provider selection, and compatibility command installation. |
+| `aurelia-shell/` | Canonical resident Quickshell package: host services, manifest-backed first-party plugins, private plugin UI/logic, theme, and preferences. |
 | `modules/nix.sh` | Fedora Nix packages, `nix-daemon` service enablement, `nix.conf` user feature merge, and pinned `devenv` profile installation. |
 | `modules/containers.sh` | Podman, Buildah, Skopeo, rootless subuids/subgids configuration, and user socket enablement. |
 | `modules/validation.sh` | Comprehensive read-only validation for graphical login safety and workstation capabilities. |

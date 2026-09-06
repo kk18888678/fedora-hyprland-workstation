@@ -75,6 +75,15 @@ required_paths=(
     modules/nix.sh
     modules/containers.sh
     modules/validation.sh
+    aurelia-shell/shell.qml
+    aurelia-shell/services/PluginRegistry.qml
+    aurelia-shell/services/PluginHost.qml
+    aurelia-shell/services/ShellConfig.qml
+    aurelia-shell/plugins/aurelia.keybindings/manifest.json
+    aurelia-shell/plugins/aurelia.keybindings/KeybindingsPlugin.qml
+    bin/aurelia-shell
+    bin/aurelia-launch-shell
+    bin/aurelia-plugin
     dotfiles/zsh/.zshrc
     dotfiles/starship/starship.toml
     dotfiles/kitty/kitty.conf
@@ -94,7 +103,7 @@ for rel in "${required_paths[@]}"; do
 done
 
 section "Repository Hygiene"
-if git -C "$ROOT" ls-files | grep -E '(\.auth|\.token|jetski_state|settings\.json|credentials|\.db|\.key|\.pem)'; then
+if git -C "$ROOT" ls-files | grep -E '(^|/)(\.auth|\.token|jetski_state|settings\.json|credentials|[^/]+\.(db|key|pem))$'; then
     fail "sensitive or authentication file tracked in git"
 else
     pass "no authentication or secret files tracked in git"

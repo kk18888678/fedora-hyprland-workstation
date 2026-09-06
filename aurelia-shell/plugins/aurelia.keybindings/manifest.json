@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.keybindings",
+  "name": "Keybindings",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Aurelia Shell keyboard shortcut manager",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "KeybindingsPlugin.qml"
+  }
+}

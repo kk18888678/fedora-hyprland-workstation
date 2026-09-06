@@ -33,6 +33,11 @@ hl.on("hyprland.start", function()
 
     -- Noctalia is installed and enabled by the workstation profile.
     hl.exec_cmd("noctalia")
+
+    -- Aurelia is a resident Quickshell host. Its plugin registry owns the
+    -- Keybindings panel and future shell plugins; this launcher uses
+    -- --no-duplicate so a reload cannot create a second host process.
+    hl.exec_cmd("/usr/local/bin/aurelia-launch-shell")
 end)
 
 return true

@@ -132,7 +132,7 @@ run_diagnostics_runtime() {
         fi
     done
 
-    local source_qml_root="$script_dir/../dotfiles/aurelia"
+    local source_qml_root="$script_dir/../aurelia-shell"
     local active_qml_root=""
     local explicit_qml_root=0
     if [[ ("${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1") &&
@@ -267,17 +267,28 @@ from pathlib import Path
 
 RELATIVE_FILES = (
     "shell.qml",
-    "components/keybindings/KeybindingsWindow.qml",
-    "components/keybindings/KeybindingsHeader.qml",
-    "components/keybindings/KeybindingsActionList.qml",
-    "components/keybindings/KeybindingsExecutableForm.qml",
-    "components/keybindings/KeybindingsFooter.qml",
-    "components/keybindings/KeybindingsSettings.qml",
-    "components/keybindings/KeybindingsConfig.qml",
-    "components/keybindings/KeybindingsModel.qml",
-    "components/keybindings/KeybindingRow.qml",
-    "components/keybindings/qmldir",
+    "services/PluginRegistry.qml",
+    "services/PluginHost.qml",
+    "services/ShellConfig.qml",
+    "services/qmldir",
+    "plugins/aurelia.keybindings/manifest.json",
+    "plugins/aurelia.keybindings/KeybindingsPlugin.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsAddActionPicker.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsActionTypeRow.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingRow.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsActionList.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsConfig.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsExecutableForm.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsFooter.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsHeader.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsModel.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsSettings.qml",
+    "plugins/aurelia.keybindings/ui/KeybindingsWindow.qml",
+    "plugins/aurelia.keybindings/ui/qmldir",
     "theme/Theme.qml",
+    "theme/qmldir",
+    "theme.conf",
+    "core/preferences.lua",
 )
 BACKEND_RELATIVE_FILES = (
     "lib/aurelia-keybindings/common.sh",

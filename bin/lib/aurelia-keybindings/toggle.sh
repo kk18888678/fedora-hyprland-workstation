@@ -4,6 +4,28 @@
 # This module owns only IPC dispatch and bounded cold-start readiness. It does
 # not resolve keybinding data or mutate configuration.
 
+resolve_aurelia_shell_ipc_bin() {
+    if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" &&
+          -x "$script_dir/aurelia-shell" ]]; then
+        printf '%s\n' "$script_dir/aurelia-shell"
+    elif [[ -x "/usr/local/bin/aurelia-shell" ]]; then
+        printf '%s\n' "/usr/local/bin/aurelia-shell"
+    else
+        return 1
+    fi
+}
+
+resolve_aurelia_shell_launcher() {
+    if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" &&
+          -x "$script_dir/aurelia-launch-shell" ]]; then
+        printf '%s\n' "$script_dir/aurelia-launch-shell"
+    elif [[ -x "/usr/local/bin/aurelia-launch-shell" ]]; then
+        printf '%s\n' "/usr/local/bin/aurelia-launch-shell"
+    else
+        return 1
+    fi
+}
+
 toggle_aurelia() {
     if [[ "${AURELIA_SIMULATE_SUCCESS:-${HOTKEYS_SIMULATE_AURELIA_SUCCESS:-0}}" == "1" ]]; then
         printf '%s\n' "AURELIA_TOGGLE_OK"
@@ -35,13 +57,37 @@ toggle_aurelia() {
     fi
     if [[ ! -f "$aurelia_shell" &&
           ("${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1") ]]; then
-        aurelia_shell="$script_dir/../dotfiles/aurelia/shell.qml"
+        aurelia_shell="$script_dir/../aurelia-shell/shell.qml"
     fi
     if [[ ! -f "$aurelia_shell" ]]; then
         log_event "ERROR" "Aurelia configuration not found at '$aurelia_shell'" "dispatch"
         notify_user critical "Keybindings Error" "Aurelia configuration not found at '$aurelia_shell'."
         printf '%s\n' "Error: Aurelia configuration not found at '$aurelia_shell'." >&2
         return 1
+    fi
+
+    local shell_ipc_bin=""
+    shell_ipc_bin="$(resolve_aurelia_shell_ipc_bin 2>/dev/null || true)"
+
+    # The normal path is the Omarchy-style shell IPC call: the resident host
+    # owns plugin lifecycle and this capability command only forwards intent.
+    # The direct target path below remains a bounded migration fallback for an
+    # older installation that has not received the Aurelia host wrapper yet.
+    if [[ -n "$shell_ipc_bin" ]]; then
+        local shell_ping shell_result
+        shell_ping="$("$shell_ipc_bin" shell ping 2>&1 || true)"
+        if [[ "$shell_ping" == *"ok"* ]]; then
+            if shell_result="$("$shell_ipc_bin" shell toggle aurelia.keybindings "{}" 2>&1)"; then
+                if [[ "$shell_result" == *"ok"* || "$shell_result" == *"pending"* || -z "$shell_result" ]]; then
+                    log_event "INFO" "Aurelia keybindings toggled through resident shell IPC." "toggle"
+                    return 0
+                fi
+            fi
+            log_event "ERROR" "Resident Aurelia shell IPC toggle failed: $shell_result" "toggle"
+            notify_user critical "Keybindings Error" "Failed to toggle keybindings window."
+            printf '%s\n' "Error: Aurelia shell IPC toggle failed." >&2
+            return 1
+        fi
     fi
 
     local t_warm_start
@@ -77,7 +123,16 @@ toggle_aurelia() {
 
     local t_cold_start
     t_cold_start="$(date +%s%3N 2>/dev/null || date +%s)"
-    if ! QSG_INFO=1 "$qs_bin" --no-duplicate --daemonize --log-times -v --path "$aurelia_shell" >>"$AURELIA_LOG" 2>&1; then
+    local launcher_bin=""
+    launcher_bin="$(resolve_aurelia_shell_launcher 2>/dev/null || true)"
+    if [[ -n "$launcher_bin" ]]; then
+        if ! "$launcher_bin" >>"$AURELIA_LOG" 2>&1; then
+            log_event "CRASH" "Aurelia resident shell launch failed" "launch"
+            notify_user critical "Keybindings Error" "Failed to launch Aurelia Shell."
+            printf '%s\n' "Error: Aurelia Shell launch failed." >&2
+            return 1
+        fi
+    elif ! QSG_INFO=1 "$qs_bin" --no-duplicate --daemonize --log-times -v --path "$aurelia_shell" >>"$AURELIA_LOG" 2>&1; then
         log_event "CRASH" "Aurelia process launch failed" "launch"
         notify_user critical "Keybindings Error" "Failed to launch Aurelia Quickshell process."
         printf '%s\n' "Error: Aurelia process launch failed." >&2
@@ -89,17 +144,26 @@ toggle_aurelia() {
     local ready_target="keybindings"
     local kb_out hk_out
     for _ in {1..40}; do
-        kb_out="$("$qs_bin" ipc --path "$aurelia_shell" call keybindings ping 2>&1 || true)"
-        if [[ "$kb_out" == *"true"* || "$kb_out" == *"pong"* ]]; then
-            is_ready=1
-            ready_target="keybindings"
-            break
-        fi
-        hk_out="$("$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping 2>&1 || true)"
-        if [[ "$hk_out" == *"true"* || "$hk_out" == *"pong"* ]]; then
-            is_ready=1
-            ready_target="hotkeys"
-            break
+        if [[ -n "$shell_ipc_bin" ]]; then
+            kb_out="$("$shell_ipc_bin" shell ping 2>&1 || true)"
+            if [[ "$kb_out" == *"ok"* ]]; then
+                is_ready=1
+                ready_target="shell"
+                break
+            fi
+        else
+            kb_out="$("$qs_bin" ipc --path "$aurelia_shell" call keybindings ping 2>&1 || true)"
+            if [[ "$kb_out" == *"true"* || "$kb_out" == *"pong"* ]]; then
+                is_ready=1
+                ready_target="keybindings"
+                break
+            fi
+            hk_out="$("$qs_bin" ipc --path "$aurelia_shell" call hotkeys ping 2>&1 || true)"
+            if [[ "$hk_out" == *"true"* || "$hk_out" == *"pong"* ]]; then
+                is_ready=1
+                ready_target="hotkeys"
+                break
+            fi
         fi
         sleep 0.05
     done
@@ -122,7 +186,16 @@ toggle_aurelia() {
     t_cold_ready="$(date +%s%3N 2>/dev/null || date +%s)"
     dur_ready=$((t_cold_ready - t_cold_start))
     log_event "PERF" "Aurelia cold launch to ping readiness: ${dur_ready}ms" "launch" "$dur_ready"
-    if "$qs_bin" ipc --path "$aurelia_shell" call "$ready_target" toggle >/dev/null 2>&1; then
+    if [[ "$ready_target" == "shell" ]]; then
+        if "$shell_ipc_bin" shell toggle aurelia.keybindings "{}" >/dev/null 2>&1; then
+            local t_cold_end dur_total
+            t_cold_end="$(date +%s%3N 2>/dev/null || date +%s)"
+            dur_total=$((t_cold_end - t_cold_start))
+            log_event "PERF" "Aurelia cold shell IPC toggle completed in ${dur_total}ms" "launch" "$dur_total"
+            log_event "INFO" "Aurelia keybindings toggled successfully after cold readiness." "toggle"
+            return 0
+        fi
+    elif "$qs_bin" ipc --path "$aurelia_shell" call "$ready_target" toggle >/dev/null 2>&1; then
         local t_cold_end dur_total
         t_cold_end="$(date +%s%3N 2>/dev/null || date +%s)"
         dur_total=$((t_cold_end - t_cold_start))
