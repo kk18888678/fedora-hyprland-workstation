@@ -23,6 +23,7 @@ QtObject {
 
     property FileView themeFile: FileView {
         path: themeRoot.themePath
+        printErrors: false
     }
 
     // 1b. Aurelia User Preferences File (XDG layered configuration)
@@ -47,6 +48,7 @@ QtObject {
 
     property FileView preferencesFile: FileView {
         path: themeRoot.preferencesPath
+        printErrors: false
     }
 
     readonly property var loadedPreferences: {
