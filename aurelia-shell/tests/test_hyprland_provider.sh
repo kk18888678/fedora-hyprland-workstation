@@ -43,7 +43,8 @@ fi
 
 if [[ -f "$ROOT/plugins/aurelia.screenshot/keybindings.lua" ]] &&
    grep -q 'aurelia.screenshot.quick_region' "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
-   grep -q 'register_plugin_keybindings' "$keybind_lua" &&
+   grep -q 'load_aurelia_plugin_bindings' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'plugin_ipc' "$keybind_lua" &&
    grep -q 'quickRegion' "$ROOT/plugins/aurelia.screenshot/ScreenshotPlugin.qml"; then
     pass "Screenshot plugin owns a provider-registered quick-region binding"
 else

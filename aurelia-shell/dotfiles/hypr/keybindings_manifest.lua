@@ -429,4 +429,25 @@ M.bindings = {
     },
 }
 
+-- First-party plugin bindings are declared by the plugin and merged into the
+-- same effective registry consumed by both the UI and Hyprland provider.
+local function load_aurelia_plugin_bindings()
+    local source = debug.getinfo(1, "S").source or ""
+    source = source:gsub("^@", "")
+    local shell_root = source:gsub("/dotfiles/hypr/keybindings_manifest%.lua$", "")
+    local declaration_path = shell_root .. "/plugins/aurelia.screenshot/keybindings.lua"
+    local declaration_file = io.open(declaration_path, "rb")
+    if not declaration_file then return end
+    declaration_file:close()
+    local ok, declarations = pcall(dofile, declaration_path)
+    if not ok or type(declarations) ~= "table" then return end
+    for _, item in ipairs(declarations) do
+        if type(item) == "table" and type(item.id) == "string" then
+            table.insert(M.bindings, item)
+        end
+    end
+end
+
+load_aurelia_plugin_bindings()
+
 return M
