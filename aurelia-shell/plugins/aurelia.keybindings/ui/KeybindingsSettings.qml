@@ -317,11 +317,11 @@ Item {
             Rectangle {
                 id: settingsHero
                 Layout.fillWidth: true
-                Layout.preferredHeight: 94
-                radius: Theme.radiusLg
-                color: Theme.surfaceElevated
-                border.color: Theme.border
-                border.width: 1
+                Layout.preferredHeight: 72
+                radius: Theme.radiusMd
+                color: "transparent"
+                border.color: "transparent"
+                border.width: 0
 
                 RowLayout {
                     anchors.fill: parent

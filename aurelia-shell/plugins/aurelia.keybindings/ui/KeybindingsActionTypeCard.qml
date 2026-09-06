@@ -18,10 +18,10 @@ Rectangle {
     signal chosen()
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 132
+    Layout.preferredHeight: 84
     radius: Theme.radiusLg
-    color: cardRoot.selected ? Theme.selectionActive : (cardHover.hovered ? Theme.surfaceElevated : Theme.bgBase)
-    border.width: cardRoot.selected || cardHover.hovered ? Theme.borderWidthFocus : Theme.borderWidthDefault
+    color: cardRoot.selected ? Theme.selection : (cardHover.hovered ? Theme.surfaceElevated : Theme.bgBase)
+    border.width: 1
     border.color: cardRoot.selected ? Theme.borderActive : Theme.border
 
     Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
@@ -31,22 +31,22 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingLg
+        anchors.margins: Theme.spacingMd
         spacing: Theme.spacingMd
 
         Rectangle {
-            Layout.preferredWidth: 52
-            Layout.preferredHeight: 52
+            Layout.preferredWidth: 36
+            Layout.preferredHeight: 36
             Layout.alignment: Qt.AlignTop
-            radius: 26
-            color: cardRoot.selected ? Theme.accent : Theme.selection
+            radius: 18
+            color: cardRoot.selected ? Theme.accent : Theme.surfaceElevated
 
             Text {
                 anchors.centerIn: parent
                 text: cardRoot.glyph
                 color: cardRoot.selected ? Theme.bgBase : Theme.accent
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeXl
+                font.pixelSize: Theme.fontSizeLg
                 font.weight: Theme.fontWeightBold
             }
         }
@@ -61,7 +61,7 @@ Rectangle {
                 text: cardRoot.title
                 color: cardRoot.selected ? Theme.text : Theme.textSecondary
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeLg
+                font.pixelSize: Theme.fontSizeMd
                 font.weight: Theme.fontWeightBold
                 elide: Text.ElideRight
             }
@@ -71,7 +71,7 @@ Rectangle {
                 text: cardRoot.subtitle
                 color: cardRoot.selected ? Theme.textSecondary : Theme.textSubtle
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSm
+                font.pixelSize: Theme.fontSizeXs
                 wrapMode: Text.WordWrap
                 elide: Text.ElideRight
             }
@@ -82,7 +82,7 @@ Rectangle {
             text: "›"
             color: cardRoot.selected ? Theme.accent : Theme.textMuted
             font.family: Theme.fontFamily
-            font.pixelSize: 30
+            font.pixelSize: 22
         }
     }
 

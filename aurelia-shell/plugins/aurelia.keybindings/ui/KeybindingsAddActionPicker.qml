@@ -87,14 +87,14 @@ Item {
         id: actionTypeColumn
         anchors.fill: parent
         anchors.margins: Theme.spacingXl
-        spacing: Theme.spacingMd
+        spacing: Theme.spacingSm
 
         Text {
             Layout.fillWidth: true
             text: "Add an action"
             color: Theme.text
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeXl
+            font.pixelSize: Theme.fontSizeLg
             font.weight: Theme.fontWeightBold
         }
 

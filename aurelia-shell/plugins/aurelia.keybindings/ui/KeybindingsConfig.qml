@@ -29,10 +29,10 @@ QtObject {
     // =========================================================================
     // 1. Surface (Palette Window Dimensions & Margins)
     // =========================================================================
-    readonly property int palettePreferredWidth: 860
-    readonly property int palettePreferredHeight: 560
-    readonly property int paletteMinWidth: 640
-    readonly property int paletteMinHeight: 400
+    readonly property int palettePreferredWidth: 780
+    readonly property int palettePreferredHeight: 500
+    readonly property int paletteMinWidth: 620
+    readonly property int paletteMinHeight: 380
     readonly property int contentPaddingHorizontal: Theme.spacingLg
     readonly property int contentPaddingVertical: 18
     readonly property int surfaceRadius: Theme.radiusLg
@@ -60,8 +60,8 @@ QtObject {
     // =========================================================================
     // 4. List & Rows (Shortcut Table Layout)
     // =========================================================================
-    readonly property int rowHeight: 48
-    readonly property int rowSpacing: 5
+    readonly property int rowHeight: 44
+    readonly property int rowSpacing: 4
     readonly property int rowRadius: Theme.radiusMd
     readonly property int rowPaddingHorizontal: Theme.spacingMd
     readonly property int scrollBarWidth: Theme.scrollBarWidth
@@ -69,7 +69,7 @@ QtObject {
     // =========================================================================
     // 5. Columns (Shortcut List Column Proportions)
     // =========================================================================
-    readonly property int shortcutColumnWidth: 190
+    readonly property int shortcutColumnWidth: 160
     readonly property int separatorColumnWidth: 24
 
     // =========================================================================

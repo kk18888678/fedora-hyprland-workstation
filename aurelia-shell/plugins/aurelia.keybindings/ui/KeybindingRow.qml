@@ -47,34 +47,24 @@ Rectangle {
         anchors.rightMargin: KeybindingsConfig.rowPaddingHorizontal
         spacing: Theme.spacingLg
 
-        // Column 1: one compact shortcut badge. Modifiers remain text inside
-        // a single badge; the row never turns a shortcut into keycap chrome.
+        // Column 1: compact shortcut text. The palette stays light and avoids
+        // turning every shortcut into a separate keycap component.
         Item {
             Layout.preferredWidth: KeybindingsConfig.shortcutColumnWidth
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredHeight: 30
+            Layout.preferredHeight: 28
 
-            Rectangle {
-                id: shortcutBadge
-                width: Math.min(parent.width, shortcutLabel.implicitWidth + Theme.spacingLg * 2)
-                height: parent.height
-                radius: Theme.radiusSm
-                color: rowRoot.isSelected ? Theme.selectionActive : Theme.surfaceElevated
-                border.width: 1
-                border.color: rowRoot.isSelected ? Theme.borderActive : Theme.border
-
-                Text {
-                    id: shortcutLabel
-                    anchors.centerIn: parent
-                    width: Math.min(implicitWidth, shortcutBadge.width - Theme.spacingMd * 2)
-                    text: rowRoot.formattedShortcut()
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideRight
-                    color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSm
-                    font.weight: Theme.fontWeightMedium
-                }
+            Text {
+                id: shortcutLabel
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                text: rowRoot.formattedShortcut()
+                elide: Text.ElideRight
+                color: rowRoot.isSelected ? Theme.accent : Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSm
+                font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
             }
         }
 
