@@ -313,59 +313,70 @@ Item {
             width: Math.min(parent.width - (KeybindingsConfig.settingsMarginHorizontal * 2), KeybindingsConfig.settingsContentMaxWidth)
             spacing: KeybindingsConfig.settingsRowSpacing
 
-            // Header row
-            RowLayout {
+            // Settings hero
+            Rectangle {
+                id: settingsHero
                 Layout.fillWidth: true
-                spacing: Theme.spacingMd
+                Layout.preferredHeight: 94
+                radius: Theme.radiusLg
+                color: Theme.surfaceElevated
+                border.color: Theme.border
+                border.width: 1
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingLg
+                    spacing: Theme.spacingMd
 
-                    Text {
-                        text: "⚙ Keybindings Preferences"
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeLg
-                        font.weight: Theme.fontWeightBold
-                        color: Theme.accent
-                    }
-
-                    Text {
-                        text: "Configure keyboard shortcuts and motion for Keybindings."
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSm
-                        color: Theme.textSecondary
-                        wrapMode: Text.Wrap
+                    ColumnLayout {
                         Layout.fillWidth: true
-                    }
-                }
+                        spacing: 2
 
-                Rectangle {
-                    Layout.preferredHeight: KeybindingsConfig.tabHeight
-                    Layout.preferredWidth: backSettingsLabel.implicitWidth + (KeybindingsConfig.tabPaddingHorizontal * 2)
-                    radius: KeybindingsConfig.tabBorderRadius
-                    color: backSettingsHover.hovered ? Theme.selection : "transparent"
-                    border.color: Theme.border
-                    border.width: 1
+                        Text {
+                            text: "Keybindings settings"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeXl
+                            font.weight: Theme.fontWeightBold
+                            color: Theme.text
+                        }
 
-                    HoverHandler {
-                        id: backSettingsHover
-                    }
-
-                    Text {
-                        id: backSettingsLabel
-                        anchors.centerIn: parent
-                        text: "← Back"
-                        color: Theme.gold
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSm
-                        font.weight: Theme.fontWeightMedium
+                        Text {
+                            text: "Personalize navigation, capture behavior, and motion."
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            color: Theme.textSecondary
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
                     }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: backRequested()
+                    Rectangle {
+                        Layout.preferredHeight: KeybindingsConfig.tabHeight
+                        Layout.preferredWidth: backSettingsLabel.implicitWidth + (KeybindingsConfig.tabPaddingHorizontal * 2)
+                        radius: KeybindingsConfig.tabBorderRadius
+                        color: backSettingsHover.hovered ? Theme.selection : Theme.bgBase
+                        border.color: backSettingsHover.hovered ? Theme.borderActive : Theme.border
+                        border.width: 1
+
+                        HoverHandler {
+                            id: backSettingsHover
+                        }
+
+                        Text {
+                            id: backSettingsLabel
+                            anchors.centerIn: parent
+                            text: "← Back"
+                            color: Theme.gold
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: backRequested()
+                        }
                     }
                 }
             }
@@ -390,8 +401,8 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: layout0.implicitHeight + (Theme.spacingMd * 2)
                     Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
-                    radius: Theme.radiusSm
-                    color: (settingsRoot.selectedIndex === 0) ? Theme.selection : (row0Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    radius: Theme.radiusMd
+                    color: (settingsRoot.selectedIndex === 0) ? Theme.selection : (row0Hover.hovered ? Theme.surfaceElevated : Theme.bgBase)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.add_action") ? Theme.accent : ((settingsRoot.selectedIndex === 0) ? Theme.borderActive : Theme.border)
                     border.width: 1
 
@@ -467,8 +478,8 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: layout1.implicitHeight + (Theme.spacingMd * 2)
                     Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
-                    radius: Theme.radiusSm
-                    color: (settingsRoot.selectedIndex === 1) ? Theme.selection : (row1Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    radius: Theme.radiusMd
+                    color: (settingsRoot.selectedIndex === 1) ? Theme.selection : (row1Hover.hovered ? Theme.surfaceElevated : Theme.bgBase)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.back") ? Theme.accent : ((settingsRoot.selectedIndex === 1) ? Theme.borderActive : Theme.border)
                     border.width: 1
 
@@ -544,8 +555,8 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: layout2.implicitHeight + (Theme.spacingMd * 2)
                     Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
-                    radius: Theme.radiusSm
-                    color: (settingsRoot.selectedIndex === 2) ? Theme.selection : (row2Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    radius: Theme.radiusMd
+                    color: (settingsRoot.selectedIndex === 2) ? Theme.selection : (row2Hover.hovered ? Theme.surfaceElevated : Theme.bgBase)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.set_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 2) ? Theme.borderActive : Theme.border)
                     border.width: 1
 
@@ -621,8 +632,8 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: layout3.implicitHeight + (Theme.spacingMd * 2)
                     Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
-                    radius: Theme.radiusSm
-                    color: (settingsRoot.selectedIndex === 3) ? Theme.selection : (row3Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    radius: Theme.radiusMd
+                    color: (settingsRoot.selectedIndex === 3) ? Theme.selection : (row3Hover.hovered ? Theme.surfaceElevated : Theme.bgBase)
                     border.color: (settingsRoot.editingPrefKey === "components.keybindings.shortcuts.unset_binding") ? Theme.accent : ((settingsRoot.selectedIndex === 3) ? Theme.borderActive : Theme.border)
                     border.width: 1
 
@@ -713,8 +724,8 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: layout4.implicitHeight + (Theme.spacingMd * 2)
                     Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
-                    radius: Theme.radiusSm
-                    color: (settingsRoot.selectedIndex === 4) ? Theme.selection : (row4Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    radius: Theme.radiusMd
+                    color: (settingsRoot.selectedIndex === 4) ? Theme.selection : (row4Hover.hovered ? Theme.surfaceElevated : Theme.bgBase)
                     border.color: (settingsRoot.selectedIndex === 4) ? Theme.borderActive : Theme.border
                     border.width: 1
 
@@ -790,8 +801,8 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: layout5.implicitHeight + (Theme.spacingMd * 2)
                     Layout.preferredHeight: settingsRoot.isCompact ? -1 : Math.max(KeybindingsConfig.settingsRowMinHeight, implicitHeight)
-                    radius: Theme.radiusSm
-                    color: (settingsRoot.selectedIndex === 5) ? Theme.selection : (row5Hover.hovered ? Theme.surfaceElevated : Theme.inputBg)
+                    radius: Theme.radiusMd
+                    color: (settingsRoot.selectedIndex === 5) ? Theme.selection : (row5Hover.hovered ? Theme.surfaceElevated : Theme.bgBase)
                     border.color: (settingsRoot.selectedIndex === 5) ? Theme.borderActive : Theme.border
                     border.width: 1
 

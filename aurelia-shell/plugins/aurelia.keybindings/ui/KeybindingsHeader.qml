@@ -76,7 +76,7 @@ ColumnLayout {
             Text {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
-                text: "keybindings_"
+                text: "Search shortcuts"
                 color: Theme.textSubtle
                 font: parent.font
                 visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "bound"
@@ -85,7 +85,7 @@ ColumnLayout {
             Text {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
-                text: "keybindings_ (unbound)"
+                text: "Search available shortcuts"
                 color: Theme.textSubtle
                 font: parent.font
                 visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "unbound"
@@ -94,7 +94,7 @@ ColumnLayout {
             Text {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
-                text: "choose action type_"
+                text: "Choose an action type"
                 color: Theme.textSubtle
                 font: parent.font
                 visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "add_action_type"
@@ -103,7 +103,7 @@ ColumnLayout {
             Text {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
-                text: "add application_"
+                text: "Search applications"
                 color: Theme.textSubtle
                 font: parent.font
                 visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "add_app"
@@ -235,21 +235,30 @@ ColumnLayout {
         Layout.bottomMargin: Theme.spacingSm
         spacing: KeybindingsConfig.headerSpacing
 
+        Text {
+            Layout.alignment: Qt.AlignVCenter
+            text: "Shortcuts"
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeMd
+            font.weight: Theme.fontWeightBold
+        }
+
         Rectangle {
             Layout.preferredHeight: KeybindingsConfig.tabHeight
             Layout.preferredWidth: boundText.implicitWidth + KeybindingsConfig.tabPaddingHorizontal * 2
             radius: KeybindingsConfig.tabBorderRadius
-            color: modelController.activeView === "bound" ? Theme.selection : "transparent"
-            border.color: "transparent"
-            border.width: 0
+            color: modelController.activeView === "bound" ? Theme.selectionActive : Theme.bgBase
+            border.color: modelController.activeView === "bound" ? Theme.borderActive : Theme.border
+            border.width: 1
 
             Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
             Text {
                 id: boundText
                 anchors.centerIn: parent
-                text: "Bound (" + modelController.boundCount + ")"
-                color: modelController.activeView === "bound" ? Theme.accent : Theme.textSecondary
+                text: "Assigned  " + modelController.boundCount
+                color: modelController.activeView === "bound" ? Theme.text : Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: modelController.activeView === "bound" ? Theme.fontWeightMedium : Theme.fontWeightNormal
@@ -271,17 +280,17 @@ ColumnLayout {
             Layout.preferredHeight: KeybindingsConfig.tabHeight
             Layout.preferredWidth: unboundText.implicitWidth + KeybindingsConfig.tabPaddingHorizontal * 2
             radius: KeybindingsConfig.tabBorderRadius
-            color: modelController.activeView === "unbound" ? Theme.selection : "transparent"
-            border.color: "transparent"
-            border.width: 0
+            color: modelController.activeView === "unbound" ? Theme.selectionActive : Theme.bgBase
+            border.color: modelController.activeView === "unbound" ? Theme.borderActive : Theme.border
+            border.width: 1
 
             Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
             Text {
                 id: unboundText
                 anchors.centerIn: parent
-                text: "Unbound (" + modelController.unboundCount + ")"
-                color: modelController.activeView === "unbound" ? Theme.accent : Theme.textSecondary
+                text: "Available  " + modelController.unboundCount
+                color: modelController.activeView === "unbound" ? Theme.text : Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: modelController.activeView === "unbound" ? Theme.fontWeightMedium : Theme.fontWeightNormal

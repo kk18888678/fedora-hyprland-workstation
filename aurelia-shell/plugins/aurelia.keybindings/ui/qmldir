@@ -9,3 +9,4 @@ KeybindingsExecutableForm 1.0 KeybindingsExecutableForm.qml
 KeybindingsFooter 1.0 KeybindingsFooter.qml
 KeybindingsAddActionPicker 1.0 KeybindingsAddActionPicker.qml
 KeybindingsActionTypeRow 1.0 KeybindingsActionTypeRow.qml
+KeybindingsActionTypeCard 1.0 KeybindingsActionTypeCard.qml

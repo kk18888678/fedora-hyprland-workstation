@@ -68,31 +68,74 @@ Item {
         }
     }
 
+    function indexForKind(kind): int {
+        var items = pickerRoot.modelController.filteredItems || []
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].action_type_kind === kind) return i
+        }
+        return -1
+    }
+
+    function chooseKind(kind) {
+        var index = indexForKind(kind)
+        if (index < 0) return
+        modelController.selectedIndex = index
+        windowController.activateSelected("mouse")
+    }
+
     ColumnLayout {
         id: actionTypeColumn
-        anchors.centerIn: parent
-        width: Math.min(parent.width - Theme.spacingXl * 2, 680)
-        spacing: Theme.spacingSm
+        anchors.fill: parent
+        anchors.margins: Theme.spacingXl
+        spacing: Theme.spacingMd
 
         Text {
             Layout.fillWidth: true
-            text: "Choose an action type"
-            color: Theme.textMuted
+            text: "Add an action"
+            color: Theme.text
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeXs
-            font.weight: Theme.fontWeightMedium
+            font.pixelSize: Theme.fontSizeXl
+            font.weight: Theme.fontWeightBold
         }
 
-        Repeater {
-            model: pickerRoot.modelController.filteredItems
+        Text {
+            Layout.fillWidth: true
+            text: "Choose how this shortcut should launch."
+            color: Theme.textSecondary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSm
+            wrapMode: Text.WordWrap
+        }
 
-            delegate: KeybindingsActionTypeRow {
-                width: actionTypeColumn.width
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: Theme.spacingMd
+
+            KeybindingsActionTypeCard {
+                kind: "application"
+                title: "Application"
+                subtitle: "Choose an installed desktop application and add it to your shortcuts."
+                glyph: "▦"
+                selected: pickerRoot.modelController.selectedIndex === pickerRoot.indexForKind("application")
                 modelController: pickerRoot.modelController
                 windowController: pickerRoot.windowController
-                isSelected: index === pickerRoot.modelController.selectedIndex
+                onChosen: pickerRoot.chooseKind("application")
+            }
+
+            KeybindingsActionTypeCard {
+                kind: "executable"
+                title: "Executable / Script"
+                subtitle: "Register a trusted executable with an explicit path and arguments."
+                glyph: "⌁"
+                selected: pickerRoot.modelController.selectedIndex === pickerRoot.indexForKind("executable")
+                modelController: pickerRoot.modelController
+                windowController: pickerRoot.windowController
+                onChosen: pickerRoot.chooseKind("executable")
             }
         }
+
+        Item { Layout.fillHeight: true }
     }
 
     Text {

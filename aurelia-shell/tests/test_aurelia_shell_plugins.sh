@@ -198,12 +198,13 @@ section "Keybindings Plugin Redesign and Runtime Ownership"
 
 if grep -q 'KeybindingsAddActionPicker {' "$plugin_root/ui/KeybindingsWindow.qml" &&
    grep -q 'readonly property bool pickerVisible' "$plugin_root/ui/KeybindingsAddActionPicker.qml" &&
-   grep -q 'KeybindingsActionTypeRow {' "$plugin_root/ui/KeybindingsAddActionPicker.qml" &&
-   grep -q 'windowController.activateSelected("mouse")' "$plugin_root/ui/KeybindingsActionTypeRow.qml" &&
-   grep -q 'mouse.accepted = true' "$plugin_root/ui/KeybindingsActionTypeRow.qml"; then
-    pass "Add Action uses a dedicated picker and claims Application/Executable pointer gestures"
+   grep -q 'KeybindingsActionTypeCard {' "$plugin_root/ui/KeybindingsAddActionPicker.qml" &&
+   grep -q 'function chooseKind(kind)' "$plugin_root/ui/KeybindingsAddActionPicker.qml" &&
+   grep -q 'onClicked: function(mouse)' "$plugin_root/ui/KeybindingsActionTypeCard.qml" &&
+   grep -q 'mouse.accepted = true' "$plugin_root/ui/KeybindingsActionTypeCard.qml"; then
+    pass "Add Action uses explicit top-aligned cards and claims Application/Executable pointer gestures"
 else
-    fail "Add Action dedicated picker or pointer ownership is incomplete"
+    fail "Add Action card picker or pointer ownership is incomplete"
 fi
 
 if grep -q '/usr/local/bin/aurelia-shell-keybindings' "$plugin_root/ui/KeybindingsModel.qml" &&
