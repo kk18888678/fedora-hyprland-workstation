@@ -1,6 +1,7 @@
 singleton KeybindingsConfig 1.0 KeybindingsConfig.qml
 KeybindingsWindow 1.0 KeybindingsWindow.qml
 KeybindingsSettings 1.0 KeybindingsSettings.qml
+KeybindingsPreferenceRow 1.0 KeybindingsPreferenceRow.qml
 KeybindingsModel 1.0 KeybindingsModel.qml
 KeybindingRow 1.0 KeybindingRow.qml
 KeybindingsHeader 1.0 KeybindingsHeader.qml

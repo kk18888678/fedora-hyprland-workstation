@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.clock",
+  "name": "Clock",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Theme-aware center clock bar widget.",
+  "icon": "clock",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "ClockBarWidget.qml"
+  }
+}

@@ -23,7 +23,7 @@ Item {
     ListView {
         id: listView
         anchors.fill: parent
-        spacing: Theme.rowSpacing
+        spacing: KeybindingsConfig.rowSpacing
         clip: true
         model: actionListRoot.modelController.filteredItems
         currentIndex: actionListRoot.modelController.selectedIndex
@@ -84,12 +84,20 @@ Item {
                 return
             }
             if (event.key === Qt.Key_Up) {
-                if (actionListRoot.modelController.selectedIndex === 0) {
-                    actionListRoot.windowController.focusSearch()
-                } else {
-                    actionListRoot.modelController.selectPrevious()
-                    listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.Contain)
-                }
+                actionListRoot.modelController.selectPrevious()
+                listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.Contain)
+                event.accepted = true
+                return
+            }
+            if (event.key === Qt.Key_Home) {
+                actionListRoot.modelController.selectFirst()
+                listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.Beginning)
+                event.accepted = true
+                return
+            }
+            if (event.key === Qt.Key_End) {
+                actionListRoot.modelController.selectLast()
+                listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.End)
                 event.accepted = true
                 return
             }
@@ -109,11 +117,8 @@ Item {
             }
 
             if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))) {
-                actionListRoot.windowController.focusSearch()
-                if (event.key !== Qt.Key_Slash) {
-                    actionListRoot.windowController.appendSearchText(event.text)
-                }
                 event.accepted = true
+                actionListRoot.windowController.beginSearch(event.key === Qt.Key_Slash ? "" : event.text)
             }
         }
 

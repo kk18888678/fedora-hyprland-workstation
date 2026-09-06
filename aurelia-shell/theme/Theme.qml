@@ -105,8 +105,8 @@ QtObject {
     // Keybindings Component UI Control Shortcuts (configurable via preferences.json)
     readonly property string shortcutAddAction: getPreference("components.keybindings.shortcuts.add_action", "ALT + A")
     readonly property string shortcutBack: getPreference("components.keybindings.shortcuts.back", "ALT + B")
-    readonly property string shortcutSet: getPreference("components.keybindings.shortcuts.set_binding", "S")
-    readonly property string shortcutUnset: getPreference("components.keybindings.shortcuts.unset_binding", "U")
+    readonly property string shortcutSet: getPreference("components.keybindings.shortcuts.set_binding", "ALT + S")
+    readonly property string shortcutUnset: getPreference("components.keybindings.shortcuts.unset_binding", "ALT + U")
 
     readonly property var loadedOverrides: {
         var map = {}

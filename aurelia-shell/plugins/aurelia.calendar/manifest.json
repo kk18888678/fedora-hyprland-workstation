@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.calendar",
+  "name": "Calendar",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Calendar popup opened from the Aurelia clock.",
+  "icon": "x-office-calendar",
+  "kinds": ["panel"],
+  "entryPoints": {
+    "panel": "CalendarPlugin.qml"
+  }
+}

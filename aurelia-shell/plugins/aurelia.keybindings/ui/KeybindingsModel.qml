@@ -249,6 +249,16 @@ QtObject {
         }
     }
 
+    function selectFirst() {
+        if (filteredItems.length === 0) return
+        selectedIndex = 0
+    }
+
+    function selectLast() {
+        if (filteredItems.length === 0) return
+        selectedIndex = filteredItems.length - 1
+    }
+
     // The canonical command is preferred, but the fixed compatibility path is
     // required while an existing installation is upgraded. New deployments
     // install workstation-keybindings as a thin shim to the canonical command;

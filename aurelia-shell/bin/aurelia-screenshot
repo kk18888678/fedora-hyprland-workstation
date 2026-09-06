@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+# aurelia-screenshot — bounded Wayland screenshot capture backend.
+#
+# The QML plugin owns presentation and IPC. This command owns filesystem
+# policy, selection, capture, clipboard, and optional editing.
+
+set -Eeuo pipefail
+
+umask 077
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  aurelia-screenshot capture <full|region|window> [options]
+  aurelia-screenshot select <region|window>
+  aurelia-screenshot windows
+
+Options:
+  --delay SECONDS   Delay capture by 0-30 seconds (default: 3).
+  --show-pointer    Include the pointer in the captured image.
+  --hide-pointer    Exclude the pointer from the captured image.
+  --no-save         Do not save a file.
+  --no-copy         Do not copy the image to the clipboard.
+  --edit            Open the saved image in satty when available.
+  -h, --help        Show this help.
+USAGE
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
+}
+
+timeout_bin="/usr/bin/timeout"
+[[ -x "$timeout_bin" ]] || timeout_bin="$(command -v timeout 2>/dev/null || true)"
+[[ -n "$timeout_bin" && -x "$timeout_bin" ]] || fail "Required command not found: timeout"
+
+run_bounded() {
+    local seconds="$1"
+    shift
+    "$timeout_bin" --foreground --kill-after=2s "${seconds}s" "$@"
+}
+
+resolve_pictures_dir() {
+    local candidate="${AURELIA_SCREENSHOT_DIR:-}"
+    if [[ -z "$candidate" && -n "${XDG_PICTURES_DIR:-}" ]]; then
+        candidate="$XDG_PICTURES_DIR"
+    fi
+    if [[ -z "$candidate" ]] && command -v xdg-user-dir >/dev/null 2>&1; then
+        candidate="$(xdg-user-dir PICTURES 2>/dev/null || true)"
+    fi
+    [[ -n "$candidate" ]] || candidate="${HOME:-}/Pictures"
+    [[ "$candidate" == /* && "$candidate" != "/" ]] || {
+        fail "Screenshot directory must be an absolute non-root path."
+    }
+    printf '%s\n' "$candidate"
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+command_name="${1:-}"
+if [[ "$command_name" == "windows" ]]; then
+    require_command hyprctl
+    require_command jq
+    clients_json="$(run_bounded 5 hyprctl clients -j)" || fail "Could not query Hyprland windows."
+    printf '%s\n' "$clients_json" |
+        jq -c '[.[] | select(.mapped == true) | {
+            title: (.title // ""),
+            class: (.class // ""),
+            address: (.address // ""),
+            at: (.at // [0, 0]),
+            size: (.size // [0, 0])
+        }]'
+    exit 0
+fi
+
+if [[ "$command_name" == "select" ]]; then
+    selector="${2:-}"
+    case "$selector" in
+        region) selector_args=() ;;
+        window) selector_args=("-r") ;;
+        *) fail "Selection mode must be region or window." ;;
+    esac
+    require_command slurp
+    selection_status=0
+    geometry="$(run_bounded 30 slurp "${selector_args[@]}")" || selection_status=$?
+    if (( selection_status == 124 )); then
+        fail "Screenshot selection timed out."
+    fi
+    (( selection_status == 0 )) && [[ -n "$geometry" ]] && printf '%s\n' "$geometry"
+    exit 0
+fi
+
+mode="$command_name"
+[[ "$mode" == "capture" ]] || {
+    usage >&2
+    exit 2
+}
+shift
+
+capture_mode="${1:-}"
+case "$capture_mode" in
+    screen|full) capture_mode="full" ;;
+    region|window) ;;
+    -h|--help|"")
+        usage
+        exit 0
+        ;;
+    *) fail "Unsupported capture mode: $capture_mode" ;;
+esac
+shift
+
+delay=3
+save_file=1
+copy_clipboard=1
+edit_image=0
+show_pointer=0
+geometry_override=""
+
+while (($# > 0)); do
+    case "$1" in
+        --delay)
+            (($# >= 2)) || fail "--delay requires a value."
+            delay="$2"
+            shift 2
+            ;;
+        --show-pointer)
+            show_pointer=1
+            shift
+            ;;
+        --hide-pointer)
+            show_pointer=0
+            shift
+            ;;
+        --geometry)
+            (($# >= 2)) || fail "--geometry requires a Hyprland geometry value."
+            geometry_override="$2"
+            shift 2
+            ;;
+        --no-save)
+            save_file=0
+            shift
+            ;;
+        --no-copy)
+            copy_clipboard=0
+            shift
+            ;;
+        --edit)
+            edit_image=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "Unknown option: $1"
+            ;;
+    esac
+done
+
+[[ "$delay" =~ ^[0-9]+$ && "$delay" -le 30 ]] || {
+    fail "Delay must be an integer between 0 and 30 seconds."
+}
+
+if [[ -n "$geometry_override" &&
+      ! "$geometry_override" =~ ^-?[0-9]+,-?[0-9]+[[:space:]]+[0-9]+x[0-9]+$ ]]; then
+    fail "Invalid capture geometry."
+fi
+
+(( save_file == 1 || copy_clipboard == 1 )) || {
+    fail "At least one output must be enabled (--save or clipboard)."
+}
+
+require_command grim
+require_command hyprctl
+require_command jq
+[[ "$capture_mode" == "full" ]] || require_command slurp
+(( copy_clipboard == 0 )) || require_command wl-copy
+
+if (( delay > 0 )); then
+    sleep "$delay"
+fi
+
+output_dir="$(resolve_pictures_dir)"
+mkdir -p -- "$output_dir"
+
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+[[ "$runtime_dir" == /* && "$runtime_dir" != "/" ]] || fail "Runtime directory is invalid."
+
+capture_path=""
+published_path=""
+published=0
+original_no_hw_cursors=""
+cursor_mode_changed=0
+original_inactive_timeout=""
+inactivity_timeout_changed=0
+cleanup() {
+    if (( inactivity_timeout_changed == 1 )); then
+        restore_inactive_status=0
+        run_bounded 5 hyprctl keyword cursor:inactive_timeout "$original_inactive_timeout" >/dev/null 2>&1 || restore_inactive_status=$?
+        if (( restore_inactive_status != 0 )); then
+            printf 'Error: Could not restore Hyprland cursor inactivity (status %s).\n' "$restore_inactive_status" >&2
+        fi
+    fi
+    if (( cursor_mode_changed == 1 )); then
+        restore_status=0
+        run_bounded 5 hyprctl keyword cursor:no_hardware_cursors "$original_no_hw_cursors" >/dev/null 2>&1 || restore_status=$?
+        if (( restore_status != 0 )); then
+            printf 'Error: Could not restore Hyprland cursor mode (status %s).\n' "$restore_status" >&2
+        fi
+    fi
+    if [[ -n "$capture_path" && -f "$capture_path" ]]; then
+        rm -f -- "$capture_path"
+    fi
+    if (( published == 0 )) && [[ -n "$published_path" && -f "$published_path" ]]; then
+        rm -f -- "$published_path"
+    fi
+}
+trap cleanup EXIT
+
+cursor_json="$(run_bounded 5 hyprctl getoption cursor:no_hardware_cursors -j)" ||
+    fail "Could not read Hyprland cursor mode."
+original_no_hw_cursors="$(printf '%s\n' "$cursor_json" | jq -r '.int // empty')"
+[[ "$original_no_hw_cursors" =~ ^[0-9]+$ ]] ||
+    fail "Hyprland returned an invalid cursor mode."
+
+run_bounded 5 hyprctl keyword cursor:no_hardware_cursors 0 >/dev/null ||
+    fail "Could not temporarily disable software cursor compositing."
+cursor_mode_changed=1
+
+if (( show_pointer == 0 )); then
+    inactive_json="$(run_bounded 5 hyprctl getoption cursor:inactive_timeout -j)" ||
+        fail "Could not read Hyprland cursor inactivity."
+    original_inactive_timeout="$(printf '%s\n' "$inactive_json" | jq -r '.float // .int // empty')"
+    [[ "$original_inactive_timeout" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+        fail "Hyprland returned an invalid cursor inactivity value."
+    run_bounded 5 hyprctl keyword cursor:inactive_timeout 1 >/dev/null ||
+        fail "Could not temporarily enable cursor inactivity hiding."
+    inactivity_timeout_changed=1
+    sleep 1.2
+fi
+
+printf '[SCREENSHOT] cursor_mode original_no_hardware_cursors=%s capture_no_hardware_cursors=0 original_inactive_timeout=%s pointer=%s\n' \
+    "$original_no_hw_cursors" "$original_inactive_timeout" "$show_pointer" >&2
+
+if (( save_file == 1 )); then
+    capture_path="$(mktemp "$output_dir/.aurelia-screenshot-XXXXXX.png")" ||
+        fail "Could not create screenshot output file."
+    published_path="$output_dir/Screenshot-$(date +%Y-%m-%d_%H-%M-%S)-${capture_path##*-}"
+else
+    capture_path="$(mktemp "$runtime_dir/aurelia-screenshot.XXXXXX.png")" ||
+        fail "Could not create temporary screenshot file."
+fi
+
+geometry="$geometry_override"
+slurp_args=()
+grim_args=()
+if (( show_pointer == 1 )); then
+    grim_args+=("-c")
+fi
+if [[ -z "$geometry" && ("$capture_mode" == "region" || "$capture_mode" == "window") ]]; then
+    if [[ "$capture_mode" == "window" ]]; then
+        slurp_args+=("-r")
+    fi
+
+    selection_status=0
+    geometry="$(run_bounded 30 slurp "${slurp_args[@]}" 2>/dev/null)" || selection_status=$?
+    if (( selection_status != 0 )); then
+        # A user cancellation is a clean no-op; a timeout or tool failure is
+        # reported distinctly.
+        if (( selection_status == 124 )); then
+            fail "Screenshot selection timed out."
+        fi
+        exit 0
+    fi
+    [[ -n "$geometry" ]] || exit 0
+fi
+
+capture_status=0
+if [[ -n "$geometry" ]]; then
+    run_bounded 15 grim "${grim_args[@]}" -g "$geometry" "$capture_path" || capture_status=$?
+else
+    run_bounded 15 grim "${grim_args[@]}" "$capture_path" || capture_status=$?
+fi
+(( capture_status == 0 )) || fail "Screenshot capture failed (status $capture_status)."
+
+if (( copy_clipboard == 1 )); then
+    copy_status=0
+    run_bounded 5 wl-copy --type image/png <"$capture_path" || copy_status=$?
+    (( copy_status == 0 )) || fail "Screenshot was saved but clipboard copy failed (status $copy_status)."
+fi
+
+if (( edit_image == 1 )); then
+    require_command satty
+    (( save_file == 1 )) || fail "--edit requires a saved screenshot."
+    run_bounded 60 satty --filename "$capture_path" --output-filename "$capture_path" ||
+        fail "Screenshot editor failed."
+fi
+
+if (( save_file == 1 )); then
+    mv -f -- "$capture_path" "$published_path" || fail "Could not publish completed screenshot."
+    published=1
+    printf '%s\n' "$published_path"
+else
+    printf '%s\n' "$capture_path"
+fi

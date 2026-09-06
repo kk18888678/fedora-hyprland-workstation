@@ -54,9 +54,8 @@ Item {
         }
         if (windowController.handleComponentKey(event, "list")) return
         if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))) {
-            windowController.focusSearch()
-            if (event.key !== Qt.Key_Slash) windowController.appendSearchText(event.text)
             event.accepted = true
+            windowController.beginSearch(event.key === Qt.Key_Slash ? "" : event.text)
         }
     }
 
@@ -110,7 +109,7 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: Theme.spacingMd
+            spacing: Theme.spacingLg
 
             KeybindingsActionTypeCard {
                 kind: "application"

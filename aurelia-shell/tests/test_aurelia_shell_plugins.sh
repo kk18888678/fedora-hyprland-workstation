@@ -30,6 +30,7 @@ if [[ -f "$plugin_root/manifest.json" ]] &&
        .schemaVersion == 1 and
        .id == "aurelia.keybindings" and
        .name == "Keybindings" and
+       .icon == "keyboard" and
        (.kinds == ["panel"]) and
        .entryPoints.panel == "KeybindingsPlugin.qml" and
        .keepLoaded == true
@@ -91,6 +92,14 @@ else
     fail "shell IPC lifecycle or registry contract is incomplete"
 fi
 
+if grep -q 'icon: manifest.icon || ""' "$services_root/PluginRegistry.qml" &&
+   grep -q 'isValidIconName' "$services_root/PluginRegistry.qml" &&
+   grep -q 'Manifest icon name is invalid' "$ROOT/bin/lib/aurelia-plugin/manifest.sh"; then
+    pass "plugin summaries expose validated icon metadata without accepting filesystem paths"
+else
+    fail "plugin icon metadata contract is incomplete"
+fi
+
 if grep -q 'property string userPluginsDir' "$services_root/PluginRegistry.qml" &&
    grep -q 'entryPointUrl(id, kind)' "$services_root/PluginRegistry.qml" &&
    grep -q 'find -P' "$services_root/PluginRegistry.qml" &&
@@ -115,8 +124,11 @@ fi
 if grep -q 'FileView' "$services_root/ShellConfig.qml" &&
    grep -q 'atomicWrites: true' "$services_root/ShellConfig.qml" &&
    grep -q 'blockWrites: true' "$services_root/ShellConfig.qml" &&
-   grep -q 'aurelia/shell.json' "$services_root/ShellConfig.qml"; then
-    pass "ShellConfig persists only plugin state with atomic blocking writes"
+   grep -q 'aurelia/shell.json' "$services_root/ShellConfig.qml" &&
+   grep -q 'function normalizeBar(candidate)' "$services_root/ShellConfig.qml" &&
+   grep -q 'candidate.bar === undefined ? defaultBarConfig()' "$services_root/ShellConfig.qml" &&
+   grep -q 'aurelia.screenshot' "$services_root/ShellConfig.qml"; then
+    pass "ShellConfig persists plugin state and the normalized bar layout with atomic writes"
 else
     fail "ShellConfig persistence boundary is incomplete"
 fi
@@ -157,6 +169,14 @@ if grep -q 'source_kind.*thirdparty' "$services_root/PluginRegistry.qml" &&
     pass "PluginRegistry ignores overlapping first-party/user roots instead of rejecting the same plugin twice"
 else
     fail "PluginRegistry does not guard against overlapping first-party/user plugin roots"
+fi
+
+if grep -q '"shellConfig" in target' "$services_root/PluginHost.qml" &&
+   grep -q 'bar-widget' "$services_root/PluginRegistry.qml" &&
+   grep -q 'function primaryKind(id)' "$services_root/PluginRegistry.qml"; then
+    pass "Bar widgets receive shell-owned configuration through the resident host boundary"
+else
+    fail "Bar widget injection or manifest kind support is incomplete"
 fi
 
 ipc_fixture="$(mktemp -d)"

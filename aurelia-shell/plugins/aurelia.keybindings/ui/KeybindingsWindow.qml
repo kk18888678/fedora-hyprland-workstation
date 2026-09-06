@@ -54,11 +54,19 @@ PanelWindow {
     }
 
     function appendSearchText(value) {
-        header.searchInput.text = header.searchInput.text + value
+        header.appendSearchText(value)
+    }
+
+    function beginSearch(value) {
+        header.beginSearch(value)
     }
 
     function focusList() {
         actionList.focusList()
+    }
+
+    function clearSearch() {
+        header.clearSearch()
     }
 
     function focusSettings() {
@@ -176,7 +184,7 @@ PanelWindow {
     }
 
     function focusActiveView(view): void {
-        if (view === "bound" || view === "unbound" || view === "add_app") focusSearch()
+        if (view === "bound" || view === "unbound" || view === "add_app") focusList()
         else if (view === "add_action_type") addActionPicker.focusPicker()
         else if (view === "add_exec") executableForm.focusFirstField()
         else if (view === "settings") focusSettings()
@@ -519,9 +527,10 @@ PanelWindow {
             keybindingsModel.activeView = "bound"
             keybindingsModel.searchQuery = ""
             keybindingsModel.selectedIndex = 0
+            clearSearch()
             if (!keybindingsModel.allItems || keybindingsModel.allItems.length === 0) keybindingsModel.reload()
             else keybindingsModel.filterItems()
-            focusSearch()
+            focusActiveView("bound")
         } else {
             console.info("[LIFECYCLE] keybindings.window.hidden")
             keybindingsModel.operationState = "idle"
@@ -618,7 +627,7 @@ PanelWindow {
         radius: KeybindingsConfig.surfaceRadius
         color: Theme.bgBase
         border.color: surfaceHover.hovered || header.searchInput.activeFocus ? Theme.borderActive : Theme.border
-        border.width: Theme.borderWidthFocus
+        border.width: Theme.borderWidthDefault
         clip: true
 
         MouseArea {

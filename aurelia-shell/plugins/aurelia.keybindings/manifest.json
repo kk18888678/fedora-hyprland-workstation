@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "author": "Fedora Hyprland Workstation",
   "description": "Aurelia Shell keyboard shortcut manager",
+  "icon": "keyboard",
   "kinds": ["panel"],
   "keepLoaded": true,
   "entryPoints": {

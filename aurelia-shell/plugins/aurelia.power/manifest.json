@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.power",
+  "name": "Power",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Lock, logout, suspend, reboot, and shutdown controls for the Aurelia bar.",
+  "icon": "system-shutdown",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "PowerBarWidget.qml"
+  }
+}

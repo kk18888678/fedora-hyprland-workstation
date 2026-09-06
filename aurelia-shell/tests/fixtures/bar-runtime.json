@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "plugins": [],
+  "disabledPlugins": [],
+  "bar": {
+    "position": "top",
+    "transparent": false,
+    "centerAnchor": "aurelia.clock",
+    "layout": {
+      "left": [
+        { "id": "aurelia.workspaces" }
+      ],
+      "center": [
+        { "id": "aurelia.clock", "format": "MMM d, dddd HH:mm" }
+      ],
+      "right": [
+        { "id": "aurelia.tray" },
+        { "id": "aurelia.power" },
+        { "id": "aurelia.screenshot" }
+      ]
+    }
+  }
+}

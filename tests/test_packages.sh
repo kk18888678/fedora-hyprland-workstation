@@ -62,6 +62,7 @@ assert_not_in_manifest gnome-software
 assert_in_manifest packages/base.txt wget2-wget
 assert_in_manifest packages/base.txt 7zip
 assert_in_manifest packages/base.txt 7zip-standalone
+assert_in_manifest packages/base.txt tmux
 assert_in_manifest packages/desktop.txt hyprland
 assert_in_manifest packages/desktop.txt noctalia
 assert_in_manifest packages/desktop.txt greetd

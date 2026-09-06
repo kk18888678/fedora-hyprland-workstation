@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# aurelia-dev-console — readiness probe and interactive IPC console.
+
+set -Eeuo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+ipc_client="$shell_root/bin/aurelia-shell"
+
+[[ -x "$ipc_client" ]] || {
+    printf 'Error: Aurelia Shell IPC client not found: %s\n' "$ipc_client" >&2
+    exit 1
+}
+
+wait_seconds="${AURELIA_DEV_READY_TIMEOUT:-15}"
+[[ "$wait_seconds" =~ ^[0-9]+$ ]] || {
+    printf 'Error: AURELIA_DEV_READY_TIMEOUT must be a non-negative integer.\n' >&2
+    exit 1
+}
+
+printf '%s\n' "Aurelia Shell IPC console"
+printf '%s\n' "Waiting up to ${wait_seconds}s for the resident host..."
+
+ready=0
+deadline=$((SECONDS + wait_seconds))
+while :; do
+    if ping_output="$("$ipc_client" shell ping 2>&1)"; then
+        ready=1
+        printf '%s\n' "Host ready: $ping_output"
+        break
+    fi
+
+    if (( SECONDS >= deadline )); then
+        printf '%s\n' "Host did not become ready within ${wait_seconds}s." >&2
+        printf '%s\n' "$ping_output" >&2
+        break
+    fi
+
+    sleep 0.25
+done
+
+if (( ready )); then
+    if plugin_output="$("$ipc_client" shell listPlugins 2>&1)"; then
+        printf '%s\n' "Loaded plugins:"
+        printf '%s\n' "$plugin_output"
+    else
+        printf '%s\n' "Could not list plugins: $plugin_output" >&2
+    fi
+fi
+
+cat <<'MESSAGE'
+
+The shell host is running in the other pane. Useful commands:
+  ./aurelia-shell/bin/aurelia-shell shell ping
+  ./aurelia-shell/bin/aurelia-shell shell listPlugins
+  ./aurelia-shell/bin/aurelia-shell shell toggle aurelia.keybindings '{}'
+
+MESSAGE
+
+interactive_shell="${AURELIA_DEV_INTERACTIVE_SHELL:-${SHELL:-/bin/bash}}"
+if [[ "$interactive_shell" == */* ]]; then
+    [[ -x "$interactive_shell" ]] || {
+        printf 'Error: interactive shell is not executable: %s\n' "$interactive_shell" >&2
+        exit 1
+    }
+else
+    interactive_shell_path="$(command -v -- "$interactive_shell" 2>/dev/null || true)"
+    [[ -n "$interactive_shell_path" ]] || {
+        printf 'Error: interactive shell was not found: %s\n' "$interactive_shell" >&2
+        exit 1
+    }
+    interactive_shell="$interactive_shell_path"
+fi
+
+exec "$interactive_shell" -i

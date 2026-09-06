@@ -17,6 +17,7 @@ tar
 
 # Shell / terminal utilities
 neovim
+tmux
 zsh
 fzf
 zoxide

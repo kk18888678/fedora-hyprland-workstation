@@ -26,7 +26,16 @@ USAGE
     exit 0
 fi
 
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+source_shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+
 shell_root="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia"
+if [[ -f "$source_shell_root/shell.qml" && "${AURELIA_USE_INSTALLED_SHELL:-0}" != "1" ]]; then
+    shell_root="$source_shell_root"
+    export AURELIA_DEVELOPMENT_MODE=1
+    export AURELIA_SHELL_ROOT="$shell_root"
+fi
 if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
    [[ -n "${AURELIA_SHELL_ROOT:-}" ]]; then
     shell_root="$AURELIA_SHELL_ROOT"

@@ -10,6 +10,18 @@ script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
 script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
 export AURELIA_KEYBINDINGS_BIN_DIR="$script_dir"
 
+# A source checkout is self-describing. When Hyprland invokes the provider
+# directly, establish the same bounded development context used by the tmux
+# launcher without requiring environment leakage from the compositor process.
+source_shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+if [[ -f "$source_shell_root/shell.qml" && "${AURELIA_DEVELOPMENT_MODE:-0}" != "1" ]]; then
+    export AURELIA_DEVELOPMENT_MODE=1
+    export AURELIA_SHELL_ROOT="$source_shell_root"
+    export AURELIA_QML_ROOT="$source_shell_root/shell.qml"
+    export AURELIA_SHELL_KEYBINDINGS_BIN="$script_path"
+    export QUICKSHELL_BIN="${QUICKSHELL_BIN:-/usr/bin/qs}"
+fi
+
 lib_dir=""
 if [[ -d "$script_dir/lib/aurelia-keybindings" ]]; then
     lib_dir="$script_dir/lib/aurelia-keybindings"

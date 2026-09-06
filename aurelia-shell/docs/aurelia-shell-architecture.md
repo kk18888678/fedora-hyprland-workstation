@@ -40,7 +40,7 @@ The Fedora Hyprland Workstation supports multiple desktop shell environments:
 4. **Plugin Boundary**:
    - The canonical source package is `aurelia-shell/`; the standalone package has no parent-repository compatibility path.
    - First-party plugins live under `aurelia-shell/plugins/`; user plugins live under `~/.config/aurelia/plugins/<plugin-id>/`.
-   - `shell.qml` provides the resident host only. `services/PluginRegistry.qml` discovers and validates manifests, while `services/PluginHost.qml` owns Loader lifecycle and plugin calls.
+   - `shell.qml` provides the resident host only. `services/PluginRegistry.qml` discovers and validates manifests, while `services/PluginHost.qml` owns Loader lifecycle and plugin calls. The `aurelia.bar` surface consumes normalized shell-owned layout state and loads configured `bar-widget` entry points through the same manifest boundary.
 
 ---
 
@@ -119,7 +119,7 @@ aurelia-shell/
 ├── services/
 │   ├── PluginRegistry.qml # Manifest discovery and validation
 │   ├── PluginHost.qml     # Loader lifecycle and plugin calls
-│   └── ShellConfig.qml    # Atomic plugin enablement state
+│   └── ShellConfig.qml    # Atomic plugin + bar layout state
 ├── plugins/
 │   └── aurelia.keybindings/
 │       ├── manifest.json

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Automatic weather bar widget with city and coordinate overrides.",
+  "icon": "weather-clear",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "WeatherBarWidget.qml"
+  }
+}

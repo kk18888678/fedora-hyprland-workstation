@@ -53,6 +53,10 @@ QtObject {
         return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value) && value.indexOf("..") === -1
     }
 
+    function isValidIconName(value) {
+        return typeof value === "string" && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value)
+    }
+
     function isSafeEntryPoint(value) {
         return typeof value === "string" && value.length > 0 && value.charAt(0) !== "/" && value.indexOf("..") === -1 && value.indexOf("\\") === -1 && value.indexOf(":") === -1
     }
@@ -69,6 +73,7 @@ QtObject {
         if (typeof manifest.version !== "string" || manifest.version.trim() === "") return null
         if (!Array.isArray(manifest.kinds) || manifest.kinds.length === 0) return null
         if (!isPlainObject(manifest.entryPoints)) return null
+        if (manifest.icon !== undefined && !isValidIconName(manifest.icon)) return null
         if (firstParty && manifest.id.indexOf("aurelia.") !== 0) return null
         if (!firstParty && manifest.id.indexOf("aurelia.") === 0) return null
 
@@ -149,6 +154,7 @@ QtObject {
                 name: manifest.name,
                 version: manifest.version,
                 description: manifest.description || "",
+                icon: manifest.icon || "",
                 kinds: manifest.kinds.slice(),
                 firstParty: manifest.__isFirstParty === true,
                 enabled: isEnabled(ids[i]),

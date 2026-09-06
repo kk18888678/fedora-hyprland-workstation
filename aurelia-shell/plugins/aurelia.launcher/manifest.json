@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.launcher",
+  "name": "Application Launcher",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Keyboard-first launcher for installed desktop applications.",
+  "icon": "system-search",
+  "kinds": ["panel"],
+  "entryPoints": {
+    "panel": "LauncherPlugin.qml"
+  }
+}

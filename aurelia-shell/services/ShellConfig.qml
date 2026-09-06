@@ -3,8 +3,9 @@ import Quickshell
 import Quickshell.Io
 
 // The shell owns one small user state document, matching the Omarchy model.
-// This service stores only plugin enablement; plugin code and plugin settings
-// remain outside the host's implementation. Writes are atomic and blocking so
+// This service stores plugin enablement and the small shared bar layout
+// contract; plugin code and plugin settings remain outside the host's
+// implementation. Writes are atomic and blocking so
 // an IPC caller never receives success for an unpersisted state transition.
 QtObject {
     id: configRoot
@@ -33,8 +34,77 @@ QtObject {
         onSaveFailed: configRoot.lastSaveOk = false
     }
 
+    function defaultBarConfig() {
+        return {
+            position: "top",
+            transparent: false,
+            centerAnchor: "aurelia.clock",
+            layout: {
+                left: [{ id: "aurelia.workspaces" }],
+                center: [
+                    { id: "aurelia.clock", format: "MMM d, dddd HH:mm" },
+                    { id: "aurelia.weather", location: "auto" }
+                ],
+                right: [
+                    { id: "aurelia.tray" },
+                    { id: "aurelia.power" },
+                    { id: "aurelia.screenshot" }
+                ]
+            }
+        }
+    }
+
+    function cloneEntrySettings(entry) {
+        var result = {}
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return result
+        for (var key in entry) {
+            if (key !== "id" && key !== "settings") result[key] = entry[key]
+        }
+        // Accept the earlier Aurelia nested shape while writing the Omarchy-
+        // compatible inline shape going forward.
+        var nested = entry.settings
+        if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+            for (var nestedKey in nested) {
+                if (result[nestedKey] === undefined) result[nestedKey] = nested[nestedKey]
+            }
+        }
+        return result
+    }
+
+    function normalizeBarEntries(value) {
+        var result = []
+        if (!Array.isArray(value)) return result
+        for (var i = 0; i < value.length; i++) {
+            var entry = value[i]
+            if (typeof entry === "string") entry = { id: entry }
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
+            if (!isValidPluginId(entry.id)) continue
+            var normalizedEntry = cloneEntrySettings(entry)
+            normalizedEntry.id = entry.id
+            result.push(normalizedEntry)
+        }
+        return result
+    }
+
+    function normalizeBar(candidate) {
+        var source = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {}
+        var sourceLayout = source.layout && typeof source.layout === "object" && !Array.isArray(source.layout) ? source.layout : {}
+        var position = source.position === "bottom" ? "bottom" : "top"
+        var centerAnchor = isValidPluginId(source.centerAnchor) ? source.centerAnchor : ""
+        return {
+            position: position,
+            transparent: source.transparent === true,
+            centerAnchor: centerAnchor,
+            layout: {
+                left: normalizeBarEntries(sourceLayout.left),
+                center: normalizeBarEntries(sourceLayout.center),
+                right: normalizeBarEntries(sourceLayout.right)
+            }
+        }
+    }
+
     function defaultConfig() {
-        return { version: 1, plugins: [], disabledPlugins: [] }
+        return { version: 1, plugins: [], disabledPlugins: [], bar: defaultBarConfig() }
     }
 
     function isValidPluginId(value) {
@@ -63,6 +133,7 @@ QtObject {
         }
         normalized.plugins = uniqueIds(candidate.plugins)
         normalized.disabledPlugins = uniqueIds(candidate.disabledPlugins)
+        normalized.bar = candidate.bar === undefined ? defaultBarConfig() : normalizeBar(candidate.bar)
         return normalized
     }
 
@@ -108,7 +179,8 @@ QtObject {
         var next = {
             version: 1,
             plugins: uniqueIds(configRoot.config.plugins),
-            disabledPlugins: uniqueIds(configRoot.config.disabledPlugins)
+            disabledPlugins: uniqueIds(configRoot.config.disabledPlugins),
+            bar: normalizeBar(configRoot.config.bar)
         }
         var list = firstParty ? next.disabledPlugins : next.plugins
         var index = list.indexOf(id)

@@ -52,6 +52,15 @@ aurelia_plugin_validate_manifest() {
         return 1
     fi
 
+    local icon_name
+    icon_name="$(jq -r '.icon // empty' "$manifest_path")"
+    if [[ -n "$icon_name" ]]; then
+        [[ "$icon_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || {
+            aurelia_plugin_fail "Manifest icon name is invalid: $icon_name"
+            return 1
+        }
+    fi
+
     local -a kinds=()
     mapfile -t kinds < <(jq -r '.kinds[]' "$manifest_path")
     local -A seen_kinds=()

@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# aurelia-dev-tmux — run the source Aurelia Shell and IPC console in tmux.
+
+set -Eeuo pipefail
+
+usage() {
+    cat <<'USAGE'
+Usage: aurelia-dev-tmux [--session NAME] [--no-attach]
+
+Starts a source-checkout Aurelia Shell development session:
+  pane 0: resident Aurelia Shell host
+  pane 1: readiness probe and interactive IPC console
+
+An existing session with the same name is reused. The default session name is
+"aurelia-dev".
+USAGE
+}
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+repo_root="$(cd -- "$shell_root/.." && pwd -P)"
+launcher="$shell_root/bin/aurelia-launch-shell"
+console="$shell_root/bin/aurelia-dev-console"
+
+session_name="${AURELIA_TMUX_SESSION:-aurelia-dev}"
+attach=1
+
+while (($# > 0)); do
+    case "$1" in
+        --session)
+            (($# >= 2)) || {
+                printf 'Error: --session requires a name.\n' >&2
+                exit 2
+            }
+            session_name="$2"
+            shift 2
+            ;;
+        --no-attach)
+            attach=0
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'Error: unknown argument: %s\n' "$1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+[[ "$session_name" =~ ^[A-Za-z0-9._-]+$ ]] || {
+    printf 'Error: session name may contain only letters, numbers, ., _, and -.\n' >&2
+    exit 2
+}
+
+command -v tmux >/dev/null 2>&1 || {
+    printf 'Error: tmux is not installed. Run ./install.sh --profile vm after updating the checkout.\n' >&2
+    exit 1
+}
+
+[[ -x "$launcher" ]] || {
+    printf 'Error: Aurelia Shell launcher not found: %s\n' "$launcher" >&2
+    exit 1
+}
+[[ -x "$console" ]] || {
+    printf 'Error: Aurelia Shell development console not found: %s\n' "$console" >&2
+    exit 1
+}
+
+if [[ -n "${QUICKSHELL_BIN:-}" ]]; then
+    qs_bin="$QUICKSHELL_BIN"
+elif [[ -x /usr/bin/qs ]]; then
+    qs_bin=/usr/bin/qs
+elif qs_bin="$(command -v qs 2>/dev/null || true)"; [[ -n "$qs_bin" ]]; then
+    :
+else
+    printf 'Error: Quickshell runtime binary was not found.\n' >&2
+    exit 1
+fi
+
+[[ -x "$qs_bin" ]] || {
+    printf 'Error: Quickshell runtime is not executable: %s\n' "$qs_bin" >&2
+    exit 1
+}
+
+if tmux has-session -t "$session_name" 2>/dev/null; then
+    printf 'Reusing existing tmux session: %s\n' "$session_name"
+else
+    tmux new-session \
+        -d \
+        -s "$session_name" \
+        -n aurelia \
+        -c "$repo_root" \
+        env \
+        AURELIA_DEVELOPMENT_MODE=1 \
+        AURELIA_SHELL_ROOT="$shell_root" \
+        QUICKSHELL_BIN="$qs_bin" \
+        "$launcher"
+
+    tmux set-option -t "$session_name" remain-on-exit on
+
+    tmux split-window \
+        -h \
+        -t "$session_name:0" \
+        -c "$repo_root" \
+        env \
+        AURELIA_DEVELOPMENT_MODE=1 \
+        AURELIA_SHELL_ROOT="$shell_root" \
+        QUICKSHELL_BIN="$qs_bin" \
+        "$console"
+
+    tmux select-layout -t "$session_name:0" even-horizontal
+    tmux select-pane -t "$session_name:0.0"
+    printf 'Created tmux session: %s\n' "$session_name"
+fi
+
+if (( ! attach )); then
+    exit 0
+fi
+
+if [[ -n "${TMUX:-}" ]]; then
+    exec tmux switch-client -t "$session_name"
+fi
+
+exec tmux attach-session -t "$session_name"

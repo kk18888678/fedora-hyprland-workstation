@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.screenshot",
+  "name": "Screenshots",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Bar-only screenshot action with full-screen, region, window, delay, save, and clipboard capture.",
+  "icon": "camera-photo",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "ui/ScreenshotBarWidget.qml"
+  }
+}

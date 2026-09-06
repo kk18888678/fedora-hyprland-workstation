@@ -25,10 +25,12 @@ Rectangle {
         anchors.fill: parent
         anchors.leftMargin: KeybindingsConfig.rowPaddingHorizontal
         anchors.rightMargin: KeybindingsConfig.rowPaddingHorizontal
-        spacing: Theme.spacingLg
+        spacing: Theme.spacingXl
 
         Text {
-            Layout.preferredWidth: KeybindingsConfig.shortcutColumnWidth
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            Layout.minimumWidth: 0
             text: rowRoot.modelData ? (rowRoot.modelData.display_key || "") : ""
             color: rowRoot.isSelected ? Theme.accent : Theme.textSecondary
             font.family: Theme.fontFamily
@@ -47,6 +49,8 @@ Rectangle {
 
         Text {
             Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            Layout.minimumWidth: 0
             text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""
             color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
             font.family: Theme.fontFamily

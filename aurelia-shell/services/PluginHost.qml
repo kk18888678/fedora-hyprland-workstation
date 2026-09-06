@@ -49,6 +49,7 @@ Item {
         // property would fail before the host could inject it.
         if ("aureliaPath" in target) target.aureliaPath = registry.packageRoot
         if ("shell" in target) target.shell = shellApi
+        if ("shellConfig" in target) target.shellConfig = registry.shellConfig
         if ("manifest" in target) target.manifest = manifest
         if ("pluginRegistry" in target) target.pluginRegistry = registry
     }
@@ -110,6 +111,10 @@ Item {
     function call(id, method, argument) {
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(method || ""))) return "invalid-method"
         var target = itemFor(id)
+        if (!target) {
+            var bar = itemFor("aurelia.bar")
+            if (bar && typeof bar.callWidget === "function") return bar.callWidget(id, method, argument)
+        }
         if (!target || typeof target[method] !== "function") return "not-loaded"
         if (argument === undefined || argument === null || argument === "") return String(target[method]() || "")
         return String(target[method](argument) || "")

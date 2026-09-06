@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.workspaces",
+  "name": "Workspaces",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Hyprland workspace switcher for the Aurelia bar.",
+  "icon": "view-list",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "WorkspacesBarWidget.qml"
+  }
+}

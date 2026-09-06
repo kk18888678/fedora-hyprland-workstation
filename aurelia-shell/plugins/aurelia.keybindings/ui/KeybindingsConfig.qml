@@ -24,7 +24,7 @@ QtObject {
 
     // Component Metadata & Provenance Fingerprint
     readonly property string componentName: "keybindings"
-    readonly property string uiRevision: "2026.09.06.r3"
+    readonly property string uiRevision: "2026.09.06.r7"
 
     // =========================================================================
     // 1. Surface (Palette Window Dimensions & Margins)
@@ -35,7 +35,7 @@ QtObject {
     readonly property int paletteMinHeight: 380
     readonly property int contentPaddingHorizontal: Theme.spacingLg
     readonly property int contentPaddingVertical: 18
-    readonly property int surfaceRadius: Theme.radiusLg
+    readonly property int surfaceRadius: Theme.radiusMd
     readonly property int cardBorderWidth: Theme.borderWidthDefault
 
     // =========================================================================
@@ -60,8 +60,8 @@ QtObject {
     // =========================================================================
     // 4. List & Rows (Shortcut Table Layout)
     // =========================================================================
-    readonly property int rowHeight: 44
-    readonly property int rowSpacing: 4
+    readonly property int rowHeight: 46
+    readonly property int rowSpacing: 8
     readonly property int rowRadius: Theme.radiusMd
     readonly property int rowPaddingHorizontal: Theme.spacingMd
     readonly property int scrollBarWidth: Theme.scrollBarWidth
@@ -69,8 +69,8 @@ QtObject {
     // =========================================================================
     // 5. Columns (Shortcut List Column Proportions)
     // =========================================================================
-    readonly property int shortcutColumnWidth: 160
-    readonly property int separatorColumnWidth: 24
+    readonly property int shortcutColumnWidth: 180
+    readonly property int separatorColumnWidth: 28
 
     // =========================================================================
     // 6. Settings (Responsive Preferences Layout)
@@ -86,7 +86,7 @@ QtObject {
     readonly property int settingsSectionSpacing: Theme.spacingLg
     readonly property int settingsBadgeRadius: Theme.radiusSm
     readonly property int settingsBadgePaddingHorizontal: 10
-    readonly property int settingsBadgeHeight: 26
+    readonly property int settingsBadgeHeight: 28
 
     // =========================================================================
     // 7. Forms (Custom Executable / Script Creation)

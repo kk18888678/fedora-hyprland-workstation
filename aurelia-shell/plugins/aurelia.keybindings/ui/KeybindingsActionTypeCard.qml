@@ -18,10 +18,10 @@ Rectangle {
     signal chosen()
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 84
-    radius: Theme.radiusLg
+    Layout.preferredHeight: 80
+    radius: Theme.radiusMd
     color: cardRoot.selected ? Theme.selection : (cardHover.hovered ? Theme.surfaceElevated : Theme.bgBase)
-    border.width: 1
+    border.width: cardRoot.selected ? Theme.borderWidthDefault : 0
     border.color: cardRoot.selected ? Theme.borderActive : Theme.border
 
     Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
@@ -35,10 +35,10 @@ Rectangle {
         spacing: Theme.spacingMd
 
         Rectangle {
-            Layout.preferredWidth: 36
-            Layout.preferredHeight: 36
+            Layout.preferredWidth: 34
+            Layout.preferredHeight: 34
             Layout.alignment: Qt.AlignTop
-            radius: 18
+            radius: 17
             color: cardRoot.selected ? Theme.accent : Theme.surfaceElevated
 
             Text {

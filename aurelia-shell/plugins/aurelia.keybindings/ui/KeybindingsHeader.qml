@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import "."
 import "../../../theme"
 
-// Presentation and input surface for the search field and top-level tabs.
+// Presentation and input surface for top-level tabs and type-to-filter search.
 // Navigation remains owned by the Window controller; this component only
 // translates input into controller calls.
 ColumnLayout {
@@ -14,32 +14,67 @@ ColumnLayout {
     property alias searchInput: searchInput
 
     readonly property bool headerVisible: modelController.activeView !== "add_exec" && modelController.activeView !== "settings"
+    // Search is always visible on list views, but it is deliberately not
+    // focused on open. Typing from the list promotes focus here.
+    readonly property bool searchVisible: headerVisible
     Layout.fillWidth: true
-    Layout.preferredHeight: headerVisible ? (Theme.searchHeight + Theme.spacingLg + Theme.spacingSm + KeybindingsConfig.headerHeight + Theme.spacingSm) : 0
+    Layout.preferredHeight: headerVisible ? (KeybindingsConfig.searchHeight + Theme.spacingLg + Theme.spacingSm + KeybindingsConfig.headerHeight + Theme.spacingSm) : 0
     spacing: 0
     visible: headerVisible
 
     function focusSearch() {
-        searchInput.forceActiveFocus()
+        // Deferring focus prevents the current key event from being delivered
+        // a second time to TextInput after it was handled by the list.
+        Qt.callLater(function() {
+            if (headerRoot.visible) searchInput.forceActiveFocus()
+        })
     }
 
-    // Search input: intentionally the only text-editing surface in the
-    // header. Plain s/u/b/a remain ordinary text when no configured modifier
-    // is present.
+    function appendSearchText(value) {
+        if (!value) return
+        searchInput.text = searchInput.text + value
+        searchInput.cursorPosition = searchInput.text.length
+    }
+
+    function beginSearch(value) {
+        // Defer both the model mutation and focus transfer. Filtering can
+        // replace the active delegate; doing that inside its key event can
+        // cause Qt to deliver the same event to the new TextInput.
+        Qt.callLater(function() {
+            appendSearchText(value)
+            if (headerRoot.visible) searchInput.forceActiveFocus()
+        })
+    }
+
+    function clearSearch() {
+        searchInput.text = ""
+        searchInput.focus = false
+    }
+
+    Connections {
+        target: modelController
+        function onActiveViewChanged() {
+            headerRoot.clearSearch()
+        }
+    }
+
+    // Search remains visible as an orientation aid, while list focus remains
+    // the initial keyboard target.
     Item {
         Layout.fillWidth: true
-        Layout.preferredHeight: Theme.searchHeight
+        Layout.preferredHeight: KeybindingsConfig.searchHeight
         Layout.leftMargin: Theme.spacingXl
         Layout.rightMargin: Theme.spacingXl
         Layout.topMargin: Theme.spacingLg
         Layout.bottomMargin: Theme.spacingSm
+        visible: headerRoot.searchVisible
 
         Rectangle {
             id: searchSurface
             anchors.fill: parent
             radius: KeybindingsConfig.searchBorderRadius
-            color: Theme.bgBase
-            border.width: searchInput.activeFocus ? Theme.borderWidthFocus : Theme.borderWidthDefault
+            color: Theme.surface
+            border.width: searchInput.activeFocus ? Theme.borderWidthDefault : 0
             border.color: searchInput.activeFocus ? Theme.borderActive : Theme.border
 
             Behavior on border.color {
@@ -71,42 +106,16 @@ ColumnLayout {
             selectionColor: Theme.selection
             selectedTextColor: Theme.text
             readOnly: (windowController.isRecording || modelController.operationState === "applying")
+            focus: false
             z: 1
 
             Text {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
-                text: "Search shortcuts"
-                color: Theme.textSubtle
+                text: modelController.activeView === "add_app" ? "Search applications" : (modelController.activeView === "unbound" ? "Search available shortcuts" : (modelController.activeView === "add_action_type" ? "Choose an action type" : "Search keybindings"))
+                color: Theme.textMuted
                 font: parent.font
-                visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "bound"
-            }
-
-            Text {
-                anchors.fill: parent
-                verticalAlignment: Text.AlignVCenter
-                text: "Search available shortcuts"
-                color: Theme.textSubtle
-                font: parent.font
-                visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "unbound"
-            }
-
-            Text {
-                anchors.fill: parent
-                verticalAlignment: Text.AlignVCenter
-                text: "Choose an action type"
-                color: Theme.textSubtle
-                font: parent.font
-                visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "add_action_type"
-            }
-
-            Text {
-                anchors.fill: parent
-                verticalAlignment: Text.AlignVCenter
-                text: "Search applications"
-                color: Theme.textSubtle
-                font: parent.font
-                visible: !searchInput.text && modelController.operationState === "idle" && modelController.activeView === "add_app"
+                visible: !searchInput.text && modelController.operationState === "idle"
             }
 
             Text {
@@ -203,7 +212,7 @@ ColumnLayout {
                     return
                 }
 
-                if (event.key === Qt.Key_Down) {
+                if (event.key === Qt.Key_Down || event.key === Qt.Key_Up) {
                     windowController.focusList()
                     event.accepted = true
                     return
@@ -248,9 +257,9 @@ ColumnLayout {
             Layout.preferredHeight: KeybindingsConfig.tabHeight
             Layout.preferredWidth: boundText.implicitWidth + KeybindingsConfig.tabPaddingHorizontal * 2
             radius: KeybindingsConfig.tabBorderRadius
-            color: modelController.activeView === "bound" ? Theme.selectionActive : Theme.bgBase
-            border.color: modelController.activeView === "bound" ? Theme.borderActive : Theme.border
-            border.width: 1
+            color: modelController.activeView === "bound" ? Theme.selectionActive : "transparent"
+            border.color: Theme.borderActive
+            border.width: modelController.activeView === "bound" ? Theme.borderWidthDefault : 0
 
             Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
@@ -271,7 +280,7 @@ ColumnLayout {
                 onClicked: function(mouse) {
                     mouse.accepted = true
                     modelController.switchView("bound")
-                    headerRoot.focusSearch()
+                    windowController.focusList()
                 }
             }
         }
@@ -280,9 +289,9 @@ ColumnLayout {
             Layout.preferredHeight: KeybindingsConfig.tabHeight
             Layout.preferredWidth: unboundText.implicitWidth + KeybindingsConfig.tabPaddingHorizontal * 2
             radius: KeybindingsConfig.tabBorderRadius
-            color: modelController.activeView === "unbound" ? Theme.selectionActive : Theme.bgBase
-            border.color: modelController.activeView === "unbound" ? Theme.borderActive : Theme.border
-            border.width: 1
+            color: modelController.activeView === "unbound" ? Theme.selectionActive : "transparent"
+            border.color: Theme.borderActive
+            border.width: modelController.activeView === "unbound" ? Theme.borderWidthDefault : 0
 
             Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
 
@@ -303,7 +312,7 @@ ColumnLayout {
                 onClicked: function(mouse) {
                     mouse.accepted = true
                     modelController.switchView("unbound")
-                    headerRoot.focusSearch()
+                    windowController.focusList()
                 }
             }
         }
@@ -323,7 +332,7 @@ ColumnLayout {
             Text {
                 id: addActionText
                 anchors.centerIn: parent
-                text: modelController.activeView.indexOf("add_") === 0 ? "← Back to Shortcuts" : "+ Add Action"
+                text: "Action"
                 color: modelController.activeView.indexOf("add_") === 0 ? Theme.gold : Theme.foam
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm

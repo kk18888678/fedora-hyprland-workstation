@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# aurelia-restart-shell — restart only the selected Aurelia Quickshell config.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+source_shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+launcher="$script_dir/aurelia-launch-shell"
+
+if [[ -f "$source_shell_root/shell.qml" && "${AURELIA_USE_INSTALLED_SHELL:-0}" != "1" ]]; then
+    shell_root="$source_shell_root"
+    development=1
+else
+    shell_root="${AURELIA_SHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/aurelia}"
+    development="${AURELIA_DEVELOPMENT_MODE:-0}"
+fi
+
+[[ "$shell_root" == /* && "$shell_root" != "/" ]] || {
+    printf 'Error: Aurelia shell path is not absolute: %s\n' "$shell_root" >&2
+    exit 1
+}
+shell_root="$(readlink -f -- "$shell_root")" || {
+    printf 'Error: Could not resolve Aurelia Shell path.\n' >&2
+    exit 1
+}
+[[ -f "$shell_root/shell.qml" ]] || {
+    printf 'Error: Aurelia Shell configuration not found: %s/shell.qml\n' "$shell_root" >&2
+    exit 1
+}
+[[ -x "$launcher" ]] || {
+    printf 'Error: Aurelia Shell launcher not found: %s\n' "$launcher" >&2
+    exit 1
+}
+
+if [[ -n "${QUICKSHELL_BIN:-}" ]]; then
+    qs_bin="$QUICKSHELL_BIN"
+elif [[ -x /usr/bin/qs ]]; then
+    qs_bin=/usr/bin/qs
+elif qs_bin="$(command -v qs 2>/dev/null || true)"; [[ -n "$qs_bin" ]]; then
+    :
+else
+    printf 'Error: Quickshell runtime binary was not found.\n' >&2
+    exit 1
+fi
+[[ -x "$qs_bin" ]] || {
+    printf 'Error: Quickshell runtime is not executable: %s\n' "$qs_bin" >&2
+    exit 1
+}
+
+list_output="$($qs_bin list --path "$shell_root/shell.qml" 2>&1)" || {
+    printf 'Error: Could not inspect the Aurelia Quickshell instance.\n%s\n' "$list_output" >&2
+    exit 1
+}
+if [[ "$list_output" == *"Instance "* ]]; then
+    "$qs_bin" kill --path "$shell_root/shell.qml" >/dev/null
+fi
+
+printf 'Restarting Aurelia Shell: %s\n' "$shell_root"
+if [[ "$development" == "1" || "$shell_root" == "$source_shell_root" ]]; then
+    exec env AURELIA_DEVELOPMENT_MODE=1 AURELIA_SHELL_ROOT="$shell_root" QUICKSHELL_BIN="$qs_bin" "$launcher"
+fi
+exec env AURELIA_USE_INSTALLED_SHELL=1 QUICKSHELL_BIN="$qs_bin" "$launcher"

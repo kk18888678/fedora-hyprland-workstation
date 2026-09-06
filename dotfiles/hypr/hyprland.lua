@@ -29,6 +29,23 @@ require("windowrules")
 require("animations")
 require("themes.theme")
 
+-- Optional Aurelia provider integration. The provider is user-owned and is
+-- created only by aurelia-enable-hyprland-provider; the default Noctalia
+-- session remains unchanged when the file is absent.
+local aurelia_config_home = os.getenv("XDG_CONFIG_HOME")
+if not aurelia_config_home or aurelia_config_home == "" then
+    aurelia_config_home = (os.getenv("HOME") or "") .. "/.config"
+end
+local aurelia_provider_path = aurelia_config_home .. "/aurelia/hyprland-provider.lua"
+local aurelia_provider_file = io.open(aurelia_provider_path, "rb")
+if aurelia_provider_file then
+    aurelia_provider_file:close()
+    local provider_ok, provider_error = pcall(dofile, aurelia_provider_path)
+    if not provider_ok then
+        error("Aurelia Hyprland provider failed: " .. tostring(provider_error))
+    end
+end
+
 local colors = require("noctalia.noctalia-colors")
 
 hl.config({

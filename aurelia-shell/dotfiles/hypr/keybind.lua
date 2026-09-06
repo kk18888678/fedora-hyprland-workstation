@@ -26,10 +26,74 @@ local function resolve_keybindings_bin()
         handle:close()
         return canonical
     end
+
+    -- When the provider is sourced directly from the standalone Aurelia
+    -- checkout, use its sibling backend instead of an unrelated compatibility
+    -- installation.
+    local source = debug.getinfo(1, "S").source or ""
+    source = source:gsub("^@", "")
+    local source_dir = source:match("(.*/)")
+    if source_dir then
+        local source_backend = source_dir .. "../../bin/aurelia-shell-keybindings"
+        local source_handle = io.open(source_backend, "rb")
+        if source_handle then
+            source_handle:close()
+            return source_backend
+        end
+    end
+
     return compatibility
 end
 
 local keybindings_bin = resolve_keybindings_bin()
+
+local function shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function resolve_aurelia_shell_root()
+    local configured = os.getenv("AURELIA_SHELL_ROOT") or ""
+    if configured ~= "" then return configured:gsub("/$", "") end
+    local source = debug.getinfo(1, "S").source or ""
+    source = source:gsub("^@", "")
+    local hypr_dir = source:match("(.*/)") or ""
+    return hypr_dir:gsub("/dotfiles/hypr/$", "")
+end
+
+local function register_plugin_keybindings()
+    local shell_root = resolve_aurelia_shell_root()
+    local declaration_path = shell_root .. "/plugins/aurelia.screenshot/keybindings.lua"
+    local declaration_file = io.open(declaration_path, "rb")
+    if not declaration_file then return end
+    declaration_file:close()
+
+    local ok, declarations = pcall(dofile, declaration_path)
+    if not ok or type(declarations) ~= "table" then
+        io.stderr:write("Aurelia screenshot keybinding declaration was rejected.\n")
+        return
+    end
+
+    local ipc_client = shell_root .. "/bin/aurelia-shell"
+    local executable = io.open(ipc_client, "rb")
+    if not executable then
+        ipc_client = "/usr/local/bin/aurelia-shell"
+    else
+        executable:close()
+    end
+
+    for _, item in ipairs(declarations) do
+        if type(item) == "table" and type(item.key) == "string" and type(item.target) == "string" and type(item.method) == "string" then
+            local command = table.concat({
+                shell_quote(ipc_client),
+                "shell call",
+                shell_quote(item.target),
+                shell_quote(item.method),
+                "'{}'",
+            }, " ")
+            hl.bind(item.key, hl.dsp.exec_cmd(command), { description = item.description or item.id or "Plugin action" })
+        end
+    end
+end
 
 local function register_binding(item)
     if item.generator then
@@ -122,5 +186,7 @@ end
 for _, item in ipairs(effective.bindings or {}) do
     register_binding(item)
 end
+
+register_plugin_keybindings()
 
 return true

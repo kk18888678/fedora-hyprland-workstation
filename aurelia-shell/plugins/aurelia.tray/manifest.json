@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.tray",
+  "name": "System Tray",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "StatusNotifier system tray widget for the Aurelia bar.",
+  "icon": "applications-system",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "TrayBarWidget.qml"
+  }
+}

@@ -15,6 +15,50 @@ Run the shell-owned contract suite from the repository root with:
 ./aurelia-shell/tests/run.sh
 ```
 
+For source-checkout development, start the resident host and its IPC console
+in one reusable tmux session:
+
+~~~bash
+./aurelia-shell/bin/aurelia-dev-tmux
+~~~
+
+The first pane runs the host. The second waits for readiness, prints the
+loaded plugins, and remains available for IPC commands. The workstation
+installer owns tmux through packages/base.txt, so both supported profiles
+include the development utility.
+
+For a single source-checkout restart after changing Aurelia host or QML code,
+run:
+
+```bash
+./aurelia-shell/bin/aurelia-restart-shell
+```
+
+The source launcher and IPC client auto-detect the checkout when invoked from
+`aurelia-shell/bin/`; development environment exports are not required. The
+restart command only selects and restarts Aurelia's Quickshell instance. It
+does not reload Hyprland or touch Noctalia.
+
+### Optional Hyprland provider integration
+
+Aurelia plugin loading and Hyprland global shortcuts are separate boundaries.
+To register the Aurelia manifest bindings, including Super+K, install the
+explicit user-owned provider bridge:
+
+~~~bash
+./aurelia-shell/bin/aurelia-enable-hyprland-provider enable
+hyprctl reload
+~~~
+
+The bridge loads the standalone provider only when its generated file exists;
+Noctalia remains the active desktop shell and the parent configuration remains
+unchanged by default. Disable it with:
+
+~~~bash
+./aurelia-shell/bin/aurelia-enable-hyprland-provider disable
+hyprctl reload
+~~~
+
 ## Plugin model
 
 First-party plugins live in `plugins/` and use a `manifest.json` with the
@@ -49,9 +93,43 @@ Plugins may expose their own target. The Keybindings plugin is
 `aurelia.keybindings`; the legacy `keybindings` and `hotkeys` targets remain
 thin compatibility aliases.
 
+The resident bar starts with the Aurelia Shell host. It can still be hidden,
+shown, or toggled through IPC:
+
+```text
+shell summon aurelia.bar '{}'
+shell hide aurelia.bar
+shell toggle aurelia.bar '{}'
+```
+
+Clicking the Aurelia logo opens `aurelia.launcher`, the keyboard-first
+application launcher. The launcher is loaded on demand; the bar itself remains
+resident.
+
+Its normalized layout lives under the `bar` key in
+`~/.config/aurelia/shell.json`. The shipped layout places the formatted clock
+and weather together in the center, with the screenshot widget on the right.
+Weather follows Omarchy's automatic IP-based location flow by default. You
+can pin a city or exact coordinates in the weather layout entry when needed:
+
+```json
+{
+  "id": "aurelia.weather",
+  "location": "London",
+  "units": "metric"
+}
+```
+
+Additional widgets can be registered by adding a manifest entry point with
+kind `bar-widget`; the bar host loads only the configured, enabled widgets.
+`shell listPlugins` also returns each manifest's validated `icon` name for
+launcher and plugin-management UIs.
+
 The host intentionally uses explicit rescans instead of a long-lived recursive
-filesystem watcher. This keeps idle resource use bounded and avoids reloading
-plugins while a security-sensitive or session-lock surface is active.
+filesystem watcher. This keeps the production idle path bounded and avoids
+reloading plugins while a security-sensitive or session-lock surface is active.
+Use `aurelia-restart-shell` for deterministic source changes; `hyprctl reload`
+remains specifically for Hyprland/Lua configuration changes.
 
 The `aurelia-plugin` command validates local plugins, lists/rescans the
 resident registry, enables/disables plugins, and can add/update/remove

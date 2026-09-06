@@ -45,12 +45,14 @@ Rectangle {
         anchors.fill: parent
         anchors.leftMargin: KeybindingsConfig.rowPaddingHorizontal
         anchors.rightMargin: KeybindingsConfig.rowPaddingHorizontal
-        spacing: Theme.spacingLg
+        spacing: Theme.spacingXl
 
         // Column 1: compact shortcut text. The palette stays light and avoids
         // turning every shortcut into a separate keycap component.
         Item {
-            Layout.preferredWidth: KeybindingsConfig.shortcutColumnWidth
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            Layout.minimumWidth: 0
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredHeight: 28
 
@@ -82,6 +84,8 @@ Rectangle {
         // Column 2: action title plus a quiet category/context line.
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            Layout.minimumWidth: 0
             Layout.alignment: Qt.AlignVCenter
 
             Text {

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.bar",
+  "name": "Aurelia Bar",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Resident top bar host for Aurelia widgets.",
+  "icon": "view-grid",
+  "kinds": ["bar"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "bar": "Bar.qml"
+  }
+}
