@@ -3,3 +3,7 @@ KeybindingsWindow 1.0 KeybindingsWindow.qml
 KeybindingsSettings 1.0 KeybindingsSettings.qml
 KeybindingsModel 1.0 KeybindingsModel.qml
 KeybindingRow 1.0 KeybindingRow.qml
+KeybindingsHeader 1.0 KeybindingsHeader.qml
+KeybindingsActionList 1.0 KeybindingsActionList.qml
+KeybindingsExecutableForm 1.0 KeybindingsExecutableForm.qml
+KeybindingsFooter 1.0 KeybindingsFooter.qml

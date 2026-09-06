@@ -444,7 +444,7 @@ fi
 section "33. Single-Instance and Path Option Dispatch Invariants"
 
 # Test 33: Quickshell dispatch must use --no-duplicate and --path
-dispatch_src="$(grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/aurelia-shell-keybindings" 2>/dev/null || true)"
+dispatch_src="$(grep -E '\$qs_bin.*--no-duplicate.*--path' "$ROOT/bin/lib/aurelia-keybindings/toggle.sh" 2>/dev/null || true)"
 if [[ -n "$dispatch_src" ]]; then
     pass "33. repeated dispatch cannot create duplicate instances (uses --no-duplicate and --path)"
 else
@@ -608,8 +608,8 @@ EOF
 )
 
 # Test 43: Startup timeout is bounded around 2s (~40 attempts * 50ms)
-timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/aurelia-shell-keybindings" 2>/dev/null || true)"
-sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/aurelia-shell-keybindings" 2>/dev/null || true)"
+timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/lib/aurelia-keybindings/toggle.sh" 2>/dev/null || true)"
+sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/lib/aurelia-keybindings/toggle.sh" 2>/dev/null || true)"
 if [[ -n "$timeout_spec" && -n "$sleep_spec" ]]; then
     pass "43. startup timeout is bounded around 2s (40 * 50ms) without arbitrary long sleeps"
 else
@@ -635,19 +635,19 @@ else
 fi
 
 # Test 46: Search area uses minimal keybindings_ prompt style without boxed rectangle
-if grep -q 'text: "keybindings_"' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" &&
-   ! grep -E 'Rectangle \{.*Search shortcuts' "$ROOT/dotfiles/aurelia/components/hotkeys/HotkeysWindow.qml" >/dev/null; then
+if grep -q 'text: "keybindings_"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsHeader.qml" &&
+   ! grep -E 'Rectangle \{.*Search shortcuts' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsHeader.qml" >/dev/null; then
     pass "46. search area uses minimal keybindings_ prompt style without boxed rectangle"
 else
     fail "46. search area has boxed rectangle or missing keybindings_ prompt"
 fi
 
 # Test 47: Footer is textual/hint-based and not modeled as action buttons
-if grep -q 'text: "↵"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
-   grep -q 'text: Theme.shortcutSet' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
-   grep -q 'text: Theme.shortcutUnset' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
-   grep -q 'text: "ESC"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" &&
-   ! grep -E 'Rectangle \{.*Layout\.preferredWidth: (altSText|sText)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" >/dev/null; then
+if grep -q 'text: "↵"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsFooter.qml" &&
+   grep -q 'text: Theme.shortcutSet' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsFooter.qml" &&
+   grep -q 'text: Theme.shortcutUnset' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsFooter.qml" &&
+   grep -q 'text: "ESC"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsFooter.qml" &&
+   ! grep -E 'Rectangle \{.*Layout\.preferredWidth: (altSText|sText)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsFooter.qml" >/dev/null; then
     pass "47. footer is textual/hint-based, not modeled as action buttons"
 else
     fail "47. footer contains button boxes or missing keyboard hints"

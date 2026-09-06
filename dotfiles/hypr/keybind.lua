@@ -16,8 +16,17 @@ local function resolve_keybindings_bin()
             return override
         end
     end
-    -- Production binds to the reconciler-owned path; do not resolve through PATH.
-    return "/usr/local/bin/aurelia-shell-keybindings"
+    -- Prefer the reconciler-owned command, but keep upgrades from breaking an
+    -- existing session whose older backend is still at the fixed compatibility
+    -- path. Do not resolve through PATH or user-local shadowing.
+    local canonical = "/usr/local/bin/aurelia-shell-keybindings"
+    local compatibility = "/usr/local/bin/workstation-keybindings"
+    local handle = io.open(canonical, "rb")
+    if handle then
+        handle:close()
+        return canonical
+    end
+    return compatibility
 end
 
 local keybindings_bin = resolve_keybindings_bin()

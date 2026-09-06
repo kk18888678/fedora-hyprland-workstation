@@ -8,6 +8,16 @@ Rectangle {
     required property var modelData
     required property int index
     required property bool isSelected
+    // The row is intentionally explicit about its controllers.  Relying on
+    // ids from the instantiating Window makes delegate event ownership
+    // dependent on creation-context lookup and is especially fragile when a
+    // model change destroys the pressed delegate.
+    required property var modelController
+    required property var windowController
+    // Compatibility names keep the row's local behavior readable while the
+    // actual dependencies remain explicit and unambiguous at the boundary.
+    readonly property var keybindingsModel: modelController
+    readonly property var windowRoot: windowController
 
     width: ListView.view ? ListView.view.width : (KeybindingsConfig.palettePreferredWidth - KeybindingsConfig.rowPaddingHorizontal * 2)
     height: KeybindingsConfig.rowHeight
@@ -76,27 +86,35 @@ Rectangle {
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
+        preventStealing: true
+        acceptedButtons: Qt.LeftButton
         cursorShape: Qt.PointingHandCursor
         onEntered: {
-            if (typeof keybindingsModel !== "undefined" && keybindingsModel.selectedIndex !== rowRoot.index) {
+            if (keybindingsModel && keybindingsModel.selectedIndex !== rowRoot.index) {
                 keybindingsModel.selectedIndex = rowRoot.index
             }
         }
-        onClicked: {
-            if (typeof keybindingsModel !== "undefined") {
-                var viewAtClick = keybindingsModel.activeView
-                console.info("[EVENT] keybindings.input.mouse_click index=" + rowRoot.index + " view=" + viewAtClick)
-                keybindingsModel.selectedIndex = rowRoot.index
-                if (ListView.view) {
-                    ListView.view.forceActiveFocus()
-                }
-                // A type-picker click owns exactly one navigation gesture. The
-                // destination view only receives later explicit input.
-                if (viewAtClick === "add_action_type") {
-                    if (typeof windowRoot !== "undefined" && typeof windowRoot.activateSelected === "function") {
-                        windowRoot.activateSelected("mouse")
-                    }
-                }
+        onPressed: function(mouse) {
+            // Claim the pointer event before any synchronous model transition.
+            // Without this, destroying the delegate during onClicked can leave
+            // the full-screen dismissal surface eligible for the same gesture.
+            mouse.accepted = true
+        }
+        onReleased: function(mouse) {
+            mouse.accepted = true
+        }
+        onClicked: function(mouse) {
+            mouse.accepted = true
+            var viewAtClick = keybindingsModel.activeView
+            console.info("[EVENT] keybindings.input.mouse_click index=" + rowRoot.index + " view=" + viewAtClick)
+            keybindingsModel.selectedIndex = rowRoot.index
+            if (ListView.view) {
+                ListView.view.forceActiveFocus()
+            }
+            // A type-picker click owns exactly one navigation gesture. The
+            // destination view only receives later explicit input.
+            if (viewAtClick === "add_action_type" && windowRoot && typeof windowRoot.activateSelected === "function") {
+                windowRoot.activateSelected("mouse")
             }
         }
     }

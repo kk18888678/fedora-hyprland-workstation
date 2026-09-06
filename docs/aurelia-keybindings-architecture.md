@@ -12,10 +12,27 @@ This document specifies the architecture, lifecycle model, failure isolation bou
 | **User-Facing App Name** | `Keybindings` | Desktop entries (`Name=Keybindings`), window titles, UI header |
 | **Generic Descriptor** | `Keyboard Shortcuts` | Desktop entry (`GenericName=Keyboard Shortcuts`) |
 | **Primary Backend Binary** | `bin/aurelia-shell-keybindings` | System installation path: `/usr/local/bin/aurelia-shell-keybindings` |
+| **Backend Modules** | `bin/lib/aurelia-keybindings/` | Installed as `/usr/local/lib/aurelia-keybindings/`; deployment manifest hashes every module |
 | **Compatibility Wrappers** | `bin/workstation-keybindings`, `bin/workstation-hotkeys` | Thin forwarding wrappers; production code resolves the canonical binary explicitly |
 | **Component Registry ID** | `desktop.keybindings.aurelia` | Primary installer component (`desktop.hotkeys.aurelia` is compatibility alias) |
-| **QML Component Directory** | `dotfiles/aurelia/components/keybindings/` | Source tree for `KeybindingsWindow.qml`, `KeybindingsModel.qml`, `KeybindingRow.qml` |
+| **QML Component Directory** | `dotfiles/aurelia/components/keybindings/` | First-party component tree: coordinator, model, header, action list, row, executable form, settings, footer, config, and module manifest |
 | **IPC Target** | `keybindings` | Quickshell IPC target (`hotkeys` preserved as forwarding alias) |
+
+### Component identity
+
+**Aurelia Keybindings is a first-party Aurelia Shell component, not a generic
+plugin framework.** `shell.qml` is the resident host and `KeybindingsWindow.qml`
+is the lifecycle and controller boundary. The Window composes focused sibling
+surfaces (`KeybindingsHeader`, `KeybindingsActionList`,
+`KeybindingsExecutableForm`, `KeybindingsSettings`, and `KeybindingsFooter`)
+over the shared `KeybindingsModel` and `KeybindingRow` delegate. Each surface
+receives explicit controller properties; it does not discover or mutate the
+host through ambient ids.
+
+This is intentionally component-oriented rather than a third-party extension
+system. A future plugin mechanism would require separate lifecycle,
+permission, compatibility, and trust decisions and is therefore not implied
+by the Keybindings implementation.
 
 ---
 
@@ -29,11 +46,11 @@ graph TD
         Activation["Graphical Session Activation"]
     end
 
-    subgraph "Aurelia Process Boundary (Sandboxed)"
-        Quickshell["Single Quickshell Process (--path dotfiles/aurelia)"]
+    subgraph "Aurelia Resident Host Process Boundary"
+        Quickshell["Single resident Quickshell host (--path dotfiles/aurelia)"]
         IPC["IPC Endpoint: keybindings"]
         Model["KeybindingsModel.qml (In-Memory State & Concurrency Guards)"]
-        UI["KeybindingsWindow.qml (Layer-Shell Surface)"]
+        UI["KeybindingsWindow.qml (Coordinator + Layer-Shell Surface)\nHeader / List / Form / Settings / Footer"]
     end
 
     subgraph "Backend Execution Boundary (Double-Fork)"
@@ -61,6 +78,7 @@ graph TD
 - **Pure Native Wayland Layer-Shell**: The UI operates exclusively within the Wayland layer-shell protocol. No terminal emulators (`foot`, `kitty`, `xterm`) are ever spawned for UI presentation, key capture, or error reporting.
 
 ### 2.2 Process Level (Backend Execution)
+- **Single Responsibility Modules**: The canonical entrypoint only wires the bounded modules together. Read-only projections, structured action execution and edits, runtime diagnostics, Quickshell IPC lifecycle, and CLI routing have separate owners under `bin/lib/aurelia-keybindings/`; compatibility wrappers contain no backend implementation.
 - **Double-Fork Process Launch**: Action execution through `aurelia-shell-keybindings run <action_id>` uses a POSIX double-fork pattern:
   1. The parent orchestrator forks a launcher subshell.
   2. The launcher subshell invokes `( "$@" ) >/dev/null 2>&1 &` to spawn the target application and immediately terminates with status 0.
@@ -160,12 +178,13 @@ stateDiagram-v2
   color: "transparent"
   ```
 - **Outside-Click Dismissal (`outsideDismissArea`)**:
-  - A fullscreen transparent `MouseArea` lies underneath the centered surface card.
+  - Four non-overlapping transparent pointer regions cover the top, bottom, left, and right areas outside the centered surface card.
   - Clicking outside the 800x480 command palette frame immediately closes the window (`windowRoot.visible = false`).
+  - Card clicks can never enter an outside region, even when a delegate changes the model synchronously during the click handler.
   - If clicked during active key recording, it safely cancels capture (`cancelCapture()`) without abruptly closing the window.
 - **Centered Surface Card (`surfaceCard`)**:
-  - The visual command palette is centered within the parent surface (`anchors.centerIn: parent`) with explicit design token geometry: `width: Theme.paletteWidth` (800) and `height: Theme.paletteHeight` (480).
-  - An internal click-absorbing `MouseArea` covers `surfaceCard`, preventing clicks inside the palette card from bubbling through to `outsideDismissArea`.
+  - The visual command palette is centered within the parent surface (`anchors.centerIn: parent`) with explicit component geometry tokens: `width: KeybindingsConfig.palettePreferredWidth` (800) and `height: KeybindingsConfig.palettePreferredHeight` (480).
+  - An internal click-absorbing `MouseArea` covers `surfaceCard` gaps, while interactive child surfaces claim their own pointer events.
 
 ---
 
@@ -192,7 +211,7 @@ Located at `~/.config/aurelia/theme.conf` (symlinked from `dotfiles/aurelia/them
 
 ### 5.3 Test Suite Isolation & Zero Desktop Spam
 - Automated test suites export `WORKSTATION_TEST_MODE=1`.
-- `bin/aurelia-shell-keybindings` provides `notify_user()` which suppresses `notify-send` desktop popups during automated test execution.
+- `bin/lib/aurelia-keybindings/common.sh` provides `notify_user()` which suppresses `notify-send` desktop popups during automated test execution.
 - Test logs are isolated to `/tmp/workstation-tests-${UID}` to prevent polluting user crash logs.
 
 ---
@@ -307,7 +326,9 @@ graph TD
   - If bound, the shortcut is registered with Hyprland (`hl.bind`). If unbound, Hyprland registers nothing.
 
 ### 10.3 Bound and Unbound View Architecture
-`KeybindingsWindow.qml` and `KeybindingsModel.qml` partition the effective bindings into distinct operational views:
+`KeybindingsWindow.qml` coordinates the composed header, list, form, settings,
+and footer surfaces while `KeybindingsModel.qml` partitions the effective
+bindings into distinct operational views:
 - **Bound View (Default)**:
   - Displays all active keyboard shortcuts (`unbound: false`).
   - Fast warm opening (< 100ms) with zero application enumeration overhead.
@@ -381,4 +402,5 @@ Aurelia Keybindings consumes and integrates with the centralized Shell Core foun
 - **User Preferences**: Default view (`components.keybindings.default_view = "bound"`), component-level reset (`workstation-aurelia preference reset --component=keybindings`), and atomic overrides.
 - **Motion Scaling**: Border animations, row selection transitions, and view switches consume `Theme.effectiveDurationFast` and `Theme.effectiveDurationNormal`. When motion is disabled, all durations collapse to 0ms (instantaneous transitions).
 - **Structured CLI Diagnostics**: Accessible via `aurelia-shell-keybindings diagnostics runtime [--json]` or `workstation-aurelia diagnostics runtime [--json]`, reporting the canonical backend path/hash, running Quickshell PID and QML root, managed component root, expected/deployed manifest and exact mismatches, provider, active view/revision, effective motion, and layer namespace without action or search dumps.
+- **Deployment Completeness**: The generated manifest records hashes for the canonical executable, all seven backend modules, and the fixed twelve-file Keybindings QML surface. A missing or stale surface/module is therefore reported as a provenance mismatch instead of presenting a partially deployed command as healthy.
 - **Privacy Boundary**: Search queries are strictly protected; filter timing logs record query length rather than raw query strings. Raw tokens, credentials, and passwords are redacted before log emission.

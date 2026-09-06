@@ -83,6 +83,8 @@ case "$cmd" in
                 exec "$AURELIA_SHELL_KEYBINDINGS_BIN" diagnostics runtime "$@"
             elif [[ -x "/usr/local/bin/aurelia-shell-keybindings" ]]; then
                 exec "/usr/local/bin/aurelia-shell-keybindings" diagnostics runtime "$@"
+            elif [[ -x "/usr/local/bin/workstation-keybindings" ]]; then
+                exec "/usr/local/bin/workstation-keybindings" diagnostics runtime "$@"
             else
                 printf '%s\n' "Error: aurelia-shell-keybindings not found; cannot gather runtime diagnostics." >&2
                 exit 1

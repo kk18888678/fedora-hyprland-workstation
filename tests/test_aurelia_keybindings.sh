@@ -76,10 +76,20 @@ fi
 
 # 2.3: Internal Aurelia Keybindings QML component naming
 qml_dir="$ROOT/dotfiles/aurelia/components/keybindings"
+qml_window="$qml_dir/KeybindingsWindow.qml"
+qml_header="$qml_dir/KeybindingsHeader.qml"
+qml_action_list="$qml_dir/KeybindingsActionList.qml"
+qml_form="$qml_dir/KeybindingsExecutableForm.qml"
+qml_footer="$qml_dir/KeybindingsFooter.qml"
+qml_row="$qml_dir/KeybindingRow.qml"
 if [[ -f "$qml_dir/KeybindingsWindow.qml" && \
       -f "$qml_dir/KeybindingsModel.qml" && \
-      -f "$qml_dir/KeybindingRow.qml" ]]; then
-    pass "2.3 internal Aurelia QML tree uses KeybindingsWindow/KeybindingsModel/KeybindingRow"
+      -f "$qml_dir/KeybindingRow.qml" && \
+      -f "$qml_header" && \
+      -f "$qml_action_list" && \
+      -f "$qml_form" && \
+      -f "$qml_footer" ]]; then
+    pass "2.3 internal Aurelia QML tree contains the coordinator and focused Keybindings surfaces"
 else
     fail "2.3 Aurelia keybindings QML components missing in $qml_dir"
 fi
@@ -125,32 +135,35 @@ fi
 
 section "4. Deterministic Backend Executable Resolution"
 
-# 4.1: KeybindingsModel resolves the managed canonical executable
+# 4.1: KeybindingsModel prefers canonical and supports the fixed upgrade bridge
 qml_model="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"
 if [[ -f "$qml_model" ]] &&
    grep -q '/usr/local/bin/aurelia-shell-keybindings' "$qml_model" &&
-   ! grep -q 'workstation-keybindings' "$qml_model"; then
-    pass "4.1 KeybindingsModel deterministically references managed /usr/local/bin/aurelia-shell-keybindings"
+   grep -q '/usr/local/bin/workstation-keybindings' "$qml_model" &&
+   grep -q 'canonicalBackendCheck' "$qml_model" &&
+   grep -q 'compatibilityBackendCheck' "$qml_model"; then
+    pass "4.1 KeybindingsModel prefers canonical backend with fixed legacy migration bridge"
 else
-    fail "4.1 KeybindingsModel missing deterministic /usr/local/bin resolution"
+    fail "4.1 KeybindingsModel missing canonical-to-legacy migration resolution"
 fi
 
-# 4.2: Stale ~/.local/bin cannot shadow managed backend
+# 4.2: Stale ~/.local/bin cannot shadow managed backend; canonical wins over legacy
 res_order="$(python3 -c '
 with open("'"$qml_model"'") as f:
     content = f.read()
-# Production QML has one canonical path and no compatibility fallback.
+# Production QML has fixed system paths only; canonical is checked first.
 idx_usr = content.find("/usr/local/bin/aurelia-shell-keybindings")
+idx_legacy = content.find("/usr/local/bin/workstation-keybindings")
 idx_home = content.find(".local/bin/aurelia-shell-keybindings")
-if idx_usr != -1 and idx_home == -1 and "workstation-keybindings" not in content:
+if idx_usr != -1 and idx_legacy != -1 and idx_usr < idx_legacy and idx_home == -1 and "command -v" not in content:
     print("RESOLUTION_OK")
 else:
     print("SHADOW_RISK")
 ')"
 if [[ "$res_order" == "RESOLUTION_OK" ]]; then
-    pass "4.2 stale ~/.local/bin and compatibility names cannot shadow managed installation"
+    pass "4.2 canonical system backend wins; only fixed legacy bridge is permitted"
 else
-    fail "4.2 production QML backend resolution has an undocumented shadow path"
+    fail "4.2 production QML backend resolution has an unsafe or unordered shadow path"
 fi
 
 section "5. Process Lifecycle: Double-Fork Detached Launch & Resource Bounds"
@@ -304,8 +317,9 @@ else
 fi
 
 # 7.5: Successful set displays inline result
-if grep -q 'operationState === "success"' "$qml_window" &&
-   grep -q 'statusMessage' "$qml_model"; then
+if grep -q 'root.operationState = "success"' "$qml_model" &&
+   grep -q 'modelController.operationState === "success"' "$qml_header" &&
+   grep -q 'modelController.operationMessage' "$qml_header"; then
     pass "7.5 successful set displays inline confirmation before returning to idle"
 else
     fail "7.5 success inline confirmation missing"
@@ -361,7 +375,7 @@ fi
 
 # 8.4: Shared design decisions use tokens instead of unexplained literals
 if grep -q 'Theme.bgBase' "$qml_window" &&
-   grep -q 'Theme.paletteWidth' "$qml_window" &&
+   grep -q 'KeybindingsConfig.palettePreferredWidth' "$qml_window" &&
    grep -q 'Theme.spacingMd' "$qml_window"; then
     pass "8.4 KeybindingsWindow consumes semantic design system tokens"
 else
@@ -409,14 +423,14 @@ else
 fi
 
 # 9.2: Diagnostic logging is bounded in size (<= 2000 lines)
-if grep -q 'tail -n 2000' "$ROOT/bin/aurelia-shell-keybindings" || grep -q 'tail -n 2000' "$ROOT/bin/workstation-keybindings"; then
+if grep -R -q 'tail -n 2000' "$ROOT/bin/lib/aurelia-keybindings"; then
     pass "9.2 diagnostic log files are strictly bounded with automatic rotation (<= 2000 lines)"
 else
     fail "9.2 log bounding missing in bin/workstation-keybindings"
 fi
 
 # 9.3: Performance logging records timing without continuous overhead
-if (grep -q '\[PERF\]' "$ROOT/bin/aurelia-shell-keybindings" || grep -q '\[PERF\]' "$ROOT/bin/workstation-keybindings") &&
+if grep -R -q 'log_event "PERF"' "$ROOT/bin/lib/aurelia-keybindings" &&
    grep -q '\[PERF\]' "$qml_model"; then
     pass "9.3 performance instrumentation captures measurable milestones with [PERF] tag"
 else
@@ -770,13 +784,13 @@ else
 fi
 
 # 12.7: KeybindingsWindow tabs, Tab view toggling, Alt+A, and view navigation
-if grep -q 'text: "Bound (" + keybindingsModel.boundCount + ")"' "$qml_window" &&
-   grep -q 'text: "Unbound (" + keybindingsModel.unboundCount + ")"' "$qml_window" &&
-   grep -q 'keybindingsModel.switchView("bound")' "$qml_window" &&
-   grep -q 'keybindingsModel.switchView("unbound")' "$qml_window" &&
-   (grep -q 'keybindingsModel.toggleView()' "$qml_window" || grep -q 'cycleTopLevelView' "$qml_window") &&
-   (grep -q 'keybindingsModel.switchView("add_app")' "$qml_window" || grep -q 'openAddAction' "$qml_window") &&
-   grep -q 'rowRoot.formattedShortcut()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"; then
+if grep -q 'text: "Bound (" + modelController.boundCount + ")"' "$qml_header" &&
+   grep -q 'text: "Unbound (" + modelController.unboundCount + ")"' "$qml_header" &&
+   grep -q 'modelController.switchView("bound")' "$qml_header" &&
+   grep -q 'modelController.switchView("unbound")' "$qml_header" &&
+   grep -q 'cycleTopLevelView' "$qml_window" &&
+   grep -q 'openAddAction' "$qml_header" &&
+   grep -q 'rowRoot.formattedShortcut()' "$qml_row"; then
     pass "12.7 KeybindingsWindow provides Bound/Unbound tabs, Tab view switching, and Alt+A application picker"
 else
     fail "12.7 KeybindingsWindow missing Bound/Unbound tabs or keyboard view switching"
@@ -1030,13 +1044,13 @@ else
 fi
 
 # 13.6: Aurelia Keybindings Primary S and U Keys & Search Input Separation
-if grep -q 'focus: true' "$qml_window" &&
+if grep -q 'function focusSearch()' "$qml_header" &&
    grep -q 'eventMatchesShortcut(event, Theme.shortcutSet)' "$qml_window" &&
    grep -q 'eventMatchesShortcut(event, Theme.shortcutUnset)' "$qml_window" &&
-   grep -q 'text: Theme.shortcutSet' "$qml_window" &&
-   grep -q 'text: Theme.shortcutUnset' "$qml_window" &&
-   ! grep -q 'text: "Alt+S"' "$qml_window" &&
-   ! grep -q 'text: "Alt+U"' "$qml_window"; then
+   grep -q 'text: Theme.shortcutSet' "$qml_footer" &&
+   grep -q 'text: Theme.shortcutUnset' "$qml_footer" &&
+   ! grep -q 'text: "Alt+S"' "$qml_header" &&
+   ! grep -q 'text: "Alt+U"' "$qml_header"; then
     pass "13.6 KeybindingsWindow uses primary s and u shortcuts with separated search input focus"
 else
     fail "13.6 primary s and u shortcut configuration incomplete in KeybindingsWindow"
@@ -1696,36 +1710,36 @@ fi
 section "17. Verification Matrix C: Capture State Machine & Trigger Key Leak Protection"
 
 # 17.1: Pressing S enters entering_capture; initiating key cannot be captured
-if grep -q 'property string captureState: "idle"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'windowRoot.captureState = "entering_capture"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'windowRoot.initiatingKey = triggerEvent.key' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'if (windowRoot.captureState === "entering_capture")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'property string captureState: "idle"' "$qml_window" && \
+   grep -q 'captureState = "entering_capture"' "$qml_window" && \
+   grep -q 'initiatingKey = triggerEvent.key' "$qml_window" && \
+   grep -q 'if (captureState === "entering_capture")' "$qml_window"; then
     pass "17.1 pressing S enters entering_capture and sets initiatingKey to prevent self-capture leak"
 else
     fail "17.1 entering_capture and trigger key leak protection missing in KeybindingsWindow.qml"
 fi
 
 # 17.2: Initiating key release transitions state to capture_armed
-if grep -q 'function handleRecordingKeyRelease(event)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'windowRoot.captureState = "capture_armed"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'windowRoot.initiatingKey = 0' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'function handleRecordingKeyRelease(event)' "$qml_window" && \
+   grep -q 'captureState = "capture_armed"' "$qml_window" && \
+   grep -q 'initiatingKey = 0' "$qml_window"; then
     pass "17.2 initiating key release transitions capture state machine to capture_armed"
 else
     fail "17.2 capture_armed transition missing in KeybindingsWindow.qml"
 fi
 
 # 17.3: In capture_armed, candidate key combination proceeds to validation
-if grep -q 'windowRoot.captureState = "validating"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'keybindingsModel.validateShortcut' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'captureState = "validating"' "$qml_window" && \
+   grep -q 'keybindingsModel.validateShortcut' "$qml_window"; then
     pass "17.3 armed combination transitions to validating state and calls asynchronous policy validation"
 else
     fail "17.3 validation transition missing in KeybindingsWindow.qml"
 fi
 
 # 17.4: Esc cancels cleanly from any capture state back to idle with zero mutation
-if grep -q 'if (event.key === Qt.Key_Escape)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'function cancelCapture()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'windowRoot.captureState = "idle"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'if (event.key === Qt.Key_Escape)' "$qml_window" && \
+   grep -q 'function cancelCapture()' "$qml_window" && \
+   grep -q 'captureState = "idle"' "$qml_window"; then
     pass "17.4 Esc cancels capture cleanly from all states back to idle with zero mutation"
 else
     fail "17.4 cancelCapture logic missing in KeybindingsWindow.qml"
@@ -2043,8 +2057,8 @@ else
 fi
 
 # 20.3: Fail-safe inhibition release on cancellation
-if grep -q 'function cancelCapture()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'windowRoot.captureState = "idle"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'function cancelCapture()' "$qml_window" && \
+   grep -q 'captureState = "idle"' "$qml_window"; then
     pass "20.3 cancelCapture unconditionally releases capture and restores OnDemand focus"
 else
     fail "20.3 cancelCapture release logic incomplete"
@@ -2452,10 +2466,10 @@ section "23. Verification Matrix I: Mouse & Focus Correctness"
 
 # 23.1: Mouse selection in KeybindingRow: single click focuses window and updates index without closing
 row_qml="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"
-if grep -q 'onClicked: {' "$row_qml" && \
+if grep -q 'onClicked: function(mouse)' "$row_qml" && \
    grep -q 'keybindingsModel.selectedIndex = rowRoot.index' "$row_qml" && \
    grep -q 'ListView.view.forceActiveFocus()' "$row_qml" && \
-   ! grep -q 'windowRoot.visible = false' <(sed -n '/onClicked: {/,/}/p' "$row_qml"); then
+   ! grep -q 'windowRoot.visible = false' <(sed -n '/onClicked: function(mouse)/,/^    }/p' "$row_qml"); then
     pass "23.1 single click on row selects item and focuses view without dismissing palette"
 else
     fail "23.1 single click row focus logic missing or dismisses window in KeybindingRow.qml"
@@ -2472,9 +2486,10 @@ else
 fi
 
 # 23.3: Tab and cursor keys keep mouse selection and keyboard selection synchronized
-if grep -q 'keybindingsModel.selectNext()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'keybindingsModel.selectPrevious()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'listView.positionViewAtIndex(keybindingsModel.selectedIndex' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'modelController.selectNext()' "$qml_action_list" && \
+   grep -q 'modelController.selectPrevious()' "$qml_action_list" && \
+   grep -q 'listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex' "$qml_action_list" && \
+   grep -q 'actionList.listView.positionViewAtIndex(keybindingsModel.selectedIndex' "$qml_window"; then
     pass "23.3 keyboard navigation synchronizes selection and viewport position with mouse selection"
 else
     fail "23.3 selection synchronization missing in KeybindingsWindow.qml"
@@ -2598,8 +2613,8 @@ section "25. Verification Matrix K: Add Action Enter Navigation Correctness & Re
 # 25.1: activateSelected centralizes row activation and prevents Enter fall-through to runSelected
 qml_win="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"
 if grep -q "function activateSelected(): bool" "$qml_win" && \
-   grep -q 'windowRoot.activateSelected("keyboard")' "$qml_win" && \
-   grep -q "event.accepted = true" "$qml_win"; then
+   (grep -q 'windowController.activateSelected("keyboard")' "$qml_action_list" || grep -q 'windowController.activateSelected("keyboard")' "$qml_header") && \
+   grep -q "event.accepted = true" "$qml_action_list"; then
     pass "25.1 activateSelected centralizes row activation and explicitly consumes event"
 else
     fail "25.1 activateSelected missing or incomplete in KeybindingsWindow.qml"
@@ -2670,7 +2685,7 @@ fi
 # 25.5: Mouse type selection and keyboard Enter use the centralized activation path
 qml_row="$ROOT/dotfiles/aurelia/components/keybindings/KeybindingRow.qml"
 if grep -q 'windowRoot.activateSelected("mouse")' "$qml_row" && \
-   grep -q 'windowRoot.activateSelected("keyboard")' "$qml_win"; then
+   (grep -q 'windowController.activateSelected("keyboard")' "$qml_action_list" || grep -q 'windowController.activateSelected("keyboard")' "$qml_header"); then
     pass "25.5 mouse Add Action type selection and keyboard Enter share centralized activation semantics"
 else
     fail "25.5 mouse Add Action selection does not delegate to activateSelected"
@@ -3121,14 +3136,14 @@ fi
 
 section "33. Verification Matrix S: Core Deployment, CLI Delegation & Path Isolation"
 
-# 33.1: workstation-aurelia deployed to /usr/local/bin/workstation-aurelia (mode 0755) in modules/desktop.sh
-desktop_mod="$ROOT/modules/desktop.sh"
+# 33.1: workstation-aurelia deployed to /usr/local/bin/workstation-aurelia (mode 0755)
+desktop_mod="$ROOT/modules/lib/aurelia_desktop.sh"
 if grep -q 'aur_bin_source=.*bin/workstation-aurelia' "$desktop_mod" && \
    grep -q 'aur_bin_target=.*bin_dir/workstation-aurelia' "$desktop_mod" && \
    grep -q 'chmod 0755.*aur_bin_target' "$desktop_mod"; then
-    pass "33.1 workstation-aurelia deployed to /usr/local/bin/workstation-aurelia with mode 0755 in modules/desktop.sh"
+    pass "33.1 workstation-aurelia is deployed by the Aurelia desktop module with mode 0755"
 else
-    fail "33.1 workstation-aurelia deployment declaration missing or incorrect in modules/desktop.sh"
+    fail "33.1 workstation-aurelia deployment declaration missing or incorrect in Aurelia desktop module"
 fi
 
 # 33.2: workstation-keybindings delegates to workstation-aurelia and fails closed if missing
@@ -3140,19 +3155,61 @@ else
     fail "33.2 workstation-keybindings missing delegation check failed (code=$test_33_2_code, out=$test_33_2_out)"
 fi
 
-# 33.3: Aurelia preferences owned under dotfiles/aurelia/core/preferences.lua (and dotfiles/hypr/aurelia_preferences.lua is removed)
-if [[ -f "$ROOT/dotfiles/aurelia/core/preferences.lua" && ! -f "$ROOT/dotfiles/hypr/aurelia_preferences.lua" ]]; then
-    pass "33.3 Aurelia preferences canonically owned under dotfiles/aurelia/core/preferences.lua with hypr/ removal"
+# 33.3: A clean non-privileged deployment includes every canonical runtime module
+deployment_check="$(bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+root="$1"
+sb="$(mktemp -d)"
+trap 'rm -rf "$sb"' EXIT
+home="$sb/home"
+prefix="$sb/prefix"
+bin_dir="$prefix/bin"
+apps_dir="$sb/apps"
+mkdir -p "$home/.config" "$bin_dir" "$apps_dir"
+cp -a "$root/dotfiles/aurelia" "$home/.config/aurelia"
+
+SCRIPT_DIR="$root"
+TARGET_HOME="$home"
+KEYBINDINGS_BIN_DIR="$bin_dir"
+AURELIA_KEYBINDINGS_LIB_DIR="$prefix/lib/aurelia-keybindings"
+KEYBINDINGS_APPS_DIR="$apps_dir"
+info() { :; }
+warn() { :; }
+record_success() { :; }
+record_deferred() { :; }
+source "$root/modules/desktop.sh"
+install_workstation_keybindings >/dev/null
+
+for module in common queries actions mutations runtime toggle main; do
+    [[ -f "$prefix/lib/aurelia-keybindings/$module.sh" ]] || exit 1
+done
+KEYBINDINGS_MANIFEST="$root/dotfiles/hypr/keybindings_manifest.lua" \
+    HOME="$home" "$bin_dir/aurelia-shell-keybindings" json |
+    jq -e 'length > 0' >/dev/null
+jq -e '.mismatches == [] and (.deployed.backend_files | length) == 7' \
+    "$home/.local/state/aurelia/keybindings/deployment-manifest.json" >/dev/null
+printf 'DEPLOYMENT_COMPLETE\n'
+EOS
+)"
+if [[ "$deployment_check" == *"DEPLOYMENT_COMPLETE"* ]]; then
+    pass "33.3 clean deployment installs canonical backend with all owned runtime modules"
 else
-    fail "33.3 Aurelia preferences ownership violation: missing core/preferences.lua or stale hypr/aurelia_preferences.lua exists"
+    fail "33.3 clean deployment omitted a canonical backend module: $deployment_check"
 fi
 
-# 33.4: Zero references to ~/.config/hypr/ in workstation-aurelia
+# 33.4: Aurelia preferences owned under dotfiles/aurelia/core/preferences.lua (and dotfiles/hypr/aurelia_preferences.lua is removed)
+if [[ -f "$ROOT/dotfiles/aurelia/core/preferences.lua" && ! -f "$ROOT/dotfiles/hypr/aurelia_preferences.lua" ]]; then
+    pass "33.4 Aurelia preferences canonically owned under dotfiles/aurelia/core/preferences.lua with hypr/ removal"
+else
+    fail "33.4 Aurelia preferences ownership violation: missing core/preferences.lua or stale hypr/aurelia_preferences.lua exists"
+fi
+
+# 33.5: Zero references to ~/.config/hypr/ in workstation-aurelia
 if ! grep -q 'config/hypr' "$ROOT/bin/workstation-aurelia" && \
    ! grep -q 'config/hypr' "$ROOT/dotfiles/aurelia/core/preferences.lua"; then
-    pass "33.4 zero references to ~/.config/hypr/ in workstation-aurelia or core preferences engine"
+    pass "33.5 zero references to ~/.config/hypr/ in workstation-aurelia or core preferences engine"
 else
-    fail "33.4 found legacy ~/.config/hypr/ references in workstation-aurelia or core preferences"
+    fail "33.5 found legacy ~/.config/hypr/ references in workstation-aurelia or core preferences"
 fi
 
 section "34. Verification Matrix T: Interaction Model, Navigation & Input Theming"
@@ -3195,19 +3252,19 @@ else
 fi
 
 # 34.5: Executable / Script form uses Theme.input* tokens and entered text is high-contrast
-if grep -q 'color: Theme.inputBg' "$qml_win" && \
-   grep -q 'color: Theme.inputText' "$qml_win" && \
-   grep -q 'border.color: execNameInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder' "$qml_win" && \
-   grep -q 'color: Theme.inputPlaceholder' "$qml_win" && \
-   ! grep -q 'color: Theme.bgCard' "$qml_win"; then
+if grep -q 'color: Theme.inputBg' "$qml_form" && \
+   grep -q 'color: Theme.inputText' "$qml_form" && \
+   grep -q 'border.color: execNameInput.activeFocus ? Theme.inputBorderFocused : Theme.inputBorder' "$qml_form" && \
+   grep -q 'color: Theme.inputPlaceholder' "$qml_form" && \
+   ! grep -q 'color: Theme.bgCard' "$qml_form"; then
     pass "34.5 Executable / Script form inputs use semantic Theme.input* tokens without undefined bgCard"
 else
     fail "34.5 semantic input theming tokens missing or bgCard found in KeybindingsWindow.qml"
 fi
 
 # 34.6: Terminology is Executable / Script across UI and models
-if grep -q 'Executable / Script' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml" && \
-   grep -q 'Add Custom Executable / Script' "$qml_win" && \
+if grep -q 'Executable / Script' "$qml_model" && \
+   grep -q 'Add Custom Executable / Script' "$qml_form" && \
    ! grep -q 'Binary / Shell' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsModel.qml"; then
     pass "34.6 Terminology is Executable / Script across UI, forms, and models"
 else
@@ -3498,44 +3555,44 @@ else
 fi
 
 # 36.17: QML static check: triggerBrowse guards against shortcut capture
-if grep -q 'function triggerBrowse()' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'if (windowRoot\.isRecording' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'function triggerBrowse()' "$qml_form" && \
+   grep -q 'if (windowController\.isRecording' "$qml_form"; then
     pass "36.17 triggerBrowse guards against shortcut recording state"
 else
     fail "36.17 triggerBrowse missing shortcut recording guard"
 fi
 
 # 36.18: QML static check: structured lifecycle logging for browse events
-if grep -q 'keybindings\.browse\.request' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'keybindings\.browse\.focus_release' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'keybindings\.browse\.focus_restore' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'keybindings\.browse\.request' "$qml_form" && \
+   grep -q 'keybindings\.browse\.focus_release' "$qml_form" && \
+   grep -q 'keybindings\.browse\.focus_restore' "$qml_form"; then
     pass "36.18 KeybindingsWindow.qml logs structured browse lifecycle events"
 else
     fail "36.18 KeybindingsWindow.qml missing structured browse lifecycle logging"
 fi
 
 # 36.19: QML static check: Path Auto-Complete UI component exists
-if grep -q 'id: suggestionPopup' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'keybindingsModel\.fetchPathCompletions' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'id: suggestionPopup' "$qml_form" && \
+   grep -q 'modelController\.fetchPathCompletions' "$qml_form"; then
     pass "36.19 KeybindingsWindow.qml declares suggestionPopup with keybindingsModel.fetchPathCompletions"
 else
     fail "36.19 suggestionPopup or fetchPathCompletions call missing in KeybindingsWindow.qml"
 fi
 
 # 36.20: QML static check: visible key labels standardized to uppercase
-if grep -q 'Theme\.shortcutAddAction' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'Theme\.shortcutBack' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'Theme\.shortcutSet' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'Theme\.shortcutUnset' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'text: "TAB"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'text: "ESC"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'Theme\.shortcutAddAction' "$qml_footer" && \
+   grep -q 'Theme\.shortcutBack' "$qml_footer" && \
+   grep -q 'Theme\.shortcutSet' "$qml_footer" && \
+   grep -q 'Theme\.shortcutUnset' "$qml_footer" && \
+   grep -q 'text: "TAB"' "$qml_footer" && \
+   grep -q 'text: "ESC"' "$qml_footer"; then
     pass "36.20 visible navigation shortcuts standardized to uppercase display typography"
 else
     fail "36.20 visible navigation shortcuts uppercase standardization check failed"
 fi
 
 # 36.21: QML static check: Return glyph ↵ preserved
-if grep -q 'text: "↵"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'text: "↵"' "$qml_footer"; then
     pass "36.21 Return shortcut glyph ↵ preserved across UI hints"
 else
     fail "36.21 Return shortcut glyph ↵ missing in KeybindingsWindow.qml"
@@ -3568,7 +3625,7 @@ if grep -q 'mask: windowRoot\.browseActive ? browseRegion : null' "$ROOT/dotfile
    grep -q 'item: surfaceCard' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
    grep -q 'enabled: !windowRoot\.browseActive' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
    grep -q 'if (windowRoot\.browseActive)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'if (!windowRoot\.browseActive)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+   grep -q 'if (!windowController\.browseActive)' "$qml_form"; then
     pass "37.1 layer-shell mask Region, outside dismissal guard, and form input preservation verified"
 else
     fail "37.1 browse dismissal suppression or layer-shell mask check failed"
@@ -3585,8 +3642,9 @@ else
 fi
 
 # 37.3: QML static check: ALT + B Back navigation & plain b text entry preservation in search and form fields
-if grep -q 'windowRoot\.eventMatchesShortcut(event, Theme\.shortcutBack)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   ! grep -q 'event\.key === Qt\.Key_B && !(event\.modifiers' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'eventMatchesShortcut(event, Theme\.shortcutBack)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+   grep -q 'windowController\.eventMatchesShortcut(event, Theme\.shortcutBack)' "$qml_form" && \
+   ! grep -E -q 'event\.key === Qt\.Key_B([^A-Za-z_]|$)' "$qml_window" "$qml_header" "$qml_form"; then
     pass "37.3 Back navigation uses Theme.shortcutBack and eliminates bare Key_B interception"
 else
     fail "37.3 Back navigation check failed in KeybindingsWindow.qml"
@@ -3678,8 +3736,8 @@ else
 fi
 
 # 37.7: QML static check: Executable form tabs and search header suppression
-if grep -q 'visible: keybindingsModel\.activeView !== "add_exec" && keybindingsModel\.activeView !== "settings"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'Add Custom Executable / Script' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'headerVisible' "$qml_header" && \
+   grep -q 'Add Custom Executable / Script' "$qml_form"; then
     pass "37.7 add_exec and settings views cleanly hide search bar and tabs header"
 else
     fail "37.7 form tabs or search suppression check failed"
@@ -3734,8 +3792,8 @@ section "38. Verification Matrix X: Production Hardening: Authoritative Command 
 # 38.1: QML static check: Authoritative semantic command router in KeybindingsWindow.qml
 if grep -q 'function resolveSemanticCommand(event, context): string' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
    grep -q 'function handleComponentKey(event, context): bool' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'handleComponentKey(event, "text_input")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'handleComponentKey(event, "list")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+   grep -q 'handleComponentKey(event, "text_input")' "$qml_header" && \
+   grep -q 'handleComponentKey(event, "list")' "$qml_action_list"; then
     pass "38.1 Authoritative semantic command router (resolveSemanticCommand, handleComponentKey) established across input contexts"
 else
     fail "38.1 Authoritative semantic command router check failed in KeybindingsWindow.qml"
@@ -3754,11 +3812,11 @@ else
 fi
 
 # 38.3: QML static check: Footer accelerator elimination and authoritative hint bindings
-if ! grep -q 'Ctrl+,' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   grep -q 'Theme\.shortcutSet' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   grep -q 'Theme\.shortcutUnset' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   grep -q 'Theme\.shortcutAddAction' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   grep -q 'Theme\.shortcutBack' <(sed -n '/Footer:/,$p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"); then
+if ! grep -q 'Ctrl+,' "$qml_footer" && \
+   grep -q 'Theme\.shortcutSet' "$qml_footer" && \
+   grep -q 'Theme\.shortcutUnset' "$qml_footer" && \
+   grep -q 'Theme\.shortcutAddAction' "$qml_footer" && \
+   grep -q 'Theme\.shortcutBack' "$qml_footer"; then
     pass "38.3 Footer hints eliminate Ctrl+, and authoritatively consume Theme.shortcut* preference bindings"
 else
     fail "38.3 Footer hints still contain Ctrl+, or lack authoritative Theme.shortcut* bindings"
@@ -3783,10 +3841,10 @@ else
 fi
 
 # 38.6: QML static check: TAB and SHIFT+TAB dispatch cycleTopLevelView immediately
-if grep -q 'windowRoot\.cycleTopLevelView(true)' <(sed -n '/id: searchInput/,/RowLayout/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   grep -q 'windowRoot\.cycleTopLevelView(false)' <(sed -n '/id: searchInput/,/RowLayout/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   grep -q 'windowRoot\.cycleTopLevelView(true)' <(sed -n '/id: listView/,/ScrollBar\.vertical/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   grep -q 'windowRoot\.cycleTopLevelView(false)' <(sed -n '/id: listView/,/ScrollBar\.vertical/p' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"); then
+if grep -q 'windowController\.cycleTopLevelView(true)' "$qml_header" && \
+   grep -q 'windowController\.cycleTopLevelView(false)' "$qml_header" && \
+   grep -q 'windowController\.cycleTopLevelView(true)' "$qml_action_list" && \
+   grep -q 'windowController\.cycleTopLevelView(false)' "$qml_action_list"; then
     pass "38.6 TAB / SHIFT+TAB immediately activates next/previous top-level view without intermediate focus state"
 else
     fail "38.6 TAB / SHIFT+TAB immediate view activation check failed in KeybindingsWindow.qml"
@@ -3802,19 +3860,19 @@ else
 fi
 
 # 38.8: QML static check: Header tabs consume KeybindingsConfig tokens directly
-if grep -q 'KeybindingsConfig\.headerHeight' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'KeybindingsConfig\.tabHeight' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'KeybindingsConfig\.tabPaddingHorizontal' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
-   grep -q 'KeybindingsConfig\.tabBorderRadius' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'KeybindingsConfig\.headerHeight' "$qml_header" && \
+   grep -q 'KeybindingsConfig\.tabHeight' "$qml_header" && \
+   grep -q 'KeybindingsConfig\.tabPaddingHorizontal' "$qml_header" && \
+   grep -q 'KeybindingsConfig\.tabBorderRadius' "$qml_header"; then
     pass "38.8 Header controls consume component design tokens directly from KeybindingsConfig"
 else
     fail "38.8 Header tokens from KeybindingsConfig check failed in KeybindingsWindow.qml"
 fi
 
 # 38.9: QML static check: Settings Cog visual hierarchy (+50% icon scale, balanced 34x28 hit target)
-if (grep -q 'Math\.round(Theme\.fontSizeMd \* 1\.5)' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" || grep -q 'KeybindingsConfig\.cogIconSize' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   (grep -q 'Layout\.preferredWidth: 34' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" || grep -q 'KeybindingsConfig\.cogHitTargetWidth' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml") && \
-   (grep -q 'Layout\.preferredHeight: 28' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" || grep -q 'KeybindingsConfig\.cogHitTargetHeight' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"); then
+if grep -q 'KeybindingsConfig\.cogIconSize' "$qml_header" && \
+   grep -q 'KeybindingsConfig\.cogHitTargetWidth' "$qml_header" && \
+   grep -q 'KeybindingsConfig\.cogHitTargetHeight' "$qml_header"; then
     pass "38.9 Settings Cog icon size enlarged by ~50% (21px) with balanced 34x28px hit target"
 else
     fail "38.9 Settings Cog visual hierarchy or hit target dimensions check failed in KeybindingsWindow.qml"
@@ -3840,7 +3898,7 @@ else
 fi
 
 # 38.12: QML static check: Empty-state visibility isolation (never renders behind settings)
-if grep -q 'keybindingsModel\.filteredItems\.length === 0 && (keybindingsModel\.activeView === "bound" || keybindingsModel\.activeView === "unbound" || keybindingsModel\.activeView === "add_action_type" || keybindingsModel\.activeView === "add_app")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml"; then
+if grep -q 'actionListRoot\.modelController\.filteredItems\.length === 0 && (actionListRoot\.modelController\.activeView === "bound" || actionListRoot\.modelController\.activeView === "unbound" || actionListRoot\.modelController\.activeView === "add_action_type" || actionListRoot\.modelController\.activeView === "add_app")' "$qml_action_list"; then
     pass "38.12 Empty state text visibility strictly isolated to list views; never renders behind Settings or Add Exec"
 else
     fail "38.12 Empty state text visibility condition allows bleed-through behind Settings"
@@ -3951,7 +4009,7 @@ else
 fi
 
 # 38.17: QML static check: Context-aware routing preserves typing s/u/a/b in text_input context
-if grep -q 'var isTextInput = (context === "text_input")' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
+if grep -q 'var isTextInput = context === "text_input"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
    grep -q 'if (!isTextInput || hasModifier(Theme\.shortcutSet)) return "set_binding"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
    grep -q 'if (!isTextInput || hasModifier(Theme\.shortcutUnset)) return "unset_binding"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
    grep -q 'if (!isTextInput || hasModifier(Theme\.shortcutAddAction)) return "add_action"' "$ROOT/dotfiles/aurelia/components/keybindings/KeybindingsWindow.qml" && \
@@ -4067,13 +4125,17 @@ else
     fail "39.1 KeybindingsConfig.qml uiRevision or design tokens missing"
 fi
 
-# 39.2: qmldir exports all 5 components
+# 39.2: qmldir exports the complete first-party Keybindings component surface
 if grep -q 'singleton KeybindingsConfig 1.0 KeybindingsConfig.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
    grep -q 'KeybindingsWindow 1.0 KeybindingsWindow.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
    grep -q 'KeybindingsSettings 1.0 KeybindingsSettings.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
    grep -q 'KeybindingsModel 1.0 KeybindingsModel.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
-   grep -q 'KeybindingRow 1.0 KeybindingRow.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir"; then
-    pass "39.2 qmldir exports all 5 keybindings components"
+   grep -q 'KeybindingRow 1.0 KeybindingRow.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingsHeader 1.0 KeybindingsHeader.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingsActionList 1.0 KeybindingsActionList.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingsExecutableForm 1.0 KeybindingsExecutableForm.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir" && \
+   grep -q 'KeybindingsFooter 1.0 KeybindingsFooter.qml' "$ROOT/dotfiles/aurelia/components/keybindings/qmldir"; then
+    pass "39.2 qmldir exports the complete first-party Keybindings component surface"
 else
     fail "39.2 qmldir missing required component export"
 fi
@@ -4134,9 +4196,9 @@ else
 fi
 
 # 39.9: aurelia-shell-keybindings uses logger -t aurelia-shell-keybindings
-if grep -q 'logger -t aurelia-shell-keybindings' "$ROOT/bin/aurelia-shell-keybindings" && \
-   ! grep -q 'logger -t workstation-keybindings' "$ROOT/bin/aurelia-shell-keybindings"; then
-    pass "39.9 aurelia-shell-keybindings uses correct syslog tag"
+if grep -R -q 'logger -t aurelia-shell-keybindings' "$ROOT/bin/lib/aurelia-keybindings" && \
+   ! grep -R -q 'logger -t workstation-keybindings' "$ROOT/bin/lib/aurelia-keybindings"; then
+    pass "39.9 aurelia-shell-keybindings uses correct syslog tag in its logging module"
 else
     fail "39.9 aurelia-shell-keybindings syslog tag incorrect"
 fi
@@ -4295,6 +4357,8 @@ mkdir -p "$home/.config" "$bin_dir"
 cp -a "$root/dotfiles/aurelia" "$home/.config/aurelia"
 cp "$root/bin/aurelia-shell-keybindings" "$bin_dir/aurelia-shell-keybindings"
 chmod 0755 "$bin_dir/aurelia-shell-keybindings"
+mkdir -p "$bin_dir/lib"
+cp -a "$root/bin/lib/aurelia-keybindings" "$bin_dir/lib/"
 
 SCRIPT_DIR="$root"
 TARGET_HOME="$home"
@@ -4328,6 +4392,10 @@ report = json.loads(sys.argv[1])
 assert report["canonical_backend"]["path"] == sys.argv[2]
 assert report["canonical_backend"]["sha256"]
 assert report["expected_manifest"]["files"]
+assert len(report["expected_manifest"]["files"]) == 12
+assert len(report["expected_manifest"]["backend_files"]) == 7
+assert len(report["deployed_manifest"]["backend_files"]) == 7
+assert not any(item.startswith("backend-files/") for item in report["manifest_mismatches"]), report["manifest_mismatches"]
 mismatches = "\n".join(report["manifest_mismatches"])
 for name in ("KeybindingsWindow.qml", "KeybindingsSettings.qml", "qmldir"):
     assert name in mismatches, mismatches

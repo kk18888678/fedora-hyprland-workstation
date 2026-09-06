@@ -249,14 +249,37 @@ QtObject {
         }
     }
 
-    // Production always uses the reconciler-owned canonical executable. A
-    // development override is available only when explicitly opted into.
+    // The canonical command is preferred, but the fixed compatibility path is
+    // required while an existing installation is upgraded. New deployments
+    // install workstation-keybindings as a thin shim to the canonical command;
+    // older deployments may still have the previous backend at that path.
+    // Never consult PATH or user-local paths here: this is a production
+    // boundary, not a plugin discovery mechanism.
     readonly property bool developmentMode: Quickshell.env("AURELIA_DEVELOPMENT_MODE") === "1"
+    property FileView canonicalBackendCheck: FileView {
+        path: "/usr/local/bin/aurelia-shell-keybindings"
+        printErrors: false
+    }
+    property FileView compatibilityBackendCheck: FileView {
+        path: "/usr/local/bin/workstation-keybindings"
+        printErrors: false
+    }
     readonly property string backendBin: {
         if (root.developmentMode) {
             var explicitOverride = Quickshell.env("AURELIA_SHELL_KEYBINDINGS_BIN") || ""
             if (explicitOverride !== "") return explicitOverride
         }
+        try {
+            if (canonicalBackendCheck.text() && canonicalBackendCheck.text().length > 0) {
+                return "/usr/local/bin/aurelia-shell-keybindings"
+            }
+        } catch (e) {}
+        try {
+            if (compatibilityBackendCheck.text() && compatibilityBackendCheck.text().length > 0) {
+                return "/usr/local/bin/workstation-keybindings"
+            }
+        } catch (e) {}
+        // Preserve fail-closed behavior when neither managed path exists.
         return "/usr/local/bin/aurelia-shell-keybindings"
     }
 

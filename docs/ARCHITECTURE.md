@@ -75,7 +75,8 @@ graph TD
 | `modules/browsers.sh` | Host browser installation (Chromium mandatory, Brave Origin and Firefox optional). |
 | `modules/applications.sh` | Workstation applications (Cursor, ChatGPT, Kate, GUI media apps, host-global media utilities, Antigravity CLI). |
 | `modules/flatpak.sh` | Flatpak runtime, Flathub remote, and Flatpak applications (LocalSend, Ulaa). |
-| `modules/desktop.sh` | Hyprland config deployment, Noctalia shell, `greetd` service and `noctalia-greeter` configuration, desktop services enablement. |
+| `modules/desktop.sh` | Hyprland/Noctalia desktop integration, `greetd` service and `noctalia-greeter` configuration, desktop services enablement. |
+| `modules/lib/aurelia_desktop.sh` | Aurelia configuration, Keybindings runtime deployment/provenance, provider selection, and compatibility command installation. |
 | `modules/nix.sh` | Fedora Nix packages, `nix-daemon` service enablement, `nix.conf` user feature merge, and pinned `devenv` profile installation. |
 | `modules/containers.sh` | Podman, Buildah, Skopeo, rootless subuids/subgids configuration, and user socket enablement. |
 | `modules/validation.sh` | Comprehensive read-only validation for graphical login safety and workstation capabilities. |
@@ -173,4 +174,3 @@ sequenceDiagram
 - **Narrow Detection Invariant**:
   - Hardware cursor disabling and integer scale overrides must apply exclusively to confirmed `virtio-gpu` display controllers (detected via `/sys/bus/virtio/drivers/virtio_gpu` or PCI ID `1af4:1050/1010`).
   - Virtual machines with passed-through physical GPUs (NVIDIA/AMD) and bare-metal installations must retain default hardware cursors and native auto-scaling.
-

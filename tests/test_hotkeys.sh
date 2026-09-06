@@ -392,7 +392,8 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     manifest = json.load(handle)
 assert manifest["component"] == "aurelia-keybindings"
-assert len(manifest["expected"]["files"]) == 8
+assert len(manifest["expected"]["files"]) == 12
+assert len(manifest["expected"]["backend_files"]) == 7
 assert manifest["mismatches"] == []
 PY
 then
@@ -1321,4 +1322,3 @@ else
 fi
 
 rm -rf "$order_sandbox"
-
