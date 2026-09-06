@@ -1,9 +1,19 @@
 # Aurelia Shell
 
-Aurelia Shell is the resident Quickshell desktop host for the Fedora Hyprland
-Workstation. The package owns the host process, shared services, plugin
-registry, plugin lifecycle, and stable shell IPC. It does not own the business
-logic of individual desktop capabilities.
+Aurelia Shell is a standalone Quickshell desktop-shell project. It is kept
+under this repository temporarily for development, but the Fedora workstation
+project does not deploy, start, or depend on it. It can be developed and tested
+while Fedora continues to use Noctalia.
+
+The package owns the host process, shared services, plugin registry, plugin
+lifecycle, and stable shell IPC. It does not own the business logic of
+individual desktop capabilities.
+
+Run the shell-owned contract suite from the repository root with:
+
+```bash
+./aurelia-shell/tests/run.sh
+```
 
 ## Plugin model
 

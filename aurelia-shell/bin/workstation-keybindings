@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# workstation-keybindings — Compatibility Forwarding Shim
+#
+# Canonical executable is now 'aurelia-shell-keybindings'.
+# This shim forwards all arguments to the canonical executable.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+
+if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
+   [[ -x "$script_dir/aurelia-shell-keybindings" ]]; then
+    exec "$script_dir/aurelia-shell-keybindings" "$@"
+elif [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" && -n "${AURELIA_SHELL_KEYBINDINGS_BIN:-}" && -x "$AURELIA_SHELL_KEYBINDINGS_BIN" ]]; then
+    exec "$AURELIA_SHELL_KEYBINDINGS_BIN" "$@"
+elif [[ -x "/usr/local/bin/aurelia-shell-keybindings" ]]; then
+    exec "/usr/local/bin/aurelia-shell-keybindings" "$@"
+else
+    printf 'Error: aurelia-shell-keybindings executable not found.\n' >&2
+    exit 1
+fi

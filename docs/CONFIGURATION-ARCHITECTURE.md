@@ -220,24 +220,9 @@ To prevent competing ownership and double-installation bugs:
 
 ---
 
-## 12. Future Quickshell Frontend Boundary
-
-The architecture cleanly decouples the configuration engine from terminal rendering:
-
-```text
-Terminal Wizard (modules/lib/wizard.sh) ──────┐
-Recommended Baseline ─────────────────────────┼──> Desired State ──> Planner ──> Reconciler
-Future Quickshell UI (IPC / CLI Adapter) ─────┘
-```
-
-A future graphical Quickshell Control Center will produce the same normalized Desired State representation and invoke the exact same Planner and Reconciler engine without duplicating business logic or lifecycle code.
-
----
-
-## 13. What Remains Intentionally Unimplemented
+## 12. What Remains Intentionally Unimplemented
 
 In accordance with strict change discipline:
-- Quickshell frontend UI.
 - Noctalia replacement.
 - Mass migration of all packages into the registry.
 - AI Bridge and dictation services.

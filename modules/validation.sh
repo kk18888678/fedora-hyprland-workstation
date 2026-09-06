@@ -429,23 +429,6 @@ validate_application_environment() {
         fi
     fi
 
-    if [[ -f "$SCRIPT_DIR/bin/aurelia-shell-keybindings" ]] &&
-       ! command_exists aurelia-shell-keybindings &&
-       [[ ! -x "/usr/local/bin/aurelia-shell-keybindings" ]]; then
-        record_deferred "validation" "aurelia-shell-keybindings" "Aurelia Keybindings utility was not installed."
-    fi
-
-    if [[ -f "$SCRIPT_DIR/bin/aurelia-shell" ]] && {
-        [[ ! -x "/usr/local/bin/aurelia-shell" ]] ||
-        [[ ! -x "/usr/local/bin/aurelia-launch-shell" ]] ||
-        [[ ! -x "/usr/local/bin/aurelia-plugin" ]];
-    }; then
-        record_deferred \
-            "validation" \
-            "aurelia-shell-runtime" \
-            "Aurelia Shell host IPC, launcher, or plugin management command was not installed."
-    fi
-
     if [[ "${DESKTOP:-}" == "hyprland" ]]; then
         if ! command_exists hyprland-dialog && ! package_installed hyprland-guiutils; then
             record_deferred \

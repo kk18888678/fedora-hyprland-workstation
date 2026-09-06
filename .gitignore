@@ -1,8 +1,3 @@
-# User configuration overrides
-dotfiles/hypr/keybindings_overrides.json
-dotfiles/hypr/user_actions.json
-dotfiles/aurelia/preferences.json
-aurelia-shell/preferences.json
 *.tmp*
 *.tmp.*
 

@@ -13,10 +13,6 @@ for _, module in ipairs({
     "workspaces",
     "startup",
     "inputs",
-    "keybindings_manifest",
-    "application_registry",
-    "effective_bindings",
-    "keybind",
     "windowrules",
     "animations",
     "themes.theme",
@@ -29,7 +25,6 @@ require("monitors")
 require("workspaces")
 require("startup")
 require("inputs")
-require("keybind")
 require("windowrules")
 require("animations")
 require("themes.theme")

@@ -402,10 +402,13 @@ Item {
                             id: suggestionPopup
                             z: 100
                             visible: execPathInput.showSuggestions && execPathInput.suggestions && execPathInput.suggestions.length > 0 && execPathInput.activeFocus
-                            anchors.top: pathInputContainer.bottom
+                            // The popup is owned by execPathInput. Anchor it to
+                            // that parent rather than reaching through the
+                            // parent hierarchy to pathInputContainer.
+                            anchors.top: parent.bottom
                             anchors.topMargin: 4
-                            anchors.left: pathInputContainer.left
-                            anchors.right: pathInputContainer.right
+                            anchors.left: parent.left
+                            anchors.right: parent.right
                             height: Math.min(execPathInput.suggestions.length * 30 + 8, 160)
                             color: Theme.surfaceElevated
                             border.color: Theme.border

@@ -5,7 +5,7 @@
 section "Syntax"
 
 mapfile -t BASH_FILES < <(
-    find "$ROOT" -type f -name '*.sh' | sort
+    find "$ROOT" -path "$ROOT/aurelia-shell" -prune -o -type f -name '*.sh' -print | sort
 )
 
 for file in "${BASH_FILES[@]}"; do
@@ -75,15 +75,6 @@ required_paths=(
     modules/nix.sh
     modules/containers.sh
     modules/validation.sh
-    aurelia-shell/shell.qml
-    aurelia-shell/services/PluginRegistry.qml
-    aurelia-shell/services/PluginHost.qml
-    aurelia-shell/services/ShellConfig.qml
-    aurelia-shell/plugins/aurelia.keybindings/manifest.json
-    aurelia-shell/plugins/aurelia.keybindings/KeybindingsPlugin.qml
-    bin/aurelia-shell
-    bin/aurelia-launch-shell
-    bin/aurelia-plugin
     dotfiles/zsh/.zshrc
     dotfiles/starship/starship.toml
     dotfiles/kitty/kitty.conf

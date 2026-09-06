@@ -1,0 +1,5 @@
+preferences.json
+shell.json
+.qmlls.ini
+dotfiles/hypr/keybindings_overrides.json
+dotfiles/hypr/user_actions.json

@@ -33,11 +33,6 @@ deploy_noctalia_config() {
     fi
 }
 
-# Aurelia desktop capability ownership lives in modules/lib/aurelia_desktop.sh.
-desktop_module_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=/dev/null
-source "$desktop_module_dir/lib/aurelia_desktop.sh"
-unset desktop_module_dir
 install_noctalia_shell() {
     case "${DESKTOP_SHELL:-}" in
         noctalia)
@@ -784,7 +779,6 @@ install_desktop() {
     install_jetbrains_mono_nerd_font
     install_rose_pine_gtk_theme
     converge_gtk_bookmarks
-    install_workstation_hotkeys
     install_noctalia_greeter
     configure_greetd
     configure_noctalia_greeter_state

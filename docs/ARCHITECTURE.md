@@ -76,8 +76,6 @@ graph TD
 | `modules/applications.sh` | Workstation applications (Cursor, ChatGPT, Kate, GUI media apps, host-global media utilities, Antigravity CLI). |
 | `modules/flatpak.sh` | Flatpak runtime, Flathub remote, and Flatpak applications (LocalSend, Ulaa). |
 | `modules/desktop.sh` | Hyprland/Noctalia desktop integration, `greetd` service and `noctalia-greeter` configuration, desktop services enablement. |
-| `modules/lib/aurelia_desktop.sh` | Aurelia configuration, Keybindings runtime deployment/provenance, provider selection, and compatibility command installation. |
-| `aurelia-shell/` | Canonical resident Quickshell package: host services, manifest-backed first-party plugins, private plugin UI/logic, theme, and preferences. |
 | `modules/nix.sh` | Fedora Nix packages, `nix-daemon` service enablement, `nix.conf` user feature merge, and pinned `devenv` profile installation. |
 | `modules/containers.sh` | Podman, Buildah, Skopeo, rootless subuids/subgids configuration, and user socket enablement. |
 | `modules/validation.sh` | Comprehensive read-only validation for graphical login safety and workstation capabilities. |
@@ -119,29 +117,7 @@ sequenceDiagram
 
 ---
 
-## 4. Hotkeys Information Architecture, App Shortcuts & Noctalia Boundary
-
-### Information Architecture & Single Source of Truth
-- **Keybindings Manifest** (`dotfiles/hypr/keybindings_manifest.lua`): Authoritative declarative catalog of all workstation shortcuts, categories, commands, and explicit priority rankings.
-- **User Overrides** (`~/.config/hypr/keybindings_overrides.json`): User-owned, pure JSON file storing individual key customizations or unbindings (`"action_id": "MOD + KEY"` or `"action_id": false`).
-- **Effective Resolver** (`dotfiles/hypr/effective_bindings.lua`): Single source of truth combining manifest defaults with user overrides. Handles validation, conflict detection, deterministic metadata-driven sorting, and transactional reload with automatic rollback.
-- **Hyprland & Manager Parity**: Both `keybind.lua` (Hyprland runtime session) and `bin/workstation-hotkeys` (TUI manager) consume `effective_bindings.lua`, guaranteeing 0% drift between active session behavior and interactive reference.
-
-### Application Shortcut Model
-- Applications are modeled as `app:<desktop_id>` (e.g. `app:chatgpt.desktop`).
-- Discovered across standard XDG application directories (`~/.local/share/applications`, `/usr/share/applications`, `/var/lib/flatpak/exports/share/applications`).
-- Executed via `gtk-launch <desktop_id>` detached completely from the terminal emulator PTY and process group (`setsid -f`).
-- Truthful system default badges (`[Default Browser]`, `[Default File Manager]`, `[Default Text Editor]`) are queried directly from `xdg-mime` and displayed without speculative heuristics.
-
-### Noctalia Native Launcher Boundary
-- Noctalia's native launcher is compiled in C++ (`noctalia 5.0.0~beta.9`).
-- Inspection of upstream sources (`src/panel/widgets/launcher/`, `launcher_dialog.cpp`) confirms that context menu options (`launcher.context-menu.open/pin/unpin`) and item models are hardcoded internally in compiled binary code without IPC hooks, plugin interfaces, or external script extension points for custom shortcut assignment.
-- Rather than introducing fragile binary patching, the workstation provides a decoupled application shortcut assignment backend (`effective_bindings.assign_application_shortcut`) and user-facing selector (`Ctrl+A` in `workstation-hotkeys`).
-- When the future Quickshell shell arrives, it will directly interface with this exact backend via QML/IPC, preserving user keybinding overrides seamlessly across shell generations.
-
----
-
-## 5. File Manager & GTK Bookmarks Boundary Model
+## 4. File Manager & GTK Bookmarks Boundary Model
 
 ### Separation of Concerns
 - **XDG User Directories** (`~/.config/user-dirs.dirs`): Managed by `xdg-user-dirs-update`, establishes standard user directory paths (`XDG_DOWNLOAD_DIR`, `XDG_DOCUMENTS_DIR`, etc.).

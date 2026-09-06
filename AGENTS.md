@@ -815,7 +815,7 @@ Examples may include:
 * monitors
 * input
 * startup
-* keybindings
+* shortcuts
 * window rules
 * appearance
 
@@ -1121,7 +1121,7 @@ added.
 
 The installer configuration and customization engine follows these durable invariants:
 
-- **State Pipeline**: All frontends (CLI Wizard, Recommended Baseline, future Quickshell UI) must share the identical Desired State -> Planner -> Review -> Reconciler pipeline.
+- **State Pipeline**: All frontends (CLI Wizard and Recommended Baseline) must share the identical Desired State -> Planner -> Review -> Reconciler pipeline.
 - **Single Mutation Owner**: For each component registered in the Component Registry, there must be exactly ONE mutation owner: the Reconciler. Legacy installer stages (`install_browsers`, `install_nix`, `install_packages`) must check `is_component_migrated "$id"` and skip any migrated component to prevent double-installation and conflicting operations. Non-migrated tools remain owned by legacy stages.
 - **UI Non-Mutation**: Interactive UI handlers mutate only in-memory desired state and navigation state. UI components must never directly invoke package installation, removal, or system mutation commands.
 - **Mutation-Free Planner**: The Planner evaluates Actual State, Desired State, and Registry referentially without performing mutations or executing lifecycle callbacks.
@@ -1133,29 +1133,6 @@ The installer configuration and customization engine follows these durable invar
 - **Non-Interactive Terminal Safety**: Production runs strictly require an interactive TTY (`[[ -t 0 ]]`). Non-interactive executions fail closed immediately without hanging or mutating. There is no environment-variable or CLI bypass for setup-mode selection in production; setup mode is chosen strictly interactively through the setup-mode selection screen.
 
 ---
-
-# 40. Aurelia Shell and Desktop Environment Architecture
-
-The Aurelia Desktop Shell and workstation interface components adhere to these durable architectural invariants:
-
-- **Aurelia Shell vs. Quickshell Engine**: Quickshell is a low-level C++/Qt6/Wayland execution engine; Aurelia Desktop Shell is the cohesive workstation desktop product. Workstation capabilities, desktop entries, and user documentation must use clean product branding (e.g. `Keybindings`, `Launcher`, `Aurelia Shell`), never exposing runtime engine details or treating Quickshell as synonymous with Aurelia.
-- **Peer Desktop Environments and Modular Coexistence**: Noctalia and Aurelia are independent peer environments. The workstation supports selecting either environment, or modularly running individual Aurelia components (such as Keybindings) alongside Noctalia. Environment selection (`DESKTOP_SHELL`) and component provider selection (`keybindings.provider`) remain strictly orthogonal and independent.
-- **Cross-Shell Portability**: Core business logic, data models, manifest declarations, role defaults, and command dispatch belong in independent CLI utilities (`bin/workstation-*`) and Lua modules (`dotfiles/hypr/*.lua`). QML layers are strictly presentation and IPC dispatch surfaces consuming structured JSON. Presentation layers do not own business logic.
-- **Generic User Intent & Application Roles**: Shortcuts and launchers bind generic user intent to workstation roles (`terminal`, `file_manager`, `browser`) rather than hardcoded binary names. Dynamic role resolution (`effective_bindings.lua`) routes commands to active user/system defaults (e.g. `Super+E` -> Nautilus or Thunar; `Super+Return` -> Kitty or Foot; `Super+B` -> Chromium or Firefox) at runtime without mutating declarative keybinding manifests or user override files. Direct application actions (`files.nautilus`, `files.thunar`, `terminal.kitty`, `terminal.foot`, `browser.chromium`, `browser.firefox`) exist as unbound actions for explicit user assignment without colliding with role actions.
-- **Single Source of Truth for Keybindings**: Keybindings are declared exclusively in `dotfiles/hypr/keybindings_manifest.lua` and merged with `~/.config/hypr/keybindings_overrides.json`. Compositor binds (`keybind.lua`), shell UI palettes (`KeybindingsWindow.qml`), and backend dispatchers consume this single source of truth dynamically. Zero shortcut combinations may be hardcoded in QML or compositor files.
-- **Universal Component Contract**: Shell components are heterogeneous (palettes, bars, docks, overlays, services) and are not constrained to rigid `Window/Model/Row` abstractions. All components must adhere to the universal contract: conditional loading via `Loader` (0 MB RAM / 0% CPU when disabled), deterministic non-mutating `ping(): bool` readiness probing, structured `argv` execution with POSIX double-fork detachment (`PPID=1`), zero idle CPU/timers when hidden, bounded log rotation (<= 2000 lines), and token-driven design system consumption via `Theme.qml`.
-- **Failure Isolation and Graphical Session Invariance**: Aurelia components are classified as `WORKSTATION-REQUIRED-BUT-NONBLOCKING` or `OPTIONAL`. Component crashes or runtime failures must never block graphical session activation (`greetd` / `noctalia-greeter`).
-- **Aurelia Design Token and Component Layout Hierarchy**: The visual language and geometry follow a strict four-layer hierarchy:
-  1. *Aurelia Design Tokens (`Theme.qml`)*: Global system-wide visual tokens (semantic colors, typography, global radii, spacing scale, base durations, and elevation). Components consume Theme tokens referentially; Theme never contains component-specific layout rules.
-  2. *Component Design Configuration (`KeybindingsConfig.qml` / `<Component>Config.qml`)*: Component-owned authoritative layout and geometry truth (window bounds, padding, row heights, column proportions, badge dimensions, and responsive breakpoints). Zero user preferences and zero color duplication.
-  3. *User Preferences (`~/.config/aurelia/preferences.json`)*: User-selectable persistent choices (motion enable/disable, motion scale, custom UI shortcuts). Preferences belong exclusively in `preferences.json` and are modified through `aurelia-shell-keybindings preference` or `workstation-aurelia preference`.
-  4. *Runtime Component State*: Transient in-memory state (search query, selection index, scroll position).
-  These layers must never be blurred or bypassed.
-- **Noctalia Desktop Environment Protection Invariant**: Noctalia and Aurelia are independent peer environments. During Aurelia development, hardening, refactoring, or maintenance passes:
-  - Files in `config/noctalia/**`, `~/.config/noctalia/**`, or Noctalia packaging/modules are strictly protected from modification.
-  - Noctalia session components, greeter configurations (`noctalia-greeter`), and PAM setups must not be touched.
-  - Changes to Aurelia components must never cause side effects, regressions, or state changes in Noctalia.
-- **AI Architectural Seam Constraints**: Any future AI-assisted features or integrations must interface strictly across defined CLI subcommands or standard IPC endpoints emitting structured, validated JSON. AI tools must operate with least privilege, never execute raw unvalidated shell strings (`eval`, `sh -c`), never mutate compositor state directly, and strictly preserve user privacy with zero unconsented network egress or data exfiltration.
 
 ---
 
