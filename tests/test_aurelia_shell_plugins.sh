@@ -59,6 +59,7 @@ if [[ -f "$plugin_root/KeybindingsPlugin.qml" &&
       -f "$plugin_root/ui/KeybindingsWindow.qml" &&
       -f "$plugin_root/ui/KeybindingsModel.qml" &&
       -f "$plugin_root/ui/qmldir" ]] &&
+   grep -q 'import Quickshell.Io' "$plugin_root/KeybindingsPlugin.qml" &&
    ! grep -q 'required property' "$plugin_root/KeybindingsPlugin.qml"; then
     pass "Keybindings plugin entry point and private UI/logic surfaces are present without dynamic required-property failure"
 else
@@ -67,7 +68,8 @@ fi
 
 section "Resident Host Services"
 
-if grep -q 'target: "shell"' "$shell_root/shell.qml" &&
+if grep -q 'import Quickshell.Io' "$shell_root/shell.qml" &&
+   grep -q 'target: "shell"' "$shell_root/shell.qml" &&
    grep -q 'PluginRegistry {' "$shell_root/shell.qml" &&
    grep -q 'PluginHost {' "$shell_root/shell.qml" &&
    grep -q 'target: "keybindings"' "$shell_root/shell.qml" &&

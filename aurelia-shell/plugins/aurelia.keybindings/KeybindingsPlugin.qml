@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "./ui"
 
 // Manifest-backed first-party panel plugin. The host injects the optional

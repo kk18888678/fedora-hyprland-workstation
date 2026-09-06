@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "./services"
 
 // Aurelia Shell is the resident Quickshell host. It provides shared services,
