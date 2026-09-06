@@ -34,9 +34,35 @@ ColumnLayout {
         Layout.topMargin: Theme.spacingLg
         Layout.bottomMargin: Theme.spacingSm
 
+        Rectangle {
+            id: searchSurface
+            anchors.fill: parent
+            radius: KeybindingsConfig.searchBorderRadius
+            color: Theme.bgBase
+            border.width: searchInput.activeFocus ? Theme.borderWidthFocus : Theme.borderWidthDefault
+            border.color: searchInput.activeFocus ? Theme.borderActive : Theme.border
+
+            Behavior on border.color {
+                ColorAnimation { duration: Theme.keybindingsDurationFast }
+            }
+        }
+
+        Text {
+            anchors.left: parent.left
+            anchors.leftMargin: KeybindingsConfig.searchPaddingHorizontal
+            anchors.verticalCenter: parent.verticalCenter
+            text: "⌕"
+            color: searchInput.activeFocus ? Theme.accent : Theme.textMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeLg
+            z: 2
+        }
+
         TextInput {
             id: searchInput
             anchors.fill: parent
+            anchors.leftMargin: 36
+            anchors.rightMargin: KeybindingsConfig.searchPaddingHorizontal
             verticalAlignment: TextInput.AlignVCenter
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeMd
@@ -45,6 +71,7 @@ ColumnLayout {
             selectionColor: Theme.selection
             selectedTextColor: Theme.text
             readOnly: (windowController.isRecording || modelController.operationState === "applying")
+            z: 1
 
             Text {
                 anchors.fill: parent

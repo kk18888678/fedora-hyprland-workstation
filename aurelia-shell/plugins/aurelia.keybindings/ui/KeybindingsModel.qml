@@ -256,29 +256,27 @@ QtObject {
     // Never consult PATH or user-local paths here: this is a production
     // boundary, not a plugin discovery mechanism.
     readonly property bool developmentMode: Quickshell.env("AURELIA_DEVELOPMENT_MODE") === "1"
-    property FileView canonicalBackendCheck: FileView {
-        path: "/usr/local/bin/aurelia-shell-keybindings"
-        printErrors: false
+    property bool canonicalBackendAvailable: false
+    property bool compatibilityBackendAvailable: false
+
+    property Process canonicalBackendProbe: Process {
+        command: ["/usr/bin/test", "-x", "/usr/local/bin/aurelia-shell-keybindings"]
+        running: true
+        onExited: function(code) { root.canonicalBackendAvailable = code === 0 }
     }
-    property FileView compatibilityBackendCheck: FileView {
-        path: "/usr/local/bin/workstation-keybindings"
-        printErrors: false
+
+    property Process compatibilityBackendProbe: Process {
+        command: ["/usr/bin/test", "-x", "/usr/local/bin/workstation-keybindings"]
+        running: true
+        onExited: function(code) { root.compatibilityBackendAvailable = code === 0 }
     }
     readonly property string backendBin: {
         if (root.developmentMode) {
             var explicitOverride = Quickshell.env("AURELIA_SHELL_KEYBINDINGS_BIN") || ""
             if (explicitOverride !== "") return explicitOverride
         }
-        try {
-            if (canonicalBackendCheck.text() && canonicalBackendCheck.text().length > 0) {
-                return "/usr/local/bin/aurelia-shell-keybindings"
-            }
-        } catch (e) {}
-        try {
-            if (compatibilityBackendCheck.text() && compatibilityBackendCheck.text().length > 0) {
-                return "/usr/local/bin/workstation-keybindings"
-            }
-        } catch (e) {}
+        if (root.canonicalBackendAvailable) return "/usr/local/bin/aurelia-shell-keybindings"
+        if (root.compatibilityBackendAvailable) return "/usr/local/bin/workstation-keybindings"
         // Preserve fail-closed behavior when neither managed path exists.
         return "/usr/local/bin/aurelia-shell-keybindings"
     }

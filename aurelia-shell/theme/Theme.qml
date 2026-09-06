@@ -12,7 +12,7 @@ QtObject {
     // Defaults to Rosé Pine Moon palette natively, with optional user configuration adapter.
 
     // 1. Optional Theme Configuration File (Aurelia native or external adapter)
-    property string themePath: {
+    readonly property string themePath: {
         var envPath = Quickshell.env("AURELIA_THEME_CONF") || ""
         if (envPath !== "") return envPath
         var home = Quickshell.env("HOME") || ""
@@ -21,13 +21,23 @@ QtObject {
         return home + "/.config/aurelia/theme.conf"
     }
 
+    readonly property string shippedThemePath: String(Qt.resolvedUrl("../theme.conf")).replace(/^file:\/\//, "")
+    property bool themeOverrideAvailable: false
+
+    property Process themeOverrideProbe: Process {
+        command: themeRoot.themePath !== "" ? ["/usr/bin/test", "-f", themeRoot.themePath] : ["/usr/bin/false"]
+        running: true
+        onExited: function(code) {
+            themeRoot.themeOverrideAvailable = code === 0
+        }
+    }
+
     property FileView themeFile: FileView {
-        path: themeRoot.themePath
-        printErrors: false
+        path: themeRoot.themeOverrideAvailable ? themeRoot.themePath : themeRoot.shippedThemePath
     }
 
     // 1b. Aurelia User Preferences File (XDG layered configuration)
-    property string preferencesPath: {
+    readonly property string preferencesPath: {
         var envPath = Quickshell.env("AURELIA_PREFERENCES_PATH") || ""
         if (envPath !== "") return envPath
         var configHome = Quickshell.env("XDG_CONFIG_HOME") || ""
@@ -38,17 +48,27 @@ QtObject {
         return configHome + "/aurelia/preferences.json"
     }
 
+    readonly property string shippedPreferencesPath: String(Qt.resolvedUrl("../config/preferences.defaults.json")).replace(/^file:\/\//, "")
+    property bool preferencesOverrideAvailable: false
+
+    property Process preferencesOverrideProbe: Process {
+        command: themeRoot.preferencesPath !== "" ? ["/usr/bin/test", "-f", themeRoot.preferencesPath] : ["/usr/bin/false"]
+        running: true
+        onExited: function(code) {
+            themeRoot.preferencesOverrideAvailable = code === 0
+        }
+    }
+
     property int _prefReloadToken: 0
     function reloadPreferences() {
-        var p = themeRoot.preferencesPath
-        preferencesFile.path = ""
-        preferencesFile.path = p
+        themeRoot.preferencesOverrideAvailable = false
+        preferencesOverrideProbe.running = false
+        preferencesOverrideProbe.running = true
         _prefReloadToken++
     }
 
     property FileView preferencesFile: FileView {
-        path: themeRoot.preferencesPath
-        printErrors: false
+        path: themeRoot.preferencesOverrideAvailable ? themeRoot.preferencesPath : themeRoot.shippedPreferencesPath
     }
 
     readonly property var loadedPreferences: {

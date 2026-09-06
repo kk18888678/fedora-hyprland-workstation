@@ -8,7 +8,9 @@ local M = {}
 -- Require the decoupled Workstation Application Registry
 local app_reg = require("application_registry")
 
--- Determine user override file location
+-- User state belongs to the standalone Aurelia project, never to the Fedora
+-- repository's managed Hyprland checkout. Legacy Hyprland paths are read-only
+-- migration sources when the new state file does not exist.
 function M.get_overrides_path()
     local env_path = os.getenv("KEYBINDINGS_OVERRIDES")
     if not env_path or env_path == "" then
@@ -22,10 +24,18 @@ function M.get_overrides_path()
         local home = os.getenv("HOME") or ""
         config_home = home .. "/.config"
     end
+    return config_home .. "/aurelia/keybindings_overrides.json"
+end
+
+function M.get_legacy_overrides_path()
+    local config_home = os.getenv("XDG_CONFIG_HOME")
+    if not config_home or config_home == "" then
+        config_home = (os.getenv("HOME") or "") .. "/.config"
+    end
     return config_home .. "/hypr/keybindings_overrides.json"
 end
 
--- Determine user-created actions file location (~/.config/hypr/user_actions.json)
+-- Determine user-created actions file location (~/.config/aurelia/user_actions.json)
 function M.get_user_actions_path()
     local env_path = os.getenv("KEYBINDINGS_USER_ACTIONS") or os.getenv("USER_ACTIONS_PATH")
     if env_path and env_path ~= "" then
@@ -35,6 +45,14 @@ function M.get_user_actions_path()
     if not config_home or config_home == "" then
         local home = os.getenv("HOME") or ""
         config_home = home .. "/.config"
+    end
+    return config_home .. "/aurelia/user_actions.json"
+end
+
+function M.get_legacy_user_actions_path()
+    local config_home = os.getenv("XDG_CONFIG_HOME")
+    if not config_home or config_home == "" then
+        config_home = (os.getenv("HOME") or "") .. "/.config"
     end
     return config_home .. "/hypr/user_actions.json"
 end
@@ -598,8 +616,12 @@ end
 
 -- Load overrides from disk safely (fail-closed)
 function M.load_overrides(path, manifest)
+    local explicit_path = path ~= nil
     path = path or M.get_overrides_path()
     local f = io.open(path, "r")
+    if not f and not explicit_path then
+        f = io.open(M.get_legacy_overrides_path(), "r")
+    end
     if not f then
         return {}
     end
@@ -1084,8 +1106,12 @@ end
 
 -- Load user-created actions safely using strict fail-closed JSON parser
 function M.load_user_actions(path)
+    local explicit_path = path ~= nil
     path = path or M.get_user_actions_path()
     local f = io.open(path, "r")
+    if not f and not explicit_path then
+        f = io.open(M.get_legacy_user_actions_path(), "r")
+    end
     if not f then
         return { version = 2, actions = {} }
     end

@@ -121,6 +121,25 @@ else
     fail "ShellConfig persistence boundary is incomplete"
 fi
 
+if [[ -f "$shell_root/config/preferences.defaults.json" ]] &&
+   grep -q 'shippedThemePath' "$shell_root/theme/Theme.qml" &&
+   grep -q 'themeOverrideProbe' "$shell_root/theme/Theme.qml" &&
+   grep -q 'preferencesOverrideProbe' "$shell_root/theme/Theme.qml" &&
+   ! grep -q 'printErrors: false' "$shell_root/theme/Theme.qml"; then
+    pass "optional theme/preferences files use explicit existence probes and shipped defaults without warning suppression"
+else
+    fail "optional theme/preferences file handling is incomplete or suppresses FileView errors"
+fi
+
+if grep -q 'return config_home .. "/aurelia/keybindings_overrides.json"' "$shell_root/dotfiles/hypr/effective_bindings.lua" &&
+   grep -q 'return config_home .. "/aurelia/user_actions.json"' "$shell_root/dotfiles/hypr/effective_bindings.lua" &&
+   grep -q 'get_legacy_overrides_path' "$shell_root/dotfiles/hypr/effective_bindings.lua" &&
+   grep -q 'get_legacy_user_actions_path' "$shell_root/dotfiles/hypr/effective_bindings.lua"; then
+    pass "user binding state defaults outside the repository with read-only legacy migration"
+else
+    fail "user binding state still targets the repository or lacks migration handling"
+fi
+
 if [[ -x "$ROOT/bin/aurelia-shell" && -x "$ROOT/bin/aurelia-launch-shell" && -x "$ROOT/bin/aurelia-plugin" ]] &&
    grep -q 'ipc --path' "$ROOT/bin/aurelia-shell" &&
    ! grep -q -- '--no-duplicate' "$ROOT/bin/aurelia-shell" &&

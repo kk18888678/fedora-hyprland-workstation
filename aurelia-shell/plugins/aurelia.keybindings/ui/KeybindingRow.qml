@@ -47,39 +47,73 @@ Rectangle {
         anchors.rightMargin: KeybindingsConfig.rowPaddingHorizontal
         spacing: Theme.spacingLg
 
-        // Column 1: Shortcut (stable width across every row)
-        Text {
+        // Column 1: one compact shortcut badge. Modifiers remain text inside
+        // a single badge; the row never turns a shortcut into keycap chrome.
+        Item {
             Layout.preferredWidth: KeybindingsConfig.shortcutColumnWidth
             Layout.alignment: Qt.AlignVCenter
-            text: rowRoot.formattedShortcut()
-            color: rowRoot.isSelected ? Theme.accent : Theme.textSecondary
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSm
-            font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
-            elide: Text.ElideRight
+            Layout.preferredHeight: 30
+
+            Rectangle {
+                id: shortcutBadge
+                width: Math.min(parent.width, shortcutLabel.implicitWidth + Theme.spacingLg * 2)
+                height: parent.height
+                radius: Theme.radiusSm
+                color: rowRoot.isSelected ? Theme.selectionActive : Theme.surfaceElevated
+                border.width: 1
+                border.color: rowRoot.isSelected ? Theme.borderActive : Theme.border
+
+                Text {
+                    id: shortcutLabel
+                    anchors.centerIn: parent
+                    width: Math.min(implicitWidth, shortcutBadge.width - Theme.spacingMd * 2)
+                    text: rowRoot.formattedShortcut()
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSm
+                    font.weight: Theme.fontWeightMedium
+                }
+            }
         }
 
         // Column separator arrow (clearly visible, theme accent on selection)
         Text {
             Layout.preferredWidth: KeybindingsConfig.separatorColumnWidth
             Layout.alignment: Qt.AlignVCenter
-            text: "→"
+            text: "›"
             color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
             font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
         }
 
-        // Column 2: Action / Application title (starts at identical horizontal position)
-        Text {
+        // Column 2: action title plus a quiet category/context line.
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
-            text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""
-            color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSm
-            font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
-            elide: Text.ElideRight
+
+            Text {
+                Layout.fillWidth: true
+                text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""
+                color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeMd
+                font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                elide: Text.ElideRight
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: rowRoot.modelData ? (rowRoot.modelData.category || "") : ""
+                color: rowRoot.isSelected ? Theme.accent : Theme.textSubtle
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeXs
+                font.weight: Theme.fontWeightMedium
+                elide: Text.ElideRight
+                visible: text.length > 0
+            }
         }
     }
 

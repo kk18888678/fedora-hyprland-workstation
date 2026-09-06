@@ -28,7 +28,6 @@ QtObject {
         blockLoading: true
         blockWrites: true
         atomicWrites: true
-        printErrors: false
 
         onSaved: configRoot.lastSaveOk = true
         onSaveFailed: configRoot.lastSaveOk = false

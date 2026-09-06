@@ -616,7 +616,7 @@ PanelWindow {
         width: KeybindingsConfig.palettePreferredWidth
         height: KeybindingsConfig.palettePreferredHeight
         radius: KeybindingsConfig.surfaceRadius
-        color: Theme.bgBase
+        color: Theme.surface
         border.color: surfaceHover.hovered || header.searchInput.activeFocus ? Theme.borderActive : Theme.border
         border.width: Theme.borderWidthFocus
         clip: true
@@ -634,6 +634,19 @@ PanelWindow {
 
         Behavior on border.color {
             ColorAnimation { duration: Theme.keybindingsDurationFast }
+        }
+
+        // A restrained theme-aware accent rail gives the palette a clear
+        // visual anchor without baking artwork into the component. A future
+        // theme plugin can provide imagery behind this same surface.
+        Rectangle {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: 3
+            z: 2
+            color: Theme.accent
+            opacity: 0.85
         }
 
         Keys.onPressed: function(event) {

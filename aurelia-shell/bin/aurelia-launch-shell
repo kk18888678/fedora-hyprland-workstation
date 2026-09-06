@@ -16,6 +16,36 @@ fi
     printf 'Error: Aurelia Shell configuration not found: %s/shell.qml\n' "$shell_root" >&2
     exit 1
 }
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+[[ "$config_home" == /* && "$config_home" != "/" ]] || {
+    printf 'Error: Aurelia config directory is not an absolute path.\n' >&2
+    exit 1
+}
+config_dir="$config_home/aurelia"
+config_file="$config_dir/shell.json"
+if [[ -L "$config_dir" ]]; then
+    printf 'Error: Aurelia config directory is a symlink; migrate it to a real directory: %s\n' "$config_dir" >&2
+    exit 1
+fi
+mkdir -p -m 0700 "$config_dir"
+if [[ ! -e "$config_file" ]]; then
+    [[ ! -L "$config_file" ]] || {
+        printf 'Error: Aurelia shell state file is a symlink: %s\n' "$config_file" >&2
+        exit 1
+    }
+    config_tmp="$(mktemp "$config_dir/.shell.json.XXXXXX")" || {
+        printf 'Error: Could not initialize Aurelia shell state.\n' >&2
+        exit 1
+    }
+    trap 'rm -f -- "${config_tmp:-}"' EXIT
+    umask 077
+    printf '%s\n' '{"version":1,"plugins":[],"disabledPlugins":[]}' >"$config_tmp"
+    chmod 0600 "$config_tmp"
+    mv -f -- "$config_tmp" "$config_file"
+    trap - EXIT
+    config_tmp=""
+fi
 shell_root="$(readlink -f -- "$shell_root")" || {
     printf 'Error: Could not resolve Aurelia Shell path: %s\n' "$shell_root" >&2
     exit 1

@@ -24,27 +24,27 @@ QtObject {
 
     // Component Metadata & Provenance Fingerprint
     readonly property string componentName: "keybindings"
-    readonly property string uiRevision: "2026.09.05.r2"
+    readonly property string uiRevision: "2026.09.06.r3"
 
     // =========================================================================
     // 1. Surface (Palette Window Dimensions & Margins)
     // =========================================================================
-    readonly property int palettePreferredWidth: 800
-    readonly property int palettePreferredHeight: 480
-    readonly property int paletteMinWidth: 580
-    readonly property int paletteMinHeight: 340
+    readonly property int palettePreferredWidth: 860
+    readonly property int palettePreferredHeight: 560
+    readonly property int paletteMinWidth: 640
+    readonly property int paletteMinHeight: 400
     readonly property int contentPaddingHorizontal: Theme.spacingLg
-    readonly property int contentPaddingVertical: 14
+    readonly property int contentPaddingVertical: 18
     readonly property int surfaceRadius: Theme.radiusLg
     readonly property int cardBorderWidth: Theme.borderWidthDefault
 
     // =========================================================================
     // 2. Header (Navigation Tabs & Settings Cog)
     // =========================================================================
-    readonly property int headerHeight: 36
-    readonly property int headerSpacing: 8
-    readonly property int tabHeight: 30
-    readonly property int tabPaddingHorizontal: 12
+    readonly property int headerHeight: 40
+    readonly property int headerSpacing: 10
+    readonly property int tabHeight: 34
+    readonly property int tabPaddingHorizontal: 14
     readonly property int tabBorderRadius: Theme.radiusSm
     readonly property int cogHitTargetWidth: 34
     readonly property int cogHitTargetHeight: 28
@@ -53,24 +53,24 @@ QtObject {
     // =========================================================================
     // 3. Search (Command Palette Search Bar)
     // =========================================================================
-    readonly property int searchHeight: 40
+    readonly property int searchHeight: 48
     readonly property int searchBorderRadius: Theme.radiusMd
     readonly property int searchPaddingHorizontal: 14
 
     // =========================================================================
     // 4. List & Rows (Shortcut Table Layout)
     // =========================================================================
-    readonly property int rowHeight: 38
-    readonly property int rowSpacing: Theme.rowSpacing
-    readonly property int rowRadius: Theme.radiusSm
-    readonly property int rowPaddingHorizontal: Theme.spacingLg
+    readonly property int rowHeight: 48
+    readonly property int rowSpacing: 5
+    readonly property int rowRadius: Theme.radiusMd
+    readonly property int rowPaddingHorizontal: Theme.spacingMd
     readonly property int scrollBarWidth: Theme.scrollBarWidth
 
     // =========================================================================
     // 5. Columns (Shortcut List Column Proportions)
     // =========================================================================
-    readonly property int shortcutColumnWidth: 350
-    readonly property int separatorColumnWidth: 28
+    readonly property int shortcutColumnWidth: 190
+    readonly property int separatorColumnWidth: 24
 
     // =========================================================================
     // 6. Settings (Responsive Preferences Layout)
