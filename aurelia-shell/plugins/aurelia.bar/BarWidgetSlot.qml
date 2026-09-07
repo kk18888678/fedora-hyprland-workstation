@@ -1,4 +1,5 @@
 import QtQuick
+import "../../theme"
 
 // A single manifest-backed bar widget. The bar owns placement; the widget
 // owns its visual content and action. This keeps third-party widgets on the
@@ -24,6 +25,7 @@ Item {
             pluginRegistry.isEnabled(pluginId)
     }
     readonly property var widgetItem: widgetLoader.item
+    readonly property bool popoutActive: root.bar && root.bar.activePopoutId === root.pluginId
 
     implicitWidth: visible && widgetItem ? Math.max(0, Number(widgetItem.implicitWidth || 0)) : 0
     implicitHeight: visible && widgetItem ? Math.max(1, Number(widgetItem.implicitHeight || (bar ? bar.barSize : 38))) : 0
@@ -61,6 +63,16 @@ Item {
     }
 
     onSettingsChanged: root.configure(widgetLoader.item)
+
+    Rectangle {
+        visible: root.popoutActive
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 2
+        color: Theme.accent
+        z: 20
+    }
 
     Component.onCompleted: if (root.bar && typeof root.bar.registerWidgetSlot === "function") root.bar.registerWidgetSlot(root)
     Component.onDestruction: if (root.bar && typeof root.bar.unregisterWidgetSlot === "function") root.bar.unregisterWidgetSlot(root)

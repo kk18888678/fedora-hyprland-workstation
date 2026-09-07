@@ -31,7 +31,7 @@ PanelWindow {
     }
 
     function open(payloadJson) {
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.launcher")
         visible = true
         launcherModel.query = ""
         launcherModel.selectedIndex = 0

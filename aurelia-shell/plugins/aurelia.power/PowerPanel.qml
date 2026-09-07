@@ -34,7 +34,7 @@ PanelWindow {
 
     function open() {
         if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.power")
         confirmAction = ""
         visible = true
     }

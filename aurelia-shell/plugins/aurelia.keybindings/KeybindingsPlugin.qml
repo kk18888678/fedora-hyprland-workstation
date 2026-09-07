@@ -19,7 +19,7 @@ Item {
     readonly property bool configured: shell !== null && pluginRegistry !== null
 
     function open(payloadJson) {
-        if (bar && typeof bar.requestPopout === "function") bar.requestPopout(keybindingsWindow)
+        if (bar && typeof bar.requestPopout === "function") bar.requestPopout(keybindingsWindow, "aurelia.keybindings")
         keybindingsWindow.visible = true
         return "ok"
     }

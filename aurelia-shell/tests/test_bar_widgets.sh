@@ -136,8 +136,10 @@ else
     fail "Bar-only widget surface or icon lookup contract is incomplete"
 fi
 
-if grep -q 'function requestPopout(owner)' "$bar_root/Bar.qml" &&
+if grep -q 'function requestPopout(owner, ownerId)' "$bar_root/Bar.qml" &&
    grep -q 'function releasePopout(owner)' "$bar_root/Bar.qml" &&
+   grep -q 'activePopoutId' "$bar_root/Bar.qml" &&
+   grep -q 'popoutActive' "$bar_root/BarWidgetSlot.qml" &&
    grep -q 'function callBarWidget(id, method, argument)' "$ROOT/services/PluginHost.qml" &&
    grep -q 'function hasWidget(pluginId)' "$bar_root/Bar.qml" &&
    grep -q 'function open(payloadJson)' "$weather_root/WeatherBarWidget.qml" &&

@@ -35,7 +35,7 @@ PanelWindow {
     function openForWindow(target) {
         if (!target || !target.handle) return
         if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.tasklist")
         windowTarget = target
         visible = true
         Qt.callLater(function() { card.forceActiveFocus() })

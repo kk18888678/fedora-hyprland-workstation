@@ -36,7 +36,7 @@ PanelWindow {
 
     function open(payloadJson) {
         if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.clock")
         displayedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
         visible = true
     }

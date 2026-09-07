@@ -62,7 +62,7 @@ PanelWindow {
     function openForItem(item, opener) {
         if (!item || !item.menu || !opener) return
         if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.tray")
         resetSubmenus()
         trayItem = item
         rootMenuOpener = opener

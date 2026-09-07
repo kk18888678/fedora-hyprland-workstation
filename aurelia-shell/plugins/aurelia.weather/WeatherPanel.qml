@@ -30,7 +30,7 @@ PanelWindow {
 
     function open() {
         if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.refreshSurfaceGeometry === "function") weatherWidget.bar.refreshSurfaceGeometry()
-        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.requestPopout === "function") weatherWidget.bar.requestPopout(panelRoot)
+        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.requestPopout === "function") weatherWidget.bar.requestPopout(panelRoot, "aurelia.weather")
         visible = true
     }
     function close() {

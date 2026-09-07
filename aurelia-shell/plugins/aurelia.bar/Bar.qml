@@ -49,6 +49,7 @@ PanelWindow {
     property int surfaceTop: 0
     property int surfaceBottom: 0
     property var activePopout: null
+    property string activePopoutId: ""
 
     function refreshSurfaceGeometry() {
         if (surfaceGeometryProcess.running) return
@@ -151,10 +152,11 @@ PanelWindow {
     // A bar owns the single-popout invariant. Widgets remain independent
     // plugins, but they cannot leave two floating surfaces stacked over one
     // another or strand an old surface after switching widgets.
-    function requestPopout(owner) {
+    function requestPopout(owner, ownerId) {
         if (!owner || activePopout === owner) return
         var previous = activePopout
         activePopout = owner
+        activePopoutId = String(ownerId || "")
         if (previous) {
             if (typeof previous.closeForPopoutSwitch === "function") previous.closeForPopoutSwitch()
             else if (typeof previous.close === "function") previous.close()
@@ -163,13 +165,17 @@ PanelWindow {
     }
 
     function releasePopout(owner) {
-        if (activePopout === owner) activePopout = null
+        if (activePopout === owner) {
+            activePopout = null
+            activePopoutId = ""
+        }
     }
 
     function close() {
         if (activePopout && typeof activePopout.closeForPopoutSwitch === "function") activePopout.closeForPopoutSwitch()
         else if (activePopout && typeof activePopout.requestClose === "function") activePopout.requestClose("bar-close")
         activePopout = null
+        activePopoutId = ""
         visible = false
         return "ok"
     }

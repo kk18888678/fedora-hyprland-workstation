@@ -63,7 +63,7 @@ PanelWindow {
     function open(payloadJson) {
         resetMenu()
         if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.screenshot")
         visible = true
         try {
             var payload = JSON.parse(payloadJson || "{}")
@@ -127,7 +127,7 @@ PanelWindow {
         selectionEndY = 0
         selectionDragging = false
         if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.screenshot")
         visible = true
     }
 
@@ -155,7 +155,7 @@ PanelWindow {
         statusKind = "info"
         console.info("[SCREENSHOT] window list requested backend=" + backendBin)
         if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.screenshot")
         windows = []
         windowsProcess.command = [backendBin, "windows"]
         windowsProcess.running = true
@@ -203,7 +203,7 @@ PanelWindow {
             statusMessage = result !== "" ? ("Screenshot saved and copied (" + durationMs + " ms).") : ("Screenshot captured (" + durationMs + " ms).")
             statusKind = "success"
         } else {
-            if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+            if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.screenshot")
             visible = true
             statusMessage = errorText || ("Capture failed (status " + code + ").")
             statusKind = "error"
