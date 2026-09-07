@@ -30,7 +30,6 @@ PanelWindow {
                 { id: "aurelia.weather", location: "auto" }
             ],
             right: [
-                { id: "aurelia.tasklist" },
                 { id: "aurelia.tray" },
                 { id: "aurelia.screenshot" },
                 { id: "aurelia.power" }

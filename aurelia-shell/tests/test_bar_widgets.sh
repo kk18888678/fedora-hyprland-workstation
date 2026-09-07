@@ -116,6 +116,13 @@ else
     fail "Bar default widget layout or settings normalization is incomplete"
 fi
 
+if ! grep -q 'aurelia.tasklist' "$ROOT/services/ShellConfig.qml" &&
+   ! grep -q 'aurelia.tasklist' "$ROOT/plugins/aurelia.bar/Bar.qml"; then
+    pass "Tasklist remains opt-in and is not part of the Omarchy-aligned default bar"
+else
+    fail "Tasklist unexpectedly appears in the default Aurelia bar layout"
+fi
+
 if grep -q 'Quickshell.iconPath' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'weather-clear' "$weather_root/WeatherBarWidget.qml" &&
    ! grep -q 'PanelWindow' "$clock_root/ClockBarWidget.qml" &&
