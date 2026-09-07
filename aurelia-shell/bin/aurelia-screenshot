@@ -11,7 +11,7 @@ umask 077
 usage() {
     cat <<'USAGE'
 Usage:
-  aurelia-screenshot capture <full|region|window> [options]
+  aurelia-screenshot capture <full|smart|region|window> [options]
   aurelia-screenshot select <region|window>
   aurelia-screenshot windows
 
@@ -108,7 +108,7 @@ shift
 capture_mode="${1:-}"
 case "$capture_mode" in
     screen|full) capture_mode="full" ;;
-    region|window) ;;
+    smart|region|window) ;;
     -h|--help|"")
         usage
         exit 0
@@ -270,6 +270,28 @@ start_freeze() {
     printf '[SCREENSHOT] screen_freeze pid=%s\n' "$freeze_pid" >&2
 }
 
+selection_rectangles() {
+    local monitor_rects window_rects
+    monitor_rects="$(run_bounded 5 hyprctl monitors -j | jq -r '
+        .[] | select(.x != null and .y != null and .width > 0 and .height > 0) |
+        "\(.x),\(.y) \(.width)x\(.height)"
+    ')" || fail "Could not query monitor geometry for screenshot selection."
+
+    if [[ "$capture_mode" == "window" ]]; then
+        run_bounded 5 hyprctl clients -j | jq -r '
+            .[] | select(.mapped == true and .hidden != true and .size[0] > 0 and .size[1] > 0) |
+            "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"
+        ' || fail "Could not query window geometry for screenshot selection."
+        return 0
+    fi
+
+    window_rects="$(run_bounded 5 hyprctl clients -j | jq -r '
+        .[] | select(.mapped == true and .hidden != true and .size[0] > 0 and .size[1] > 0) |
+        "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"
+    ')" || fail "Could not query window geometry for screenshot selection."
+    printf '%s\n%s\n' "$monitor_rects" "$window_rects"
+}
+
 if (( save_file == 1 )); then
     capture_path="$(mktemp "$output_dir/.aurelia-screenshot-XXXXXX.png")" ||
         fail "Could not create screenshot output file."
@@ -285,18 +307,25 @@ grim_args=()
 if (( show_pointer == 1 )); then
     grim_args+=("-c")
 fi
-if [[ "$capture_mode" == "region" || "$capture_mode" == "window" ]]; then
+if [[ "$capture_mode" == "smart" || "$capture_mode" == "region" || "$capture_mode" == "window" ]]; then
     # Omarchy freezes before selection so an open launcher/menu remains part of
     # the captured frame and cannot dismiss or move while slurp is active.
     start_freeze
 fi
-if [[ -z "$geometry" && ("$capture_mode" == "region" || "$capture_mode" == "window") ]]; then
+if [[ -z "$geometry" && ("$capture_mode" == "smart" || "$capture_mode" == "region" || "$capture_mode" == "window") ]]; then
     if [[ "$capture_mode" == "window" ]]; then
         slurp_args+=("-r")
     fi
 
     selection_status=0
-    geometry="$(run_bounded 30 slurp "${slurp_args[@]}")" || selection_status=$?
+    if [[ "$capture_mode" == "smart" || "$capture_mode" == "window" ]]; then
+        selection_input="$(selection_rectangles)" || selection_status=$?
+        if (( selection_status == 0 )) && [[ -n "$selection_input" ]]; then
+            geometry="$(run_bounded 30 slurp "${slurp_args[@]}" <<<"$selection_input")" || selection_status=$?
+        fi
+    else
+        geometry="$(run_bounded 30 slurp "${slurp_args[@]}")" || selection_status=$?
+    fi
     if (( selection_status != 0 )); then
         # A user cancellation is a clean no-op; a timeout or tool failure is
         # reported distinctly.

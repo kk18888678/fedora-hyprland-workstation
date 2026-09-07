@@ -67,7 +67,9 @@ if grep -q 'function open(payloadJson)' "$plugin_root/ScreenshotPlugin.qml" &&
    grep -q 'captureCompleted' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'function quickRegion' "$plugin_root/ScreenshotPlugin.qml" &&
    grep -q 'quickCapture' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'capture("region", 0, "")' "$plugin_root/ui/ScreenshotPanel.qml" &&
+   grep -q 'capture("smart", 0, "")' "$plugin_root/ui/ScreenshotPanel.qml" &&
+   grep -q 'selection_rectangles' "$capture_bin" &&
+   grep -q 'capture_mode.*smart' "$capture_bin" &&
    grep -q 'region selection cancelled' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'Keys.onPressed' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'anchorWindow' "$plugin_root/ui/ScreenshotPanel.qml" &&

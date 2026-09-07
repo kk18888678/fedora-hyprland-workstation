@@ -98,7 +98,7 @@ PanelWindow {
         // Match Omarchy's quick path: invoke the native grim/slurp backend
         // directly. Mapping an Aurelia exclusive-focus layer here would
         // dismiss an already-open application menu before selection starts.
-        capture("region", 0, "")
+        capture("smart", 0, "")
     }
 
     function capturePayload(payloadJson) {
