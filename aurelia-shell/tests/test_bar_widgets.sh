@@ -38,6 +38,7 @@ if [[ -f "$tray_root/manifest.json" && -f "$tray_root/TrayBarWidget.qml" ]] &&
    grep -q 'Quickshell.Services.SystemTray' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'SystemTray.items' "$tray_root/TrayBarWidget.qml" &&
    [[ -f "$tray_root/TrayMenuPanel.qml" ]] &&
+   grep -q 'QsMenuOpener' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'QsMenuOpener' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'Repeater' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'openApplicationContextMenu' "$tray_root/TrayBarWidget.qml" &&

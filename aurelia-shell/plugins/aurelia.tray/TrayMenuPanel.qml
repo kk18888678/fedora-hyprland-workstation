@@ -14,6 +14,7 @@ PanelWindow {
     property var anchorWindow: null
     property int barSize: 26
     property var trayItem: null
+    property var rootMenuOpener: null
     property var submenuStack: []
 
     readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
@@ -35,11 +36,6 @@ PanelWindow {
     color: "transparent"
     visible: false
 
-    QsMenuOpener {
-        id: rootMenuOpener
-        menu: panelRoot.trayItem ? panelRoot.trayItem.menu : null
-    }
-
     function displayName(item) {
         if (!item) return "Tray"
         var title = String(item.title || "").trim()
@@ -60,11 +56,12 @@ PanelWindow {
         QsMenuOpener {}
     }
 
-    function openForItem(item) {
-        if (!item || !item.menu) return
+    function openForItem(item, opener) {
+        if (!item || !item.menu || !opener) return
         if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         resetSubmenus()
         trayItem = item
+        rootMenuOpener = opener
         visible = true
         Qt.callLater(function() { card.forceActiveFocus() })
     }
@@ -72,6 +69,7 @@ PanelWindow {
     function close() {
         resetSubmenus()
         trayItem = null
+        rootMenuOpener = null
         visible = false
         if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
     }

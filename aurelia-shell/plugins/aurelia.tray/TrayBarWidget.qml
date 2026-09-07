@@ -15,6 +15,7 @@ Item {
     property var settings: ({})
     property var manifest: ({})
     property var pluginRegistry: null
+    property var activeTrayItem: null
     readonly property var trayMenuPanel: trayMenuLoader.item
 
     implicitWidth: trayRow.implicitWidth
@@ -28,7 +29,10 @@ Item {
     }
 
     function openTrayMenu(item) {
-        if (trayMenuPanel && typeof trayMenuPanel.openForItem === "function") trayMenuPanel.openForItem(item)
+        if (trayMenuPanel && typeof trayMenuPanel.openForItem === "function") {
+            activeTrayItem = item
+            trayMenuPanel.openForItem(item, trayMenuOpener)
+        }
     }
 
     function openApplicationContextMenu(item) {
@@ -49,6 +53,14 @@ Item {
         active: true
         source: Qt.resolvedUrl("TrayMenuPanel.qml")
         onLoaded: root.configureTrayMenu(item)
+    }
+
+    // Keep the root D-Bus menu opener alive with the visible tray widget. The
+    // menu panel is hidden most of the time; owning this opener there makes
+    // the item title appear while its children remain unloaded.
+    QsMenuOpener {
+        id: trayMenuOpener
+        menu: root.activeTrayItem ? root.activeTrayItem.menu : null
     }
 
     onBarChanged: root.configureTrayMenu(trayMenuLoader.item)
