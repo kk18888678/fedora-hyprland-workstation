@@ -18,6 +18,7 @@ PanelWindow {
     property var manifest: ({})
     property var pluginRegistry: null
     property var widgetSlots: []
+    property int widgetRevision: 0
 
     readonly property var defaultConfig: ({
         position: "top",
@@ -43,63 +44,12 @@ PanelWindow {
     readonly property string centerAnchor: typeof barConfig.centerAnchor === "string" ? barConfig.centerAnchor : ""
     readonly property bool transparent: barConfig.transparent === true
     readonly property bool barConfigReady: barConfig && barConfig.layout
-    // Match the horizontal size used by Omarchy's reference bar. Popouts use
-    // this value as their exact clearance below the bar.
+    // Match the horizontal size used by Omarchy's reference bar. Bar-owned
+    // PopupWindow surfaces anchor to this actual layer-shell window, so this
+    // is not used as a guessed screen offset.
     readonly property int barSize: 26
-    property int surfaceTop: 0
-    property int surfaceBottom: 0
     property var activePopout: null
     property string activePopoutId: ""
-
-    function refreshSurfaceGeometry() {
-        if (surfaceGeometryProcess.running) return
-        surfaceGeometryProcess.running = true
-    }
-
-    Process {
-        id: surfaceGeometryProcess
-        command: ["hyprctl", "layers", "-j"]
-        stdout: StdioCollector { id: surfaceGeometryOutput }
-        stderr: StdioCollector { id: surfaceGeometryError }
-
-        onExited: function(code) {
-            if (code !== 0) return
-            try {
-                var payload = JSON.parse(surfaceGeometryOutput.text || "{}")
-                var levels = payload.levels || {}
-                var found = false
-                for (var level in levels) {
-                    var surfaces = levels[level]
-                    if (!Array.isArray(surfaces)) continue
-                    for (var i = 0; i < surfaces.length; i++) {
-                        var surface = surfaces[i]
-                        if (!surface || surface.namespace !== "aurelia-bar") continue
-                        var top = Number(surface.y)
-                        var height = Number(surface.h)
-                        if (!Number.isFinite(top) || !Number.isFinite(height)) continue
-                        barRoot.surfaceTop = Math.max(0, Math.round(top))
-                        barRoot.surfaceBottom = barRoot.screen
-                            ? Math.max(0, Math.round(Number(barRoot.screen.height) - top - height))
-                            : 0
-                        found = true
-                        break
-                    }
-                    if (found) break
-                }
-            } catch (error) {
-                console.warn("[BAR] surface_geometry_invalid error=" + error)
-            }
-        }
-    }
-
-    Timer {
-        id: surfaceGeometryProbe
-        interval: 150
-        repeat: false
-        onTriggered: barRoot.refreshSurfaceGeometry()
-    }
-
-    Component.onCompleted: surfaceGeometryProbe.start()
 
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "aurelia-bar"
@@ -122,10 +72,29 @@ PanelWindow {
         var next = widgetSlots.slice()
         next.push(slot)
         widgetSlots = next
+        widgetRevision++
     }
 
     function unregisterWidgetSlot(slot) {
         widgetSlots = widgetSlots.filter(function(item) { return item !== slot })
+        widgetRevision++
+    }
+
+    function bumpWidgetRevision() {
+        widgetRevision++
+    }
+
+    function anchorItemFor(pluginId) {
+        var revision = widgetRevision
+        for (var i = 0; i < widgetSlots.length; i++) {
+            var slot = widgetSlots[i]
+            if (slot && slot.pluginId === pluginId) return slot
+        }
+        return null
+    }
+
+    function barAnchorItem() {
+        return barContentAnchor
     }
 
     function callWidget(pluginId, method, argument) {
@@ -210,6 +179,19 @@ PanelWindow {
             anchors.fill: parent
             anchors.leftMargin: Theme.spacingLg
             anchors.rightMargin: Theme.spacingLg
+
+            // Stable fallback anchor for center-on-bar panels while a widget
+            // slot is still being registered. It is non-interactive and does
+            // not replace a real widget anchor when one is available.
+            Item {
+                id: barContentAnchor
+                objectName: "aurelia-bar-content-anchor"
+                anchors.fill: parent
+                visible: true
+                opacity: 0
+                enabled: false
+                z: -100
+            }
 
             RowLayout {
                 id: leftGroup

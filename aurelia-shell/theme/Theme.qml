@@ -253,6 +253,10 @@ QtObject {
     readonly property int spacingLg: _getInt("spacingLg", 16)
     readonly property int spacingXl: _getInt("spacingXl", 20)
     readonly property int spacingXxl: _getInt("spacingXxl", 24)
+    // Popup geometry follows Omarchy's structural defaults: a small gap from
+    // the bar edge and a separate, slightly larger card inset.
+    readonly property int popupMargin: _getInt("popupMargin", 5)
+    readonly property int popupPadding: _getInt("popupPadding", 14)
 
     // 6. Semantic Geometry & Layout Proportions (Configurable via theme.conf)
     readonly property int radiusSm: _getInt("radiusSm", 4)

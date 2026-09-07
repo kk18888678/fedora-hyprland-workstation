@@ -24,12 +24,12 @@ Item {
 
     function configureMenu(target) {
         if (!target) return
-        if ("anchorWindow" in target) target.anchorWindow = root.bar
+        if ("bar" in target) target.bar = root.bar
         if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
     }
 
-    function openWindowMenu(windowTarget) {
-        if (menuPanel && typeof menuPanel.openForWindow === "function") menuPanel.openForWindow(windowTarget)
+    function openWindowMenu(windowTarget, anchorItem) {
+        if (menuPanel && typeof menuPanel.openForWindow === "function") menuPanel.openForWindow(windowTarget, anchorItem || root)
     }
 
     function openMatchingWindowMenu(identity) {
@@ -49,7 +49,7 @@ Item {
                 }
             }
             if (matched && handle) {
-                openWindowMenu(candidate)
+                openWindowMenu(candidate, root)
                 return "ok"
             }
         }
@@ -85,6 +85,7 @@ Item {
             model: Hyprland.toplevels
 
             delegate: Item {
+                id: taskDelegate
                 required property var modelData
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: root.bar ? root.bar.barSize - 6 : 20
@@ -113,7 +114,7 @@ Item {
                     acceptedButtons: Qt.AllButtons
                     onClicked: function(mouse) {
                         mouse.accepted = true
-                        if (mouse.button === Qt.RightButton) root.openWindowMenu(modelData)
+                        if (mouse.button === Qt.RightButton) root.openWindowMenu(modelData, taskDelegate)
                         else if (mouse.button === Qt.LeftButton && modelData.handle) modelData.handle.activate()
                     }
                 }

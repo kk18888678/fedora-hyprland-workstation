@@ -12,7 +12,15 @@ Item {
     property var manifest: ({})
     property var pluginRegistry: null
 
+    function resolveClockAnchor() {
+        if (!pluginRoot.bar || typeof pluginRoot.bar.anchorItemFor !== "function") return
+        var clockItem = pluginRoot.bar.anchorItemFor("aurelia.clock")
+        if (clockItem) calendarPanel.anchorItem = clockItem
+        else if (typeof pluginRoot.bar.barAnchorItem === "function") calendarPanel.anchorItem = pluginRoot.bar.barAnchorItem()
+    }
+
     function open(payloadJson) {
+        resolveClockAnchor()
         calendarPanel.open(payloadJson || "{}")
         return "ok"
     }
@@ -43,6 +51,9 @@ Item {
 
     CalendarPanel {
         id: calendarPanel
-        anchorWindow: pluginRoot.bar
+        bar: pluginRoot.bar
+        anchorItem: pluginRoot.bar && pluginRoot.bar.widgetRevision >= 0 && typeof pluginRoot.bar.anchorItemFor === "function"
+            ? pluginRoot.bar.anchorItemFor("aurelia.clock")
+            : null
     }
 }

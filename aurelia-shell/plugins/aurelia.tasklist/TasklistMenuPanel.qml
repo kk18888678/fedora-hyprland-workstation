@@ -1,50 +1,34 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Wayland
+import "../../ui"
 import "../../theme"
 
 // Context menu for Hyprland toplevels. This is intentionally separate from
 // D-Bus tray menus: running windows expose a Wayland Toplevel handle, not a
 // QsMenuHandle.
-PanelWindow {
+AureliaKeyboardPanel {
     id: panelRoot
 
-    property var anchorWindow: null
-    property int barSize: 26
     property var windowTarget: null
 
-    readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
-    readonly property int barTopClearance: anchorWindow && anchorWindow.surfaceTop !== undefined ? anchorWindow.surfaceTop + panelRoot.barSize : panelRoot.barSize
-    readonly property int barBottomClearance: anchorWindow && anchorWindow.surfaceBottom !== undefined ? anchorWindow.surfaceBottom + panelRoot.barSize : panelRoot.barSize
     readonly property string windowTitle: windowTarget ? String(windowTarget.title || "Application") : "Application"
 
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "aurelia-tasklist-menu"
-    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    anchors.top: true
-    anchors.bottom: true
-    anchors.left: true
-    anchors.right: true
-    implicitWidth: 0
-    implicitHeight: 0
-    exclusionMode: ExclusionMode.Ignore
-    color: "transparent"
-    visible: false
+    ownerId: "aurelia.tasklist"
+    popupWidth: 300
+    popupHeight: 190
+    shown: false
 
-    function openForWindow(target) {
+    function openForWindow(target, itemAnchor) {
         if (!target || !target.handle) return
-        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.tasklist")
         windowTarget = target
-        visible = true
-        Qt.callLater(function() { card.forceActiveFocus() })
+        anchorItem = itemAnchor || anchorItem
+        shown = true
     }
 
     function close() {
         windowTarget = null
-        visible = false
-        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
+        shown = false
     }
 
     function closeForPopoutSwitch() { close() }
@@ -64,43 +48,10 @@ PanelWindow {
         close()
     }
 
-    MouseArea {
+    ColumnLayout {
         anchors.fill: parent
-        z: 0
-        acceptedButtons: Qt.LeftButton
-        onClicked: function(mouse) {
-            mouse.accepted = true
-            panelRoot.close()
-        }
-    }
-
-    Rectangle {
-        id: card
-        width: 300
-        height: 190
-        anchors.right: parent.right
-        anchors.top: barAtBottom ? undefined : parent.top
-        anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingLg
-        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingLg : 0
-        anchors.rightMargin: Theme.spacingLg
-        z: 1
-        radius: Theme.radiusLg
-        color: Theme.bgBase
-        border.color: Theme.border
-        border.width: Theme.borderWidthDefault
-        focus: panelRoot.visible
-
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.AllButtons
-            onClicked: function(mouse) { mouse.accepted = true }
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: Theme.spacingXl
-            spacing: Theme.spacingSm
+        spacing: Theme.spacingSm
+        focus: panelRoot.shown
 
             Text {
                 Layout.fillWidth: true
@@ -141,13 +92,5 @@ PanelWindow {
                 Text { anchors.centerIn: parent; text: "Close window"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSm }
                 MouseArea { anchors.fill: parent; onClicked: function(mouse) { mouse.accepted = true; panelRoot.closeWindow() } }
             }
-        }
-
-        Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape) {
-                panelRoot.close()
-                event.accepted = true
-            }
-        }
     }
 }

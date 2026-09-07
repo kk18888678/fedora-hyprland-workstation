@@ -1,1 +1,3 @@
 ScreenshotPanel 1.0 ScreenshotPanel.qml
+ScreenshotMenuPopup 1.0 ScreenshotMenuPopup.qml
+ScreenshotSelectionOverlay 1.0 ScreenshotSelectionOverlay.qml

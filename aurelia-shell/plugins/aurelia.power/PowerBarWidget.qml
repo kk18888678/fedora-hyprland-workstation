@@ -12,6 +12,7 @@ Item {
     property var settings: ({})
     property var manifest: ({})
     property var pluginRegistry: null
+    property var barAnchorItem: null
     readonly property var powerPanel: panelLoader.item
 
     implicitWidth: bar ? bar.barSize : 32
@@ -42,12 +43,18 @@ Item {
         source: Qt.resolvedUrl("PowerPanel.qml")
         onLoaded: {
             if ("barSize" in item) item.barSize = root.bar ? root.bar.barSize : 26
-            if ("anchorWindow" in item) item.anchorWindow = root.bar
+            if ("bar" in item) item.bar = root.bar
+            if ("anchorItem" in item) item.anchorItem = root.barAnchorItem || root
         }
     }
 
     onBarChanged: {
-        if (panelLoader.item && "anchorWindow" in panelLoader.item) panelLoader.item.anchorWindow = root.bar
+        if (panelLoader.item && "bar" in panelLoader.item) panelLoader.item.bar = root.bar
+        if (panelLoader.item && "anchorItem" in panelLoader.item) panelLoader.item.anchorItem = root.barAnchorItem || root
+    }
+
+    onBarAnchorItemChanged: {
+        if (panelLoader.item && "anchorItem" in panelLoader.item) panelLoader.item.anchorItem = root.barAnchorItem || root
     }
 
     Rectangle {

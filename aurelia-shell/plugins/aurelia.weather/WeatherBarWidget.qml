@@ -18,6 +18,7 @@ Item {
     property var settings: ({})
     property var manifest: ({})
     property var pluginRegistry: null
+    property var barAnchorItem: null
     property string temperatureText: ""
     property string conditionText: "…"
     property string iconName: "weather-clear"
@@ -56,7 +57,7 @@ Item {
     function configureWeatherPanel(target) {
         if (!target) return
         if ("weatherWidget" in target) target.weatherWidget = root
-        if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
+        if ("anchorItem" in target) target.anchorItem = root.barAnchorItem || root
     }
 
     function openWeatherPanel() {
@@ -190,6 +191,7 @@ Item {
     Component.onCompleted: root.refresh()
     onAureliaPathChanged: root.configureWeatherPanel(weatherPanelLoader.item)
     onBarChanged: root.configureWeatherPanel(weatherPanelLoader.item)
+    onBarAnchorItemChanged: root.configureWeatherPanel(weatherPanelLoader.item)
 
     Row {
         id: weatherRow

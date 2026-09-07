@@ -1,43 +1,31 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Wayland
+import "../../ui"
 import "../../theme"
 
 // Render tray menus inside Aurelia. QsMenuEntry.display() and QsMenuAnchor
 // are platform-menu APIs and require QApplication mode; Aurelia intentionally
 // runs as a resident Wayland shell instead. QsMenuOpener gives us the live
 // D-Bus menu model without creating a second application surface.
-PanelWindow {
+AureliaKeyboardPanel {
     id: panelRoot
 
-    property var anchorWindow: null
-    property int barSize: 26
     property var trayItem: null
     property var rootMenuOpener: null
     property var submenuStack: []
 
-    readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
-    readonly property int barTopClearance: anchorWindow && anchorWindow.surfaceTop !== undefined ? anchorWindow.surfaceTop + panelRoot.barSize : panelRoot.barSize
-    readonly property int barBottomClearance: anchorWindow && anchorWindow.surfaceBottom !== undefined ? anchorWindow.surfaceBottom + panelRoot.barSize : panelRoot.barSize
     readonly property var currentOpener: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].opener : rootMenuOpener
     readonly property var currentChildren: currentOpener ? currentOpener.children : null
     readonly property var currentValues: currentChildren ? currentChildren.values : []
     readonly property string currentTitle: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].title : panelRoot.displayName(panelRoot.trayItem)
     readonly property int menuHeight: Math.min(520, Math.max(112, Number(currentValues.length) * 38 + headerRow.implicitHeight + Theme.spacingXl * 2 + Theme.spacingSm))
 
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "aurelia-tray-menu"
-    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    anchors.top: true
-    anchors.bottom: true
-    anchors.left: true
-    anchors.right: true
-    implicitWidth: 0
-    implicitHeight: 0
-    exclusionMode: ExclusionMode.Ignore
-    color: "transparent"
-    visible: false
+    ownerId: "aurelia.tray"
+    popupWidth: 340
+    popupHeight: menuHeight
+    shown: false
+    dismissHandler: function() { panelRoot.close() }
 
     function displayName(item) {
         if (!item) return "Tray"
@@ -54,31 +42,46 @@ PanelWindow {
         return id
     }
 
-    Component {
-        id: submenuOpenerComponent
-        QsMenuOpener {}
+    Item {
+        width: 0
+        height: 0
+        visible: false
+
+        Component {
+            id: submenuOpenerComponent
+            QsMenuOpener {}
+        }
+
+        Timer {
+            id: submenuCleanupTimer
+            interval: 150
+            repeat: false
+            onTriggered: panelRoot.finalizeClose()
+        }
     }
 
-    function openForItem(item, opener) {
-        if (!item || !item.menu || !opener) return
-        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.tray")
+    function openForItem(item, opener, itemAnchor) {
+        if (!item || !item.menu || !opener || !itemAnchor) return
+        submenuCleanupTimer.stop()
         resetSubmenus()
         trayItem = item
         rootMenuOpener = opener
-        visible = true
-        Qt.callLater(function() { card.forceActiveFocus() })
+        anchorItem = itemAnchor
+        shown = true
     }
 
     function close() {
-        resetSubmenus()
-        trayItem = null
-        rootMenuOpener = null
-        visible = false
-        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
+        shown = false
+        submenuCleanupTimer.restart()
     }
 
     function closeForPopoutSwitch() { close() }
+
+    function finalizeClose() {
+        resetSubmenus()
+        trayItem = null
+        rootMenuOpener = null
+    }
 
     function resetSubmenus() {
         var oldStack = submenuStack
@@ -90,6 +93,7 @@ PanelWindow {
 
     function enterSubmenu(entry) {
         if (!entry || !entry.hasChildren) return
+        console.info("[TRAY] submenu_open text=" + String(entry.text || ""))
         var opener = submenuOpenerComponent.createObject(panelRoot, { menu: entry })
         if (!opener) return
         var next = submenuStack.slice()
@@ -108,43 +112,20 @@ PanelWindow {
         if (last && last.opener) last.opener.destroy()
     }
 
-    MouseArea {
-        anchors.fill: parent
-        z: 0
-        acceptedButtons: Qt.LeftButton
-        onClicked: function(mouse) {
-            mouse.accepted = true
-            panelRoot.close()
-        }
+    function triggerEntry(entry) {
+        if (!entry || !entry.enabled) return
+        console.info("[TRAY] menu_trigger text=" + String(entry.text || ""))
+        // Keep the submenu opener alive until the D-Bus action has had an
+        // event-loop turn to dispatch. Omarchy retains its opener through the
+        // popup fade for the same reason.
+        entry.triggered()
+        close()
     }
 
-    Rectangle {
-        id: card
-        width: 340
-        height: panelRoot.menuHeight
-        anchors.right: parent.right
-        anchors.top: barAtBottom ? undefined : parent.top
-        anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingLg
-        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingLg : 0
-        anchors.rightMargin: Theme.spacingLg
-        z: 1
-        radius: Theme.radiusLg
-        color: Theme.bgBase
-        border.color: Theme.border
-        border.width: Theme.borderWidthDefault
-        focus: panelRoot.visible
-
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.AllButtons
-            onClicked: function(mouse) { mouse.accepted = true }
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: Theme.spacingXl
-            spacing: Theme.spacingSm
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: Theme.spacingSm
+        focus: panelRoot.shown
 
             RowLayout {
                 id: headerRow
@@ -157,12 +138,6 @@ PanelWindow {
                     font.pixelSize: Theme.fontSizeMd
                     font.weight: Theme.fontWeightBold
                     elide: Text.ElideRight
-                }
-                Text {
-                    text: "ESC"
-                    color: Theme.textMuted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeXs
                 }
             }
 
@@ -201,7 +176,10 @@ PanelWindow {
                     spacing: Theme.spacingXs
 
                     Repeater {
-                        model: panelRoot.currentValues
+                        // Keep the live ObjectModel, not a copied JavaScript
+                        // array. QsMenuEntry activation and submenu updates
+                        // are owned by this live model.
+                        model: panelRoot.currentChildren
 
                         delegate: Item {
                             required property var modelData
@@ -276,20 +254,16 @@ PanelWindow {
                                 onClicked: function(mouse) {
                                     mouse.accepted = true
                                     if (modelData.hasChildren) panelRoot.enterSubmenu(modelData)
-                                    else {
-                                        modelData.triggered()
-                                        panelRoot.close()
-                                    }
+                                    else panelRoot.triggerEntry(modelData)
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
         Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+            if (event.key === Qt.Key_Back) {
                 panelRoot.close()
                 event.accepted = true
             } else if (event.key === Qt.Key_Left && panelRoot.submenuStack.length > 0) {

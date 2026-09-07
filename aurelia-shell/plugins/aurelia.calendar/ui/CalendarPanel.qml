@@ -1,14 +1,12 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Wayland
+import "../../../ui"
 import "../../../theme"
 
-PanelWindow {
+AureliaKeyboardPanel {
     id: panelRoot
 
-    property int barSize: anchorWindow ? anchorWindow.barSize : 26
-    property var anchorWindow: null
     property date displayedMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
     readonly property int year: displayedMonth.getFullYear()
     readonly property int month: displayedMonth.getMonth()
@@ -17,33 +15,19 @@ PanelWindow {
     readonly property var dayCells: buildDayCells()
     readonly property var today: new Date()
 
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "aurelia-calendar"
-    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    anchors.top: true
-    anchors.bottom: true
-    anchors.left: true
-    anchors.right: true
-    implicitWidth: 0
-    implicitHeight: 0
-    exclusionMode: ExclusionMode.Ignore
-    color: "transparent"
-    visible: false
-
-    readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
-    readonly property int barTopClearance: anchorWindow && anchorWindow.surfaceTop !== undefined ? anchorWindow.surfaceTop + panelRoot.barSize : panelRoot.barSize
-    readonly property int barBottomClearance: anchorWindow && anchorWindow.surfaceBottom !== undefined ? anchorWindow.surfaceBottom + panelRoot.barSize : panelRoot.barSize
+    ownerId: "aurelia.clock"
+    centerOnBar: true
+    popupWidth: 360
+    popupHeight: 350
+    shown: false
 
     function open(payloadJson) {
-        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.clock")
         displayedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-        visible = true
+        shown = true
     }
 
     function close() {
-        visible = false
-        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
+        shown = false
     }
 
     function closeForPopoutSwitch() { close() }
@@ -68,41 +52,10 @@ PanelWindow {
         return Qt.formatDate(displayedMonth, "MMMM yyyy")
     }
 
-    MouseArea {
+    ColumnLayout {
         anchors.fill: parent
-        z: 0
-        acceptedButtons: Qt.LeftButton
-        onClicked: function(mouse) {
-            mouse.accepted = true
-            panelRoot.close()
-        }
-    }
-
-    Rectangle {
-        id: card
-        width: 360
-        height: 350
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: barAtBottom ? undefined : parent.top
-        anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingXl
-        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingXl : 0
-        radius: Theme.radiusLg
-        color: Theme.bgBase
-        border.color: Theme.border
-        border.width: Theme.borderWidthDefault
-        focus: panelRoot.visible
-
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.AllButtons
-            onClicked: function(mouse) { mouse.accepted = true }
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: Theme.spacingXl
-            spacing: Theme.spacingMd
+        spacing: Theme.spacingMd
+        focus: panelRoot.shown
 
             RowLayout {
                 Layout.fillWidth: true
@@ -113,12 +66,6 @@ PanelWindow {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeLg
                     font.weight: Theme.fontWeightBold
-                }
-                Text {
-                    text: "ESC"
-                    color: Theme.textMuted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeXs
                 }
             }
 
@@ -196,13 +143,8 @@ PanelWindow {
                     }
                 }
             }
-        }
-
         Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape) {
-                panelRoot.close()
-                event.accepted = true
-            } else if (event.key === Qt.Key_Left) {
+            if (event.key === Qt.Key_Left) {
                 panelRoot.previousMonth()
                 event.accepted = true
             } else if (event.key === Qt.Key_Right) {

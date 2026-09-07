@@ -24,18 +24,18 @@ Item {
 
     function configureTrayMenu(target) {
         if (!target) return
-        if ("anchorWindow" in target) target.anchorWindow = root.bar
+        if ("bar" in target) target.bar = root.bar
         if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
     }
 
-    function openTrayMenu(item) {
+    function openTrayMenu(item, anchorItem) {
         if (trayMenuPanel && typeof trayMenuPanel.openForItem === "function") {
             activeTrayItem = item
-            trayMenuPanel.openForItem(item, trayMenuOpener)
+            trayMenuPanel.openForItem(item, trayMenuOpener, anchorItem)
         }
     }
 
-    function openApplicationContextMenu(item) {
+    function openApplicationContextMenu(item, anchorItem) {
         var identity = [
             item && item.id ? item.id : "",
             item && item.title ? item.title : "",
@@ -45,7 +45,7 @@ Item {
         var taskResult = root.bar && typeof root.bar.callWidget === "function"
             ? root.bar.callWidget("aurelia.tasklist", "openMatchingWindowMenu", identity)
             : "not-loaded"
-        if (taskResult !== "ok" && item && item.hasMenu) root.openTrayMenu(item)
+        if (taskResult !== "ok" && item && item.hasMenu) root.openTrayMenu(item, anchorItem)
     }
 
     Loader {
@@ -97,9 +97,9 @@ Item {
                     onClicked: function(mouse) {
                         mouse.accepted = true
                         if (mouse.button === Qt.RightButton) {
-                            root.openApplicationContextMenu(modelData)
+                            root.openApplicationContextMenu(modelData, trayDelegate)
                         } else if (mouse.button === Qt.LeftButton) {
-                            if (modelData.onlyMenu && modelData.hasMenu) root.openTrayMenu(modelData)
+                            if (modelData.onlyMenu && modelData.hasMenu) root.openTrayMenu(modelData, trayDelegate)
                             else modelData.activate()
                         } else if (mouse.button === Qt.MiddleButton) {
                             modelData.secondaryActivate()

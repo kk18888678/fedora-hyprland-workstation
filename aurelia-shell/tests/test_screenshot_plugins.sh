@@ -46,43 +46,41 @@ else
     fail "Screenshot backend contract is incomplete"
 fi
 
-if grep -q 'function open(payloadJson)' "$plugin_root/ScreenshotPlugin.qml" &&
-   grep -q 'function capture(payloadJson)' "$plugin_root/ScreenshotPlugin.qml" &&
-   grep -q 'Selection (Region)' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'text: "Window"' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'Delay (seconds)' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'Show pointer' "$plugin_root/ui/ScreenshotPanel.qml" &&
+if grep -q 'function open(payloadJson)' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'function capture(payloadJson)' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'Selection (Region)' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
+   grep -q 'text: "Window"' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
+   grep -q 'Delay (seconds)' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
+   grep -q 'Show pointer' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
    grep -q 'startRegionSelection' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'startWindowSelection' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'capturePendingRegion' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'Take Screenshot' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'Take Screenshot with Delay' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'native region geometry' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'selectionRect' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'selectionDragging' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'WAYLAND_DISPLAY' "$plugin_root/ScreenshotPlugin.qml" &&
-   grep -q 'XDG_RUNTIME_DIR' "$plugin_root/ScreenshotPlugin.qml" &&
-   grep -q 'captureProcess' "$plugin_root/ScreenshotPlugin.qml" &&
-   grep -q 'duration_ms' "$plugin_root/ScreenshotPlugin.qml" &&
+   grep -q 'Take Screenshot' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
+   grep -q 'Take Screenshot with Delay' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
+   grep -q 'native region geometry' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
+   grep -q 'selectionDragging' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
+   grep -q 'WAYLAND_DISPLAY' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'XDG_RUNTIME_DIR' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'duration_ms' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'captureRequested' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'captureCompleted' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'function quickRegion' "$plugin_root/ScreenshotPlugin.qml" &&
+   grep -q 'function quickRegion' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'quickCapture' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'capture("smart", 0, "")' "$plugin_root/ui/ScreenshotPanel.qml" &&
+   grep -q 'capture("smart", 0, "", true)' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'selection_rectangles' "$capture_bin" &&
    grep -q 'capture_mode.*smart' "$capture_bin" &&
    grep -q 'region selection cancelled' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'Keys.onPressed' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'anchorWindow' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'closeForPopoutSwitch' "$plugin_root/ui/ScreenshotPanel.qml" &&
+   grep -q 'Keys.onPressed' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
+   grep -q 'AureliaKeyboardPanel' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
    grep -q 'aurelia.screenshot.quick_region' "$plugin_root/keybindings.lua" &&
-   grep -q 'ScreenshotPlugin.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'ScreenshotPanel.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'function open(payloadJson)' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'root.open' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q '#33ffffff' "$plugin_root/ui/ScreenshotPanel.qml" &&
+   grep -q '#33ffffff' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
    grep -q 'captureStage === "region-selecting"' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'native region geometry' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'delaySeconds: 3' "$plugin_root/ui/ScreenshotPanel.qml"; then
+   grep -q 'native region geometry' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
+   grep -q 'property int delaySeconds: 3' "$plugin_root/ui/ScreenshotPanel.qml"; then
     pass "Screenshot panel exposes full, region, window, and delayed capture flows"
 else
     fail "Screenshot panel lifecycle or capture modes are incomplete"

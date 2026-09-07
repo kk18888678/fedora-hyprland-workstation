@@ -2,74 +2,32 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Widgets
-import Quickshell.Wayland
+import "../../ui"
 import "../../theme"
 
-PanelWindow {
+AureliaKeyboardPanel {
     id: panelRoot
 
     property var weatherWidget: null
-    property int barSize: 26
 
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "aurelia-weather"
-    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    anchors.top: true
-    anchors.bottom: true
-    anchors.left: true
-    anchors.right: true
-    implicitWidth: 0
-    implicitHeight: 0
-    exclusionMode: ExclusionMode.Ignore
-    color: "transparent"
-    visible: false
-
-    readonly property bool barAtBottom: weatherWidget && weatherWidget.bar && weatherWidget.bar.position === "bottom"
-    readonly property int barTopClearance: weatherWidget && weatherWidget.bar && weatherWidget.bar.surfaceTop !== undefined ? weatherWidget.bar.surfaceTop + panelRoot.barSize : panelRoot.barSize
-    readonly property int barBottomClearance: weatherWidget && weatherWidget.bar && weatherWidget.bar.surfaceBottom !== undefined ? weatherWidget.bar.surfaceBottom + panelRoot.barSize : panelRoot.barSize
+    bar: weatherWidget ? weatherWidget.bar : null
+    ownerId: "aurelia.weather"
+    popupWidth: 420
+    popupHeight: 360
+    shown: false
 
     function open() {
-        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.refreshSurfaceGeometry === "function") weatherWidget.bar.refreshSurfaceGeometry()
-        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.requestPopout === "function") weatherWidget.bar.requestPopout(panelRoot, "aurelia.weather")
-        visible = true
+        shown = true
     }
     function close() {
-        visible = false
-        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.releasePopout === "function") weatherWidget.bar.releasePopout(panelRoot)
+        shown = false
     }
     function closeForPopoutSwitch() { close() }
 
-    MouseArea {
+    ColumnLayout {
         anchors.fill: parent
-        z: 0
-        onClicked: function(mouse) { mouse.accepted = true; panelRoot.close() }
-    }
-
-    Rectangle {
-        width: 420
-        height: 360
-        anchors.right: parent.right
-        anchors.top: barAtBottom ? undefined : parent.top
-        anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingLg
-        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingLg : 0
-        anchors.rightMargin: Theme.spacingLg
-        z: 1
-        radius: Theme.radiusLg
-        color: Theme.bgBase
-        border.color: Theme.border
-        border.width: Theme.borderWidthDefault
-        focus: panelRoot.visible
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: function(mouse) { mouse.accepted = true }
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: Theme.spacingXl
-            spacing: Theme.spacingMd
+        spacing: Theme.spacingMd
+        focus: panelRoot.shown
 
             RowLayout {
                 Layout.fillWidth: true
@@ -85,12 +43,6 @@ PanelWindow {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeLg
                     font.weight: Theme.fontWeightBold
-                }
-                Text {
-                    text: "ESC"
-                    color: Theme.textMuted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeXs
                 }
             }
 
@@ -173,13 +125,5 @@ PanelWindow {
                     }
                 }
             }
-        }
-
-        Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape) {
-                panelRoot.close()
-                event.accepted = true
-            }
-        }
     }
 }

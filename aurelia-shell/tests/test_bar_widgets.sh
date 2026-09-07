@@ -42,6 +42,7 @@ if [[ -f "$tray_root/manifest.json" && -f "$tray_root/TrayBarWidget.qml" ]] &&
    grep -q 'QsMenuOpener' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'Repeater' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'currentValues' "$tray_root/TrayMenuPanel.qml" &&
+   grep -q 'model: panelRoot.currentChildren' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'openApplicationContextMenu' "$tray_root/TrayBarWidget.qml" &&
    ! grep -q 'QsMenuAnchor' "$tray_root/TrayBarWidget.qml"; then
     pass "Tray/tasklist uses an in-shell D-Bus menu and Hyprland-window-backed bar widget"
@@ -86,6 +87,17 @@ if [[ -f "$weather_root/manifest.json" && -f "$weather_root/WeatherBarWidget.qml
     pass "Weather is a validated first-party bar-widget plugin"
 else
     fail "Weather bar-widget manifest or entry point is incomplete"
+fi
+
+if [[ -f "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotMenuPopup.qml" &&
+      -f "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotSelectionOverlay.qml" ]] &&
+   grep -q 'AureliaKeyboardPanel' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotMenuPopup.qml" &&
+   grep -q 'PanelWindow' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotSelectionOverlay.qml" &&
+   ! grep -q 'PanelWindow' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotPanel.qml" &&
+   grep -q 'function quickRegion' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotPanel.qml"; then
+    pass "Screenshot controls are bar-owned while region selection remains a dedicated overlay"
+else
+    fail "Screenshot bar-owned popup and selection overlay contract is incomplete"
 fi
 
 if [[ -x "$weather_bin" ]] &&
@@ -143,19 +155,36 @@ if grep -q 'function requestPopout(owner, ownerId)' "$bar_root/Bar.qml" &&
    grep -q 'function callBarWidget(id, method, argument)' "$ROOT/services/PluginHost.qml" &&
    grep -q 'function hasWidget(pluginId)' "$bar_root/Bar.qml" &&
    grep -q 'function open(payloadJson)' "$weather_root/WeatherBarWidget.qml" &&
-   grep -q 'function isVisible()' "$weather_root/WeatherBarWidget.qml"; then
+   grep -q 'function isVisible()' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'PopupWindow' "$ROOT/ui/AureliaPopupCard.qml" &&
+   grep -q 'anchorItem.QsWindow.window' "$ROOT/ui/AureliaPopupCard.qml" &&
+   grep -q 'Theme.popupMargin' "$ROOT/ui/AureliaPopupCard.qml" &&
+   grep -q 'anchor_unavailable' "$ROOT/ui/AureliaPopupCard.qml"; then
     pass "Bar widgets share one Omarchy-style popout owner and complete shell lifecycle routing"
 else
     fail "Bar widget lifecycle routing or popout ownership is incomplete"
 fi
 
-if grep -q 'anchors.bottom: true' "$calendar_root/ui/CalendarPanel.qml" &&
-   grep -q 'anchors.right: true' "$calendar_root/ui/CalendarPanel.qml" &&
+if grep -q 'FocusScope' "$ROOT/ui/AureliaPopupCard.qml" &&
+   grep -q 'Qt.Key_Escape' "$ROOT/ui/AureliaPopupCard.qml" &&
+   ! grep -R -q 'text: "ESC"' "$calendar_root" "$power_root" "$tasklist_root" "$tray_root" "$ROOT/plugins/aurelia.weather" "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotMenuPopup.qml"; then
+    pass "Bar-owned popup cards share keyboard dismissal without rendering shortcut labels"
+else
+    fail "Bar-owned popup keyboard dismissal or visual contract is incomplete"
+fi
+
+if grep -q 'AureliaKeyboardPanel' "$calendar_root/ui/CalendarPanel.qml" &&
+   grep -q 'AureliaKeyboardPanel' "$power_root/PowerPanel.qml" &&
+   grep -q 'AureliaKeyboardPanel' "$ROOT/plugins/aurelia.weather/WeatherPanel.qml" &&
+   grep -q 'AureliaKeyboardPanel' "$ROOT/plugins/aurelia.tray/TrayMenuPanel.qml" &&
+   grep -q 'AureliaKeyboardPanel' "$ROOT/plugins/aurelia.tasklist/TasklistMenuPanel.qml" &&
+   [[ -f "$ROOT/ui/AureliaKeyboardPanel.qml" ]] &&
    grep -q 'closeForPopoutSwitch' "$calendar_root/ui/CalendarPanel.qml" &&
    grep -q 'closeForPopoutSwitch' "$power_root/PowerPanel.qml" &&
    grep -q 'closeForPopoutSwitch' "$ROOT/plugins/aurelia.weather/WeatherPanel.qml" &&
-   grep -q 'closeForPopoutSwitch' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotPanel.qml"; then
-    pass "Floating widget surfaces use full-screen dismissal ownership with cards below the bar"
+   grep -q 'closeForPopoutSwitch' "$ROOT/plugins/aurelia.tray/TrayMenuPanel.qml" &&
+   grep -q 'closeForPopoutSwitch' "$ROOT/plugins/aurelia.tasklist/TasklistMenuPanel.qml"; then
+    pass "Bar-owned widget surfaces use anchored popup cards and single-popout ownership"
 else
-    fail "Floating widget dismissal or below-bar surface contract is incomplete"
+    fail "Anchored bar-owned popup surface contract is incomplete"
 fi

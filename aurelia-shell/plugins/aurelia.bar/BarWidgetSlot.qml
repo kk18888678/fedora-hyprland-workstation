@@ -14,6 +14,7 @@ Item {
     property string pluginId: ""
     property var settings: ({})
     property bool active: true
+    property bool registered: false
 
     readonly property var pluginManifest: pluginRegistry && pluginRegistry.isKnown(pluginId)
         ? pluginRegistry.installedPlugins[pluginId]
@@ -34,6 +35,7 @@ Item {
     function configure(target) {
         if (!target) return
         if ("bar" in target) target.bar = root.bar
+        if ("barAnchorItem" in target) target.barAnchorItem = root
         if ("shell" in target) target.shell = root.shell
         if ("aureliaPath" in target) target.aureliaPath = root.aureliaPath
         if ("moduleName" in target) target.moduleName = root.pluginId
@@ -48,13 +50,28 @@ Item {
         return String(widgetItem[method](argument) || "")
     }
 
+    function registerWithBar() {
+        if (registered || !root.bar || typeof root.bar.registerWidgetSlot !== "function") return
+        root.bar.registerWidgetSlot(root)
+        registered = true
+    }
+
+    function unregisterFromBar() {
+        if (!registered || !root.bar || typeof root.bar.unregisterWidgetSlot !== "function") return
+        root.bar.unregisterWidgetSlot(root)
+        registered = false
+    }
+
     Loader {
         id: widgetLoader
         anchors.fill: parent
         active: root.active && root.available
         source: active ? root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget") : ""
 
-        onLoaded: root.configure(item)
+        onLoaded: {
+            root.configure(item)
+            if (root.bar && typeof root.bar.bumpWidgetRevision === "function") root.bar.bumpWidgetRevision()
+        }
         onStatusChanged: {
             if (status === Loader.Error) {
                 console.warn("[BAR] aurelia.bar.widget_load_failed id=" + root.pluginId)
@@ -74,6 +91,10 @@ Item {
         z: 20
     }
 
-    Component.onCompleted: if (root.bar && typeof root.bar.registerWidgetSlot === "function") root.bar.registerWidgetSlot(root)
-    Component.onDestruction: if (root.bar && typeof root.bar.unregisterWidgetSlot === "function") root.bar.unregisterWidgetSlot(root)
+    onBarChanged: {
+        if (root.bar) root.registerWithBar()
+    }
+
+    Component.onCompleted: root.registerWithBar()
+    Component.onDestruction: root.unregisterFromBar()
 }

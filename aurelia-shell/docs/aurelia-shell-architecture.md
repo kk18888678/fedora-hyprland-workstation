@@ -98,6 +98,13 @@ Aurelia Shell plugins are heterogeneous in structure. Plugins may be floating pa
 - Each plugin may register a plugin-scoped target (for example, `aurelia.keybindings`) with explicitly typed methods.
 - Deprecated or renamed targets must provide thin forwarding shims (for example, `hotkeys` delegating directly to the Keybindings plugin) rather than duplicating implementation blocks.
 
+### 4.2.1 Bar-owned popup surfaces
+- `aurelia.bar` owns one mapped layer-shell bar window. Configured `bar-widget` plugins own their trigger item and their popup content; the resident host does not position widget panels by querying Hyprland layer geometry.
+- Mouse-only bar menus may use the shared `ui/AureliaPopupCard.qml` primitive. Keyboard-capable bar panels use `ui/AureliaKeyboardPanel.qml`, following Omarchy's `KeyboardPanel` contract: the bar widget remains the owner, the card is positioned from the real anchor item, and a focused layer-shell surface provides reliable Escape and arrow-key input.
+- The bar coordinates one active popout and exposes the active widget state for the bar underline. Opening another widget closes the previous widget through its declared lifecycle method.
+- A bar popup must not be implemented as a full-screen transparent `PanelWindow`, a guessed monitor offset, or a startup/retry timer. Full-screen layer-shell surfaces are reserved for interactions that genuinely require the whole screen, such as screenshot region selection, the launcher, and keybindings.
+- This keeps Aurelia independent from Noctalia while preserving the behavioral boundary used by Omarchy: the bar remains the owner of its widgets, anchors, focus, dismissal, and visual active state.
+
 ### 4.3 Process & Execution Safety
    - **Decoupled CLI Backend**: Core data aggregation, state validation, and system actions must live in a companion CLI binary (`bin/workstation-<component>`); plugin QML only presents state and dispatches approved IPC actions.
 - **Structured `argv` Dispatch**: All application launches must use structured string arrays (`["nautilus"]`, `["chromium-browser"]`). String concatenation, shell interpretation (`sh -c`, `bash -c`), and `eval` are strictly prohibited.
