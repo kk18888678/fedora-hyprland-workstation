@@ -183,6 +183,7 @@ require_command grim
 require_command hyprctl
 require_command jq
 [[ "$capture_mode" == "full" ]] || require_command slurp
+[[ "$capture_mode" == "full" ]] || require_command hyprpicker
 (( copy_clipboard == 0 )) || require_command wl-copy
 
 if (( delay > 0 )); then
@@ -198,11 +199,16 @@ runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 capture_path=""
 published_path=""
 published=0
+freeze_pid=""
 original_no_hw_cursors=""
 cursor_mode_changed=0
 original_inactive_timeout=""
 inactivity_timeout_changed=0
 cleanup() {
+    if [[ -n "$freeze_pid" ]]; then
+        kill "$freeze_pid" 2>/dev/null || true
+        wait "$freeze_pid" 2>/dev/null || true
+    fi
     if (( inactivity_timeout_changed == 1 )); then
         restore_inactive_status=0
         run_bounded 5 hyprctl keyword cursor:inactive_timeout "$original_inactive_timeout" >/dev/null 2>&1 || restore_inactive_status=$?
@@ -251,6 +257,19 @@ fi
 printf '[SCREENSHOT] cursor_mode original_no_hardware_cursors=%s capture_no_hardware_cursors=0 original_inactive_timeout=%s pointer=%s\n' \
     "$original_no_hw_cursors" "$original_inactive_timeout" "$show_pointer" >&2
 
+start_freeze() {
+    [[ -z "$freeze_pid" ]] || return 0
+    hyprpicker -r -z >/dev/null 2>&1 &
+    freeze_pid=$!
+    sleep 0.1
+    if ! kill -0 "$freeze_pid" 2>/dev/null; then
+        wait "$freeze_pid" 2>/dev/null || true
+        freeze_pid=""
+        fail "Could not freeze the screen for selection."
+    fi
+    printf '[SCREENSHOT] screen_freeze pid=%s\n' "$freeze_pid" >&2
+}
+
 if (( save_file == 1 )); then
     capture_path="$(mktemp "$output_dir/.aurelia-screenshot-XXXXXX.png")" ||
         fail "Could not create screenshot output file."
@@ -265,6 +284,11 @@ slurp_args=()
 grim_args=()
 if (( show_pointer == 1 )); then
     grim_args+=("-c")
+fi
+if [[ "$capture_mode" == "region" || "$capture_mode" == "window" ]]; then
+    # Omarchy freezes before selection so an open launcher/menu remains part of
+    # the captured frame and cannot dismiss or move while slurp is active.
+    start_freeze
 fi
 if [[ -z "$geometry" && ("$capture_mode" == "region" || "$capture_mode" == "window") ]]; then
     if [[ "$capture_mode" == "window" ]]; then
