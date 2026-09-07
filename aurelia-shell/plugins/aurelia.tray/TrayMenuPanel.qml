@@ -169,90 +169,101 @@ PanelWindow {
                 }
             }
 
-            ListView {
-                id: menuList
+            Flickable {
+                id: menuFlick
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                spacing: Theme.spacingXs
-                model: panelRoot.currentChildren
+                contentWidth: width
+                contentHeight: menuColumn.implicitHeight
+                interactive: contentHeight > height
 
-                delegate: Item {
-                    required property var modelData
-                    width: menuList.width
-                    height: modelData.isSeparator ? 10 : 38
-                    opacity: modelData.enabled ? 1.0 : 0.45
+                Column {
+                    id: menuColumn
+                    width: menuFlick.width
+                    spacing: Theme.spacingXs
 
-                    Rectangle {
-                        visible: modelData.isSeparator
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        height: 1
-                        color: Theme.border
-                    }
+                    Repeater {
+                        model: panelRoot.currentChildren
 
-                    Rectangle {
-                        visible: !modelData.isSeparator
-                        anchors.fill: parent
-                        radius: Theme.radiusSm
-                        color: menuHover.hovered && modelData.enabled ? Theme.selection : "transparent"
-                        HoverHandler { id: menuHover }
-                    }
+                        delegate: Item {
+                            required property var modelData
+                            width: menuColumn.width
+                            height: modelData.isSeparator ? 10 : 38
+                            opacity: modelData.enabled ? 1.0 : 0.45
 
-                    RowLayout {
-                        visible: !modelData.isSeparator
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingSm
-                        anchors.rightMargin: Theme.spacingSm
-                        spacing: Theme.spacingSm
+                            Rectangle {
+                                visible: modelData.isSeparator
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                height: 1
+                                color: Theme.border
+                            }
 
-                        Text {
-                            Layout.preferredWidth: 18
-                            text: modelData.buttonType !== QsMenuButtonType.None && modelData.checkState === Qt.Checked ? "✓" : ""
-                            color: Theme.accent
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            horizontalAlignment: Text.AlignHCenter
-                        }
+                            Rectangle {
+                                visible: !modelData.isSeparator
+                                anchors.fill: parent
+                                radius: Theme.radiusSm
+                                color: menuHover.hovered && modelData.enabled ? Theme.selection : "transparent"
+                                HoverHandler { id: menuHover }
+                            }
 
-                        Image {
-                            visible: String(modelData.icon || "") !== ""
-                            Layout.preferredWidth: 18
-                            Layout.preferredHeight: 18
-                            source: modelData.icon
-                            sourceSize: Qt.size(18, 18)
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                        }
+                            RowLayout {
+                                visible: !modelData.isSeparator
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.spacingSm
+                                anchors.rightMargin: Theme.spacingSm
+                                spacing: Theme.spacingSm
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: modelData.text || ""
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            elide: Text.ElideRight
-                        }
+                                Text {
+                                    Layout.preferredWidth: 18
+                                    text: modelData.buttonType !== QsMenuButtonType.None && modelData.checkState === Qt.Checked ? "✓" : ""
+                                    color: Theme.accent
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
 
-                        Text {
-                            visible: modelData.hasChildren
-                            text: "›"
-                            color: Theme.textMuted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeLg
-                        }
-                    }
+                                Image {
+                                    visible: String(modelData.icon || "") !== ""
+                                    Layout.preferredWidth: 18
+                                    Layout.preferredHeight: 18
+                                    source: modelData.icon
+                                    sourceSize: Qt.size(18, 18)
+                                    fillMode: Image.PreserveAspectFit
+                                    asynchronous: true
+                                }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !modelData.isSeparator && modelData.enabled
-                        onClicked: function(mouse) {
-                            mouse.accepted = true
-                            if (modelData.hasChildren) panelRoot.enterSubmenu(modelData)
-                            else {
-                                modelData.triggered()
-                                panelRoot.close()
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.text || ""
+                                    color: Theme.text
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    visible: modelData.hasChildren
+                                    text: "›"
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeLg
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !modelData.isSeparator && modelData.enabled
+                                onClicked: function(mouse) {
+                                    mouse.accepted = true
+                                    if (modelData.hasChildren) panelRoot.enterSubmenu(modelData)
+                                    else {
+                                        modelData.triggered()
+                                        panelRoot.close()
+                                    }
+                                }
                             }
                         }
                     }

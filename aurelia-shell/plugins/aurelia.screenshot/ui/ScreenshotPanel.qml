@@ -95,14 +95,17 @@ PanelWindow {
     function quickRegion() {
         resetMenu()
         quickCapture = true
-        startRegionSelection()
+        // Quick capture must not close an already-open Aurelia popout or an
+        // application menu underneath the selection surface. The selected
+        // pixels are the user's current screen state.
+        startRegionSelection(true)
     }
 
     function capturePayload(payloadJson) {
         open(payloadJson)
     }
 
-    function startRegionSelection() {
+    function startRegionSelection(preserveExistingPopout) {
         if (!backendBin || backendBin.length === 0) {
             visible = true
             captureStage = "menu"
@@ -120,8 +123,19 @@ PanelWindow {
         selectionEndX = 0
         selectionEndY = 0
         selectionDragging = false
-        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (!preserveExistingPopout && anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         visible = true
+    }
+
+    function cancelRegionSelection() {
+        console.info("[SCREENSHOT] region selection cancelled")
+        quickCapture = false
+        selectionDragging = false
+        pendingGeometry = ""
+        captureStage = "menu"
+        statusMessage = ""
+        statusKind = "info"
+        close()
     }
 
     function startWindowSelection() {
@@ -215,6 +229,13 @@ PanelWindow {
         visible: panelRoot.captureStage === "region-selecting"
         color: "#33ffffff"
         focus: visible
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape) {
+                panelRoot.cancelRegionSelection()
+                event.accepted = true
+            }
+        }
 
         Text {
             anchors.top: parent.top
