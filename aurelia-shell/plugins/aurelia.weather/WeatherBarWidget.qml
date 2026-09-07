@@ -21,6 +21,11 @@ Item {
     property string temperatureText: ""
     property string conditionText: "…"
     property string iconName: "weather-clear"
+    property string feelsText: ""
+    property string humidityText: ""
+    property string windText: ""
+    property string resolvedLocation: ""
+    property var forecast: []
 
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-weather"
@@ -40,6 +45,23 @@ Item {
 
     implicitWidth: weatherRow.implicitWidth + Theme.spacingSm * 2
     implicitHeight: bar ? bar.barSize : 40
+
+    Loader {
+        id: weatherPanelLoader
+        active: true
+        source: Qt.resolvedUrl("WeatherPanel.qml")
+        onLoaded: root.configureWeatherPanel(item)
+    }
+
+    function configureWeatherPanel(target) {
+        if (!target) return
+        if ("weatherWidget" in target) target.weatherWidget = root
+        if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 32
+    }
+
+    function openWeatherPanel() {
+        if (weatherPanelLoader.item && typeof weatherPanelLoader.item.open === "function") weatherPanelLoader.item.open()
+    }
 
     function settingValue(key, fallback) {
         if (settings && typeof settings[key] === "string" && settings[key] !== "") return settings[key]
@@ -107,6 +129,11 @@ Item {
                 var isDay = Number(payload.isDay) === 1
                 if (!isFinite(temperature) || !isFinite(weatherCode)) throw new Error("invalid weather response")
                 root.temperatureText = Math.round(temperature) + (root.units === "imperial" ? "°F" : "°C")
+                root.feelsText = Math.round(Number(payload.apparentTemperature)) + (root.units === "imperial" ? "°F" : "°C")
+                root.humidityText = Math.round(Number(payload.humidity)) + "%"
+                root.windText = Math.round(Number(payload.windSpeed)) + (root.units === "imperial" ? " mph" : " km/h")
+                root.resolvedLocation = String(payload.location || root.locationLabel)
+                root.forecast = Array.isArray(payload.forecast) ? payload.forecast : []
                 root.conditionText = payload.condition && payload.condition !== ""
                     ? String(payload.condition)
                     : root.descriptionFor(weatherCode)
@@ -116,6 +143,10 @@ Item {
             } catch (error) {
                 console.warn("[WEATHER] response_invalid error=" + error)
                 root.temperatureText = ""
+                root.feelsText = ""
+                root.humidityText = ""
+                root.windText = ""
+                root.forecast = []
                 root.conditionText = "Weather unavailable"
             }
         }
@@ -138,6 +169,8 @@ Item {
     }
 
     Component.onCompleted: root.refresh()
+    onAureliaPathChanged: root.configureWeatherPanel(weatherPanelLoader.item)
+    onBarChanged: root.configureWeatherPanel(weatherPanelLoader.item)
 
     Row {
         id: weatherRow
@@ -153,7 +186,7 @@ Item {
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: root.temperatureText !== "" ? root.temperatureText : root.conditionText
+            text: root.temperatureText !== "" ? root.temperatureText : "…"
             color: Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
@@ -165,7 +198,7 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onClicked: function(mouse) {
             mouse.accepted = true
-            root.refresh()
+            root.openWeatherPanel()
         }
     }
 }

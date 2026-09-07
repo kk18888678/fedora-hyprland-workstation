@@ -109,22 +109,23 @@ request_json() {
 temperature_unit="celsius"
 [[ "$units" == "imperial" ]] && temperature_unit="fahrenheit"
 
+resolved_location=""
 if [[ "$location_mode" == "auto" ]]; then
     response="$(request_json 'https://wttr.in/' --data-urlencode 'format=j1')" || fail "automatic weather location request failed"
-    printf '%s' "$response" | "$jq_bin" -ce --arg units "$units" '
-        .current_condition[0] as $current
-        | .nearest_area[0] as $area
-        | select($current != null)
-        | select(($current.temp_C | type) == "string")
+    location_data="$(printf '%s' "$response" | "$jq_bin" -ce '
+        .nearest_area[0]
+        | select((.latitude | type) == "string")
+        | select((.longitude | type) == "string")
         | {
-            temperature: (($current[if $units == "imperial" then "temp_F" else "temp_C" end]) | tonumber),
-            weatherCode: -1,
-            isDay: (if (($current.isdaytime // "yes") | ascii_downcase) == "yes" then 1 else 0 end),
-            condition: ($current.weatherDesc[0].value // "Weather"),
-            location: ($area.areaName[0].value // "")
+            latitude: (.latitude | tonumber),
+            longitude: (.longitude | tonumber),
+            name: (.areaName[0].value // "")
           }
-    ' || fail "automatic weather response was invalid"
-    exit 0
+    ')" || fail "automatic weather location response was invalid"
+    latitude="$(printf '%s' "$location_data" | "$jq_bin" -r '.latitude')"
+    longitude="$(printf '%s' "$location_data" | "$jq_bin" -r '.longitude')"
+    resolved_location="$(printf '%s' "$location_data" | "$jq_bin" -r '.name // empty')"
+    location_mode="coordinates"
 fi
 
 if [[ "$location_mode" == "location" ]]; then
@@ -142,27 +143,43 @@ if [[ "$location_mode" == "location" ]]; then
     latitude="$(printf '%s' "$geocode" | "$jq_bin" -r '.latitude')"
     longitude="$(printf '%s' "$geocode" | "$jq_bin" -r '.longitude')"
     resolved_location="$(printf '%s' "$geocode" | "$jq_bin" -r '.name // empty')"
-else
-    resolved_location=""
 fi
 
 response="$(request_json 'https://api.open-meteo.com/v1/forecast' \
     --data-urlencode "latitude=$latitude" \
     --data-urlencode "longitude=$longitude" \
-    --data-urlencode 'current=temperature_2m,weather_code,is_day' \
+    --data-urlencode 'current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day' \
+    --data-urlencode 'daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max' \
+    --data-urlencode 'forecast_days=3' \
     --data-urlencode "temperature_unit=$temperature_unit" \
+    --data-urlencode "wind_speed_unit=$([[ "$units" == "imperial" ]] && echo mph || echo kmh)" \
     --data-urlencode 'timezone=auto')" || fail "weather forecast request failed"
 
 printf '%s' "$response" | "$jq_bin" -ce --arg location "${resolved_location:-$location}" '
-    .current
+    . as $root
+    | .current
     | select((.temperature_2m | type) == "number")
+    | select((.apparent_temperature | type) == "number")
+    | select((.relative_humidity_2m | type) == "number")
+    | select((.wind_speed_10m | type) == "number")
     | select((.weather_code | type) == "number")
     | select((.is_day | type) == "number")
+    as $current
     | {
-        temperature: .temperature_2m,
-        weatherCode: .weather_code,
-        isDay: .is_day,
+        temperature: $current.temperature_2m,
+        apparentTemperature: $current.apparent_temperature,
+        humidity: $current.relative_humidity_2m,
+        windSpeed: $current.wind_speed_10m,
+        weatherCode: $current.weather_code,
+        isDay: $current.is_day,
         condition: "",
-        location: $location
+        location: $location,
+        forecast: [range(0; ($root.daily.time | length)) | {
+            date: $root.daily.time[.],
+            weatherCode: $root.daily.weather_code[.],
+            max: $root.daily.temperature_2m_max[.],
+            min: $root.daily.temperature_2m_min[.],
+            windSpeed: $root.daily.wind_speed_10m_max[.]
+        }]
       }
 ' || fail "weather forecast response was invalid"

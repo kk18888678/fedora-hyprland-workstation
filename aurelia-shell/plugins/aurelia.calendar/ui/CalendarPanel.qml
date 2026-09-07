@@ -8,6 +8,7 @@ PanelWindow {
     id: panelRoot
 
     property int barSize: 32
+    property var anchorWindow: null
     property date displayedMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
     readonly property int year: displayedMonth.getFullYear()
     readonly property int month: displayedMonth.getMonth()
@@ -20,9 +21,11 @@ PanelWindow {
     WlrLayershell.namespace: "aurelia-calendar"
     WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     anchors.top: true
-    anchors.bottom: true
     anchors.left: true
-    anchors.right: true
+    margins.top: panelRoot.barSize + Theme.spacingXl
+    margins.left: screen ? Math.max(0, Math.floor((screen.width - implicitWidth) / 2)) : 0
+    implicitWidth: 360
+    implicitHeight: 350
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: false
@@ -56,23 +59,9 @@ PanelWindow {
         return Qt.formatDate(displayedMonth, "MMMM yyyy")
     }
 
-    MouseArea {
-        anchors.fill: parent
-        z: 0
-        onClicked: function(mouse) {
-            mouse.accepted = true
-            panelRoot.close()
-        }
-    }
-
     Rectangle {
         id: card
-        z: 1
-        anchors.top: parent.top
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.topMargin: panelRoot.barSize + Theme.spacingXl
-        width: 360
-        height: 350
+        anchors.fill: parent
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.border

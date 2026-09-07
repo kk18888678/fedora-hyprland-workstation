@@ -11,7 +11,8 @@
         { "id": "aurelia.workspaces" }
       ],
       "center": [
-        { "id": "aurelia.clock", "format": "MMM d, dddd HH:mm" }
+        { "id": "aurelia.clock", "format": "MMM d, dddd HH:mm" },
+        { "id": "aurelia.weather", "location": "none" }
       ],
       "right": [
         { "id": "aurelia.tray" },

@@ -30,6 +30,7 @@ Item {
             model: SystemTray.items
 
             delegate: Item {
+                id: trayDelegate
                 required property var modelData
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: root.bar ? root.bar.barSize - 6 : 26
@@ -48,11 +49,24 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
+                    acceptedButtons: Qt.AllButtons
                     onClicked: function(mouse) {
                         mouse.accepted = true
-                        if (mouse.button === Qt.LeftButton) modelData.activate()
-                        else if (mouse.button === Qt.RightButton && modelData.hasMenu) modelData.display(root.bar, mouse.x, mouse.y)
+                        if (mouse.button === Qt.RightButton && modelData.hasMenu) {
+                            trayMenu.open()
+                        } else if (mouse.button === Qt.LeftButton) {
+                            if (modelData.onlyMenu && modelData.hasMenu) trayMenu.open()
+                            else modelData.activate()
+                        } else if (mouse.button === Qt.MiddleButton) {
+                            modelData.secondaryActivate()
+                        }
                     }
+                }
+
+                QsMenuAnchor {
+                    id: trayMenu
+                    menu: modelData.menu
+                    anchor.item: trayDelegate
                 }
             }
         }

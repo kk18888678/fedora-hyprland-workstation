@@ -34,12 +34,14 @@ PanelWindow {
     WlrLayershell.namespace: "aurelia-screenshot"
     WlrLayershell.keyboardFocus: captureStage === "region-selecting" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
 
-    anchors {
-        top: true
-        bottom: true
-        left: true
-        right: true
-    }
+    anchors.top: true
+    anchors.right: true
+    anchors.bottom: captureStage === "region-selecting"
+    anchors.left: captureStage === "region-selecting"
+    margins.top: captureStage === "region-selecting" ? 0 : barSize + Theme.spacingLg
+    margins.right: captureStage === "region-selecting" ? 0 : Theme.spacingLg
+    implicitWidth: captureStage === "region-selecting" ? 0 : 560
+    implicitHeight: captureStage === "region-selecting" ? 0 : (captureStage === "window-list" ? 560 : 480)
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: false
@@ -303,12 +305,7 @@ PanelWindow {
 
     Rectangle {
         id: card
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.topMargin: panelRoot.barSize + Theme.spacingLg
-        anchors.rightMargin: Theme.spacingLg
-        width: Math.min(parent.width - Theme.spacingXxl * 2, 560)
-        height: panelRoot.captureStage === "window-list" ? 560 : 480
+        anchors.fill: parent
         z: 1
         visible: panelRoot.captureStage !== "region-selecting"
         radius: Theme.radiusLg

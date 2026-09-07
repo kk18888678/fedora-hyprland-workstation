@@ -75,6 +75,9 @@ if [[ -x "$weather_bin" ]] &&
    grep -q 'api.open-meteo.com/v1/forecast' "$weather_bin" &&
    grep -q -- '--auto' "$weather_bin" &&
    grep -q -- '--location' "$weather_bin" &&
+   grep -q 'apparent_temperature' "$weather_bin" &&
+   grep -q 'relative_humidity_2m' "$weather_bin" &&
+   grep -q 'forecast_days=3' "$weather_bin" &&
    grep -q -- '--connect-timeout 3' "$weather_bin" &&
    grep -q -- '--max-time 5' "$weather_bin" &&
    grep -q -- '--max-filesize 1048576' "$weather_bin" &&
@@ -99,8 +102,10 @@ fi
 if grep -q 'Quickshell.iconPath' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'weather-clear' "$weather_root/WeatherBarWidget.qml" &&
    ! grep -q 'PanelWindow' "$clock_root/ClockBarWidget.qml" &&
+   [[ -f "$weather_root/WeatherPanel.qml" ]] &&
+   grep -q 'Next 3 days' "$weather_root/WeatherPanel.qml" &&
    ! grep -q 'PanelWindow' "$weather_root/WeatherBarWidget.qml"; then
-    pass "Clock and weather remain lightweight bar-only surfaces with theme icon lookup"
+    pass "Clock and weather remain lightweight bar surfaces with automatic detailed weather data"
 else
     fail "Bar-only widget surface or icon lookup contract is incomplete"
 fi

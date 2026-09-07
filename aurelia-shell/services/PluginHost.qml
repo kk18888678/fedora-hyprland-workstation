@@ -49,6 +49,7 @@ Item {
         // property would fail before the host could inject it.
         if ("aureliaPath" in target) target.aureliaPath = registry.packageRoot
         if ("shell" in target) target.shell = shellApi
+        if ("bar" in target) target.bar = itemFor("aurelia.bar")
         if ("shellConfig" in target) target.shellConfig = registry.shellConfig
         if ("manifest" in target) target.manifest = manifest
         if ("pluginRegistry" in target) target.pluginRegistry = registry

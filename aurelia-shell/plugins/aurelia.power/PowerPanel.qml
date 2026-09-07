@@ -10,14 +10,17 @@ PanelWindow {
     id: panelRoot
 
     property int barSize: 32
+    property var anchorWindow: null
     property string confirmAction: ""
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-power"
     anchors.top: true
-    anchors.bottom: true
-    anchors.left: true
     anchors.right: true
+    margins.top: panelRoot.barSize + Theme.spacingLg
+    margins.right: Theme.spacingLg
+    implicitWidth: 280
+    implicitHeight: confirmAction === "" ? 5 * 48 + Theme.spacingXl * 2 : 160
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: false
@@ -53,24 +56,9 @@ PanelWindow {
         actionProcess.running = true
     }
 
-    MouseArea {
-        anchors.fill: parent
-        z: 0
-        onClicked: function(mouse) {
-            mouse.accepted = true
-            panelRoot.close()
-        }
-    }
-
     Rectangle {
         id: card
-        z: 1
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.topMargin: panelRoot.barSize + Theme.spacingLg
-        anchors.rightMargin: Theme.spacingLg
-        width: 280
-        height: confirmAction === "" ? 5 * 48 + Theme.spacingXl * 2 : 160
+        anchors.fill: parent
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.border

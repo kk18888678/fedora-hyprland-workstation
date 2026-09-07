@@ -8,6 +8,7 @@ Item {
 
     property string aureliaPath: ""
     property var shell: null
+    property var bar: null
     property var manifest: ({})
     property var pluginRegistry: null
 
@@ -42,5 +43,6 @@ Item {
 
     CalendarPanel {
         id: calendarPanel
+        anchorWindow: pluginRoot.bar
     }
 }
