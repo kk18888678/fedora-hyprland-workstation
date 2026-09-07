@@ -9,23 +9,32 @@ PanelWindow {
     id: panelRoot
 
     property var weatherWidget: null
-    property int barSize: 32
+    property int barSize: 26
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-weather"
-    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     anchors.top: true
+    anchors.bottom: true
+    anchors.left: true
     anchors.right: true
-    margins.top: barSize + Theme.spacingLg
-    margins.right: Theme.spacingLg
-    implicitWidth: 420
-    implicitHeight: 360
+    implicitWidth: 0
+    implicitHeight: 0
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: false
 
-    function open() { visible = true }
-    function close() { visible = false }
+    readonly property bool barAtBottom: weatherWidget && weatherWidget.bar && weatherWidget.bar.position === "bottom"
+
+    function open() {
+        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.requestPopout === "function") weatherWidget.bar.requestPopout(panelRoot)
+        visible = true
+    }
+    function close() {
+        visible = false
+        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.releasePopout === "function") weatherWidget.bar.releasePopout(panelRoot)
+    }
+    function closeForPopoutSwitch() { close() }
 
     MouseArea {
         anchors.fill: parent
@@ -34,12 +43,20 @@ PanelWindow {
     }
 
     Rectangle {
-        anchors.fill: parent
+        width: 420
+        height: 360
+        anchors.right: parent.right
+        anchors.top: barAtBottom ? undefined : parent.top
+        anchors.bottom: barAtBottom ? parent.bottom : undefined
+        anchors.topMargin: barAtBottom ? 0 : barSize + Theme.spacingLg
+        anchors.bottomMargin: barAtBottom ? barSize + Theme.spacingLg : 0
+        anchors.rightMargin: Theme.spacingLg
         z: 1
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.border
         border.width: Theme.borderWidthDefault
+        focus: panelRoot.visible
 
         MouseArea {
             anchors.fill: parent

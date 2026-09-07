@@ -72,9 +72,17 @@ Item {
         loadRevision++
     }
 
+    function callBarWidget(id, method, argument) {
+        var bar = itemFor("aurelia.bar")
+        if (!bar || typeof bar.callWidget !== "function") return "not-loaded"
+        return bar.callWidget(id, method, argument)
+    }
+
     function open(id, payloadJson) {
         if (!registry || !registry.isKnown(id)) return "unknown"
         if (!registry.isEnabled(id)) return "disabled"
+        var barResult = callBarWidget(id, "open", payloadJson || "{}")
+        if (barResult !== "not-loaded") return barResult || "ok"
         setRequested(id, true)
         var target = itemFor(id)
         if (!target) {
@@ -90,6 +98,8 @@ Item {
 
     function close(id) {
         if (!registry || !registry.isKnown(id)) return "unknown"
+        var barResult = callBarWidget(id, "close", "")
+        if (barResult !== "not-loaded") return barResult || "ok"
         var target = itemFor(id)
         if (target && typeof target.close === "function") target.close()
         var manifest = manifestFor(id)
@@ -98,6 +108,8 @@ Item {
     }
 
     function isVisible(id) {
+        var barResult = callBarWidget(id, "isVisible", "")
+        if (barResult !== "not-loaded") return barResult === true || barResult === "true"
         var target = itemFor(id)
         if (!target) return false
         if (typeof target.isVisible === "function") return target.isVisible()
@@ -105,17 +117,17 @@ Item {
     }
 
     function toggle(id, payloadJson) {
+        var barResult = callBarWidget(id, "toggle", payloadJson || "{}")
+        if (barResult !== "not-loaded") return barResult || "ok"
         if (isVisible(id)) return close(id)
         return open(id, payloadJson || "{}")
     }
 
     function call(id, method, argument) {
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(method || ""))) return "invalid-method"
+        var barResult = callBarWidget(id, method, argument)
+        if (barResult !== "not-loaded") return barResult
         var target = itemFor(id)
-        if (!target) {
-            var bar = itemFor("aurelia.bar")
-            if (bar && typeof bar.callWidget === "function") return bar.callWidget(id, method, argument)
-        }
         if (!target || typeof target[method] !== "function") return "not-loaded"
         if (argument === undefined || argument === null || argument === "") return String(target[method]() || "")
         return String(target[method](argument) || "")
@@ -124,8 +136,9 @@ Item {
     function summaries() {
         if (!registry) return []
         var result = registry.pluginSummaries()
+        var bar = itemFor("aurelia.bar")
         for (var i = 0; i < result.length; i++) {
-            result[i].loaded = !!itemFor(result[i].id)
+            result[i].loaded = !!itemFor(result[i].id) || !!(bar && typeof bar.hasWidget === "function" && bar.hasWidget(result[i].id))
             result[i].visible = isVisible(result[i].id)
         }
         return result

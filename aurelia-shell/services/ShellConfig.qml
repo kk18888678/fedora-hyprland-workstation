@@ -47,8 +47,8 @@ QtObject {
                 ],
                 right: [
                     { id: "aurelia.tray" },
-                    { id: "aurelia.power" },
-                    { id: "aurelia.screenshot" }
+                    { id: "aurelia.screenshot" },
+                    { id: "aurelia.power" }
                 ]
             }
         }

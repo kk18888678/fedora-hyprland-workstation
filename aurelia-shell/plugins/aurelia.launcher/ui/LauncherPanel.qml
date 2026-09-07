@@ -10,6 +10,7 @@ PanelWindow {
 
     property string backendBin: ""
     property var processEnvironment: ({})
+    property var anchorWindow: null
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-launcher"
@@ -30,6 +31,7 @@ PanelWindow {
     }
 
     function open(payloadJson) {
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         visible = true
         launcherModel.query = ""
         launcherModel.selectedIndex = 0
@@ -40,7 +42,10 @@ PanelWindow {
     function close() {
         visible = false
         searchInput.text = ""
+        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
     }
+
+    function closeForPopoutSwitch() { close() }
 
     function iconSource(iconName) {
         var name = String(iconName || "")

@@ -9,23 +9,29 @@ import "../../theme"
 PanelWindow {
     id: panelRoot
 
-    property int barSize: 32
+    property int barSize: 26
     property var anchorWindow: null
     property string confirmAction: ""
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-power"
     anchors.top: true
+    anchors.bottom: true
+    anchors.left: true
     anchors.right: true
-    margins.top: panelRoot.barSize + Theme.spacingLg
-    margins.right: Theme.spacingLg
-    implicitWidth: 280
-    implicitHeight: confirmAction === "" ? 5 * 48 + Theme.spacingXl * 2 : 160
+    implicitWidth: 0
+    implicitHeight: 0
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: false
 
+    readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
+    readonly property int cardHeight: confirmAction === ""
+        ? (Theme.spacingXl * 2 + 28 + Theme.spacingSm * 5 + 5 * 40)
+        : (Theme.spacingXl * 2 + 28 + Theme.spacingSm + 2 * 40)
+
     function open() {
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         confirmAction = ""
         visible = true
     }
@@ -33,7 +39,10 @@ PanelWindow {
     function close() {
         confirmAction = ""
         visible = false
+        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
     }
+
+    function closeForPopoutSwitch() { close() }
 
     function requestAction(action) {
         if (action === "reboot" || action === "shutdown") {
@@ -56,13 +65,31 @@ PanelWindow {
         actionProcess.running = true
     }
 
+    MouseArea {
+        anchors.fill: parent
+        z: 0
+        acceptedButtons: Qt.LeftButton
+        onClicked: function(mouse) {
+            mouse.accepted = true
+            panelRoot.close()
+        }
+    }
+
     Rectangle {
         id: card
-        anchors.fill: parent
+        width: 280
+        height: panelRoot.cardHeight
+        anchors.right: parent.right
+        anchors.top: barAtBottom ? undefined : parent.top
+        anchors.bottom: barAtBottom ? parent.bottom : undefined
+        anchors.topMargin: barAtBottom ? 0 : panelRoot.barSize + Theme.spacingLg
+        anchors.bottomMargin: barAtBottom ? panelRoot.barSize + Theme.spacingLg : 0
+        anchors.rightMargin: Theme.spacingLg
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.border
         border.width: Theme.borderWidthDefault
+        focus: panelRoot.visible
 
         MouseArea {
             anchors.fill: parent

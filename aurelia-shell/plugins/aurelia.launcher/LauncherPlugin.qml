@@ -8,6 +8,7 @@ Item {
 
     property string aureliaPath: ""
     property var shell: null
+    property var bar: null
     property var manifest: ({})
     property var pluginRegistry: null
 
@@ -54,5 +55,6 @@ Item {
         id: launcherPanel
         backendBin: pluginRoot.backendBin
         processEnvironment: pluginRoot.processEnvironment
+        anchorWindow: pluginRoot.bar
     }
 }

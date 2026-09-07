@@ -109,3 +109,25 @@ if grep -q 'Quickshell.iconPath' "$weather_root/WeatherBarWidget.qml" &&
 else
     fail "Bar-only widget surface or icon lookup contract is incomplete"
 fi
+
+if grep -q 'function requestPopout(owner)' "$bar_root/Bar.qml" &&
+   grep -q 'function releasePopout(owner)' "$bar_root/Bar.qml" &&
+   grep -q 'function callBarWidget(id, method, argument)' "$ROOT/services/PluginHost.qml" &&
+   grep -q 'function hasWidget(pluginId)' "$bar_root/Bar.qml" &&
+   grep -q 'function open(payloadJson)' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'function isVisible()' "$weather_root/WeatherBarWidget.qml"; then
+    pass "Bar widgets share one Omarchy-style popout owner and complete shell lifecycle routing"
+else
+    fail "Bar widget lifecycle routing or popout ownership is incomplete"
+fi
+
+if grep -q 'anchors.bottom: true' "$calendar_root/ui/CalendarPanel.qml" &&
+   grep -q 'anchors.right: true' "$calendar_root/ui/CalendarPanel.qml" &&
+   grep -q 'closeForPopoutSwitch' "$calendar_root/ui/CalendarPanel.qml" &&
+   grep -q 'closeForPopoutSwitch' "$power_root/PowerPanel.qml" &&
+   grep -q 'closeForPopoutSwitch' "$ROOT/plugins/aurelia.weather/WeatherPanel.qml" &&
+   grep -q 'closeForPopoutSwitch' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotPanel.qml"; then
+    pass "Floating widget surfaces use full-screen dismissal ownership with cards below the bar"
+else
+    fail "Floating widget dismissal or below-bar surface contract is incomplete"
+fi

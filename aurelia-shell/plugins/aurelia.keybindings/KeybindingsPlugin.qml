@@ -11,6 +11,7 @@ Item {
 
     property string aureliaPath: ""
     property var shell: null
+    property var bar: null
     property var manifest: ({})
     property var pluginRegistry: null
 
@@ -18,6 +19,7 @@ Item {
     readonly property bool configured: shell !== null && pluginRegistry !== null
 
     function open(payloadJson) {
+        if (bar && typeof bar.requestPopout === "function") bar.requestPopout(keybindingsWindow)
         keybindingsWindow.visible = true
         return "ok"
     }
@@ -28,6 +30,7 @@ Item {
         } else {
             keybindingsWindow.visible = false
         }
+        if (bar && typeof bar.releasePopout === "function") bar.releasePopout(keybindingsWindow)
         return "ok"
     }
 
@@ -76,6 +79,7 @@ Item {
 
     KeybindingsWindow {
         id: keybindingsWindow
+        anchorWindow: pluginRoot.bar
         visible: false
     }
 }

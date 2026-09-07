@@ -41,7 +41,7 @@ Item {
         active: true
         source: Qt.resolvedUrl("PowerPanel.qml")
         onLoaded: {
-            if ("barSize" in item) item.barSize = root.bar ? root.bar.barSize : 32
+            if ("barSize" in item) item.barSize = root.bar ? root.bar.barSize : 26
             if ("anchorWindow" in item) item.anchorWindow = root.bar
         }
     }

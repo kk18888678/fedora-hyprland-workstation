@@ -7,7 +7,7 @@ import "../../../theme"
 PanelWindow {
     id: panelRoot
 
-    property int barSize: 32
+    property int barSize: anchorWindow ? anchorWindow.barSize : 26
     property var anchorWindow: null
     property date displayedMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
     readonly property int year: displayedMonth.getFullYear()
@@ -19,25 +19,31 @@ PanelWindow {
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-calendar"
-    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     anchors.top: true
+    anchors.bottom: true
     anchors.left: true
-    margins.top: panelRoot.barSize + Theme.spacingXl
-    margins.left: screen ? Math.max(0, Math.floor((screen.width - implicitWidth) / 2)) : 0
-    implicitWidth: 360
-    implicitHeight: 350
+    anchors.right: true
+    implicitWidth: 0
+    implicitHeight: 0
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: false
 
+    readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
+
     function open(payloadJson) {
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         displayedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
         visible = true
     }
 
     function close() {
         visible = false
+        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
     }
+
+    function closeForPopoutSwitch() { close() }
 
     function previousMonth() {
         displayedMonth = new Date(year, month - 1, 1)
@@ -59,13 +65,30 @@ PanelWindow {
         return Qt.formatDate(displayedMonth, "MMMM yyyy")
     }
 
+    MouseArea {
+        anchors.fill: parent
+        z: 0
+        acceptedButtons: Qt.LeftButton
+        onClicked: function(mouse) {
+            mouse.accepted = true
+            panelRoot.close()
+        }
+    }
+
     Rectangle {
         id: card
-        anchors.fill: parent
+        width: 360
+        height: 350
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: barAtBottom ? undefined : parent.top
+        anchors.bottom: barAtBottom ? parent.bottom : undefined
+        anchors.topMargin: barAtBottom ? 0 : panelRoot.barSize + Theme.spacingXl
+        anchors.bottomMargin: barAtBottom ? panelRoot.barSize + Theme.spacingXl : 0
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.border
         border.width: Theme.borderWidthDefault
+        focus: panelRoot.visible
 
         MouseArea {
             anchors.fill: parent

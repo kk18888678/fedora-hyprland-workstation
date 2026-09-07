@@ -11,16 +11,16 @@ PanelWindow {
 
     property string backendBin: ""
     property var processEnvironment: ({})
+    property var anchorWindow: null
     property string statusMessage: ""
     property string statusKind: "info"
     property string captureStage: "menu"
     property string pendingGeometry: ""
     property string pendingWindowLabel: ""
     property int delaySeconds: 3
-    property int barSize: 32
+    property int barSize: 26
     property bool showPointer: false
     property bool quickCapture: false
-    property bool suppressResultPanel: false
     property var windows: []
     property real selectionStartX: 0
     property real selectionStartY: 0
@@ -32,19 +32,19 @@ PanelWindow {
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-screenshot"
-    WlrLayershell.keyboardFocus: captureStage === "region-selecting" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
+    WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     anchors.top: true
+    anchors.bottom: true
+    anchors.left: true
     anchors.right: true
-    anchors.bottom: captureStage === "region-selecting"
-    anchors.left: captureStage === "region-selecting"
-    margins.top: captureStage === "region-selecting" ? 0 : barSize + Theme.spacingLg
-    margins.right: captureStage === "region-selecting" ? 0 : Theme.spacingLg
-    implicitWidth: captureStage === "region-selecting" ? 0 : 560
-    implicitHeight: captureStage === "region-selecting" ? 0 : (captureStage === "window-list" ? 560 : 480)
+    implicitWidth: 0
+    implicitHeight: 0
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: false
+
+    readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
 
     function resetMenu() {
         captureStage = "menu"
@@ -56,11 +56,11 @@ PanelWindow {
         delaySeconds = 3
         showPointer = false
         quickCapture = false
-        suppressResultPanel = false
     }
 
     function open(payloadJson) {
         resetMenu()
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         visible = true
         try {
             var payload = JSON.parse(payloadJson || "{}")
@@ -76,7 +76,10 @@ PanelWindow {
     function close() {
         if (windowsProcess.running) windowsProcess.running = false
         visible = false
+        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
     }
+
+    function closeForPopoutSwitch() { close() }
 
     function capture(mode, delay, geometry) {
         if (captureProcess.running) return
@@ -85,6 +88,7 @@ PanelWindow {
         statusKind = "info"
         captureStage = "capturing"
         visible = false
+        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
         captureRequested(mode, safeDelay, geometry || "", showPointer)
     }
 
@@ -116,6 +120,7 @@ PanelWindow {
         selectionEndX = 0
         selectionEndY = 0
         selectionDragging = false
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         visible = true
     }
 
@@ -131,6 +136,7 @@ PanelWindow {
         statusMessage = "Loading open windows..."
         statusKind = "info"
         console.info("[SCREENSHOT] window list requested backend=" + backendBin)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         windows = []
         windowsProcess.command = [backendBin, "windows"]
         windowsProcess.running = true
@@ -147,7 +153,6 @@ PanelWindow {
         pendingWindowLabel = windowData.title || windowData.class || "Window"
         var geometry = String(at[0]) + "," + String(at[1]) + " " + String(size[0]) + "x" + String(size[1])
         captureStage = "menu"
-        visible = true
         capture("window", delaySeconds, geometry)
     }
 
@@ -155,21 +160,21 @@ PanelWindow {
         if (!pendingGeometry) return
         var geometry = pendingGeometry
         captureStage = "menu"
-        visible = true
         capture("region", delay, geometry)
     }
 
     function captureCompleted(code, output, errorOutput, durationMs) {
-        var keepHidden = suppressResultPanel && code === 0
-        suppressResultPanel = false
-        visible = !keepHidden
         captureStage = "menu"
         var result = String(output || "").trim()
         var errorText = String(errorOutput || "").trim()
         if (code === 0) {
+            visible = false
+            if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
             statusMessage = result !== "" ? ("Screenshot saved and copied (" + durationMs + " ms).") : ("Screenshot captured (" + durationMs + " ms).")
             statusKind = "success"
         } else {
+            if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+            visible = true
             statusMessage = errorText || ("Capture failed (status " + code + ").")
             statusKind = "error"
         }
@@ -209,6 +214,7 @@ PanelWindow {
         z: 3
         visible: panelRoot.captureStage === "region-selecting"
         color: "#33ffffff"
+        focus: visible
 
         Text {
             anchors.top: parent.top
@@ -281,7 +287,6 @@ PanelWindow {
                 if (panelRoot.quickCapture) {
                     var quickGeometry = panelRoot.pendingGeometry
                     panelRoot.quickCapture = false
-                    panelRoot.suppressResultPanel = true
                     panelRoot.capture("region", 0, quickGeometry)
                     return
                 }
@@ -305,13 +310,21 @@ PanelWindow {
 
     Rectangle {
         id: card
-        anchors.fill: parent
+        width: Math.min(parent.width - Theme.spacingXxl * 2, 560)
+        height: panelRoot.captureStage === "window-list" ? 560 : 480
+        anchors.right: parent.right
+        anchors.top: barAtBottom ? undefined : parent.top
+        anchors.bottom: barAtBottom ? parent.bottom : undefined
+        anchors.topMargin: barAtBottom ? 0 : panelRoot.barSize + Theme.spacingLg
+        anchors.bottomMargin: barAtBottom ? panelRoot.barSize + Theme.spacingLg : 0
+        anchors.rightMargin: Theme.spacingLg
         z: 1
         visible: panelRoot.captureStage !== "region-selecting"
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.border
         border.width: Theme.borderWidthDefault
+        focus: panelRoot.visible && panelRoot.captureStage !== "region-selecting"
 
         MouseArea {
             anchors.fill: parent

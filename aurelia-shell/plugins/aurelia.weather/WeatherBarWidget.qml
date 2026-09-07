@@ -56,11 +56,30 @@ Item {
     function configureWeatherPanel(target) {
         if (!target) return
         if ("weatherWidget" in target) target.weatherWidget = root
-        if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 32
+        if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
     }
 
     function openWeatherPanel() {
         if (weatherPanelLoader.item && typeof weatherPanelLoader.item.open === "function") weatherPanelLoader.item.open()
+    }
+
+    function open(payloadJson) {
+        openWeatherPanel()
+        return "ok"
+    }
+
+    function close() {
+        if (weatherPanelLoader.item && typeof weatherPanelLoader.item.close === "function") weatherPanelLoader.item.close()
+        return "ok"
+    }
+
+    function toggle(payloadJson) {
+        if (isVisible()) return close()
+        return open(payloadJson || "{}")
+    }
+
+    function isVisible() {
+        return weatherPanelLoader.item && weatherPanelLoader.item.visible === true
     }
 
     function settingValue(key, fallback) {

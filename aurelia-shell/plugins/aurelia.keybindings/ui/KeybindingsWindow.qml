@@ -12,6 +12,8 @@ import "../../../theme"
 PanelWindow {
     id: windowRoot
 
+    property var anchorWindow: null
+
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-keybindings"
     WlrLayershell.keyboardFocus: windowRoot.browseActive ? WlrKeyboardFocus.None : (windowRoot.isRecording ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand)
@@ -238,6 +240,7 @@ PanelWindow {
         }
         console.info("[LIFECYCLE] keybindings.window.close.request reason=" + (reason || "unknown") + " view=" + keybindingsModel.activeView)
         windowRoot.visible = false
+        if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(windowRoot)
     }
 
     function goBack() {

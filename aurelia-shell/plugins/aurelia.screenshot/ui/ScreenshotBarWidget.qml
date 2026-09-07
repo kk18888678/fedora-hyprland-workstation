@@ -25,7 +25,8 @@ Item {
         if (!target) return
         if ("aureliaPath" in target) target.aureliaPath = root.aureliaPath
         if ("shell" in target) target.shell = root.shell
-        if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 40
+        if ("bar" in target) target.bar = root.bar
+        if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
         if ("manifest" in target) target.manifest = root.manifest
         if ("pluginRegistry" in target) target.pluginRegistry = root.pluginRegistry
     }

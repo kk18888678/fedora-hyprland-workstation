@@ -65,7 +65,8 @@ if grep -q 'function open(payloadJson)' "$plugin_root/ScreenshotPlugin.qml" &&
    grep -q 'captureCompleted' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'function quickRegion' "$plugin_root/ScreenshotPlugin.qml" &&
    grep -q 'quickCapture' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'suppressResultPanel' "$plugin_root/ui/ScreenshotPanel.qml" &&
+   grep -q 'anchorWindow' "$plugin_root/ui/ScreenshotPanel.qml" &&
+   grep -q 'closeForPopoutSwitch' "$plugin_root/ui/ScreenshotPanel.qml" &&
    grep -q 'aurelia.screenshot.quick_region' "$plugin_root/keybindings.lua" &&
    grep -q 'ScreenshotPlugin.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'function open(payloadJson)' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
@@ -91,7 +92,7 @@ fi
 if grep -q 'target: "aurelia.bar"' "$bar_root/Bar.qml" &&
    grep -q 'BarWidgetRow' "$bar_root/Bar.qml" &&
    grep -q 'BarCenter' "$bar_root/Bar.qml" &&
-   grep -q 'barSize: 32' "$bar_root/Bar.qml" &&
+   grep -q 'barSize: 26' "$bar_root/Bar.qml" &&
    grep -q 'AureliaLogo' "$bar_root/Bar.qml" &&
    grep -q 'centerAnchor' "$bar_root/Bar.qml" &&
    grep -q 'visible: true' "$bar_root/Bar.qml" &&

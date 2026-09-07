@@ -8,9 +8,10 @@ Item {
 
     property string aureliaPath: ""
     property var shell: null
+    property var bar: null
     property var manifest: ({})
     property var pluginRegistry: null
-    property int barSize: 32
+    property int barSize: 26
 
     readonly property string pluginId: "aurelia.screenshot"
     readonly property string backendBin: aureliaPath !== "" ? aureliaPath + "/bin/aurelia-screenshot" : "/usr/local/bin/aurelia-screenshot"
@@ -91,5 +92,6 @@ Item {
         backendBin: pluginRoot.backendBin
         processEnvironment: pluginRoot.processEnvironment
         barSize: pluginRoot.barSize
+        anchorWindow: pluginRoot.bar
     }
 }

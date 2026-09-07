@@ -31,8 +31,8 @@ PanelWindow {
             ],
             right: [
                 { id: "aurelia.tray" },
-                { id: "aurelia.power" },
-                { id: "aurelia.screenshot" }
+                { id: "aurelia.screenshot" },
+                { id: "aurelia.power" }
             ]
         }
     })
@@ -43,7 +43,10 @@ PanelWindow {
     readonly property string centerAnchor: typeof barConfig.centerAnchor === "string" ? barConfig.centerAnchor : ""
     readonly property bool transparent: barConfig.transparent === true
     readonly property bool barConfigReady: barConfig && barConfig.layout
-    readonly property int barSize: 32
+    // Match the horizontal size used by Omarchy's reference bar. Popouts use
+    // this value as their exact clearance below the bar.
+    readonly property int barSize: 26
+    property var activePopout: null
 
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "aurelia-bar"
@@ -80,12 +83,41 @@ PanelWindow {
         return "not-loaded"
     }
 
+    function hasWidget(pluginId) {
+        for (var i = 0; i < widgetSlots.length; i++) {
+            var slot = widgetSlots[i]
+            if (slot && slot.pluginId === pluginId && slot.widgetItem) return true
+        }
+        return false
+    }
+
     function open(payloadJson) {
         visible = true
         return "ok"
     }
 
+    // A bar owns the single-popout invariant. Widgets remain independent
+    // plugins, but they cannot leave two floating surfaces stacked over one
+    // another or strand an old surface after switching widgets.
+    function requestPopout(owner) {
+        if (!owner || activePopout === owner) return
+        var previous = activePopout
+        activePopout = owner
+        if (previous) {
+            if (typeof previous.closeForPopoutSwitch === "function") previous.closeForPopoutSwitch()
+            else if (typeof previous.close === "function") previous.close()
+            else if (typeof previous.requestClose === "function") previous.requestClose("popout-switch")
+        }
+    }
+
+    function releasePopout(owner) {
+        if (activePopout === owner) activePopout = null
+    }
+
     function close() {
+        if (activePopout && typeof activePopout.closeForPopoutSwitch === "function") activePopout.closeForPopoutSwitch()
+        else if (activePopout && typeof activePopout.requestClose === "function") activePopout.requestClose("bar-close")
+        activePopout = null
         visible = false
         return "ok"
     }
