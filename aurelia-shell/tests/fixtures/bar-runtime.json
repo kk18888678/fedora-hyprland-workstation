@@ -15,6 +15,7 @@
         { "id": "aurelia.weather", "location": "none" }
       ],
       "right": [
+        { "id": "aurelia.tasklist" },
         { "id": "aurelia.tray" },
         { "id": "aurelia.screenshot" },
         { "id": "aurelia.power" }

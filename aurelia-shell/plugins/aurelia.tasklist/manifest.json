@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.tasklist",
+  "name": "Task List",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Running Hyprland application icons with window actions.",
+  "icon": "view-list",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "TasklistBarWidget.qml"
+  }
+}

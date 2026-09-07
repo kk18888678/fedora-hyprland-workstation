@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Services.SystemTray
 import "../../theme"
 
@@ -20,7 +19,7 @@ Item {
 
     implicitWidth: trayRow.implicitWidth
     implicitHeight: bar ? bar.barSize : 32
-    visible: (SystemTray.items && SystemTray.items.values.length > 0) || (Hyprland.toplevels && Hyprland.toplevels.values.length > 0)
+    visible: SystemTray.items && SystemTray.items.values.length > 0
 
     function configureTrayMenu(target) {
         if (!target) return
@@ -86,43 +85,5 @@ Item {
             }
         }
 
-        Repeater {
-            model: Hyprland.toplevels
-
-            delegate: Item {
-                required property var modelData
-                Layout.preferredWidth: 24
-                Layout.preferredHeight: root.bar ? root.bar.barSize - 6 : 26
-
-                readonly property var appEntry: {
-                    var handle = modelData.handle
-                    var appId = handle && handle.appId ? handle.appId : ""
-                    return appId !== "" ? DesktopEntries.heuristicLookup(appId) : null
-                }
-
-                Image {
-                    anchors.centerIn: parent
-                    width: 20
-                    height: 20
-                    source: appEntry && appEntry.icon
-                        ? Quickshell.iconPath(appEntry.icon, "application-x-executable")
-                        : Quickshell.iconPath("application-x-executable")
-                    sourceSize: Qt.size(20, 20)
-                    fillMode: Image.PreserveAspectFit
-                    smooth: true
-                    asynchronous: true
-                    opacity: modelData.activated ? 1.0 : 0.65
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: function(mouse) {
-                        mouse.accepted = true
-                        if (modelData.handle) modelData.handle.activate()
-                    }
-                }
-            }
-        }
     }
 }

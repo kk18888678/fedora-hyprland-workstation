@@ -11,6 +11,7 @@ weather_bin="$ROOT/bin/aurelia-weather"
 calendar_root="$ROOT/plugins/aurelia.calendar"
 workspace_root="$ROOT/plugins/aurelia.workspaces"
 tray_root="$ROOT/plugins/aurelia.tray"
+tasklist_root="$ROOT/plugins/aurelia.tasklist"
 power_root="$ROOT/plugins/aurelia.power"
 
 section "Clock and Weather Bar Widgets"
@@ -36,14 +37,22 @@ if [[ -f "$tray_root/manifest.json" && -f "$tray_root/TrayBarWidget.qml" ]] &&
    jq -e '.schemaVersion == 1 and .id == "aurelia.tray" and (.kinds == ["bar-widget"])' "$tray_root/manifest.json" >/dev/null &&
    grep -q 'Quickshell.Services.SystemTray' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'SystemTray.items' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'Hyprland.toplevels' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'DesktopEntries.heuristicLookup' "$tray_root/TrayBarWidget.qml" &&
    [[ -f "$tray_root/TrayMenuPanel.qml" ]] &&
    grep -q 'QsMenuOpener' "$tray_root/TrayMenuPanel.qml" &&
    ! grep -q 'QsMenuAnchor' "$tray_root/TrayBarWidget.qml"; then
     pass "Tray/tasklist uses an in-shell D-Bus menu and Hyprland-window-backed bar widget"
 else
     fail "System tray bar widget is incomplete"
+fi
+
+if [[ -f "$tasklist_root/manifest.json" && -f "$tasklist_root/TasklistBarWidget.qml" && -f "$tasklist_root/TasklistMenuPanel.qml" ]] &&
+   jq -e '.schemaVersion == 1 and .id == "aurelia.tasklist" and (.kinds == ["bar-widget"])' "$tasklist_root/manifest.json" >/dev/null &&
+   grep -q 'Quickshell.Hyprland' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'Qt.RightButton' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'function closeWindow' "$tasklist_root/TasklistMenuPanel.qml"; then
+    pass "Tasklist is a separate Hyprland bar widget with an in-shell window context menu"
+else
+    fail "Tasklist plugin or window context menu is incomplete"
 fi
 
 if [[ -f "$power_root/manifest.json" && -f "$power_root/PowerBarWidget.qml" && -f "$power_root/PowerPanel.qml" ]] &&
