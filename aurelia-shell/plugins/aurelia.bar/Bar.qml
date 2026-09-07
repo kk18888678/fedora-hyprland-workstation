@@ -46,7 +46,59 @@ PanelWindow {
     // Match the horizontal size used by Omarchy's reference bar. Popouts use
     // this value as their exact clearance below the bar.
     readonly property int barSize: 26
+    property int surfaceTop: 0
+    property int surfaceBottom: 0
     property var activePopout: null
+
+    function refreshSurfaceGeometry() {
+        if (surfaceGeometryProcess.running) return
+        surfaceGeometryProcess.running = true
+    }
+
+    Process {
+        id: surfaceGeometryProcess
+        command: ["hyprctl", "layers", "-j"]
+        stdout: StdioCollector { id: surfaceGeometryOutput }
+        stderr: StdioCollector { id: surfaceGeometryError }
+
+        onExited: function(code) {
+            if (code !== 0) return
+            try {
+                var payload = JSON.parse(surfaceGeometryOutput.text || "{}")
+                var levels = payload.levels || {}
+                var found = false
+                for (var level in levels) {
+                    var surfaces = levels[level]
+                    if (!Array.isArray(surfaces)) continue
+                    for (var i = 0; i < surfaces.length; i++) {
+                        var surface = surfaces[i]
+                        if (!surface || surface.namespace !== "aurelia-bar") continue
+                        var top = Number(surface.y)
+                        var height = Number(surface.h)
+                        if (!Number.isFinite(top) || !Number.isFinite(height)) continue
+                        barRoot.surfaceTop = Math.max(0, Math.round(top))
+                        barRoot.surfaceBottom = barRoot.screen
+                            ? Math.max(0, Math.round(Number(barRoot.screen.height) - top - height))
+                            : 0
+                        found = true
+                        break
+                    }
+                    if (found) break
+                }
+            } catch (error) {
+                console.warn("[BAR] surface_geometry_invalid error=" + error)
+            }
+        }
+    }
+
+    Timer {
+        id: surfaceGeometryProbe
+        interval: 150
+        repeat: false
+        onTriggered: barRoot.refreshSurfaceGeometry()
+    }
+
+    Component.onCompleted: surfaceGeometryProbe.start()
 
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "aurelia-bar"

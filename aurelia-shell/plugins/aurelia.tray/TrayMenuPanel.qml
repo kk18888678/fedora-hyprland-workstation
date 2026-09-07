@@ -18,6 +18,8 @@ PanelWindow {
     property var submenuStack: []
 
     readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
+    readonly property int barTopClearance: anchorWindow && anchorWindow.surfaceTop !== undefined ? anchorWindow.surfaceTop + panelRoot.barSize : panelRoot.barSize
+    readonly property int barBottomClearance: anchorWindow && anchorWindow.surfaceBottom !== undefined ? anchorWindow.surfaceBottom + panelRoot.barSize : panelRoot.barSize
     readonly property var currentOpener: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].opener : rootMenuOpener
     readonly property var currentChildren: currentOpener ? currentOpener.children : null
     readonly property var currentValues: currentChildren ? currentChildren.values : []
@@ -59,6 +61,7 @@ PanelWindow {
 
     function openForItem(item, opener) {
         if (!item || !item.menu || !opener) return
+        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
         if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         resetSubmenus()
         trayItem = item
@@ -122,8 +125,8 @@ PanelWindow {
         anchors.right: parent.right
         anchors.top: barAtBottom ? undefined : parent.top
         anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : panelRoot.barSize + Theme.spacingLg
-        anchors.bottomMargin: barAtBottom ? panelRoot.barSize + Theme.spacingLg : 0
+        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingLg
+        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingLg : 0
         anchors.rightMargin: Theme.spacingLg
         z: 1
         radius: Theme.radiusLg

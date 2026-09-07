@@ -45,6 +45,8 @@ PanelWindow {
     visible: false
 
     readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
+    readonly property int barTopClearance: anchorWindow && anchorWindow.surfaceTop !== undefined ? anchorWindow.surfaceTop + panelRoot.barSize : panelRoot.barSize
+    readonly property int barBottomClearance: anchorWindow && anchorWindow.surfaceBottom !== undefined ? anchorWindow.surfaceBottom + panelRoot.barSize : panelRoot.barSize
 
     function resetMenu() {
         captureStage = "menu"
@@ -60,6 +62,7 @@ PanelWindow {
 
     function open(payloadJson) {
         resetMenu()
+        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
         if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         visible = true
         try {
@@ -123,6 +126,7 @@ PanelWindow {
         selectionEndX = 0
         selectionEndY = 0
         selectionDragging = false
+        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
         if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         visible = true
     }
@@ -150,6 +154,7 @@ PanelWindow {
         statusMessage = "Loading open windows..."
         statusKind = "info"
         console.info("[SCREENSHOT] window list requested backend=" + backendBin)
+        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
         if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         windows = []
         windowsProcess.command = [backendBin, "windows"]
@@ -347,8 +352,8 @@ PanelWindow {
         anchors.right: parent.right
         anchors.top: barAtBottom ? undefined : parent.top
         anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : panelRoot.barSize + Theme.spacingLg
-        anchors.bottomMargin: barAtBottom ? panelRoot.barSize + Theme.spacingLg : 0
+        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingLg
+        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingLg : 0
         anchors.rightMargin: Theme.spacingLg
         z: 1
         visible: panelRoot.captureStage !== "region-selecting"

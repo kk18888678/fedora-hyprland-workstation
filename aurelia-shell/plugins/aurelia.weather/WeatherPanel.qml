@@ -25,8 +25,11 @@ PanelWindow {
     visible: false
 
     readonly property bool barAtBottom: weatherWidget && weatherWidget.bar && weatherWidget.bar.position === "bottom"
+    readonly property int barTopClearance: weatherWidget && weatherWidget.bar && weatherWidget.bar.surfaceTop !== undefined ? weatherWidget.bar.surfaceTop + panelRoot.barSize : panelRoot.barSize
+    readonly property int barBottomClearance: weatherWidget && weatherWidget.bar && weatherWidget.bar.surfaceBottom !== undefined ? weatherWidget.bar.surfaceBottom + panelRoot.barSize : panelRoot.barSize
 
     function open() {
+        if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.refreshSurfaceGeometry === "function") weatherWidget.bar.refreshSurfaceGeometry()
         if (weatherWidget && weatherWidget.bar && typeof weatherWidget.bar.requestPopout === "function") weatherWidget.bar.requestPopout(panelRoot)
         visible = true
     }
@@ -48,8 +51,8 @@ PanelWindow {
         anchors.right: parent.right
         anchors.top: barAtBottom ? undefined : parent.top
         anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : barSize + Theme.spacingLg
-        anchors.bottomMargin: barAtBottom ? barSize + Theme.spacingLg : 0
+        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingLg
+        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingLg : 0
         anchors.rightMargin: Theme.spacingLg
         z: 1
         radius: Theme.radiusLg

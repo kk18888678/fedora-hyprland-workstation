@@ -15,6 +15,8 @@ PanelWindow {
     property var windowTarget: null
 
     readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
+    readonly property int barTopClearance: anchorWindow && anchorWindow.surfaceTop !== undefined ? anchorWindow.surfaceTop + panelRoot.barSize : panelRoot.barSize
+    readonly property int barBottomClearance: anchorWindow && anchorWindow.surfaceBottom !== undefined ? anchorWindow.surfaceBottom + panelRoot.barSize : panelRoot.barSize
     readonly property string windowTitle: windowTarget ? String(windowTarget.title || "Application") : "Application"
 
     WlrLayershell.layer: WlrLayer.Overlay
@@ -32,6 +34,7 @@ PanelWindow {
 
     function openForWindow(target) {
         if (!target || !target.handle) return
+        if (anchorWindow && typeof anchorWindow.refreshSurfaceGeometry === "function") anchorWindow.refreshSurfaceGeometry()
         if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         windowTarget = target
         visible = true
@@ -78,8 +81,8 @@ PanelWindow {
         anchors.right: parent.right
         anchors.top: barAtBottom ? undefined : parent.top
         anchors.bottom: barAtBottom ? parent.bottom : undefined
-        anchors.topMargin: barAtBottom ? 0 : panelRoot.barSize + Theme.spacingLg
-        anchors.bottomMargin: barAtBottom ? panelRoot.barSize + Theme.spacingLg : 0
+        anchors.topMargin: barAtBottom ? 0 : panelRoot.barTopClearance + Theme.spacingLg
+        anchors.bottomMargin: barAtBottom ? panelRoot.barBottomClearance + Theme.spacingLg : 0
         anchors.rightMargin: Theme.spacingLg
         z: 1
         radius: Theme.radiusLg
