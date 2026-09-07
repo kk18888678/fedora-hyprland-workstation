@@ -41,6 +41,7 @@ if [[ -f "$tray_root/manifest.json" && -f "$tray_root/TrayBarWidget.qml" ]] &&
    grep -q 'QsMenuOpener' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'QsMenuOpener' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'Repeater' "$tray_root/TrayMenuPanel.qml" &&
+   grep -q 'currentValues' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'openApplicationContextMenu' "$tray_root/TrayBarWidget.qml" &&
    ! grep -q 'QsMenuAnchor' "$tray_root/TrayBarWidget.qml"; then
     pass "Tray/tasklist uses an in-shell D-Bus menu and Hyprland-window-backed bar widget"

@@ -20,8 +20,9 @@ PanelWindow {
     readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
     readonly property var currentOpener: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].opener : rootMenuOpener
     readonly property var currentChildren: currentOpener ? currentOpener.children : null
+    readonly property var currentValues: currentChildren ? currentChildren.values : []
     readonly property string currentTitle: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].title : panelRoot.displayName(panelRoot.trayItem)
-    readonly property int menuHeight: Math.min(520, Math.max(112, Number(currentChildren ? currentChildren.count : 0) * 38 + headerRow.implicitHeight + Theme.spacingXl * 2 + Theme.spacingSm))
+    readonly property int menuHeight: Math.min(520, Math.max(112, Number(currentValues.length) * 38 + headerRow.implicitHeight + Theme.spacingXl * 2 + Theme.spacingSm))
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-tray-menu"
@@ -197,7 +198,7 @@ PanelWindow {
                     spacing: Theme.spacingXs
 
                     Repeater {
-                        model: panelRoot.currentChildren
+                        model: panelRoot.currentValues
 
                         delegate: Item {
                             required property var modelData
