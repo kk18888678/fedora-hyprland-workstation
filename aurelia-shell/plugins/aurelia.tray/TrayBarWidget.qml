@@ -31,6 +31,19 @@ Item {
         if (trayMenuPanel && typeof trayMenuPanel.openForItem === "function") trayMenuPanel.openForItem(item)
     }
 
+    function openApplicationContextMenu(item) {
+        var identity = [
+            item && item.id ? item.id : "",
+            item && item.title ? item.title : "",
+            item && item.tooltipTitle ? item.tooltipTitle : "",
+            item && item.tooltipDescription ? item.tooltipDescription : ""
+        ].join("|")
+        var taskResult = root.bar && typeof root.bar.callWidget === "function"
+            ? root.bar.callWidget("aurelia.tasklist", "openMatchingWindowMenu", identity)
+            : "not-loaded"
+        if (taskResult !== "ok" && item && item.hasMenu) root.openTrayMenu(item)
+    }
+
     Loader {
         id: trayMenuLoader
         active: true
@@ -71,8 +84,8 @@ Item {
                     acceptedButtons: Qt.AllButtons
                     onClicked: function(mouse) {
                         mouse.accepted = true
-                        if (mouse.button === Qt.RightButton && modelData.hasMenu) {
-                            root.openTrayMenu(modelData)
+                        if (mouse.button === Qt.RightButton) {
+                            root.openApplicationContextMenu(modelData)
                         } else if (mouse.button === Qt.LeftButton) {
                             if (modelData.onlyMenu && modelData.hasMenu) root.openTrayMenu(modelData)
                             else modelData.activate()

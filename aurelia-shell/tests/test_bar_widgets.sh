@@ -40,6 +40,7 @@ if [[ -f "$tray_root/manifest.json" && -f "$tray_root/TrayBarWidget.qml" ]] &&
    [[ -f "$tray_root/TrayMenuPanel.qml" ]] &&
    grep -q 'QsMenuOpener' "$tray_root/TrayMenuPanel.qml" &&
    grep -q 'Repeater' "$tray_root/TrayMenuPanel.qml" &&
+   grep -q 'openApplicationContextMenu' "$tray_root/TrayBarWidget.qml" &&
    ! grep -q 'QsMenuAnchor' "$tray_root/TrayBarWidget.qml"; then
     pass "Tray/tasklist uses an in-shell D-Bus menu and Hyprland-window-backed bar widget"
 else
@@ -50,7 +51,8 @@ if [[ -f "$tasklist_root/manifest.json" && -f "$tasklist_root/TasklistBarWidget.
    jq -e '.schemaVersion == 1 and .id == "aurelia.tasklist" and (.kinds == ["bar-widget"])' "$tasklist_root/manifest.json" >/dev/null &&
    grep -q 'Quickshell.Hyprland' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'Qt.RightButton' "$tasklist_root/TasklistBarWidget.qml" &&
-   grep -q 'function closeWindow' "$tasklist_root/TasklistMenuPanel.qml"; then
+   grep -q 'function closeWindow' "$tasklist_root/TasklistMenuPanel.qml" &&
+   grep -q 'function openMatchingWindowMenu' "$tasklist_root/TasklistBarWidget.qml"; then
     pass "Tasklist is a separate Hyprland bar widget with an in-shell window context menu"
 else
     fail "Tasklist plugin or window context menu is incomplete"

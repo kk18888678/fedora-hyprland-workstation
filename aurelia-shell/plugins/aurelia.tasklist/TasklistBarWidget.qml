@@ -32,6 +32,30 @@ Item {
         if (menuPanel && typeof menuPanel.openForWindow === "function") menuPanel.openForWindow(windowTarget)
     }
 
+    function openMatchingWindowMenu(identity) {
+        var requested = String(identity || "").toLowerCase().split("|")
+        var values = Hyprland.toplevels ? Hyprland.toplevels.values : []
+        for (var i = 0; i < values.length; i++) {
+            var candidate = values[i]
+            var handle = candidate ? candidate.handle : null
+            var appId = handle && handle.appId ? String(handle.appId).toLowerCase() : ""
+            var title = candidate && candidate.title ? String(candidate.title).toLowerCase() : ""
+            var matched = false
+            for (var r = 0; r < requested.length; r++) {
+                var needle = requested[r].trim()
+                if (needle !== "" && (appId === needle || title === needle || appId.indexOf(needle) !== -1 || title.indexOf(needle) !== -1)) {
+                    matched = true
+                    break
+                }
+            }
+            if (matched && handle) {
+                openWindowMenu(candidate)
+                return "ok"
+            }
+        }
+        return "not-found"
+    }
+
     Loader {
         id: menuLoader
         active: true
