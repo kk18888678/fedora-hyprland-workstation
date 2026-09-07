@@ -142,7 +142,10 @@ if grep -q 'Quickshell.iconPath' "$weather_root/WeatherBarWidget.qml" &&
    ! grep -q 'PanelWindow' "$clock_root/ClockBarWidget.qml" &&
    [[ -f "$weather_root/WeatherPanel.qml" ]] &&
    grep -q 'Next 3 days' "$weather_root/WeatherPanel.qml" &&
-   ! grep -q 'PanelWindow' "$weather_root/WeatherBarWidget.qml"; then
+   ! grep -q 'PanelWindow' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'function scheduleRefresh' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'onSettingsChanged: root.scheduleRefresh()' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'function onVisibleChanged' "$weather_root/WeatherBarWidget.qml"; then
     pass "Clock and weather remain lightweight bar surfaces with automatic detailed weather data"
 else
     fail "Bar-only widget surface or icon lookup contract is incomplete"

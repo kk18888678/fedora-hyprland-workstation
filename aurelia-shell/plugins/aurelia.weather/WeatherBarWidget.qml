@@ -105,7 +105,19 @@ Item {
             command.push("--location", root.location)
         }
         weatherProcess.command = command
+        console.info("[WEATHER] fetch.begin mode=" + (root.hasCoordinates ? "coordinates" : root.location))
         weatherProcess.running = true
+    }
+
+    function scheduleRefresh() {
+        refreshRequestTimer.restart()
+    }
+
+    Timer {
+        id: refreshRequestTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.refresh()
     }
 
     function iconFor(code, isDay) {
@@ -188,9 +200,23 @@ Item {
         onTriggered: root.refresh()
     }
 
-    Component.onCompleted: root.refresh()
-    onAureliaPathChanged: root.configureWeatherPanel(weatherPanelLoader.item)
-    onBarChanged: root.configureWeatherPanel(weatherPanelLoader.item)
+    Connections {
+        target: root.bar
+        function onVisibleChanged() {
+            if (root.bar && root.bar.visible) root.scheduleRefresh()
+        }
+    }
+
+    Component.onCompleted: root.scheduleRefresh()
+    onAureliaPathChanged: {
+        root.configureWeatherPanel(weatherPanelLoader.item)
+        root.scheduleRefresh()
+    }
+    onSettingsChanged: root.scheduleRefresh()
+    onBarChanged: {
+        root.configureWeatherPanel(weatherPanelLoader.item)
+        root.scheduleRefresh()
+    }
     onBarAnchorItemChanged: root.configureWeatherPanel(weatherPanelLoader.item)
 
     Row {
