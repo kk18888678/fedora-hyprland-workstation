@@ -296,7 +296,7 @@ if [[ -z "$geometry" && ("$capture_mode" == "region" || "$capture_mode" == "wind
     fi
 
     selection_status=0
-    geometry="$(run_bounded 30 slurp "${slurp_args[@]}" 2>/dev/null)" || selection_status=$?
+    geometry="$(run_bounded 30 slurp "${slurp_args[@]}")" || selection_status=$?
     if (( selection_status != 0 )); then
         # A user cancellation is a clean no-op; a timeout or tool failure is
         # reported distinctly.
