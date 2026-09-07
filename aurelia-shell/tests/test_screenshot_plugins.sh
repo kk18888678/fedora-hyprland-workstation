@@ -23,6 +23,7 @@ if [[ -x "$capture_bin" ]] &&
    grep -q 'slurp' "$capture_bin" &&
    grep -q 'hyprpicker' "$capture_bin" &&
    grep -q 'screen_freeze' "$capture_bin" &&
+   grep -q 'hide_cursor_for_capture' "$capture_bin" &&
    grep -q 'wl-copy' "$capture_bin" &&
    grep -q 'cursor:no_hardware_cursors' "$capture_bin" &&
    grep -q 'getoption cursor:no_hardware_cursors' "$capture_bin" &&

@@ -232,31 +232,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cursor_json="$(run_bounded 5 hyprctl getoption cursor:no_hardware_cursors -j)" ||
-    fail "Could not read Hyprland cursor mode."
-original_no_hw_cursors="$(printf '%s\n' "$cursor_json" | jq -r '.int // empty')"
-[[ "$original_no_hw_cursors" =~ ^[0-9]+$ ]] ||
-    fail "Hyprland returned an invalid cursor mode."
-
-run_bounded 5 hyprctl keyword cursor:no_hardware_cursors 0 >/dev/null ||
-    fail "Could not temporarily disable software cursor compositing."
-cursor_mode_changed=1
-
-if (( show_pointer == 0 )); then
-    inactive_json="$(run_bounded 5 hyprctl getoption cursor:inactive_timeout -j)" ||
-        fail "Could not read Hyprland cursor inactivity."
-    original_inactive_timeout="$(printf '%s\n' "$inactive_json" | jq -r '.float // .int // empty')"
-    [[ "$original_inactive_timeout" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
-        fail "Hyprland returned an invalid cursor inactivity value."
-    run_bounded 5 hyprctl keyword cursor:inactive_timeout 1 >/dev/null ||
-        fail "Could not temporarily enable cursor inactivity hiding."
-    inactivity_timeout_changed=1
-    sleep 1.2
-fi
-
-printf '[SCREENSHOT] cursor_mode original_no_hardware_cursors=%s capture_no_hardware_cursors=0 original_inactive_timeout=%s pointer=%s\n' \
-    "$original_no_hw_cursors" "$original_inactive_timeout" "$show_pointer" >&2
-
 start_freeze() {
     [[ -z "$freeze_pid" ]] || return 0
     hyprpicker -r -z >/dev/null 2>&1 &
@@ -268,6 +243,39 @@ start_freeze() {
         fail "Could not freeze the screen for selection."
     fi
     printf '[SCREENSHOT] screen_freeze pid=%s\n' "$freeze_pid" >&2
+}
+
+if [[ "$capture_mode" == "smart" || "$capture_mode" == "region" || "$capture_mode" == "window" ]]; then
+    # Map the frozen surface before any cursor-state queries so the selector
+    # becomes visible immediately after the hotkey is dispatched.
+    start_freeze
+fi
+
+cursor_json="$(run_bounded 5 hyprctl getoption cursor:no_hardware_cursors -j)" ||
+    fail "Could not read Hyprland cursor mode."
+original_no_hw_cursors="$(printf '%s\n' "$cursor_json" | jq -r '.int // empty')"
+[[ "$original_no_hw_cursors" =~ ^[0-9]+$ ]] ||
+    fail "Hyprland returned an invalid cursor mode."
+
+run_bounded 5 hyprctl keyword cursor:no_hardware_cursors 0 >/dev/null ||
+    fail "Could not temporarily disable software cursor compositing."
+cursor_mode_changed=1
+
+hide_cursor_for_capture() {
+    (( show_pointer == 0 )) || return 0
+    inactive_json="$(run_bounded 5 hyprctl getoption cursor:inactive_timeout -j)" ||
+        fail "Could not read Hyprland cursor inactivity."
+    original_inactive_timeout="$(printf '%s\n' "$inactive_json" | jq -r '.float // .int // empty')"
+    [[ "$original_inactive_timeout" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+        fail "Hyprland returned an invalid cursor inactivity value."
+    run_bounded 5 hyprctl keyword cursor:inactive_timeout 1 >/dev/null ||
+        fail "Could not temporarily enable cursor inactivity hiding."
+    inactivity_timeout_changed=1
+    # The picker/freeze is already visible. This wait can no longer delay the
+    # user-facing selector; it only prepares the frozen frame for grim.
+    sleep 1.2
+    printf '[SCREENSHOT] cursor_mode original_no_hardware_cursors=%s capture_no_hardware_cursors=0 original_inactive_timeout=%s pointer=%s\n' \
+        "$original_no_hw_cursors" "$original_inactive_timeout" "$show_pointer" >&2
 }
 
 selection_rectangles() {
@@ -307,11 +315,6 @@ grim_args=()
 if (( show_pointer == 1 )); then
     grim_args+=("-c")
 fi
-if [[ "$capture_mode" == "smart" || "$capture_mode" == "region" || "$capture_mode" == "window" ]]; then
-    # Omarchy freezes before selection so an open launcher/menu remains part of
-    # the captured frame and cannot dismiss or move while slurp is active.
-    start_freeze
-fi
 if [[ -z "$geometry" && ("$capture_mode" == "smart" || "$capture_mode" == "region" || "$capture_mode" == "window") ]]; then
     if [[ "$capture_mode" == "window" ]]; then
         slurp_args+=("-r")
@@ -336,6 +339,8 @@ if [[ -z "$geometry" && ("$capture_mode" == "smart" || "$capture_mode" == "regio
     fi
     [[ -n "$geometry" ]] || exit 0
 fi
+
+hide_cursor_for_capture
 
 capture_status=0
 if [[ -n "$geometry" ]]; then
