@@ -37,8 +37,11 @@ if [[ -f "$tray_root/manifest.json" && -f "$tray_root/TrayBarWidget.qml" ]] &&
    grep -q 'Quickshell.Services.SystemTray' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'SystemTray.items' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'Hyprland.toplevels' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'DesktopEntries.heuristicLookup' "$tray_root/TrayBarWidget.qml"; then
-    pass "Tray/tasklist is a separate StatusNotifier and Hyprland-window-backed bar widget"
+   grep -q 'DesktopEntries.heuristicLookup' "$tray_root/TrayBarWidget.qml" &&
+   [[ -f "$tray_root/TrayMenuPanel.qml" ]] &&
+   grep -q 'QsMenuOpener' "$tray_root/TrayMenuPanel.qml" &&
+   ! grep -q 'QsMenuAnchor' "$tray_root/TrayBarWidget.qml"; then
+    pass "Tray/tasklist uses an in-shell D-Bus menu and Hyprland-window-backed bar widget"
 else
     fail "System tray bar widget is incomplete"
 fi

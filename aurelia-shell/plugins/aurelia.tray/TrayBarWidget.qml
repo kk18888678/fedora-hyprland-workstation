@@ -16,10 +16,30 @@ Item {
     property var settings: ({})
     property var manifest: ({})
     property var pluginRegistry: null
+    readonly property var trayMenuPanel: trayMenuLoader.item
 
     implicitWidth: trayRow.implicitWidth
     implicitHeight: bar ? bar.barSize : 32
     visible: (SystemTray.items && SystemTray.items.values.length > 0) || (Hyprland.toplevels && Hyprland.toplevels.values.length > 0)
+
+    function configureTrayMenu(target) {
+        if (!target) return
+        if ("anchorWindow" in target) target.anchorWindow = root.bar
+        if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
+    }
+
+    function openTrayMenu(item) {
+        if (trayMenuPanel && typeof trayMenuPanel.openForItem === "function") trayMenuPanel.openForItem(item)
+    }
+
+    Loader {
+        id: trayMenuLoader
+        active: true
+        source: Qt.resolvedUrl("TrayMenuPanel.qml")
+        onLoaded: root.configureTrayMenu(item)
+    }
+
+    onBarChanged: root.configureTrayMenu(trayMenuLoader.item)
 
     RowLayout {
         id: trayRow
@@ -53,9 +73,9 @@ Item {
                     onClicked: function(mouse) {
                         mouse.accepted = true
                         if (mouse.button === Qt.RightButton && modelData.hasMenu) {
-                            trayMenu.open()
+                            root.openTrayMenu(modelData)
                         } else if (mouse.button === Qt.LeftButton) {
-                            if (modelData.onlyMenu && modelData.hasMenu) trayMenu.open()
+                            if (modelData.onlyMenu && modelData.hasMenu) root.openTrayMenu(modelData)
                             else modelData.activate()
                         } else if (mouse.button === Qt.MiddleButton) {
                             modelData.secondaryActivate()
@@ -63,11 +83,6 @@ Item {
                     }
                 }
 
-                QsMenuAnchor {
-                    id: trayMenu
-                    menu: modelData.menu
-                    anchor.item: trayDelegate
-                }
             }
         }
 
