@@ -32,6 +32,11 @@ ShellRoot {
         source: "file://$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml"
     }
 
+    Loader {
+        active: true
+        source: "file://$ROOT/plugins/aurelia.weather/WeatherBarWidget.qml"
+    }
+
     Timer {
         interval: 500
         running: true
@@ -46,7 +51,7 @@ runtime_status=0
 
 if [[ "$runtime_status" -eq 0 ]] &&
    ! grep -Eq 'WARN|ERROR|FATAL|ReferenceError|TypeError|widget_load_failed|panel_load_failed' "$smoke_output"; then
-    pass "Screenshot bar widget instantiates in QuickShell without QML warnings or errors"
+    pass "Screenshot and weather bar widgets instantiate in QuickShell without QML warnings or errors"
 elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$smoke_output"; then
     pass "SKIP QML runtime smoke (test runner cannot create an additional Wayland QuickShell surface)"
 else

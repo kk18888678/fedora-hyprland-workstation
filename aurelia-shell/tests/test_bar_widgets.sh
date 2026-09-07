@@ -109,6 +109,8 @@ if [[ -x "$weather_bin" ]] &&
    grep -q 'apparent_temperature' "$weather_bin" &&
    grep -q 'relative_humidity_2m' "$weather_bin" &&
    grep -q 'forecast_days=3' "$weather_bin" &&
+   grep -q 'region' "$weather_bin" &&
+   grep -q 'startswith' "$weather_bin" &&
    grep -q -- '--connect-timeout 3' "$weather_bin" &&
    grep -q -- '--max-time 5' "$weather_bin" &&
    grep -q -- '--max-filesize 1048576' "$weather_bin" &&
@@ -144,8 +146,15 @@ if grep -q 'Quickshell.iconPath' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'Next 3 days' "$weather_root/WeatherPanel.qml" &&
    ! grep -q 'PanelWindow' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'function scheduleRefresh' "$weather_root/WeatherBarWidget.qml" &&
-   grep -q 'onSettingsChanged: root.scheduleRefresh()' "$weather_root/WeatherBarWidget.qml" &&
-   grep -q 'function onVisibleChanged' "$weather_root/WeatherBarWidget.qml"; then
+   grep -q 'onSettingsChanged:' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'function onVisibleChanged' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'property bool weatherReady: false' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'visible: root.weatherReady' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'forecastData.length < 3' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'weather-clear-wind' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'function dayLabel' "$weather_root/WeatherPanel.qml" &&
+   grep -q 'FORECAST' "$weather_root/WeatherPanel.qml" &&
+   grep -q 'find-location' "$weather_root/WeatherPanel.qml"; then
     pass "Clock and weather remain lightweight bar surfaces with automatic detailed weather data"
 else
     fail "Bar-only widget surface or icon lookup contract is incomplete"

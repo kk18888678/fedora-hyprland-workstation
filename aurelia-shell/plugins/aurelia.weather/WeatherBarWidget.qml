@@ -21,12 +21,13 @@ Item {
     property var barAnchorItem: null
     property string temperatureText: ""
     property string conditionText: "…"
-    property string iconName: "weather-clear"
+    property string iconName: "weather-clear-wind"
     property string feelsText: ""
     property string humidityText: ""
     property string windText: ""
     property string resolvedLocation: ""
     property var forecast: []
+    property bool weatherReady: false
 
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-weather"
@@ -44,7 +45,8 @@ Item {
         "XDG_RUNTIME_DIR": Quickshell.env("XDG_RUNTIME_DIR") || ""
     })
 
-    implicitWidth: weatherRow.implicitWidth + Theme.spacingSm * 2
+    visible: root.weatherReady
+    implicitWidth: root.weatherReady ? weatherRow.implicitWidth + Theme.spacingSm * 2 : 0
     implicitHeight: bar ? bar.barSize : 40
 
     Loader {
@@ -61,10 +63,12 @@ Item {
     }
 
     function openWeatherPanel() {
+        if (!root.weatherReady) return
         if (weatherPanelLoader.item && typeof weatherPanelLoader.item.open === "function") weatherPanelLoader.item.open()
     }
 
     function open(payloadJson) {
+        if (!root.weatherReady) return "not-ready"
         openWeatherPanel()
         return "ok"
     }
@@ -75,6 +79,7 @@ Item {
     }
 
     function toggle(payloadJson) {
+        if (!root.weatherReady) return "not-ready"
         if (isVisible()) return close()
         return open(payloadJson || "{}")
     }
@@ -121,13 +126,14 @@ Item {
     }
 
     function iconFor(code, isDay) {
-        if (code === 0) return isDay ? "weather-clear" : "weather-clear-night"
-        if (code === 1 || code === 2) return isDay ? "weather-few-clouds" : "weather-clouds-night"
-        if (code === 3 || code === 45 || code === 48) return "weather-overcast"
-        if (code >= 51 && code <= 67) return "weather-showers"
-        if (code >= 71 && code <= 86) return "weather-snow"
-        if (code >= 95) return "weather-storm"
-        return "weather-clear"
+        if (code === 0) return isDay ? "weather-clear-wind" : "weather-clear-wind-night"
+        if (code === 1 || code === 2) return isDay ? "weather-few-clouds-wind" : "weather-few-clouds-wind-night"
+        if (code === 3) return "weather-clouds"
+        if (code === 45 || code === 48) return "weather-mist"
+        if (code >= 51 && code <= 67) return isDay ? "weather-showers-day" : "weather-showers-night"
+        if (code >= 71 && code <= 86) return isDay ? "weather-snow-day" : "weather-snow-night"
+        if (code >= 95) return isDay ? "weather-storm-day" : "weather-storm-night"
+        return isDay ? "weather-clear-wind" : "weather-clear-wind-night"
     }
 
     function descriptionFor(code) {
@@ -150,47 +156,75 @@ Item {
         onExited: function(code) {
             if (code !== 0) {
                 console.warn("[WEATHER] fetch_failed code=" + code + " error=" + weatherStderr.text.trim())
-                root.temperatureText = ""
-                root.conditionText = root.configured ? "Weather unavailable" : root.locationLabel
+                if (!root.weatherReady) {
+                    root.temperatureText = ""
+                    root.feelsText = ""
+                    root.humidityText = ""
+                    root.windText = ""
+                    root.resolvedLocation = ""
+                    root.forecast = []
+                    root.conditionText = root.configured ? "Weather unavailable" : root.locationLabel
+                }
                 return
             }
             try {
                 var payload = JSON.parse(weatherStdout.text.trim())
                 var temperature = Number(payload.temperature)
+                var apparentTemperature = Number(payload.apparentTemperature)
+                var humidity = Number(payload.humidity)
+                var windSpeed = Number(payload.windSpeed)
                 var weatherCode = Number(payload.weatherCode)
                 var isDay = Number(payload.isDay) === 1
-                if (!isFinite(temperature) || !isFinite(weatherCode)) throw new Error("invalid weather response")
+                var forecastData = payload.forecast
+                if (!isFinite(temperature) || !isFinite(apparentTemperature) ||
+                    !isFinite(humidity) || !isFinite(windSpeed) || !isFinite(weatherCode) ||
+                    !Array.isArray(forecastData) || forecastData.length < 3) {
+                    throw new Error("incomplete weather response")
+                }
+                for (var i = 0; i < 3; i++) {
+                    var day = forecastData[i]
+                    if (!day || String(day.date || "") === "" ||
+                        !isFinite(Number(day.weatherCode)) || !isFinite(Number(day.max)) ||
+                        !isFinite(Number(day.min)) || !isFinite(Number(day.windSpeed))) {
+                        throw new Error("incomplete forecast response")
+                    }
+                }
                 root.temperatureText = Math.round(temperature) + (root.units === "imperial" ? "°F" : "°C")
-                root.feelsText = Math.round(Number(payload.apparentTemperature)) + (root.units === "imperial" ? "°F" : "°C")
-                root.humidityText = Math.round(Number(payload.humidity)) + "%"
-                root.windText = Math.round(Number(payload.windSpeed)) + (root.units === "imperial" ? " mph" : " km/h")
+                root.feelsText = Math.round(apparentTemperature) + (root.units === "imperial" ? "°F" : "°C")
+                root.humidityText = Math.round(humidity) + "%"
+                root.windText = Math.round(windSpeed) + (root.units === "imperial" ? " mph" : " km/h")
                 root.resolvedLocation = String(payload.location || root.locationLabel)
-                root.forecast = Array.isArray(payload.forecast) ? payload.forecast : []
+                root.forecast = forecastData.slice(0, 3)
                 root.conditionText = payload.condition && payload.condition !== ""
                     ? String(payload.condition)
                     : root.descriptionFor(weatherCode)
                 root.iconName = weatherCode >= 0
                     ? root.iconFor(weatherCode, isDay)
                     : root.iconForCondition(root.conditionText, isDay)
+                root.weatherReady = true
             } catch (error) {
                 console.warn("[WEATHER] response_invalid error=" + error)
-                root.temperatureText = ""
-                root.feelsText = ""
-                root.humidityText = ""
-                root.windText = ""
-                root.forecast = []
-                root.conditionText = "Weather unavailable"
+                if (!root.weatherReady) {
+                    root.temperatureText = ""
+                    root.feelsText = ""
+                    root.humidityText = ""
+                    root.windText = ""
+                    root.resolvedLocation = ""
+                    root.forecast = []
+                    root.conditionText = "Weather unavailable"
+                }
             }
         }
     }
 
     function iconForCondition(condition, isDay) {
         var text = String(condition || "").toLowerCase()
-        if (text.indexOf("thunder") !== -1 || text.indexOf("storm") !== -1) return "weather-storm"
-        if (text.indexOf("snow") !== -1 || text.indexOf("sleet") !== -1) return "weather-snow"
-        if (text.indexOf("rain") !== -1 || text.indexOf("drizzle") !== -1 || text.indexOf("shower") !== -1) return "weather-showers"
-        if (text.indexOf("cloud") !== -1 || text.indexOf("overcast") !== -1 || text.indexOf("mist") !== -1) return "weather-overcast"
-        return isDay ? "weather-clear" : "weather-clear-night"
+        if (text.indexOf("thunder") !== -1 || text.indexOf("storm") !== -1) return isDay ? "weather-storm-day" : "weather-storm-night"
+        if (text.indexOf("snow") !== -1 || text.indexOf("sleet") !== -1) return isDay ? "weather-snow-day" : "weather-snow-night"
+        if (text.indexOf("rain") !== -1 || text.indexOf("drizzle") !== -1 || text.indexOf("shower") !== -1) return isDay ? "weather-showers-day" : "weather-showers-night"
+        if (text.indexOf("cloud") !== -1 || text.indexOf("overcast") !== -1) return "weather-clouds"
+        if (text.indexOf("mist") !== -1 || text.indexOf("fog") !== -1) return "weather-mist"
+        return isDay ? "weather-clear-wind" : "weather-clear-wind-night"
     }
 
     Timer {
@@ -212,7 +246,13 @@ Item {
         root.configureWeatherPanel(weatherPanelLoader.item)
         root.scheduleRefresh()
     }
-    onSettingsChanged: root.scheduleRefresh()
+    onSettingsChanged: {
+        root.weatherReady = false
+        root.scheduleRefresh()
+    }
+    onWeatherReadyChanged: {
+        if (!root.weatherReady && root.isVisible()) root.close()
+    }
     onBarChanged: {
         root.configureWeatherPanel(weatherPanelLoader.item)
         root.scheduleRefresh()
@@ -233,7 +273,7 @@ Item {
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: root.temperatureText !== "" ? root.temperatureText : "…"
+            text: root.temperatureText
             color: Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm

@@ -41,12 +41,15 @@ else
     fail "Aurelia provider manifest is missing Super+K"
 fi
 
-if [[ -f "$ROOT/plugins/aurelia.screenshot/keybindings.lua" ]] &&
+if [[ -f "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
+      -f "$ROOT/plugins/aurelia.launcher/keybindings.lua" ]] &&
    grep -q 'aurelia.screenshot.quick_region' "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
+   grep -q 'id = "launcher"' "$ROOT/plugins/aurelia.launcher/keybindings.lua" &&
    grep -q 'load_aurelia_plugin_bindings' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'keybindings.lua' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
    grep -q 'plugin_ipc' "$keybind_lua" &&
    grep -q 'quickRegion' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml"; then
-    pass "Screenshot plugin owns a provider-registered quick-region binding"
+    pass "Aurelia plugins own provider-registered bindings"
 else
-    fail "Screenshot quick-region provider binding is incomplete"
+    fail "Aurelia plugin keybinding declarations are incomplete"
 fi

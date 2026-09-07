@@ -18,20 +18,6 @@ M.categories = {
 M.bindings = {
     -- Applications & Launchers
     {
-        id = "launcher",
-        priority = 10,
-        editable = true,
-        category = "Applications & Launchers",
-        key = "SUPER + D",
-        action_type = "exec",
-        command = "noctalia msg panel-toggle launcher",
-        command_argv = { "noctalia", "msg", "panel-toggle", "launcher" },
-        desktop_id = "dev.noctalia.Noctalia.desktop",
-        display_key = "Super + D",
-        description = "App Launcher",
-        runnable = true,
-    },
-    {
         id = "terminal",
         priority = 20,
         editable = true,
@@ -429,23 +415,43 @@ M.bindings = {
     },
 }
 
--- First-party plugin bindings are declared by the plugin and merged into the
+-- First-party plugin bindings are declared by each plugin and merged into the
 -- same effective registry consumed by both the UI and Hyprland provider.
 local function load_aurelia_plugin_bindings()
     local source = debug.getinfo(1, "S").source or ""
     source = source:gsub("^@", "")
     local shell_root = source:gsub("/dotfiles/hypr/keybindings_manifest%.lua$", "")
-    local declaration_path = shell_root .. "/plugins/aurelia.screenshot/keybindings.lua"
-    local declaration_file = io.open(declaration_path, "rb")
-    if not declaration_file then return end
-    declaration_file:close()
-    local ok, declarations = pcall(dofile, declaration_path)
-    if not ok or type(declarations) ~= "table" then return end
-    for _, item in ipairs(declarations) do
+    local plugin_dir = shell_root .. "/plugins"
+    local function shell_quote(path)
+        return "'" .. path:gsub("'", "'\\''") .. "'"
+    end
+
+    local known_ids = {}
+    for _, item in ipairs(M.bindings) do
         if type(item) == "table" and type(item.id) == "string" then
-            table.insert(M.bindings, item)
+            known_ids[item.id] = true
         end
     end
+
+    local handle = io.popen(
+        "find " .. shell_quote(plugin_dir) ..
+        " -mindepth 2 -maxdepth 2 -type f -name 'keybindings.lua' " ..
+        "-printf '%p\\n' 2>/dev/null | sort"
+    )
+    if not handle then return end
+
+    for declaration_path in handle:lines() do
+        local ok, declarations = pcall(dofile, declaration_path)
+        if ok and type(declarations) == "table" then
+            for _, item in ipairs(declarations) do
+                if type(item) == "table" and type(item.id) == "string" and not known_ids[item.id] then
+                    table.insert(M.bindings, item)
+                    known_ids[item.id] = true
+                end
+            end
+        end
+    end
+    handle:close()
 end
 
 load_aurelia_plugin_bindings()
