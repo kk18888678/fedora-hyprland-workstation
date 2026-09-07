@@ -52,7 +52,9 @@ if [[ -f "$tasklist_root/manifest.json" && -f "$tasklist_root/TasklistBarWidget.
    grep -q 'Quickshell.Hyprland' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'Qt.RightButton' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'function closeWindow' "$tasklist_root/TasklistMenuPanel.qml" &&
-   grep -q 'function openMatchingWindowMenu' "$tasklist_root/TasklistBarWidget.qml"; then
+   grep -q 'function openMatchingWindowMenu' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'function iconSourceFor' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'window-new' "$tasklist_root/TasklistBarWidget.qml"; then
     pass "Tasklist is a separate Hyprland bar widget with an in-shell window context menu"
 else
     fail "Tasklist plugin or window context menu is incomplete"

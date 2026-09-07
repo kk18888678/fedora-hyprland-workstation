@@ -56,6 +56,17 @@ Item {
         return "not-found"
     }
 
+    function iconSourceFor(windowTarget, appEntry) {
+        if (appEntry && appEntry.icon) return Quickshell.iconPath(appEntry.icon, "window-new")
+        var handle = windowTarget && windowTarget.handle
+        var appId = handle && handle.appId ? String(handle.appId).toLowerCase() : ""
+        if (appId.indexOf("chatgpt") >= 0) return Quickshell.iconPath("chatgpt", "window-new")
+        if (appId.indexOf("chrom") >= 0) return Quickshell.iconPath("chromium", "window-new")
+        if (appId.indexOf("kate") >= 0) return Quickshell.iconPath("kate", "window-new")
+        if (appId.indexOf("foot") >= 0) return Quickshell.iconPath("utilities-terminal", "window-new")
+        return Quickshell.iconPath("window-new", "applications-system")
+    }
+
     Loader {
         id: menuLoader
         active: true
@@ -88,9 +99,7 @@ Item {
                     anchors.centerIn: parent
                     width: 20
                     height: 20
-                    source: appEntry && appEntry.icon
-                        ? Quickshell.iconPath(appEntry.icon, "application-x-executable")
-                        : Quickshell.iconPath("application-x-executable")
+                    source: root.iconSourceFor(modelData, appEntry)
                     sourceSize: Qt.size(20, 20)
                     fillMode: Image.PreserveAspectFit
                     smooth: true

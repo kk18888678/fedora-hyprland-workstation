@@ -19,7 +19,7 @@ PanelWindow {
     readonly property bool barAtBottom: anchorWindow && anchorWindow.position === "bottom"
     readonly property var currentOpener: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].opener : rootMenuOpener
     readonly property var currentChildren: currentOpener ? currentOpener.children : null
-    readonly property string currentTitle: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].title : (trayItem ? String(trayItem.title || trayItem.id || "Tray") : "Tray")
+    readonly property string currentTitle: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].title : panelRoot.displayName(panelRoot.trayItem)
     readonly property int menuHeight: Math.min(520, Math.max(112, Number(currentChildren ? currentChildren.count : 0) * 38 + headerRow.implicitHeight + Theme.spacingXl * 2 + Theme.spacingSm))
 
     WlrLayershell.layer: WlrLayer.Overlay
@@ -38,6 +38,21 @@ PanelWindow {
     QsMenuOpener {
         id: rootMenuOpener
         menu: panelRoot.trayItem ? panelRoot.trayItem.menu : null
+    }
+
+    function displayName(item) {
+        if (!item) return "Tray"
+        var title = String(item.title || "").trim()
+        if (title !== "") return title
+        var tooltipTitle = String(item.tooltipTitle || "").trim()
+        if (tooltipTitle !== "") return tooltipTitle
+        var description = String(item.tooltipDescription || "").trim()
+        if (description !== "") return description
+        var id = String(item.id || "")
+        var slash = id.lastIndexOf("/")
+        if (slash >= 0) id = id.substring(slash + 1)
+        if (id.toLowerCase().indexOf("statusnotifieritem") >= 0 || id === "") return "Tray"
+        return id
     }
 
     Component {
