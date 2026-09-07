@@ -12,6 +12,12 @@ PanelWindow {
     property var processEnvironment: ({})
     property var anchorWindow: null
 
+    readonly property int calculatedCardHeight: {
+        // Keep the viewport stable while the query filters results. The list
+        // scrolls inside this fixed card instead of resizing on every keystroke.
+        return Math.max(300, Math.min(height - Theme.spacingXxl * 2, 420))
+    }
+
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-launcher"
     WlrLayershell.keyboardFocus: visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
@@ -66,8 +72,8 @@ PanelWindow {
         id: card
         z: 1
         anchors.centerIn: parent
-        width: Math.min(parent.width - Theme.spacingXxl * 2, 760)
-        height: Math.min(parent.height - Theme.spacingXxl * 2, 540)
+        width: Math.min(parent.width - Theme.spacingXxl * 2, 532)
+        height: panelRoot.calculatedCardHeight
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.border
@@ -111,6 +117,11 @@ PanelWindow {
                 focus: true
                 activeFocusOnTab: true
                 selectByMouse: true
+                leftPadding: Theme.spacingMd
+                rightPadding: Theme.spacingMd
+                topPadding: Theme.spacingXs
+                bottomPadding: Theme.spacingXs
+                verticalAlignment: TextInput.AlignVCenter
                 color: Theme.inputText
                 selectionColor: Theme.inputSelection
                 selectedTextColor: Theme.inputSelectionText

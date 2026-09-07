@@ -28,6 +28,8 @@ fi
 
 if grep -q 'filteredApplications' "$launcher_root/ui/LauncherModel.qml" &&
    grep -q 'Search applications' "$launcher_root/ui/LauncherPanel.qml" &&
+   grep -q 'leftPadding: Theme.spacingMd' "$launcher_root/ui/LauncherPanel.qml" &&
+   grep -q 'calculatedCardHeight' "$launcher_root/ui/LauncherPanel.qml" &&
    grep -q 'Key_Down' "$launcher_root/ui/LauncherPanel.qml" &&
    grep -q 'Key_Return' "$launcher_root/ui/LauncherPanel.qml" &&
    ! grep -Eq '(^|[[:space:];])eval([[:space:];]|$)' "$launcher_root/ui/LauncherModel.qml"; then
