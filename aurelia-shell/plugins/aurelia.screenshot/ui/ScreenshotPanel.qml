@@ -95,17 +95,17 @@ PanelWindow {
     function quickRegion() {
         resetMenu()
         quickCapture = true
-        // Quick capture must not close an already-open Aurelia popout or an
-        // application menu underneath the selection surface. The selected
-        // pixels are the user's current screen state.
-        startRegionSelection(true)
+        // Match Omarchy's quick path: invoke the native grim/slurp backend
+        // directly. Mapping an Aurelia exclusive-focus layer here would
+        // dismiss an already-open application menu before selection starts.
+        capture("region", 0, "")
     }
 
     function capturePayload(payloadJson) {
         open(payloadJson)
     }
 
-    function startRegionSelection(preserveExistingPopout) {
+    function startRegionSelection() {
         if (!backendBin || backendBin.length === 0) {
             visible = true
             captureStage = "menu"
@@ -123,7 +123,7 @@ PanelWindow {
         selectionEndX = 0
         selectionEndY = 0
         selectionDragging = false
-        if (!preserveExistingPopout && anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
+        if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot)
         visible = true
     }
 
@@ -178,9 +178,20 @@ PanelWindow {
     }
 
     function captureCompleted(code, output, errorOutput, durationMs) {
+        var wasQuick = quickCapture
+        quickCapture = false
         captureStage = "menu"
         var result = String(output || "").trim()
         var errorText = String(errorOutput || "").trim()
+        if (wasQuick && (code !== 0 || result === "")) {
+            // slurp returns a clean empty result when the user cancels. Do
+            // not reopen Aurelia's panel over the application they preserved.
+            visible = false
+            if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
+            statusMessage = ""
+            statusKind = "info"
+            return
+        }
         if (code === 0) {
             visible = false
             if (anchorWindow && typeof anchorWindow.releasePopout === "function") anchorWindow.releasePopout(panelRoot)
