@@ -126,6 +126,14 @@ function historyEntry(value) {
     return normalizeHistoryEntry(value)
 }
 
+function isRenderableHistoryEntry(value) {
+    var entry = value || {}
+    return String(entry.app || "") !== "" ||
+        String(entry.summary || "") !== "" ||
+        String(entry.body || "") !== "" ||
+        String(entry.image || "") !== ""
+}
+
 function parseSettings(raw) {
     var text = String(raw || "").trim()
     if (text === "") return { ok: true, dnd: null }
@@ -150,7 +158,7 @@ function parseHistory(raw, limit) {
     var rows = []
     for (var i = 0; i < source.length && rows.length < MAX_HISTORY; i++) {
         var row = normalizeHistoryEntry(source[i])
-        if (row.timestamp > 0 || row.summary !== "" || row.body !== "") rows.push(row)
+        if (isRenderableHistoryEntry(row)) rows.push(row)
     }
     rows.sort(function(left, right) { return right.timestamp - left.timestamp })
     var max = Math.max(0, Math.min(MAX_HISTORY, Math.floor(finiteNumber(limit, 50))))
@@ -205,6 +213,7 @@ if (typeof module !== "undefined") {
         isEphemeralApp: isEphemeralApp,
         snapshotOf: snapshotOf,
         historyEntry: historyEntry,
+        isRenderableHistoryEntry: isRenderableHistoryEntry,
         parseSettings: parseSettings,
         parseHistory: parseHistory,
         durationFor: durationFor,

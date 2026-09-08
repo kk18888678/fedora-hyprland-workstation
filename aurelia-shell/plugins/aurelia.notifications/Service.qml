@@ -50,6 +50,7 @@ Item {
     property bool stateSaveQueued: false
     property var historyEntries: []
     property var liveRefs: ({})
+    property var liveSnapshots: ({})
     property bool notificationBusAvailable: false
     property bool notificationBusProbeComplete: false
     property bool notificationBusOwnerFound: false
@@ -71,6 +72,7 @@ Item {
 
         onLoaded: service.loadSettings(text())
         onLoadFailed: service.loadSettings("")
+        onSaved: console.info("[NOTIFICATIONS] settings.saved")
         onSaveFailed: console.error("[NOTIFICATIONS] settings_save_failed")
     }
 
@@ -84,13 +86,8 @@ Item {
 
         onLoaded: service.loadHistory(text())
         onLoadFailed: service.loadHistory("")
+        onSaved: console.info("[NOTIFICATIONS] history.saved count=" + service.historyEntries.length)
         onSaveFailed: console.error("[NOTIFICATIONS] history_save_failed")
-    }
-
-    property Timer stateSaveTimer: Timer {
-        interval: 250
-        repeat: false
-        onTriggered: service.flushState()
     }
 
     property Process ensureStateDirProcess: Process {
@@ -105,7 +102,7 @@ Item {
                 return
             }
             service.stateDirectoryReady = true
-            if (service.stateSaveQueued) service.stateSaveTimer.restart()
+            if (service.stateSaveQueued) service.flushState()
         }
     }
 
@@ -166,12 +163,13 @@ Item {
         if (!parsed.ok) console.info("[NOTIFICATIONS] settings_invalid using_defaults")
         if (!settingsDirty && parsed.dnd !== null) doNotDisturb = parsed.dnd
         settingsLoaded = true
-        if (stateSaveQueued && stateDirectoryReady && historyLoaded) stateSaveTimer.restart()
+        if (stateSaveQueued && stateDirectoryReady && historyLoaded) flushState()
     }
 
     function loadHistory(raw) {
         if (historyLoaded) return
         var diskEntries = Logic.parseHistory(raw, historyLimit)
+        var needsRewrite = String(raw || "").trim() !== "" && diskEntries.length === 0
         if (historyDirty) {
             var merged = historyEntries.concat(diskEntries)
             merged.sort(function(left, right) { return Number(right.timestamp || 0) - Number(left.timestamp || 0) })
@@ -181,12 +179,13 @@ Item {
         }
         rebuildHistoryModel()
         historyLoaded = true
-        if (stateSaveQueued && stateDirectoryReady && settingsLoaded) stateSaveTimer.restart()
+        if (needsRewrite) stateSaveQueued = true
+        if (stateSaveQueued && stateDirectoryReady && settingsLoaded) flushState()
     }
 
     function queueStateSave() {
         stateSaveQueued = true
-        if (stateDirectoryReady) stateSaveTimer.restart()
+        if (stateDirectoryReady && settingsLoaded && historyLoaded) flushState()
     }
 
     function flushState() {
@@ -215,12 +214,14 @@ Item {
 
     function recordHistory(snapshot) {
         var entry = Logic.historyEntry(snapshot)
+        if (!Logic.isRenderableHistoryEntry(entry)) return
         var next = historyEntries.slice()
         next.unshift(entry)
         historyEntries = next.slice(0, historyLimit)
         historyDirty = true
         rebuildHistoryModel()
         queueStateSave()
+        console.info("[NOTIFICATIONS] history.recorded count=" + historyEntries.length)
     }
 
     function removeActiveById(originalId) {
@@ -239,7 +240,9 @@ Item {
         for (var i = 0; i < activeNotificationsModel.count; i++) {
             var row = activeNotificationsModel.get(i)
             if (!row || row.originalId !== originalId) continue
+            updated.timestamp = row.timestamp
             for (var r = 0; r < roles.length; r++) activeNotificationsModel.setProperty(i, roles[r], updated[roles[r]])
+            liveSnapshots[originalId] = updated
             return
         }
     }
@@ -263,6 +266,7 @@ Item {
         var originalId = snapshot.originalId
         var previous = liveRefs[originalId]
         liveRefs[originalId] = notification
+        liveSnapshots[originalId] = snapshot
         if (previous && previous !== notification) {
             try {
                 if (typeof previous.dismiss === "function") previous.dismiss()
@@ -284,6 +288,7 @@ Item {
         if (doNotDisturb && !Logic.shouldBypassDnd(notification, 2)) {
             if (!Logic.isEphemeralApp(snapshot.app) && !isTransient(notification)) recordHistory(snapshot)
             delete liveRefs[originalId]
+            delete liveSnapshots[originalId]
             try { notification.tracked = false } catch (releaseError) {}
             console.info("[NOTIFICATIONS] notification.silenced app=" + snapshot.app)
             return
@@ -300,8 +305,9 @@ Item {
         var entry = activeNotificationsModel.get(index)
         var originalId = entry ? entry.originalId : -1
         var reference = liveRefs[originalId]
+        var historySnapshot = Logic.isRenderableHistoryEntry(entry) ? entry : liveSnapshots[originalId]
         activeNotificationsModel.remove(index)
-        if (entry) recordHistory(entry)
+        if (historySnapshot) recordHistory(historySnapshot)
         if (reference) {
             try {
                 if (reason === "expire" && typeof reference.expire === "function") reference.expire()
@@ -311,6 +317,7 @@ Item {
             }
         }
         if (liveRefs[originalId] === reference) delete liveRefs[originalId]
+        delete liveSnapshots[originalId]
     }
 
     function dismissAt(index) { removeAt(index, "dismiss") }
@@ -319,6 +326,17 @@ Item {
     function dismissAll() {
         while (activeNotificationsModel.count > 0) removeAt(0, "dismiss")
         return "ok"
+    }
+
+    function removeByOriginalId(originalId, reason) {
+        for (var i = activeNotificationsModel.count - 1; i >= 0; i--) {
+            var row = activeNotificationsModel.get(i)
+            if (row && row.originalId === originalId) {
+                removeAt(i, reason)
+                return true
+            }
+        }
+        return false
     }
 
     function invokeAction(index, identifier) {
@@ -330,7 +348,7 @@ Item {
             var action = reference.actions[i]
             if (action && action.identifier === identifier && typeof action.invoke === "function") {
                 action.invoke()
-                removeAt(index, "action")
+                removeByOriginalId(entry.originalId, "action")
                 return "ok"
             }
         }
@@ -346,7 +364,7 @@ Item {
                 var action = reference.actions[i]
                 if (action && action.identifier === "default" && typeof action.invoke === "function") {
                     action.invoke()
-                    removeAt(index, "action")
+                    removeByOriginalId(entry.originalId, "action")
                     return "ok"
                 }
             }
@@ -403,6 +421,7 @@ Item {
     function publishScreenshot(path) {
         var snapshot = Logic.screenshotSnapshot(path, Date.now())
         if (!snapshot) return "invalid-path"
+        liveSnapshots[snapshot.originalId] = snapshot
         activeNotificationsModel.insert(0, snapshot)
         console.info("[NOTIFICATIONS] screenshot.published")
         return "ok"

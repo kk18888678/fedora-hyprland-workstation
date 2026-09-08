@@ -317,6 +317,7 @@ PanelWindow {
                     Column {
                         anchors.centerIn: parent
                         spacing: Theme.spacingXs
+                        visible: root.currentViewEmpty
 
                         AureliaIcon {
                             anchors.horizontalCenter: parent.horizontalCenter
