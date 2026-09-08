@@ -16,6 +16,7 @@ run_suite "$ROOT/tests/test_screenshot_plugins.sh"
 run_suite "$ROOT/tests/test_qml_runtime.sh"
 run_suite "$ROOT/tests/test_bar_widgets.sh"
 run_suite "$ROOT/tests/test_launcher_plugin.sh"
+run_suite "$ROOT/tests/test_command_center_backend.sh"
 run_suite "$ROOT/tests/test_hyprland_provider.sh"
 
 print_test_summary

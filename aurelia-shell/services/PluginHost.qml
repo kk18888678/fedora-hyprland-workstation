@@ -8,6 +8,7 @@ Item {
 
     property var registry: null
     property var shellApi: null
+    property var appLibrary: null
     property var loaders: ({})
     property var instances: ({})
     property var requested: ({})
@@ -49,6 +50,7 @@ Item {
         // property would fail before the host could inject it.
         if ("aureliaPath" in target) target.aureliaPath = registry.packageRoot
         if ("shell" in target) target.shell = shellApi
+        if ("appLibrary" in target) target.appLibrary = host.appLibrary
         if ("bar" in target) target.bar = itemFor("aurelia.bar")
         if ("shellConfig" in target) target.shellConfig = registry.shellConfig
         if ("manifest" in target) target.manifest = manifest

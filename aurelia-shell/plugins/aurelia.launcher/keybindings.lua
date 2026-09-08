@@ -16,7 +16,7 @@ return {
         -- Aurelia.
         id = "launcher",
         key = "SUPER + SPACE",
-        description = "Aurelia App Launcher",
+        description = "Aurelia Command Center",
         category = "Applications & Launchers",
         priority = 10,
         editable = true,

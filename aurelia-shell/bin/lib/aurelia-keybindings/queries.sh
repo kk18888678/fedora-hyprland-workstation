@@ -199,3 +199,82 @@ table.insert(parts, "]\n")
 io.write(table.concat(parts))
 LUA_APPS_JSON
 }
+
+get_application_launch_argv() {
+    local desktop_id="$1"
+    "$lua_bin" - "$manifest_dir" "$desktop_id" <<'LUA_APPLICATION_LAUNCH'
+local manifest_dir = arg[1]
+local desktop_id = arg[2]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local reg = require("application_registry")
+local argv, info_or_error = reg.resolve_application_launch_argv(desktop_id)
+if not argv then
+    io.stderr:write(tostring(info_or_error) .. "\n")
+    os.exit(2)
+end
+for _, value in ipairs(argv) do
+    io.write(value, "\0")
+end
+LUA_APPLICATION_LAUNCH
+}
+
+get_path_launch_argv() {
+    local path="$1"
+    "$lua_bin" - "$manifest_dir" "$path" <<'LUA_PATH_LAUNCH'
+local manifest_dir = arg[1]
+local path = arg[2]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local reg = require("application_registry")
+local executable = reg.resolve_in_path("xdg-open")
+if not executable then
+    io.stderr:write("xdg-open is not installed or executable\n")
+    os.exit(2)
+end
+local argv, err = reg.wrap_session_argv({ executable, path })
+if not argv then
+    io.stderr:write(tostring(err) .. "\n")
+    os.exit(2)
+end
+for _, value in ipairs(argv) do
+    io.write(value, "\0")
+end
+LUA_PATH_LAUNCH
+}
+
+get_application_description() {
+    local desktop_id="$1"
+    "$lua_bin" - "$manifest_dir" "$desktop_id" <<'LUA_APPLICATION_DESCRIPTION'
+local manifest_dir = arg[1]
+local desktop_id = arg[2]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local reg = require("application_registry")
+local info = reg.find_application(desktop_id)
+if not info then os.exit(1) end
+print(info.name or desktop_id)
+LUA_APPLICATION_DESCRIPTION
+}
+
+get_files_json() {
+    local query="$1"
+    "$lua_bin" - "$manifest_dir" "$query" <<'LUA_FILES_JSON'
+local manifest_dir = arg[1]
+local query = arg[2]
+package.path = manifest_dir .. "/?.lua;" .. package.path
+local search = require("file_search")
+local rows = search.search(query)
+local parts = {"[\n"}
+for index, row in ipairs(rows) do
+    local fields = {
+        string.format('    "path": %q', row.path or ""),
+        string.format('    "name": %q', row.name or ""),
+        string.format('    "display_path": %q', row.display_path or ""),
+        string.format('    "kind": %q', row.kind or "file")
+    }
+    local item = "  {\n" .. table.concat(fields, ",\n") .. "\n  }"
+    if index < #rows then item = item .. "," end
+    table.insert(parts, item .. "\n")
+end
+table.insert(parts, "]\n")
+io.write(table.concat(parts))
+LUA_FILES_JSON
+}

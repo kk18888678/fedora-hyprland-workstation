@@ -5,7 +5,7 @@
 # mutations, diagnostics, and IPC lifecycle live in their respective modules.
 
 print_keybindings_help() {
-    printf '%s\n' 'Usage: aurelia-shell-keybindings [toggle|json|apps|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>|choose-file|complete-path <prefix>]'
+    printf '%s\n' 'Usage: aurelia-shell-keybindings [toggle|json|apps|files <query>|launch-app <desktop-id>|open-path <absolute-path>|add-app <id>|remove-app <id>|add-exec <id> <name> <path> [args...]|remove-action <id>|set <id> <key>|unset <id>|run <id>|choose-file|complete-path <prefix>]'
 }
 
 handle_meta_subcommand() {
@@ -88,6 +88,21 @@ parse_keybindings_args() {
             apps|--apps)
                 SUBCOMMAND="apps"
                 shift
+                ;;
+            files|--files)
+                SUBCOMMAND="files"
+                TARGET_ID="${2:-}"
+                if [[ $# -gt 1 ]]; then shift 2; else shift; fi
+                ;;
+            launch-app|--launch-app)
+                SUBCOMMAND="launch-app"
+                TARGET_ID="${2:-}"
+                if [[ $# -gt 1 ]]; then shift 2; else shift; fi
+                ;;
+            open-path|--open-path)
+                SUBCOMMAND="open-path"
+                TARGET_ID="${2:-}"
+                if [[ $# -gt 1 ]]; then shift 2; else shift; fi
                 ;;
             add-app|--add-app)
                 SUBCOMMAND="add-app"
@@ -189,6 +204,10 @@ run_explicit_command() {
             get_apps_json
             return $?
             ;;
+        files)
+            get_files_json "$TARGET_ID"
+            return $?
+            ;;
         choose-file)
             choose_file
             return $?
@@ -213,6 +232,18 @@ run_explicit_command() {
             remove_user_action "$TARGET_ID" "$SUBCOMMAND"
             return $?
             ;;
+        launch-app)
+            if [[ -z "$TARGET_ID" || ! "$TARGET_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.desktop$ ]]; then
+                printf '%s\n' "Error: Invalid desktop application ID for launch-app" >&2
+                return 1
+            fi
+            ;;
+        open-path)
+            if [[ -z "$TARGET_ID" || "$TARGET_ID" != /* || "$TARGET_ID" == "/" ]]; then
+                printf '%s\n' "Error: open-path requires an absolute non-root path" >&2
+                return 1
+            fi
+            ;;
         run|set|unset)
             if [[ -z "$TARGET_ID" ]]; then
                 printf '%s\n' "Error: Missing action ID for $SUBCOMMAND" >&2
@@ -236,6 +267,12 @@ run_explicit_command() {
     esac
 
     case "$SUBCOMMAND" in
+        launch-app)
+            execute_application "$TARGET_ID"
+            ;;
+        open-path)
+            execute_open_path "$TARGET_ID"
+            ;;
         run)
             local description=""
             if ! description="$(lookup_action_description "$TARGET_ID" 2>/dev/null)"; then
@@ -300,6 +337,8 @@ main() {
     parse_keybindings_args "$@" || return $?
 
     if [[ "$SUBCOMMAND" == "json" || "$SUBCOMMAND" == "apps" ||
+          "$SUBCOMMAND" == "files" || "$SUBCOMMAND" == "launch-app" ||
+          "$SUBCOMMAND" == "open-path" ||
           "$SUBCOMMAND" == "choose-file" || "$SUBCOMMAND" == "complete-path" ||
           "$SUBCOMMAND" == "validate-shortcut" || "$SUBCOMMAND" == "add-app" ||
           "$SUBCOMMAND" == "add-exec" || "$SUBCOMMAND" == "remove-app" ||

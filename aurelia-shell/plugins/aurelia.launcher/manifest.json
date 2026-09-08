@@ -1,13 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "aurelia.launcher",
-  "name": "Application Launcher",
+  "name": "Command Center",
   "version": "1.0.0",
   "author": "Fedora Hyprland Workstation",
-  "description": "Keyboard-first launcher for installed desktop applications.",
+  "description": "Extensible keyboard-first command surface for apps, files, actions, and tools.",
   "icon": "system-search",
   "kinds": ["panel"],
+  "keepLoaded": true,
   "entryPoints": {
-    "panel": "LauncherPlugin.qml"
+    "panel": "CommandCenterPlugin.qml"
   }
 }

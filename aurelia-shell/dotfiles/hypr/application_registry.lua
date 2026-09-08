@@ -6,7 +6,8 @@
 -- Invariants:
 -- - Zero hardcoded application tables
 -- - Standards-compliant XDG Desktop Entry parsing (Type=Application, NoDisplay, Hidden, TryExec)
--- - Zero custom Exec parser: execution delegated strictly to trusted platform launcher (gtk-launch)
+-- - Structured desktop-entry parsing; activation uses UWSM when the session
+--   provides it and a verified terminal/gtk-launch fallback otherwise
 -- - Dynamic icon-theme identifier extraction
 -- - Strict precedence: user applications shadow system applications; Hidden masks lower entries
 -- - Subdirectory desktop ID derivation per XDG specification (foo/bar.desktop -> foo-bar.desktop)
@@ -553,10 +554,9 @@ function M.parse_desktop_file(filepath, explicit_desktop_id)
         icon = ""
     end
 
-    -- Safe structured launcher:
-    -- Standard Freedesktop launch delegates to gtk-launch for graphical applications.
-    -- For console applications (Terminal=true), gtk-launch fails when no GNOME terminal or xdg-terminal-exec is present.
-    -- Terminal applications are wrapped deterministically using the workstation terminal.
+    -- Safe structured fallback launcher. UWSM receives the original desktop ID
+    -- when available so it can honor Terminal=true and its own terminal
+    -- selection. This vector is used only in plain sessions.
     local is_terminal_app = (data.Terminal == "true")
     local launch_cmd = nil
     local launch_argv = nil
@@ -602,6 +602,73 @@ function M.parse_desktop_file(filepath, explicit_desktop_id)
         path = filepath,
         source = M.detect_source(filepath),
     }
+end
+
+-- Return the UWSM app client only when this process is running inside a
+-- UWSM-managed graphical session. Fedora can also have uwsm installed while a
+-- user is running a plain Hyprland session, so binary presence alone is not a
+-- sufficient capability check.
+function M.resolve_uwsm_app()
+    local runtime_dir = os.getenv("XDG_RUNTIME_DIR") or ""
+    if runtime_dir == "" or runtime_dir:sub(1, 1) ~= "/" then return nil end
+
+    local session_markers = {
+        "UWSM_FINALIZE_VARNAMES",
+        "UWSM_WAIT_VARNAMES",
+        "IN_UWSM_ENV_PRELOADER",
+    }
+    local in_uwsm_session = false
+    for _, marker in ipairs(session_markers) do
+        if (os.getenv(marker) or "") ~= "" then
+            in_uwsm_session = true
+            break
+        end
+    end
+    if not in_uwsm_session then return nil end
+
+    return M.resolve_in_path("uwsm-app")
+end
+
+-- Wrap a trusted structured argv vector in the session app scope when UWSM is
+-- available. The caller remains responsible for validating the vector and for
+-- choosing the direct fallback when this returns the original argv.
+function M.wrap_session_argv(argv)
+    if type(argv) ~= "table" or #argv == 0 then return nil, "empty launch argv" end
+    for _, value in ipairs(argv) do
+        if type(value) ~= "string" or value == "" or value:find("%z") then
+            return nil, "launch argv contains an invalid value"
+        end
+    end
+
+    local uwsm_app = M.resolve_uwsm_app()
+    if not uwsm_app then return argv, "direct" end
+
+    local wrapped = { uwsm_app, "--" }
+    for _, value in ipairs(argv) do
+        table.insert(wrapped, value)
+    end
+    return wrapped, "uwsm"
+end
+
+-- Resolve an application for the Command Center. UWSM receives the desktop
+-- entry ID directly so it can honor Terminal=true and the configured terminal
+-- provider itself. Plain Hyprland sessions use the existing verified fallback
+-- vector from the application registry; terminal entries are already wrapped
+-- there with the selected workstation terminal.
+function M.resolve_application_launch_argv(desktop_id)
+    local info = M.find_application(desktop_id)
+    if not info then
+        return nil, "Desktop application not found: " .. tostring(desktop_id)
+    end
+
+    local wrapped, mode = M.wrap_session_argv({ info.desktop_id })
+    if not wrapped then return nil, mode end
+    if mode == "uwsm" then return wrapped, info, mode end
+
+    if type(info.command_argv) ~= "table" or #info.command_argv == 0 then
+        return nil, "Desktop application has no safe launch command: " .. info.desktop_id
+    end
+    return info.command_argv, info, mode
 end
 
 -- Invalidate discovery cache (explicit invalidation)

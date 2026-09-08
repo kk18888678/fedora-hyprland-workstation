@@ -17,8 +17,9 @@ user plugins share the same manifest contract; only their source roots differ.
 ```
 
 The entry-point file is a QML `Item`. The host injects `aureliaPath`, `shell`,
-`manifest`, and `pluginRegistry` after URL loading. These properties must have
-safe defaults because URL-loaded QML is constructed before `Loader.onLoaded`.
+`appLibrary`, `manifest`, and `pluginRegistry` after URL loading. These
+properties must have safe defaults because URL-loaded QML is constructed before
+`Loader.onLoaded`.
 Panel, overlay, and menu entry points should implement `open(payloadJson)` and
 `close()`. Use plugin-scoped IPC for direct component operations.
 
@@ -72,9 +73,10 @@ of the bar action, not a second standalone bar or application surface.
 - aurelia.clock: lightweight center clock bar widget. Its default format is
   `MMM d, dddd HH:mm`; set `format` inline on its layout entry when needed.
 - aurelia.calendar: calendar panel opened by clicking the clock.
-- aurelia.launcher: keyboard-first application launcher opened by clicking the
-  Aurelia logo. It discovers XDG desktop entries through the existing
-  workstation registry and launches validated desktop IDs with `gtk-launch`.
+- aurelia.launcher: Raycast-style Aurelia Command Center opened by clicking the
+  Aurelia logo. It searches native XDG desktop entries, configured actions,
+  bounded home files, and safe arithmetic; additional provider modules are
+  declared separately and can be enabled as they become implemented.
 - aurelia.workspaces: Hyprland workspace switcher placed immediately after
   the Aurelia logo.
 - aurelia.tray: StatusNotifier system-tray widget for applications such as

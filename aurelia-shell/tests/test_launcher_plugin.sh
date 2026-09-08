@@ -1,44 +1,63 @@
 #!/usr/bin/env bash
 
-# Contract tests for the first Aurelia application launcher slice.
+# Contract tests for Aurelia's Raycast-style Command Center. The historical
+# aurelia.launcher id is retained as an IPC/configuration compatibility id;
+# all user-facing terminology and implementation now belongs to Command Center.
 
 set -Eeuo pipefail
 
-launcher_root="$ROOT/plugins/aurelia.launcher"
+command_center_root="$ROOT/plugins/aurelia.launcher"
+services_root="$ROOT/services"
 
-section "Application Launcher Plugin"
+section "Aurelia Command Center Plugin"
 
-if [[ -f "$launcher_root/manifest.json" && -f "$launcher_root/LauncherPlugin.qml" && -f "$launcher_root/ui/LauncherPanel.qml" && -f "$launcher_root/ui/LauncherModel.qml" ]] &&
-   jq -e '.schemaVersion == 1 and .id == "aurelia.launcher" and .icon == "system-search" and (.kinds == ["panel"]) and .entryPoints.panel == "LauncherPlugin.qml"' "$launcher_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$launcher_root" >/dev/null 2>&1; then
-    pass "Application Launcher declares a validated first-party panel plugin"
+if [[ -f "$command_center_root/manifest.json" &&
+      -f "$command_center_root/CommandCenterPlugin.qml" &&
+      -f "$command_center_root/ui/CommandCenterPanel.qml" &&
+      -f "$command_center_root/ui/CommandCenterModel.qml" &&
+      -f "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+      -f "$command_center_root/modules.json" ]] &&
+   jq -e '
+       .schemaVersion == 1 and
+       .id == "aurelia.launcher" and
+       .name == "Command Center" and
+       .icon == "system-search" and
+       (.kinds == ["panel"]) and
+       .keepLoaded == true and
+       .entryPoints.panel == "CommandCenterPlugin.qml"
+   ' "$command_center_root/manifest.json" >/dev/null &&
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$command_center_root" >/dev/null 2>&1; then
+    pass "Command Center declares a validated first-party panel plugin"
 else
-    fail "Application Launcher manifest or entry points are incomplete"
+    fail "Command Center manifest or entry points are incomplete"
 fi
 
-if grep -q 'workstation-keybindings' "$launcher_root/LauncherPlugin.qml" &&
-   grep -q 'function reload()' "$launcher_root/ui/LauncherModel.qml" &&
-   grep -q 'launchProcess.command = \["/usr/bin/uwsm-app", "--", "/usr/bin/gtk-launch", "--", desktopId\]' "$launcher_root/ui/LauncherModel.qml" &&
-   grep -q 'clearEnvironment: false' "$launcher_root/ui/LauncherModel.qml" &&
-   grep -q 'WAYLAND_DISPLAY' "$launcher_root/LauncherPlugin.qml" &&
-   grep -q 'XDG_RUNTIME_DIR' "$launcher_root/LauncherPlugin.qml" &&
-   grep -q 'DBUS_SESSION_BUS_ADDRESS' "$launcher_root/LauncherPlugin.qml" &&
-   grep -q 'target: "aurelia.launcher"' "$launcher_root/LauncherPlugin.qml" &&
-   grep -q 'shell.summon("aurelia.launcher"' "$ROOT/plugins/aurelia.bar/AureliaLogo.qml" &&
-   [[ -f "$launcher_root/keybindings.lua" ]] &&
-   grep -q 'id = "launcher"' "$launcher_root/keybindings.lua" &&
-   grep -q 'SUPER + SPACE' "$launcher_root/keybindings.lua" &&
-   grep -q '"shell", "toggle", "aurelia.launcher"' "$launcher_root/keybindings.lua" &&
-   grep -q 'plugin_ipc' "$launcher_root/keybindings.lua"; then
-    pass "Logo-to-launcher IPC and structured desktop application launch are separated from UI"
+if grep -q 'property string aureliaPath' "$command_center_root/CommandCenterPlugin.qml" &&
+   grep -q 'aureliaPath + "/bin/aurelia-shell-keybindings"' "$command_center_root/CommandCenterPlugin.qml" &&
+   grep -q 'property var appLibrary' "$command_center_root/CommandCenterPlugin.qml" &&
+   grep -q 'CommandCenterModuleRegistry {' "$command_center_root/CommandCenterPlugin.qml" &&
+   grep -q 'CommandCenterPanel {' "$command_center_root/CommandCenterPlugin.qml" &&
+   grep -q 'target: "aurelia.launcher"' "$command_center_root/CommandCenterPlugin.qml" &&
+   ! grep -Eq '/home/[A-Za-z0-9_./-]+|Projects/fedora-hyprland-workstation|/usr/bin/uwsm-app|/usr/bin/gtk-launch' \
+       "$command_center_root/CommandCenterPlugin.qml" "$command_center_root/ui/CommandCenterModel.qml" "$command_center_root/ui/CommandCenterPanel.qml"; then
+    pass "Plugin execution is checkout-relative, injected, and free of QML-side launcher hardcoding"
 else
-    fail "Application Launcher runtime boundary is incomplete"
+    fail "Command Center runtime boundary contains brittle paths or incomplete injection"
 fi
 
-if grep -q 'io.popen' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
-   grep -q -- "-name 'keybindings.lua'" "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
-   grep -q 'known_ids' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
-   command -v luajit >/dev/null 2>&1 &&
+if [[ -f "$command_center_root/keybindings.lua" ]] &&
+   grep -q 'id = "launcher"' "$command_center_root/keybindings.lua" &&
+   grep -q 'description = "Aurelia Command Center"' "$command_center_root/keybindings.lua" &&
+   grep -q 'SUPER + SPACE' "$command_center_root/keybindings.lua" &&
+   grep -q '"shell", "toggle", "aurelia.launcher"' "$command_center_root/keybindings.lua" &&
+   grep -q 'plugin_ipc' "$command_center_root/keybindings.lua" &&
+   grep -q 'shell.summon("aurelia.launcher"' "$ROOT/plugins/aurelia.bar/AureliaLogo.qml"; then
+    pass "Existing logo/keybinding IPC identities forward to the Command Center"
+else
+    fail "Command Center compatibility IPC or shortcut registration is incomplete"
+fi
+
+if command -v luajit >/dev/null 2>&1 &&
    launcher_binding="$(
        luajit - "$ROOT/dotfiles/hypr/keybindings_manifest.lua" <<'LUA'
 local manifest = dofile(arg[1])
@@ -54,20 +73,61 @@ assert(found == 1, "expected one launcher binding, found " .. found)
 print(rendered)
 LUA
    )" &&
-   [[ "$launcher_binding" == $'Aurelia App Launcher\tSUPER + SPACE' ]]; then
-    pass "Launcher-owned shortcut is discovered into the same Keybindings registry"
+   [[ "$launcher_binding" == $'Aurelia Command Center\tSUPER + SPACE' ]]; then
+    pass "Command Center shortcut remains discoverable through the authoritative binding registry"
 else
-    fail "Launcher-owned shortcut was not discovered by the Keybindings registry"
+    fail "Command Center shortcut metadata drifted from the authoritative registry"
 fi
 
-if grep -q 'filteredApplications' "$launcher_root/ui/LauncherModel.qml" &&
-   grep -q 'Search applications' "$launcher_root/ui/LauncherPanel.qml" &&
-   grep -q 'leftPadding: Theme.spacingMd' "$launcher_root/ui/LauncherPanel.qml" &&
-   grep -q 'calculatedCardHeight' "$launcher_root/ui/LauncherPanel.qml" &&
-   grep -q 'Key_Down' "$launcher_root/ui/LauncherPanel.qml" &&
-   grep -q 'Key_Return' "$launcher_root/ui/LauncherPanel.qml" &&
-   ! grep -Eq '(^|[[:space:];])eval([[:space:];]|$)' "$launcher_root/ui/LauncherModel.qml"; then
-    pass "Launcher provides keyboard-first filtering and no shell eval path"
+if grep -q 'DesktopEntries.applications.values' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'desktopIdFor(entry)' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'value + ".desktop"' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'appRows(query)' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'AureliaAppLibrary {' "$ROOT/shell.qml" &&
+   grep -q 'appLibrary: aureliaAppLibrary' "$ROOT/shell.qml" &&
+   grep -q 'if ("appLibrary" in target)' "$services_root/PluginHost.qml"; then
+    pass "Native XDG application discovery is a shared host service injected into plugins"
 else
-    fail "Application Launcher keyboard or safety contract is incomplete"
+    fail "Shared native application library wiring is incomplete"
+fi
+
+if grep -q 'ListView.isCurrentItem' "$command_center_root/ui/CommandCenterPanel.qml" &&
+   grep -q 'currentIndex: centerModel.selectedIndex' "$command_center_root/ui/CommandCenterPanel.qml" &&
+   grep -q 'keyCatcher.forceActiveFocus' "$command_center_root/ui/CommandCenterPanel.qml" &&
+   grep -q 'focus: false' "$command_center_root/ui/CommandCenterPanel.qml" &&
+   grep -q 'appendQueryText' "$command_center_root/ui/CommandCenterPanel.qml" &&
+   grep -q 'searchInput.forceActiveFocus' "$command_center_root/ui/CommandCenterPanel.qml" &&
+   grep -q 'launch-app' "$command_center_root/ui/CommandCenterModel.qml" &&
+   grep -q 'open-path' "$command_center_root/ui/CommandCenterModel.qml" &&
+   ! grep -Eq '(^|[[:space:];])eval([[:space:];]|$)' "$command_center_root/ui/CommandCenterModel.qml" "$command_center_root/ui/CommandCenterPanel.qml"; then
+    pass "Keyboard-first navigation, type-to-search, and stable current-row highlighting are explicit"
+else
+    fail "Command Center keyboard or selection behavior is incomplete"
+fi
+
+if jq -e '
+    .version == 1 and
+    ([.modules[].id] | index("apps")) != null and
+    ([.modules[].id] | index("actions")) != null and
+    ([.modules[].id] | index("files")) != null and
+    ([.modules[].id] | index("calculator")) != null and
+    ([.modules[].id] | index("weather")) != null and
+    ([.modules[].id] | index("currency")) != null and
+    ([.modules[].id] | index("metals")) != null and
+    ([.modules[].id] | index("stocks")) != null
+   ' "$command_center_root/modules.json" >/dev/null &&
+   grep -q 'userModulesPath' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+   grep -q 'setModuleEnabled' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+   grep -q 'implemented' "$command_center_root/ui/CommandCenterModuleRegistry.qml"; then
+    pass "Command Center has a declarative module catalog with user enablement state"
+else
+    fail "Command Center module catalog or enablement persistence contract is incomplete"
+fi
+
+if [[ ! -e "$command_center_root/LauncherPlugin.qml" &&
+      ! -e "$command_center_root/ui/LauncherPanel.qml" &&
+      ! -e "$command_center_root/ui/LauncherModel.qml" ]]; then
+    pass "Obsolete single-purpose launcher implementation is removed from the loadable package"
+else
+    fail "Obsolete launcher implementation remains alongside Command Center"
 fi

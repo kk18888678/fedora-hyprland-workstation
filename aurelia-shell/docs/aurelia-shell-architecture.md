@@ -46,7 +46,7 @@ The Fedora Hyprland Workstation supports multiple desktop shell environments:
 
 ## 3. Generic User Intent & Role-Based Application Model
 
-Workstation shortcuts and launcher actions express **generic user intent** rather than rigid bindings to hardcoded binary names:
+Workstation shortcuts and Command Center actions express **generic user intent** rather than rigid bindings to hardcoded binary names:
 
 ```mermaid
 graph LR
@@ -102,7 +102,7 @@ Aurelia Shell plugins are heterogeneous in structure. Plugins may be floating pa
 - `aurelia.bar` owns one mapped layer-shell bar window. Configured `bar-widget` plugins own their trigger item and their popup content; the resident host does not position widget panels by querying Hyprland layer geometry.
 - Mouse-only bar menus may use the shared `ui/AureliaPopupCard.qml` primitive. Keyboard-capable bar panels use `ui/AureliaKeyboardPanel.qml`, following Omarchy's `KeyboardPanel` contract: the bar widget remains the owner, the card is positioned from the real anchor item, and a focused layer-shell surface provides reliable Escape and arrow-key input.
 - The bar coordinates one active popout and exposes the active widget state for the bar underline. Opening another widget closes the previous widget through its declared lifecycle method.
-- A bar popup must not be implemented as a full-screen transparent `PanelWindow`, a guessed monitor offset, or a startup/retry timer. Full-screen layer-shell surfaces are reserved for interactions that genuinely require the whole screen, such as screenshot region selection, the launcher, and keybindings.
+  - A bar popup must not be implemented as a full-screen transparent `PanelWindow`, a guessed monitor offset, or a startup/retry timer. Full-screen layer-shell surfaces are reserved for interactions that genuinely require the whole screen, such as screenshot region selection, the Command Center, and keybindings.
 - This keeps Aurelia independent from Noctalia while preserving the behavioral boundary used by Omarchy: the bar remains the owner of its widgets, anchors, focus, dismissal, and visual active state.
 
 ### 4.3 Process & Execution Safety

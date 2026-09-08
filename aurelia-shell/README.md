@@ -89,6 +89,18 @@ shell setPluginEnabled <plugin-id> <true|false>
 shell listPlugins
 ```
 
+The Command Center keeps its module catalog separate from shell/plugin
+enablement. Inspect or change implemented modules through its stable plugin
+target; state is stored under `${XDG_CONFIG_HOME:-$HOME/.config}/aurelia/`:
+
+```text
+aurelia-shell aurelia.launcher listModules
+aurelia-shell aurelia.launcher setModuleEnabled files false
+```
+
+Unimplemented modules remain disabled until their provider is added and
+validated.
+
 Plugins may expose their own target. The Keybindings plugin is
 `aurelia.keybindings`; the legacy `keybindings` and `hotkeys` targets remain
 thin compatibility aliases.
@@ -102,9 +114,10 @@ shell hide aurelia.bar
 shell toggle aurelia.bar '{}'
 ```
 
-Clicking the Aurelia logo opens `aurelia.launcher`, the keyboard-first
-application launcher. The launcher is loaded on demand; the bar itself remains
-resident.
+Clicking the Aurelia logo opens `aurelia.launcher`, the keyboard-first Aurelia
+Command Center. The historical plugin id remains stable for existing IPC and
+shortcut configuration; its hidden command service remains resident with the
+panel opening only when summoned.
 
 Its normalized layout lives under the `bar` key in
 `~/.config/aurelia/shell.json`. The shipped layout places the formatted clock

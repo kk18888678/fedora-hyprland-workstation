@@ -8,14 +8,15 @@
 # Process substitution deliberately hides that status from a consuming loop;
 # a coprocess preserves both arbitrary argument bytes (including spaces) and
 # the explicit unavailable/non-runnable classification returned by Lua.
-aurelia_read_action_argv() {
-    local action_id="$1"
+aurelia_read_nul_argv() {
+    local producer="$1"
+    shift
     local argv_fd argv_pid value status=0
     AURELIA_ACTION_ARGV=()
 
-    coproc aurelia_action_argv_stream { get_action_argv "$action_id" 2>/dev/null; }
-    argv_fd="${aurelia_action_argv_stream[0]}"
-    argv_pid="$aurelia_action_argv_stream_PID"
+    coproc aurelia_argv_stream { "$producer" "$@" 2>/dev/null; }
+    argv_fd="${aurelia_argv_stream[0]}"
+    argv_pid="$aurelia_argv_stream_PID"
     while IFS= read -r -d '' value <&"$argv_fd"; do
         AURELIA_ACTION_ARGV+=("$value")
     done
@@ -23,6 +24,61 @@ aurelia_read_action_argv() {
     wait "$argv_pid" || status=$?
     AURELIA_ACTION_ARGV_STATUS="$status"
     return "$status"
+}
+
+aurelia_read_action_argv() {
+    aurelia_read_nul_argv get_action_argv "$1"
+}
+
+aurelia_read_application_argv() {
+    aurelia_read_nul_argv get_application_launch_argv "$1"
+}
+
+aurelia_read_path_argv() {
+    aurelia_read_nul_argv get_path_launch_argv "$1"
+}
+
+aurelia_spawn_detached() {
+    local display_description="$1"
+    local log_message="$2"
+    shift 2
+    local -a command_argv=("$@")
+
+    if [[ "${#command_argv[@]}" -eq 0 ]]; then
+        printf '%s\n' "Error: Empty structured launch command." >&2
+        return 1
+    fi
+
+    local executable="${command_argv[0]}"
+    if [[ "$executable" == /* ]]; then
+        if [[ ! -x "$executable" || -d "$executable" ]]; then
+            log_event "ERROR" "$log_message failed: command '$executable' is not executable" "run"
+            notify_user critical "Launch Failed" "Command not found: $executable"
+            printf 'Error: Command "%s" is not installed or not executable.\n' "$executable" >&2
+            return 1
+        fi
+    elif ! command -v "$executable" >/dev/null 2>&1; then
+        log_event "ERROR" "$log_message failed: command '$executable' not found" "run"
+        notify_user critical "Launch Failed" "Command not found: $executable"
+        printf 'Error: Command "%s" is not installed or not executable.\n' "$executable" >&2
+        return 1
+    fi
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -f "${command_argv[@]}" </dev/null >/dev/null 2>&1
+    elif command -v nohup >/dev/null 2>&1; then
+        (
+            nohup "${command_argv[@]}" </dev/null >/dev/null 2>&1 &
+        )
+    else
+        log_event "ERROR" "$log_message failed: neither setsid nor nohup is available" "run"
+        printf '%s\n' "Error: No supported detached process launcher is available." >&2
+        return 1
+    fi
+
+    log_event "INFO" "$log_message via structured argv" "run"
+    printf '%s\n' "Running: $display_description"
+    return 0
 }
 
 execute_action() {
@@ -39,25 +95,57 @@ execute_action() {
         return 2
     fi
 
-    local executable="${command_argv[0]}"
-    if ! command -v "$executable" >/dev/null 2>&1; then
-        log_event "ERROR" "Action '$action_id' ($description) failed: command '$executable' not found" "run"
-        notify_user critical "Launch Failed" "Command not found: $executable"
-        printf 'Error: Command "%s" is not installed or not executable.\n' "$executable" >&2
-        return 1
+    aurelia_spawn_detached \
+        "$description" \
+        "Action '$action_id' ($description)" \
+        "${command_argv[@]}"
+}
+
+execute_application() {
+    local desktop_id="$1"
+    local -a command_argv=()
+    local status=0
+
+    aurelia_read_application_argv "$desktop_id" || status=$?
+    command_argv=("${AURELIA_ACTION_ARGV[@]}")
+    if [[ "$status" -ne 0 || "${#command_argv[@]}" -eq 0 ]]; then
+        printf 'Error: Application "%s" is unavailable or has no safe launch command.\n' "$desktop_id" >&2
+        return 2
     fi
 
-    if command -v setsid >/dev/null 2>&1; then
-        setsid -f "${command_argv[@]}" </dev/null >/dev/null 2>&1
-    else
-        (
-            nohup "${command_argv[@]}" </dev/null >/dev/null 2>&1 &
-        )
+    local description
+    description="$(get_application_description "$desktop_id" 2>/dev/null || printf '%s' "$desktop_id")"
+    aurelia_spawn_detached \
+        "$description" \
+        "Application '$desktop_id' ($description)" \
+        "${command_argv[@]}"
+}
+
+execute_open_path() {
+    local path="$1"
+    local -a command_argv=()
+    local status=0
+
+    if [[ "$path" != /* || "$path" == "/" || "$path" == *$'\n'* || "$path" == *$'\r'* ]]; then
+        printf '%s\n' "Error: Path must be an existing absolute user path." >&2
+        return 2
+    fi
+    if [[ ! -e "$path" && ! -L "$path" ]]; then
+        printf 'Error: Path does not exist: %s\n' "$path" >&2
+        return 2
     fi
 
-    log_event "INFO" "Launched action '$action_id' ($description) via structured argv" "run"
-    printf '%s\n' "Running: $description"
-    return 0
+    aurelia_read_path_argv "$path" || status=$?
+    command_argv=("${AURELIA_ACTION_ARGV[@]}")
+    if [[ "$status" -ne 0 || "${#command_argv[@]}" -eq 0 ]]; then
+        printf 'Error: Could not resolve a safe opener for: %s\n' "$path" >&2
+        return 2
+    fi
+
+    aurelia_spawn_detached \
+        "$path" \
+        "Opened path '$path'" \
+        "${command_argv[@]}"
 }
 
 apply_binding_edit() {

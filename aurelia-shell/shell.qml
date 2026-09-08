@@ -21,10 +21,15 @@ ShellRoot {
         shellConfig: shellConfig
     }
 
+    AureliaAppLibrary {
+        id: aureliaAppLibrary
+    }
+
     PluginHost {
         id: pluginHost
         registry: pluginRegistry
         shellApi: shellIpc
+        appLibrary: aureliaAppLibrary
     }
 
     IpcHandler {
