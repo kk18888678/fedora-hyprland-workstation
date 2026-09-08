@@ -235,7 +235,7 @@ Item {
         var updated
         try { updated = Logic.snapshotOf(notification, 0) }
         catch (error) { return }
-        var roles = ["app", "appIcon", "summary", "body", "image", "actions", "urgency", "expireTimeout"]
+        var roles = ["app", "appIcon", "summary", "body", "image", "actions", "defaultActionText", "urgency", "expireTimeout"]
         for (var i = 0; i < activeNotificationsModel.count; i++) {
             var row = activeNotificationsModel.get(i)
             if (!row || row.originalId !== originalId) continue
@@ -507,6 +507,7 @@ Item {
                         required property var body
                         required property var image
                         required property var actions
+                        required property var defaultActionText
                         required property int urgency
                         required property double expireTimeout
 
@@ -559,9 +560,11 @@ Item {
                             body: popupSlot.body
                             image: popupSlot.image
                             actions: popupSlot.actions
+                            defaultActionText: String(popupSlot.defaultActionText || "")
                             urgency: popupSlot.urgency
                             onDismissed: service.dismissAt(popupSlot.index)
                             onActivated: service.invokeDefault(popupSlot.index)
+                            onDefaultActionInvoked: service.invokeDefault(popupSlot.index)
                             onActionInvoked: function(identifier) { service.invokeAction(popupSlot.index, identifier) }
                         }
                     }

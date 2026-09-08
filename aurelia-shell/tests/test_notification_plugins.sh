@@ -52,8 +52,13 @@ fi
 
 if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'NotificationToast {' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'defaultActionText' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'defaultActionInvoked' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'Flow {' "$plugin_root/ui/NotificationToast.qml" &&
    ! grep -q 'timestamp: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   ! grep -q 'timestamp: historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml"; then
+   ! grep -q 'timestamp: historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'implicitHeight: toastCard.implicitHeight' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'onActivated: root.service.invokeDefault' "$plugin_root/ui/NotificationCenterPanel.qml"; then
     pass "Active and History views share one notification card presentation"
 else
     fail "Notification center still has a divergent or dead history-row presentation"
@@ -151,9 +156,9 @@ if (logic.screenshotSnapshot("relative.png", 123) !== null) process.exit(1);
 if (logic.parseSettings('{"dnd":true}').dnd !== true) process.exit(1);
 if (logic.parseSettings('{bad').ok) process.exit(1);
 const snapshot = logic.snapshotOf({ id: 4, appName: "demo", summary: "Hello", body: "World", urgency: 1 }, 123);
-if (snapshot.originalId !== 4 || snapshot.timestamp !== 123 || snapshot.actions.length !== 0) process.exit(1);
+if (snapshot.originalId !== 4 || snapshot.timestamp !== 123 || snapshot.actions.length !== 0 || snapshot.defaultActionText !== "") process.exit(1);
 const actionSnapshot = logic.snapshotOf({ id: 5, actions: [{ identifier: "default", text: "" }] }, 456);
-if (actionSnapshot.actions.length !== 1 || actionSnapshot.actions[0].text !== "Open") process.exit(1);
+if (actionSnapshot.actions.length !== 0 || actionSnapshot.defaultActionText !== "Open") process.exit(1);
 NODE_LOGIC
     then
         pass "Notification policy and serialization helpers pass deterministic runtime checks"

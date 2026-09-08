@@ -57,13 +57,27 @@ function actionsOf(notification) {
         if (!action) continue
         var identifier = boundedText(action.identifier, 256)
         var text = boundedText(action.text, 256)
+        if (identifier === "default") continue
         if (identifier === "" || text === "") {
-            if (identifier !== "default") continue
-            text = "Open"
+            continue
         }
         result.push({ identifier: identifier, text: text })
     }
     return result
+}
+
+function defaultActionText(notification) {
+    var source = []
+    try { source = notification && notification.actions ? notification.actions : [] } catch (error) { source = [] }
+    if (!source || typeof source.length !== "number") return ""
+
+    for (var i = 0; i < source.length; i++) {
+        var action = source[i]
+        if (!action || boundedText(action.identifier, 256) !== "default") continue
+        var text = boundedText(action.text, 256)
+        return text === "" ? "Open" : text
+    }
+    return ""
 }
 
 function snapshotOf(notification, timestamp) {
@@ -80,6 +94,7 @@ function snapshotOf(notification, timestamp) {
         body: boundedText(n.body, MAX_TEXT_LENGTH),
         image: boundedText(n.image, MAX_IMAGE_LENGTH),
         actions: actionsOf(n),
+        defaultActionText: defaultActionText(n),
         urgency: urgencyValue(n.urgency),
         expireTimeout: expireTimeout,
         timestamp: finiteNumber(timestamp, Date.now())
@@ -100,6 +115,7 @@ function normalizeHistoryEntry(value) {
         body: boundedText(entry.body, MAX_TEXT_LENGTH),
         image: boundedText(entry.image, MAX_IMAGE_LENGTH),
         actions: [],
+        defaultActionText: "",
         urgency: urgencyValue(entry.urgency),
         expireTimeout: 0,
         timestamp: timestamp
@@ -175,6 +191,7 @@ function screenshotSnapshot(path, timestamp) {
         body: "The capture is available in Pictures and on the clipboard.",
         image: "file://" + source,
         actions: [],
+        defaultActionText: "",
         urgency: 0,
         expireTimeout: 5000,
         timestamp: stamp
@@ -192,6 +209,7 @@ if (typeof module !== "undefined") {
         parseHistory: parseHistory,
         durationFor: durationFor,
         hasBusName: hasBusName,
+        defaultActionText: defaultActionText,
         screenshotSnapshot: screenshotSnapshot
     }
 }

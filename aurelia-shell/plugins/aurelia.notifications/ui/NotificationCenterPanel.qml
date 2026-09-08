@@ -250,6 +250,7 @@ PanelWindow {
                                 required property var body
                                 required property var image
                                 required property var actions
+                                required property var defaultActionText
                                 required property int urgency
                                 required property double timestamp
                                 width: activeList.width
@@ -264,9 +265,11 @@ PanelWindow {
                                     body: String(activeDelegate.body || "")
                                     image: String(activeDelegate.image || "")
                                     actions: activeDelegate.actions || []
+                                    defaultActionText: String(activeDelegate.defaultActionText || "")
                                     urgency: activeDelegate.urgency
                                     onDismissed: root.service.dismissAt(activeDelegate.index)
                                     onActivated: root.service.invokeDefault(activeDelegate.index)
+                                    onDefaultActionInvoked: root.service.invokeDefault(activeDelegate.index)
                                     onActionInvoked: function(identifier) { root.service.invokeAction(activeDelegate.index, identifier) }
                                 }
                             }
