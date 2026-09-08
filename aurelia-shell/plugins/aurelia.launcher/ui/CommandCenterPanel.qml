@@ -310,7 +310,7 @@ PanelWindow {
                             text: centerModel.loading ? "…" : "⌕"
                             color: Theme.accent
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXxl
+                            font.pixelSize: Theme.fontSizeXl
                         }
                         Text {
                             width: resultList.width - Theme.spacingXl * 2

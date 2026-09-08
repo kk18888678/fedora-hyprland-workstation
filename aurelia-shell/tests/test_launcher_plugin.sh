@@ -103,6 +103,7 @@ if grep -q 'ListView.isCurrentItem' "$command_center_root/ui/CommandCenterPanel.
    grep -q 'property Timer fileRequestTimer: Timer' "$command_center_root/ui/CommandCenterModel.qml" &&
    grep -q 'property Process actionsProcess: Process' "$command_center_root/ui/CommandCenterModel.qml" &&
    grep -q 'property Connections appLibraryConnection: Connections' "$command_center_root/ui/CommandCenterModel.qml" &&
+   ! grep -q 'Theme.fontSizeXxl' "$command_center_root/ui/CommandCenterPanel.qml" &&
    ! grep -Eq '(^|[[:space:];])eval([[:space:];]|$)' "$command_center_root/ui/CommandCenterModel.qml" "$command_center_root/ui/CommandCenterPanel.qml"; then
     pass "Keyboard-first navigation, type-to-search, and stable current-row highlighting are explicit"
 else
