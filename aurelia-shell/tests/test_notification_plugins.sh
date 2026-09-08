@@ -51,7 +51,9 @@ else
 fi
 
 if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
-   grep -q 'NotificationToast {' "$plugin_root/ui/NotificationCenterPanel.qml"; then
+   grep -q 'NotificationToast {' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'timestamp: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'timestamp: historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml"; then
     pass "Active and History views share one notification card presentation"
 else
     fail "Notification center still has a divergent or dead history-row presentation"

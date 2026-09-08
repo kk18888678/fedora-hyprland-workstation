@@ -265,7 +265,6 @@ PanelWindow {
                                     image: String(activeDelegate.image || "")
                                     actions: activeDelegate.actions || []
                                     urgency: activeDelegate.urgency
-                                    timestamp: activeDelegate.timestamp
                                     onDismissed: root.service.dismissAt(activeDelegate.index)
                                     onActivated: root.service.invokeDefault(activeDelegate.index)
                                     onActionInvoked: function(identifier) { root.service.invokeAction(activeDelegate.index, identifier) }
@@ -301,7 +300,6 @@ PanelWindow {
                                     body: String(historyDelegate.body || "")
                                     image: String(historyDelegate.image || "")
                                     urgency: historyDelegate.urgency
-                                    timestamp: historyDelegate.timestamp
                                     interactive: false
                                     showDismiss: false
                                     showActions: false
