@@ -13,6 +13,11 @@ PanelWindow {
 
     property var service: null
 
+    readonly property bool currentViewEmpty: root.service === null ||
+        (root.service.centerMode === "history"
+            ? root.service.historyModel.count === 0
+            : root.service.activeModel.count === 0)
+
     screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
     visible: root.service !== null && root.service.centerOpen
     color: "transparent"
@@ -42,8 +47,8 @@ PanelWindow {
         anchors.topMargin: root.service && root.service.barClearance > Theme.spacingLg
             ? root.service.barClearance + Theme.spacingLg
             : Theme.spacingLg
-        width: Math.min(440, Math.max(300, parent.width - Theme.spacingLg * 2))
-        height: Math.min(520, Math.max(260, parent.height - anchors.topMargin - Theme.spacingLg))
+        width: Math.min(400, Math.max(300, parent.width - Theme.spacingLg * 2))
+        height: Math.min(root.currentViewEmpty ? 360 : 520, Math.max(260, parent.height - anchors.topMargin - Theme.spacingLg))
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.borderActive
@@ -98,7 +103,7 @@ PanelWindow {
 
                 Text {
                     Layout.fillWidth: true
-                    text: (root.service ? root.service.activeModel.count : 0) + " active · " + (root.service ? root.service.historyModel.count : 0) + " saved · " + (root.service ? root.service.serverStatus : "")
+                    text: (root.service ? root.service.activeModel.count : 0) + " active · " + (root.service ? root.service.historyModel.count : 0) + " saved · " + (root.service ? root.service.serverStatus : "") + (root.service && root.service.doNotDisturb ? " · DND on" : "")
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeXs
@@ -108,11 +113,13 @@ PanelWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 32
+                    Layout.minimumHeight: 32
+                    Layout.maximumHeight: 32
                     spacing: Theme.spacingMd
 
                     Item {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        height: 32
 
                         Text {
                             anchors.centerIn: parent
@@ -143,7 +150,7 @@ PanelWindow {
 
                     Item {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        height: 32
 
                         Text {
                             anchors.centerIn: parent
@@ -176,6 +183,8 @@ PanelWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 24
+                    Layout.minimumHeight: 24
+                    Layout.maximumHeight: 24
 
                     Item { Layout.fillWidth: true }
 
@@ -292,17 +301,49 @@ PanelWindow {
                         }
                     }
 
-                    Text {
+                    Column {
                         anchors.centerIn: parent
-                        visible: !!(root.service && root.service.centerMode === "active")
-                            ? root.service.activeModel.count === 0
-                            : root.service && root.service.historyModel.count === 0
-                        text: root.service && root.service.centerMode === "active"
-                            ? "No active notifications"
-                            : "No notification history"
-                        color: Theme.textMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSm
+                        spacing: Theme.spacingXs
+
+                        AureliaIcon {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 28
+                            height: 28
+                            name: root.service && root.service.centerMode === "history"
+                                ? "document-open-recent"
+                                : "notifications"
+                            iconSize: 28
+                            tint: Theme.accent
+                        }
+
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: root.service && root.service.centerMode === "history"
+                                ? "No saved notifications"
+                                : "You’re all caught up"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: root.service && root.service.centerMode === "history"
+                                ? "History will appear here after a notification is dismissed."
+                                : "New alerts will appear here automatically."
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamilyProse
+                            font.pixelSize: Theme.fontSizeXs
+                        }
+
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "Click the bell to open this center · right-click it for DND"
+                            color: Theme.textMuted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeXs
+                        }
                     }
                 }
             }

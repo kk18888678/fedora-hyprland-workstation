@@ -93,6 +93,9 @@ fi
 if [[ -f "$ROOT/ui/AureliaIconButton.qml" ]] &&
    grep -q 'AureliaIconButton 1.0 AureliaIconButton.qml' "$ROOT/ui/qmldir" &&
    grep -q 'AureliaIconButton' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'currentViewEmpty' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'Layout.maximumHeight: 32' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'You’re all caught up' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    ! grep -q 'AureliaActionButton {' "$plugin_root/ui/NotificationCenterPanel.qml"; then
     pass "Notification center uses compact icon actions and a lighter segmented layout"
 else

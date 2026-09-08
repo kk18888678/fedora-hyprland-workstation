@@ -34,10 +34,10 @@ Item {
     readonly property string serverStatus: !notificationBusProbeComplete
         ? "Checking notification service"
         : notificationBusAvailable
-            ? "Desktop notifications active"
+            ? "System notifications active"
             : notificationBusOwnerFound
-                ? "Another notification service owns desktop delivery"
-                : "Notification service unavailable"
+                ? "System alerts handled by another service"
+                : "System notification service unavailable"
 
     property bool doNotDisturb: false
     property bool centerOpen: false

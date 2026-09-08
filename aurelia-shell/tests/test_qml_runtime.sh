@@ -38,8 +38,12 @@ ShellRoot {
     }
 
     Loader {
+        id: notificationService
         active: true
         source: "file://$ROOT/plugins/aurelia.notifications/Service.qml"
+        onLoaded: {
+            if (item && "centerOpen" in item) item.centerOpen = true
+        }
     }
 
     Loader {
