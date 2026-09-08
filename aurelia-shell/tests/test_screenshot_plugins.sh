@@ -60,6 +60,8 @@ button_qml="$shared_ui_root/AureliaActionButton.qml"
 icon_qml="$shared_ui_root/AureliaIcon.qml"
 
 if [[ -f "$button_qml" && -f "$icon_qml" ]] &&
+   grep -q 'AureliaActionButton 1.0 AureliaActionButton.qml' "$shared_ui_root/qmldir" &&
+   grep -q 'AureliaIcon 1.0 AureliaIcon.qml' "$shared_ui_root/qmldir" &&
    grep -q 'Theme.surfaceElevated' "$button_qml" &&
    grep -q 'Theme.borderActive' "$button_qml" &&
    grep -q 'signal triggered' "$button_qml" &&
@@ -114,6 +116,7 @@ if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'ScreenshotPanel.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'camera-photo' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'import "../../../ui"' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'ToolTip' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'Full Screen or Selection' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'AureliaIcon' "$plugin_root/ui/ScreenshotBarWidget.qml" &&

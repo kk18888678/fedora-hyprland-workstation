@@ -3,6 +3,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import "../../../theme"
+import "../../../ui"
 
 // Screenshot is a first-class bar widget. It owns the controller, capture
 // process, and keyboard panel directly, matching the lifecycle used by the
