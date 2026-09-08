@@ -183,6 +183,12 @@ else
     fail "packages/desktop.txt missing foot package"
 fi
 
+if grep -q "^uwsm$" "$ROOT/packages/desktop.txt"; then
+    pass "packages/desktop.txt includes UWSM for managed graphical application launches"
+else
+    fail "packages/desktop.txt missing UWSM application-launch dependency"
+fi
+
 if grep -q "^kitty$" "$ROOT/packages/desktop.txt"; then
     pass "packages/desktop.txt preserves kitty package"
 else

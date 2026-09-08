@@ -16,6 +16,7 @@ noctalia
 # Wayland / X11 compatibility
 xorg-x11-server-Xwayland
 wayland-utils
+uwsm
 
 # Desktop portals
 xdg-desktop-portal

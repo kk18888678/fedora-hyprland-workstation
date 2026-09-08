@@ -51,15 +51,20 @@ Item {
     }
 
     function launchSelected() {
-        if (!selectedApplication) return false
+        if (!selectedApplication || launchProcess.running) return false
         var desktopId = String(selectedApplication.desktop_id || "")
         if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*\.desktop$/.test(desktopId)) {
             errorMessage = "Application identity is invalid."
             return false
         }
-        launchProcess.command = ["gtk-launch", desktopId]
-        launchStarted(desktopId)
+        // Launch through UWSM so the application is placed in the managed
+        // graphical app scope with the imported Wayland/D-Bus session state.
+        // The second `--` is gtk-launch's option separator; desktopId remains
+        // a validated single argv element and is never shell-interpreted.
+        launchProcess.command = ["/usr/bin/uwsm-app", "--", "/usr/bin/gtk-launch", "--", desktopId]
+        console.info("[LAUNCHER] launch.begin desktop_id=" + desktopId)
         launchProcess.running = true
+        launchStarted(desktopId)
         return true
     }
 
@@ -69,6 +74,7 @@ Item {
         id: appsProcess
         command: []
         environment: root.processEnvironment
+        clearEnvironment: false
         stdout: StdioCollector { id: appsStdout }
         stderr: StdioCollector { id: appsStderr }
 
@@ -93,14 +99,17 @@ Item {
         id: launchProcess
         command: []
         environment: root.processEnvironment
+        clearEnvironment: false
         stderr: StdioCollector { id: launchStderr }
 
         onExited: function(code) {
             if (code !== 0) {
                 var message = launchStderr.text.trim() || "Application launch failed."
+                console.warn("[LAUNCHER] launch.failed code=" + code + " error=" + message)
                 root.errorMessage = message
                 root.launchFinished(false, message)
             } else {
+                console.info("[LAUNCHER] launch.accepted")
                 root.launchFinished(true, "")
             }
         }

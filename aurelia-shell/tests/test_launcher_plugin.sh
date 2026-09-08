@@ -18,7 +18,11 @@ fi
 
 if grep -q 'workstation-keybindings' "$launcher_root/LauncherPlugin.qml" &&
    grep -q 'function reload()' "$launcher_root/ui/LauncherModel.qml" &&
-   grep -q 'command = \["gtk-launch", desktopId\]' "$launcher_root/ui/LauncherModel.qml" &&
+   grep -q 'launchProcess.command = \["/usr/bin/uwsm-app", "--", "/usr/bin/gtk-launch", "--", desktopId\]' "$launcher_root/ui/LauncherModel.qml" &&
+   grep -q 'clearEnvironment: false' "$launcher_root/ui/LauncherModel.qml" &&
+   grep -q 'WAYLAND_DISPLAY' "$launcher_root/LauncherPlugin.qml" &&
+   grep -q 'XDG_RUNTIME_DIR' "$launcher_root/LauncherPlugin.qml" &&
+   grep -q 'DBUS_SESSION_BUS_ADDRESS' "$launcher_root/LauncherPlugin.qml" &&
    grep -q 'target: "aurelia.launcher"' "$launcher_root/LauncherPlugin.qml" &&
    grep -q 'shell.summon("aurelia.launcher"' "$ROOT/plugins/aurelia.bar/AureliaLogo.qml" &&
    [[ -f "$launcher_root/keybindings.lua" ]] &&

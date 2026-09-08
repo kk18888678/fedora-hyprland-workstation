@@ -19,7 +19,18 @@ Item {
         "PATH": "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : ""),
         "HOME": Quickshell.env("HOME") || "",
         "XDG_DATA_HOME": Quickshell.env("XDG_DATA_HOME") || "",
-        "XDG_DATA_DIRS": Quickshell.env("XDG_DATA_DIRS") || "/usr/local/share:/usr/share"
+        "XDG_DATA_DIRS": Quickshell.env("XDG_DATA_DIRS") || "/usr/local/share:/usr/share",
+        // Application launches must retain the compositor session context.
+        // In particular, Foot needs the Wayland socket and runtime directory;
+        // desktop activation also needs the session bus and Xwayland display.
+        "WAYLAND_DISPLAY": Quickshell.env("WAYLAND_DISPLAY") || "",
+        "XDG_RUNTIME_DIR": Quickshell.env("XDG_RUNTIME_DIR") || "",
+        "DBUS_SESSION_BUS_ADDRESS": Quickshell.env("DBUS_SESSION_BUS_ADDRESS") || "",
+        "DISPLAY": Quickshell.env("DISPLAY") || "",
+        "XDG_CURRENT_DESKTOP": Quickshell.env("XDG_CURRENT_DESKTOP") || "Hyprland",
+        "XDG_SESSION_DESKTOP": Quickshell.env("XDG_SESSION_DESKTOP") || "Hyprland",
+        "XDG_SESSION_TYPE": Quickshell.env("XDG_SESSION_TYPE") || "wayland",
+        "HYPRLAND_INSTANCE_SIGNATURE": Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || ""
     })
 
     function open(payloadJson) {

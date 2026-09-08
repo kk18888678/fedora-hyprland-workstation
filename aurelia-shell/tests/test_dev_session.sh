@@ -48,3 +48,12 @@ if grep -q 'source_shell_root' "$ROOT/bin/aurelia-launch-shell" &&
 else
     fail "Aurelia source auto-detection or scoped restart contract is incomplete"
 fi
+
+if grep -q 'resolve_aurelia_launcher' "$ROOT/../dotfiles/hypr/startup.lua" &&
+   grep -q 'aurelia-launch-shell' "$ROOT/../dotfiles/hypr/startup.lua" &&
+   grep -q 'AURELIA_SHELL_LAUNCHER' "$ROOT/../dotfiles/hypr/startup.lua" &&
+   grep -q -- '--no-duplicate' "$ROOT/bin/aurelia-launch-shell"; then
+    pass "Hyprland startup autostarts the single resident Aurelia Shell with source and installed path resolution"
+else
+    fail "Aurelia Shell Hyprland autostart contract is incomplete"
+fi
