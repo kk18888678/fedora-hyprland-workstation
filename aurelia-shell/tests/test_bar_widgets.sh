@@ -33,6 +33,21 @@ else
     fail "Workspace bar widget is incomplete"
 fi
 
+if [[ -f "$bar_root/AureliaLogo.qml" ]] &&
+   grep -q 'readonly property int markSize: 20' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'implicitWidth: 24' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'implicitHeight: 26' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'width: root.markSize' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'var orbitWidth' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'centerX - orbitWidth / 2' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'context.arc' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'onHoveredChanged: logoCanvas.requestPaint()' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'shell.summon("aurelia.launcher"' "$bar_root/AureliaLogo.qml"; then
+    pass "Aurelia logo uses a compact bar mark with a theme-aware hover state"
+else
+    fail "Aurelia logo sizing, hover rendering, or launcher action is incomplete"
+fi
+
 if [[ -f "$tray_root/manifest.json" && -f "$tray_root/TrayBarWidget.qml" ]] &&
    jq -e '.schemaVersion == 1 and .id == "aurelia.tray" and (.kinds == ["bar-widget"])' "$tray_root/manifest.json" >/dev/null &&
    grep -q 'Quickshell.Services.SystemTray' "$tray_root/TrayBarWidget.qml" &&

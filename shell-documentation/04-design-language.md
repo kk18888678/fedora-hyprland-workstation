@@ -281,6 +281,24 @@ line, minimum height `2 px`, height `14%` of the icon, rotated `-45°`; the
 warning badge is circular, has a 1 px popup-background border, and uses a
 `0.72 × badgeHeight` exclamation glyph.
 
+## Aurelia calendar surface
+
+The calendar uses an Aurelia-specific instrument-panel language rather than
+the reference calendar's oversized hero composition. Its hierarchy is:
+
+1. a compact date rail with an accent edge;
+2. a framed month-navigation strip with fixed-width controls;
+3. a quiet six-row ledger grid with seven equal columns; and
+4. one high-contrast accent state for today.
+
+The grid is a read-only date surface, not a date picker. Every cell has the
+same explicit width and height, including adjacent-month dates, so the popup
+never reflows when a month starts on a different weekday or contains five
+weeks. Hover is communicated with a restrained surface and border change;
+today is communicated with an accent fill and a small top marker. This keeps
+navigation, hierarchy, and state legible without turning every date into a
+button or relying on a large decorative hero.
+
 ## Motion language
 
 Motion is short, interruptible, and tied to state changes rather than a global

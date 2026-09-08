@@ -42,6 +42,9 @@ fi
 if grep -q 'source_shell_root' "$ROOT/bin/aurelia-launch-shell" &&
    grep -q 'source_shell_root' "$ROOT/bin/aurelia-shell" &&
    grep -q 'kill --pid' "$ROOT/bin/aurelia-restart-shell" &&
+   grep -q 'kill -0' "$ROOT/bin/aurelia-restart-shell" &&
+   grep -q 'stale_instance_dir' "$ROOT/bin/aurelia-restart-shell" &&
+   grep -q 'runtime identifiers' "$ROOT/bin/aurelia-restart-shell" &&
    grep -q 'Process ID:' "$ROOT/bin/aurelia-restart-shell" &&
    grep -q 'AURELIA_SHELL_ROOT=' "$ROOT/bin/aurelia-restart-shell"; then
     pass "source checkout auto-detection removes repeated development exports and restart is scoped to Aurelia"

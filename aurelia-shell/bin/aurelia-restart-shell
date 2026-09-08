@@ -53,6 +53,52 @@ list_output="$($qs_bin list --path "$shell_root/shell.qml" 2>&1)" || {
     exit 1
 }
 active_pid="$(printf '%s\n' "$list_output" | sed -n 's/^  Process ID: \([0-9][0-9]*\)$/\1/p' | head -n1)"
+instance_id="$(printf '%s\n' "$list_output" | sed -n 's/^Instance \([^:][^:]*\):$/\1/p' | head -n1)"
+shell_id="$(printf '%s\n' "$list_output" | sed -n 's/^  Shell ID: \([^[:space:]][^[:space:]]*\)$/\1/p' | head -n1)"
+if [[ -n "$active_pid" ]] && ! kill -0 "$active_pid" 2>/dev/null; then
+    # Quickshell can leave an instance record behind after a crash. An absent
+    # PID is already stopped; do not turn a harmless stale record into a
+    # restart failure or attempt to signal an unrelated recycled PID. Remove
+    # only the exact runtime record returned by Quickshell, after validating
+    # every path component and the symlink targets.
+    runtime_dir="${XDG_RUNTIME_DIR:-}"
+    [[ "$runtime_dir" =~ ^/run/user/[0-9]+$ ]] || {
+        printf 'Error: Cannot safely recover a stale Quickshell instance without a standard runtime directory.\n' >&2
+        exit 1
+    }
+    [[ "$instance_id" =~ ^[A-Za-z0-9_-]+$ && "$shell_id" =~ ^[A-Za-z0-9_-]+$ ]] || {
+        printf 'Error: Cannot safely recover a stale Quickshell instance with invalid runtime identifiers.\n' >&2
+        exit 1
+    }
+    stale_instance_dir="$runtime_dir/quickshell/by-id/$instance_id"
+    stale_shell_link="$runtime_dir/quickshell/by-shell/$shell_id/$instance_id"
+    stale_pid_link="$runtime_dir/quickshell/by-pid/$active_pid"
+    [[ -d "$stale_instance_dir" && ! -L "$stale_instance_dir" ]] || {
+        printf 'Error: Cannot safely recover the stale Quickshell instance directory.\n' >&2
+        exit 1
+    }
+    if [[ -L "$stale_shell_link" ]]; then
+        [[ "$(readlink -- "$stale_shell_link")" == "$stale_instance_dir" ]] || {
+            printf 'Error: Stale Quickshell shell link does not resolve to the reported instance.\n' >&2
+            exit 1
+        }
+    elif [[ -e "$stale_shell_link" ]]; then
+        printf 'Error: Stale Quickshell shell link is not a symlink.\n' >&2
+        exit 1
+    fi
+    if [[ -L "$stale_pid_link" ]]; then
+        [[ "$(readlink -- "$stale_pid_link")" == "$stale_instance_dir" ]] || {
+            printf 'Error: Stale Quickshell PID link does not resolve to the reported instance.\n' >&2
+            exit 1
+        }
+    elif [[ -e "$stale_pid_link" ]]; then
+        printf 'Error: Stale Quickshell PID link is not a symlink.\n' >&2
+        exit 1
+    fi
+    rm -f -- "$stale_shell_link" "$stale_pid_link"
+    rm -rf -- "$stale_instance_dir"
+    active_pid=""
+fi
 if [[ -n "$active_pid" ]]; then
     "$qs_bin" kill --pid "$active_pid" >/dev/null || {
         printf 'Error: Could not stop the existing Aurelia Shell instance (pid %s).\n' "$active_pid" >&2
