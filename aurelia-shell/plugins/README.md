@@ -76,7 +76,9 @@ of the bar action, not a second standalone bar or application surface.
 - aurelia.launcher: Raycast-style Aurelia Command Center opened by clicking the
   Aurelia logo. It searches native XDG desktop entries, configured actions,
   bounded home files, and safe arithmetic; additional provider modules are
-  declared separately and can be enabled as they become implemented.
+  declared separately and can be enabled as they become implemented. Internal
+  terminal helpers such as `footclient` and `foot-server` are kept out of the
+  user-facing app list by the shipped Command Center hide policy.
 - aurelia.workspaces: Hyprland workspace switcher placed immediately after
   the Aurelia logo.
 - aurelia.tray: StatusNotifier system-tray widget for applications such as

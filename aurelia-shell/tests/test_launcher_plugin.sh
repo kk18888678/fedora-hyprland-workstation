@@ -80,6 +80,13 @@ else
 fi
 
 if grep -q 'DesktopEntries.applications.values' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'defaultHiddenPath' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'isHiddenEntry(entry)' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'footclient' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'foot-server' "$services_root/AureliaAppLibrary.qml" &&
+   [[ -f "$ROOT/config/command-center.hides" ]] &&
+   grep -q '^footclient$' "$ROOT/config/command-center.hides" &&
+   grep -q '^foot-server$' "$ROOT/config/command-center.hides" &&
    grep -q 'desktopIdFor(entry)' "$services_root/AureliaAppLibrary.qml" &&
    grep -q 'value + ".desktop"' "$services_root/AureliaAppLibrary.qml" &&
    grep -q 'appRows(query)' "$services_root/AureliaAppLibrary.qml" &&
