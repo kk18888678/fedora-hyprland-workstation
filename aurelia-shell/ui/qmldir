@@ -2,3 +2,4 @@ AureliaActionButton 1.0 AureliaActionButton.qml
 AureliaIcon 1.0 AureliaIcon.qml
 AureliaKeyboardPanel 1.0 AureliaKeyboardPanel.qml
 AureliaPopupCard 1.0 AureliaPopupCard.qml
+AureliaToolTip 1.0 AureliaToolTip.qml

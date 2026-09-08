@@ -32,6 +32,7 @@ PanelWindow {
             ],
             right: [
                 { id: "aurelia.tray" },
+                { id: "aurelia.notifications" },
                 { id: "aurelia.screenshot" },
                 { id: "aurelia.power" }
             ]

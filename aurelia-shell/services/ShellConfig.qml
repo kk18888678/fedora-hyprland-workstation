@@ -29,6 +29,9 @@ QtObject {
         blockLoading: true
         blockWrites: true
         atomicWrites: true
+        // A missing first-run config is an expected state handled by reload();
+        // do not emit a misleading runtime warning for it.
+        printErrors: false
 
         onSaved: configRoot.lastSaveOk = true
         onSaveFailed: configRoot.lastSaveOk = false
@@ -47,6 +50,7 @@ QtObject {
                 ],
                 right: [
                     { id: "aurelia.tray" },
+                    { id: "aurelia.notifications" },
                     { id: "aurelia.screenshot" },
                     { id: "aurelia.power" }
                 ]

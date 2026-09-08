@@ -196,35 +196,12 @@ Item {
             tint: hover.hovered ? Theme.text : Theme.accent
         }
 
-        ToolTip {
+        AureliaToolTip {
             id: screenshotToolTip
-            visible: hover.hovered
+            triggerItem: root
+            bar: root.bar
+            hovered: hover.hovered
             text: "Screenshots · Full Screen or Selection"
-            delay: 400
-            timeout: 3000
-            x: (root.width - width) / 2
-            y: root.bar && root.bar.position === "bottom"
-                ? -height - Theme.spacingXs
-                : root.height + Theme.spacingXs
-            padding: 0
-
-            background: Rectangle {
-                color: Theme.surfaceElevated
-                border.color: Theme.borderActive
-                border.width: Theme.borderWidthDefault
-                radius: Theme.radiusSm
-            }
-
-            contentItem: Text {
-                text: screenshotToolTip.text
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeXs
-                leftPadding: Theme.spacingSm
-                rightPadding: Theme.spacingSm
-                topPadding: Theme.spacingXs
-                bottomPadding: Theme.spacingXs
-            }
         }
 
         MouseArea {

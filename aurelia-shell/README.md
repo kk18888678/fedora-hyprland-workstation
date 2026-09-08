@@ -119,6 +119,22 @@ Command Center. The historical plugin id remains stable for existing IPC and
 shortcut configuration; its hidden command service remains resident with the
 panel opening only when summoned.
 
+The notification center is exposed by `aurelia.notifications`:
+
+```text
+aurelia-shell aurelia.notifications openCenter
+aurelia-shell aurelia.notifications showHistory
+aurelia-shell aurelia.notifications toggleDnd
+```
+
+It is an Aurelia-owned Freedesktop notification server, not a Noctalia
+notification surface. Do Not Disturb and bounded notification history are
+stored under `${XDG_STATE_HOME:-$HOME/.local/state}/aurelia/`. Screenshot
+success previews will call this service after the notification slice is
+validated; that integration is deliberately not part of the initial service.
+Only one session service can own `org.freedesktop.Notifications`; enable this
+owner after the other notification daemon has been disabled for the session.
+
 Its normalized layout lives under the `bar` key in
 `~/.config/aurelia/shell.json`. The shipped layout places the formatted clock
 and weather together in the center, with the screenshot widget on the right.

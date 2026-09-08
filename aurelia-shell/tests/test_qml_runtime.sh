@@ -37,6 +37,21 @@ ShellRoot {
         source: "file://$ROOT/plugins/aurelia.weather/WeatherBarWidget.qml"
     }
 
+    Loader {
+        active: true
+        source: "file://$ROOT/plugins/aurelia.notifications/Service.qml"
+    }
+
+    Loader {
+        active: true
+        source: "file://$ROOT/plugins/aurelia.notifications/BarWidget.qml"
+    }
+
+    Loader {
+        active: true
+        source: "file://$ROOT/plugins/aurelia.notifications/ui/NotificationToast.qml"
+    }
+
     Timer {
         interval: 500
         running: true
@@ -47,11 +62,12 @@ ShellRoot {
 EOF_QML
 
 runtime_status=0
-/usr/bin/timeout --kill-after=1s 6s /usr/bin/qs --no-duplicate --path "$smoke_file" >"$smoke_output" 2>&1 || runtime_status=$?
+XDG_STATE_HOME="$smoke_dir/state" XDG_CONFIG_HOME="$smoke_dir/config" \
+    /usr/bin/timeout --kill-after=1s 6s /usr/bin/qs --no-duplicate --path "$smoke_file" >"$smoke_output" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] &&
    ! grep -Eq 'WARN|ERROR|FATAL|ReferenceError|TypeError|widget_load_failed|panel_load_failed' "$smoke_output"; then
-    pass "Screenshot and weather bar widgets instantiate in QuickShell without QML warnings or errors"
+    pass "Screenshot, weather, and notification surfaces instantiate in QuickShell without QML warnings or errors"
 elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$smoke_output"; then
     pass "SKIP QML runtime smoke (test runner cannot create an additional Wayland QuickShell surface)"
 else

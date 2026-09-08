@@ -117,7 +117,7 @@ if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'camera-photo' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'import "../../../ui"' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'ToolTip' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'AureliaToolTip' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'Full Screen or Selection' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'AureliaIcon' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'MultiEffect' "$icon_qml" &&

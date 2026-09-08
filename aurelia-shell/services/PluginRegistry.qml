@@ -98,6 +98,10 @@ QtObject {
     function primaryKind(id) {
         var manifest = installedPlugins[id]
         if (!manifest) return ""
+        // A service is the resident owner for a multi-kind plugin. The bar
+        // host loads its separate bar-widget entry point independently; using
+        // the visual entry point here would silently skip the daemon.
+        if (hasKind(manifest, "service")) return "service"
         for (var i = 0; i < loadKindOrder.length; i++) {
             if (hasKind(manifest, loadKindOrder[i])) return loadKindOrder[i]
         }

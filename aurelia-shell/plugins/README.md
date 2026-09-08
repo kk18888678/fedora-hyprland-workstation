@@ -63,6 +63,13 @@ The shipped screenshot plugin demonstrates the bar-only contract: its
 capture surface. The full-screen panel is therefore an implementation detail
 of the bar action, not a second standalone bar or application surface.
 
+The `aurelia.notifications` plugin demonstrates a multi-kind plugin. Its
+resident `service` entry point owns the Freedesktop notification server,
+bounded toast snapshots, XDG-state history, and Do Not Disturb. Its separate
+`bar-widget` entry point is only the notification-center affordance; it routes
+actions to the resident service through shell IPC. The registry deliberately
+selects `service` as the host entry point when a manifest declares both kinds.
+
 ## Popup design language
 
 The Screenshot popup is the compact reference surface for Aurelia popups.
@@ -72,6 +79,11 @@ primary action set small and expose additional behavior through compact
 customization controls or a dedicated settings surface instead of multiplying
 near-duplicate action cards.
 
+Bar affordances use `ui/AureliaToolTip.qml`, an anchored `PopupWindow` with
+explicit top/bottom placement and screen clamping. This keeps tooltip geometry
+outside the short bar layer and prevents the clipped half-tooltip behavior of
+an in-bar controls overlay.
+
 ## Current desktop slices
 
 - aurelia.screenshot: bar-only camera widget with an internal capture surface,
@@ -80,6 +92,12 @@ near-duplicate action cards.
   clipboard behavior. Its plugin-owned `SUPER + SHIFT + R` binding opens the
   same quick region flow used by the popup, while `SUPER + SHIFT + S` captures
   the full screen.
+- aurelia.notifications: resident Freedesktop notification service with
+  theme-aware popups, Active/History center views, DND persistence under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/aurelia/`, clear-history and
+  dismiss-all controls. Screenshot success notifications are intentionally not
+  wired yet; the notification service is being stabilized before that
+  integration is added.
 - aurelia.clock: lightweight center clock bar widget. Its default format is
   `MMM d, dddd HH:mm`; set `format` inline on its layout entry when needed.
 - aurelia.calendar: calendar panel opened by clicking the clock.
