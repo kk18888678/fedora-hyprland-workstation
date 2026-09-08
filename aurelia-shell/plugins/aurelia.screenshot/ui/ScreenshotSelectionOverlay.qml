@@ -61,7 +61,12 @@ PanelWindow {
         if (root.controller) root.controller.regionSelectionFinished(geometry)
     }
 
-    onVisibleChanged: if (visible) resetSelection()
+    onVisibleChanged: {
+        if (visible) {
+            resetSelection()
+            Qt.callLater(function() { selectionKeyboardScope.forceActiveFocus() })
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -71,7 +76,7 @@ PanelWindow {
             anchors.top: parent.top
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.topMargin: Theme.spacingXl
-            text: "Drag to select a region · Esc to cancel"
+            text: "Drag to select a region"
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
@@ -93,6 +98,7 @@ PanelWindow {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton
             hoverEnabled: true
+            cursorShape: Qt.CrossCursor
 
             onPressed: function(mouse) {
                 mouse.accepted = true
@@ -121,10 +127,17 @@ PanelWindow {
         }
     }
 
-    Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Escape && root.controller) {
-            root.controller.cancelRegionSelection()
-            event.accepted = true
+    FocusScope {
+        id: selectionKeyboardScope
+        anchors.fill: parent
+        z: -1
+        focus: root.visible
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape && root.controller) {
+                root.controller.cancelRegionSelection()
+                event.accepted = true
+            }
         }
     }
 }

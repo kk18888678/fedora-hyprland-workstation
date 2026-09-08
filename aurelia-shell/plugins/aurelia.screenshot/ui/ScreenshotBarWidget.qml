@@ -1,7 +1,7 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
-import Quickshell.Widgets
 import "../../../theme"
 
 // Screenshot is a first-class bar widget. It owns the controller, capture
@@ -77,6 +77,11 @@ Item {
         return "started"
     }
 
+    function quickScreen() {
+        screenshotPanel.quickScreen()
+        return "started"
+    }
+
     function capture(payloadJson) {
         screenshotPanel.capturePayload(payloadJson || "{}")
         return "started"
@@ -123,7 +128,7 @@ Item {
         var menu = menuLoader.item
         // ScreenshotPanel has already requested closure. Wait for the actual
         // layer-shell backing surface to disappear before freezing the frame.
-        if (!root.screenshotPanel.preserveSurfaceDuringCapture && menu && (menu.visible || menu.backingWindowVisible)) return
+        if (menu && (menu.visible || menu.backingWindowVisible)) return
         var request = root.pendingCaptureRequest
         root.pendingCaptureRequest = null
         root.capturePending = false
@@ -181,11 +186,44 @@ Item {
 
         HoverHandler { id: hover }
 
-        IconImage {
+        AureliaIcon {
             anchors.centerIn: parent
             width: 18
             height: 18
-            source: Quickshell.iconPath("camera-photo", "camera")
+            name: "camera-photo"
+            iconSize: 18
+            tint: hover.hovered ? Theme.text : Theme.accent
+        }
+
+        ToolTip {
+            id: screenshotToolTip
+            visible: hover.hovered
+            text: "Screenshots · Full Screen or Selection"
+            delay: 400
+            timeout: 3000
+            x: (root.width - width) / 2
+            y: root.bar && root.bar.position === "bottom"
+                ? -height - Theme.spacingXs
+                : root.height + Theme.spacingXs
+            padding: 0
+
+            background: Rectangle {
+                color: Theme.surfaceElevated
+                border.color: Theme.borderActive
+                border.width: Theme.borderWidthDefault
+                radius: Theme.radiusSm
+            }
+
+            contentItem: Text {
+                text: screenshotToolTip.text
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeXs
+                leftPadding: Theme.spacingSm
+                rightPadding: Theme.spacingSm
+                topPadding: Theme.spacingXs
+                bottomPadding: Theme.spacingXs
+            }
         }
 
         MouseArea {

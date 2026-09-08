@@ -14,8 +14,6 @@ Item {
     property string captureStage: "menu"
     property int delaySeconds: 0
     property bool showPointer: false
-    property bool quickCapture: false
-    property bool preserveSurfaceDuringCapture: false
     property bool menuSuppressed: false
 
     signal captureRequested(string mode, int delay, string geometry, bool pointer)
@@ -31,8 +29,6 @@ Item {
         captureStage = "menu"
         statusMessage = ""
         statusKind = "info"
-        quickCapture = false
-        preserveSurfaceDuringCapture = false
     }
 
     function open(payloadJson) {
@@ -56,8 +52,6 @@ Item {
     function close() {
         hideMenuSurface()
         captureStage = "menu"
-        quickCapture = false
-        preserveSurfaceDuringCapture = false
         menuOpen = false
     }
 
@@ -68,10 +62,10 @@ Item {
         console.info("[SCREENSHOT] menu_surface_hidden")
     }
 
-    function capture(mode, delay, geometry, preserveSurface) {
+    function capture(mode, delay, geometry) {
         var requestedMode = String(mode || "")
         if (requestedMode === "screen") requestedMode = "full"
-        if (["full", "region", "smart"].indexOf(requestedMode) === -1) {
+        if (["full", "region"].indexOf(requestedMode) === -1) {
             statusMessage = "Unsupported screenshot mode."
             statusKind = "error"
             menuOpen = true
@@ -83,21 +77,19 @@ Item {
         statusMessage = safeDelay > 0 ? "Waiting " + safeDelay + " seconds..." : "Capturing..."
         statusKind = "info"
         captureStage = "capturing"
-        preserveSurfaceDuringCapture = preserveSurface === true
-        if (!preserveSurfaceDuringCapture) {
-            hideMenuSurface()
-            menuOpen = false
-        }
+        hideMenuSurface()
+        menuOpen = false
         captureRequested(requestedMode, safeDelay, String(geometry || ""), showPointer)
     }
 
     function quickRegion() {
         resetMenu()
-        quickCapture = true
-        // The quick path deliberately goes straight to the native smart
-        // picker. It does not open a competing Aurelia surface, so an
-        // existing application menu remains the thing being captured.
-        capture("smart", 0, "", true)
+        startRegionSelection()
+    }
+
+    function quickScreen() {
+        resetMenu()
+        capture("full", delaySeconds, "")
     }
 
     function capturePayload(payloadJson) { open(payloadJson) }
@@ -119,7 +111,6 @@ Item {
 
     function cancelRegionSelection() {
         console.info("[SCREENSHOT] region selection cancelled")
-        quickCapture = false
         captureStage = "menu"
         menuOpen = false
         statusMessage = ""
@@ -139,31 +130,17 @@ Item {
     }
 
     function captureCompleted(code, output, errorOutput, durationMs) {
-        var wasQuick = quickCapture
-        quickCapture = false
         captureStage = "menu"
         var result = String(output || "").trim()
         var errorText = String(errorOutput || "").trim()
 
-        if (wasQuick) {
-            // A cancelled quick picker must leave the application below it
-            // untouched and must not reopen an Aurelia menu.
-            if (!preserveSurfaceDuringCapture) menuOpen = false
-            preserveSurfaceDuringCapture = false
-            statusMessage = ""
-            statusKind = "info"
-            return
-        }
-
         if (code === 0) {
-            if (!preserveSurfaceDuringCapture) menuOpen = false
-            preserveSurfaceDuringCapture = false
+            menuOpen = false
             statusMessage = result !== ""
                 ? ("Screenshot saved and copied (" + durationMs + " ms).")
                 : ("Screenshot captured (" + durationMs + " ms).")
             statusKind = "success"
         } else {
-            preserveSurfaceDuringCapture = false
             menuSuppressed = false
             menuOpen = true
             statusMessage = errorText || ("Capture failed (status " + code + ").")

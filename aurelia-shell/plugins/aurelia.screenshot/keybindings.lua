@@ -12,7 +12,7 @@ end
 return {
     {
         id = "aurelia.screenshot.quick_region",
-        key = "SUPER + SHIFT + S",
+        key = "SUPER + SHIFT + R",
         description = "Quick Screenshot Region",
         category = "Applications & Launchers",
         priority = 75,
@@ -24,5 +24,20 @@ return {
         target = "aurelia.screenshot",
         method = "quickRegion",
         command_argv = { shell_client, "shell", "call", "aurelia.screenshot", "quickRegion", "{}" },
+    },
+    {
+        id = "aurelia.screenshot.quick_screen",
+        key = "SUPER + SHIFT + S",
+        description = "Quick Screenshot Screen",
+        category = "Applications & Launchers",
+        priority = 76,
+        editable = true,
+        runnable = true,
+        keyboard_bindable = true,
+        trigger_type = "keyboard",
+        action_type = "plugin_ipc",
+        target = "aurelia.screenshot",
+        method = "quickScreen",
+        command_argv = { shell_client, "shell", "call", "aurelia.screenshot", "quickScreen", "{}" },
     },
 }

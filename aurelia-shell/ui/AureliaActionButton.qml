@@ -1,7 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
-import Quickshell.Widgets
 import "../theme"
 
 // Small shared action primitive for Aurelia popups. It encodes the design
@@ -38,10 +36,12 @@ Rectangle {
         anchors.rightMargin: Theme.spacingSm
         spacing: Theme.spacingXs
 
-        IconImage {
+        AureliaIcon {
             Layout.preferredWidth: root.compact ? 16 : 18
             Layout.preferredHeight: root.compact ? 16 : 18
-            source: Quickshell.iconPath(root.icon || "camera-photo", "camera-photo")
+            name: root.icon
+            iconSize: root.compact ? 16 : 18
+            tint: root.primary ? Theme.bgBase : Theme.text
             visible: root.icon !== ""
         }
 

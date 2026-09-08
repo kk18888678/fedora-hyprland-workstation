@@ -77,8 +77,9 @@ near-duplicate action cards.
 - aurelia.screenshot: bar-only camera widget with an internal capture surface,
   backed by Fedora-owned grim, slurp, and wl-copy tools. It supports
   full-screen and region capture with configurable delay, pointer, file, and
-  clipboard behavior. Its plugin-owned `SUPER + SHIFT + S` binding opens quick
-  region capture and captures immediately after selection.
+  clipboard behavior. Its plugin-owned `SUPER + SHIFT + R` binding opens the
+  same quick region flow used by the popup, while `SUPER + SHIFT + S` captures
+  the full screen.
 - aurelia.clock: lightweight center clock bar widget. Its default format is
   `MMM d, dddd HH:mm`; set `format` inline on its layout entry when needed.
 - aurelia.calendar: calendar panel opened by clicking the clock.

@@ -28,9 +28,9 @@ fi
 
 if [[ -x "$capture_bin" ]] &&
    "$capture_bin" --help >/dev/null 2>&1 &&
-   grep -q 'capture <full|smart|region>' "$capture_bin" &&
+   grep -q 'capture <full|region>' "$capture_bin" &&
    grep -q 'select region' "$capture_bin" &&
-   ! grep -Eiq 'windows?|capture_mode.*window|selector.*window' "$capture_bin" &&
+   ! grep -Eiq 'smart|windows?|capture_mode.*window|selector.*window' "$capture_bin" &&
    grep -q 'grim' "$capture_bin" &&
    grep -q 'slurp' "$capture_bin" &&
    grep -q 'hyprpicker' "$capture_bin" &&
@@ -57,8 +57,9 @@ menu_qml="$plugin_root/ui/ScreenshotMenuPopup.qml"
 panel_qml="$plugin_root/ui/ScreenshotPanel.qml"
 selection_qml="$plugin_root/ui/ScreenshotSelectionOverlay.qml"
 button_qml="$shared_ui_root/AureliaActionButton.qml"
+icon_qml="$shared_ui_root/AureliaIcon.qml"
 
-if [[ -f "$button_qml" ]] &&
+if [[ -f "$button_qml" && -f "$icon_qml" ]] &&
    grep -q 'Theme.surfaceElevated' "$button_qml" &&
    grep -q 'Theme.borderActive' "$button_qml" &&
    grep -q 'signal triggered' "$button_qml" &&
@@ -92,13 +93,18 @@ fi
 if grep -q 'selectionDragging' "$selection_qml" &&
    grep -q 'native region geometry' "$selection_qml" &&
    grep -q 'Keys.onPressed' "$selection_qml" &&
+   ! grep -Eiq 'text:.*esc' "$menu_qml" "$selection_qml" &&
    grep -q 'region selection cancelled' "$panel_qml" &&
-   grep -q 'capture("smart", 0, "", true)' "$panel_qml" &&
-   grep -q 'capture_mode.*smart' "$capture_bin" &&
-   grep -q 'function quickRegion' "$plugin_root/ui/ScreenshotBarWidget.qml"; then
-    pass "Region overlay and quick-region shortcut remain isolated from the two-action popup"
+   grep -q 'cursorShape: Qt.CrossCursor' "$selection_qml" &&
+   grep -q 'FocusScope' "$selection_qml" &&
+   grep -q 'selectionKeyboardScope.forceActiveFocus' "$selection_qml" &&
+   grep -q 'function quickRegion' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'function quickRegion' "$panel_qml" &&
+   grep -q 'startRegionSelection()' "$panel_qml" &&
+   ! grep -Eiq 'smart|window|windows' "$menu_qml" "$panel_qml" "$capture_bin"; then
+    pass "Widget and shortcut region entry points share the crosshair/Escape-safe overlay flow"
 else
-    fail "Region capture overlay or quick-region compatibility path is incomplete"
+    fail "Region capture overlay or unified quick-region compatibility path is incomplete"
 fi
 
 if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
@@ -107,10 +113,15 @@ if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'captureCompleted' "$panel_qml" &&
    grep -q 'ScreenshotPanel.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'camera-photo' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml"; then
-    pass "Bar widget owns capture lifecycle and preserves bounded observability"
+   grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'ToolTip' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'Full Screen or Selection' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'AureliaIcon' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'MultiEffect' "$icon_qml" &&
+   grep -q 'colorizationColor' "$icon_qml"; then
+    pass "Bar widget owns capture lifecycle, tooltip, and theme-aware icon visibility"
 else
-    fail "Screenshot bar lifecycle or observability boundary is incomplete"
+    fail "Screenshot bar lifecycle, tooltip, or icon contrast contract is incomplete"
 fi
 
 section "Resident Bar Contract"
