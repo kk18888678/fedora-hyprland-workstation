@@ -35,12 +35,14 @@ else
 fi
 
 if [[ -f "$plugin_root/Service.qml" && -f "$plugin_root/BarWidget.qml" && -f "$plugin_root/NotificationLogic.js" && -f "$plugin_root/ui/qmldir" ]] &&
-   grep -q 'import Quickshell.Services.Notifications' "$plugin_root/Service.qml" &&
-   grep -q 'NotificationServer {' "$plugin_root/Service.qml" &&
+   [[ -f "$plugin_root/NotificationServerHost.qml" ]] &&
+   grep -q 'import Quickshell.Services.Notifications' "$plugin_root/NotificationServerHost.qml" &&
+   grep -q 'Loader {' "$plugin_root/Service.qml" &&
+   grep -q 'NotificationServer {' "$plugin_root/NotificationServerHost.qml" &&
    grep -q 'notification.tracked = true' "$plugin_root/Service.qml" &&
    grep -q 'property var liveRefs' "$plugin_root/Service.qml" &&
    grep -q 'ListModel' "$plugin_root/Service.qml" &&
-   grep -q 'onNotification:' "$plugin_root/Service.qml" &&
+   grep -q 'onNotification:' "$plugin_root/NotificationServerHost.qml" &&
    grep -q 'NotificationToast 1.0 NotificationToast.qml' "$plugin_root/ui/qmldir" &&
    grep -q 'NotificationRow 1.0 NotificationRow.qml' "$plugin_root/ui/qmldir" &&
    grep -q 'NotificationCenterPanel 1.0 NotificationCenterPanel.qml' "$plugin_root/ui/qmldir"; then
@@ -58,6 +60,10 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'function clearHistory' "$plugin_root/Service.qml" &&
    grep -q 'function dismissAll' "$plugin_root/Service.qml" &&
    grep -q 'function publishScreenshot' "$plugin_root/Service.qml" &&
+   grep -q 'notificationBusProbe' "$plugin_root/Service.qml" &&
+   grep -q 'busctl' "$plugin_root/Service.qml" &&
+   grep -q 'server.bus_available' "$plugin_root/Service.qml" &&
+   grep -q 'server.bus_owned external=true' "$plugin_root/Service.qml" &&
    grep -q 'target: "aurelia.notifications"' "$plugin_root/Service.qml"; then
     pass "DND and bounded history have an XDG-state-backed service API with center actions"
 else
@@ -66,7 +72,7 @@ fi
 
 if grep -q 'aurelia-action' "$plugin_root/NotificationLogic.js" &&
    grep -q 'notify-send' "$plugin_root/NotificationLogic.js" &&
-   grep -q 'NotificationUrgency.Critical' "$plugin_root/Service.qml" &&
+   grep -q 'shouldBypassDnd(notification, 2)' "$plugin_root/Service.qml" &&
    grep -q 'durationFor' "$plugin_root/NotificationLogic.js" &&
    grep -q 'MAX_TEXT_LENGTH' "$plugin_root/NotificationLogic.js" &&
    ! grep -R -Eiq 'noctalia' "$plugin_root"; then
@@ -84,6 +90,15 @@ else
     fail "Notification bar affordance or DND interaction is incomplete"
 fi
 
+if [[ -f "$ROOT/ui/AureliaIconButton.qml" ]] &&
+   grep -q 'AureliaIconButton 1.0 AureliaIconButton.qml' "$ROOT/ui/qmldir" &&
+   grep -q 'AureliaIconButton' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'AureliaActionButton {' "$plugin_root/ui/NotificationCenterPanel.qml"; then
+    pass "Notification center uses compact icon actions and a lighter segmented layout"
+else
+    fail "Notification center still uses the oversized action-button-heavy layout"
+fi
+
 section "Shared Tooltip Geometry"
 
 if [[ -f "$tooltip_qml" ]] &&
@@ -94,6 +109,7 @@ if [[ -f "$tooltip_qml" ]] &&
    grep -q 'point.y = Math.max' "$tooltip_qml" &&
    grep -q 'AureliaToolTip 1.0 AureliaToolTip.qml' "$ROOT/ui/qmldir" &&
    grep -q 'AureliaToolTip {' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'publishScreenshot' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
    ! grep -Eq '(^|[[:space:]])ToolTip[[:space:]]*\{' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml"; then
     pass "Bar tooltips use a standalone anchored window with full below/above placement"
 else
@@ -117,6 +133,8 @@ if (!logic.shouldBypassDnd({ appName: "notify-send", urgency: 2 }, 2)) process.e
 if (logic.shouldBypassDnd({ appName: "chat-app", urgency: 2 }, 2)) process.exit(1);
 if (logic.durationFor(2, 10000) !== 0) process.exit(1);
 if (logic.durationFor(1, 100) !== 8000) process.exit(1);
+if (!logic.hasBusName("org.freedesktop.Notifications 123 quickshell\n", "org.freedesktop.Notifications")) process.exit(1);
+if (logic.hasBusName("org.freedesktop.DBus 1 dbus\n", "org.freedesktop.Notifications")) process.exit(1);
 if (!logic.screenshotSnapshot("/tmp/capture.png", 123).image.startsWith("file:///tmp/")) process.exit(1);
 if (logic.screenshotSnapshot("relative.png", 123) !== null) process.exit(1);
 if (logic.parseSettings('{"dnd":true}').dnd !== true) process.exit(1);

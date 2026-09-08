@@ -110,6 +110,7 @@ else
 fi
 
 if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'waitForEnd: true' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'duration_ms' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'captureRequested' "$panel_qml" &&
    grep -q 'captureCompleted' "$panel_qml" &&

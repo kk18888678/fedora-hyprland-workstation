@@ -147,6 +147,17 @@ function durationFor(urgency, expireTimeout) {
     return Math.min(30000, Math.max(minimum, Math.round(timeout)))
 }
 
+function hasBusName(output, expectedName) {
+    var name = String(expectedName || "")
+    if (name === "") return false
+    var lines = String(output || "").split("\n")
+    for (var i = 0; i < lines.length; i++) {
+        var firstColumn = lines[i].trim().split(/\s+/)[0]
+        if (firstColumn === name) return true
+    }
+    return false
+}
+
 function screenshotSnapshot(path, timestamp) {
     var source = String(path === undefined || path === null ? "" : path)
     if (source.length === 0 || source.length > MAX_IMAGE_LENGTH || source.charAt(0) !== "/" || source.indexOf("\u0000") !== -1) return null
@@ -177,6 +188,7 @@ if (typeof module !== "undefined") {
         parseSettings: parseSettings,
         parseHistory: parseHistory,
         durationFor: durationFor,
+        hasBusName: hasBusName,
         screenshotSnapshot: screenshotSnapshot
     }
 }

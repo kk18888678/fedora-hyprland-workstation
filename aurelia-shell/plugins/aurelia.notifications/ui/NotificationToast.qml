@@ -21,7 +21,7 @@ Item {
     signal activated()
     signal actionInvoked(string identifier)
 
-    implicitWidth: 360
+    implicitWidth: 340
     implicitHeight: toastCard.height
 
     function iconName(value) {
@@ -43,7 +43,7 @@ Item {
     Rectangle {
         id: toastCard
         width: root.implicitWidth
-        height: toastContent.implicitHeight + Theme.spacingMd * 2
+        height: toastContent.implicitHeight + Theme.spacingSm * 2
         radius: Theme.radiusMd
         color: Theme.surfaceElevated
         border.color: root.urgency === 2 ? Theme.error : (root.hovered ? Theme.borderActive : Theme.border)
@@ -72,23 +72,23 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: Theme.spacingMd
-            anchors.leftMargin: Theme.spacingLg
+            anchors.margins: Theme.spacingSm
+            anchors.leftMargin: Theme.spacingMd
             spacing: Theme.spacingSm
 
             Rectangle {
                 Layout.alignment: Qt.AlignTop
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
                 radius: Theme.radiusSm
                 color: Theme.surface
 
                 AureliaIcon {
                     anchors.centerIn: parent
-                    width: 20
-                    height: 20
+                    width: 18
+                    height: 18
                     name: root.iconName(root.appIcon)
-                    iconSize: 20
+                    iconSize: 18
                     tint: Theme.accent
                 }
             }
@@ -149,16 +149,16 @@ Item {
                     font.family: Theme.fontFamilyProse
                     font.pixelSize: Theme.fontSizeSm
                     wrapMode: Text.WordWrap
-                    maximumLineCount: 4
+                    maximumLineCount: 3
                     elide: Text.ElideRight
                 }
 
                 Image {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? 96 : 0
+                    Layout.preferredHeight: visible ? 80 : 0
                     visible: root.localImageSource(root.image) !== ""
                     source: root.localImageSource(root.image)
-                    sourceSize: Qt.size(320, 96)
+                    sourceSize: Qt.size(300, 80)
                     fillMode: Image.PreserveAspectFit
                     asynchronous: false
                     smooth: true

@@ -130,10 +130,12 @@ aurelia-shell aurelia.notifications toggleDnd
 It is an Aurelia-owned Freedesktop notification server, not a Noctalia
 notification surface. Do Not Disturb and bounded notification history are
 stored under `${XDG_STATE_HOME:-$HOME/.local/state}/aurelia/`. Screenshot
-success previews will call this service after the notification slice is
-validated; that integration is deliberately not part of the initial service.
+success previews now call this service in-process after a successful capture.
 Only one session service can own `org.freedesktop.Notifications`; enable this
 owner after the other notification daemon has been disabled for the session.
+When another owner is detected, Aurelia leaves the standard server unloaded
+and reports the condition through its center instead of generating registration
+warnings; first-party screenshot previews still use the in-process path.
 
 Its normalized layout lives under the `bar` key in
 `~/.config/aurelia/shell.json`. The shipped layout places the formatted clock

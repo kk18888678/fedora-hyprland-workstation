@@ -95,9 +95,11 @@ an in-bar controls overlay.
 - aurelia.notifications: resident Freedesktop notification service with
   theme-aware popups, Active/History center views, DND persistence under
   `${XDG_STATE_HOME:-$HOME/.local/state}/aurelia/`, clear-history and
-  dismiss-all controls. Screenshot success notifications are intentionally not
-  wired yet; the notification service is being stabilized before that
-  integration is added.
+  dismiss-all controls. Successful Aurelia screenshot captures publish a local
+  preview through the service API; no second notification backend is used. If
+  another session daemon owns the Freedesktop bus name, Aurelia keeps the
+  center and in-process previews available without repeatedly attempting a
+  conflicting registration.
 - aurelia.clock: lightweight center clock bar widget. Its default format is
   `MMM d, dddd HH:mm`; set `format` inline on its layout entry when needed.
 - aurelia.calendar: calendar panel opened by clicking the clock.

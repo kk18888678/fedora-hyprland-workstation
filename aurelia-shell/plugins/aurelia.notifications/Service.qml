@@ -3,7 +3,6 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import Quickshell.Services.Notifications
 import "../../theme"
 import "ui"
 import "NotificationLogic.js" as Logic
@@ -32,6 +31,13 @@ Item {
     readonly property int barClearance: bar && bar.position === "top"
         ? Math.max(26, Number(bar.barSize || 26)) + Theme.spacingMd
         : Theme.spacingMd
+    readonly property string serverStatus: !notificationBusProbeComplete
+        ? "Checking notification service"
+        : notificationBusAvailable
+            ? "Desktop notifications active"
+            : notificationBusOwnerFound
+                ? "Another notification service owns desktop delivery"
+                : "Notification service unavailable"
 
     property bool doNotDisturb: false
     property bool centerOpen: false
@@ -44,6 +50,10 @@ Item {
     property bool stateSaveQueued: false
     property var historyEntries: []
     property var liveRefs: ({})
+    property bool notificationBusAvailable: false
+    property bool notificationBusProbeComplete: false
+    property bool notificationBusOwnerFound: false
+    property int notificationBusProbeAttempts: 0
 
     property alias activeModel: activeNotificationsModel
     property alias historyModel: historyEntriesModel
@@ -96,6 +106,52 @@ Item {
             }
             service.stateDirectoryReady = true
             if (service.stateSaveQueued) service.stateSaveTimer.restart()
+        }
+    }
+
+    property Timer notificationBusRetryTimer: Timer {
+        interval: 250
+        repeat: false
+        onTriggered: service.probeNotificationBus()
+    }
+
+    property Process notificationBusProbe: Process {
+        command: [
+            "/usr/bin/timeout", "--kill-after=1s", "2s",
+            "/usr/bin/busctl", "--user", "list", "--no-legend"
+        ]
+        running: false
+        stdout: StdioCollector {
+            id: notificationBusProbeStdout
+            waitForEnd: true
+        }
+        stderr: StdioCollector { id: notificationBusProbeStderr }
+
+        onExited: function(code) {
+            var owned = code === 0 && Logic.hasBusName(
+                notificationBusProbeStdout.text,
+                "org.freedesktop.Notifications"
+            )
+
+            // Retry briefly so a just-stopped Aurelia instance can release the
+            // bus during a restart; a persistent external owner is reported as
+            // state, not as a noisy failed registration attempt.
+            if (owned && service.notificationBusProbeAttempts < 3) {
+                service.notificationBusRetryTimer.restart()
+                return
+            }
+
+            service.notificationBusProbeComplete = true
+            service.notificationBusOwnerFound = owned
+            service.notificationBusAvailable = code === 0 && !owned
+            if (service.notificationBusAvailable) {
+                console.info("[NOTIFICATIONS] server.bus_available")
+                notificationServerLoader.active = true
+            } else if (owned) {
+                console.info("[NOTIFICATIONS] server.bus_owned external=true")
+            } else {
+                console.info("[NOTIFICATIONS] server.probe_unavailable code=" + code)
+            }
         }
     }
 
@@ -225,7 +281,7 @@ Item {
             })
         }
 
-        if (doNotDisturb && !Logic.shouldBypassDnd(notification, NotificationUrgency.Critical)) {
+        if (doNotDisturb && !Logic.shouldBypassDnd(notification, 2)) {
             if (!Logic.isEphemeralApp(snapshot.app) && !isTransient(notification)) recordHistory(snapshot)
             delete liveRefs[originalId]
             try { notification.tracked = false } catch (releaseError) {}
@@ -324,13 +380,14 @@ Item {
         return dndState()
     }
 
-    // Stable in-process API for the next Screenshot integration step. The
-    // screenshot plugin is not coupled today; it can publish a validated local
-    // capture after this service is accepted as the notification owner.
+    // Stable in-process API for first-party capture previews. It is deliberately
+    // a service call rather than a second notification backend; Screenshot
+    // publishes only after its capture process exits successfully.
     function publishScreenshot(path) {
         var snapshot = Logic.screenshotSnapshot(path, Date.now())
         if (!snapshot) return "invalid-path"
         activeNotificationsModel.insert(0, snapshot)
+        console.info("[NOTIFICATIONS] screenshot.published")
         return "ok"
     }
 
@@ -356,23 +413,26 @@ Item {
         function publishScreenshot(path: string): string { return service.publishScreenshot(path) }
     }
 
-    NotificationServer {
-        id: notificationServer
-        keepOnReload: false
-        persistenceSupported: true
-        bodySupported: true
-        bodyMarkupSupported: false
-        bodyHyperlinksSupported: false
-        actionsSupported: true
-        imageSupported: true
+    Loader {
+        id: notificationServerLoader
+        active: false
+        asynchronous: false
+        source: Qt.resolvedUrl("NotificationServerHost.qml")
 
-        onNotification: function(notification) { service.handleNotification(notification) }
+        onLoaded: {
+            if (item && "service" in item) item.service = service
+            console.info("[NOTIFICATIONS] server.registered")
+        }
+        onStatusChanged: {
+            if (status === Loader.Error) console.error("[NOTIFICATIONS] server.load_failed")
+        }
     }
 
     property bool _startupStarted: false
     Component.onCompleted: {
         if (_startupStarted) return
         _startupStarted = true
+        probeNotificationBus()
         if (stateDir === "") {
             console.error("[NOTIFICATIONS] state_directory_unavailable")
             return
@@ -382,6 +442,12 @@ Item {
             settingsFile.reload()
             historyFile.reload()
         })
+    }
+
+    function probeNotificationBus() {
+        if (notificationBusProbe.running || notificationBusProbeComplete) return
+        notificationBusProbeAttempts++
+        notificationBusProbe.running = true
     }
 
     Variants {
@@ -487,8 +553,17 @@ Item {
         }
     }
 
-    NotificationCenterPanel {
+    Loader {
         id: centerPanel
-        service: service
+        active: service.centerOpen
+        asynchronous: false
+        source: Qt.resolvedUrl("ui/NotificationCenterPanel.qml")
+
+        onLoaded: {
+            if (item && "service" in item) item.service = service
+        }
+        onStatusChanged: {
+            if (status === Loader.Error) console.error("[NOTIFICATIONS] center.load_failed")
+        }
     }
 }

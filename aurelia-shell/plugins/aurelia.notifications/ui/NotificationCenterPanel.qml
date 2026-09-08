@@ -42,8 +42,8 @@ PanelWindow {
         anchors.topMargin: root.service && root.service.barClearance > Theme.spacingLg
             ? root.service.barClearance + Theme.spacingLg
             : Theme.spacingLg
-        width: Math.min(520, Math.max(280, parent.width - Theme.spacingLg * 2))
-        height: Math.min(640, Math.max(260, parent.height - anchors.topMargin - Theme.spacingLg))
+        width: Math.min(440, Math.max(300, parent.width - Theme.spacingLg * 2))
+        height: Math.min(520, Math.max(260, parent.height - anchors.topMargin - Theme.spacingLg))
         radius: Theme.radiusLg
         color: Theme.bgBase
         border.color: Theme.borderActive
@@ -82,73 +82,139 @@ PanelWindow {
                         font.weight: Theme.fontWeightBold
                     }
 
-                    AureliaActionButton {
-                        compact: true
-                        label: root.service && root.service.doNotDisturb ? "DND On" : "DND Off"
+                    AureliaIconButton {
                         icon: root.service && root.service.doNotDisturb ? "notifications-disabled" : "notifications"
-                        primary: !!(root.service && root.service.doNotDisturb)
+                        tooltip: root.service && root.service.doNotDisturb ? "Allow notifications" : "Silence notifications"
+                        active: !!(root.service && root.service.doNotDisturb)
                         onTriggered: root.service.toggleDnd()
                     }
 
-                    AureliaActionButton {
-                        compact: true
-                        label: "Close"
+                    AureliaIconButton {
                         icon: "window-close"
+                        tooltip: "Close notification center"
                         onTriggered: root.service.closeCenter()
                     }
                 }
 
                 Text {
                     Layout.fillWidth: true
-                    text: (root.service ? root.service.activeModel.count : 0) + " active · " + (root.service ? root.service.historyModel.count : 0) + " saved"
+                    text: (root.service ? root.service.activeModel.count : 0) + " active · " + (root.service ? root.service.historyModel.count : 0) + " saved · " + (root.service ? root.service.serverStatus : "")
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeXs
+                    elide: Text.ElideRight
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.spacingXs
+                    Layout.preferredHeight: 32
+                    spacing: Theme.spacingMd
 
-                    AureliaActionButton {
+                    Item {
                         Layout.fillWidth: true
-                        compact: true
-                        label: "Active"
-                        detail: root.service ? String(root.service.activeModel.count) : "0"
-                        primary: !!(root.service && root.service.centerMode === "active")
-                        onTriggered: root.service.centerMode = "active"
+                        Layout.fillHeight: true
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Active  " + (root.service ? root.service.activeModel.count : 0)
+                            color: root.service && root.service.centerMode === "active" ? Theme.text : Theme.textMuted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 2
+                            color: Theme.accent
+                            visible: !!(root.service && root.service.centerMode === "active")
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: function(mouse) {
+                                mouse.accepted = true
+                                root.service.centerMode = "active"
+                            }
+                        }
                     }
 
-                    AureliaActionButton {
+                    Item {
                         Layout.fillWidth: true
-                        compact: true
-                        label: "History"
-                        detail: root.service ? String(root.service.historyModel.count) : "0"
-                        primary: !!(root.service && root.service.centerMode === "history")
-                        onTriggered: root.service.centerMode = "history"
+                        Layout.fillHeight: true
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "History  " + (root.service ? root.service.historyModel.count : 0)
+                            color: root.service && root.service.centerMode === "history" ? Theme.text : Theme.textMuted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightMedium
+                        }
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 2
+                            color: Theme.accent
+                            visible: !!(root.service && root.service.centerMode === "history")
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: function(mouse) {
+                                mouse.accepted = true
+                                root.service.centerMode = "history"
+                            }
+                        }
                     }
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.spacingXs
+                    Layout.preferredHeight: 24
 
-                    AureliaActionButton {
-                        Layout.fillWidth: true
-                        compact: true
-                        label: "Dismiss All"
-                        icon: "edit-clear"
-                        enabled: !!(root.service && root.service.activeModel.count > 0)
-                        onTriggered: root.service.dismissAll()
+                    Item { Layout.fillWidth: true }
+
+                    Text {
+                        visible: !!(root.service && root.service.activeModel.count > 0)
+                        text: "Dismiss all"
+                        color: textDismissMouse.containsMouse ? Theme.text : Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeXs
+
+                        MouseArea {
+                            id: textDismissMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: function(mouse) {
+                                mouse.accepted = true
+                                root.service.dismissAll()
+                            }
+                        }
                     }
 
-                    AureliaActionButton {
-                        Layout.fillWidth: true
-                        compact: true
-                        label: "Clear History"
-                        icon: "user-trash"
-                        enabled: !!(root.service && root.service.historyModel.count > 0)
-                        onTriggered: root.service.clearHistory()
+                    Text {
+                        visible: !!(root.service && root.service.historyModel.count > 0)
+                        text: "Clear history"
+                        color: textClearMouse.containsMouse ? Theme.text : Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeXs
+
+                        MouseArea {
+                            id: textClearMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: function(mouse) {
+                                mouse.accepted = true
+                                root.service.clearHistory()
+                            }
+                        }
                     }
                 }
 

@@ -146,12 +146,23 @@ Item {
         id: captureProcess
         command: []
         environment: root.processEnvironment
-        stdout: StdioCollector { id: captureStdout }
-        stderr: StdioCollector { id: captureStderr }
+        stdout: StdioCollector {
+            id: captureStdout
+            waitForEnd: true
+        }
+        stderr: StdioCollector {
+            id: captureStderr
+            waitForEnd: true
+        }
 
         onExited: function(code) {
             var duration = captureStartedAt > 0 ? (Date.now() - captureStartedAt) : 0
-            console.info("[SCREENSHOT] capture.end code=" + code + " duration_ms=" + duration + " path=" + captureStdout.text.trim() + " error=" + captureStderr.text.trim())
+            var capturePath = captureStdout.text.trim()
+            console.info("[SCREENSHOT] capture.end code=" + code + " duration_ms=" + duration + " path=" + capturePath + " error=" + captureStderr.text.trim())
+            if (code === 0 && capturePath !== "" && root.shell && typeof root.shell.call === "function") {
+                var notificationResult = String(root.shell.call("aurelia.notifications", "publishScreenshot", capturePath) || "")
+                console.info("[SCREENSHOT] notification.publish result=" + notificationResult)
+            }
             screenshotPanel.captureCompleted(code, captureStdout.text, captureStderr.text, duration)
         }
     }
