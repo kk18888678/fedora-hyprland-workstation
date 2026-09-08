@@ -288,7 +288,7 @@ QtObject {
         return true
     }
 
-    Timer {
+    property Timer fileRequestTimer: Timer {
         id: fileRequestTimer
         interval: 160
         repeat: false
@@ -308,7 +308,7 @@ QtObject {
         }
     }
 
-    Process {
+    property Process actionsProcess: Process {
         id: actionsProcess
         command: []
         environment: root.processEnvironment
@@ -333,7 +333,7 @@ QtObject {
         }
     }
 
-    Process {
+    property Process filesProcess: Process {
         id: filesProcess
         command: []
         environment: root.processEnvironment
@@ -370,7 +370,7 @@ QtObject {
         }
     }
 
-    Process {
+    property Process launchProcess: Process {
         id: launchProcess
         command: []
         environment: root.processEnvironment
@@ -393,7 +393,7 @@ QtObject {
         }
     }
 
-    Process {
+    property Process copyProcess: Process {
         id: copyProcess
         command: []
         environment: root.processEnvironment
@@ -413,7 +413,7 @@ QtObject {
         }
     }
 
-    Connections {
+    property Connections appLibraryConnection: Connections {
         target: root.appLibrary
         function onAppsChanged() { root.rebuildResults() }
     }
