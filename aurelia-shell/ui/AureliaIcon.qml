@@ -26,7 +26,10 @@ Item {
             : ""
         sourceSize: Qt.size(Math.max(1, Math.round(root.width)), Math.max(1, Math.round(root.height)))
         fillMode: Image.PreserveAspectFit
-        asynchronous: true
+        // These are small, theme-resolved UI icons. Synchronous loading keeps
+        // MultiEffect on the GUI thread and avoids Qt pixmap-reader thread
+        // warnings while the resident bar is constructed.
+        asynchronous: false
         smooth: true
     }
 

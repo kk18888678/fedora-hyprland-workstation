@@ -121,7 +121,9 @@ if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'Full Screen or Selection' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'AureliaIcon' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'MultiEffect' "$icon_qml" &&
-   grep -q 'colorizationColor' "$icon_qml"; then
+   grep -q 'colorizationColor' "$icon_qml" &&
+   grep -q 'asynchronous: false' "$icon_qml" &&
+   ! grep -q 'asynchronous: true' "$icon_qml"; then
     pass "Bar widget owns capture lifecycle, tooltip, and theme-aware icon visibility"
 else
     fail "Screenshot bar lifecycle, tooltip, or icon contrast contract is incomplete"
