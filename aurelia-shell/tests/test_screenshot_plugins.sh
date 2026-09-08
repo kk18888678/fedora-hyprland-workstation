@@ -1,24 +1,36 @@
 #!/usr/bin/env bash
 
-# Static and command-contract checks for the Screenshot + opt-in Bar slice.
+# Static and command-contract checks for the minimal Screenshot bar slice.
+# The popup intentionally exposes two capture actions; customization remains
+# available through compact delay and pointer controls.
 
 set -Eeuo pipefail
 
 plugin_root="$ROOT/plugins/aurelia.screenshot"
 bar_root="$ROOT/plugins/aurelia.bar"
 capture_bin="$ROOT/bin/aurelia-screenshot"
+shared_ui_root="$ROOT/ui"
 
 section "Screenshot Plugin Contract"
 
 if [[ -f "$plugin_root/manifest.json" ]] &&
-   jq -e '.schemaVersion == 1 and .id == "aurelia.screenshot" and (.kinds == ["bar-widget"]) and .entryPoints["bar-widget"] == "ui/ScreenshotBarWidget.qml"' "$plugin_root/manifest.json" >/dev/null; then
-    pass "Screenshot plugin declares a bar-only entry point"
+   jq -e '
+       .schemaVersion == 1 and
+       .id == "aurelia.screenshot" and
+       (.kinds == ["bar-widget"]) and
+       .entryPoints["bar-widget"] == "ui/ScreenshotBarWidget.qml" and
+       ((.description | ascii_downcase | contains("window")) | not)
+   ' "$plugin_root/manifest.json" >/dev/null; then
+    pass "Screenshot plugin declares a minimal bar-only entry point"
 else
-    fail "Screenshot plugin manifest is missing or invalid"
+    fail "Screenshot plugin manifest is missing, invalid, or advertises removed window capture"
 fi
 
 if [[ -x "$capture_bin" ]] &&
    "$capture_bin" --help >/dev/null 2>&1 &&
+   grep -q 'capture <full|smart|region>' "$capture_bin" &&
+   grep -q 'select region' "$capture_bin" &&
+   ! grep -Eiq 'windows?|capture_mode.*window|selector.*window' "$capture_bin" &&
    grep -q 'grim' "$capture_bin" &&
    grep -q 'slurp' "$capture_bin" &&
    grep -q 'hyprpicker' "$capture_bin" &&
@@ -26,64 +38,79 @@ if [[ -x "$capture_bin" ]] &&
    grep -q 'hide_cursor_for_capture' "$capture_bin" &&
    grep -q 'wl-copy' "$capture_bin" &&
    grep -q 'cursor:no_hardware_cursors' "$capture_bin" &&
-   grep -q 'getoption cursor:no_hardware_cursors' "$capture_bin" &&
    grep -q 'cursor:inactive_timeout' "$capture_bin" &&
-   grep -Fq '[[ "$original_inactive_timeout" =~ ^[0-9]+([.][0-9]+)?$ ]]' "$capture_bin" &&
-   grep -Fq '[[ "$original_no_hw_cursors" =~ ^[0-9]+$ ]]' "$capture_bin" &&
    grep -q 'timeout' "$capture_bin" &&
    grep -q 'delay=3' "$capture_bin" &&
    grep -q 'show_pointer=0' "$capture_bin" &&
    grep -q -- '--show-pointer' "$capture_bin" &&
-   grep -q 'command_name.*windows' "$capture_bin" &&
    grep -q -- '--geometry' "$capture_bin" &&
-   grep -Fq 'if [[ -z "$geometry" &&' "$capture_bin" &&
    grep -q '.aurelia-screenshot-XXXXXX.png' "$capture_bin" &&
    grep -q 'mv -f -- "$capture_path" "$published_path"' "$capture_bin" &&
    grep -q '"$capture_mode" == "full"' "$capture_bin" &&
    ! grep -Eq '(^|[[:space:];])eval([[:space:];]|$)' "$capture_bin"; then
-    pass "Screenshot backend has bounded grim/slurp/clipboard capture without eval"
+    pass "Screenshot backend keeps bounded full/region capture without dead window code or eval"
 else
-    fail "Screenshot backend contract is incomplete"
+    fail "Screenshot backend mode or safety contract is incomplete"
 fi
 
-if grep -q 'function open(payloadJson)' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'function capture(payloadJson)' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'Selection (Region)' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'text: "Window"' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'Delay (seconds)' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'Show pointer' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'startRegionSelection' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'startWindowSelection' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'capturePendingRegion' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'Take Screenshot' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'Take Screenshot with Delay' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'native region geometry' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
-   grep -q 'selectionDragging' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
-   grep -q 'WAYLAND_DISPLAY' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'XDG_RUNTIME_DIR' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'duration_ms' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'captureRequested' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'captureCompleted' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'function quickRegion' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'quickCapture' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'capture("smart", 0, "", true)' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'selection_rectangles' "$capture_bin" &&
-   grep -q 'capture_mode.*smart' "$capture_bin" &&
-   grep -q 'region selection cancelled' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'Keys.onPressed' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
-   grep -q 'AureliaKeyboardPanel' "$plugin_root/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'aurelia.screenshot.quick_region' "$plugin_root/keybindings.lua" &&
-   grep -q 'ScreenshotPanel.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'function open(payloadJson)' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'root.open' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q '#33ffffff' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
-   grep -q 'captureStage === "region-selecting"' "$plugin_root/ui/ScreenshotPanel.qml" &&
-   grep -q 'native region geometry' "$plugin_root/ui/ScreenshotSelectionOverlay.qml" &&
-   grep -q 'property int delaySeconds: 3' "$plugin_root/ui/ScreenshotPanel.qml"; then
-    pass "Screenshot panel exposes full, region, window, and delayed capture flows"
+menu_qml="$plugin_root/ui/ScreenshotMenuPopup.qml"
+panel_qml="$plugin_root/ui/ScreenshotPanel.qml"
+selection_qml="$plugin_root/ui/ScreenshotSelectionOverlay.qml"
+button_qml="$shared_ui_root/AureliaActionButton.qml"
+
+if [[ -f "$button_qml" ]] &&
+   grep -q 'Theme.surfaceElevated' "$button_qml" &&
+   grep -q 'Theme.borderActive' "$button_qml" &&
+   grep -q 'signal triggered' "$button_qml" &&
+   [[ "$(grep -c 'AureliaActionButton {' "$menu_qml")" -eq 2 ]] &&
+   grep -q 'popupWidth: 280' "$menu_qml" &&
+   grep -q 'popupHeight: controller ? controller.popupHeight : 228' "$menu_qml" &&
+   grep -q 'label: "Full Screen"' "$menu_qml" &&
+   grep -q 'label: "Selection"' "$menu_qml" &&
+   grep -q 'startRegionSelection' "$menu_qml" &&
+   grep -q 'Delay' "$menu_qml" &&
+   grep -q 'Pointer' "$menu_qml" &&
+   ! grep -Eiq 'GridLayout|ListView|window|windows|region-ready|Take Screenshot with Delay|Full screen \+ delay|capturePendingRegion|startWindowSelection' "$menu_qml"; then
+    pass "Screenshot popup uses the compact shared action-button design with exactly two capture actions"
 else
-    fail "Screenshot panel lifecycle or capture modes are incomplete"
+    fail "Screenshot popup layout, design primitive, or removed-action cleanup is incomplete"
+fi
+
+if grep -q 'readonly property int popupHeight: 228' "$panel_qml" &&
+   grep -q 'property int delaySeconds: 0' "$panel_qml" &&
+   grep -q 'function startRegionSelection' "$panel_qml" &&
+   grep -q 'function regionSelectionFinished' "$panel_qml" &&
+   grep -q 'capture("region", delaySeconds, selectedGeometry)' "$panel_qml" &&
+   grep -q 'capture("full", popup.controller.delaySeconds' "$menu_qml" &&
+   ! grep -Eiq 'window|windows|region-ready|pendingGeometry|pendingWindow|capturePendingRegion|startWindowSelection|captureWindow' "$panel_qml" &&
+   ! grep -Eiq 'window|windows|region-ready|capturePendingRegion|startWindowSelection|captureWindow' "$menu_qml"; then
+    pass "Screenshot controller retains delay/pointer customization and only full/region capture paths"
+else
+    fail "Screenshot controller still contains removed capture paths or lacks the compact flow"
+fi
+
+if grep -q 'selectionDragging' "$selection_qml" &&
+   grep -q 'native region geometry' "$selection_qml" &&
+   grep -q 'Keys.onPressed' "$selection_qml" &&
+   grep -q 'region selection cancelled' "$panel_qml" &&
+   grep -q 'capture("smart", 0, "", true)' "$panel_qml" &&
+   grep -q 'capture_mode.*smart' "$capture_bin" &&
+   grep -q 'function quickRegion' "$plugin_root/ui/ScreenshotBarWidget.qml"; then
+    pass "Region overlay and quick-region shortcut remain isolated from the two-action popup"
+else
+    fail "Region capture overlay or quick-region compatibility path is incomplete"
+fi
+
+if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'duration_ms' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'captureRequested' "$panel_qml" &&
+   grep -q 'captureCompleted' "$panel_qml" &&
+   grep -q 'ScreenshotPanel.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'camera-photo' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml"; then
+    pass "Bar widget owns capture lifecycle and preserves bounded observability"
+else
+    fail "Screenshot bar lifecycle or observability boundary is incomplete"
 fi
 
 section "Resident Bar Contract"
@@ -103,10 +130,8 @@ if grep -q 'target: "aurelia.bar"' "$bar_root/Bar.qml" &&
    grep -q 'centerAnchor' "$bar_root/Bar.qml" &&
    grep -q 'visible: true' "$bar_root/Bar.qml" &&
    [[ -f "$bar_root/BarWidgetSlot.qml" && -f "$bar_root/BarWidgetRow.qml" && -f "$bar_root/BarCenter.qml" ]] &&
-   grep -q 'entryPointUrl(root.pluginId, "bar-widget")' "$bar_root/BarWidgetSlot.qml" &&
-   grep -q 'camera-photo' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml"; then
-    pass "Bar exposes manifest-backed theme-aware widgets and mounts with the resident host"
+   grep -q 'entryPointUrl(root.pluginId, "bar-widget")' "$bar_root/BarWidgetSlot.qml"; then
+    pass "Bar exposes manifest-backed theme-aware widgets and the compact screenshot action"
 else
-    fail "Aurelia Bar screenshot action or opt-in lifecycle is incomplete"
+    fail "Aurelia Bar screenshot action or lifecycle contract is incomplete"
 fi

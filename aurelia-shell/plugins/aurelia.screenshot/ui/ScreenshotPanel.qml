@@ -1,6 +1,4 @@
 import QtQuick
-import Quickshell
-import Quickshell.Io
 
 // Controller for the screenshot bar widget. The menu is a bar-owned popup;
 // the only fullscreen surface is the short-lived region drag overlay.
@@ -8,20 +6,16 @@ Item {
     id: panelRoot
 
     property string backendBin: ""
-    property var processEnvironment: ({})
     property var bar: null
     property var anchorItem: null
     property bool menuOpen: false
     property string statusMessage: ""
     property string statusKind: "info"
     property string captureStage: "menu"
-    property string pendingGeometry: ""
-    property string pendingWindowLabel: ""
-    property int delaySeconds: 3
+    property int delaySeconds: 0
     property bool showPointer: false
     property bool quickCapture: false
     property bool preserveSurfaceDuringCapture: false
-    property var windows: []
     property bool menuSuppressed: false
 
     signal captureRequested(string mode, int delay, string geometry, bool pointer)
@@ -30,22 +24,13 @@ Item {
         return menuOpen || captureStage === "region-selecting"
     }
 
-    function popupHeight() {
-        if (captureStage === "window-list") return 560
-        if (captureStage === "region-ready") return 470
-        return 430
-    }
+    readonly property int popupHeight: 228
 
     function resetMenu() {
         menuSuppressed = false
         captureStage = "menu"
-        pendingGeometry = ""
-        pendingWindowLabel = ""
-        windows = []
         statusMessage = ""
         statusKind = "info"
-        delaySeconds = 3
-        showPointer = false
         quickCapture = false
         preserveSurfaceDuringCapture = false
     }
@@ -57,7 +42,10 @@ Item {
             var payload = JSON.parse(payloadJson || "{}")
             if (payload.mode && payload.mode !== "menu") {
                 var requestedDelay = payload.delay === undefined ? delaySeconds : Number(payload.delay)
-                capture(String(payload.mode), requestedDelay, String(payload.geometry || ""))
+                var requestedMode = String(payload.mode)
+                if (requestedMode === "screen") requestedMode = "full"
+                if (requestedMode === "region" && String(payload.geometry || "") === "") startRegionSelection()
+                else capture(requestedMode, requestedDelay, String(payload.geometry || ""))
             }
         } catch (error) {
             statusMessage = "Invalid screenshot request."
@@ -66,11 +54,8 @@ Item {
     }
 
     function close() {
-        if (windowsProcess.running) windowsProcess.running = false
         hideMenuSurface()
         captureStage = "menu"
-        pendingGeometry = ""
-        pendingWindowLabel = ""
         quickCapture = false
         preserveSurfaceDuringCapture = false
         menuOpen = false
@@ -84,6 +69,14 @@ Item {
     }
 
     function capture(mode, delay, geometry, preserveSurface) {
+        var requestedMode = String(mode || "")
+        if (requestedMode === "screen") requestedMode = "full"
+        if (["full", "region", "smart"].indexOf(requestedMode) === -1) {
+            statusMessage = "Unsupported screenshot mode."
+            statusKind = "error"
+            menuOpen = true
+            return
+        }
         var safeDelay = Number(delay)
         if (!Number.isFinite(safeDelay)) safeDelay = 0
         safeDelay = Math.max(0, Math.min(30, Math.floor(safeDelay)))
@@ -95,7 +88,7 @@ Item {
             hideMenuSurface()
             menuOpen = false
         }
-        captureRequested(String(mode || "smart"), safeDelay, String(geometry || ""), showPointer)
+        captureRequested(requestedMode, safeDelay, String(geometry || ""), showPointer)
     }
 
     function quickRegion() {
@@ -117,7 +110,6 @@ Item {
             return
         }
         captureStage = "region-selecting"
-        pendingGeometry = ""
         statusMessage = "Select a region..."
         statusKind = "info"
         console.info("[SCREENSHOT] region selection overlay started")
@@ -128,7 +120,6 @@ Item {
     function cancelRegionSelection() {
         console.info("[SCREENSHOT] region selection cancelled")
         quickCapture = false
-        pendingGeometry = ""
         captureStage = "menu"
         menuOpen = false
         statusMessage = ""
@@ -136,50 +127,15 @@ Item {
     }
 
     function regionSelectionTooSmall() {
-        console.warn("[SCREENSHOT] region selection too small")
+        console.info("[SCREENSHOT] region selection too small")
+        statusMessage = "Selection is too small. Try again."
+        statusKind = "error"
     }
 
     function regionSelectionFinished(geometry) {
-        pendingGeometry = String(geometry || "")
-        if (pendingGeometry.length === 0) return
-        if (quickCapture) {
-            quickCapture = false
-            capture("region", 0, pendingGeometry)
-            return
-        }
-        captureStage = "region-ready"
-        statusMessage = "Region selected. Capture it now or choose a delay."
-        statusKind = "success"
-        menuSuppressed = false
-        menuOpen = true
-    }
-
-    function startWindowSelection() {
-        if (windowsProcess.running || !backendBin || backendBin.length === 0) return
-        captureStage = "window-list"
-        statusMessage = "Loading open windows..."
-        statusKind = "info"
-        windows = []
-        windowsProcess.command = [backendBin, "windows"]
-        windowsProcess.running = true
-    }
-
-    function captureWindow(windowData) {
-        var at = windowData.at || [0, 0]
-        var size = windowData.size || [0, 0]
-        if (at.length < 2 || size.length < 2 || Number(size[0]) <= 0 || Number(size[1]) <= 0) {
-            statusMessage = "The selected window has no capturable geometry."
-            statusKind = "error"
-            return
-        }
-        pendingWindowLabel = windowData.title || windowData.class || "Window"
-        var geometry = String(at[0]) + "," + String(at[1]) + " " + String(size[0]) + "x" + String(size[1])
-        capture("window", delaySeconds, geometry)
-    }
-
-    function capturePendingRegion(delay) {
-        if (!pendingGeometry) return
-        capture("region", delay, pendingGeometry)
+        var selectedGeometry = String(geometry || "")
+        if (selectedGeometry.length === 0) return
+        capture("region", delaySeconds, selectedGeometry)
     }
 
     function captureCompleted(code, output, errorOutput, durationMs) {
@@ -212,33 +168,6 @@ Item {
             menuOpen = true
             statusMessage = errorText || ("Capture failed (status " + code + ").")
             statusKind = "error"
-        }
-    }
-
-    Process {
-        id: windowsProcess
-        command: []
-        environment: panelRoot.processEnvironment
-        stdout: StdioCollector { id: windowsStdout }
-        stderr: StdioCollector { id: windowsStderr }
-
-        onExited: function(code) {
-            if (code === 0) {
-                try {
-                    windows = JSON.parse(windowsStdout.text || "[]")
-                    statusMessage = windows.length > 0 ? "Select an open window." : "No open windows found."
-                    statusKind = "info"
-                } catch (error) {
-                    windows = []
-                    captureStage = "menu"
-                    statusMessage = "Could not read open windows."
-                    statusKind = "error"
-                }
-            } else {
-                captureStage = "menu"
-                statusMessage = windowsStderr.text.trim() || "Could not query open windows."
-                statusKind = "error"
-            }
         }
     }
 

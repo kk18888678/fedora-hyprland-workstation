@@ -63,13 +63,22 @@ The shipped screenshot plugin demonstrates the bar-only contract: its
 capture surface. The full-screen panel is therefore an implementation detail
 of the bar action, not a second standalone bar or application surface.
 
+## Popup design language
+
+The Screenshot popup is the compact reference surface for Aurelia popups.
+Reuse `ui/AureliaActionButton.qml` and the shared `Theme` tokens for action
+hierarchy, restrained radii, borders, spacing, and typography. Keep the
+primary action set small and expose additional behavior through compact
+customization controls or a dedicated settings surface instead of multiplying
+near-duplicate action cards.
+
 ## Current desktop slices
 
 - aurelia.screenshot: bar-only camera widget with an internal capture surface,
   backed by Fedora-owned grim, slurp, and wl-copy tools. It supports
-  full-screen, region, window, delayed, file, and clipboard capture. Its
-  plugin-owned `SUPER + SHIFT + S` binding opens quick region capture and
-  captures immediately after selection.
+  full-screen and region capture with configurable delay, pointer, file, and
+  clipboard behavior. Its plugin-owned `SUPER + SHIFT + S` binding opens quick
+  region capture and captures immediately after selection.
 - aurelia.clock: lightweight center clock bar widget. Its default format is
   `MMM d, dddd HH:mm`; set `format` inline on its layout entry when needed.
 - aurelia.calendar: calendar panel opened by clicking the clock.

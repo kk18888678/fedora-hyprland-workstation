@@ -11,9 +11,8 @@ umask 077
 usage() {
     cat <<'USAGE'
 Usage:
-  aurelia-screenshot capture <full|smart|region|window> [options]
-  aurelia-screenshot select <region|window>
-  aurelia-screenshot windows
+  aurelia-screenshot capture <full|smart|region> [options]
+  aurelia-screenshot select region
 
 Options:
   --delay SECONDS   Delay capture by 0-30 seconds (default: 3).
@@ -66,27 +65,12 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 command_name="${1:-}"
-if [[ "$command_name" == "windows" ]]; then
-    require_command hyprctl
-    require_command jq
-    clients_json="$(run_bounded 5 hyprctl clients -j)" || fail "Could not query Hyprland windows."
-    printf '%s\n' "$clients_json" |
-        jq -c '[.[] | select(.mapped == true) | {
-            title: (.title // ""),
-            class: (.class // ""),
-            address: (.address // ""),
-            at: (.at // [0, 0]),
-            size: (.size // [0, 0])
-        }]'
-    exit 0
-fi
 
 if [[ "$command_name" == "select" ]]; then
     selector="${2:-}"
     case "$selector" in
         region) selector_args=() ;;
-        window) selector_args=("-r") ;;
-        *) fail "Selection mode must be region or window." ;;
+        *) fail "Selection mode must be region." ;;
     esac
     require_command slurp
     selection_status=0
@@ -108,7 +92,7 @@ shift
 capture_mode="${1:-}"
 case "$capture_mode" in
     screen|full) capture_mode="full" ;;
-    smart|region|window) ;;
+    smart|region) ;;
     -h|--help|"")
         usage
         exit 0
@@ -245,7 +229,7 @@ start_freeze() {
     printf '[SCREENSHOT] screen_freeze pid=%s\n' "$freeze_pid" >&2
 }
 
-if [[ "$capture_mode" == "smart" || "$capture_mode" == "region" || "$capture_mode" == "window" ]]; then
+if [[ "$capture_mode" == "smart" || "$capture_mode" == "region" ]]; then
     # Map the frozen surface before any cursor-state queries so the selector
     # becomes visible immediately after the hotkey is dispatched.
     start_freeze
@@ -279,25 +263,17 @@ hide_cursor_for_capture() {
 }
 
 selection_rectangles() {
-    local monitor_rects window_rects
+    local monitor_rects client_rects
     monitor_rects="$(run_bounded 5 hyprctl monitors -j | jq -r '
         .[] | select(.x != null and .y != null and .width > 0 and .height > 0) |
         "\(.x),\(.y) \(.width)x\(.height)"
     ')" || fail "Could not query monitor geometry for screenshot selection."
 
-    if [[ "$capture_mode" == "window" ]]; then
-        run_bounded 5 hyprctl clients -j | jq -r '
-            .[] | select(.mapped == true and .hidden != true and .size[0] > 0 and .size[1] > 0) |
-            "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"
-        ' || fail "Could not query window geometry for screenshot selection."
-        return 0
-    fi
-
-    window_rects="$(run_bounded 5 hyprctl clients -j | jq -r '
+    client_rects="$(run_bounded 5 hyprctl clients -j | jq -r '
         .[] | select(.mapped == true and .hidden != true and .size[0] > 0 and .size[1] > 0) |
         "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"
-    ')" || fail "Could not query window geometry for screenshot selection."
-    printf '%s\n%s\n' "$monitor_rects" "$window_rects"
+    ')" || fail "Could not query client geometry for screenshot selection."
+    printf '%s\n%s\n' "$monitor_rects" "$client_rects"
 }
 
 if (( save_file == 1 )); then
@@ -315,13 +291,9 @@ grim_args=()
 if (( show_pointer == 1 )); then
     grim_args+=("-c")
 fi
-if [[ -z "$geometry" && ("$capture_mode" == "smart" || "$capture_mode" == "region" || "$capture_mode" == "window") ]]; then
-    if [[ "$capture_mode" == "window" ]]; then
-        slurp_args+=("-r")
-    fi
-
+if [[ -z "$geometry" && ("$capture_mode" == "smart" || "$capture_mode" == "region") ]]; then
     selection_status=0
-    if [[ "$capture_mode" == "smart" || "$capture_mode" == "window" ]]; then
+    if [[ "$capture_mode" == "smart" ]]; then
         selection_input="$(selection_rectangles)" || selection_status=$?
         if (( selection_status == 0 )) && [[ -n "$selection_input" ]]; then
             geometry="$(run_bounded 30 slurp "${slurp_args[@]}" <<<"$selection_input")" || selection_status=$?

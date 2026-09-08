@@ -46,7 +46,6 @@ Item {
     function configurePanel(target) {
         if (!target) return
         if ("backendBin" in target) target.backendBin = root.backendBin
-        if ("processEnvironment" in target) target.processEnvironment = root.processEnvironment
         if ("bar" in target) target.bar = root.bar
         if ("anchorItem" in target) target.anchorItem = root.barAnchorItem || root
     }

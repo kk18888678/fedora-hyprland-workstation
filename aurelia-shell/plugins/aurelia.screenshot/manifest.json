@@ -4,7 +4,7 @@
   "name": "Screenshots",
   "version": "1.0.0",
   "author": "Fedora Hyprland Workstation",
-  "description": "Bar-only screenshot action with full-screen, region, window, delay, save, and clipboard capture.",
+  "description": "Minimal bar-owned screen and region capture with configurable delay, pointer, save, and clipboard behavior.",
   "icon": "camera-photo",
   "kinds": ["bar-widget"],
   "entryPoints": {
