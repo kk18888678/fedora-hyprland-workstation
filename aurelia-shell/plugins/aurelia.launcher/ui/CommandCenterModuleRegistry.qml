@@ -155,7 +155,7 @@ QtObject {
         next[id] = enabled === true
         root.lastSaveOk = false
         root.userOverrides = next
-        userFile.setText(JSON.stringify({ version: 1, modules: next }, null, 2) + "\n")
+        root.userFile.setText(JSON.stringify({ version: 1, modules: next }, null, 2) + "\n")
         if (!root.lastSaveOk) {
             root.userOverrides = previous
             root.lastError = "Could not persist Command Center module state."
@@ -165,8 +165,7 @@ QtObject {
         return true
     }
 
-    FileView {
-        id: defaultFile
+    property FileView defaultFile: FileView {
         path: root.defaultModulesPath
         watchChanges: true
         printErrors: false
@@ -175,8 +174,7 @@ QtObject {
         onLoadFailed: root.loadDefaults("")
     }
 
-    FileView {
-        id: userFile
+    property FileView userFile: FileView {
         path: root.userModulesPath
         watchChanges: true
         blockLoading: true
@@ -191,7 +189,7 @@ QtObject {
     }
 
     Component.onCompleted: {
-        defaultFile.reload()
-        userFile.reload()
+        root.defaultFile.reload()
+        root.userFile.reload()
     }
 }

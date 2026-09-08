@@ -119,7 +119,9 @@ if jq -e '
    ' "$command_center_root/modules.json" >/dev/null &&
    grep -q 'userModulesPath' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'setModuleEnabled' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
-   grep -q 'implemented' "$command_center_root/ui/CommandCenterModuleRegistry.qml"; then
+   grep -q 'implemented' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+   grep -q 'property FileView defaultFile: FileView' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+   grep -q 'property FileView userFile: FileView' "$command_center_root/ui/CommandCenterModuleRegistry.qml"; then
     pass "Command Center has a declarative module catalog with user enablement state"
 else
     fail "Command Center module catalog or enablement persistence contract is incomplete"
