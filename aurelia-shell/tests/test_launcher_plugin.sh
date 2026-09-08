@@ -83,6 +83,7 @@ if grep -q 'DesktopEntries.applications.values' "$services_root/AureliaAppLibrar
    grep -q 'desktopIdFor(entry)' "$services_root/AureliaAppLibrary.qml" &&
    grep -q 'value + ".desktop"' "$services_root/AureliaAppLibrary.qml" &&
    grep -q 'appRows(query)' "$services_root/AureliaAppLibrary.qml" &&
+   grep -q 'AureliaAppLibrary 1.0 AureliaAppLibrary.qml' "$services_root/qmldir" &&
    grep -q 'AureliaAppLibrary {' "$ROOT/shell.qml" &&
    grep -q 'appLibrary: aureliaAppLibrary' "$ROOT/shell.qml" &&
    grep -q 'if ("appLibrary" in target)' "$services_root/PluginHost.qml"; then
