@@ -310,7 +310,7 @@ graph TD
 
 ### 10.1 Application Registry (`dotfiles/hypr/application_registry.lua`)
 - **Standards-Compliant Desktop Parsing**: Recursively scans standard XDG directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`) respecting user shadowing and `Hidden=true` masking.
-- **Session-aware application activation**: In a UWSM-managed session, the backend delegates the validated desktop ID to `uwsm-app`, allowing UWSM to honor `Terminal=true` and its configured terminal provider. In a plain Hyprland session it uses a verified structured fallback, wrapping terminal entries with the selected installed terminal and other entries with `gtk-launch`; no QML-side absolute launcher path or shell interpolation is used.
+- **Session-aware application activation**: In a UWSM-managed session, the backend delegates graphical desktop IDs to `uwsm-app` and sends Terminal=true applications through the registry's selected terminal argv, avoiding hidden client entries such as `footclient` that require a separate server. In a plain Hyprland session it uses the same verified terminal fallback and `gtk-launch` for graphical entries; no QML-side absolute launcher path or shell interpolation is used.
 - **In-Memory Cache**: Lazy process-lifetime cache with explicit invalidation/refresh prevents redundant filesystem operations while ensuring responsive CLI output (< 20ms).
 - **Installed Applications Discovery**: Emitted via `aurelia-shell-keybindings apps` as structured JSON consumed on-demand by the UI.
 

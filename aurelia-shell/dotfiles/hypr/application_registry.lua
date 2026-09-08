@@ -228,6 +228,7 @@ function M.resolve_terminal_executable()
     local configured_term = conf["terminal.default"] or conf["terminal_default"] or conf["terminal"]
     if configured_term and configured_term ~= "" then
         local base = configured_term:gsub("%.desktop$", "")
+        if base == "footclient" then base = "foot" end
         if M.resolve_in_path(base) then
             return base
         end
@@ -650,18 +651,27 @@ function M.wrap_session_argv(argv)
     return wrapped, "uwsm"
 end
 
--- Resolve an application for the Command Center. UWSM receives the desktop
--- entry ID directly so it can honor Terminal=true and the configured terminal
--- provider itself. Plain Hyprland sessions use the existing verified fallback
--- vector from the application registry; terminal entries are already wrapped
--- there with the selected workstation terminal.
+-- Resolve an application for the Command Center. Graphical entries are passed
+-- to UWSM as desktop IDs so their native entry metadata remains authoritative.
+-- Terminal=true entries use the registry's verified terminal argv instead of
+-- asking UWSM to guess: UWSM may select a hidden footclient entry that requires
+-- a separately running Foot server. Plain Hyprland sessions use the same
+-- verified terminal vector without the UWSM wrapper.
 function M.resolve_application_launch_argv(desktop_id)
     local info = M.find_application(desktop_id)
     if not info then
         return nil, "Desktop application not found: " .. tostring(desktop_id)
     end
 
-    local wrapped, mode = M.wrap_session_argv({ info.desktop_id })
+    local launch_argv = { info.desktop_id }
+    if info.terminal then
+        if type(info.command_argv) ~= "table" or #info.command_argv == 0 or info.command_argv[1] == "gtk-launch" then
+            return nil, "Terminal application requires an installed terminal: " .. info.desktop_id
+        end
+        launch_argv = info.command_argv
+    end
+
+    local wrapped, mode = M.wrap_session_argv(launch_argv)
     if not wrapped then return nil, mode end
     if mode == "uwsm" then return wrapped, info, mode end
 

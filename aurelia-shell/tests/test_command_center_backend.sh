@@ -92,9 +92,9 @@ if env "${common_env[@]}" UWSM_FINALIZE_VARNAMES=WAYLAND_DISPLAY \
    env "${common_env[@]}" UWSM_FINALIZE_VARNAMES=WAYLAND_DISPLAY \
    "$backend" launch-app btop.desktop >"$fixture/btop.out" 2>"$fixture/btop.err" &&
    grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tfoot.desktop$' "$mock_log" &&
-   grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tbtop.desktop$' "$mock_log" &&
+   grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tkitty\t--\tbtop$' "$mock_log" &&
    ! grep -q 'gtk-launch' "$mock_log"; then
-    pass "UWSM sessions receive native desktop IDs, including Terminal=true applications"
+    pass "UWSM scopes graphical entries natively and uses the verified terminal argv for Terminal=true apps"
 else
     fail "UWSM desktop-entry launch resolution did not produce the expected argv"
 fi
@@ -108,6 +108,18 @@ if env -u UWSM_FINALIZE_VARNAMES -u UWSM_WAIT_VARNAMES -u IN_UWSM_ENV_PRELOADER 
     pass "Plain Hyprland falls back to the configured terminal without requiring UWSM"
 else
     fail "Plain-session terminal fallback did not produce a safe structured argv: $(tr '\n' ' ' <"$mock_log" 2>/dev/null || true)"
+fi
+
+mkdir -p "$home_dir/.config/workstation"
+printf '%s\n' 'terminal.default = footclient.desktop' >"$home_dir/.config/workstation/desktop.conf"
+rm -f -- "$mock_log"
+if env "${common_env[@]}" UWSM_FINALIZE_VARNAMES=WAYLAND_DISPLAY \
+   "$backend" launch-app btop.desktop >"$fixture/configured.out" 2>"$fixture/configured.err" &&
+   grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tfoot\t--\tbtop$' "$mock_log" &&
+   ! grep -q 'footclient' "$mock_log"; then
+    pass "A footclient preference is normalized to the real Foot executable"
+else
+    fail "Configured footclient preference still produced an unusable terminal argv: $(tr '\n' ' ' <"$mock_log" 2>/dev/null || true)"
 fi
 
 if env "${common_env[@]}" "$backend" files readme >"$fixture/files.json" 2>"$fixture/files.err" &&

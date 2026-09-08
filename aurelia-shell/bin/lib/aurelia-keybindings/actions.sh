@@ -76,7 +76,14 @@ aurelia_spawn_detached() {
         return 1
     fi
 
-    log_event "INFO" "$log_message via structured argv" "run"
+    local argv_summary=""
+    local quoted_arg=""
+    for quoted_arg in "${command_argv[@]}"; do
+        local rendered_arg=""
+        printf -v rendered_arg '%q' "$quoted_arg"
+        argv_summary+="${argv_summary:+ }$rendered_arg"
+    done
+    log_event "INFO" "$log_message via structured argv: $argv_summary" "run"
     printf '%s\n' "Running: $display_description"
     return 0
 }
