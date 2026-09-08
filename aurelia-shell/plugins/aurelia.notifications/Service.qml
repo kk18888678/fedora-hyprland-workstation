@@ -215,13 +215,17 @@ Item {
     function recordHistory(snapshot) {
         var entry = Logic.historyEntry(snapshot)
         if (!Logic.isRenderableHistoryEntry(entry)) return
+        var key = Logic.historyKey(entry)
+        for (var i = 0; i < historyEntries.length; i++) {
+            if (Logic.historyKey(historyEntries[i]) === key) return
+        }
         var next = historyEntries.slice()
         next.unshift(entry)
         historyEntries = next.slice(0, historyLimit)
         historyDirty = true
         rebuildHistoryModel()
         queueStateSave()
-        console.info("[NOTIFICATIONS] history.recorded count=" + historyEntries.length)
+        console.info("[NOTIFICATIONS] history.recorded key=" + key + " count=" + historyEntries.length)
     }
 
     function removeActiveById(originalId) {
@@ -277,6 +281,8 @@ Item {
         if (notification.closed && typeof notification.closed.connect === "function") {
             notification.closed.connect(function() {
                 if (service.liveRefs[originalId] !== notification) return
+                var closedSnapshot = service.liveSnapshots[originalId]
+                if (closedSnapshot) service.recordHistory(closedSnapshot)
                 delete service.liveRefs[originalId]
                 for (var i = service.activeModel.count - 1; i >= 0; i--) {
                     var row = service.activeModel.get(i)
@@ -320,8 +326,14 @@ Item {
         delete liveSnapshots[originalId]
     }
 
-    function dismissAt(index) { removeAt(index, "dismiss") }
-    function expireAt(index) { removeAt(index, "expire") }
+    function dismissAt(index) {
+        console.info("[NOTIFICATIONS] popup.dismiss index=" + index)
+        removeAt(index, "dismiss")
+    }
+    function expireAt(index) {
+        console.info("[NOTIFICATIONS] popup.expire index=" + index)
+        removeAt(index, "expire")
+    }
 
     function dismissAll() {
         while (activeNotificationsModel.count > 0) removeAt(0, "dismiss")

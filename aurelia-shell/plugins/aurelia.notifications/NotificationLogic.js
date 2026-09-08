@@ -126,6 +126,11 @@ function historyEntry(value) {
     return normalizeHistoryEntry(value)
 }
 
+function historyKey(value) {
+    var entry = value || {}
+    return String(entry.timestamp || 0) + "|" + String(entry.originalId || entry.id || 0)
+}
+
 function isRenderableHistoryEntry(value) {
     var entry = value || {}
     return String(entry.app || "") !== "" ||
@@ -213,6 +218,7 @@ if (typeof module !== "undefined") {
         isEphemeralApp: isEphemeralApp,
         snapshotOf: snapshotOf,
         historyEntry: historyEntry,
+        historyKey: historyKey,
         isRenderableHistoryEntry: isRenderableHistoryEntry,
         parseSettings: parseSettings,
         parseHistory: parseHistory,

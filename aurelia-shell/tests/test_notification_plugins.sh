@@ -76,6 +76,9 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'property var liveSnapshots' "$plugin_root/Service.qml" &&
    grep -q 'function flushState' "$plugin_root/Service.qml" &&
    grep -q 'history.saved count=' "$plugin_root/Service.qml" &&
+   grep -q 'history.recorded key=' "$plugin_root/Service.qml" &&
+   grep -q 'popup.expire index=' "$plugin_root/Service.qml" &&
+   grep -q 'function removeByOriginalId' "$plugin_root/Service.qml" &&
    ! grep -q 'property Timer stateSaveTimer' "$plugin_root/Service.qml" &&
    grep -q 'notificationBusProbe' "$plugin_root/Service.qml" &&
    grep -q 'busctl' "$plugin_root/Service.qml" &&
@@ -161,6 +164,7 @@ if (logic.parseSettings('{"dnd":true}').dnd !== true) process.exit(1);
 if (logic.parseSettings('{bad').ok) process.exit(1);
 if (logic.isRenderableHistoryEntry({ summary: "" })) process.exit(1);
 if (!logic.isRenderableHistoryEntry({ summary: "Agent complete" })) process.exit(1);
+if (logic.historyKey({ originalId: 2, timestamp: 10 }) !== "10|2") process.exit(1);
 const snapshot = logic.snapshotOf({ id: 4, appName: "demo", summary: "Hello", body: "World", urgency: 1 }, 123);
 if (snapshot.originalId !== 4 || snapshot.timestamp !== 123 || snapshot.actions.length !== 0 || snapshot.defaultActionText !== "") process.exit(1);
 const actionSnapshot = logic.snapshotOf({ id: 5, actions: [{ identifier: "default", text: "" }] }, 456);
