@@ -15,6 +15,10 @@ Item {
     property string image: ""
     property var actions: []
     property int urgency: 1
+    property bool interactive: true
+    property bool showDismiss: true
+    property bool showActions: true
+    property string timestampLabel: ""
     readonly property bool hovered: toastHover.hovered
 
     signal dismissed()
@@ -42,7 +46,7 @@ Item {
 
     Rectangle {
         id: toastCard
-        width: root.implicitWidth
+        width: root.width > 0 ? root.width : root.implicitWidth
         height: toastContent.implicitHeight + Theme.spacingSm * 2
         radius: Theme.radiusMd
         color: Theme.surfaceElevated
@@ -60,6 +64,7 @@ Item {
 
         MouseArea {
             anchors.fill: parent
+            enabled: root.interactive
             cursorShape: Qt.PointingHandCursor
             onClicked: function(mouse) {
                 mouse.accepted = true
@@ -103,7 +108,10 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: root.app === "" ? "Notification" : root.app
+                        text: {
+                            var label = root.app === "" ? "Notification" : root.app
+                            return root.timestampLabel === "" ? label : label + " · " + root.timestampLabel
+                        }
                         color: Theme.textMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeXs
@@ -111,6 +119,7 @@ Item {
                     }
 
                     Text {
+                        visible: root.showDismiss
                         text: "×"
                         color: closeMouse.containsMouse ? Theme.text : Theme.textSubtle
                         font.pixelSize: Theme.fontSizeLg
@@ -167,7 +176,7 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingXs
-                    visible: Array.isArray(root.actions) && root.actions.length > 0
+                    visible: root.showActions && root.actions && root.actions.length > 0
 
                     Repeater {
                         model: root.actions

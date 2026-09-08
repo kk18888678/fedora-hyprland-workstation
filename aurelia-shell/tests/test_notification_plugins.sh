@@ -44,11 +44,17 @@ if [[ -f "$plugin_root/Service.qml" && -f "$plugin_root/BarWidget.qml" && -f "$p
    grep -q 'ListModel' "$plugin_root/Service.qml" &&
    grep -q 'onNotification:' "$plugin_root/NotificationServerHost.qml" &&
    grep -q 'NotificationToast 1.0 NotificationToast.qml' "$plugin_root/ui/qmldir" &&
-   grep -q 'NotificationRow 1.0 NotificationRow.qml' "$plugin_root/ui/qmldir" &&
    grep -q 'NotificationCenterPanel 1.0 NotificationCenterPanel.qml' "$plugin_root/ui/qmldir"; then
     pass "Notification objects stay outside UI models and private QML types are explicitly registered"
 else
     fail "Notification service lifecycle or private type registration is incomplete"
+fi
+
+if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
+   grep -q 'NotificationToast {' "$plugin_root/ui/NotificationCenterPanel.qml"; then
+    pass "Active and History views share one notification card presentation"
+else
+    fail "Notification center still has a divergent or dead history-row presentation"
 fi
 
 if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
@@ -144,6 +150,8 @@ if (logic.parseSettings('{"dnd":true}').dnd !== true) process.exit(1);
 if (logic.parseSettings('{bad').ok) process.exit(1);
 const snapshot = logic.snapshotOf({ id: 4, appName: "demo", summary: "Hello", body: "World", urgency: 1 }, 123);
 if (snapshot.originalId !== 4 || snapshot.timestamp !== 123 || snapshot.actions.length !== 0) process.exit(1);
+const actionSnapshot = logic.snapshotOf({ id: 5, actions: [{ identifier: "default", text: "" }] }, 456);
+if (actionSnapshot.actions.length !== 1 || actionSnapshot.actions[0].text !== "Open") process.exit(1);
 NODE_LOGIC
     then
         pass "Notification policy and serialization helpers pass deterministic runtime checks"

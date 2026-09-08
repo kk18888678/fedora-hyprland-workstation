@@ -248,22 +248,27 @@ PanelWindow {
                                 required property var appIcon
                                 required property var summary
                                 required property var body
+                                required property var image
+                                required property var actions
                                 required property int urgency
                                 required property double timestamp
                                 width: activeList.width
                                 height: activeRow.implicitHeight
 
-                                NotificationRow {
+                                NotificationToast {
                                     id: activeRow
                                     anchors.fill: parent
                                     app: String(activeDelegate.app || "")
                                     appIcon: String(activeDelegate.appIcon || "")
                                     summary: String(activeDelegate.summary || "")
                                     body: String(activeDelegate.body || "")
+                                    image: String(activeDelegate.image || "")
+                                    actions: activeDelegate.actions || []
                                     urgency: activeDelegate.urgency
                                     timestamp: activeDelegate.timestamp
-                                    dismissible: true
-                                    onDismissRequested: root.service.dismissAt(activeDelegate.index)
+                                    onDismissed: root.service.dismissAt(activeDelegate.index)
+                                    onActivated: root.service.invokeDefault(activeDelegate.index)
+                                    onActionInvoked: function(identifier) { root.service.invokeAction(activeDelegate.index, identifier) }
                                 }
                             }
                         }
@@ -281,21 +286,28 @@ PanelWindow {
                                 required property var appIcon
                                 required property var summary
                                 required property var body
+                                required property var image
                                 required property int urgency
                                 required property double timestamp
                                 width: historyList.width
                                 height: historyRow.implicitHeight
 
-                                NotificationRow {
+                                NotificationToast {
                                     id: historyRow
                                     anchors.fill: parent
                                     app: String(historyDelegate.app || "")
                                     appIcon: String(historyDelegate.appIcon || "")
                                     summary: String(historyDelegate.summary || "")
                                     body: String(historyDelegate.body || "")
+                                    image: String(historyDelegate.image || "")
                                     urgency: historyDelegate.urgency
                                     timestamp: historyDelegate.timestamp
-                                    dismissible: false
+                                    interactive: false
+                                    showDismiss: false
+                                    showActions: false
+                                    timestampLabel: historyDelegate.timestamp > 0
+                                        ? Qt.formatTime(new Date(historyDelegate.timestamp), "HH:mm")
+                                        : ""
                                 }
                             }
                         }

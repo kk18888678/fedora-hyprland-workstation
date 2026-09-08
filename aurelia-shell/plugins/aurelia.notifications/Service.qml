@@ -292,7 +292,7 @@ Item {
         removeActiveById(originalId)
         activeNotificationsModel.insert(0, snapshot)
         watchForUpdates(notification, originalId)
-        console.info("[NOTIFICATIONS] notification.received app=" + snapshot.app)
+        console.info("[NOTIFICATIONS] notification.received app=" + snapshot.app + " actions=" + snapshot.actions.length)
     }
 
     function removeAt(index, reason) {
@@ -335,6 +335,23 @@ Item {
             }
         }
         return "not-found"
+    }
+
+    function invokeDefault(index) {
+        if (index < 0 || index >= activeNotificationsModel.count) return "none"
+        var entry = activeNotificationsModel.get(index)
+        var reference = entry ? liveRefs[entry.originalId] : null
+        if (reference && reference.actions) {
+            for (var i = 0; i < reference.actions.length; i++) {
+                var action = reference.actions[i]
+                if (action && action.identifier === "default" && typeof action.invoke === "function") {
+                    action.invoke()
+                    removeAt(index, "action")
+                    return "ok"
+                }
+            }
+        }
+        return "unavailable"
     }
 
     function clearHistory() {
@@ -544,7 +561,7 @@ Item {
                             actions: popupSlot.actions
                             urgency: popupSlot.urgency
                             onDismissed: service.dismissAt(popupSlot.index)
-                            onActivated: service.dismissAt(popupSlot.index)
+                            onActivated: service.invokeDefault(popupSlot.index)
                             onActionInvoked: function(identifier) { service.invokeAction(popupSlot.index, identifier) }
                         }
                     }

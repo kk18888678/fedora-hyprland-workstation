@@ -57,7 +57,10 @@ function actionsOf(notification) {
         if (!action) continue
         var identifier = boundedText(action.identifier, 256)
         var text = boundedText(action.text, 256)
-        if (identifier === "" || text === "") continue
+        if (identifier === "" || text === "") {
+            if (identifier !== "default") continue
+            text = "Open"
+        }
         result.push({ identifier: identifier, text: text })
     }
     return result
