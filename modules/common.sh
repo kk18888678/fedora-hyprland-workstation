@@ -55,8 +55,13 @@ validate_profile() {
     [[ -n "${DESKTOP_SHELL:-}" ]] ||
         die "DESKTOP_SHELL is not defined."
 
-    [[ "${DESKTOP_SHELL}" == "noctalia" ]] ||
-        die "Unsupported DESKTOP_SHELL: ${DESKTOP_SHELL}. Only noctalia is implemented (omarchy is reserved)."
+    case "${DESKTOP_SHELL}" in
+        noctalia|aurelia)
+            ;;
+        *)
+            die "Unsupported DESKTOP_SHELL: ${DESKTOP_SHELL}. Supported shells are noctalia and aurelia."
+            ;;
+    esac
 
     [[ -n "${SHELL:-}" ]] ||
         die "SHELL is not defined."
@@ -72,6 +77,7 @@ validate_profile() {
         BROWSER_FIREFOX
         CURSOR
         KATE
+        CHATGPT
         MEDIA_APPLICATIONS
         ANTIGRAVITY
         LOCALSEND
@@ -92,6 +98,59 @@ validate_profile() {
     for variable in "${boolean_variables[@]}"; do
         require_boolean "$variable"
     done
+}
+
+safe_user_config_home() {
+    local config_home="$1"
+    local current="/"
+    local component
+    local components=()
+    local IFS='/'
+    local ancestor
+    local owner
+    local expected_uid="${TARGET_UID:-$(id -u 2>/dev/null || true)}"
+
+    [[ "$config_home" == /* && "$config_home" != "/" ]] || return 1
+    read -r -a components <<< "${config_home#/}"
+    for component in "${components[@]}"; do
+        [[ -n "$component" ]] || continue
+        [[ "$component" != "." && "$component" != ".." ]] || return 1
+        current="${current%/}/$component"
+        [[ ! -L "$current" ]] || return 1
+    done
+
+    # For a not-yet-created config home, the nearest existing ancestor owns
+    # the future mkdir operation.  This prevents an environment override from
+    # directing the installer into an unrelated root-owned namespace.
+    ancestor="$config_home"
+    while [[ ! -e "$ancestor" ]]; do
+        [[ "$ancestor" != "/" ]] || return 1
+        ancestor="$(dirname -- "$ancestor")"
+    done
+    [[ -d "$ancestor" && ! -L "$ancestor" ]] || return 1
+
+    owner="$(stat -c '%u' -- "$ancestor" 2>/dev/null || true)"
+    [[ -n "$expected_uid" && "$owner" == "$expected_uid" ]]
+}
+
+# Return the project-owned selector consumed by the Hyprland Lua session
+# startup module. The selector is deliberately outside ~/.config/hypr because
+# that directory is a repository-owned symlink and must remain immutable at
+# runtime.
+desktop_shell_selector_path() {
+    local config_home
+
+    if [[ "${INSTALLER_PRODUCTION_MODE:-0}" == "1" ]]; then
+        config_home="${XDG_CONFIG_HOME:-${TARGET_HOME:-$HOME}/.config}"
+        safe_user_config_home "$config_home" || return 1
+    else
+        config_home="${XDG_CONFIG_HOME:-${TARGET_HOME:-$HOME}/.config}"
+    fi
+
+    [[ "$config_home" == /* && "$config_home" != "/" ]] ||
+        return 1
+
+    printf '%s/fedora-hyprland-workstation/session-shell\n' "$config_home"
 }
 
 ###############################################################################
@@ -136,11 +195,36 @@ validate_target_user() {
     [[ "$TARGET_USER" != "root" ]] ||
         die "The workstation target user cannot be root."
 
+    local current_user
+    local current_uid
+    local passwd_home
+    local home_owner
+
+    current_user="$(id -un 2>/dev/null || true)"
+    current_uid="$(id -u 2>/dev/null || true)"
+    passwd_home="$(getent passwd "$TARGET_USER" 2>/dev/null | cut -d: -f6 || true)"
+
+    [[ -n "$current_user" && "$TARGET_USER" == "$current_user" ]] ||
+        die "Target user '$TARGET_USER' does not match the current login user '${current_user:-unknown}'."
+
+    [[ -n "$current_uid" && "$current_uid" != "0" ]] ||
+        die "Could not verify a non-root current user UID."
+
+    [[ -n "$passwd_home" && "$TARGET_HOME" == "$passwd_home" ]] ||
+        die "Target home '$TARGET_HOME' does not match the passwd home '$passwd_home'."
+
+    [[ "$TARGET_HOME" == /* && "$TARGET_HOME" != "/" ]] ||
+        die "Target home must be a non-root absolute path: $TARGET_HOME"
+
     [[ -d "$TARGET_HOME" ]] ||
         die "Target home directory does not exist: $TARGET_HOME"
 
     [[ -w "$TARGET_HOME" ]] ||
         die "Target home directory is not writable: $TARGET_HOME"
+
+    home_owner="$(stat -c '%u' -- "$TARGET_HOME" 2>/dev/null || true)"
+    [[ "$home_owner" == "$current_uid" ]] ||
+        die "Target home '$TARGET_HOME' is owned by UID '${home_owner:-unknown}', expected '$current_uid'."
 }
 
 ###############################################################################
@@ -152,16 +236,25 @@ prepare_system() {
 
     validate_profile
     validate_fedora
-    validate_target_user
+
+    if ! validate_component_registry; then
+        die "Component registry validation failed."
+    fi
 
     require_command dnf
     require_command rpm
     require_command sudo
     require_command systemctl
-    require_command curl
-    require_command tar
     require_command stat
     require_command flock
+    require_command id
+    require_command getent
+
+    # curl and tar are supplied by the reviewed base package group.  Requiring
+    # them here would prevent a minimal Fedora Everything CLI install from
+    # reaching the package plan that installs them.
+
+    validate_target_user
 
     info "System preparation complete."
     record_success "prepare_system"

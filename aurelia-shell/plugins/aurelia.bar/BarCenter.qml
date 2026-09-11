@@ -14,7 +14,11 @@ Item {
     property var pluginRegistry: null
     property string aureliaPath: ""
 
-    implicitHeight: bar ? bar.barSize : 38
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
+
+    implicitWidth: root.vertical ? root.barSize : parent ? parent.width : root.barSize
+    implicitHeight: root.vertical ? (centerAnchor.implicitHeight || root.barSize) : root.barSize
 
     function entryId(entry) {
         if (typeof entry === "string") return entry
@@ -51,7 +55,11 @@ Item {
         id: centeredGroup
         anchors.centerIn: parent
         visible: !root.hasAnchor
-        entries: root.entries
+        // `visible: false` does not destroy a QML row or its Loader delegates.
+        // Do not instantiate a second copy of every widget when an exact
+        // center anchor is active; the before/anchor/after rows own those
+        // entries in that mode.
+        entries: root.hasAnchor ? [] : root.entries
         bar: root.bar
         shell: root.shell
         pluginRegistry: root.pluginRegistry
@@ -62,8 +70,10 @@ Item {
 
     BarWidgetRow {
         id: beforeGroup
-        anchors.right: centerAnchor.left
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.right: root.vertical ? undefined : centerAnchor.left
+        anchors.bottom: root.vertical ? centerAnchor.top : undefined
+        anchors.horizontalCenter: root.vertical ? centerAnchor.horizontalCenter : undefined
+        anchors.verticalCenter: root.vertical ? undefined : centerAnchor.verticalCenter
         visible: root.hasAnchor
         entries: root.beforeEntries
         bar: root.bar
@@ -87,8 +97,10 @@ Item {
 
     BarWidgetRow {
         id: afterGroup
-        anchors.left: centerAnchor.right
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.left: root.vertical ? undefined : centerAnchor.right
+        anchors.top: root.vertical ? centerAnchor.bottom : undefined
+        anchors.horizontalCenter: root.vertical ? centerAnchor.horizontalCenter : undefined
+        anchors.verticalCenter: root.vertical ? undefined : centerAnchor.verticalCenter
         visible: root.hasAnchor
         entries: root.afterEntries
         bar: root.bar

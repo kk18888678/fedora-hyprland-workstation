@@ -18,10 +18,15 @@ activates the window; middle/right click closes it.
 
 The default list is workspaces `1–5`; positive live workspaces up to `10` are
 added and sorted. Workspace `10` displays as `0`. Horizontal cells are `20 px`
-wide with `1 px` column spacing and bar-height fixed height; a vertical bar
-uses one column, `2 px` row spacing, and bar-width fixed width. Occupied and
-focused workspaces have opacity `1`; empty non-focused workspaces have
-opacity `0.5`. Clicking dispatches compositor focus.
+wide with `1 px` column spacing and bar-height fixed slots; a vertical bar uses
+one column, `2 px` row spacing, and bar-width fixed slots. The slots are
+transparent, matching the reference `WidgetButton`, so their numbers/dots do
+not protrude as full-height cards. Occupied workspaces have opacity `1`; empty
+non-focused workspaces have opacity `0.5`. Occupied workspaces show their
+number; empty workspaces show a theme-aware dot. The active workspace replaces
+its number (or dot) with the theme-aware active glyph instead of using an
+accent highlight.
+Clicking dispatches compositor focus.
 
 ### Keyboard-layout indicator
 

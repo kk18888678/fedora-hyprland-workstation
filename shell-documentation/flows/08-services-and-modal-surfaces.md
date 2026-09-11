@@ -122,23 +122,29 @@ Durations are exact:
 critical -> 0 (no expiry)
 low      -> max(5000, requested), capped at 30000
 normal   -> max(8000, requested), capped at 30000
+ChatGPT completion -> 0 (inbox-persistent until Open or Dismiss)
 ~~~
 
-Each live card ticks its remaining lifetime every 50 ms. Hover pauses the
-countdown. A changed summary/body/image resets the card's remaining lifetime.
+Each passive popup card ticks its remaining lifetime every 50 ms. Hover pauses
+the countdown. A changed summary/body/image resets the popup’s remaining
+lifetime; the corresponding Inbox row remains until explicit user action.
 
 ### File and history terminal states
 
-Each live popup has one JSON file under the popup state directory. When it
-expires, is dismissed, or its action is invoked:
+Each Inbox notification has one JSON file under the popup state directory. A
+passive popup can expire without changing Inbox. When the user dismisses,
+archives, or acts on a notification:
 
 ~~~text
-popup file -> serialized file queue -> history directory
-             -> popup row removed
-             -> live server object dismissed/expired when still live
+Inbox row  -> serialized file queue -> history directory
+             -> Inbox row removed
+             -> passive popup row removed
+             -> live server object dismissed when still live
 ~~~
 
-The queue serializes writes, copies, moves, deletes, and history reads. Image
+The queue serializes writes, copies, moves, deletes, and history reads. Passive
+popup expiry removes only the popup-model row; an explicit Archive action on
+each Inbox card is what moves that notification to history. Image
 files are copied with a five-second, 5 MiB per-file bound before the JSON
 references the copy. Broken or torn JSON lines are skipped on restore.
 
@@ -396,4 +402,3 @@ service rereads state after the final apply.
 6. Exercise media, battery, idle, and night-light actions while their helper
    processes are delayed; verify the queued-latest and no-duplicate-process
    contracts.
-

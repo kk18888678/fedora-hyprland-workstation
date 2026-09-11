@@ -283,21 +283,22 @@ warning badge is circular, has a 1 px popup-background border, and uses a
 
 ## Aurelia calendar surface
 
-The calendar uses an Aurelia-specific instrument-panel language rather than
-the reference calendar's oversized hero composition. Its hierarchy is:
+The calendar uses an Aurelia-specific minimalist language rather than the
+reference calendar's oversized hero composition. Its hierarchy is:
 
-1. a compact date rail with an accent edge;
-2. a framed month-navigation strip with fixed-width controls;
-3. a quiet six-row ledger grid with seven equal columns; and
+1. one compact metadata rule with a short accent segment;
+2. a single month-navigation row with fixed-width controls;
+3. an unboxed six-row ledger grid with seven equal columns; and
 4. one high-contrast accent state for today.
 
 The grid is a read-only date surface, not a date picker. Every cell has the
 same explicit width and height, including adjacent-month dates, so the popup
 never reflows when a month starts on a different weekday or contains five
 weeks. Hover is communicated with a restrained surface and border change;
-today is communicated with an accent fill and a small top marker. This keeps
-navigation, hierarchy, and state legible without turning every date into a
-button or relying on a large decorative hero.
+today is communicated with accent text and a small underline. Popup width,
+height, padding, cell size/gap, row heights, and calendar-only colors are
+theme.conf tokens, so density and contrast can be customized without editing
+the component.
 
 ## Motion language
 

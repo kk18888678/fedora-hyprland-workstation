@@ -21,6 +21,7 @@ ACTIVATION_BLOCKED=0
 GRAPHICAL_ACTIVATION_STATE="not-attempted"
 SUMMARY_PRINTED=0
 CURRENT_STAGE="installer"
+INSTALLER_CANCELLED=0
 
 record_success() {
     local item="$1"
@@ -97,6 +98,10 @@ resolve_installer_exit_code() {
     # 1. Explicitly trapped external signal has authoritative priority and retains conventional 128+signal exit status
     if (( _interrupted_sig != 0 )); then
         _resolved_status="$_interrupted_sig"
+    elif [[ "${INSTALLER_CANCELLED:-0}" == "1" ]]; then
+        # Setup cancellation is a deliberate, non-error exit with no host
+        # mutations. Preserve the documented exit code through the EXIT trap.
+        _resolved_status=2
     elif (( _raw_code != 0 )); then
         # 2. If an unclassified nonzero error or unexpected fatal signal occurred (raw_code != 0),
         # it must NEVER silently resolve to 0 (success) or 2 (deferred-only).
@@ -207,7 +212,11 @@ print_installer_summary() {
             printf 'Installation completed successfully.\n'
             ;;
         2)
-            printf 'Installation completed with deferred optional failures.\n'
+            if [[ "${INSTALLER_CANCELLED:-0}" == "1" ]]; then
+                printf 'Setup cancelled; no changes were applied.\n'
+            else
+                printf 'Installation completed with deferred optional failures.\n'
+            fi
             ;;
         *)
             printf 'Installation finished with required-component failures.\n'
@@ -274,7 +283,38 @@ run_classified_step() {
     local prev_req_count="${#INSTALL_REQUIRED_FAILURES[@]}"
     local prev_def_count="${#INSTALL_DEFERRED[@]}"
 
-    "$function_name" "$@" || rc=$?
+    if [[ "${INSTALLER_PRODUCTION_MODE:-0}" == "1" ]]; then
+        # A function invoked in an `if`/`||` condition inherits disabled
+        # errexit in Bash.  Production stages therefore run with a temporary
+        # ERR trampoline: an unguarded failure returns from the stage, then
+        # the wrapper regains control to classify it without losing globals.
+        local previous_err_trap
+        local had_errexit=0
+        local stage_uncaught_status=0
+        previous_err_trap="$(trap -p ERR)"
+        case "$-" in
+            *e*) had_errexit=1 ;;
+        esac
+
+        trap 'stage_uncaught_status=$?; if [[ ${FUNCNAME[0]:-} != run_classified_step ]]; then return "$stage_uncaught_status"; fi; set +e; :' ERR
+        set -e
+        "$function_name" "$@"
+        rc=$?
+        trap - ERR
+        if [[ -n "$previous_err_trap" ]]; then
+            eval "$previous_err_trap"
+        fi
+        if (( had_errexit == 1 )); then
+            set -e
+        else
+            set +e
+        fi
+        if (( rc == 0 && stage_uncaught_status != 0 )); then
+            rc="$stage_uncaught_status"
+        fi
+    else
+        "$function_name" "$@" || rc=$?
+    fi
 
     if (( rc == 0 )); then
         if declare -F journal_stage >/dev/null; then
@@ -294,7 +334,7 @@ run_classified_step() {
 
     case "$class" in
         login)
-            if (( ACTIVATION_BLOCKED == 0 )); then
+            if (( ACTIVATION_BLOCKED == 0 && new_classified == 0 )); then
                 record_activation_failure \
                     "$function_name" \
                     "stage" \

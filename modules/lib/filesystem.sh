@@ -2,21 +2,57 @@
 
 # Filesystem and path safety primitives.
 
+validate_mutation_path() {
+    local path="$1"
+
+    [[ -n "$path" ]] || {
+        error "Filesystem mutation path is empty."
+        return 1
+    }
+    [[ "$path" == /* ]] || {
+        error "Filesystem mutation path must be absolute: $path"
+        return 1
+    }
+
+    local current="/"
+    local component
+    local components=()
+    local IFS='/'
+    read -r -a components <<< "${path#/}"
+
+    for component in "${components[@]}"; do
+        [[ -n "$component" ]] || continue
+        if [[ "$component" == "." || "$component" == ".." ]]; then
+            error "Filesystem mutation path contains an unsafe component: $path"
+            return 1
+        fi
+        current="${current%/}/$component"
+        if [[ -L "$current" ]]; then
+            error "Refusing filesystem mutation through symlinked path component: $current"
+            return 1
+        fi
+    done
+}
+
 ensure_directory() {
     local directory="$1"
 
-    [[ -n "$directory" ]] ||
-        die "ensure_directory called with empty path."
-
-    [[ "$directory" != "." && "$directory" != ".." ]] ||
-        die "ensure_directory called with invalid relative path: '$directory'"
+    validate_mutation_path "$directory" || return 1
+    [[ "$directory" != "/" ]] || {
+        error "ensure_directory called with root path '/'."
+        return 1
+    }
 
     if [[ -e "$directory" && ! -d "$directory" ]]; then
-        die "ensure_directory target exists and is not a directory: $directory"
+        error "ensure_directory target exists and is not a directory: $directory"
+        return 1
     fi
 
     if [[ ! -d "$directory" ]]; then
-        mkdir -p "$directory"
+        mkdir -p -- "$directory" || {
+            error "Failed to create directory: $directory"
+            return 1
+        }
     fi
 }
 
@@ -24,34 +60,45 @@ ensure_symlink() {
     local source="$1"
     local destination="$2"
 
-    [[ -n "$source" ]] ||
-        die "ensure_symlink: source path is empty."
+    [[ -n "$source" ]] || {
+        error "ensure_symlink: source path is empty."
+        return 1
+    }
 
-    [[ -n "$destination" ]] ||
-        die "ensure_symlink: destination path is empty."
+    [[ -n "$destination" ]] || {
+        error "ensure_symlink: destination path is empty."
+        return 1
+    }
 
-    [[ "$destination" != "/" ]] ||
-        die "ensure_symlink: refusing destination as root directory '/'."
+    [[ "$destination" != "/" ]] || {
+        error "ensure_symlink: refusing destination as root directory '/'."
+        return 1
+    }
 
-    [[ "$destination" != "." && "$destination" != ".." ]] ||
-        die "ensure_symlink: refusing destination as relative '.' or '..'."
+    # The final destination may legitimately be an existing symlink that we
+    # preserve and replace.  Its parent path must not contain symlinks.
+    validate_mutation_path "$(dirname -- "$destination")" || return 1
 
-    [[ -e "$source" || -L "$source" ]] ||
-        die "Symlink source does not exist: $source"
+    [[ -e "$source" && ! -L "$source" ]] || {
+        error "Symlink source is missing or is a symlink: $source"
+        return 1
+    }
 
-    ensure_directory "$(dirname "$destination")"
+    ensure_directory "$(dirname "$destination")" || return 1
 
     if [[ -L "$destination" ]]; then
         local current_target
-        current_target="$(readlink "$destination")"
+        if ! current_target="$(readlink -- "$destination")"; then
+            error "Could not read existing symlink destination: $destination"
+            return 1
+        fi
 
         if [[ "$current_target" == "$source" ]]; then
             return 0
         fi
+    fi
 
-        rm -f "$destination"
-
-    elif [[ -e "$destination" ]]; then
+    if [[ -e "$destination" || -L "$destination" ]]; then
         local backup
         backup="${destination}.bak.$(date +%Y%m%d-%H%M%S)"
 
@@ -66,13 +113,21 @@ ensure_symlink() {
         warn "Existing path found: $destination"
         warn "Moving it to: $backup"
 
-        mv "$destination" "$backup"
+        if ! mv -- "$destination" "$backup"; then
+            error "Failed to preserve existing path at backup location: $backup"
+            return 1
+        fi
     fi
 
-    ln -s "$source" "$destination"
+    if ! ln -s -- "$source" "$destination"; then
+        error "Failed to create symlink at $destination"
+        return 1
+    fi
 
-    [[ -L "$destination" && "$(readlink "$destination")" == "$source" ]] ||
-        die "Failed to create symlink at $destination pointing to $source"
+    if [[ ! -L "$destination" || "$(readlink "$destination")" != "$source" ]]; then
+        error "Failed to create symlink at $destination pointing to $source"
+        return 1
+    fi
 }
 
 validate_path_components() {

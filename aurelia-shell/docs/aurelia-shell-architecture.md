@@ -21,15 +21,20 @@ Aurelia Shell uses Quickshell as its execution engine in the same manner that a 
 
 ## 2. Peer Desktop Environments & Coexistence Model
 
-The Fedora Hyprland Workstation supports multiple desktop shell environments:
+The Fedora Hyprland Workstation supports multiple post-login desktop shell
+environments behind an explicit profile selector. The Noctalia greeter remains
+an independent greetd login component.
 
 1. **Independent Environment Identity**:
-   - `desktop.environment.noctalia` and `desktop.environment.aurelia` are registered as peer desktop environment components.
-   - Mutual exclusion at the full environment level prevents running conflicting global desktop shells simultaneously.
+   - `DESKTOP_SHELL=noctalia` or `DESKTOP_SHELL=aurelia` selects the post-login shell.
+   - The installer records the selection outside the repository-owned Hyprland
+     symlink, and Hyprland starts exactly one selected shell.
+   - The Noctalia greeter is not the post-login shell selector and remains
+     available when Aurelia is selected.
 
 2. **Component-Level Modular Coexistence**:
    - Individual Aurelia plugins (such as **Aurelia Keybindings**) can run alongside Noctalia without requiring a second desktop shell.
-   - Provider selection (e.g., `keybindings.provider = aurelia`) is decoupled from desktop shell selection (`DESKTOP_SHELL=noctalia`).
+   - Provider selection (e.g., `keybindings.provider = aurelia`) is decoupled from desktop shell selection (`DESKTOP_SHELL=noctalia` or `DESKTOP_SHELL=aurelia`).
    - Inactive Aurelia plugins remain completely unloaded in memory via conditional `Loader` controls owned by `aurelia-shell/services/PluginHost.qml`.
 
 3. **Cross-Shell Portability Policy**:
@@ -98,7 +103,30 @@ Aurelia Shell plugins are heterogeneous in structure. Plugins may be floating pa
 - Each plugin may register a plugin-scoped target (for example, `aurelia.keybindings`) with explicitly typed methods.
 - Deprecated or renamed targets must provide thin forwarding shims (for example, `hotkeys` delegating directly to the Keybindings plugin) rather than duplicating implementation blocks.
 
-### 4.2.1 Bar-owned popup surfaces
+### 4.2.1 Development Reload Boundary
+- Aurelia follows Omarchy's two-level development model: local plugin source
+  changes can reload inside the resident host, while host/core changes use an
+  explicit process restart.
+- In development mode, `PluginRegistry` watches only first-party and user
+  plugin roots with `inotifywait`. Events are debounced before a scan so an
+  atomic save does not cause a reload for every intermediate write.
+- A targeted plugin reload unloads only the changed plugin `Loader` instances,
+  rescans manifests, and mounts the validated plugin set again. The resident
+  `aurelia.bar` host remains mapped; its `BarWidgetSlot` loaders are refreshed
+  independently. An explicit full rescan may refresh the other plugin loaders
+  while still preserving the bar host. The optional Qt component-cache API is
+  used only when the runtime exposes it, and the watcher is disabled for
+  installed/production launches.
+- `shell rescanPlugins` and the Command Center's **Hot Reload Aurelia
+  Plugins** action use the same lifecycle. **Restart Aurelia Shell** invokes
+  the scoped restart helper through detached structured argv, allowing the
+  old host to disappear while its replacement starts.
+- `shell.qml`, shared services, the theme singleton, and Hyprland Lua remain
+  restart boundaries. A Command Center action cannot recover a completely
+  absent host; the session autostart or `aurelia-launch-shell` is the cold-start
+  path.
+
+### 4.2.2 Bar-owned popup surfaces
 - `aurelia.bar` owns one mapped layer-shell bar window. Configured `bar-widget` plugins own their trigger item and their popup content; the resident host does not position widget panels by querying Hyprland layer geometry.
 - Mouse-only bar menus may use the shared `ui/AureliaPopupCard.qml` primitive. Keyboard-capable bar panels use `ui/AureliaKeyboardPanel.qml`, following Omarchy's `KeyboardPanel` contract: the bar widget remains the owner, the card is positioned from the real anchor item, and a focused layer-shell surface provides reliable Escape and arrow-key input.
 - The bar coordinates one active popout and exposes the active widget state for the bar underline. Opening another widget closes the previous widget through its declared lifecycle method.

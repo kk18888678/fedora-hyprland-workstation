@@ -33,7 +33,7 @@ install_oh_my_zsh() {
         "$OH_MY_ZSH_COMMIT" \
         "Oh My Zsh" || {
         record_required "shell" "oh-my-zsh" "Oh My Zsh clone failed."
-        return 0
+        return 1
     }
 }
 
@@ -46,7 +46,18 @@ install_zsh_plugin() {
     local directory_name="$2"
     local commit="$3"
 
-    local custom_dir="${ZSH_CUSTOM:-$TARGET_HOME/.oh-my-zsh/custom}"
+    local custom_dir="$TARGET_HOME/.oh-my-zsh/custom"
+    if [[ -n "${ZSH_CUSTOM:-}" ]]; then
+        if ! safe_user_config_home "$ZSH_CUSTOM" ||
+            [[ "$ZSH_CUSTOM" != "$TARGET_HOME"/* ]]; then
+            record_required \
+                "shell" \
+                "$directory_name" \
+                "ZSH_CUSTOM must be an absolute, target-user-owned path under $TARGET_HOME."
+            return 0
+        fi
+        custom_dir="$ZSH_CUSTOM"
+    fi
     local destination="$custom_dir/plugins/$directory_name"
 
     if [[ -d "$destination/.git" ]]; then
@@ -60,7 +71,7 @@ install_zsh_plugin() {
         "$commit" \
         "Zsh plugin $directory_name" || {
         record_required "shell" "$directory_name" "Zsh plugin clone failed."
-        return 0
+        return 1
     }
 }
 
@@ -71,15 +82,23 @@ configure_zsh_plugins() {
 
     load_pinned_versions
 
-    install_zsh_plugin \
+    local failed=0
+
+    if ! install_zsh_plugin \
         "$ZSH_AUTOSUGGESTIONS_URL" \
         "zsh-autosuggestions" \
-        "$ZSH_AUTOSUGGESTIONS_COMMIT"
+        "$ZSH_AUTOSUGGESTIONS_COMMIT"; then
+        failed=1
+    fi
 
-    install_zsh_plugin \
+    if ! install_zsh_plugin \
         "$ZSH_SYNTAX_HIGHLIGHTING_URL" \
         "zsh-syntax-highlighting" \
-        "$ZSH_SYNTAX_HIGHLIGHTING_COMMIT"
+        "$ZSH_SYNTAX_HIGHLIGHTING_COMMIT"; then
+        failed=1
+    fi
+
+    return "$failed"
 }
 
 ###############################################################################
@@ -160,7 +179,7 @@ deploy_foot_config() {
 
     # Deploy user desktop entry overrides to hide auxiliary Foot Client and Server launchers
     local apps_dir="$TARGET_HOME/.local/share/applications"
-    ensure_directory "$apps_dir"
+    ensure_directory "$apps_dir" || return 1
 
     local client_override="$SCRIPT_DIR/config/desktop-entries/footclient.desktop"
     local server_override="$SCRIPT_DIR/config/desktop-entries/foot-server.desktop"
@@ -205,6 +224,15 @@ configure_user_directories() {
 
     local user_dirs_config_dir="$TARGET_HOME/.config"
     local user_dirs_file="$user_dirs_config_dir/user-dirs.dirs"
+
+    if ! safe_user_config_home "$user_dirs_config_dir" ||
+        [[ -L "$user_dirs_file" ]]; then
+        record_deferred \
+            "shell" \
+            "xdg-user-dirs" \
+            "Refusing to follow a symlinked or unsafe user configuration path."
+        return 0
+    fi
 
     if [[ ! -d "$user_dirs_config_dir" ]]; then
         if ! run_as_target_user mkdir -p "$user_dirs_config_dir"; then
@@ -292,12 +320,21 @@ configure_user_directories() {
     configure_gtk_bookmarks
 }
 
-configure_gtk_bookmarks() {
+configure_gtk_bookmarks_legacy() {
     info "Configuring standard GTK / Thunar bookmarks."
 
     local gtk3_config_dir="$TARGET_HOME/.config/gtk-3.0"
     local bookmarks_file="$gtk3_config_dir/bookmarks"
     local user_dirs_file="$TARGET_HOME/.config/user-dirs.dirs"
+
+    if ! safe_user_config_home "$TARGET_HOME/.config" ||
+        [[ -L "$gtk3_config_dir" || -L "$bookmarks_file" || -L "$user_dirs_file" ]]; then
+        record_deferred \
+            "shell" \
+            "gtk-bookmarks" \
+            "Refusing to follow a symlinked or unsafe GTK configuration path."
+        return 0
+    fi
 
     if [[ ! -d "$gtk3_config_dir" ]]; then
         if ! run_as_target_user mkdir -p "$gtk3_config_dir"; then
@@ -384,6 +421,18 @@ configure_gtk_bookmarks() {
     record_success "gtk-bookmarks"
 }
 
+configure_gtk_bookmarks() {
+    # The desktop module owns production GTK3/GTK4 convergence.  Retain the
+    # legacy GTK3 implementation for callers that source shell.sh alone (and
+    # for older integrations), without letting both implementations run in a
+    # normal installer process.
+    if declare -F converge_gtk_bookmarks >/dev/null 2>&1; then
+        converge_gtk_bookmarks "$TARGET_HOME"
+    else
+        configure_gtk_bookmarks_legacy
+    fi
+}
+
 configure_shell() {
     if [[ "${SHELL:-}" != "zsh" ]]; then
         die "Unsupported shell profile: ${SHELL:-<unset>}"
@@ -392,8 +441,14 @@ configure_shell() {
     require_command zsh
     require_command git
 
-    install_oh_my_zsh
-    configure_zsh_plugins
+    local failed=0
+
+    if ! install_oh_my_zsh; then
+        failed=1
+    fi
+    if ! configure_zsh_plugins; then
+        failed=1
+    fi
     deploy_zsh_config
     deploy_starship_config
     deploy_kitty_config
@@ -401,15 +456,22 @@ configure_shell() {
     deploy_nvim_config
     deploy_qt6ct_config
     configure_user_directories
-    configure_default_shell
+    if ! configure_default_shell; then
+        record_required "shell" "default-shell" "Could not set Zsh as the default shell."
+        failed=1
+    fi
 
     if [[ "${PROMPT:-}" == "starship" ]]; then
         if ! command_exists starship; then
             record_required "shell" "starship" "Starship is required by the profile but is not installed."
-            return 0
+            failed=1
         fi
     else
         die "Unsupported prompt: ${PROMPT:-<unset>}"
+    fi
+
+    if (( failed != 0 )); then
+        return 1
     fi
 
     info "Zsh environment configured."

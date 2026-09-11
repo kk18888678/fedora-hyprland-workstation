@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Launch the DNS helper in a real terminal when graphical polkit has no agent.
+# The provider is allowlisted and the helper path is always this script's
+# sibling, so the terminal receives structured arguments rather than a shell
+# command assembled from UI text.
+
+set -Eeuo pipefail
+umask 077
+
+provider="${1:-}"
+case "$provider" in
+  Cloudflare|Google|DHCP|Custom) ;;
+  *)
+    printf 'Error: invalid DNS provider.\n' >&2
+    exit 2
+    ;;
+esac
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+dns_helper="$script_dir/aurelia-network-dns"
+[[ -x "$dns_helper" ]] || {
+  printf 'Error: DNS helper is missing or not executable: %s\n' "$dns_helper" >&2
+  exit 1
+}
+
+terminal="${AURELIA_TERMINAL:-}"
+if [[ -n "$terminal" ]]; then
+  case "$terminal" in
+    kitty|foot|gnome-terminal|xterm) ;;
+    *)
+      printf 'Error: unsupported AURELIA_TERMINAL value.\n' >&2
+      exit 1
+      ;;
+  esac
+else
+  for candidate in kitty foot gnome-terminal xterm; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      terminal="$candidate"
+      break
+    fi
+  done
+fi
+
+[[ -n "$terminal" ]] || {
+  printf 'Error: no supported terminal emulator is available.\n' >&2
+  exit 1
+}
+command -v "$terminal" >/dev/null 2>&1 || {
+  printf 'Error: configured terminal is not available: %s\n' "$terminal" >&2
+  exit 1
+}
+
+case "$terminal" in
+  kitty)
+    exec kitty --title 'Aurelia DNS' -- /bin/bash "$dns_helper" "$provider"
+    ;;
+  foot)
+    exec foot --title='Aurelia DNS' -- /bin/bash "$dns_helper" "$provider"
+    ;;
+  gnome-terminal)
+    exec gnome-terminal -- /bin/bash "$dns_helper" "$provider"
+    ;;
+  xterm)
+    exec xterm -T 'Aurelia DNS' -e /bin/bash "$dns_helper" "$provider"
+    ;;
+esac

@@ -1,0 +1,90 @@
+#!/bin/bash
+
+# Print the bounded state record consumed by the Aurelia Display plugin.
+#
+# The output is intentionally line-oriented so a partial optional capability
+# (for example, no laptop backlight or no DDC monitor) cannot shift the fields
+# that follow it.
+
+set -Eeuo pipefail
+umask 077
+
+bounded() {
+    "$timeout_bin" --kill-after=1s 3s "$@"
+}
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+brightness_bin="$script_dir/aurelia-brightness-display"
+scale_bin="$script_dir/aurelia-hyprland-monitor-scaling"
+[[ -x "$brightness_bin" ]] || brightness_bin="$(command -v aurelia-brightness-display 2>/dev/null || true)"
+[[ -x "$scale_bin" ]] || scale_bin="$(command -v aurelia-hyprland-monitor-scaling 2>/dev/null || true)"
+
+timeout_bin="${AURELIA_TIMEOUT_BIN:-$(command -v timeout 2>/dev/null || printf '%s' /usr/bin/timeout)}"
+hyprctl_bin="${AURELIA_HYPRCTL_BIN:-$(command -v hyprctl 2>/dev/null || printf '%s' /usr/bin/hyprctl)}"
+jq_bin="${AURELIA_JQ_BIN:-$(command -v jq 2>/dev/null || printf '%s' /usr/bin/jq)}"
+[[ -x "$timeout_bin" && -x "$hyprctl_bin" && -x "$jq_bin" ]] || exit 1
+
+query_monitors() {
+    if [[ "${1:-}" == "all" ]]; then
+        bounded "$hyprctl_bin" monitors all -j 2>/dev/null ||
+            bounded "$hyprctl_bin" -j monitors all 2>/dev/null
+    else
+        bounded "$hyprctl_bin" monitors -j 2>/dev/null ||
+            bounded "$hyprctl_bin" -j monitors 2>/dev/null
+    fi
+}
+
+monitors_json="$(query_monitors all)" || exit 1
+"$jq_bin" -e 'type == "array"' <<<"$monitors_json" >/dev/null 2>&1 || exit 1
+
+focused_monitor="$("$jq_bin" -r '[.[] | select(.focused == true)][0].name // ""' <<<"$monitors_json")"
+internal_monitor="$("$jq_bin" -r '[.[] | select((.name // "") | test("^(eDP|LVDS|DSI)-"))][0].name // ""' <<<"$monitors_json")"
+external_monitor="$("$jq_bin" -r '[.[] | select(((.name // "") | test("^(eDP|LVDS|DSI)-")) | not)][0].name // ""' <<<"$monitors_json")"
+internal_enabled="$("$jq_bin" -r '[.[] | select((.name // "") | test("^(eDP|LVDS|DSI)-")) | select(.disabled != true)][0].name // ""' <<<"$monitors_json")"
+mirror_monitor="$("$jq_bin" -r '
+    [ .[]
+      | select((.mirrorOf // "none") != "none")
+      | if ((.name // "") | test("^(eDP|LVDS|DSI)-")) then .mirrorOf else .name end
+    ][0] // ""
+' <<<"$monitors_json")"
+
+brightness="unavailable"
+if [[ -x "$brightness_bin" && -n "$focused_monitor" ]]; then
+    brightness_output=""
+    if brightness_output="$(bounded "$brightness_bin" --monitor "$focused_monitor" 2>/dev/null)"; then
+        brightness_output="${brightness_output%%$'\n'*}"
+        if [[ "$brightness_output" =~ ^[0-9]+$ ]] && (( brightness_output >= 1 && brightness_output <= 100 )); then
+            brightness="$brightness_output"
+        fi
+    fi
+fi
+
+scale=""
+if [[ -x "$scale_bin" ]]; then
+    scale_output=""
+    if scale_output="$(bounded "$scale_bin" 2>/dev/null)"; then
+        scale_output="${scale_output%%$'\n'*}"
+        if [[ "$scale_output" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            scale="$scale_output"
+        fi
+    fi
+fi
+
+display_json="$("$jq_bin" -c '[.[] | {
+    name: (.name // ""),
+    enabled: (.disabled != true),
+    focused: (.focused == true),
+    width: (.width // 0),
+    height: (.height // 0),
+    refreshRate: (.refreshRate // 0),
+    availableModes: (if ((.availableModes // []) | type) == "array" then .availableModes else [] end)
+}]' <<<"$monitors_json")" || exit 1
+
+printf '%s\n' "$brightness"
+printf '%s\n' "$internal_monitor"
+printf '%s\n' "$external_monitor"
+printf '%s\n' "$internal_enabled"
+printf '%s\n' "$mirror_monitor"
+printf '%s\n' "$focused_monitor"
+printf '%s\n' "$scale"
+printf '%s\n' "$display_json"

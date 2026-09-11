@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
 import "../../../theme"
+import "../../../ui"
 import "."
 
 // Raycast-style command surface. The panel owns presentation and keyboard
@@ -11,12 +12,29 @@ PanelWindow {
     id: panelRoot
 
     property string backendBin: ""
+    property string updatesBin: ""
+    property string aboutBin: ""
+    property string packagesBin: ""
+    property string shellClientBin: ""
+    property string shellRestartBin: ""
     property var processEnvironment: ({})
     property var appLibrary: null
     property var moduleRegistry: null
     property var anchorWindow: null
 
-    readonly property int calculatedCardHeight: Math.max(360, Math.min(height - Theme.spacingXxl * 2, 560))
+    readonly property int calculatedCardHeight: {
+        var visibleRows = Math.max(1, Math.min(centerModel.results.length, 6))
+        var resultHeight = centerModel.results.length > 0
+            ? visibleRows * Theme.rowHeight + Math.max(0, visibleRows - 1) * Theme.spacingXs
+            : Math.max(Theme.rowHeight * 2, 72)
+        var hasStatus = centerModel.statusMessage.length > 0 || centerModel.errorMessage.length > 0
+        var statusHeight = hasStatus ? Theme.fontSizeXs + Theme.spacingSm : 0
+        var contentHeight = Theme.popupPadding * 2 + headerRow.implicitHeight
+            + Theme.spacingSm + Theme.searchHeight
+            + Theme.spacingSm + resultHeight + statusHeight
+        var screenLimit = Math.max(220, height - Theme.spacingXxl * 2)
+        return Math.min(screenLimit, Math.max(220, contentHeight))
+    }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-command-center"
@@ -32,6 +50,11 @@ PanelWindow {
     CommandCenterModel {
         id: centerModel
         backendBin: panelRoot.backendBin
+        updatesBin: panelRoot.updatesBin
+        aboutBin: panelRoot.aboutBin
+        packagesBin: panelRoot.packagesBin
+        shellClientBin: panelRoot.shellClientBin
+        shellRestartBin: panelRoot.shellRestartBin
         processEnvironment: panelRoot.processEnvironment
         appLibrary: panelRoot.appLibrary
         moduleRegistry: panelRoot.moduleRegistry
@@ -40,8 +63,20 @@ PanelWindow {
         }
     }
 
+    PointerMoveGate {
+        id: pointerGate
+        referenceItem: card
+    }
+
+    Connections {
+        target: centerModel
+        function onQueryChanged() { pointerGate.reset() }
+        function onActiveModuleChanged() { pointerGate.reset() }
+    }
+
     function open(payloadJson) {
         if (anchorWindow && typeof anchorWindow.requestPopout === "function") anchorWindow.requestPopout(panelRoot, "aurelia.launcher")
+        pointerGate.reset()
         centerModel.open()
         visible = true
         Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -62,6 +97,37 @@ PanelWindow {
         return Quickshell.iconPath(name, "application-x-executable")
     }
 
+    function selectRowFromPointer(row, rowIndex, mouse) {
+        if (pointerGate.moved(row, mouse)) centerModel.selectIndex(rowIndex)
+    }
+
+    readonly property var iconGlyphs: ({
+        "applications-system": "󰀻",
+        "system-run": "",
+        "utilities-terminal": "",
+        "system-software-update": "",
+        "help-about": "",
+        "system-software-install": "󰉉",
+        "system-file-manager": "󰉋",
+        "accessories-calculator": "",
+        "view-refresh": "󰑐",
+        "system-reboot": "󰜉",
+        "folder": "",
+        "text-x-generic": ""
+    })
+
+    function iconGlyphForRow(row) {
+        if (!row) return "󰘦"
+        var icon = String(row.icon || "")
+        if (icon.length > 0 && !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(icon)) return icon
+        if (iconGlyphs[icon]) return iconGlyphs[icon]
+        if (row.kind === "file") return row.subtitle === "Folder" ? "" : ""
+        if (row.kind === "action") return ""
+        if (row.kind === "shell-action") return ""
+        if (row.kind === "calculator") return ""
+        return "󰘦"
+    }
+
     MouseArea {
         anchors.fill: parent
         z: 0
@@ -75,15 +141,16 @@ PanelWindow {
         id: card
         z: 1
         anchors.centerIn: parent
-        width: Math.min(parent.width - Theme.spacingXxl * 2, 640)
+        width: Math.min(parent.width - Theme.spacingXxl * 2, Theme.paletteWidth)
         height: panelRoot.calculatedCardHeight
-        radius: Theme.radiusLg
-        color: Theme.bgBase
-        border.color: Theme.border
+        radius: Theme.radiusMd
+        color: Theme.launcher.background
+        border.color: Theme.launcher.border
         border.width: Theme.borderWidthDefault
 
         MouseArea {
             anchors.fill: parent
+            z: 0
             acceptedButtons: Qt.AllButtons
             onClicked: function(mouse) { mouse.accepted = true }
         }
@@ -91,34 +158,46 @@ PanelWindow {
         FocusScope {
             id: keyCatcher
             anchors.fill: parent
+            // Keep the card's click-swallowing surface behind the interactive
+            // search field and result delegates. Without an explicit z order,
+            // row clicks can be consumed by the sibling MouseArea above.
+            z: 1
             focus: panelRoot.visible
             Keys.priority: Keys.BeforeItem
 
             Keys.onPressed: function(event) {
                 if (event.key === Qt.Key_Escape) {
-                    if (centerModel.query !== "") centerModel.setQuery("")
-                    else if (centerModel.activeModule !== "") centerModel.resetModule()
-                    else panelRoot.close()
+                    panelRoot.close()
+                    event.accepted = true
+                    return
+                }
+
+                if (event.key === Qt.Key_Space && !searchInput.activeFocus && centerModel.activeModule === "updates") {
+                    centerModel.activateSelected()
                     event.accepted = true
                     return
                 }
 
                 if (event.key === Qt.Key_Down) {
+                    pointerGate.reset()
                     centerModel.moveSelection(1)
                     event.accepted = true
                     return
                 }
                 if (event.key === Qt.Key_Up) {
+                    pointerGate.reset()
                     centerModel.moveSelection(-1)
                     event.accepted = true
                     return
                 }
                 if (event.key === Qt.Key_PageDown) {
+                    pointerGate.reset()
                     centerModel.moveSelection(6)
                     event.accepted = true
                     return
                 }
                 if (event.key === Qt.Key_PageUp) {
+                    pointerGate.reset()
                     centerModel.moveSelection(-6)
                     event.accepted = true
                     return
@@ -150,37 +229,32 @@ PanelWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Theme.spacingXl
-                spacing: Theme.spacingMd
+                anchors.margins: Theme.popupPadding
+                spacing: Theme.spacingSm
 
                 RowLayout {
+                    id: headerRow
                     Layout.fillWidth: true
                     Text {
                         Layout.fillWidth: true
                         text: centerModel.activeModuleName
                         color: Theme.text
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeXl
+                        font.pixelSize: Theme.fontSizeLg
                         font.weight: Theme.fontWeightBold
-                    }
-                    Text {
-                        text: "ESC"
-                        color: Theme.textMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeXs
                     }
                 }
 
                 TextInput {
                     id: searchInput
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 44
+                    Layout.preferredHeight: Theme.searchHeight
                     text: centerModel.query
                     focus: false
                     activeFocusOnTab: false
                     selectByMouse: true
-                    leftPadding: Theme.spacingMd
-                    rightPadding: Theme.spacingMd
+                    leftPadding: Theme.spacingSm
+                    rightPadding: Theme.spacingSm
                     topPadding: Theme.spacingXs
                     bottomPadding: Theme.spacingXs
                     verticalAlignment: TextInput.AlignVCenter
@@ -188,9 +262,17 @@ PanelWindow {
                     selectionColor: Theme.inputSelection
                     selectedTextColor: Theme.inputSelectionText
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeMd
+                    font.pixelSize: Theme.fontSizeSm
                     clip: true
-                    onTextChanged: if (centerModel.query !== text) centerModel.setQuery(text)
+                    cursorVisible: activeFocus && text.length > 0
+                    onTextChanged: {
+                        pointerGate.reset()
+                        if (centerModel.query !== text) centerModel.setQuery(text)
+                        if (text.length === 0 && activeFocus) {
+                            focus = false
+                            keyCatcher.forceActiveFocus()
+                        }
+                    }
 
                     Rectangle {
                         anchors.fill: parent
@@ -203,12 +285,12 @@ PanelWindow {
 
                     Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: Theme.spacingMd
+                        anchors.leftMargin: Theme.spacingSm
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Search apps, files, actions, or calculate"
+                        text: "Search apps, packages, actions, files, updates, or calculate"
                         color: Theme.inputPlaceholder
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeMd
+                        font.pixelSize: Theme.fontSizeSm
                         visible: searchInput.text.length === 0 && !searchInput.activeFocus
                     }
                 }
@@ -218,7 +300,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    spacing: Theme.spacingXs
+                    spacing: Theme.popupRowGap
                     boundsBehavior: Flickable.StopAtBounds
                     model: centerModel.results
                     currentIndex: centerModel.selectedIndex
@@ -229,27 +311,52 @@ PanelWindow {
 
                     delegate: Rectangle {
                         required property var modelData
+                        required property int index
                         readonly property bool selected: ListView.isCurrentItem
                         width: resultList.width
-                        height: 58
-                        radius: Theme.radiusMd
-                        color: selected ? Theme.selection : Theme.surface
-                        border.color: selected ? Theme.accent : Theme.border
+                        height: Theme.rowHeight
+                        radius: Theme.radiusSm
+                        color: selected ? Theme.launcher.selectedBackground : "transparent"
+                        border.color: selected ? Theme.launcher.selectedBorder : Theme.border
                         border.width: selected ? Theme.borderWidthDefault : 0
+
+                        Rectangle {
+                            visible: selected
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.spacingXs
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 2
+                            height: Math.max(14, parent.height - Theme.spacingSm)
+                            radius: width / 2
+                            color: Theme.accent
+                        }
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: Theme.spacingMd
-                            anchors.rightMargin: Theme.spacingMd
-                            spacing: Theme.spacingMd
+                            anchors.leftMargin: Theme.spacingSm
+                            anchors.rightMargin: Theme.spacingSm
+                            spacing: Theme.spacingSm
+
+                            Text {
+                                visible: modelData.kind !== "app"
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                text: panelRoot.iconGlyphForRow(modelData)
+                                color: selected ? Theme.launcher.selectedText : Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeMd
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
 
                             Image {
-                                Layout.preferredWidth: 30
-                                Layout.preferredHeight: 30
-                                source: modelData.kind === "app" && panelRoot.appLibrary
+                                visible: modelData.kind === "app"
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                source: panelRoot.appLibrary
                                     ? panelRoot.appLibrary.iconSource(modelData.appIcon)
-                                    : panelRoot.safeIconSource(modelData.icon)
-                                sourceSize: Qt.size(30, 30)
+                                    : panelRoot.safeIconSource(modelData.appIcon)
+                                sourceSize: Qt.size(24, 24)
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
                                 asynchronous: true
@@ -290,8 +397,14 @@ PanelWindow {
 
                         MouseArea {
                             anchors.fill: parent
+                            z: 1
                             hoverEnabled: true
-                            onEntered: centerModel.selectIndex(index)
+                            acceptedButtons: Qt.LeftButton
+                            cursorShape: Qt.PointingHandCursor
+                            onEntered: panelRoot.selectRowFromPointer(parent, index, { x: mouseX, y: mouseY })
+                            onPositionChanged: function(mouse) {
+                                panelRoot.selectRowFromPointer(parent, index, mouse)
+                            }
                             onClicked: function(mouse) {
                                 mouse.accepted = true
                                 centerModel.selectIndex(index)
@@ -314,7 +427,9 @@ PanelWindow {
                         }
                         Text {
                             width: resultList.width - Theme.spacingXl * 2
-                            text: centerModel.errorMessage || (centerModel.query === "" && centerModel.activeModule === "" ? "Choose a module" : "No matching commands")
+                            text: centerModel.errorMessage || (centerModel.loading
+                                ? "Checking update sources..."
+                                : (centerModel.query === "" && centerModel.activeModule === "" ? "Choose a module" : "No matching commands"))
                             color: centerModel.errorMessage ? Theme.error : Theme.textMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm

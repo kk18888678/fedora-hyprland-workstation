@@ -31,9 +31,16 @@ ColumnLayout {
     }
 
     function appendSearchText(value) {
-        if (!value) return
-        searchInput.text = searchInput.text + value
+        var safeValue = String(value || "").replace(/[\u0000-\u001f\u007f]/g, "")
+        if (!safeValue) return
+        searchInput.text = searchInput.text + safeValue
         searchInput.cursorPosition = searchInput.text.length
+    }
+
+    function focusListIfVisible() {
+        if (modelController.activeView === "bound" || modelController.activeView === "unbound" || modelController.activeView === "add_app") {
+            windowController.focusList()
+        }
     }
 
     function beginSearch(value) {
@@ -47,8 +54,10 @@ ColumnLayout {
     }
 
     function clearSearch() {
+        windowController.resetPointerGate()
         searchInput.text = ""
         searchInput.focus = false
+        focusListIfVisible()
     }
 
     Connections {
@@ -84,12 +93,16 @@ ColumnLayout {
 
         Text {
             anchors.left: parent.left
-            anchors.leftMargin: KeybindingsConfig.searchPaddingHorizontal
+            anchors.leftMargin: Theme.spacingSm
+            width: 24
+            height: parent.height
             anchors.verticalCenter: parent.verticalCenter
-            text: "⌕"
+            text: ""
             color: searchInput.activeFocus ? Theme.accent : Theme.textMuted
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeLg
+            font.pixelSize: KeybindingsConfig.searchIconSize
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
             z: 2
         }
 
@@ -102,6 +115,7 @@ ColumnLayout {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeMd
             color: Theme.text
+            cursorVisible: activeFocus && text.length > 0
             selectByMouse: true
             selectionColor: Theme.selection
             selectedTextColor: Theme.text
@@ -168,12 +182,22 @@ ColumnLayout {
             }
 
             onTextChanged: {
+                var sanitizedText = String(text || "").replace(/[\u0000-\u001f\u007f]/g, "")
+                if (sanitizedText !== text) {
+                    text = sanitizedText
+                    return
+                }
+                windowController.resetPointerGate()
                 if (!windowController.isRecording && modelController.operationState !== "idle") {
                     modelController.operationState = "idle"
                     modelController.operationMessage = ""
                     windowController.recordingItem = null
                 }
                 modelController.searchQuery = text
+                if (text.length === 0 && activeFocus) {
+                    focus = false
+                    headerRoot.focusListIfVisible()
+                }
             }
 
             Keys.onReleased: function(event) {

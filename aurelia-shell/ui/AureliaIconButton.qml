@@ -14,30 +14,30 @@ Item {
 
     signal triggered()
 
-    implicitWidth: 30
-    implicitHeight: 30
+    implicitWidth: Theme.scaleGeometry(22)
+    implicitHeight: Theme.scaleGeometry(22)
 
     HoverHandler { id: iconHover }
 
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusSm
-        color: root.active || iconHover.hovered ? Theme.selection : "transparent"
+        color: root.active || iconHover.hovered ? Theme.controls.hoverFill : "transparent"
         border.color: root.destructive && iconHover.hovered
             ? Theme.error
-            : (root.active || iconHover.hovered ? Theme.borderActive : "transparent")
+            : (root.active || iconHover.hovered ? Theme.controls.hoverBorder : "transparent")
         border.width: root.active || iconHover.hovered ? Theme.borderWidthDefault : 0
         opacity: root.enabled ? 1.0 : 0.45
 
         AureliaIcon {
             anchors.centerIn: parent
-            width: 17
-            height: 17
+            width: Theme.bar.iconCanvas
+            height: Theme.bar.iconCanvas
             name: root.icon
-            iconSize: 17
+            iconSize: Theme.bar.iconCanvas
             tint: root.destructive && iconHover.hovered
                 ? Theme.error
-                : (root.active ? Theme.accent : Theme.textSecondary)
+                : (root.active ? Theme.controls.selectedColor : Theme.textSecondary)
         }
 
         AureliaToolTip {

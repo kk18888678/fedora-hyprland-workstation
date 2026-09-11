@@ -81,11 +81,10 @@ hl.config({
     group = colors.group,
 })
 
--- Safely apply Noctalia dynamic theme template when generated
+-- Safely apply the optional Noctalia-generated dynamic theme when present.
+-- The Aurelia session must also work from a clean checkout where this ignored
+-- generated module does not exist yet.
 local ok, noctalia = pcall(require, "noctalia")
 if ok and type(noctalia) == "table" and type(noctalia.apply_theme) == "function" then
     pcall(noctalia.apply_theme)
 end
-
--- For Noctalia Color templates
-require("noctalia").apply_theme()

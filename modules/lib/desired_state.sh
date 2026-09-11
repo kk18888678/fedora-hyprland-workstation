@@ -17,6 +17,7 @@ init_desired_state() {
     local prefix="$1"
     local profile="$2"
     local setup_mode="${3:-recommended}"
+    local desktop_shell="${4:-${DESKTOP_SHELL:-noctalia}}"
 
     if [[ -z "$prefix" ]]; then
         printf 'ERROR: init_desired_state requires a state prefix\n' >&2
@@ -39,8 +40,18 @@ init_desired_state() {
         return 1
     fi
 
+    case "$desktop_shell" in
+        noctalia|aurelia)
+            ;;
+        *)
+            printf 'ERROR: Invalid desktop shell: %s (must be noctalia or aurelia)\n' "$desktop_shell" >&2
+            return 1
+            ;;
+    esac
+
     declare -g "${prefix}_PROFILE"="$profile"
     declare -g "${prefix}_SETUP_MODE"="$setup_mode"
+    declare -g "${prefix}_DESKTOP_SHELL"="$desktop_shell"
     declare -g -A "${prefix}_COMPONENTS"
     declare -g -A "${prefix}_ROLE_DEFAULTS"
     local -n _c_ref="${prefix}_COMPONENTS"
@@ -97,17 +108,56 @@ desired_state_get_default() {
     printf '%s\n' "${def_map[$role]:-}"
 }
 
+# Set/get the post-login shell as desired state.  This is intentionally an
+# in-memory setting; the desktop module applies it only after review/apply.
+desired_state_set_desktop_shell() {
+    local prefix="$1"
+    local desktop_shell="$2"
+
+    case "$desktop_shell" in
+        noctalia|aurelia)
+            ;;
+        *)
+            printf 'ERROR: Invalid desktop shell: %s\n' "$desktop_shell" >&2
+            return 1
+            ;;
+    esac
+
+    declare -g "${prefix}_DESKTOP_SHELL"="$desktop_shell"
+}
+
+desired_state_get_desktop_shell() {
+    local prefix="$1"
+    local shell_var="${prefix}_DESKTOP_SHELL"
+
+    printf '%s\n' "${!shell_var:-noctalia}"
+}
+
 # Create opinionated recommended desired state for a given profile
 create_recommended_desired_state() {
     local prefix="$1"
     local profile="$2"
+    local desktop_shell="${3:-${DESKTOP_SHELL:-noctalia}}"
 
-    init_desired_state "$prefix" "$profile" "recommended" || return 1
+    init_desired_state "$prefix" "$profile" "recommended" "$desktop_shell" || return 1
 
     local ids
     ids="$(list_component_ids)"
     for id in $ids; do
         if ! component_supports_profile "$id" "$profile"; then
+            desired_state_set_component "$prefix" "$id" "unmanaged"
+            continue
+        fi
+
+        if [[ "$id" == "packages.flatpak" ]] && ! is_true "${FLATPAK:-false}"; then
+            desired_state_set_component "$prefix" "$id" "unmanaged"
+            continue
+        fi
+        if [[ "$id" == "packages.containers" ]] && ! is_true "${PODMAN:-false}"; then
+            desired_state_set_component "$prefix" "$id" "unmanaged"
+            continue
+        fi
+        if [[ "$id" == "packages.aurelia" ]] && [[ "$desktop_shell" != "aurelia" ]]; then
             desired_state_set_component "$prefix" "$id" "unmanaged"
             continue
         fi
@@ -147,8 +197,10 @@ validate_desired_state() {
 
     local prof_var="${prefix}_PROFILE"
     local mode_var="${prefix}_SETUP_MODE"
+    local shell_var="${prefix}_DESKTOP_SHELL"
     local profile="${!prof_var:-}"
     local setup_mode="${!mode_var:-}"
+    local desktop_shell="${!shell_var:-}"
 
     if [[ -z "$profile" ]]; then
         printf 'ERROR: Desired state profile is not defined\n' >&2
@@ -169,8 +221,28 @@ validate_desired_state() {
         return 1
     fi
 
+    if [[ "$desktop_shell" != "noctalia" && "$desktop_shell" != "aurelia" ]]; then
+        printf 'ERROR: Desired state specifies invalid desktop shell: %s\n' "${desktop_shell:-<unset>}" >&2
+        return 1
+    fi
+
     local -n comp_map="${prefix}_COMPONENTS"
     local -n def_map="${prefix}_ROLE_DEFAULTS"
+
+    # The Aurelia package group is derived from the selected shell and is not
+    # an independent user choice.  Prevent a plan from selecting Aurelia
+    # without its runtime, or from adding Aurelia-only packages to Noctalia.
+    if component_exists "packages.aurelia"; then
+        local aurelia_group_state="${comp_map[packages.aurelia]:-unmanaged}"
+        if [[ "$desktop_shell" == "aurelia" && "$aurelia_group_state" != "managed" ]]; then
+            printf 'ERROR: Aurelia desktop shell requires packages.aurelia to be managed\n' >&2
+            return 1
+        fi
+        if [[ "$desktop_shell" != "aurelia" && "$aurelia_group_state" == "managed" ]]; then
+            printf 'ERROR: packages.aurelia may be managed only when Aurelia is selected\n' >&2
+            return 1
+        fi
+    fi
 
     # 1. Check each component entry in the map
     for id in "${!comp_map[@]}"; do
@@ -304,8 +376,10 @@ serialize_desired_state() {
 
     local prof_var="${prefix}_PROFILE"
     local mode_var="${prefix}_SETUP_MODE"
+    local shell_var="${prefix}_DESKTOP_SHELL"
     printf 'PROFILE=%s\n' "${!prof_var}"
     printf 'SETUP_MODE=%s\n' "${!mode_var}"
+    printf 'DESKTOP_SHELL=%s\n' "${!shell_var:-noctalia}"
 
     local -n comp_map="${prefix}_COMPONENTS"
     # Sort keys for deterministic output
@@ -336,6 +410,7 @@ deserialize_desired_state() {
 
     local prof="workstation"
     local mode="recommended"
+    local desktop_shell="noctalia"
 
     # Extract PROFILE and SETUP_MODE first
     while IFS= read -r line; do
@@ -343,10 +418,12 @@ deserialize_desired_state() {
             prof="${BASH_REMATCH[1]}"
         elif [[ "$line" =~ ^SETUP_MODE=(.*)$ ]]; then
             mode="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ ^DESKTOP_SHELL=(.*)$ ]]; then
+            desktop_shell="${BASH_REMATCH[1]}"
         fi
     done <<< "$content"
 
-    init_desired_state "$prefix" "$prof" "$mode" || return 1
+    init_desired_state "$prefix" "$prof" "$mode" "$desktop_shell" || return 1
 
     local -n comp_map="${prefix}_COMPONENTS"
     local -n def_map="${prefix}_ROLE_DEFAULTS"

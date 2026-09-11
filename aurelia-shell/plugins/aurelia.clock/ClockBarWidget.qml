@@ -14,9 +14,13 @@ Item {
     property var pluginRegistry: null
     property int refreshTick: 0
 
-    readonly property string displayFormat: settings && typeof settings.format === "string" && settings.format !== ""
-        ? settings.format
-        : "MMM d, dddd HH:mm"
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    readonly property string displayFormat: root.vertical
+        ? (settings && typeof settings.verticalFormat === "string" && settings.verticalFormat !== ""
+            ? settings.verticalFormat : "HH\n—\nmm")
+        : (settings && typeof settings.format === "string" && settings.format !== ""
+            ? settings.format : "MMM d, dddd HH:mm")
+    readonly property var verticalLines: displayText.split("\n")
     readonly property var displayLocale: Qt.locale("en_US")
     readonly property string displayText: {
         var tick = refreshTick
@@ -29,24 +33,54 @@ Item {
         return Qt.formatDateTime(date, displayFormat)
     }
 
-    implicitWidth: clockLabel.implicitWidth + Theme.spacingMd * 2
-    implicitHeight: bar ? bar.barSize : 40
+    implicitWidth: root.vertical
+        ? (bar ? bar.barSize : Theme.bar.sizeVertical)
+        : clockLabel.implicitWidth + (root.bar && root.bar.barTextMargin
+            ? root.bar.barTextMargin * 2
+            : Theme.bar.textMargin * 2)
+    implicitHeight: root.vertical
+        ? root.verticalLines.length * (root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot)
+        : (bar ? bar.barSize : Theme.bar.sizeHorizontal)
 
     Timer {
         interval: 15000
         repeat: true
-        running: !!(root.bar && root.bar.visible)
+        running: !!(root.bar && root.bar.barVisible)
         onTriggered: root.refreshTick++
     }
 
     Text {
         id: clockLabel
         anchors.centerIn: parent
+        visible: !root.vertical
         text: root.displayText
         color: Theme.text
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSm
+        font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.bar.text
         font.weight: Theme.fontWeightMedium
+    }
+
+    Column {
+        visible: root.vertical
+        anchors.fill: parent
+
+        Repeater {
+            model: root.verticalLines
+
+            Text {
+                required property string modelData
+                width: parent.width
+                height: root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot
+                text: modelData
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: modelData.length > 3
+                    ? (root.bar && root.bar.barIconFont ? root.bar.barIconFont * 0.9 : Theme.bar.iconFont * 0.9)
+                    : (root.bar && root.bar.barIconFont ? root.bar.barIconFont : Theme.bar.iconFont)
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
     }
 
     MouseArea {

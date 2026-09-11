@@ -14,6 +14,10 @@ AureliaKeyboardPanel {
     ownerId: "aurelia.weather"
     popupWidth: 480
     popupHeight: 286
+    fitHeightToContent: true
+    contentSizingItem: weatherColumn
+    minPopupHeight: 220
+    maxPopupHeight: 560
     shown: false
 
     function open() {
@@ -43,6 +47,7 @@ AureliaKeyboardPanel {
     }
 
     ColumnLayout {
+        id: weatherColumn
         anchors.fill: parent
         spacing: Theme.spacingMd
         focus: panelRoot.shown

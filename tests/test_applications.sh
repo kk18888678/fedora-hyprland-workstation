@@ -62,6 +62,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$HELPER_ROOT"
 TARGET_USER="tester"
 TARGET_HOME="$(mktemp -d)"
+test_repo_dir="$(mktemp -d)"
+trap 'rm -rf -- "$TARGET_HOME" "$test_repo_dir"' EXIT
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=/dev/null
@@ -70,6 +72,22 @@ source "$SCRIPT_DIR/modules/status.sh"
 source "$SCRIPT_DIR/modules/repositories.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/applications.sh"
+
+OVERRIDE_YUM_REPOS_DIR="$test_repo_dir"
+OVERRIDE_RPM_GPG_DIR="$test_repo_dir/pki"
+cursor_repo_file="$test_repo_dir/cursor.repo"
+
+unsafe_chatgpt_target="$test_repo_dir/outside.repo"
+printf '%s\n' '[untrusted]' > "$unsafe_chatgpt_target"
+ln -s -- "$unsafe_chatgpt_target" "$test_repo_dir/chatgpt.repo"
+unsafe_chatgpt_status=0
+converge_chatgpt_gpg_key || unsafe_chatgpt_status=$?
+unsafe_chatgpt_gate=0
+check_repository_trust || unsafe_chatgpt_gate=$?
+printf 'chatgpt_symlink_rejected=%s chatgpt_symlink_gated=%s\n' \
+    "$([[ "$unsafe_chatgpt_status" -ne 0 ]] && echo 1 || echo 0)" \
+    "$([[ "$unsafe_chatgpt_gate" -ne 0 ]] && echo 1 || echo 0)"
+rm -f -- "$test_repo_dir/chatgpt.repo" "$unsafe_chatgpt_target"
 
 # 1. Disabled profile performs no mutations
 CHATGPT=false
@@ -126,7 +144,6 @@ converge_chatgpt_gpg_key() { return 0; }
 install_chatgpt
 echo "valid_dnf_invoked=$([[ $dnf_called_on_valid -eq 1 ]] && echo 1 || echo 0)"
 
-rm -rf "$TARGET_HOME"
 EOS
 )"
 
@@ -134,6 +151,12 @@ if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'disabled_no_mutation=1'; 
     pass "install_chatgpt performs no mutations when CHATGPT=false"
 else
     fail "install_chatgpt mutated system when CHATGPT=false: $chatgpt_behavior_output"
+fi
+
+if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'chatgpt_symlink_rejected=1 chatgpt_symlink_gated=1'; then
+    pass "symlinked ChatGPT repository configuration fails closed before DNF"
+else
+    fail "symlinked ChatGPT repository configuration escaped trust gating: $chatgpt_behavior_output"
 fi
 
 if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'idempotent_when_installed=1'; then
@@ -178,6 +201,7 @@ mock_repos="$(mktemp -d)"
 OVERRIDE_YUM_REPOS_DIR="$mock_repos"
 empty_pki="$(mktemp -d)"
 OVERRIDE_RPM_GPG_DIR="$empty_pki"
+cursor_repo_file="$mock_repos/cursor.repo"
 
 # 1. Full-fingerprint RPM-keyring identity verification (is_rpm_gpg_key_imported)
 # Case A: Exact full fingerprint matching -> 0 (trusted)
@@ -368,6 +392,7 @@ configure_repositories || repo_stage_res=$?
 echo "repo_stage_res=$repo_stage_res"
 echo "repo_stage_makecache_called=$makecache_called"
 echo "repo_stage_has_required_fail=${#INSTALL_REQUIRED_FAILURES[@]}"
+echo "repo_stage_success_recorded=$(grep -c '^configure_repositories$' <(printf '%s\n' "${INSTALL_SUCCEEDED[@]}") || true)"
 
 # 10. configure_repositories ordering: converge_chatgpt_gpg_key runs FIRST before package operations and metadata refresh
 call_order=()
@@ -453,8 +478,10 @@ else
     fail "converge_chatgpt_gpg_key failed already-imported idempotency: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_makecache_called=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_has_required_fail=1'; then
+if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_res=1' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_makecache_called=0' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_has_required_fail=1' &&
+   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_success_recorded=0'; then
     pass "configure_repositories stops and skips metadata refresh when ChatGPT GPG convergence fails"
 else
     fail "configure_repositories did not skip metadata refresh on GPG failure: $chatgpt_gpg_test_output"
@@ -494,6 +521,7 @@ mock_repos="$(mktemp -d)"
 OVERRIDE_YUM_REPOS_DIR="$mock_repos"
 mock_pki="$(mktemp -d)"
 OVERRIDE_RPM_GPG_DIR="$mock_pki"
+cursor_repo_file="$mock_repos/cursor.repo"
 
 # 1. State 1: Clean machine - repo absent, package absent -> DNF permitted
 package_installed() { return 1; }
@@ -737,6 +765,115 @@ else
     fail "installer without exception did not handle N_m3u8DL-RE prerelease correctly: $n_m3u8dl_policy_output"
 fi
 
+section "Pinned Media Artifact Ownership"
+
+media_pin_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+MEDIA_TOOLS_DIR="$(mktemp -d)"
+trap 'rm -rf -- "$TARGET_HOME" "$MEDIA_TOOLS_DIR"' EXIT
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+command_exists() { [[ "${1:-}" == "dovi_tool" ]]; }
+dovi_provision_called=0
+provision_verified_archive() {
+    [[ "${5:-}" == "dovi_tool" ]] && dovi_provision_called=1
+    return 0
+}
+provision_verified_binary() { return 0; }
+install_media_utilities
+echo "path_only_command_does_not_satisfy_pin=$([[ $dovi_provision_called -eq 1 ]] && echo 1 || echo 0)"
+
+command_exists() { return 1; }
+load_pinned_versions() { :; }
+DOVI_TOOL_URL=""
+DOVI_TOOL_SHA512=""
+install_media_utilities
+echo "missing_pin_deferred=$(grep -c 'Missing pinned URL or checksum for dovi_tool' <(printf '%s\n' "${INSTALL_DEFERRED[@]}") || true)"
+EOS
+)"
+
+if grep -q 'path_only_command_does_not_satisfy_pin=1' <<< "$media_pin_output" &&
+   grep -q 'missing_pin_deferred=1' <<< "$media_pin_output"; then
+    pass "pinned media artifacts ignore unmanaged PATH binaries and report missing metadata"
+else
+    fail "pinned media artifact ownership was not enforced: $media_pin_output"
+fi
+
+media_provenance_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="tester"
+TARGET_HOME="$(mktemp -d)"
+MEDIA_TOOLS_DIR="$(mktemp -d)"
+OVERRIDE_ARTIFACT_PROVENANCE_DIR="$(mktemp -d)"
+export MEDIA_TOOLS_DIR OVERRIDE_ARTIFACT_PROVENANCE_DIR
+trap 'rm -rf -- "$TARGET_HOME" "$MEDIA_TOOLS_DIR" "$OVERRIDE_ARTIFACT_PROVENANCE_DIR"' EXIT
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+source "$SCRIPT_DIR/modules/status.sh"
+source "$SCRIPT_DIR/modules/applications.sh"
+
+payload="$TARGET_HOME/dovi_tool"
+printf '#!/bin/sh\necho clean\n' > "$payload"
+chmod +x "$payload"
+dovi_sha512="$(sha512sum "$payload" | cut -d' ' -f1)"
+cp "$payload" "$MEDIA_TOOLS_DIR/dovi_tool"
+chmod +x "$MEDIA_TOOLS_DIR/dovi_tool"
+artifact_record_provenance dovi_tool "$dovi_sha512" "$MEDIA_TOOLS_DIR/dovi_tool"
+printf 'tampered\n' >> "$MEDIA_TOOLS_DIR/dovi_tool"
+
+load_pinned_versions() {
+    DOVI_TOOL_VERSION=2.3.3
+    DOVI_TOOL_URL=https://example.com/dovi.tar.gz
+    DOVI_TOOL_SHA512="$dovi_sha512"
+    N_M3U8DL_RE_VERSION=0.6.0-beta
+    N_M3U8DL_RE_URL=""
+    N_M3U8DL_RE_SHA512=""
+    SHAKA_PACKAGER_URL=""
+    SHAKA_PACKAGER_SHA512=""
+    CCEXTRACTOR_URL=""
+    CCEXTRACTOR_SHA512=""
+    BENTO4_URL=""
+    BENTO4_SHA512=""
+}
+
+evaluate_release_eligibility() { return 1; }
+dovi_reprovisioned=0
+provision_verified_archive() {
+    if [[ "${7:-}" == dovi_tool ]]; then
+        dovi_reprovisioned=1
+        cp "$payload" "$3"
+        chmod +x "$3"
+        artifact_record_provenance "$7" "$2" "$3"
+    fi
+}
+provision_verified_binary() { return 0; }
+
+install_media_utilities
+printf 'reprovisioned=%s verified=%s\n' \
+    "$dovi_reprovisioned" \
+    "$(artifact_provenance_matches dovi_tool "$dovi_sha512" "$MEDIA_TOOLS_DIR/dovi_tool" && echo 1 || echo 0)"
+EOS
+)"
+
+if grep -q 'reprovisioned=1 verified=1' <<< "$media_provenance_output"; then
+    pass "media artifact reruns re-verify and repair tampered executables"
+else
+    fail "media artifact rerun integrity guard failed: $media_provenance_output"
+fi
+
 
 section "Upstream Prerelease Classification Logic"
 
@@ -852,6 +989,80 @@ else
     fail "validation.sh missing cursor-flags.conf check"
 fi
 
+mutation_failure_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_HOME="$(mktemp -d)"
+trap 'rm -rf -- "$TARGET_HOME"' EXIT
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/applications.sh"
+
+mv() { return 77; }
+cursor_flags_status=0
+configure_cursor_flags >/dev/null 2>&1 || cursor_flags_status=$?
+unset -f mv
+
+sudo() { return 77; }
+root_file_status=0
+install_root_file_from_stdin "$TARGET_HOME/root-target" 0644 root root <<< content >/dev/null 2>&1 || root_file_status=$?
+unset -f sudo
+
+printf 'cursor_flags_status=%s\n' "$cursor_flags_status"
+printf 'root_file_status=%s\n' "$root_file_status"
+EOS
+)"
+
+if grep -qE '^cursor_flags_status=[1-9][0-9]*$' <<< "$mutation_failure_output" &&
+   grep -qE '^root_file_status=[1-9][0-9]*$' <<< "$mutation_failure_output"; then
+    pass "failed configuration writes return non-zero instead of being reported as success"
+else
+    fail "failed configuration writes were swallowed: $mutation_failure_output"
+fi
+
+cursor_flags_safety_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_HOME="$(mktemp -d)"
+trap 'rm -rf -- "$TARGET_HOME"' EXIT
+source "$SCRIPT_DIR/modules/common.sh"
+source "$SCRIPT_DIR/modules/status.sh"
+source "$SCRIPT_DIR/modules/applications.sh"
+
+flags_file="$TARGET_HOME/.config/cursor-flags.conf"
+mkdir -p "$(dirname -- "$flags_file")"
+printf '%s\n' '--custom-flag=preserve-me' > "$flags_file"
+configure_cursor_flags
+backup_file="$(find "$(dirname -- "$flags_file")" -maxdepth 1 -name 'cursor-flags.conf.bak.*' -print -quit)"
+backup_ok=$([[ -f "$backup_file" && "$(<"$backup_file")" == '--custom-flag=preserve-me' ]] && echo 1 || echo 0)
+managed_ok=$([[ "$(<"$flags_file")" == $'--ozone-platform=wayland\n--enable-features=UseOzonePlatform' ]] && echo 1 || echo 0)
+configure_cursor_flags
+backup_count="$(find "$(dirname -- "$flags_file")" -maxdepth 1 -name 'cursor-flags.conf.bak.*' | wc -l | tr -d ' ')"
+
+outside="$TARGET_HOME/outside-flags"
+printf 'outside\n' > "$outside"
+rm -f "$flags_file"
+ln -s -- "$outside" "$flags_file"
+symlink_status=0
+configure_cursor_flags >/dev/null 2>&1 || symlink_status=$?
+printf 'backup_ok=%s managed_ok=%s idempotent_backups=%s symlink_rejected=%s outside_preserved=%s\n' \
+    "$backup_ok" "$managed_ok" "$([[ "$backup_count" -eq 1 ]] && echo 1 || echo 0)" \
+    "$([[ "$symlink_status" -ne 0 ]] && echo 1 || echo 0)" \
+    "$([[ "$(<"$outside")" == outside ]] && echo 1 || echo 0)"
+EOS
+)"
+
+if grep -q 'backup_ok=1 managed_ok=1 idempotent_backups=1 symlink_rejected=1 outside_preserved=1' <<< "$cursor_flags_safety_output"; then
+    pass "Cursor flags preserve user content, converge idempotently, and reject symlink destinations"
+else
+    fail "Cursor flags preservation/safety failed: $cursor_flags_safety_output"
+fi
+
 section "Antigravity architecture guard"
 agy_arch_output="$(
     bash -s <<'EOS'
@@ -925,14 +1136,43 @@ echo "user_custom_ok=$user_custom_ok"
 echo "features_added=$features_added"
 echo "warn_dirty_added=$warn_dirty_added"
 
+# Existing feature assignments must be merged, not treated as complete.
+cat > "$TARGET_HOME/.config/nix/nix.conf" <<'CONF'
+# Custom user nix configuration
+trusted-users = root alice
+experimental-features = nix-command
+warn-dirty = true
+CONF
+configure_nix_features
+merged_features_ok=$([[ $(grep -c '^experimental-features = nix-command flakes$' "$TARGET_HOME/.config/nix/nix.conf") -eq 1 ]] && echo 1 || echo 0)
+custom_warn_dirty_preserved=$([[ $(grep -c '^warn-dirty = true$' "$TARGET_HOME/.config/nix/nix.conf") -eq 1 ]] && echo 1 || echo 0)
+echo "merged_features_ok=$merged_features_ok"
+echo "custom_warn_dirty_preserved=$custom_warn_dirty_preserved"
+
+# First-run write failures must not leave a truncated or temporary nix.conf.
+original_target_home="$TARGET_HOME"
+fresh_target_home="$original_target_home/fresh"
+mkdir -p "$fresh_target_home/.config/nix"
+TARGET_HOME="$fresh_target_home"
+cat() { return 1; }
+fresh_status=0
+configure_nix_features || fresh_status=$?
+unset -f cat
+fresh_temp_count="$(find "$fresh_target_home/.config/nix" -maxdepth 1 -name 'nix.conf.tmp.*' | wc -l | tr -d ' ')"
+echo "fresh_write_failure_safe=$([[ $fresh_status -ne 0 && ! -e "$fresh_target_home/.config/nix/nix.conf" && $fresh_temp_count -eq 0 ]] && echo 1 || echo 0)"
+TARGET_HOME="$original_target_home"
+
 rm -rf "$TARGET_HOME"
 EOS
 )"
 
 if printf '%s\n' "$nix_conf_output" | grep -q 'user_custom_ok=1' &&
    printf '%s\n' "$nix_conf_output" | grep -q 'features_added=1' &&
-   printf '%s\n' "$nix_conf_output" | grep -q 'warn_dirty_added=1'; then
-    pass "configure_nix_features preserves existing user nix.conf settings while ensuring required flags"
+   printf '%s\n' "$nix_conf_output" | grep -q 'warn_dirty_added=1' &&
+   printf '%s\n' "$nix_conf_output" | grep -q 'merged_features_ok=1' &&
+   printf '%s\n' "$nix_conf_output" | grep -q 'custom_warn_dirty_preserved=1' &&
+   printf '%s\n' "$nix_conf_output" | grep -q 'fresh_write_failure_safe=1'; then
+    pass "configure_nix_features preserves user settings and merges missing required feature tokens"
 else
     fail "configure_nix_features mutated or wiped user nix.conf: $nix_conf_output"
 fi

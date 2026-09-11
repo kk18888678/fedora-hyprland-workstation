@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# aurelia-bluetooth-power — turn Bluetooth on/off with reboot-persistent state.
+#
+# BlueZ does not persist its Powered property. The rfkill soft block does, so
+# it is the source of truth for the user-visible radio state and also covers
+# machines with more than one Bluetooth controller.
+
+set -Eeuo pipefail
+
+power_wait_seconds="${AURELIA_BLUETOOTH_POWER_WAIT_SECONDS:-2}"
+if [[ ! "$power_wait_seconds" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "aurelia-bluetooth-power: invalid wait duration" >&2
+    exit 1
+fi
+
+controllers() {
+    # A missing controller is a valid "off/unavailable" state for the bar.
+    timeout 2s bluetoothctl list 2>/dev/null | awk '{print $2}' || true
+}
+
+powered() {
+    local controller
+
+    while IFS= read -r controller; do
+        [[ -n "$controller" ]] || continue
+        if [[ "$(timeout 2s bluetoothctl show "$controller" 2>/dev/null || true)" == *"Powered: yes"* ]]; then
+            return 0
+        fi
+    done < <(controllers)
+
+    return 1
+}
+
+# Use one deadline around the whole wait. Each BlueZ query is independently
+# bounded, so a wedged D-Bus service cannot stretch the wait indefinitely.
+wait_powered() {
+    local deadline
+    deadline=$((SECONDS + power_wait_seconds))
+
+    while :; do
+        powered && return 0
+        ((SECONDS < deadline)) || return 1
+        sleep 0.2
+    done
+}
+
+power_on() {
+    timeout 5s rfkill unblock bluetooth
+
+    # AutoEnable normally brings the adapter up after the block is lifted. If
+    # it was powered down without rfkill, ask BlueZ once before failing.
+    wait_powered && return 0
+
+    timeout 5s bluetoothctl power on >/dev/null 2>&1 || true
+    wait_powered && return 0
+
+    printf '%s\n' "aurelia-bluetooth-power: adapter did not come up" >&2
+    return 1
+}
+
+case "${1:-}" in
+    on)
+        power_on
+        ;;
+    off)
+        timeout 5s rfkill block bluetooth
+        ;;
+    toggle)
+        if powered; then
+            timeout 5s rfkill block bluetooth
+        else
+            power_on
+        fi
+        ;;
+    is-on)
+        powered
+        ;;
+    *)
+        printf '%s\n' "Usage: aurelia-bluetooth-power <on|off|toggle|is-on>" >&2
+        exit 1
+        ;;
+esac

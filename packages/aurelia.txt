@@ -1,0 +1,10 @@
+# packages/aurelia.txt
+#
+# Packages needed only by the repository-owned Aurelia post-login shell.
+# Noctalia installations intentionally do not install this group.
+
+# Quickshell runtime used by aurelia-launch-shell.
+quickshell
+
+# Local plugin hot-reload watcher used by Aurelia development mode.
+inotify-tools

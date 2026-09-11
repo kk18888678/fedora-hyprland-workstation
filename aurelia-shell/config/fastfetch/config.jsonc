@@ -1,0 +1,83 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "kitty-direct",
+    "source": "$AURELIA_ABOUT_IMAGE",
+    "width": 54,
+    "height": 26,
+    "preserveAspectRatio": true,
+    "padding": {
+      "top": 2,
+      "right": 6,
+      "left": 2
+    }
+  },
+  "display": {
+    "disableLinewrap": true
+  },
+  "modules": [
+    "break",
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;224;222;244m┌──────────────────────Hardware──────────────────────┐"
+    },
+    { "type": "host", "key": " Host", "keyColor": "38;2;156;207;216" },
+    { "type": "cpu", "key": "│ ├", "showPeCoreCount": true, "keyColor": "38;2;156;207;216" },
+    { "type": "gpu", "key": "│ ├", "format": "{name}", "keyColor": "38;2;156;207;216" },
+    { "type": "display", "key": "│ ├󱄄", "keyColor": "38;2;156;207;216" },
+    { "type": "disk", "key": "│ ├󰋊", "keyColor": "38;2;156;207;216" },
+    { "type": "memory", "key": "│ ├", "keyColor": "38;2;156;207;216" },
+    { "type": "swap", "key": "└ └󰓡", "keyColor": "38;2;156;207;216" },
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;224;222;244m└────────────────────────────────────────────────────┘"
+    },
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;224;222;244m┌──────────────────────Software──────────────────────┐"
+    },
+    { "type": "os", "key": " OS", "keyColor": "38;2;196;167;231" },
+    { "type": "kernel", "key": "│ ├", "keyColor": "38;2;196;167;231" },
+    { "type": "wm", "key": "│ ├", "keyColor": "38;2;196;167;231" },
+    { "type": "de", "key": " DE", "keyColor": "38;2;196;167;231" },
+    { "type": "terminal", "key": "│ ├", "keyColor": "38;2;196;167;231" },
+    { "type": "packages", "key": "│ ├󰏖", "keyColor": "38;2;196;167;231" },
+    { "type": "wmtheme", "key": "│ ├󰉼", "keyColor": "38;2;196;167;231" },
+    {
+      "type": "command",
+      "key": "│ ├󰸌",
+      "keyColor": "38;2;196;167;231",
+      "text": "printf 'Aurelia  \\u001b[38;2;224;222;244m●\\u001b[38;2;156;207;216m●\\u001b[38;2;196;167;231m●\\u001b[38;2;246;193;119m●\\u001b[38;2;224;222;244m●\\u001b[38;2;156;207;216m●\\u001b[38;2;196;167;231m●\\u001b[38;2;246;193;119m●'"
+    },
+    { "type": "terminalfont", "key": "└ └", "keyColor": "38;2;196;167;231" },
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;224;222;244m└────────────────────────────────────────────────────┘"
+    },
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;224;222;244m┌────────────────Age / Uptime / Update───────────────┐"
+    },
+    {
+      "type": "command",
+      "key": "󱦟 OS Age",
+      "keyColor": "38;2;246;193;119",
+      "text": "echo $(( ($(date +%s) - $(stat -c %W /)) / 86400 )) days"
+    },
+    { "type": "uptime", "key": "󱫐 Uptime", "keyColor": "38;2;246;193;119" },
+    {
+      "type": "command",
+      "key": " Update",
+      "keyColor": "38;2;246;193;119",
+      "text": "dnf history info last 2>/dev/null | sed -n 's/^Begin time[[:space:]]*:[[:space:]]*//p' | head -n 1"
+    },
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;224;222;244m└────────────────────────────────────────────────────┘"
+    },
+    "break"
+  ]
+}

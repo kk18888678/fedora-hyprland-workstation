@@ -35,6 +35,8 @@ fastfetch
 NetworkManager
 NetworkManager-wifi
 NetworkManager-tui
+iw
+qrencode
 iproute
 iputils
 

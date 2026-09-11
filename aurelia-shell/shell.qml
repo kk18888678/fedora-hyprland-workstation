@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "./services"
+import "./theme"
 
 // Aurelia Shell is the resident Quickshell host. It provides shared services,
 // plugin discovery, Loader lifecycle, and the stable shell IPC contract. A
@@ -32,6 +33,103 @@ ShellRoot {
         appLibrary: aureliaAppLibrary
     }
 
+    // Omarchy-style plugin hot reload. Only plugin-owned entry points are
+    // reloaded automatically; shell.qml and host services remain explicit
+    // restart boundaries so a half-written core tree cannot create a second
+    // host generation in the session.
+    property bool pluginReloading: false
+    property bool pluginReloadPending: false
+    property bool fullPluginReloadPending: false
+    property bool activeFullPluginReload: false
+    property var pendingPluginReloadIds: ({})
+
+    Timer {
+        id: localPluginReloadTimer
+        interval: 150
+        repeat: false
+        onTriggered: root.reloadPlugins()
+    }
+
+    function queuePluginReload(pluginId) {
+        var id = String(pluginId || "").trim()
+        if (!id) return
+        var next = {}
+        for (var existingId in root.pendingPluginReloadIds) next[existingId] = true
+        next[id] = true
+        root.pendingPluginReloadIds = next
+        localPluginReloadTimer.restart()
+    }
+
+    function requestFullPluginReload() {
+        root.fullPluginReloadPending = true
+        return root.reloadPlugins()
+    }
+
+    function reloadPlugins() {
+        if (root.pluginReloading || pluginRegistry.scanning) {
+            root.pluginReloadPending = true
+            return "pending"
+        }
+
+        var reloadIds = null
+        if (!root.fullPluginReloadPending) {
+            var ids = Object.keys(root.pendingPluginReloadIds)
+            if (ids.length === 0) return "ok"
+            reloadIds = {}
+            for (var i = 0; i < ids.length; i++) reloadIds[ids[i]] = true
+        }
+        root.pendingPluginReloadIds = ({})
+        root.fullPluginReloadPending = false
+        root.pluginReloading = true
+        root.activeFullPluginReload = reloadIds === null
+        pluginHost.beginReload(reloadIds)
+        Qt.callLater(root.finishPluginReload)
+        return "ok"
+    }
+
+    function finishPluginReload() {
+        if (!root.pluginReloading) return
+        if (pluginRegistry.scanning) {
+            root.pluginReloadPending = true
+            return
+        }
+
+        // Qt.clearComponentCache() is available in some Qt/QML builds but is
+        // not exposed by the Fedora QuickShell runtime. Guard the optional API
+        // so a reload cannot strand every resident plugin in reloading state.
+        if (typeof Qt.clearComponentCache === "function") Qt.clearComponentCache()
+        if (!pluginRegistry.scan()) {
+            root.pluginReloadPending = true
+            return
+        }
+    }
+
+    Connections {
+        target: pluginRegistry
+
+        function onLocalPluginChanged(pluginId) {
+            console.info("[PLUGIN] aurelia.plugin.changed id=" + pluginId)
+            root.queuePluginReload(pluginId)
+        }
+
+        function onScanFinished() {
+            if (root.pluginReloading) {
+                root.pluginReloading = false
+                pluginHost.finishReload()
+                if (root.activeFullPluginReload) {
+                    var bar = pluginHost.activeBar()
+                    if (bar && typeof bar.reloadWidgets === "function") bar.reloadWidgets()
+                }
+                root.activeFullPluginReload = false
+            }
+            if (root.pluginReloadPending || root.fullPluginReloadPending
+                || Object.keys(root.pendingPluginReloadIds).length > 0) {
+                root.pluginReloadPending = false
+                Qt.callLater(root.reloadPlugins)
+            }
+        }
+    }
+
     IpcHandler {
         id: shellIpc
         target: "shell"
@@ -57,7 +155,7 @@ ShellRoot {
         }
 
         function rescanPlugins(): string {
-            return pluginRegistry.scan() ? "ok" : "scanning"
+            return root.requestFullPluginReload()
         }
 
         function reloadConfig(): string {
@@ -65,6 +163,48 @@ ShellRoot {
             pluginRegistry.registryRevision++
             pluginRegistry.pluginsChanged()
             return "ok"
+        }
+
+        function reloadTheme(): string {
+            Theme.reloadTheme()
+            return "ok"
+        }
+
+        // One public theme-application boundary. The resident background owner
+        // reloads the palette and wallpaper state together so selectors do not
+        // have to race two independent shell calls. Keep reloadTheme above for
+        // older callers that only need to refresh palette data.
+        function applyTheme(): string {
+            var background = pluginHost.itemFor("aurelia.background")
+            if (background && typeof background.applyTheme === "function")
+                return String(background.applyTheme() || "ok")
+            Theme.reloadTheme()
+            return "ok"
+        }
+
+        function themeStatus(): string {
+            return JSON.stringify({
+                effectivePath: Theme.effectiveThemePath,
+                activePath: Theme.activeThemePath,
+                activeAvailable: Theme.activeThemeAvailable,
+                overrideAvailable: Theme.themeOverrideAvailable,
+                shellPath: Theme.effectiveShellPath,
+                shellAvailable: Theme.activeShellAvailable,
+                mode: Theme.themeMode,
+                background: String(Theme.background),
+                surface: String(Theme.surface),
+                accent: String(Theme.accent),
+                text: String(Theme.text),
+                barBackground: String(Theme.bar.background),
+                popupBackground: String(Theme.popups.background),
+                imagePickerScrim: String(Theme.imagePicker.scrim)
+            })
+        }
+
+        function barThemeStatus(): string {
+            var bar = pluginHost.itemFor("aurelia.bar")
+            if (!bar || typeof bar.themeStatus !== "function") return "not-loaded"
+            return bar.themeStatus()
         }
 
         function setPluginEnabled(pluginId: string, enabled: string): string {
@@ -126,6 +266,10 @@ ShellRoot {
     }
 
     Component.onCompleted: {
+        // Force the Theme singleton to instantiate its lazy file probes during
+        // the initial shell start. Without this first read, the shell can
+        // remain on the shipped palette until a later theme IPC call.
+        Theme.reloadTheme()
         console.info("[PERF] Aurelia Shell resident host ready version=" + root.shellVersion)
     }
 }

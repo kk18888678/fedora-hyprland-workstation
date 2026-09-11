@@ -337,6 +337,16 @@ get_role_providers() {
 # Check if a component is migrated to and managed by the Component Registry
 is_component_migrated() {
     local id="$1"
+
+    # Package manifests use the Fedora package name while the registry keeps
+    # the desktop capability namespace qualified.  Treat the alias as the
+    # same component so the legacy manifest cannot reinstall a reconciler-
+    # owned Noctalia runtime.
+    if [[ "$id" == "noctalia" ]]; then
+        component_exists "desktop.environment.noctalia"
+        return $?
+    fi
+
     component_exists "$id"
 }
 
@@ -451,12 +461,41 @@ validate_component_registry() {
         done
     done
 
+    if [[ "${INSTALLER_PRODUCTION_MODE:-0}" == "1" ]]; then
+        local callback_map_name callback_id callback_fn
+        for callback_map_name in \
+            _COMP_DETECT_FN \
+            _COMP_INSTALL_FN \
+            _COMP_CONFIGURE_FN \
+            _COMP_VALIDATE_FN \
+            _COMP_REMOVE_FN; do
+            local -n callback_map="$callback_map_name"
+            for callback_id in "${_COMP_IDS[@]}"; do
+                callback_fn="${callback_map[$callback_id]:-}"
+                if [[ -n "$callback_fn" ]] &&
+                    ! declare -F "$callback_fn" >/dev/null 2>&1; then
+                    printf 'ERROR: Component %s references missing %s callback: %s\n' \
+                        "$callback_id" "$callback_map_name" "$callback_fn" >&2
+                    return 1
+                fi
+            done
+        done
+    fi
+
     return 0
 }
 
 ###############################################################################
 # Representative Component Adapters
 ###############################################################################
+
+remove_managed_dnf_package() {
+    local package="$1"
+
+    run_with_retry "dnf remove $package" \
+        run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "dnf remove $package" \
+        sudo dnf remove -y "$package"
+}
 
 # Chromium
 detect_chromium() {
@@ -471,7 +510,7 @@ install_chromium_adapter() {
 }
 remove_chromium_adapter() {
     if package_installed chromium; then
-        sudo dnf remove -y chromium
+        remove_managed_dnf_package chromium
     fi
 }
 
@@ -488,7 +527,7 @@ install_firefox_adapter() {
 }
 remove_firefox_adapter() {
     if package_installed firefox; then
-        sudo dnf remove -y firefox
+        remove_managed_dnf_package firefox
     fi
 }
 
@@ -509,7 +548,7 @@ install_neovim_adapter() {
 }
 remove_neovim_adapter() {
     if package_installed neovim; then
-        sudo dnf remove -y neovim
+        remove_managed_dnf_package neovim
     fi
 }
 
@@ -544,7 +583,9 @@ install_devenv_adapter() {
 }
 remove_devenv_adapter() {
     if command_exists nix; then
-        nix profile remove devenv 2>/dev/null || true
+        run_with_retry "nix profile remove devenv" \
+            run_with_timeout "$TIMEOUT_NIX_SECONDS" "nix profile remove devenv" \
+            nix profile remove devenv
     fi
 }
 
@@ -557,8 +598,29 @@ install_htop_adapter() {
 }
 remove_htop_adapter() {
     if package_installed htop; then
-        sudo dnf remove -y htop
+        remove_managed_dnf_package htop
     fi
+}
+
+# Noctalia runtime / greeter
+detect_noctalia() {
+    if declare -F package_command_owned >/dev/null 2>&1 &&
+        declare -F package_evr_is_stable >/dev/null 2>&1; then
+        package_evr_is_stable noctalia && package_command_owned noctalia noctalia
+    else
+        command_exists noctalia || package_installed noctalia
+    fi
+}
+
+install_noctalia_adapter() {
+    # Noctalia is also the greetd greeter runtime when Aurelia owns the
+    # post-login session, so package installation is independent of the
+    # selected session shell.
+    if package_installed noctalia && ! package_evr_is_stable noctalia; then
+        error "Installed Noctalia is a prerelease or development build; refusing to accept it as the stable workstation shell."
+        return 1
+    fi
+    install_dnf_packages noctalia
 }
 
 # file managers
@@ -570,7 +632,7 @@ install_nautilus_adapter() {
 }
 remove_nautilus_adapter() {
     if package_installed nautilus; then
-        sudo dnf remove -y nautilus
+        remove_managed_dnf_package nautilus
     fi
 }
 
@@ -584,6 +646,99 @@ install_thunar_adapter() {
 # Register the representative components
 init_default_components() {
     init_default_role_adapters
+
+    # Package manifests are first-class desired-state groups.  The package
+    # module supplies their callbacks after this library is sourced; callback
+    # names remain declarative and are resolved only when the plan executes.
+    register_component \
+        id "packages.base" \
+        display_name "Base Workstation Packages" \
+        category "System" \
+        description "Core Fedora CLI, shell, archive, and networking packages" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable false \
+        detect_fn "detect_base_package_group" \
+        install_fn "install_base_package_group"
+
+    register_component \
+        id "packages.desktop" \
+        display_name "Hyprland Desktop Packages" \
+        category "Desktop" \
+        description "Hyprland, Wayland integration, portals, greetd, and desktop utilities" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable false \
+        dependencies "packages.base" \
+        detect_fn "detect_desktop_package_group" \
+        install_fn "install_desktop_package_group"
+
+    register_component \
+        id "packages.aurelia" \
+        display_name "Aurelia Shell Support Packages" \
+        category "Desktop" \
+        description "Quickshell and Aurelia development watcher support" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable false \
+        dependencies "packages.desktop" \
+        detect_fn "detect_aurelia_package_group" \
+        install_fn "install_aurelia_package_group"
+
+    register_component \
+        id "packages.diagnostics" \
+        display_name "Diagnostics Packages" \
+        category "Diagnostics" \
+        description "Host hardware, storage, process, and network diagnostics" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable false \
+        dependencies "packages.base" \
+        detect_fn "detect_diagnostics_package_group" \
+        install_fn "install_diagnostics_package_group"
+
+    register_component \
+        id "packages.media" \
+        display_name "Media Packages" \
+        category "Media" \
+        description "Media playback, codecs, acceleration, metadata, and ImageMagick" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable false \
+        dependencies "packages.base" \
+        detect_fn "detect_media_package_group" \
+        install_fn "install_media_package_group"
+
+    register_component \
+        id "packages.flatpak" \
+        display_name "Flatpak Runtime" \
+        category "Applications" \
+        description "Flatpak runtime for sandboxed workstation applications" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable false \
+        dependencies "packages.base" \
+        detect_fn "detect_flatpak_package_group" \
+        install_fn "install_flatpak_package_group"
+
+    register_component \
+        id "packages.containers" \
+        display_name "Rootless Container Runtime" \
+        category "Development" \
+        description "Podman, Buildah, Skopeo, and podman-compose host runtime" \
+        supported_profiles "workstation vm" \
+        recommended true \
+        required false \
+        removable false \
+        dependencies "packages.base" \
+        detect_fn "detect_container_package_group" \
+        install_fn "install_container_package_group"
 
     register_component \
         id "chromium" \
@@ -679,15 +834,18 @@ init_default_components() {
         install_fn "install_htop_adapter" \
         remove_fn "remove_htop_adapter"
 
+    # Compatibility component for the Noctalia runtime. It remains managed in
+    # the desired-state model because the Noctalia package is required by the
+    # greetd greeter even when the profile selects Aurelia post-login.
     register_component \
         id "desktop.environment.noctalia" \
         display_name "Noctalia Desktop Environment" \
         category "Desktop" \
-        description "Wayland desktop shell powered by Noctalia" \
+        description "Noctalia runtime for the desktop shell and greetd greeter" \
         supported_profiles "workstation vm" \
         recommended true \
         required false \
-        removable true \
+        removable false \
         provides "desktop_environment" \
         detect_fn "detect_noctalia" \
         install_fn "install_noctalia_adapter"

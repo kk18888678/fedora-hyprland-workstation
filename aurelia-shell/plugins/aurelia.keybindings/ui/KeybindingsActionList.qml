@@ -78,24 +78,28 @@ Item {
             }
 
             if (event.key === Qt.Key_Down) {
+                actionListRoot.windowController.resetPointerGate()
                 actionListRoot.modelController.selectNext()
                 listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.Contain)
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_Up) {
+                actionListRoot.windowController.resetPointerGate()
                 actionListRoot.modelController.selectPrevious()
                 listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.Contain)
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_Home) {
+                actionListRoot.windowController.resetPointerGate()
                 actionListRoot.modelController.selectFirst()
                 listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.Beginning)
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_End) {
+                actionListRoot.windowController.resetPointerGate()
                 actionListRoot.modelController.selectLast()
                 listView.positionViewAtIndex(actionListRoot.modelController.selectedIndex, ListView.End)
                 event.accepted = true
@@ -118,7 +122,7 @@ Item {
 
             if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))) {
                 event.accepted = true
-                actionListRoot.windowController.beginSearch(event.key === Qt.Key_Slash ? "" : event.text)
+                actionListRoot.windowController.beginSearch((event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace) ? "" : event.text)
             }
         }
 

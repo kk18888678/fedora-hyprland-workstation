@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.monitor",
+  "name": "Display",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Brightness, text-size, display scale, and monitor controls for the Aurelia bar.",
+  "icon": "video-display",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "DisplayBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Display",
+    "description": "Brightness, text-size, display scale, and monitor controls",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,2 +1,3 @@
 NotificationToast 1.0 NotificationToast.qml
 NotificationCenterPanel 1.0 NotificationCenterPanel.qml
+NotificationPopupSurface 1.0 NotificationPopupSurface.qml

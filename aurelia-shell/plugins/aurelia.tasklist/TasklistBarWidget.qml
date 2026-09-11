@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
 import "../../theme"
+import "../../ui"
 
 // Running windows are not StatusNotifier tray items. Keep this widget
 // separate from aurelia.tray so right-click behavior has an explicit window
@@ -96,15 +97,14 @@ Item {
                     return appId !== "" ? DesktopEntries.heuristicLookup(appId) : null
                 }
 
-                Image {
+                AureliaIcon {
                     anchors.centerIn: parent
                     width: 20
                     height: 20
-                    source: root.iconSourceFor(modelData, appEntry)
-                    sourceSize: Qt.size(20, 20)
-                    fillMode: Image.PreserveAspectFit
-                    smooth: true
-                    asynchronous: true
+                    iconSize: 20
+                    name: ""
+                    sourcePath: root.iconSourceFor(modelData, appEntry)
+                    tint: modelData.activated ? Theme.text : Theme.textMuted
                     opacity: modelData.activated ? 1.0 : 0.65
                 }
 

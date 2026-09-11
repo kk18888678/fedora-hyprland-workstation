@@ -200,10 +200,10 @@ Item {
 
         AureliaIcon {
             anchors.centerIn: parent
-            width: 18
-            height: 18
-            name: "camera-photo"
-            iconSize: 18
+            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+            glyph: "󰄀"
             tint: hover.hovered ? Theme.text : Theme.accent
         }
 

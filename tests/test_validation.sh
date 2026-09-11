@@ -10,7 +10,7 @@ else
     pass "environments/media-tools is removed"
 fi
 
-media_expected_tools=(ffmpeg ffprobe mediainfo mkvmerge MP4Box ccextractor mp4dump packager dovi_tool N_m3u8DL-RE)
+media_expected_tools=(ffmpeg ffprobe mediainfo mkvmerge MP4Box ccextractor mp4dump packager dovi_tool N_m3u8DL-RE magick)
 for mtool in "${media_expected_tools[@]}"; do
     if grep -qF "$mtool" "$ROOT/modules/validation.sh"; then
         pass "validation.sh checks media tool runtime command: $mtool"
@@ -33,3 +33,10 @@ else
     fail "validation.sh missing check for hyprland-guiutils or hyprland-dialog"
 fi
 
+if grep -q 'package_command_owned hyprland' "$ROOT/modules/validation.sh" &&
+   grep -q 'package_command_owned noctalia noctalia' "$ROOT/modules/validation.sh" &&
+   grep -q 'package_evr_is_stable noctalia' "$ROOT/modules/validation.sh"; then
+    pass "login validation binds Hyprland and stable Noctalia commands to their RPM providers"
+else
+    fail "login validation still trusts PATH for Hyprland or Noctalia"
+fi

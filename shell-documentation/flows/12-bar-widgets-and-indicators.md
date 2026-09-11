@@ -50,8 +50,12 @@ If the toplevel disappears between hit-test and click, the action is ignored.
 The widget always presents ids 1 through 5, adds positive live ids through 10,
 sorts numerically, and paints workspace 10 as 0. Horizontal cells are
 Style.space(20) wide with 1 px column spacing; vertical layout uses one column
-and 2 px row spacing. Focused/occupied cells have opacity 1; empty non-focused
-cells have opacity 0.5.
+and 2 px row spacing. Cells are transparent bar slots rather than full-height
+cards, so the number or dot stays visually inside the bar. Occupied or active
+cells have opacity 1; empty non-focused cells have opacity 0.5. Occupied
+workspaces show their number; empty workspaces show a theme-aware dot. The
+active workspace replaces its number (or dot) with the theme-aware active glyph
+instead of using a separate filled highlight.
 
 Clicking a cell runs:
 
@@ -308,4 +312,3 @@ refresh/status to all monitor instances when their source contract requires it.
 6. Pin, hide, reveal, secondary-activate, open submenus, rapidly switch tray
    items, and close tray menus; verify 250 ms settling and deepest-first
    destruction.
-

@@ -18,13 +18,17 @@ QtObject {
 
     readonly property var builtinModules: [
         { id: "apps", name: "Applications", icon: "applications-system", description: "Launch installed desktop applications.", enabled: true, implemented: true, order: 10 },
-        { id: "actions", name: "Actions", icon: "system-run", description: "Run configured Aurelia and workstation actions.", enabled: true, implemented: true, order: 20 },
-        { id: "files", name: "Files", icon: "system-file-manager", description: "Search files and folders in your home directory.", enabled: true, implemented: true, order: 30 },
+        { id: "files", name: "Files", icon: "system-file-manager", description: "Search files and folders in your home directory.", enabled: true, implemented: true, order: 20 },
+        { id: "actions", name: "Actions", icon: "system-run", description: "Run configured Aurelia and workstation actions.", enabled: true, implemented: true, order: 30 },
         { id: "calculator", name: "Calculator", icon: "accessories-calculator", description: "Evaluate a safe arithmetic expression.", enabled: true, implemented: true, order: 40 },
-        { id: "weather", name: "Weather", icon: "weather-clear", description: "Current weather and forecast.", enabled: false, implemented: false, order: 50 },
-        { id: "currency", name: "Currency", icon: "wallet", description: "Currency conversion and rates.", enabled: false, implemented: false, order: 60 },
-        { id: "metals", name: "Gold & Metals", icon: "emblem-money", description: "Gold and precious-metal prices.", enabled: false, implemented: false, order: 70 },
-        { id: "stocks", name: "Stocks", icon: "view-statistics", description: "Market prices and watchlists.", enabled: false, implemented: false, order: 80 }
+        { id: "package-manager", name: "Package Manager", icon: "system-software-install", description: "Search Fedora, Flatpak, and Aurelia sources, install, adopt, and track packages.", enabled: true, implemented: true, order: 50 },
+        { id: "updates", name: "Updates", icon: "system-software-update", description: "Open the Fedora and Flatpak update workflow.", enabled: true, implemented: true, order: 60 },
+        { id: "weather", name: "Weather", icon: "weather-clear", description: "Current weather and forecast.", enabled: false, implemented: false, order: 70 },
+        { id: "currency", name: "Currency", icon: "wallet", description: "Currency conversion and rates.", enabled: false, implemented: false, order: 80 },
+        { id: "metals", name: "Gold & Metals", icon: "emblem-money", description: "Gold and precious-metal prices.", enabled: false, implemented: false, order: 90 },
+        { id: "stocks", name: "Stocks", icon: "view-statistics", description: "Market prices and watchlists.", enabled: false, implemented: false, order: 100 },
+        { id: "aurelia-shell", name: "Aurelia Shell", icon: "utilities-terminal", description: "Reload plugins or restart the resident shell while developing.", enabled: true, implemented: true, order: 110 },
+        { id: "about", name: "About", icon: "help-about", description: "View Aurelia system details and graphical branding.", enabled: true, implemented: true, order: 120 }
     ]
 
     property var modules: builtinModules

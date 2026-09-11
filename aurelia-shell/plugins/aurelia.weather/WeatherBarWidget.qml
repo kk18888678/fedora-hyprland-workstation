@@ -1,8 +1,8 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import Quickshell.Widgets
 import "../../theme"
+import "../../ui"
 
 // Weather follows Omarchy's default: automatic IP-based location through the
 // backend. Users can pin a city or exact coordinates in the bar entry. GPS is
@@ -47,7 +47,7 @@ Item {
 
     visible: root.weatherReady
     implicitWidth: root.weatherReady ? weatherRow.implicitWidth + Theme.spacingSm * 2 : 0
-    implicitHeight: bar ? bar.barSize : 40
+    implicitHeight: bar ? bar.barSize : 26
 
     Loader {
         id: weatherPanelLoader
@@ -100,7 +100,7 @@ Item {
     }
 
     function refresh() {
-        if (!root.configured || weatherProcess.running || !(root.bar && root.bar.visible)) return
+        if (!root.configured || weatherProcess.running || !(root.bar && root.bar.barVisible)) return
         var command = [root.backendBin, "fetch", "--units", root.units]
         if (root.hasCoordinates) {
             command.push("--latitude", root.latitude, "--longitude", root.longitude)
@@ -230,14 +230,14 @@ Item {
     Timer {
         interval: 900000
         repeat: true
-        running: !!(root.bar && root.bar.visible && root.configured)
+        running: !!(root.bar && root.bar.barVisible && root.configured)
         onTriggered: root.refresh()
     }
 
     Connections {
         target: root.bar
         function onVisibleChanged() {
-            if (root.bar && root.bar.visible) root.scheduleRefresh()
+            if (root.bar && root.bar.barVisible) root.scheduleRefresh()
         }
     }
 
@@ -264,11 +264,14 @@ Item {
         anchors.centerIn: parent
         spacing: Theme.spacingXs
 
-        IconImage {
+        AureliaIcon {
             anchors.verticalCenter: parent.verticalCenter
-            width: 17
-            height: 17
-            source: Quickshell.iconPath(root.iconName, "weather-clear")
+            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+            name: root.iconName
+            fallbackName: "weather-clear"
+            tint: Theme.accent
         }
 
         Text {
@@ -276,7 +279,7 @@ Item {
             text: root.temperatureText
             color: Theme.textSecondary
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSm
+            font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.fontSizeSm
         }
     }
 

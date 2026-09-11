@@ -80,3 +80,41 @@ if [[ "$tamp_rc" -ne 0 ]]; then
 else
     fail "19. modified plan was executed"
 fi
+
+# Production execution must never honor the test-only reconciler executor.
+reconciler_mock_calls=0
+reconciler_real_calls=0
+mock_reconciler_executor() {
+    reconciler_mock_calls=$((reconciler_mock_calls + 1))
+    return 0
+}
+real_reconciler_callback() {
+    reconciler_real_calls=$((reconciler_real_calls + 1))
+    return 0
+}
+
+production_reconciler_rc=0
+INSTALLER_PRODUCTION_MODE=1 \
+RECONCILER_MOCK_EXECUTOR=mock_reconciler_executor \
+    _reconciler_invoke real_reconciler_callback test_component CONFIGURE ||
+    production_reconciler_rc=$?
+
+if [[ "$production_reconciler_rc" -eq 0 && "$reconciler_mock_calls" -eq 0 && "$reconciler_real_calls" -eq 1 ]]; then
+    pass "20. production reconciler ignores test mock executor and calls registered callback"
+else
+    fail "20. production reconciler honored test mock executor: rc=$production_reconciler_rc mock=$reconciler_mock_calls real=$reconciler_real_calls"
+fi
+
+# Desktop shell metadata participates in the plan integrity boundary.
+init_plan "PLAN_SHELL_META"
+PLAN_SHELL_META_DESKTOP_SHELL="aurelia"
+add_plan_action "PLAN_SHELL_META" "KEEP" "chromium" "already installed" "Chromium"
+finalize_plan "PLAN_SHELL_META"
+PLAN_SHELL_META_DESKTOP_SHELL="noctalia"
+shell_meta_rc=0
+validate_plan "PLAN_SHELL_META" 2>/dev/null || shell_meta_rc=$?
+if [[ "$shell_meta_rc" -ne 0 ]]; then
+    pass "20b. changing selected desktop shell after review fails plan integrity validation"
+else
+    fail "20b. plan integrity did not cover selected desktop shell"
+fi

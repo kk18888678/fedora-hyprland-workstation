@@ -137,7 +137,9 @@ _reconciler_invoke() {
     fi
 
     # Support test mock executor injection
-    if [[ -n "${RECONCILER_MOCK_EXECUTOR:-}" ]] && type "$RECONCILER_MOCK_EXECUTOR" >/dev/null 2>&1; then
+    if installer_test_override_allowed &&
+        [[ -n "${RECONCILER_MOCK_EXECUTOR:-}" ]] &&
+        type "$RECONCILER_MOCK_EXECUTOR" >/dev/null 2>&1; then
         "$RECONCILER_MOCK_EXECUTOR" "$comp_id" "$action_type" "$fn_name"
         return $?
     fi

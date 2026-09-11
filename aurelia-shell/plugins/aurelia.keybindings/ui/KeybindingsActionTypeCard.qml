@@ -20,14 +20,12 @@ Rectangle {
     Layout.fillWidth: true
     Layout.preferredHeight: 80
     radius: Theme.radiusMd
-    color: cardRoot.selected ? Theme.selection : (cardHover.hovered ? Theme.surfaceElevated : Theme.bgBase)
+    color: cardRoot.selected ? Theme.selection : Theme.bgBase
     border.width: cardRoot.selected ? Theme.borderWidthDefault : 0
     border.color: cardRoot.selected ? Theme.borderActive : Theme.border
 
     Behavior on color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
     Behavior on border.color { ColorAnimation { duration: Theme.keybindingsDurationFast } }
-
-    HoverHandler { id: cardHover }
 
     RowLayout {
         anchors.fill: parent

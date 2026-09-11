@@ -25,6 +25,7 @@ current_uid="${EUID:-$(id -u)}"
 XDG_RUNTIME_DIR="$test_lock_dir"
 acquire_installer_lock
 echo "lock1_acquired=1"
+echo "lock_fd_dynamic=$([[ "$INSTALLER_LOCK_FD" =~ ^[0-9]+$ ]] && echo 1 || echo 0)"
 
 # 2. Attempt concurrent acquisition in subshell while lock is held
 concurrent_status=0
@@ -119,6 +120,14 @@ validate_lock_directory "$run_user_candidate" "$current_uid" || run_user_status=
 echo "run_user_ok=$([[ $run_user_status -eq 0 ]] && echo 1 || echo 0)"
 rm -rf "$run_user_fixture"
 
+# 11b. Production mode must ignore the fixture-only UID override.
+production_lock_path=""
+production_lock_status=0
+production_lock_path="$(INSTALLER_PRODUCTION_MODE=1 OVERRIDE_EUID=9992 \
+    XDG_RUNTIME_DIR="$test_lock_dir" get_installer_lock_path)" || production_lock_status=$?
+echo "production_override_ignored=$([[ $production_lock_status -eq 0 && \
+    "$production_lock_path" == "$test_lock_dir/fedora-hyprland-workstation.lock" ]] && echo 1 || echo 0)"
+
 # 12. Fallback to safe private directory in /tmp when XDG_RUNTIME_DIR and /run/user are unavailable
 unset XDG_RUNTIME_DIR
 fallback_path="$(get_installer_lock_path)"
@@ -153,6 +162,7 @@ EOS
 )"
 
 if printf '%s\n' "$lock_test_output" | grep -q 'lock1_acquired=1' &&
+   printf '%s\n' "$lock_test_output" | grep -q 'lock_fd_dynamic=1' &&
    printf '%s\n' "$lock_test_output" | grep -qE 'concurrent_rejected=[1-9]' &&
    printf '%s\n' "$lock_test_output" | grep -q 'reacquire_ok=1'; then
     pass "installer concurrency lock prevents simultaneous runs and releases cleanly"
@@ -219,4 +229,87 @@ if printf '%s\n' "$lock_test_output" | grep -q 'hostile_foreign_fallback_rejecte
     pass "lock path resolution rejects foreign-owned fallback directory without modifying it"
 else
     fail "hostile foreign fallback rejection failed: $lock_test_output"
+fi
+
+if printf '%s\n' "$lock_test_output" | grep -q 'production_override_ignored=1'; then
+    pass "production lock-path resolution ignores test UID overrides"
+else
+    fail "production lock-path resolution honored a test UID override: $lock_test_output"
+fi
+
+lock_lifecycle_body="$(sed -n '/^cleanup_installer_children() {/,/^}/p' "$ROOT/install.sh")"
+if [[ -n "$lock_lifecycle_body" ]] &&
+   ! grep -q 'release_installer_lock' <<< "$lock_lifecycle_body" &&
+   grep -q 'wait.*ACTIVE_TIMEOUT_PID' <<< "$lock_lifecycle_body" &&
+   grep -q 'finalize_installer_state' "$ROOT/install.sh" &&
+   grep -q 'release_installer_lock' "$ROOT/install.sh"; then
+    pass "installer keeps the exclusive lock through child cleanup and final state handling"
+else
+    fail "installer lock lifecycle releases the lock before cleanup/finalization"
+fi
+
+if grep -q 'exec {INSTALLER_LOCK_FD}>' "$ROOT/modules/state.sh" &&
+   ! grep -q 'eval .*INSTALLER_LOCK' "$ROOT/modules/state.sh" &&
+   grep -q 'validate_mutation_path "\$INSTALLER_STATE_ROOT"' "$ROOT/modules/state.sh" &&
+   grep -q -- '-g "\$target_gid"' "$ROOT/modules/state.sh" &&
+   grep -q 'write_installer_state_file' "$ROOT/modules/state.sh" &&
+   grep -q 'mktemp "\$INSTALLER_STATE_ROOT/logs/install-' "$ROOT/modules/state.sh"; then
+    pass "state initialization uses validated paths and numeric target ownership without dynamic redirection"
+else
+    fail "state initialization safety contract is incomplete"
+fi
+
+state_file_safety_output="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+ROOT="$1"
+TARGET_HOME="$(mktemp -d)"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/status.sh"
+source "$ROOT/modules/state.sh"
+INSTALLER_STATE_ROOT="$TARGET_HOME/state"
+mkdir -p "$INSTALLER_STATE_ROOT/state"
+
+safe_target="$INSTALLER_STATE_ROOT/state/last-run"
+write_installer_state_file "$safe_target" 'status=ok'
+safe_write_ok=$([[ -f "$safe_target" && "$(<"$safe_target")" == 'status=ok' ]] && echo 1 || echo 0)
+
+outside="$TARGET_HOME/outside"
+printf 'preserve-me\n' > "$outside"
+rm -f "$safe_target"
+ln -s "$outside" "$safe_target"
+symlink_write_status=0
+write_installer_state_file "$safe_target" 'status=must-not-write' || symlink_write_status=$?
+printf 'safe_write=%s symlink_rejected=%s outside_preserved=%s\n' \
+    "$safe_write_ok" \
+    "$([[ $symlink_write_status -ne 0 ]] && echo 1 || echo 0)" \
+    "$([[ "$(<"$outside")" == 'preserve-me' ]] && echo 1 || echo 0)"
+
+outside_journal="$TARGET_HOME/outside-journal"
+journal_target="$INSTALLER_STATE_ROOT/state/journal"
+printf 'preserve-journal-target\n' > "$outside_journal"
+ln -- "$outside_journal" "$journal_target"
+journal_stage_status=0
+journal_stage test-stage started || journal_stage_status=$?
+journal_written=0
+if [[ -f "$journal_target" ]] && grep -q 'test-stage started' "$journal_target"; then
+    journal_written=1
+fi
+printf 'journal_hardlink_safe=%s journal_written=%s\n' \
+    "$([[ $journal_stage_status -eq 0 && "$(<"$outside_journal")" == 'preserve-journal-target' ]] && echo 1 || echo 0)" \
+    "$journal_written"
+rm -rf -- "$TARGET_HOME"
+EOS
+)"
+
+if grep -q 'safe_write=1 symlink_rejected=1 outside_preserved=1' <<< "$state_file_safety_output"; then
+    pass "persistent installer state writes atomically and rejects symlinked destinations"
+else
+    fail "persistent installer state file safety failed: $state_file_safety_output"
+fi
+
+if grep -q 'journal_hardlink_safe=1 journal_written=1' <<< "$state_file_safety_output"; then
+    pass "persistent journal updates cannot mutate a hardlinked external file"
+else
+    fail "persistent journal update followed a hardlink or failed to write safely: $state_file_safety_output"
 fi

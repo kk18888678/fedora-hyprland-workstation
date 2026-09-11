@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Services.SystemTray
 import "../../theme"
+import "../../ui"
 
 // Quickshell's SystemTray singleton tracks StatusNotifier applications. This
 // is deliberately a bar widget; it does not become a second tray process.
@@ -21,6 +22,27 @@ Item {
     implicitWidth: trayRow.implicitWidth
     implicitHeight: bar ? bar.barSize : 32
     visible: SystemTray.items && SystemTray.items.values.length > 0
+
+    function isSymbolicIcon(icon) {
+        var name = String(icon || "").split("?")[0]
+        return name.slice(-9) === "-symbolic"
+    }
+
+    function isChatGptItem(item) {
+        var identity = [
+            item && item.id ? item.id : "",
+            item && item.title ? item.title : "",
+            item && item.tooltipTitle ? item.tooltipTitle : "",
+            item && item.tooltipDescription ? item.tooltipDescription : ""
+        ].join("|").toLowerCase()
+        return identity.indexOf("chatgpt") >= 0 || identity.indexOf("openai") >= 0
+    }
+
+    function trayIconSize(item) {
+        var normal = root.bar && root.bar.barTrayIcon ? root.bar.barTrayIcon : Theme.bar.trayIcon
+        var optical = root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : Theme.bar.iconCanvas
+        return root.isChatGptItem(item) ? Math.max(normal, optical) : normal
+    }
 
     function configureTrayMenu(target) {
         if (!target) return
@@ -68,7 +90,7 @@ Item {
     RowLayout {
         id: trayRow
         anchors.centerIn: parent
-        spacing: Theme.spacingXs
+        spacing: 0
 
         Repeater {
             model: SystemTray.items
@@ -76,18 +98,20 @@ Item {
             delegate: Item {
                 id: trayDelegate
                 required property var modelData
-                Layout.preferredWidth: 24
-                Layout.preferredHeight: root.bar ? root.bar.barSize - 6 : 26
+                Layout.preferredWidth: root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : 27
+                Layout.preferredHeight: root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot
 
-                Image {
+                AureliaIcon {
                     anchors.centerIn: parent
-                    width: 20
-                    height: 20
-                    source: modelData.icon
-                    sourceSize: Qt.size(20, 20)
-                    fillMode: Image.PreserveAspectFit
-                    smooth: true
-                    asynchronous: true
+                    width: root.trayIconSize(modelData)
+                    height: root.trayIconSize(modelData)
+                    iconSize: width
+                    name: ""
+                    sourcePath: modelData && modelData.icon ? String(modelData.icon) : ""
+                    sourcePixelRatio: Screen.devicePixelRatio
+                    smooth: false
+                    preserveColors: !root.isSymbolicIcon(modelData && modelData.icon ? String(modelData.icon) : "")
+                    tint: Theme.textSecondary
                 }
 
                 MouseArea {

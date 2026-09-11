@@ -22,6 +22,22 @@ validate_greeter_configuration() { return 0; }
 enable_greetd() { :; }
 configure_graphical_target() { :; }
 validate_graphical_activation() { return 0; }
+systemctl() {
+    case "${1:-}" in
+        is-enabled)
+            printf 'disabled\n'
+            return 1
+            ;;
+        get-default)
+            printf 'multi-user.target\n'
+            return 0
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+sudo() { return 0; }
 
 unexpected_podman() { return 9; }
 
@@ -512,8 +528,11 @@ echo "subshell_returned=$subshell_result"
 echo "subshell_caller_lost_failures=${#INSTALL_LOGIN_FAILURES[@]}"
 echo "subshell_caller_lost_blocked=$ACTIVATION_BLOCKED"
 
-# Case E: Regression test: Real production execution with exec > >(tee ...) and on_exit trap
-# With old pkill -P "$$", tee was killed prematurely causing SIGPIPE (141) during summary print
+# Case E: Regression test: Real production execution with the bounded logging
+# pipeline and on_exit trap. The logger must drain before its output directory
+# is cleaned up, otherwise the log tail can disappear or the shell can receive
+# SIGPIPE during summary printing.
+mkdir -p -- "$TARGET_HOME"
 real_pipe_log="$TARGET_HOME/real_pipe_install.log"
 real_pipe_last_run="$TARGET_HOME/last-run"
 real_pipe_rc=0
@@ -538,6 +557,7 @@ GRAPHICAL_ACTIVATION_STATE="completed"
 ENABLE_GRAPHICAL_TARGET=false
 ACTIVE_TIMEOUT_PID=""
 INSTALLER_STATE_ROOT="$TARGET_HOME"
+: > "$INSTALL_LOG_FILE"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/modules/common.sh"
@@ -573,13 +593,14 @@ on_exit() {
         print_installer_summary
     fi
     finalize_installer_state "$final_code"
+    stop_installer_logging || true
     exit "$final_code"
 }
 
 trap on_exit EXIT
 
-# Production process substitution logging redirection
-exec > >(tee -a "$INSTALL_LOG_FILE") 2>&1
+# Production logging pipeline
+start_installer_logging
 
 # Simulate a completed run with one deferred optional item
 record_deferred "applications" "N_m3u8DL-RE" "Skipping prerelease artifact."

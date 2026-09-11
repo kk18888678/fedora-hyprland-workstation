@@ -42,8 +42,20 @@ install_chromium() {
     perform_install_chromium
 }
 
+brave_repo_file="/etc/yum.repos.d/brave-browser.repo"
+
 brave_origin_repo_installed() {
-    [[ -f /etc/yum.repos.d/brave-browser.repo ]]
+    [[ -f "$brave_repo_file" && ! -L "$brave_repo_file" ]] || return 1
+
+    cmp -s "$brave_repo_file" <(
+        printf '%s\n' \
+            '[brave-browser]' \
+            'name=Brave Browser' \
+            'enabled=1' \
+            'gpgcheck=1' \
+            'gpgkey=https://brave-browser-rpm-release.s3.brave.com/brave-core.asc' \
+            'baseurl=https://brave-browser-rpm-release.s3.brave.com/$basearch'
+    )
 }
 
 configure_brave_origin_repository() {
@@ -54,10 +66,25 @@ configure_brave_origin_repository() {
 
     info "Adding official Brave RPM repository."
 
-    run_with_retry "Brave repository" \
-        run_dnf_command "$TIMEOUT_METADATA_SECONDS" "add Brave repository" \
-        sudo dnf config-manager addrepo \
-        --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+    # Keep the repository definition reviewed and deterministic.  The official
+    # remote .repo file is intentionally not fetched and executed by dnf.
+    if ! install_root_file_from_stdin_preserving_existing "$brave_repo_file" 0644 root root <<'EOF'
+[brave-browser]
+name=Brave Browser
+enabled=1
+gpgcheck=1
+gpgkey=https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+baseurl=https://brave-browser-rpm-release.s3.brave.com/$basearch
+EOF
+    then
+        return 1
+    fi
+
+    if ! brave_origin_repo_installed; then
+        return 1
+    fi
+
+    info "Brave repository configured."
 }
 
 install_brave_origin() {
@@ -76,19 +103,19 @@ install_brave_origin() {
 
     info "Installing Brave Origin."
 
-    if ! install_dnf_packages brave-origin; then
+    if ! install_dnf_packages brave-browser; then
         record_deferred \
             "browsers" \
             "brave-origin" \
-            "brave-origin package could not be installed."
+            "brave-browser package could not be installed."
         return 0
     fi
 
-    if ! rpm -q brave-origin >/dev/null 2>&1; then
+    if ! package_installed brave-browser; then
         record_deferred \
             "browsers" \
             "brave-origin" \
-            "brave-origin was not present after installation."
+            "brave-browser was not present after installation."
         return 0
     fi
 
@@ -158,9 +185,18 @@ configure_default_browser() {
 
     info "Setting Chromium as the default browser."
 
-    xdg-mime default "$desktop_file" x-scheme-handler/http
-    xdg-mime default "$desktop_file" x-scheme-handler/https
-    xdg-mime default "$desktop_file" text/html
+    local failed=0
+    xdg-mime default "$desktop_file" x-scheme-handler/http || failed=1
+    xdg-mime default "$desktop_file" x-scheme-handler/https || failed=1
+    xdg-mime default "$desktop_file" text/html || failed=1
+
+    if (( failed != 0 )); then
+        record_deferred \
+            "browsers" \
+            "default-browser" \
+            "Could not set Chromium as the default browser."
+        return 0
+    fi
 
     info "Default browser configured."
 }

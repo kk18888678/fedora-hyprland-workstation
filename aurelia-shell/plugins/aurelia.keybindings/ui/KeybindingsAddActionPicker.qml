@@ -37,11 +37,13 @@ Item {
             return
         }
         if (event.key === Qt.Key_Down) {
+            windowController.resetPointerGate()
             modelController.selectNext()
             event.accepted = true
             return
         }
         if (event.key === Qt.Key_Up) {
+            windowController.resetPointerGate()
             modelController.selectPrevious()
             event.accepted = true
             return
@@ -55,7 +57,7 @@ Item {
         if (windowController.handleComponentKey(event, "list")) return
         if (event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace || (event.text && event.text.length > 0 && event.text.charCodeAt(0) >= 32 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))) {
             event.accepted = true
-            windowController.beginSearch(event.key === Qt.Key_Slash ? "" : event.text)
+            windowController.beginSearch((event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace) ? "" : event.text)
         }
     }
 

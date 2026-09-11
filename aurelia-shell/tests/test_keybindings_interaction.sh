@@ -55,8 +55,11 @@ fi
 if grep -q 'readonly property string shortcutSet:.*ALT + S' "$ROOT/theme/Theme.qml" &&
    grep -q 'readonly property string shortcutUnset:.*ALT + U' "$ROOT/theme/Theme.qml" &&
    grep -q 'readonly property int rowSpacing: 8' "$config_qml" &&
-   grep -q 'text: "← Back"' "$settings_qml"; then
-    pass "settings shortcuts, vertical spacing, and right-aligned Back affordance are explicit"
+   grep -q 'id: settingsBackButton' "$settings_qml" &&
+   grep -q 'anchors.right: parent.right' "$settings_qml" &&
+   grep -q 'acceptedButtons: Qt.LeftButton' "$settings_qml" &&
+   grep -q 'settingsRoot.backRequested()' "$settings_qml"; then
+    pass "settings shortcuts, vertical spacing, and explicit clickable Back button are wired"
 else
     fail "settings shortcut/spacing/back layout regression guard failed"
 fi
@@ -67,6 +70,10 @@ if grep -q 'uiRevision: "2026.09.06.r7"' "$config_qml" &&
    grep -q 'readonly property bool searchVisible' "$header_qml" &&
    grep -q 'visible: headerRoot.searchVisible' "$header_qml" &&
    grep -q 'searchVisible: headerVisible' "$header_qml" &&
+   grep -q 'searchIconSize: 22' "$config_qml" &&
+   grep -q 'font.pixelSize: KeybindingsConfig.searchIconSize' "$header_qml" &&
+   grep -q 'text: ""' "$header_qml" &&
+   grep -q 'replace(/\[\\u0000-\\u001f\\u007f\]/g, "")' "$header_qml" &&
    grep -q 'focusActiveView("bound")' "$window_qml" &&
    grep -q 'searchInput.focus = false' "$header_qml" &&
    ! grep -q 'searchInput.clearFocus' "$header_qml" &&
@@ -74,4 +81,27 @@ if grep -q 'uiRevision: "2026.09.06.r7"' "$config_qml" &&
     pass "search remains visible without initial focus and Add Action uses balanced selected-state styling"
 else
     fail "minimal Keybindings UI regression guard failed"
+fi
+
+section "Command Center Interaction Parity"
+
+if grep -q 'cursorVisible: activeFocus && text.length > 0' "$header_qml" &&
+   grep -q 'focusListIfVisible' "$header_qml" &&
+   grep -q 'PointerMoveGate {' "$window_qml" &&
+   grep -q 'referenceItem: surfaceCard' "$window_qml" &&
+   grep -q 'function selectFromPointer' "$window_qml" &&
+   grep -q 'onPositionChanged: function(mouse)' "$ui_root/KeybindingRow.qml" &&
+   grep -q 'onPositionChanged: function(mouse)' "$ui_root/KeybindingsActionTypeRow.qml" &&
+   grep -q 'selectFromPointer(rowRoot' "$ui_root/KeybindingRow.qml" &&
+   grep -q 'selectFromPointer(rowRoot' "$ui_root/KeybindingsActionTypeRow.qml" &&
+   grep -q 'compactSearchToken' "$ROOT/plugins/aurelia.keybindings/ui/KeybindingsModel.qml" &&
+   grep -q 'beginSearch((event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace) ? "" : event.text)' "$ui_root/KeybindingsActionList.qml" &&
+   grep -q 'beginSearch((event.key === Qt.Key_Slash || event.key === Qt.Key_Backspace) ? "" : event.text)' "$ROOT/plugins/aurelia.keybindings/ui/KeybindingsAddActionPicker.qml" &&
+   grep -q 'function actionGlyph' "$ui_root/KeybindingRow.qml" &&
+   grep -q 'text: rowRoot.actionGlyph()' "$ui_root/KeybindingRow.qml" &&
+   ! grep -q 'HoverHandler' "$ui_root/KeybindingsActionTypeCard.qml" &&
+   ! grep -q 'HoverHandler' "$row_qml"; then
+    pass "Keybindings keeps empty-search focus stable, disarms pointer selection during keyboard navigation, and shows one selected row"
+else
+    fail "Keybindings Command Center interaction parity is incomplete"
 fi

@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+
+# Send an Aurelia desktop notification without passing user text through a
+# legacy option parser. --exec remains an argv vector in a typed D-Bus
+# hint so restored notifications can invoke it without string re-parsing.
+
+set -euo pipefail
+
+headline=""
+description=""
+glyph=""
+urgency="low"
+app_name="aurelia-action"
+app_icon=""
+image=""
+expire_timeout=-1
+replaces_id=0
+print_id=0
+exec_args=()
+exec_present=0
+parsed_option_args=0
+
+usage() {
+    printf '%s\n' "Usage: aurelia-notification-send [--app-name <app-name>] [-g <glyph>] [-u <low|normal|critical>] [-i <icon>] [-t <ms>] [-r <id>] [-p] [--image <path-or-uri>] <headline> [description] [--exec <program> [args...]]" >&2
+}
+
+parse_option() {
+    local opt value nargs
+    if [[ "$1" == --?*=* ]]; then
+        opt="${1%%=*}"
+        value="${1#*=}"
+        nargs=1
+    else
+        opt="$1"
+        value="${2-}"
+        nargs=2
+    fi
+
+    if [[ "$opt" == "-p" || "$opt" == "--print-id" ]]; then
+        print_id=1
+        parsed_option_args=1
+        return 0
+    fi
+
+    case "$opt" in
+        -g|--glyph|-u|--urgency|--app-name|-i|--icon|--image|-r|--replace-id|-t|--expire-time) ;;
+        *) return 1 ;;
+    esac
+    if (( nargs == 2 )) && (($# < 2)); then
+        printf 'Missing value for %s\n' "$opt" >&2
+        exit 1
+    fi
+
+    case "$opt" in
+        -g|--glyph) glyph="$value" ;;
+        -u|--urgency) urgency="$value" ;;
+        --app-name) app_name="$value" ;;
+        -i|--icon) app_icon="$value" ;;
+        --image) image="$value" ;;
+        -r|--replace-id)
+            [[ "$value" =~ ^[0-9]+$ ]] || { printf 'Invalid %s value: %s\n' "$opt" "$value" >&2; exit 1; }
+            replaces_id="$value"
+            ;;
+        -t|--expire-time)
+            [[ "$value" =~ ^-?[0-9]+$ ]] || { printf 'Invalid %s value: %s\n' "$opt" "$value" >&2; exit 1; }
+            expire_timeout="$value"
+            ;;
+    esac
+    parsed_option_args="$nargs"
+}
+
+known_flag() {
+    case "$1" in
+        -g|--glyph|-u|--urgency|--app-name|-i|--icon|-t|--expire-time|--image|-r|--replace-id|-p|--print-id|--exec) return 0 ;;
+        --glyph=*|--urgency=*|--app-name=*|--icon=*|--expire-time=*|--image=*|--replace-id=*) return 0 ;;
+    esac
+    return 1
+}
+
+while (($# > 0)); do
+    if parse_option "$@"; then
+        shift "$parsed_option_args"
+    else
+        break
+    fi
+done
+
+if (($# < 1)); then
+    usage
+    exit 1
+fi
+headline="$1"
+shift
+
+if (($# > 0)) && ! known_flag "$1"; then
+    description="$1"
+    shift
+fi
+
+while (($# > 0)); do
+    if [[ "$1" == "--exec" ]]; then
+        shift
+        exec_args=("$@")
+        exec_present=1
+        break
+    elif parse_option "$@"; then
+        shift "$parsed_option_args"
+    else
+        printf 'Unknown option: %s\n' "$1" >&2
+        usage
+        exit 1
+    fi
+done
+
+case "$urgency" in
+    low) urgency_byte=0 ;;
+    normal) urgency_byte=1 ;;
+    critical) urgency_byte=2 ;;
+    *) printf 'Unknown urgency: %s\n' "$urgency" >&2; exit 1 ;;
+esac
+
+hints=(urgency y "$urgency_byte")
+if [[ -n "$glyph" ]]; then hints+=(aurelia-glyph s "$glyph"); fi
+if [[ -n "$image" ]]; then hints+=(image-path s "$image"); fi
+
+if (( exec_present )); then
+    if ((${#exec_args[@]} == 0)) || [[ -z "${exec_args[0]}" ]]; then
+        printf '%s\n' '--exec needs a command: --exec <program> [args...]' >&2
+        exit 1
+    fi
+    if ((${#exec_args[@]} == 1)) && [[ "${exec_args[0]}" == *[[:space:]]* ]]; then
+        printf '%s\n' '--exec takes the command as separate words, not one quoted string.' >&2
+        printf 'Write:  --exec %s\n' "${exec_args[0]}" >&2
+        exit 1
+    fi
+    command -v jq >/dev/null 2>&1 || { printf '%s\n' 'jq is required to encode --exec safely.' >&2; exit 1; }
+    exec_argv_json="$(printf '%s\0' "${exec_args[@]}" | jq -Rsc 'split("\u0000")[:-1]')"
+    hints+=(aurelia-exec-argv s "$exec_argv_json")
+fi
+
+hint_count=$((${#hints[@]} / 3))
+notify_cmd=(
+    /usr/bin/timeout --foreground --kill-after=1s 5s
+    /usr/bin/busctl --user -- call
+    org.freedesktop.Notifications /org/freedesktop/Notifications
+    org.freedesktop.Notifications Notify susssasa{sv}i
+    "$app_name" "$replaces_id" "$app_icon" "$headline" "$description"
+    0 "$hint_count" "${hints[@]}" "$expire_timeout"
+)
+
+if (( print_id )); then
+    output="$("${notify_cmd[@]}")"
+    printf '%s\n' "${output##* }"
+else
+    "${notify_cmd[@]}" >/dev/null
+fi

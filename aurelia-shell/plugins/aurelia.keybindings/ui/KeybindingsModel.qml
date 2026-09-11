@@ -95,6 +95,10 @@ QtObject {
         appsProcess.running = true;
     }
 
+    function compactSearchToken(value): string {
+        return String(value || "").toLowerCase().replace(/[\s+_-]+/g, "")
+    }
+
     property string pendingSelectActionId: ""
 
     function addApplication(desktopId) {
@@ -188,12 +192,14 @@ QtObject {
             filteredItems = sourceList.filter(function(item) {
                 var target = ""
                 if (root.activeView === "add_app") {
-                    target = ((item.display_key || "") + " " + (item.description || "") + " " + (item.categories || "") + " " + (item.comment || "")).toLowerCase()
+                    target = ((item.id || "") + " " + (item.display_key || "") + " " + (item.description || "") + " " + (item.categories || "") + " " + (item.comment || "") + " " + (item.icon || "")).toLowerCase()
                 } else {
-                    target = ((item.display_key || "") + " " + (item.description || "")).toLowerCase()
+                    target = ((item.id || "") + " " + (item.display_key || "") + " " + (item.description || "") + " " + (item.category || "") + " " + (item.key || "") + " " + (item.icon || "")).toLowerCase()
                 }
+                var shortcutTarget = compactSearchToken((item.display_key || "") + " " + (item.key || "") + " " + (item.shortcut || ""))
                 for (var i = 0; i < tokens.length; i++) {
-                    if (target.indexOf(tokens[i]) === -1) {
+                    var compactToken = compactSearchToken(tokens[i])
+                    if (target.indexOf(tokens[i]) === -1 && (!compactToken || shortcutTarget.indexOf(compactToken) === -1)) {
                         return false
                     }
                 }

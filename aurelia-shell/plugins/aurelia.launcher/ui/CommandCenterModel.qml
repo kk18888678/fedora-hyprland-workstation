@@ -16,6 +16,11 @@ QtObject {
     id: root
 
     property string backendBin: ""
+    property string updatesBin: ""
+    property string aboutBin: ""
+    property string packagesBin: ""
+    property string shellClientBin: ""
+    property string shellRestartBin: ""
     property var processEnvironment: ({})
     property var appLibrary: null
     property var moduleRegistry: null
@@ -48,6 +53,42 @@ QtObject {
 
     function moduleEnabled(id) {
         return root.moduleRegistry && root.moduleRegistry.isEnabled(id)
+    }
+
+    function openUpdates() {
+        if (!root.updatesBin) {
+            root.errorMessage = "Updates backend is unavailable."
+            return false
+        }
+        root.activeLaunchLabel = "Updates"
+        root.statusMessage = "Opening update workflow..."
+        launchProcess.command = [root.updatesBin, "open"]
+        launchProcess.running = true
+        return true
+    }
+
+    function openAbout() {
+        if (!root.aboutBin) {
+            root.errorMessage = "About backend is unavailable."
+            return false
+        }
+        root.activeLaunchLabel = "About"
+        root.statusMessage = "Opening Aurelia system details..."
+        launchProcess.command = [root.aboutBin, "open"]
+        launchProcess.running = true
+        return true
+    }
+
+    function openPackageManager() {
+        if (!root.packagesBin) {
+            root.errorMessage = "Package Manager backend is unavailable."
+            return false
+        }
+        root.activeLaunchLabel = "Package Manager"
+        root.statusMessage = ""
+        launchProcess.command = [root.packagesBin, "open"]
+        launchProcess.running = true
+        return true
     }
 
     function open() {
@@ -104,6 +145,37 @@ QtObject {
         return Search.sortRows(rows, queryValue)
     }
 
+    function shellRows(queryValue) {
+        if (!root.moduleEnabled("aurelia-shell")) return []
+        var rows = [
+            {
+                id: "aurelia-shell:reload-plugins",
+                kind: "shell-action",
+                moduleId: "aurelia-shell",
+                shellAction: "reload-plugins",
+                label: "Hot Reload Aurelia Plugins",
+                subtitle: "Rescan and reload plugin QML",
+                detail: "No full shell restart",
+                icon: "view-refresh",
+                order: 10,
+                keywords: "aurelia shell plugin hot reload rescan development"
+            },
+            {
+                id: "aurelia-shell:restart",
+                kind: "shell-action",
+                moduleId: "aurelia-shell",
+                shellAction: "restart",
+                label: "Restart Aurelia Shell",
+                subtitle: "Restart the resident Quickshell host",
+                detail: "Required for shell.qml and host-service changes",
+                icon: "system-reboot",
+                order: 20,
+                keywords: "aurelia shell restart quickshell development"
+            }
+        ]
+        return Search.sortRows(rows, queryValue)
+    }
+
     function fileRows(queryValue) {
         if (!root.moduleEnabled("files") || root.fileQuery !== queryValue) return []
         var rows = []
@@ -144,6 +216,16 @@ QtObject {
         }]
     }
 
+    function globalRows(queryValue) {
+        var rows = root.moduleRegistry ? root.moduleRegistry.moduleRows() : []
+        rows = rows.concat(root.appRows(queryValue))
+            .concat(root.actionRows(queryValue))
+            .concat(root.shellRows(queryValue))
+            .concat(root.calculatorRows(queryValue))
+            .concat(root.fileRows(queryValue))
+        return Search.sortRowsWithFilesLast(rows, queryValue)
+    }
+
     function rebuildResults() {
         var previousId = root.selectedId
         if (!previousId && root.results.length > 0 && root.selectedIndex >= 0 && root.selectedIndex < root.results.length) {
@@ -158,18 +240,19 @@ QtObject {
             rows = root.appRows(queryValue)
         } else if (root.activeModule === "actions") {
             rows = root.actionRows(queryValue)
+        } else if (root.activeModule === "aurelia-shell") {
+            rows = root.shellRows(queryValue)
         } else if (root.activeModule === "files") {
             rows = root.fileRows(queryValue)
         } else if (root.activeModule === "calculator") {
             rows = root.calculatorRows(queryValue)
         } else if (queryValue !== "") {
-            rows = root.appRows(queryValue)
-                .concat(root.actionRows(queryValue))
-                .concat(root.fileRows(queryValue))
-                .concat(root.calculatorRows(queryValue))
+            rows = root.globalRows(queryValue)
         }
 
-        root.results = Search.sortRows(rows, queryValue)
+        root.results = queryValue !== "" && root.activeModule === ""
+            ? rows
+            : Search.sortRows(rows, queryValue)
         if (root.results.length === 0) {
             root.selectedIndex = 0
             root.selectedId = ""
@@ -258,10 +341,13 @@ QtObject {
     }
 
     function activateSelected() {
-        if (launchProcess.running || copyProcess.running || root.results.length === 0) return false
+        if (launchProcess.running || copyProcess.running || shellActionProcess.running || root.results.length === 0) return false
         var row = root.results[root.selectedIndex]
         if (!row) return false
         if (row.kind === "module") {
+            if (row.moduleId === "updates") return root.openUpdates()
+            if (row.moduleId === "about") return root.openAbout()
+            if (row.moduleId === "package-manager") return root.openPackageManager()
             root.setModule(row.moduleId)
             return true
         }
@@ -271,6 +357,8 @@ QtObject {
             root.statusMessage = "Copying result..."
             return true
         }
+
+        if (row.kind === "shell-action") return root.activateShellAction(row)
 
         var command = []
         if (row.kind === "app") command = [root.backendBin, "launch-app", row.appId]
@@ -286,6 +374,35 @@ QtObject {
         launchProcess.command = command
         launchProcess.running = true
         return true
+    }
+
+    function activateShellAction(row) {
+        if (!row || row.kind !== "shell-action") return false
+        if (row.shellAction === "reload-plugins") {
+            if (!root.shellClientBin) {
+                root.errorMessage = "Aurelia Shell IPC client is unavailable."
+                return false
+            }
+            root.activeLaunchLabel = "Hot Reload Aurelia Plugins"
+            root.statusMessage = "Requesting plugin reload..."
+            shellActionProcess.command = [root.shellClientBin, "shell", "rescanPlugins"]
+            shellActionProcess.running = true
+            return true
+        }
+        if (row.shellAction === "restart") {
+            if (!root.shellRestartBin) {
+                root.errorMessage = "Aurelia Shell restart helper is unavailable."
+                return false
+            }
+            root.activeLaunchLabel = "Restart Aurelia Shell"
+            root.statusMessage = "Restarting Aurelia Shell..."
+            // The current host will be terminated by the helper. Detach the
+            // replacement before the panel is unloaded with the old host.
+            Quickshell.execDetached(["setsid", "-f", root.shellRestartBin])
+            root.launchFinished(true, "")
+            return true
+        }
+        return false
     }
 
     property Timer fileRequestTimer: Timer {
@@ -406,6 +523,29 @@ QtObject {
                 root.launchFinished(true, "")
             } else {
                 var message = copyStderr.text.trim() || "Could not copy calculator result."
+                root.errorMessage = message
+                root.statusMessage = ""
+                root.launchFinished(false, message)
+            }
+        }
+    }
+
+    property Process shellActionProcess: Process {
+        id: shellActionProcess
+        command: []
+        environment: root.processEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: shellActionStdout }
+        stderr: StdioCollector { id: shellActionStderr }
+
+        onExited: function(code) {
+            if (code === 0) {
+                console.info("[COMMAND_CENTER] shell_action.accepted item=" + root.activeLaunchLabel)
+                root.statusMessage = ""
+                root.launchFinished(true, "")
+            } else {
+                var message = shellActionStderr.text.trim() || shellActionStdout.text.trim() || "Aurelia Shell action failed."
+                console.warn("[COMMAND_CENTER] shell_action.failed code=" + code + " error=" + message)
                 root.errorMessage = message
                 root.statusMessage = ""
                 root.launchFinished(false, message)

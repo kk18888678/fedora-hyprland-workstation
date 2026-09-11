@@ -13,10 +13,22 @@
 # - Removal is explicit, with separate confirmation required before Apply.
 # - Cancellation before Apply results in zero mutations.
 
+wizard_test_input_enabled() {
+    [[ "${INSTALLER_PRODUCTION_MODE:-0}" != "1" &&
+       "${WORKSTATION_TEST_MODE:-0}" == "1" &&
+       -n "${WIZARD_MOCK_INPUT:-}" ]]
+}
+
 # Check if an interactive terminal is available
 wizard_is_interactive() {
-    # If a test mock input source is active, treat as interactive
-    if [[ -n "${WIZARD_MOCK_INPUT:-}" ]]; then
+    # Test-only mock input must never bypass production TTY enforcement. A
+    # stray mock variable in a real installer run fails closed instead.
+    if [[ "${INSTALLER_PRODUCTION_MODE:-0}" == "1" &&
+          -n "${WIZARD_MOCK_INPUT:-}" ]]; then
+        return 1
+    fi
+
+    if wizard_test_input_enabled; then
         return 0
     fi
 
@@ -38,7 +50,7 @@ _wizard_read_key() {
     local -n out_key="$1"
     local raw=""
 
-    if [[ -n "${WIZARD_MOCK_INPUT:-}" ]]; then
+    if wizard_test_input_enabled; then
         # Read next key from mock queue
         if [[ -n "$WIZARD_MOCK_KEYS" ]]; then
             out_key="${WIZARD_MOCK_KEYS%% *}"
@@ -101,7 +113,9 @@ _wizard_read_key() {
 # Check whether terminal supports ANSI cursor movement for in-place redrawing
 _wizard_supports_cursor() {
     # Only use cursor manipulation when connected to an interactive tty and not in mock/test mode
-    [[ -z "${WIZARD_MOCK_INPUT:-}" && -t 1 && "${TERM:-}" != "dumb" ]]
+    [[ "${INSTALLER_PRODUCTION_MODE:-0}" != "1" &&
+       ! wizard_test_input_enabled &&
+       -t 1 && "${TERM:-}" != "dumb" ]]
 }
 
 # Clear previous frame lines
@@ -193,6 +207,70 @@ Please select a setup mode:
     done
 }
 
+# Select the post-login desktop shell without mutating the host.  The selected
+# value is stored in Desired State and only applied to the installer profile
+# after the user accepts the reviewed plan.
+wizard_select_desktop_shell() {
+    local profile="$1"
+    local -n out_shell="$2"
+
+    local selected=0
+    local key=""
+    local prev_lines=0
+
+    [[ "${DESKTOP_SHELL:-noctalia}" == "aurelia" ]] && selected=1
+
+    while true; do
+        local frame=""
+        frame+="
+============================================================
+Select post-login desktop shell (${profile} profile)
+============================================================
+
+"
+        if [[ "$selected" -eq 0 ]]; then
+            frame+="  (*) Noctalia
+      Stable, integrated desktop shell
+
+  ( ) Aurelia
+      Repository-owned alternative shell
+
+"
+        else
+            frame+="  ( ) Noctalia
+      Stable, integrated desktop shell
+
+  (*) Aurelia
+      Repository-owned alternative shell
+
+"
+        fi
+
+        frame+="Controls: [Up/Down or j/k] Navigate  [Enter] Select  [q] Cancel
+"
+        _wizard_render_frame prev_lines "$frame"
+
+        _wizard_read_key key
+        case "$key" in
+            UP|DOWN)
+                selected=$((1 - selected))
+                ;;
+            ENTER)
+                if [[ "$selected" -eq 0 ]]; then
+                    out_shell="noctalia"
+                else
+                    out_shell="aurelia"
+                fi
+                return 0
+                ;;
+            QUIT|ESC)
+                printf '\nDesktop shell selection cancelled.\n'
+                return 2
+                ;;
+        esac
+    done
+}
+
 # Render and handle customization of components by category
 wizard_customize() {
     local profile="$1"
@@ -200,7 +278,14 @@ wizard_customize() {
 
     local categories=()
     while IFS= read -r c; do
-        [[ -n "$c" ]] && categories+=("$c")
+        [[ -n "$c" ]] || continue
+        while IFS= read -r cid; do
+            [[ "$cid" == packages.* ]] && continue
+            if component_supports_profile "$cid" "$profile"; then
+                categories+=("$c")
+                break
+            fi
+        done < <(list_components_by_category "$c")
     done < <(list_component_categories)
 
     local cat_idx=0
@@ -210,6 +295,7 @@ wizard_customize() {
         local cur_cat="${categories[$cat_idx]}"
         local comp_ids=()
         while IFS= read -r cid; do
+            [[ "$cid" == packages.* ]] && continue
             if component_supports_profile "$cid" "$profile"; then
                 comp_ids+=("$cid")
             fi
@@ -451,7 +537,7 @@ wizard_review_plan() {
                     printf 'WARNING: The configuration plan includes DESTRUCTIVE REMOVALS.\n'
                     printf 'Confirm component removal? (Type "yes" to proceed): '
                     local confirm=""
-                    if [[ -n "${WIZARD_MOCK_INPUT:-}" ]]; then
+                    if wizard_test_input_enabled; then
                         confirm="${WIZARD_MOCK_CONFIRM:-yes}"
                     else
                         read -r confirm
@@ -500,12 +586,16 @@ run_setup_mode() {
     wizard_select_setup_mode "$profile" mode || return 2
 
     local ds_prefix="RUN_DS"
+    local selected_desktop_shell="${DESKTOP_SHELL:-noctalia}"
 
     while true; do
         if [[ "$mode" == "recommended" ]]; then
-            create_recommended_desired_state "$ds_prefix" "$profile" || return 1
+            create_recommended_desired_state \
+                "$ds_prefix" "$profile" "$selected_desktop_shell" || return 1
         elif [[ "$mode" == "customize" ]]; then
-            create_recommended_desired_state "$ds_prefix" "$profile" || return 1
+            wizard_select_desktop_shell "$profile" selected_desktop_shell || return 2
+            create_recommended_desired_state \
+                "$ds_prefix" "$profile" "$selected_desktop_shell" || return 1
             declare -g "${ds_prefix}_SETUP_MODE"="customize"
             wizard_customize "$profile" "$ds_prefix" || return 2
             wizard_configure_defaults "$profile" "$ds_prefix" || return 2
@@ -523,6 +613,7 @@ run_setup_mode() {
 
         case "$user_action" in
             APPLY)
+                DESKTOP_SHELL="$selected_desktop_shell"
                 return 0
                 ;;
             EDIT)

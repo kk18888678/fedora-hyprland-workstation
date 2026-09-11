@@ -1,0 +1,4 @@
+# Managed by fedora-hyprland-workstation.
+# Stock DNS providers are safe to switch without a password prompt. Custom
+# DNS remains interactive and is intentionally not covered by this rule.
+%wheel ALL=(root) NOPASSWD: /usr/local/bin/aurelia-network-dns Cloudflare, /usr/local/bin/aurelia-network-dns Google, /usr/local/bin/aurelia-network-dns DHCP

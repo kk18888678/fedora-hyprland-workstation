@@ -6,6 +6,37 @@
 
 -- Audio control
 
+-- Aurelia Updates, Package Manager, and About follow Omarchy's dedicated terminal surfaces:
+-- centered floating windows whose terminal content owns the presentation.
+hl.window_rule({
+    match = {
+        class = "^org\\.aurelia\\.updates$",
+    },
+    float = true,
+    center = true,
+    size = "1100 720",
+})
+
+hl.window_rule({
+    match = {
+        class = "^org\\.aurelia\\.packages$",
+    },
+    float = true,
+    center = true,
+    size = "1100 720",
+})
+
+hl.window_rule({
+    match = {
+        class = "^org\\.aurelia\\.about$",
+    },
+    float = true,
+    center = true,
+    -- workstation-about owns the terminal's measured cell geometry. Avoid a
+    -- competing pixel-size rule here: Kitty/Foot open at the compact 130x32
+    -- cell envelope and the renderer refines it after the terminal maps.
+})
+
 hl.window_rule({
     match = {
         class = "^org\\.pulseaudio\\.pavucontrol$",

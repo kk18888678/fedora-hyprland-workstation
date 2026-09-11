@@ -168,6 +168,21 @@ function sortRows(rows, query) {
     return visible
 }
 
+// Global Command Center search keeps actionable/provider results ahead of the
+// broader home-file search. Each group still uses the same fuzzy ranking; the
+// group boundary only prevents a filename match from displacing an app,
+// action, module, or calculator result.
+function sortRowsWithFilesLast(rows, query) {
+    var nonFileRows = []
+    var fileRows = []
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i]
+        if (row && row.kind === "file") fileRows.push(row)
+        else nonFileRows.push(row)
+    }
+    return sortRows(nonFileRows, query).concat(sortRows(fileRows, query))
+}
+
 if (typeof module !== "undefined") {
     module.exports = {
         entryName: entryName,
@@ -177,6 +192,7 @@ if (typeof module !== "undefined") {
         fuzzyScore: fuzzyScore,
         sortedEntries: sortedEntries,
         rowScore: rowScore,
-        sortRows: sortRows
+        sortRows: sortRows,
+        sortRowsWithFilesLast: sortRowsWithFilesLast
     }
 }

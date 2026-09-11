@@ -1,0 +1,8 @@
+# packages/bluetooth.txt
+#
+# Bluetooth capability for physical workstations.
+# This manifest is installed only when the selected profile enables Bluetooth.
+
+# BlueZ service and additional CLI controls.
+bluez
+bluez-tools

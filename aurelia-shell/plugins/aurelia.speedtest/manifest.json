@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.speedtest",
+  "name": "Speed Test",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Bounded download and upload speed test.",
+  "kinds": ["panel"],
+  "entryPoints": {
+    "panel": "SpeedtestPlugin.qml"
+  }
+}

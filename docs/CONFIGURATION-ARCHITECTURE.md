@@ -49,6 +49,7 @@ Machine Profile and Setup Mode represent distinct, non-overlapping concerns:
   - **Recommended Workstation**: Complete, opinionated repository configuration.
   - **Customize Workstation**: Granular selection of applications, utilities, and role defaults.
 - A virtual machine can be customized, and a physical workstation can run recommended defaults. Profile and setup mode are completely orthogonal.
+- Customize mode also presents the two supported post-login shell choices (`noctalia` and `aurelia`). The choice is stored in Desired State, included in the plan fingerprint/review, and applied only after the user accepts the plan; the Noctalia greetd greeter remains a separate login component.
 
 ---
 
@@ -195,7 +196,7 @@ The Reconciler (`modules/lib/reconciler.sh`):
 
 ## 10. Non-Interactive Terminal Safety
 
-- `wizard_is_interactive()` verifies that standard input is an interactive TTY (`[[ -t 0 ]]`).
+- `wizard_is_interactive()` verifies that standard input is an interactive TTY (`[[ -t 0 ]]`) for production runs. Mock input is limited to isolated test fixtures and cannot bypass the production guard.
 - Production runs strictly require an interactive terminal. If executed non-interactively without mock input, the installer fails closed immediately:
   ```text
   ERROR: Interactive terminal required for setup mode selection. Run in an interactive terminal.
@@ -214,7 +215,8 @@ To prevent competing ownership and double-installation bugs:
   Legacy installation stages (`install_browsers`, `install_nix`, `install_packages`) invoke `is_component_migrated "$id"` and skip any component managed by the Reconciler.
 - **Preserved Non-Migrated Software**:
   Tools not yet in the registry (e.g. `brave-origin` in browsers, non-migrated packages in manifest files) remain fully owned and installed by legacy stages.
-- Login-critical activation (`greetd`, `Hyprland`, `Noctalia`) remains intact, isolated, and blocks activation only on login-critical failures.
+- Login-critical activation (`greetd`, Hyprland, and the Noctalia greeter) remains intact and isolated. The post-login shell uses the profile default or the shell selected in the Customize flow; Aurelia failures remain non-login-critical.
+- Core Fedora package manifests are represented in the plan as package-group components (`packages.base`, `packages.desktop`, `packages.aurelia`, `packages.diagnostics`, `packages.media`, `packages.flatpak`, and `packages.containers`); the Aurelia group is desired only for the Aurelia shell, while profile-gated Bluetooth remains a legacy classified stage until its desired-state semantics are modeled.
 - The reconciler executes alongside existing classified stages.
 - Representative components (`chromium`, `firefox`, `foot`, `neovim`, `nix`, `devenv`, `htop`) prove the registry, roles, dependencies, and removal flows without disrupting the overall desktop stack.
 
@@ -223,7 +225,10 @@ To prevent competing ownership and double-installation bugs:
 ## 12. What Remains Intentionally Unimplemented
 
 In accordance with strict change discipline:
-- Noctalia replacement.
+- Full replacement of the stable workstation Noctalia session shell. The VM profile may select the repository-owned Aurelia preview shell while retaining the Noctalia greeter.
 - Mass migration of all packages into the registry.
 - AI Bridge and dictation services.
-- Large new third-party software catalog.
+- Unrestricted third-party software catalog ingestion. The source-aware Fedora
+  / Flatpak / Aurelia package manager is intentionally limited to configured
+  DNF repositories, explicitly declared HTTPS Flatpak remotes, and exact
+  official GitHub repositories that publish stable checksummed Linux binaries.

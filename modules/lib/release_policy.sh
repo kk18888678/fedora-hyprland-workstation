@@ -27,6 +27,13 @@ _PRERELEASE_REGISTRY_LOADED=false
 _PRERELEASE_REGISTRY_VALID=false
 _PRERELEASE_REGISTRY_FILE=""
 
+# This library is also sourced directly by the update-discovery script, so it
+# cannot depend on the full common-library aggregator for its test boundary.
+release_policy_test_override_allowed() {
+    [[ "${INSTALLER_PRODUCTION_MODE:-0}" != "1" &&
+       "${WORKSTATION_TEST_MODE:-0}" == "1" ]]
+}
+
 # Normalize raw application identifier to a canonical internal format:
 # Lowercase, trimmed, hyphens replaced with underscores.
 canonical_app_id() {
@@ -111,8 +118,8 @@ classify_release_tag() {
 # Validate declarative registry syntax and invariants without executing code.
 validate_prerelease_exceptions_registry() {
     local file="$1"
-    if [[ ! -f "$file" || ! -r "$file" ]]; then
-        printf 'ERROR: Prerelease exceptions registry missing or unreadable: %s\n' "$file" >&2
+    if [[ ! -f "$file" || -L "$file" || ! -r "$file" ]]; then
+        printf 'ERROR: Prerelease exceptions registry missing, symlinked, or unreadable: %s\n' "$file" >&2
         return 1
     fi
 
@@ -267,7 +274,7 @@ validate_prerelease_exceptions_registry() {
 
 # Resolve default registry file path
 _default_prerelease_registry_path() {
-    if [[ -n "${PRERELEASE_EXCEPTIONS_FILE:-}" ]]; then
+    if release_policy_test_override_allowed && [[ -n "${PRERELEASE_EXCEPTIONS_FILE:-}" ]]; then
         printf '%s\n' "$PRERELEASE_EXCEPTIONS_FILE"
         return 0
     fi
@@ -520,10 +527,25 @@ select_eligible_release() {
     return 1
 }
 
-# Bounded GitHub release discovery parameters
-# Bounds prevent infinite pagination loops while providing full coverage for typical workstation tools.
+# Bounded GitHub release discovery parameters.
+# The environment may provide fixture values for isolated tests, but every
+# invocation validates them against a small, finite upper bound before doing
+# network work.  This keeps update discovery bounded even when inherited
+# environment variables are malformed or unexpectedly large.
 RELEASE_DISCOVERY_MAX_PAGES="${RELEASE_DISCOVERY_MAX_PAGES:-10}"
 RELEASE_DISCOVERY_PER_PAGE="${RELEASE_DISCOVERY_PER_PAGE:-30}"
+# These are module constants rather than readonly shell variables because
+# the test runner intentionally sources modules repeatedly for isolation.
+RELEASE_DISCOVERY_MAX_PAGES_LIMIT=100
+RELEASE_DISCOVERY_PER_PAGE_LIMIT=100
+
+release_policy_valid_discovery_bound() {
+    local value="$1"
+    local maximum="$2"
+
+    [[ "$value" =~ ^[1-9][0-9]{0,2}$ ]] || return 1
+    (( value <= maximum ))
+}
 
 _default_github_page_fetcher() {
     local repo_slug="$1"
@@ -534,7 +556,7 @@ _default_github_page_fetcher() {
         return 1
     fi
 
-    curl -fsSL --max-time 15 \
+    curl --proto '=https' --proto-redir '=https' -fsSL --max-time 15 \
         -H "Accept: application/vnd.github+json" \
         "https://api.github.com/repos/${repo_slug}/releases?page=${page}&per_page=${per_page}" 2>/dev/null
 }
@@ -547,16 +569,34 @@ discover_github_release_candidates() {
     local _out_status_var="$3"
     local fetcher="${4:-_default_github_page_fetcher}"
 
+    # These names are internal output references.  Validate them before
+    # creating namerefs so malformed caller input cannot become shell syntax.
+    [[ "$_out_candidates_var" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 1
+    [[ "$_out_status_var" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 1
+
+    local -n out_candidates="$_out_candidates_var"
+    local -n out_status="$_out_status_var"
+
     local max_pages="$RELEASE_DISCOVERY_MAX_PAGES"
     local per_page="$RELEASE_DISCOVERY_PER_PAGE"
 
     local all_candidates=()
     local discovery_status="complete"
 
-    local jq_bin="${JQ_CMD:-jq}"
+    out_candidates=()
+
+    if ! release_policy_valid_discovery_bound "$max_pages" "$RELEASE_DISCOVERY_MAX_PAGES_LIMIT" ||
+        ! release_policy_valid_discovery_bound "$per_page" "$RELEASE_DISCOVERY_PER_PAGE_LIMIT"; then
+        out_status="invalid_configuration"
+        return 0
+    fi
+
+    local jq_bin="jq"
+    if release_policy_test_override_allowed && [[ -n "${JQ_CMD:-}" ]]; then
+        jq_bin="$JQ_CMD"
+    fi
     if ! command -v "$jq_bin" >/dev/null 2>&1; then
-        eval "$_out_candidates_var=()"
-        printf -v "$_out_status_var" '%s' "parser_unavailable"
+        out_status="parser_unavailable"
         return 0
     fi
 
@@ -578,7 +618,7 @@ discover_github_release_candidates() {
             if type != "array" then
                 error("API response is not an array")
             else
-                .[] | "\(.tag_name)\t\(.prerelease)"
+                .[] | select(.draft != true) | "\(.tag_name)\t\(.prerelease)"
             end' 2>/dev/null)"; then
             discovery_status="parse_error"
             break
@@ -616,7 +656,6 @@ discover_github_release_candidates() {
         discovery_status="bound_reached"
     fi
 
-    eval "$_out_candidates_var=(\"\${all_candidates[@]}\")"
-    printf -v "$_out_status_var" '%s' "$discovery_status"
+    out_candidates=("${all_candidates[@]}")
+    out_status="$discovery_status"
 }
-

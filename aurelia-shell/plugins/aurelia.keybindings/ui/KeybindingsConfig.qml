@@ -56,6 +56,7 @@ QtObject {
     readonly property int searchHeight: 48
     readonly property int searchBorderRadius: Theme.radiusMd
     readonly property int searchPaddingHorizontal: 14
+    readonly property int searchIconSize: 22
 
     // =========================================================================
     // 4. List & Rows (Shortcut Table Layout)

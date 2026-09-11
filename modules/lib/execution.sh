@@ -37,6 +37,14 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Test fixtures may replace host identity, repository paths, parsers, or
+# executors.  Those substitutions are never valid input to the production
+# entry point, even when an environment variable is inherited from the caller.
+installer_test_override_allowed() {
+    [[ "${INSTALLER_PRODUCTION_MODE:-0}" != "1" &&
+       "${WORKSTATION_TEST_MODE:-0}" == "1" ]]
+}
+
 require_command() {
     local command_name="$1"
 
@@ -47,13 +55,19 @@ require_command() {
 run_as_target_user() {
     local target_user="${TARGET_USER:-}"
     local target_home="${TARGET_HOME:-}"
-    local effective_uid="${OVERRIDE_EUID:-$EUID}"
+    local effective_uid="$EUID"
+
+    if installer_test_override_allowed &&
+        [[ -n "${OVERRIDE_EUID:-}" ]]; then
+        effective_uid="$OVERRIDE_EUID"
+    fi
 
     [[ -n "$target_user" ]] || die "TARGET_USER is not defined."
     [[ -n "$target_home" ]] || die "TARGET_HOME is not defined."
 
     local target_uid=""
-    if [[ -n "${OVERRIDE_TARGET_UID:-}" ]]; then
+    if installer_test_override_allowed &&
+        [[ -n "${OVERRIDE_TARGET_UID:-}" ]]; then
         target_uid="$OVERRIDE_TARGET_UID"
     elif command_exists id; then
         target_uid="$(id -u "$target_user" 2>/dev/null || true)"
@@ -192,6 +206,46 @@ require_sudo() {
     SUDO_KEEPALIVE_PID=$!
 }
 
+install_root_file_atomically() {
+    local source="$1"
+    local destination="$2"
+    local mode="$3"
+    local owner="$4"
+    local group="$5"
+    local destination_dir
+    local token_file
+    local stage_token
+    local staged_destination
+
+    [[ -f "$source" && ! -L "$source" ]] || return 1
+    [[ "$destination" == /* && "$destination" != "/" ]] || return 1
+
+    destination_dir="$(dirname -- "$destination")"
+    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+        ! validate_mutation_path "$destination_dir"; then
+        return 1
+    fi
+    if ! token_file="$(mktemp)"; then
+        return 1
+    fi
+    stage_token="$(basename -- "$token_file")"
+    rm -f -- "$token_file" || return 1
+    staged_destination="$destination_dir/.$(basename -- "$destination").fhw-${stage_token}"
+
+    # Install into a unique sibling first, then replace the destination with
+    # rename semantics.  This prevents readers from observing a truncated
+    # root-owned configuration file.
+    if ! sudo install -D -m "$mode" -o "$owner" -g "$group" \
+        "$source" "$staged_destination"; then
+        return 1
+    fi
+
+    if ! sudo mv -T -- "$staged_destination" "$destination"; then
+        sudo rm -f -- "$staged_destination" 2>/dev/null || true
+        return 1
+    fi
+}
+
 install_root_file_from_stdin() {
     local destination="$1"
     local mode="$2"
@@ -199,14 +253,79 @@ install_root_file_from_stdin() {
     local group="$4"
     local temp_file
 
-    temp_file="$(mktemp)"
+    temp_file="$(mktemp)" || return 1
 
-    cat >"$temp_file"
+    if ! cat >"$temp_file"; then
+        rm -f -- "$temp_file"
+        return 1
+    fi
 
-    sudo install -D -m "$mode" -o "$owner" -g "$group" \
-        "$temp_file" "$destination"
+    if ! install_root_file_atomically "$temp_file" "$destination" "$mode" "$owner" "$group"; then
+        rm -f -- "$temp_file"
+        return 1
+    fi
 
-    rm -f "$temp_file"
+    rm -f -- "$temp_file"
+}
+
+install_root_file_from_stdin_preserving_existing() {
+    local destination="$1"
+    local mode="$2"
+    local owner="$3"
+    local group="$4"
+    local destination_dir
+    local temp_file
+    local backup=""
+
+    [[ "$destination" == /* && "$destination" != "/" ]] || return 1
+    destination_dir="$(dirname -- "$destination")"
+    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+        ! validate_mutation_path "$destination_dir"; then
+        return 1
+    fi
+
+    temp_file="$(mktemp)" || return 1
+    if ! cat >"$temp_file"; then
+        rm -f -- "$temp_file"
+        return 1
+    fi
+
+    # A converged file is already the desired state. Avoid needless mtime
+    # changes and avoid creating a new backup on every rerun.
+    if [[ -f "$destination" && ! -L "$destination" ]] &&
+        cmp -s "$temp_file" "$destination"; then
+        rm -f -- "$temp_file"
+        return 0
+    fi
+
+    if [[ -e "$destination" || -L "$destination" ]]; then
+        local backup_stamp
+        backup_stamp="$(date +%Y%m%d-%H%M%S)" || {
+            rm -f -- "$temp_file"
+            return 1
+        }
+        backup="${destination}.bak.${backup_stamp}"
+        local backup_counter=1
+        while [[ -e "$backup" || -L "$backup" ]]; do
+            backup="${destination}.bak.${backup_stamp}.${backup_counter}"
+            backup_counter=$((backup_counter + 1))
+        done
+
+        if ! sudo mv -T -- "$destination" "$backup"; then
+            rm -f -- "$temp_file"
+            return 1
+        fi
+    fi
+
+    if ! install_root_file_atomically "$temp_file" "$destination" "$mode" "$owner" "$group"; then
+        if [[ -n "$backup" && ! -e "$destination" && ! -L "$destination" ]]; then
+            sudo mv -T -- "$backup" "$destination" || true
+        fi
+        rm -f -- "$temp_file"
+        return 1
+    fi
+
+    rm -f -- "$temp_file"
 }
 
 install_root_file() {
@@ -216,9 +335,20 @@ install_root_file() {
     local owner="$4"
     local group="$5"
 
-    [[ -f "$source" ]] ||
-        die "Managed file is missing: $source"
+    [[ -f "$source" && ! -L "$source" ]] ||
+        die "Managed file is missing or is a symlink: $source"
 
-    sudo install -D -m "$mode" -o "$owner" -g "$group" \
-        "$source" "$destination"
+    local temp_file
+    if ! temp_file="$(mktemp)" || ! cp -- "$source" "$temp_file"; then
+        rm -f -- "${temp_file:-}" 2>/dev/null || true
+        return 1
+    fi
+
+    if ! install_root_file_atomically "$temp_file" "$destination" "$mode" "$owner" "$group"; then
+        rm -f -- "$temp_file"
+        error "Failed to install managed file at $destination."
+        return 1
+    fi
+
+    rm -f -- "$temp_file"
 }

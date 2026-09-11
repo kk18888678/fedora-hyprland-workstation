@@ -36,6 +36,39 @@ else
     fail "50c. unclassified login failure did not block activation"
 fi
 
+# 50c1: a login-class stage that already classified a workstation failure must
+# not be upgraded to activation-critical merely because it returns nonzero.
+_reset_test_status
+mock_login_required_fail() {
+    record_required "desktop" "service" "Non-login desktop service failed."
+    return 1
+}
+run_classified_step login "Classified login-stage service failure" mock_login_required_fail
+if [[ "${#INSTALL_REQUIRED_FAILURES[@]}" -eq 1 &&
+      "${#INSTALL_LOGIN_FAILURES[@]}" -eq 0 &&
+      "$ACTIVATION_BLOCKED" -eq 0 ]]; then
+    pass "50c1. preclassified workstation failure in a login stage does not block graphical activation"
+else
+    fail "50c1. preclassified login-stage failure was incorrectly upgraded: req=${#INSTALL_REQUIRED_FAILURES[@]} login=${#INSTALL_LOGIN_FAILURES[@]} blocked=$ACTIVATION_BLOCKED"
+fi
+
+# 50c2: production stages cannot swallow an unguarded mutation failure.
+_reset_test_status
+mock_uncaught_mutation() {
+    false
+    record_success "must-not-be-recorded"
+}
+INSTALLER_PRODUCTION_MODE=1
+run_classified_step optional "Production unguarded failure" mock_uncaught_mutation
+unset INSTALLER_PRODUCTION_MODE
+if [[ "${#INSTALL_DEFERRED[@]}" -eq 1 &&
+      "${#INSTALL_SUCCEEDED[@]}" -eq 0 &&
+      "${INSTALL_DEFERRED[0]}" == *"Stage exited 1"* ]]; then
+    pass "50c2. production ERR trampoline classifies unguarded stage failures before success can be recorded"
+else
+    fail "50c2. production stage swallowed an unguarded failure: success=${INSTALL_SUCCEEDED[*]} deferred=${INSTALL_DEFERRED[*]}"
+fi
+
 # 50d & 50e: reconciler action records deferred and execution completes -> no additional required stage failure is added
 _reset_test_status
 reset_component_registry

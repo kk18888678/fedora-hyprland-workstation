@@ -50,8 +50,12 @@ required_paths=(
     install.sh
     config/versions.conf
     config/noctalia-greeter/greeter.toml
+    config/session-shell/noctalia
+    config/session-shell/aurelia
     packages/base.txt
     packages/desktop.txt
+    packages/aurelia.txt
+    packages/bluetooth.txt
     packages/media.txt
     packages/diagnostics.txt
     dotfiles/nvim/init.lua

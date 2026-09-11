@@ -12,7 +12,7 @@ import "../../theme"
 PanelWindow {
     id: barRoot
 
-    property string aureliaPath: ""
+    property string aureliaPath: String(Qt.resolvedUrl("../../")).replace(/^file:\/\//, "")
     property var shell: null
     property var shellConfig: null
     property var manifest: ({})
@@ -21,18 +21,22 @@ PanelWindow {
     property int widgetRevision: 0
 
     readonly property var defaultConfig: ({
+        id: "aurelia.bar",
         position: "top",
         transparent: false,
         centerAnchor: "aurelia.clock",
         layout: {
             left: [{ id: "aurelia.workspaces" }],
             center: [
+                { id: "aurelia.notifications" },
                 { id: "aurelia.clock", format: "MMM d, dddd HH:mm" },
                 { id: "aurelia.weather", location: "auto" }
             ],
             right: [
                 { id: "aurelia.tray" },
-                { id: "aurelia.notifications" },
+                { id: "aurelia.network" },
+                { id: "aurelia.bluetooth" },
+                { id: "aurelia.monitor" },
                 { id: "aurelia.screenshot" },
                 { id: "aurelia.power" }
             ]
@@ -41,25 +45,45 @@ PanelWindow {
     readonly property var barConfig: shellConfig && shellConfig.config && shellConfig.config.bar
         ? shellConfig.config.bar
         : defaultConfig
-    readonly property string position: barConfig.position === "bottom" ? "bottom" : "top"
+    readonly property string position: ["top", "bottom", "left", "right"].indexOf(barConfig.position) !== -1
+        ? barConfig.position
+        : "top"
     readonly property string centerAnchor: typeof barConfig.centerAnchor === "string" ? barConfig.centerAnchor : ""
     readonly property bool transparent: barConfig.transparent === true
     readonly property bool barConfigReady: barConfig && barConfig.layout
-    // Match the horizontal size used by Omarchy's reference bar. Bar-owned
-    // PopupWindow surfaces anchor to this actual layer-shell window, so this
-    // is not used as a guessed screen offset.
-    readonly property int barSize: 26
+    readonly property bool vertical: position === "left" || position === "right"
+    // The cross-axis size follows the reference bar's structural scale. Popup
+    // panels read this same property from their actual anchor window.
+    readonly property int barSize: vertical ? Theme.bar.sizeVertical : Theme.bar.sizeHorizontal
+    readonly property int barOuterMargin: Theme.bar.outerMargin
+    readonly property int barIconSlot: Theme.bar.iconSlot
+    readonly property int barIconCanvas: Theme.bar.iconCanvas
+    readonly property int barIconFont: Theme.bar.iconFont
+    readonly property int barStatusSlot: Theme.bar.statusSlot
+    readonly property int barTrayIcon: Theme.bar.trayIcon
+    readonly property real barTextMargin: Theme.bar.textMargin
+    readonly property int barTextSize: Theme.bar.text
+    readonly property int barCaptionSize: Theme.bar.caption
+    property bool barHidden: false
+    readonly property bool barVisible: !barHidden
     property var activePopout: null
     property string activePopoutId: ""
 
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "aurelia-bar"
-    anchors.top: position === "top"
-    anchors.bottom: position === "bottom"
-    anchors.left: true
-    anchors.right: true
-    implicitHeight: barSize
-    exclusionMode: ExclusionMode.Auto
+    anchors.top: position === "top" || vertical
+    anchors.bottom: position === "bottom" || vertical
+    anchors.left: position === "left" || !vertical
+    anchors.right: position === "right" || !vertical
+    implicitWidth: vertical ? barSize : 0
+    implicitHeight: vertical ? 0 : barSize
+    margins {
+        top: barRoot.barHidden && position === "top" ? -barSize : 0
+        bottom: barRoot.barHidden && position === "bottom" ? -barSize : 0
+        left: barRoot.barHidden && position === "left" ? -barSize : 0
+        right: barRoot.barHidden && position === "right" ? -barSize : 0
+    }
+    exclusionMode: barHidden ? ExclusionMode.Ignore : ExclusionMode.Auto
     color: "transparent"
     visible: true
 
@@ -83,6 +107,13 @@ PanelWindow {
 
     function bumpWidgetRevision() {
         widgetRevision++
+    }
+
+    function reloadWidgets() {
+        var slots = widgetSlots.slice()
+        for (var i = 0; i < slots.length; i++) {
+            if (slots[i] && typeof slots[i].reload === "function") slots[i].reload()
+        }
     }
 
     function anchorItemFor(pluginId) {
@@ -115,7 +146,7 @@ PanelWindow {
     }
 
     function open(payloadJson) {
-        visible = true
+        barHidden = false
         return "ok"
     }
 
@@ -146,17 +177,33 @@ PanelWindow {
         else if (activePopout && typeof activePopout.requestClose === "function") activePopout.requestClose("bar-close")
         activePopout = null
         activePopoutId = ""
-        visible = false
+        barHidden = true
         return "ok"
     }
 
     function toggle(payloadJson) {
-        visible = !visible
-        return visible ? "ok" : "closed"
+        barHidden = !barHidden
+        return barHidden ? "closed" : "ok"
     }
 
     function isVisible() {
-        return visible
+        return !barHidden
+    }
+
+    function themeStatus() {
+        return JSON.stringify({
+            visible: barRoot.visible,
+            hidden: barRoot.barHidden,
+            transparent: barRoot.transparent,
+            surface: String(barSurface.color),
+            border: String(barSurface.border.color),
+            themeBackground: String(Theme.bar.background),
+            themeAccent: String(Theme.bar.active),
+            themeText: String(Theme.bar.foreground),
+            widgetSlots: barRoot.widgetSlots.length,
+            position: barRoot.position,
+            size: barRoot.barSize
+        })
     }
 
     IpcHandler {
@@ -167,19 +214,23 @@ PanelWindow {
         function close(): void { barRoot.close() }
         function toggle(): void { barRoot.toggle("{}") }
         function isVisible(): bool { return barRoot.isVisible() }
+        function themeStatus(): string { return barRoot.themeStatus() }
     }
 
     Rectangle {
+        id: barSurface
         anchors.fill: parent
-        color: barRoot.transparent ? "transparent" : Theme.bgBase
-        border.color: barRoot.transparent ? "transparent" : Theme.border
+        color: barRoot.transparent ? "transparent" : Theme.bar.background
+        border.color: barRoot.transparent ? "transparent" : Theme.bar.border
         border.width: barRoot.transparent ? 0 : Theme.borderWidthDefault
 
         Item {
             id: content
             anchors.fill: parent
-            anchors.leftMargin: Theme.spacingLg
-            anchors.rightMargin: Theme.spacingLg
+            anchors.leftMargin: barRoot.vertical ? 0 : barRoot.barOuterMargin
+            anchors.rightMargin: barRoot.vertical ? 0 : barRoot.barOuterMargin
+            anchors.topMargin: barRoot.vertical ? barRoot.barOuterMargin : 0
+            anchors.bottomMargin: barRoot.vertical ? barRoot.barOuterMargin : 0
 
             // Stable fallback anchor for center-on-bar panels while a widget
             // slot is still being registered. It is non-interactive and does
@@ -194,16 +245,21 @@ PanelWindow {
                 z: -100
             }
 
-            RowLayout {
+            GridLayout {
                 id: leftGroup
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.spacingSm
+                anchors.left: barRoot.vertical ? undefined : parent.left
+                anchors.top: barRoot.vertical ? parent.top : undefined
+                anchors.horizontalCenter: barRoot.vertical ? parent.horizontalCenter : undefined
+                anchors.verticalCenter: barRoot.vertical ? undefined : parent.verticalCenter
+                columns: barRoot.vertical ? 1 : 2
+                columnSpacing: barRoot.vertical ? 0 : Theme.spacingSm
+                rowSpacing: barRoot.vertical ? Theme.spacingSm : 0
 
                 AureliaLogo {
+                    bar: barRoot
                     shell: barRoot.shell
-                    Layout.preferredWidth: implicitWidth
-                    Layout.preferredHeight: implicitHeight
+                    Layout.preferredWidth: barRoot.vertical ? barRoot.barSize : implicitWidth
+                    Layout.preferredHeight: barRoot.vertical ? implicitHeight : barRoot.barSize
                 }
 
                 BarWidgetRow {
@@ -212,8 +268,8 @@ PanelWindow {
                     shell: barRoot.shell
                     pluginRegistry: barRoot.pluginRegistry
                     aureliaPath: barRoot.aureliaPath
-                    Layout.preferredWidth: implicitWidth
-                    Layout.preferredHeight: barRoot.height
+                    Layout.preferredWidth: barRoot.vertical ? barRoot.barSize : implicitWidth
+                    Layout.preferredHeight: barRoot.vertical ? implicitHeight : barRoot.barSize
                 }
             }
 
@@ -229,8 +285,10 @@ PanelWindow {
 
             BarWidgetRow {
                 id: rightGroup
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: barRoot.vertical ? undefined : parent.right
+                anchors.bottom: barRoot.vertical ? parent.bottom : undefined
+                anchors.horizontalCenter: barRoot.vertical ? parent.horizontalCenter : undefined
+                anchors.verticalCenter: barRoot.vertical ? undefined : parent.verticalCenter
                 entries: barRoot.entriesFor("right")
                 bar: barRoot
                 shell: barRoot.shell

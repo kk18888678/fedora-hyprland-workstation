@@ -21,6 +21,7 @@ init_plan() {
     declare -g "${plan_prefix}_COUNT_KEEP"=0
     declare -g "${plan_prefix}_COUNT_CONFIGURE"=0
     declare -g "${plan_prefix}_COUNT_CHANGE_DEFAULT"=0
+    declare -g "${plan_prefix}_DESKTOP_SHELL"="${DESKTOP_SHELL:-noctalia}"
 
     declare -g -a "${plan_prefix}_ACTIONS"
     declare -g -A "${plan_prefix}_ACTION_TYPE"
@@ -226,8 +227,10 @@ compute_plan_fingerprint() {
     local c_cfg="${plan_prefix}_COUNT_CONFIGURE"
     local c_keep="${plan_prefix}_COUNT_KEEP"
     local c_def="${plan_prefix}_COUNT_CHANGE_DEFAULT"
+    local shell_var="${plan_prefix}_DESKTOP_SHELL"
 
     local lines=()
+    lines+=("DESKTOP_SHELL:${!shell_var:-noctalia}")
     lines+=("COUNTS:${!c_inst}:${!c_rem}:${!c_cfg}:${!c_keep}:${!c_def}")
     for idx in "${actions_list[@]}"; do
         lines+=("ACTION:$idx:${type_map[$idx]}:${target_map[$idx]}:${reason_map[$idx]}:${details_map[$idx]}")
@@ -251,6 +254,13 @@ _validate_plan_structure() {
     local c_cfg="${plan_prefix}_COUNT_CONFIGURE"
     local c_keep="${plan_prefix}_COUNT_KEEP"
     local c_def="${plan_prefix}_COUNT_CHANGE_DEFAULT"
+
+    local shell_var="${plan_prefix}_DESKTOP_SHELL"
+    local desktop_shell="${!shell_var:-}"
+    if [[ "$desktop_shell" != "noctalia" && "$desktop_shell" != "aurelia" ]]; then
+        printf 'ERROR: Plan specifies invalid desktop shell: %s\n' "${desktop_shell:-<unset>}" >&2
+        return 1
+    fi
 
     local sum=$(( ${!c_inst:-0} + ${!c_rem:-0} + ${!c_cfg:-0} + ${!c_keep:-0} + ${!c_def:-0} ))
     if [[ "$sum" -ne "${#actions_list[@]}" ]]; then
@@ -433,6 +443,8 @@ create_execution_plan() {
 
     local -n ds_comp_map="${ds_prefix}_COMPONENTS"
     local -n ds_def_map="${ds_prefix}_ROLE_DEFAULTS"
+    local ds_shell_var="${ds_prefix}_DESKTOP_SHELL"
+    declare -g "${plan_prefix}_DESKTOP_SHELL"="${!ds_shell_var}"
 
     # Working copy of component states for dependency resolution
     declare -A working_state=()
@@ -681,10 +693,12 @@ format_plan_summary() {
     local c_cfg="${plan_prefix}_COUNT_CONFIGURE"
     local c_keep="${plan_prefix}_COUNT_KEEP"
     local c_def="${plan_prefix}_COUNT_CHANGE_DEFAULT"
+    local shell_var="${plan_prefix}_DESKTOP_SHELL"
 
     printf '%s\n' '============================================================'
     printf 'WORKSTATION CONFIGURATION PLAN\n'
     printf '%s\n\n' '============================================================'
+    printf 'Desktop shell: %s\n\n' "${!shell_var:-noctalia}"
 
     # 1. INSTALL
     local has_inst=0

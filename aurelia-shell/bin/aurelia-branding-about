@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+# aurelia-branding-about — set or reset the Aurelia About branding.
+#
+# About branding is native-image-only. User PNG/SVG input is rasterized at high
+# density and stored as PNG; workstation-about always sends that PNG directly
+# through Fastfetch's native terminal graphics protocol.
+
+set -Eeuo pipefail
+
+readonly SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)"
+
+SHELL_ROOT=""
+root_candidates=()
+if [[ ${AURELIA_SHELL_ROOT:-} == /* ]]; then
+    root_candidates+=("$AURELIA_SHELL_ROOT")
+fi
+root_candidates+=("$SCRIPT_DIR/.." "/usr/local/share/aurelia-shell")
+for candidate in "${root_candidates[@]}"; do
+    if [[ -f "$candidate/config/branding/aurelia-mark.svg" &&
+        -f "$candidate/config/branding/aurelia-mark.png" ]]; then
+        SHELL_ROOT="$(readlink -f -- "$candidate")"
+        break
+    fi
+done
+[[ -n $SHELL_ROOT ]] || {
+    printf '%s\n' 'Aurelia About branding assets are not installed.' >&2
+    exit 1
+}
+readonly SHELL_ROOT
+
+if [[ ${XDG_CONFIG_HOME:-} == /* ]]; then
+    readonly CONFIG_HOME="$XDG_CONFIG_HOME"
+else
+    readonly CONFIG_HOME="${HOME:?}/.config"
+fi
+
+readonly BRANDING_DIR="$CONFIG_HOME/aurelia/branding"
+readonly IMAGE_FILE="$BRANDING_DIR/about.png"
+readonly DEFAULT_IMAGE_FILE="$SHELL_ROOT/config/branding/aurelia-mark.png"
+
+usage() {
+    printf '%s\n' \
+        "Usage: aurelia-branding-about <image|reset> [path]" \
+        "  image [path]  Install a PNG/SVG as the native About image." \
+        "  reset         Restore the native Aurelia mark from the repository."
+}
+
+select_image() {
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --file-selection \
+            --title="Pick PNG or SVG for Aurelia About" \
+            --file-filter="Image files | *.png *.svg" 2>/dev/null
+        return $?
+    fi
+
+    if command -v kdialog >/dev/null 2>&1; then
+        kdialog --title "Pick PNG or SVG for Aurelia About" \
+            --getopenfilename "$HOME" "*.png *.svg" 2>/dev/null
+        return $?
+    fi
+
+    printf '%s\n' \
+        'No graphical file picker is available; pass an explicit PNG or SVG path.' >&2
+    return 1
+}
+
+install_image() {
+    local source="$1"
+    local temporary
+
+    command -v magick >/dev/null 2>&1 || {
+        printf '%s\n' 'ImageMagick (magick) is required for native image branding.' >&2
+        return 1
+    }
+    mkdir -p -- "$BRANDING_DIR"
+    temporary="$(mktemp "$BRANDING_DIR/.about.png.XXXXXX")"
+    trap 'rm -f -- "$temporary"' RETURN
+
+    # Render SVGs at 384 DPI before fitting them into the 1024px canvas. The
+    # default 96 DPI rasterization would first create a 256px bitmap and then
+    # enlarge it, producing the soft edges seen in the old About surface.
+    magick -background none -density 384 "$source" -auto-orient \
+        -resize '1024x1024' -gravity center -extent 1024x1024 \
+        -strip "PNG32:$temporary" || {
+        printf 'Could not convert About image: %s\n' "$source" >&2
+        return 1
+    }
+    [[ -s $temporary ]] || {
+        printf 'Converted About image is empty: %s\n' "$source" >&2
+        return 1
+    }
+    mv -- "$temporary" "$IMAGE_FILE"
+    trap - RETURN
+}
+
+reset_about() {
+    local temporary_image
+    mkdir -p -- "$BRANDING_DIR"
+    temporary_image="$(mktemp "$BRANDING_DIR/.about.png.XXXXXX")"
+    trap 'rm -f -- "$temporary_image"' RETURN
+
+    cp -- "$DEFAULT_IMAGE_FILE" "$temporary_image"
+    mv -- "$temporary_image" "$IMAGE_FILE"
+    trap - RETURN
+}
+
+open_about() {
+    "$SCRIPT_DIR/workstation-about" open
+}
+
+case "${1:-}" in
+image)
+    image_path="${2:-}"
+    if [[ -z $image_path ]]; then
+        image_path="$(select_image)" || exit 1
+    fi
+    [[ $# -le 2 ]] || { usage >&2; exit 2; }
+    [[ -f $image_path ]] || {
+        printf 'Image file not found: %s\n' "$image_path" >&2
+        exit 1
+    }
+    case "${image_path,,}" in
+    *.png|*.svg) ;;
+    *)
+        printf '%s\n' 'About branding accepts only PNG or SVG files.' >&2
+        exit 2
+        ;;
+    esac
+    install_image "$image_path"
+    open_about
+    ;;
+reset)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    reset_about
+    open_about
+    ;;
+help|-h|--help)
+    usage
+    ;;
+*)
+    usage >&2
+    exit 2
+    ;;
+esac

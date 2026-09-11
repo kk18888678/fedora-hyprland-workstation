@@ -10,7 +10,8 @@
 hyprland
 hyprland-guiutils
 
-# Desktop shell
+# Noctalia runtime is retained for the greetd greeter; the active post-login
+# shell is selected by the profile.
 noctalia
 
 # Wayland / X11 compatibility
@@ -25,11 +26,11 @@ xdg-desktop-portal-hyprland
 
 # Authentication / privilege prompts / Secret Service
 hyprpolkitagent
-gnome-keyring
 gnome-keyring-pam
 
 # Display manager / greeter foundation
 greetd
+noctalia-greeter
 
 # Terminals
 kitty
@@ -41,9 +42,6 @@ thunar-archive-plugin
 thunar-volman
 thunar-media-tags-plugin
 file-roller
-gvfs
-gvfs-mtp
-gvfs-smb
 gvfs-afc
 xdg-user-dirs
 
@@ -78,6 +76,8 @@ yaru-icon-theme
 # Qt / Wayland integration & settings
 qt6-qtbase
 qt6-qtwayland
+qt6-qtmultimedia
+qt6-qtimageformats
 qt6ct
 
 # Notifications / desktop utilities & basic apps

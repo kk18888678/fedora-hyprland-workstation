@@ -1,5 +1,17 @@
 # Aurelia Shell Plugins
 
+aurelia.background is a resident service plugin, not a bar widget. It owns one
+WlrLayer.Background surface per screen with updatesEnabled kept true so
+switching to an empty or dynamic Hyprland workspace cannot reveal a black
+desktop. It reads the active wallpaper from Aurelia XDG state and uses a solid
+themed fallback until an image or video is ready.
+
+aurelia.theme is an on-demand selector panel. Theme changes are staged through
+aurelia-theme and aurelia-theme-bg; palette data is applied to Aurelia's
+existing Theme.qml singleton and wallpapers are applied through the resident
+background service. Theme directories are data-only: Aurelia never executes
+Lua, shell hooks, or arbitrary application configuration supplied by a theme.
+
 This directory contains first-party Aurelia Shell plugins. First-party and
 user plugins share the same manifest contract; only their source roots differ.
 
@@ -86,6 +98,10 @@ an in-bar controls overlay.
 
 ## Current desktop slices
 
+- aurelia.background: resident per-screen image/video wallpaper service with
+  safe solid-color fallback and live XDG-state reload.
+- aurelia.theme: on-demand theme/background selector backed by the data-only
+  aurelia-theme and aurelia-theme-bg commands.
 - aurelia.screenshot: bar-only camera widget with an internal capture surface,
   backed by Fedora-owned grim, slurp, and wl-copy tools. It supports
   full-screen and region capture with configurable delay, pointer, file, and
@@ -93,13 +109,16 @@ an in-bar controls overlay.
   same quick region flow used by the popup, while `SUPER + SHIFT + S` captures
   the full screen.
 - aurelia.notifications: resident Freedesktop notification service with
-  theme-aware popups, Active/History center views, DND persistence under
+  theme-aware popups, Inbox/History center views, DND persistence under
   `${XDG_STATE_HOME:-$HOME/.local/state}/aurelia/`, clear-history and
   dismiss-all controls. Successful Aurelia screenshot captures publish a local
   preview through the service API; no second notification backend is used. If
   another session daemon owns the Freedesktop bus name, Aurelia keeps the
   center and in-process previews available without repeatedly attempting a
-  conflicting registration.
+  conflicting registration. Inbox rows are retained until the user acts on
+  that individual notification; passive popup expiry never archives the row.
+  ChatGPT completion notifications also keep their passive popup until Open or
+  Dismiss so they cannot be missed while the user is away.
 - aurelia.clock: lightweight center clock bar widget. Its default format is
   `MMM d, dddd HH:mm`; set `format` inline on its layout entry when needed.
 - aurelia.calendar: calendar panel opened by clicking the clock.
@@ -111,15 +130,41 @@ an in-bar controls overlay.
   user-facing app list by the shipped Command Center hide policy.
 - aurelia.workspaces: Hyprland workspace switcher placed immediately after
   the Aurelia logo.
+- aurelia.workspace-switcher: resident Mission Control-inspired overlay opened
+  with `SUPER + TAB`. It shows workspaces 1–5 plus occupied live workspaces up
+  to 10, renders bounded single-frame Hyprland toplevel previews when the
+  compositor export protocol is available, and falls back to app/title cards
+  when it is not. Repeated `SUPER + TAB` presses cycle; Enter or a card click
+  activates the selected workspace and Escape dismisses the overview.
 - aurelia.tray: StatusNotifier system-tray widget for applications such as
   ChatGPT; it is independent from the Noctalia tray.
 - aurelia.power: final right-side power widget with lock, logout, suspend,
   reboot, and shutdown actions. Reboot and shutdown require confirmation.
+- aurelia.bluetooth: BlueZ-backed bar widget with reboot-persistent rfkill
+  power state, paired/available device sections, pair/connect/disconnect/forget
+  actions, battery levels, and bounded discovery cleanup. The implementation is
+  adapted from the working Omarchy Bluetooth panel. Its manifest exposes only
+  `bar-widget`; the keyboard surface is an internal popup owned by the bar
+  widget, not a standalone panel plugin. The bar slot collapses when no BlueZ
+  adapter is available.
 - aurelia.weather: lightweight weather bar widget following Omarchy's default
   automatic IP-based location flow through `wttr.in`. Set `location` to a
   city, or set `latitude`/`longitude` for exact coordinates; `units` and
   `label` are optional inline settings. GPS is not required.
+- aurelia.monitor: Display bar widget with bounded brightness, Aurelia text
+  size, focused-monitor resolution and scale controls, and multi-display
+  enable/disable actions. It shows the current mode and compositor-advertised
+  modes reported by Hyprland, applies only compositor-validated resolutions,
+  uses Fedora's `brightnessctl` for laptop backlights, and keeps external DDC
+  control optional. Runtime display changes do not rewrite the repository-owned
+  Hyprland monitor configuration.
+- aurelia.network: NetworkManager-backed connectivity bar widget with
+  primitive Wi-Fi scan rows, safe credential prompts, Ethernet/Wi-Fi status,
+  captive-portal detection, DNS and Wi-Fi-band controls, QR sharing, and a
+  bounded speed-test handoff. The implementation is adapted from the working
+  Omarchy network panel and keeps QR/speed-test surfaces as separate plugins.
 - aurelia.bar: resident top bar host with left/center/right manifest-backed
   widget slots, an exact center anchor, and a theme-aware camera action that
-  opens the Screenshot panel below the bar. It is independent from Noctalia;
-  running Aurelia does not switch the active desktop shell.
+  opens the Screenshot panel below the bar. It is independent from the
+  Noctalia greeter; the VM profile selects Aurelia as the active post-login
+  desktop shell while the physical-workstation profile keeps Noctalia active.

@@ -1,0 +1,4 @@
+# schema=1
+# source<TAB>github_url<TAB>profiles
+# Stable GitHub release sources for the Aurelia upstream-binary provider.
+github.com/bjarneo/cliamp	https://github.com/bjarneo/cliamp	all

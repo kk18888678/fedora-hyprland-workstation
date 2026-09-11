@@ -251,6 +251,26 @@ status_insecure=0
 provision_verified_binary "http://insecure.example.com/bin" "$correct_sha512" "$test_insecure_dest" "insecure_bin" false >/dev/null 2>&1 || status_insecure=$?
 echo "insecure_rejected=$([[ $status_insecure -ne 0 && ! -e "$test_insecure_dest" ]] && echo 1 || echo 0)"
 
+# 4. Existing destination symlink must be rejected rather than followed.
+symlink_dest="$test_sandbox/symlink_bin"
+symlink_target="$test_sandbox/symlink_target"
+printf 'original\n' > "$symlink_target"
+ln -s "$symlink_target" "$symlink_dest"
+symlink_status=0
+provision_verified_binary "https://example.com/bin" "$correct_sha512" "$symlink_dest" "symlink_bin" false >/dev/null 2>&1 || symlink_status=$?
+echo "destination_symlink_rejected=$([[ $symlink_status -ne 0 && "$(cat "$symlink_target")" == original ]] && echo 1 || echo 0)"
+
+# 5. Root-owned-run provenance records the installed file digest and detects tampering.
+OVERRIDE_ARTIFACT_PROVENANCE_DIR="$test_sandbox/provenance"
+provenance_status=0
+artifact_record_provenance "test_bin" "$correct_sha512" "$test_dest" || provenance_status=$?
+provenance_before=0
+artifact_provenance_matches "test_bin" "$correct_sha512" "$test_dest" && provenance_before=1 || true
+printf 'tampered\n' >> "$test_dest"
+provenance_after=0
+artifact_provenance_matches "test_bin" "$correct_sha512" "$test_dest" && provenance_after=1 || true
+echo "provenance_recorded=$([[ $provenance_status -eq 0 && $provenance_before -eq 1 && $provenance_after -eq 0 ]] && echo 1 || echo 0)"
+
 rm -rf "$test_sandbox" "$TARGET_HOME"
 EOS
 )"
@@ -271,6 +291,110 @@ if printf '%s\n' "$artifact_prov_output" | grep -q 'insecure_rejected=1'; then
     pass "provision_verified_binary rejects insecure non-HTTPS download URLs"
 else
     fail "provision_verified_binary accepted non-HTTPS URL: $artifact_prov_output"
+fi
+
+if printf '%s\n' "$artifact_prov_output" | grep -q 'destination_symlink_rejected=1'; then
+    pass "provision_verified_binary refuses to follow an existing destination symlink"
+else
+    fail "provision_verified_binary followed an existing destination symlink: $artifact_prov_output"
+fi
+
+if printf '%s\n' "$artifact_prov_output" | grep -q 'provenance_recorded=1'; then
+    pass "pinned artifact provenance detects post-install binary tampering"
+else
+    fail "pinned artifact provenance did not detect binary tampering: $artifact_prov_output"
+fi
+
+if grep -q "curl --proto '=https' --proto-redir '=https'" "$ROOT/modules/lib/artifacts.sh" &&
+   grep -q "curl --proto '=https' --proto-redir '=https'" "$ROOT/modules/lib/release_policy.sh"; then
+    pass "pinned artifact and release-discovery downloads reject HTTP redirects"
+else
+    fail "download transport policy permits an HTTP redirect downgrade"
+fi
+
+if grep -q 'GIT_TERMINAL_PROMPT=0' "$ROOT/modules/lib/artifacts.sh"; then
+    pass "pinned Git provisioning cannot block on an interactive credential prompt"
+else
+    fail "pinned Git provisioning leaves terminal prompting enabled"
+fi
+
+versions_symlink_output="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/status.sh"
+
+fixture_dir="$(mktemp -d)"
+trap 'rm -rf -- "$fixture_dir"' EXIT
+outside="$fixture_dir/outside.conf"
+versions_link="$fixture_dir/versions.conf"
+printf 'DANGEROUS=1\n' > "$outside"
+ln -s -- "$outside" "$versions_link"
+SCRIPT_DIR="$fixture_dir"
+mkdir -p "$fixture_dir/config"
+ln -s -- "$outside" "$fixture_dir/config/versions.conf"
+
+load_status=0
+( load_pinned_versions >/dev/null ) || load_status=$?
+printf 'versions_symlink_rejected=%s\n' "$([[ $load_status -ne 0 ]] && echo 1 || echo 0)"
+EOS
+)"
+
+if grep -q 'versions_symlink_rejected=1' <<< "$versions_symlink_output"; then
+    pass "pinned version loading rejects symlinked executable metadata"
+else
+    fail "pinned version loading accepted a symlinked metadata file: $versions_symlink_output"
+fi
+
+clone_pin_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+source "$SCRIPT_DIR/modules/common.sh"
+source "$SCRIPT_DIR/modules/status.sh"
+
+checkout_root="$(mktemp -d)"
+checkout="$checkout_root/checkout"
+mkdir -p "$checkout/.git"
+printf 'keep-me\n' > "$checkout/sentinel"
+trap 'rm -rf -- "$checkout_root"' EXIT
+
+git() {
+    if [[ "$*" == *"rev-parse --verify HEAD"* ]]; then
+        printf '1111111111111111111111111111111111111111\n'
+        return 0
+    fi
+    command git "$@"
+}
+
+mismatch_status=0
+clone_pinned_git \
+    "https://example.com/repository.git" \
+    "$checkout" \
+    "2222222222222222222222222222222222222222" \
+    "Pinned checkout" >/dev/null 2>&1 || mismatch_status=$?
+
+invalid_url_status=0
+clone_pinned_git \
+    "http://example.com/repository.git" \
+    "$checkout_root/invalid-url" \
+    "2222222222222222222222222222222222222222" \
+    "Invalid URL" >/dev/null 2>&1 || invalid_url_status=$?
+
+printf 'mismatch_rejected=%s checkout_preserved=%s invalid_url_rejected=%s\n' \
+    "$([[ $mismatch_status -ne 0 ]] && echo 1 || echo 0)" \
+    "$([[ -f "$checkout/sentinel" && "$(<"$checkout/sentinel")" == keep-me ]] && echo 1 || echo 0)" \
+    "$([[ $invalid_url_status -ne 0 ]] && echo 1 || echo 0)"
+EOS
+)"
+
+if grep -q 'mismatch_rejected=1' <<< "$clone_pin_output" &&
+   grep -q 'checkout_preserved=1' <<< "$clone_pin_output" &&
+   grep -q 'invalid_url_rejected=1' <<< "$clone_pin_output"; then
+    pass "pinned Git provisioning rejects unpinned existing checkouts without modifying them"
+else
+    fail "pinned Git checkout guard failed: $clone_pin_output"
 fi
 
 section "Archive Pre-Extraction Link & Structure Safety Fixtures"
@@ -513,6 +637,23 @@ partial_status=0
 ) || partial_status=$?
 echo "test14_partial_set_rejected_cleanly=$([[ $partial_status -ne 0 && ! -e "$partial_dest_dir/tool1" && ! -e "$partial_dest_dir/tool2" ]] && echo 1 || echo 0)"
 
+# 15. Failure during member installation -> FAIL AND ROLLBACK ALL EARLIER MEMBERS
+rollback_dest_dir="$fixture_dir/installed_rollback"
+mkdir -p "$rollback_dest_dir"
+printf 'old-tool1\n' > "$rollback_dest_dir/tool1"
+printf 'old-tool2\n' > "$rollback_dest_dir/tool2"
+current_payload_file="$fixture_dir/multi.tar.gz"
+install() {
+    if [[ "$*" == *'.tool3.fhw-stage.'* ]]; then
+        return 1
+    fi
+    command install "$@"
+}
+rollback_status=0
+provision_verified_archive "https://example.com/multi.tar.gz" "$multi_hash" "$rollback_dest_dir" "bin/tool1 bin/tool2 bin/tool3" "rollback_test" false >/dev/null 2>&1 || rollback_status=$?
+rollback_backups="$(find "$rollback_dest_dir" -name '*.bak.*' -o -name '.*.fhw-stage.*' | wc -l)"
+echo "test15_mid_install_rollback=$([[ $rollback_status -ne 0 && "$(<"$rollback_dest_dir/tool1")" == old-tool1 && "$(<"$rollback_dest_dir/tool2")" == old-tool2 && ! -e "$rollback_dest_dir/tool3" && $rollback_backups -eq 0 ]] && echo 1 || echo 0)"
+
 rm -rf "$fixture_dir" "$TARGET_HOME"
 EOS
 )"
@@ -599,4 +740,10 @@ if printf '%s\n' "$archive_safety_output" | grep -q 'test14_partial_set_rejected
     pass "provision_verified_archive fails closed before installation if any member of a multi-binary set is missing"
 else
     fail "provision_verified_archive partially installed incomplete multi-binary set: $archive_safety_output"
+fi
+
+if printf '%s\n' "$archive_safety_output" | grep -q 'test15_mid_install_rollback=1'; then
+    pass "provision_verified_archive rolls back earlier members after a later installation failure"
+else
+    fail "provision_verified_archive left a partial member set after installation failure: $archive_safety_output"
 fi

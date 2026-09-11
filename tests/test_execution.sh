@@ -136,6 +136,55 @@ else
     fail "USER environment spoofing bypassed user verification: $target_user_test_output"
 fi
 
+production_override_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="mockuser"
+TARGET_HOME="$(mktemp -d)"
+INSTALLER_PRODUCTION_MODE=1
+OVERRIDE_EUID=1000
+OVERRIDE_TARGET_UID=1000
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+
+sudo_calls=0
+sudo() {
+    sudo_calls=$((sudo_calls + 1))
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "-u" ]]; then
+            shift 2
+            continue
+        fi
+        if [[ "$1" == "env" ]]; then
+            shift
+            continue
+        fi
+        if [[ "$1" == *=* ]]; then
+            shift
+            continue
+        fi
+        break
+    done
+    "$@"
+}
+
+executed=0
+production_target_cmd() { executed=1; }
+run_as_target_user production_target_cmd
+printf 'executed=%s sudo_calls=%s\n' "$executed" "$sudo_calls"
+rm -rf -- "$TARGET_HOME"
+EOS
+)"
+
+if grep -q 'executed=1 sudo_calls=1' <<< "$production_override_output"; then
+    pass "production run_as_target_user ignores test UID overrides and uses real identity checks"
+else
+    fail "production run_as_target_user honored test UID overrides: $production_override_output"
+fi
+
 xdg_privilege_switch_test="$(
     bash -s <<'EOS'
 set -Eeuo pipefail
@@ -321,6 +370,20 @@ if (( invalid_timeout_status != 0 )); then
 fi
 
 # 6. package_available distinguishes available (0), unavailable (1), and timeout/error (2)
+# Use a deterministic local DNF fixture rather than depending on the host's
+# repository metadata/cache state.
+fake_dnf_dir="$(mktemp -d)"
+cat > "$fake_dnf_dir/dnf" <<'DNF_FIXTURE'
+#!/usr/bin/env bash
+if [[ "$*" == *"repoquery"* && "$*" == *"kate"* ]]; then
+    printf 'kate\n'
+fi
+exit 0
+DNF_FIXTURE
+chmod +x "$fake_dnf_dir/dnf"
+PATH="$fake_dnf_dir:$PATH"
+export PATH
+
 pkg_avail_ok_status=0
 package_available kate || pkg_avail_ok_status=$?
 if (( pkg_avail_ok_status == 0 )); then
@@ -352,6 +415,7 @@ if (( pkg_timeout_status == 2 )); then
     echo "pkg-timeout-status-2-ok"
 fi
 rm -f "$pkg_timeout_script"
+rm -rf -- "$fake_dnf_dir"
 
 # 7. Timeout in non-login stage produces exit code 1 without blocking activation
 ACTIVATION_BLOCKED=0

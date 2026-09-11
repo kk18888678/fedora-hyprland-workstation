@@ -11,6 +11,107 @@ else
     fail "managed greeter.toml cursor block"
 fi
 
+greetd_backup_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_HOME="$(mktemp -d)"
+source "$SCRIPT_DIR/modules/common.sh"
+source "$SCRIPT_DIR/modules/status.sh"
+source "$SCRIPT_DIR/modules/desktop.sh"
+
+sandbox="$(mktemp -d)"
+trap 'rm -rf -- "$sandbox" "$TARGET_HOME"' EXIT
+destination="$sandbox/greetd/config.toml"
+mkdir -p "$(dirname -- "$destination")"
+printf 'administrator-custom-config\n' > "$destination"
+
+sudo() { "$@"; }
+install_root_file_atomically() {
+    cp -- "$1" "$2"
+}
+
+install_root_file_from_stdin_preserving_existing "$destination" 0644 root root <<'EOF_CONFIG'
+managed-config
+EOF_CONFIG
+backup_file="$(find "$(dirname -- "$destination")" -maxdepth 1 -name 'config.toml.bak.*' -print -quit)"
+first_backup_ok=$([[ -f "$backup_file" && "$(<"$backup_file")" == 'administrator-custom-config' ]] && echo 1 || echo 0)
+managed_ok=$([[ "$(<"$destination")" == 'managed-config' ]] && echo 1 || echo 0)
+
+install_root_file_from_stdin_preserving_existing "$destination" 0644 root root <<'EOF_CONFIG'
+managed-config
+EOF_CONFIG
+backup_count="$(find "$(dirname -- "$destination")" -maxdepth 1 -name 'config.toml.bak.*' | wc -l | tr -d ' ')"
+printf 'backup_preserved=%s managed=%s idempotent_backups=%s\n' \
+    "$first_backup_ok" "$managed_ok" "$([[ "$backup_count" -eq 1 ]] && echo 1 || echo 0)"
+EOS
+)"
+
+if grep -q 'backup_preserved=1 managed=1 idempotent_backups=1' <<< "$greetd_backup_output"; then
+    pass "managed greetd configuration preserves changed administrator content and remains idempotent"
+else
+    fail "managed greetd configuration backup/rollback boundary failed: $greetd_backup_output"
+fi
+
+if grep -q 'install_root_file_from_stdin_preserving_existing "\$greeter_toml"' "$ROOT/modules/desktop.sh"; then
+    pass "managed Noctalia greeter state preserves changed administrator content"
+else
+    fail "managed Noctalia greeter state still overwrites existing configuration"
+fi
+
+desktop_services_output="$(
+    bash -s -- "$ROOT" <<'EOS_SERVICES'
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/status.sh"
+source "$ROOT/modules/desktop.sh"
+BLUETOOTH=false
+systemctl() {
+    if [[ "${1:-}" == list-unit-files ]]; then
+        printf '%s\n' NetworkManager.service power-profiles-daemon.service
+        return 0
+    fi
+    return 1
+}
+sudo() { return 1; }
+service_status=0
+enable_desktop_services || service_status=$?
+printf 'status=%s required=%s activation_blocked=%s success=%s\n' \
+    "$service_status" "${#INSTALL_REQUIRED_FAILURES[@]}" "$ACTIVATION_BLOCKED" \
+    "$(grep -c '^enable_desktop_services$' <(printf '%s\n' "${INSTALL_SUCCEEDED[@]}") || true)"
+EOS_SERVICES
+)"
+
+if grep -q 'status=1 required=2 activation_blocked=0 success=0' <<< "$desktop_services_output"; then
+    pass "desktop service failures propagate without falsely blocking graphical login or recording success"
+else
+    fail "desktop service failure propagation/classification is incorrect: $desktop_services_output"
+fi
+
+if grep -q 'extracted_dir/HackNerdFont-Regular.ttf' "$ROOT/modules/desktop.sh" &&
+   grep -q 'extracted_dir/JetBrainsMonoNerdFont-Regular.ttf' "$ROOT/modules/desktop.sh" &&
+   grep -q '! -L "\$fonts_dir/HackNerdFont-Regular.ttf"' "$ROOT/modules/desktop.sh" &&
+   grep -q 'validate_mutation_path "\$fonts_dir"' "$ROOT/modules/desktop.sh"; then
+    pass "font provisioning requires explicit regular-font members and rejects symlink markers"
+else
+    fail "font provisioning lacks explicit payload validation"
+fi
+
+if grep -q 'resolve_packaged_executable noctalia-greeter noctalia-greeter-session' "$ROOT/modules/desktop.sh" &&
+   ! grep -q 'command -v noctalia-greeter-session' "$ROOT/modules/desktop.sh" &&
+   grep -q 'resolve_packaged_executable noctalia-greeter noctalia-greeter-session' "$ROOT/modules/validation.sh"; then
+    pass "greetd resolves the RPM-owned greeter executable instead of trusting PATH"
+else
+    fail "greetd executable provenance is not package-bound"
+fi
+
+if grep -q 'safe_user_config_home "\$themes_dir"' "$ROOT/modules/desktop.sh"; then
+    pass "GTK theme provisioning rejects symlinked user theme directories"
+else
+    fail "GTK theme provisioning lacks a safe user theme directory boundary"
+fi
+
 greeter_matrix_test="$(
     bash -s -- "$ROOT" <<'EOS'
 set -Eeuo pipefail
@@ -154,6 +255,113 @@ if git -C "$ROOT" ls-files | grep -q "dotfiles/hypr/noctalia.lua"; then
     fail "untracked/dynamic noctalia.lua should not be tracked in git"
 else
     pass "no dynamic noctalia.lua tracked in git"
+fi
+
+section "Greeter and post-login shell separation"
+
+if [[ "$(<"$ROOT/config/session-shell/noctalia")" == "noctalia" ]] &&
+    [[ "$(<"$ROOT/config/session-shell/aurelia")" == "aurelia" ]]; then
+    pass "managed post-login shell selectors contain only their declared shell IDs"
+else
+    fail "managed post-login shell selectors are missing or malformed"
+fi
+
+session_shell_deploy_test="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+ROOT="$1"
+SCRIPT_DIR="$ROOT"
+TARGET_USER="$(id -un)"
+TARGET_HOME="$(mktemp -d)"
+XDG_CONFIG_HOME="$TARGET_HOME/.config"
+export XDG_CONFIG_HOME
+trap 'rm -rf "$TARGET_HOME"' EXIT
+
+# shellcheck source=/dev/null
+source "$ROOT/modules/common.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/status.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/desktop.sh"
+
+DESKTOP_SHELL="aurelia"
+deploy_session_shell_selection
+selector="$(desktop_shell_selector_path)"
+echo "aurelia_link=$([[ -L "$selector" ]] && echo 1 || echo 0)"
+echo "aurelia_value=$(<"$selector")"
+
+DESKTOP_SHELL="noctalia"
+deploy_session_shell_selection
+echo "noctalia_link=$([[ -L "$selector" ]] && echo 1 || echo 0)"
+echo "noctalia_value=$(<"$selector")"
+EOS
+)"
+
+if printf '%s\n' "$session_shell_deploy_test" | grep -q 'aurelia_link=1' &&
+    printf '%s\n' "$session_shell_deploy_test" | grep -q 'aurelia_value=aurelia' &&
+    printf '%s\n' "$session_shell_deploy_test" | grep -q 'noctalia_link=1' &&
+    printf '%s\n' "$session_shell_deploy_test" | grep -q 'noctalia_value=noctalia'; then
+    pass "profile-selected shell selector deployment is atomic-by-symlink and idempotent"
+else
+    fail "profile-selected shell selector deployment failed: $session_shell_deploy_test"
+fi
+
+session_shell_validation_test="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+ROOT="$1"
+SCRIPT_DIR="$ROOT"
+TARGET_USER="$(id -un)"
+TARGET_HOME="$(mktemp -d)"
+XDG_CONFIG_HOME="$TARGET_HOME/.config"
+export XDG_CONFIG_HOME
+trap 'rm -rf "$TARGET_HOME"' EXIT
+
+# shellcheck source=/dev/null
+source "$ROOT/modules/common.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/status.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/desktop.sh"
+# shellcheck source=/dev/null
+source "$ROOT/modules/validation.sh"
+
+DESKTOP_SHELL="aurelia"
+mkdir -p "$(dirname "$(desktop_shell_selector_path)")"
+ln -s "$ROOT/config/session-shell/noctalia" "$(desktop_shell_selector_path)"
+validate_session_shell_environment
+echo "required=${#INSTALL_REQUIRED_FAILURES[@]}"
+echo "blocked=$ACTIVATION_BLOCKED"
+EOS
+)"
+
+if printf '%s\n' "$session_shell_validation_test" | grep -q 'required=1' &&
+    printf '%s\n' "$session_shell_validation_test" | grep -q 'blocked=0'; then
+    pass "post-login shell selector mismatch is reported without blocking graphical login"
+else
+    fail "post-login shell selector mismatch classification is incorrect: $session_shell_validation_test"
+fi
+
+session_shell_aurelia_line="$(grep -n 'local session_shell = resolve_session_shell()' "$ROOT/dotfiles/hypr/startup.lua" | cut -d: -f1)"
+session_shell_aurelia_condition="$(grep -n 'session_shell == "aurelia"' "$ROOT/dotfiles/hypr/startup.lua" | cut -d: -f1)"
+session_shell_noctalia_condition="$(grep -n 'session_shell == "noctalia"' "$ROOT/dotfiles/hypr/startup.lua" | cut -d: -f1)"
+session_shell_noctalia_exec="$(grep -n 'hl.exec_cmd("noctalia")' "$ROOT/dotfiles/hypr/startup.lua" | cut -d: -f1)"
+if [[ -n "$session_shell_aurelia_line" &&
+    -n "$session_shell_aurelia_condition" &&
+    -n "$session_shell_noctalia_condition" &&
+    -n "$session_shell_noctalia_exec" &&
+    "$session_shell_aurelia_line" -lt "$session_shell_aurelia_condition" &&
+    "$session_shell_noctalia_condition" -lt "$session_shell_noctalia_exec" ]]; then
+    pass "Hyprland starts exactly the profile-selected post-login shell"
+else
+    fail "Hyprland startup does not conditionally select Aurelia or Noctalia"
+fi
+
+if grep -q 'pcall(require, "noctalia")' "$ROOT/dotfiles/hypr/hyprland.lua" &&
+    ! grep -q 'require("noctalia").apply_theme()' "$ROOT/dotfiles/hypr/hyprland.lua"; then
+    pass "Hyprland configuration does not require a generated Noctalia module for Aurelia sessions"
+else
+    fail "Hyprland configuration still has an unsafe unconditional Noctalia module requirement"
 fi
 
 section "Rosé Pine Moon Qt6ct Color Scheme"
@@ -822,6 +1030,112 @@ else
     fail "converge_gtk_bookmarks byte idempotency failed: $bookmarks_test_output"
 fi
 
+
+activation_failure_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/common.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/status.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/modules/desktop.sh"
+
+INSTALL_GREETER=true
+ENABLE_GRAPHICAL_TARGET=true
+ACTIVATION_BLOCKED=0
+GRAPHICAL_ACTIVATION_STATE="not-attempted"
+validate_hyprland_desktop() { return 0; }
+validate_greeter_configuration() { return 0; }
+enable_greetd() { return 77; }
+configure_graphical_target() { return 0; }
+validate_graphical_activation() { return 0; }
+systemctl() {
+    case "${1:-}" in
+        is-enabled)
+            printf 'disabled\n'
+            return 1
+            ;;
+        get-default)
+            printf 'multi-user.target\n'
+            return 0
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+sudo() { return 0; }
+
+activate_graphical_session >/dev/null 2>&1
+printf 'activation_blocked=%s\n' "$ACTIVATION_BLOCKED"
+printf 'activation_state=%s\n' "$GRAPHICAL_ACTIVATION_STATE"
+printf 'success_recorded=%s\n' "$(printf '%s\n' "${INSTALL_SUCCEEDED[@]}" | grep -cx 'activate_graphical_session' || true)"
+EOS
+)"
+
+if grep -q '^activation_blocked=1$' <<< "$activation_failure_output" &&
+   grep -q '^activation_state=skipped$' <<< "$activation_failure_output" &&
+   grep -q '^success_recorded=0$' <<< "$activation_failure_output"; then
+    pass "greetd activation failure blocks success and preserves safe activation state"
+else
+    fail "greetd activation failure was not surfaced safely: $activation_failure_output"
+fi
+
+activation_rollback_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+source "$SCRIPT_DIR/modules/common.sh"
+source "$SCRIPT_DIR/modules/status.sh"
+source "$SCRIPT_DIR/modules/desktop.sh"
+
+INSTALL_GREETER=true
+ENABLE_GRAPHICAL_TARGET=true
+validate_hyprland_desktop() { return 0; }
+validate_greeter_configuration() { return 0; }
+enable_greetd() { return 0; }
+configure_graphical_target() { return 1; }
+validate_graphical_activation() { return 0; }
+
+systemctl() {
+    case "${1:-}" in
+        is-enabled)
+            printf 'disabled\n'
+            return 1
+            ;;
+        get-default)
+            printf 'multi-user.target\n'
+            return 0
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+restored_greetd=0
+restored_target=0
+sudo() {
+    [[ "$*" == *"disable greetd.service"* ]] && restored_greetd=1
+    [[ "$*" == *"set-default multi-user.target"* ]] && restored_target=1
+    return 0
+}
+
+activate_graphical_session >/dev/null 2>&1
+printf 'blocked=%s state=%s restored_greetd=%s restored_target=%s successes=%s\n' \
+    "$ACTIVATION_BLOCKED" "$GRAPHICAL_ACTIVATION_STATE" \
+    "$restored_greetd" "$restored_target" \
+    "$(printf '%s\n' "${INSTALL_SUCCEEDED[@]}" | grep -cx 'activate_graphical_session' || true)"
+EOS
+)"
+
+if grep -q 'blocked=1 state=skipped restored_greetd=1 restored_target=1 successes=0' <<< "$activation_rollback_output"; then
+    pass "graphical activation rolls back prior greetd/target state after partial activation failure"
+else
+    fail "graphical activation rollback failed: $activation_rollback_output"
+fi
 
 section "Monitor Configuration"
 

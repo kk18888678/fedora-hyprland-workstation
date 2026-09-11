@@ -1,6 +1,6 @@
 # Fedora Hyprland Workstation
 
-Idempotent installer for a **Fedora 44** machine running **Hyprland** with the **Noctalia** desktop shell, `greetd`, and a standard workstation toolchain (Zsh, Nix/devenv, Podman, Flatpak, Chromium).
+Idempotent installer for a **Fedora 44** machine running **Hyprland**, `greetd`, the Noctalia greeter, and a selectable Noctalia or Aurelia post-login shell.
 
 ## Requirements & Minimal Bootstrap
 
@@ -8,6 +8,7 @@ The installer requires:
 - **Fedora 44** (Fedora Everything, Workstation, or Netinstall).
 - A standard target user account with `sudo` administrative rights.
 - Working internet connectivity.
+- A local interactive TTY for setup selection and plan review.
 
 ### Bootstrap Prerequisite: Git
 
@@ -19,7 +20,7 @@ sudo dnf install -y git
 
 > [!NOTE]
 > **Bootstrap vs. Installer Ownership**:
-> Installing `git` (and ensuring your user has `sudo` access) is the **only** prerequisite required on the host before starting. All other dependencies, build tools, desktop packages, and system utilities (`curl`, `jq`, `tar`, `dnf-plugins-core`, etc.) are automatically verified, bootstrapped, and configured by the installer during its preflight phase.
+> Installing `git` (and ensuring your user has `sudo` access) is the prerequisite required before cloning. After the installer starts, the reviewed base package group bootstraps utilities such as `curl` and `tar`; repository tooling, desktop packages, and system integrations are then installed through the normal plan and reconciler stages.
 
 #### What if `git: command not found`?
 If you encounter `git: command not found`, run:
@@ -53,7 +54,7 @@ sudo dnf install -y git
    *(Note: The installer provides strictly these two public profile entry points).*
 
 3. **What to expect during installation**:
-   - The installer progresses through distinct stages: Preflight Validation -> Repository Trust -> Base/Desktop/Media Packages -> Display & Desktop Shell (Hyprland + Noctalia + greetd) -> System Integrations (Nix, Podman) -> Applications -> Verification -> Graphical Activation.
+   - The installer progresses through distinct stages: Preflight Validation -> Repository Trust -> Base/Desktop/Media Packages -> Display & Desktop Shell (Hyprland + selected shell + Noctalia greeter + greetd) -> System Integrations (Nix, Podman) -> Applications -> Verification -> Graphical Activation.
    - Re-running the installer after an interruption, network drop, or sudo timeout is safe and idempotent. Desired state lives in Git; installer journal files under `/var/lib/fedora-hyprland-workstation/` track progress and logs.
 
 4. **Rebooting**:
@@ -63,20 +64,26 @@ sudo dnf install -y git
 
 ## What it installs
 
-- Fedora 44 + Hyprland + Noctalia + noctalia-greeter (`greetd` user, not `greeter`)
+- Fedora 44 + Hyprland + Noctalia Greeter (`greetd` user, not `greeter`) + profile-selected post-login shell
 - Zsh, Oh My Zsh, Starship, fzf, zoxide
 - Chromium (required when enabled), Brave Origin, Firefox, and Ulaa (via Flathub Flatpak)
 - Flatpak + Flathub, Fedora Nix + devenv, rootless Podman
-- Host-global media utilities (`mpv`, `ffmpeg`, `mediainfo`, `mkvmerge`, `MP4Box`, `ccextractor`, `mp4dump`, `packager`, `dovi_tool`, `N_m3u8DL-RE`)
+- BlueZ Bluetooth support for the physical-workstation profile
+- Host-global media utilities (`mpv`, `ffmpeg`, `mediainfo`, `mkvmerge`, `MP4Box`, `ccextractor`, `mp4dump`, `packager`, `dovi_tool`, `N_m3u8DL-RE`, `magick`)
 
 ## Target Architecture
 
 The workstation maintains a strict separation of concerns:
 
-- **Fedora Host**: Operating system, kernel, drivers, systemd, PipeWire, desktop session (Hyprland + Noctalia + greetd), portals, fonts, system diagnostics, media codecs, normal GUI applications, Podman runtime, and base Nix installation.
+- **Fedora Host**: Operating system, kernel, drivers, systemd, PipeWire, desktop session (Hyprland + selected Noctalia/Aurelia shell + Noctalia greeter + greetd), portals, fonts, system diagnostics, media codecs, normal GUI applications, Podman runtime, and base Nix installation.
 - **Nix + devenv**: Reproducible development platforms, compilers, SDKs, project runtimes, language servers, and specialized CLI tooling.
 - **Podman**: Isolated development services, databases, and containerized dependencies.
 - **Git**: Reproducible desired state.
+
+The Command Center also provides a Fedora/Flatpak/Aurelia **Package Manager**.
+It searches configured sources, displays package provenance, and can explicitly
+adopt or restore packages through the tracked `packages/user-managed.tsv`
+desired state. See [the package manager documentation](docs/PACKAGE-MANAGER.md).
 
 See detailed engineering documentation:
 - [Architecture & Ownership](docs/ARCHITECTURE.md)
@@ -86,8 +93,10 @@ See detailed engineering documentation:
 ## Package Manifests
 
 - `packages/base.txt`: Core OS utilities, shells, archive tools, networking, and audio foundations.
-- `packages/desktop.txt`: Hyprland, Noctalia desktop shell, greetd, portals, terminal, file manager, and fonts.
-- `packages/media.txt`: Codecs, GStreamer plugins, VA-API acceleration, MPV, FFmpeg, MediaInfo, and MKVToolNix CLI.
+- `packages/desktop.txt`: Hyprland, Noctalia runtime/greeter packages, greetd, portals, terminal, file manager, and fonts.
+- `packages/aurelia.txt`: Quickshell and Aurelia-only development watcher support, installed only when Aurelia is selected.
+- `packages/bluetooth.txt`: BlueZ Bluetooth packages for profiles that enable physical-workstation Bluetooth.
+- `packages/media.txt`: Codecs, GStreamer plugins, VA-API acceleration, MPV, FFmpeg, MediaInfo, MKVToolNix CLI, and ImageMagick (`magick`).
 - `packages/diagnostics.txt`: Hardware, sensor, storage, process, and network diagnostics (`smartmontools`, `nvme-cli`, `inxi`, `htop`, `btop`, `iotop-c`, `sysstat`, `lsof`, `strace`, `duf`, `ncdu`, `btrfs-progs`).
 
 ## Workstation Applications
@@ -97,7 +106,7 @@ See detailed engineering documentation:
 - **Cursor**: Official vendor RPM repository with Wayland Ozone flag integration.
 - **ChatGPT**: Official vendor RPM repository.
 - **Media Applications**: OBS Studio, MKVToolNix GUI, VLC.
-- **Media CLI Utilities**: Host-global tools (`dovi_tool`, `N_m3u8DL-RE`, `packager`, `ccextractor`, `mp4dump`, `ffmpeg`, `mediainfo`, `mkvmerge`, `MP4Box`).
+- **Media CLI Utilities**: Host-global tools (`dovi_tool`, `N_m3u8DL-RE`, `packager`, `ccextractor`, `mp4dump`, `ffmpeg`, `mediainfo`, `mkvmerge`, `MP4Box`, `magick`).
 - **Antigravity CLI (`agy`)**: Integrated user path with non-blocking activation safety.
 - **LocalSend & Ulaa**: Flathub Flatpaks.
 
@@ -105,17 +114,31 @@ See detailed engineering documentation:
 
 | Profile | File | Notes |
 | --- | --- | --- |
-| `vm` | `profiles/vm.conf` | Virtio GPU, no Bluetooth |
-| `workstation` | `profiles/workstation.conf` | Generic GPU, Bluetooth enabled |
+| `vm` | `profiles/vm.conf` | Virtio GPU, no Bluetooth, Aurelia post-login shell by default, Noctalia greeter |
+| `workstation` | `profiles/workstation.conf` | Generic GPU, Bluetooth enabled, Noctalia post-login shell by default |
 
-Both set `DESKTOP=hyprland` and `DESKTOP_SHELL=noctalia`.
+Both set `DESKTOP=hyprland` and keep `INSTALL_GREETER=true` with Noctalia. The VM profile defaults to `DESKTOP_SHELL=aurelia`; the workstation profile defaults to `DESKTOP_SHELL=noctalia`. Choosing **Customize Workstation** lets you select either Noctalia or Aurelia; the choice is shown in the reviewed plan.
+
+### Desktop shell sequence
+
+The login and session shells are separate:
+
+```text
+Boot -> greetd -> noctalia-greeter-session -> login -> Hyprland
+     -> profile-default or customization-selected session shell
+```
+
+The selected shell is recorded by the installer in the project-owned
+`~/.config/fedora-hyprland-workstation/session-shell` symlink. Hyprland starts
+only that shell, so the VM does not run both Noctalia and Aurelia as competing
+desktop shells.
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Success |
-| 2 | Completed with deferred optional work |
+| 2 | Setup cancelled with no changes, or completed with deferred optional work |
 | 1 | Required component failed. Graphical activation is skipped only when the login stack is unsafe. |
 
 ## Troubleshooting
@@ -185,7 +208,7 @@ If package downloads or DNF metadata refreshes fail:
 ### 9. Where Logs Are Stored
 The installer records comprehensive step-by-step journals and error outputs. Logs for each run are saved to:
 ```text
-/var/lib/fedora-hyprland-workstation/logs/install-<timestamp>.log
+/var/lib/fedora-hyprland-workstation/logs/install-<timestamp>-<unique>.log
 ```
 You can inspect the most recent run log using:
 ```bash

@@ -62,6 +62,7 @@ Item {
     }
 
     function selectRow(index: int) {
+        if (window && typeof window.resetPointerGate === "function") window.resetPointerGate()
         selectedIndex = Math.max(0, Math.min(totalRows - 1, index))
         settingsRoot.forceActiveFocus()
     }
@@ -378,13 +379,13 @@ Item {
             width: Math.min(parent.width - (KeybindingsConfig.settingsMarginHorizontal * 2), KeybindingsConfig.settingsContentMaxWidth)
             spacing: KeybindingsConfig.settingsRowSpacing
 
-            RowLayout {
+            Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 58
-                spacing: Theme.spacingMd
 
                 ColumnLayout {
-                    Layout.fillWidth: true
+                    anchors.left: parent.left
+                    anchors.top: parent.top
                     spacing: 0
                     Text {
                         text: "Keybindings"
@@ -401,22 +402,40 @@ Item {
                     }
                 }
 
-                Text {
-                    text: "← Back"
-                    color: Theme.accent
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSm
-                    font.weight: Theme.fontWeightMedium
-                    Layout.alignment: Qt.AlignTop
-                    Layout.rightMargin: Theme.spacingXs
+                Rectangle {
+                    id: settingsBackButton
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    width: backLabel.implicitWidth + Theme.spacingMd * 2
+                    height: 30
+                    radius: Theme.radiusSm
+                    color: backHover.hovered ? Theme.selection : "transparent"
+                    border.color: backHover.hovered ? Theme.borderActive : "transparent"
+                    border.width: backHover.hovered ? Theme.borderWidthDefault : 0
+
+                    HoverHandler { id: backHover }
+
+                    Text {
+                        id: backLabel
+                        anchors.centerIn: parent
+                        text: "← Back"
+                        color: Theme.accent
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSm
+                        font.weight: Theme.fontWeightMedium
+                    }
 
                     MouseArea {
                         anchors.fill: parent
-                        anchors.margins: -Theme.spacingSm
+                        z: 1
+                        acceptedButtons: Qt.LeftButton
+                        preventStealing: true
                         cursorShape: Qt.PointingHandCursor
+                        onPressed: function(mouse) { mouse.accepted = true }
+                        onReleased: function(mouse) { mouse.accepted = true }
                         onClicked: function(mouse) {
                             mouse.accepted = true
-                            backRequested()
+                            settingsRoot.backRequested()
                         }
                     }
                 }

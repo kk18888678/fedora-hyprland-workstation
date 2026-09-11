@@ -16,6 +16,11 @@
 #   atim/starship COPR
 #       Officially documented Fedora package source for Starship.
 #
+#   errornointernet/quickshell COPR
+#       Upstream-documented release package source, enabled only for the
+#       Aurelia shell.  The Hyprland COPR is not used for Quickshell because
+#       it may expose git-suffixed development builds.
+#
 #   RPM Fusion Free / Nonfree
 #       Used for multimedia and hardware-related packages where Fedora's
 #       repositories intentionally do not provide them.
@@ -72,6 +77,7 @@ rpmfusion_nonfree_installed() {
 
 install_rpmfusion() {
     local fedora_version
+    local failed=0
 
     fedora_version="$(rpm -E '%fedora')"
 
@@ -85,7 +91,7 @@ install_rpmfusion() {
             run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "install RPM Fusion Free" \
             sudo dnf install -y \
             "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm" ||
-            record_required "repositories" "rpmfusion-free" "Failed to install RPM Fusion Free."
+            { record_required "repositories" "rpmfusion-free" "Failed to install RPM Fusion Free."; failed=1; }
     else
         info "RPM Fusion Free repository already installed."
     fi
@@ -97,10 +103,12 @@ install_rpmfusion() {
             run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "install RPM Fusion Nonfree" \
             sudo dnf install -y \
             "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm" ||
-            record_required "repositories" "rpmfusion-nonfree" "Failed to install RPM Fusion Nonfree."
+            { record_required "repositories" "rpmfusion-nonfree" "Failed to install RPM Fusion Nonfree."; failed=1; }
     else
         info "RPM Fusion Nonfree repository already installed."
     fi
+
+    return "$failed"
 }
 
 ###############################################################################
@@ -110,17 +118,37 @@ install_rpmfusion() {
 CHATGPT_EXPECTED_GPG_FINGERPRINT="3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4"
 
 is_chatgpt_configured() {
-    local repo_dir="${OVERRIDE_YUM_REPOS_DIR:-/etc/yum.repos.d}"
+    local repo_dir="/etc/yum.repos.d"
+    if installer_test_override_allowed && [[ -n "${OVERRIDE_YUM_REPOS_DIR:-}" ]]; then
+        repo_dir="$OVERRIDE_YUM_REPOS_DIR"
+    fi
     local f
     if [[ -d "$repo_dir" ]]; then
         for f in "$repo_dir"/*; do
-            if [[ -f "$f" ]] && [[ "$f" == */chatgpt* || "$f" == */openai* ]]; then
+            if [[ -f "$f" || -L "$f" ]] && [[ "$f" == */chatgpt* || "$f" == */openai* ]]; then
                 return 0
             fi
         done
     fi
     if declare -F package_installed >/dev/null && package_installed chatgpt; then
         return 0
+    fi
+    return 1
+}
+
+chatgpt_repository_path_unsafe() {
+    local repo_dir="/etc/yum.repos.d"
+    if installer_test_override_allowed && [[ -n "${OVERRIDE_YUM_REPOS_DIR:-}" ]]; then
+        repo_dir="$OVERRIDE_YUM_REPOS_DIR"
+    fi
+
+    local f
+    if [[ -d "$repo_dir" ]]; then
+        for f in "$repo_dir"/*; do
+            if [[ -L "$f" ]] && [[ "$f" == */chatgpt* || "$f" == */openai* ]]; then
+                return 0
+            fi
+        done
     fi
     return 1
 }
@@ -160,7 +188,15 @@ is_rpm_gpg_key_imported() {
 
 converge_chatgpt_gpg_key() {
     local expected_fp="$CHATGPT_EXPECTED_GPG_FINGERPRINT"
-    local pki_dir="${OVERRIDE_RPM_GPG_DIR:-/etc/pki/rpm-gpg}"
+    local pki_dir="/etc/pki/rpm-gpg"
+    if installer_test_override_allowed && [[ -n "${OVERRIDE_RPM_GPG_DIR:-}" ]]; then
+        pki_dir="$OVERRIDE_RPM_GPG_DIR"
+    fi
+
+    if chatgpt_repository_path_unsafe; then
+        error "ChatGPT repository configuration is a symlink; refusing to trust or modify it."
+        return 1
+    fi
 
     # 1. If ChatGPT repository is not configured on this host, absence of key is a safe no-op
     if ! is_chatgpt_configured; then
@@ -226,13 +262,74 @@ converge_chatgpt_gpg_key() {
     return 0
 }
 
+converge_vendor_repository_definitions() {
+    local failed=0
+    local repo_path
+
+    # These repositories can participate in every later DNF transaction, so
+    # repair any existing drift (or create a selected repository) before the
+    # trust gate is consulted by the first package operation.
+    if declare -F configure_cursor_repository >/dev/null 2>&1; then
+        repo_path="${cursor_repo_file:-/etc/yum.repos.d/cursor.repo}"
+        if is_true "${CURSOR:-false}" || [[ -f "$repo_path" || -L "$repo_path" ]]; then
+            if ! configure_cursor_repository; then
+                record_required \
+                    "repositories" \
+                    "cursor-repository" \
+                    "Could not converge the reviewed Cursor repository definition."
+                failed=1
+            fi
+        fi
+    fi
+
+    if declare -F configure_brave_origin_repository >/dev/null 2>&1; then
+        repo_path="${brave_repo_file:-/etc/yum.repos.d/brave-browser.repo}"
+        if is_true "${BROWSER_BRAVE_ORIGIN:-false}" || [[ -f "$repo_path" || -L "$repo_path" ]]; then
+            if ! configure_brave_origin_repository; then
+                record_required \
+                    "repositories" \
+                    "brave-repository" \
+                    "Could not converge the reviewed Brave repository definition."
+                failed=1
+            fi
+        fi
+    fi
+
+    return "$failed"
+}
+
 check_repository_trust() {
+    if chatgpt_repository_path_unsafe; then
+        error "Repository trust check failed: ChatGPT repository configuration is symlinked."
+        return 1
+    fi
+
     if is_chatgpt_configured; then
         if ! is_rpm_gpg_key_imported "$CHATGPT_EXPECTED_GPG_FINGERPRINT"; then
             error "Repository trust check failed: ChatGPT repository is configured but official OpenPGP key ($CHATGPT_EXPECTED_GPG_FINGERPRINT) is not trusted in RPM keyring."
             return 1
         fi
     fi
+
+    # Vendor repository definitions are project-owned trust anchors.  If a
+    # known file exists but no longer matches the reviewed HTTPS endpoint,
+    # refuse every subsequent DNF operation until it is repaired.
+    local cursor_path="${cursor_repo_file:-/etc/yum.repos.d/cursor.repo}"
+    if declare -F cursor_repo_configured >/dev/null 2>&1 &&
+        [[ -f "$cursor_path" || -L "$cursor_path" ]] &&
+        ! cursor_repo_configured; then
+        error "Repository trust check failed: Cursor repository definition is missing, altered, or unsafe."
+        return 1
+    fi
+
+    local brave_path="${brave_repo_file:-/etc/yum.repos.d/brave-browser.repo}"
+    if declare -F brave_origin_repo_installed >/dev/null 2>&1 &&
+        [[ -f "$brave_path" || -L "$brave_path" ]] &&
+        ! brave_origin_repo_installed; then
+        error "Repository trust check failed: Brave repository definition is missing, altered, or unsafe."
+        return 1
+    fi
+
     return 0
 }
 
@@ -254,21 +351,30 @@ validate_repository_configuration() {
 ###############################################################################
 
 configure_repositories() {
+    local failed=0
+
     info "Configuring Fedora package repositories."
 
     # 1. Establish third-party repository GPG key trust FIRST before any DNF package operations or metadata refresh
     if ! converge_chatgpt_gpg_key; then
         record_required "repositories" "chatgpt-gpg" "Failed to converge official ChatGPT repository GPG key."
         warn "Skipping repository metadata refresh because unverified repository key failed to converge."
-        return 0
+        return 1
+    fi
+
+    if ! converge_vendor_repository_definitions; then
+        warn "Skipping DNF operations because a vendor repository definition could not be converged safely."
+        return 1
     fi
 
     # `dnf copr` is provided by dnf-plugins-core.
-    install_dnf_packages dnf-plugins-core ||
+    if ! install_dnf_packages dnf-plugins-core; then
         record_activation_failure \
             "repositories" \
             "dnf-plugins-core" \
             "dnf-plugins-core is required to enable COPR repositories."
+        failed=1
+    fi
 
     # Hyprland package source.
     if ! enable_copr "lionheartp/Hyprland"; then
@@ -276,6 +382,20 @@ configure_repositories() {
             "repositories" \
             "lionheartp/Hyprland" \
             "Required Hyprland COPR could not be enabled."
+        failed=1
+    fi
+
+    # Upstream Quickshell documents this release COPR.  Aurelia needs the
+    # released v0.3 API, while the Hyprland COPR may expose git snapshots.
+    # Keep this repository conditional so Noctalia installations do not add
+    # an unnecessary third-party source.
+    if [[ "${DESKTOP_SHELL:-}" == "aurelia" ]] &&
+        ! enable_copr "errornointernet/quickshell"; then
+        record_required \
+            "repositories" \
+            "errornointernet/quickshell" \
+            "The documented stable Quickshell release COPR could not be enabled for Aurelia."
+        failed=1
     fi
 
     # Starship package source.
@@ -284,19 +404,29 @@ configure_repositories() {
             "repositories" \
             "atim/starship" \
             "Starship COPR could not be enabled."
+        failed=1
     fi
 
     # Multimedia and hardware ecosystem.
-    install_rpmfusion
+    if ! install_rpmfusion; then
+        failed=1
+    fi
 
     # Refresh metadata after repository changes.
     info "Refreshing repository metadata."
 
-    run_with_retry "dnf makecache after repositories" dnf_makecache ||
+    if ! run_with_retry "dnf makecache after repositories" dnf_makecache; then
         record_required "repositories" "makecache" "Could not refresh DNF metadata after enabling repositories."
+        failed=1
+    fi
 
-    validate_repository_configuration
+    if ! validate_repository_configuration; then
+        failed=1
+    fi
 
+    if (( failed != 0 )); then
+        return 1
+    fi
     info "Repository configuration complete."
     record_success "configure_repositories"
 }

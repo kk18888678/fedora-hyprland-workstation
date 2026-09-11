@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Aurelia Chakravyuha concept mark">
+  <title>Aurelia Chakravyuha concept mark</title>
+  <desc>A single luminous path winds through layered defensive walls into a warm core.</desc>
+  <defs>
+    <linearGradient id="aureliaChakravyuha" x1="34" y1="210" x2="222" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9ccfd8"/>
+      <stop offset="0.52" stop-color="#c4a7e7"/>
+      <stop offset="1" stop-color="#f6c177"/>
+    </linearGradient>
+  </defs>
+
+  <!--
+    An original Aurelia direction inspired by Chakravyuha's layered,
+    labyrinth-like defensive walls. One continuous path turns each wall into
+    the next, creating a memorable inward motion without a literal letter or
+    a copied source icon.
+  -->
+  <path d="M128 18
+           A110 110 0 1 1 18 128
+           H50
+           A78 78 0 1 0 128 50
+           V84
+           A44 44 0 1 1 84 128
+           H115
+           A13 13 0 1 0 128 141
+           V128"
+        fill="none"
+        stroke="url(#aureliaChakravyuha)"
+        stroke-width="17"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- The open entry and core are the signature details at small sizes. -->
+  <circle cx="128" cy="128" r="14" fill="#f6c177"/>
+  <circle cx="128" cy="128" r="5" fill="#191724"/>
+</svg>

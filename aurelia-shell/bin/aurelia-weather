@@ -111,31 +111,14 @@ temperature_unit="celsius"
 
 resolved_location=""
 if [[ "$location_mode" == "auto" ]]; then
-    response="$(request_json 'https://wttr.in/' --data-urlencode 'format=j1')" || fail "automatic weather location request failed"
-    location_data="$(printf '%s' "$response" | "$jq_bin" -ce '
-        .nearest_area[0]
-        | select((.latitude | type) == "string")
-        | select((.longitude | type) == "string")
-        | {
-            latitude: (.latitude | tonumber),
-            longitude: (.longitude | tonumber),
-            area: (.areaName[0].value // ""),
-            region: (.region[0].value // "")
-          }
-        | . as $location
-        | $location + {
-            city: (
-                if ($location.region != "" and ($location.area | startswith($location.region)))
-                then $location.region
-                else $location.area
-                end
-            )
-          }
-    ')" || fail "automatic weather location response was invalid"
-    latitude="$(printf '%s' "$location_data" | "$jq_bin" -r '.latitude')"
-    longitude="$(printf '%s' "$location_data" | "$jq_bin" -r '.longitude')"
-    resolved_location="$(printf '%s' "$location_data" | "$jq_bin" -r '.city // empty')"
-    location_mode="coordinates"
+    # The full wttr.in JSON document is needlessly large for this step and
+    # can exceed the bounded request window on a cold or slow connection.
+    # Request only the IP-resolved place, then use the already bounded
+    # Open-Meteo geocoder below to obtain stable coordinates.
+    location="$(request_json 'https://wttr.in/' --data-urlencode 'format=%l')" || fail "automatic weather location request failed"
+    location="$(printf '%s' "$location" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//')"
+    [[ -n "$location" && "${#location}" -le 100 ]] || fail "automatic weather location response was invalid"
+    location_mode="location"
 fi
 
 if [[ "$location_mode" == "location" ]]; then

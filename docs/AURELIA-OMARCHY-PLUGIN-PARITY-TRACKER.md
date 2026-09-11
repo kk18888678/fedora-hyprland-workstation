@@ -1,0 +1,1043 @@
+# Aurelia–Omarchy Plugin Parity Tracker
+
+Status: planning only. No implementation work is authorized by this document.
+
+## Objective
+
+Bring Aurelia Shell to the Omarchy plugin architecture and lifecycle as closely
+as possible, with Omarchy treated as the structural reference and Aurelia's
+existing capabilities, naming, design language, and safety policy preserved.
+
+The target is not a visual rewrite of Aurelia. The target is parity of:
+
+- plugin packaging;
+- manifest semantics;
+- discovery and cataloguing;
+- runtime loading;
+- lifecycle and reload behavior;
+- bar registration and placement;
+- persisted configuration;
+- plugin API boundaries;
+- cloning and user customization;
+- CLI and management workflows;
+- observability;
+- tests and acceptance evidence.
+
+No task may remove or weaken an existing Aurelia feature merely to make the
+reference architecture easier to copy.
+
+## Reference and working-state baseline
+
+This tracker was created after a read-only comparison of:
+
+- Aurelia working tree: branch `installer-resilience`, starting HEAD
+  `a18bd5cb14513aaab8840ccb9037ce629bde2ac8`;
+- Omarchy reference: `/tmp/omarchy-reference`, branch `quattro`, HEAD
+  `b5589faaf80c6f87c07d4560fca37c4a81722f28`.
+
+The Aurelia working tree already contained unrelated modified and untracked
+files. Those files are user-owned and must be preserved. Reconfirm the exact
+inventory in T00 before implementing any task.
+
+Observed baseline at audit time:
+
+- Aurelia has a resident host, `PluginRegistry`, `PluginHost`, `ShellConfig`,
+  manifests, user plugin discovery, plugin CLI commands, development reload,
+  and centralized tests.
+- Omarchy has a resident host, manifest registry, dedicated bar registry,
+  scoped plugin facades, a unified shell state model, plugin catalog, clone
+  workflow, plugin management commands, and broader plugin contract tests.
+- Neither repository has test directories inside each plugin directory.
+- Aurelia's plugin-local test-directory count is `0`; Omarchy's is also `0`.
+- Aurelia's current plugin test suite and root test suite are centralized and
+  must remain available through their existing entry points.
+
+## Execution rules
+
+All work must proceed in this order. A task is not complete because its code
+exists; its completion requires the evidence listed in the task and a clean
+review of the impact gates.
+
+- [ ] Do not run `./install.sh`, reboot, restart greetd, change graphical
+  activation, modify live PAM/greetd/Hyprland/Noctalia state, or install/remove
+  packages as part of plugin parity work.
+- [ ] Keep all new runtime behavior behind additive compatibility paths until
+  the corresponding contract and migration tests pass.
+- [ ] Preserve current Aurelia configuration and user data. Migrations must be
+  idempotent, recoverable, and safe to interrupt.
+- [ ] Keep one mutation owner per state transition. Plugin UI may change only
+  in-memory state; the host/reconciler that owns the state performs persistence.
+- [ ] Never treat same-process facades as a security sandbox. Third-party QML
+  remains unsandboxed and must be clearly labelled as such.
+- [ ] Do not copy Omarchy's arbitrary `bash -lc` custom-command execution into
+  Aurelia. Aurelia's structured-argv and bounded-execution policy remains in
+  force.
+- [ ] Do not add a dependency resolver, marketplace, or other extension point
+  unless a later task demonstrates a concrete requirement. Neither current
+  implementation provides a general plugin dependency resolver.
+- [ ] Do not change Aurelia colors, typography, spacing, icon treatment,
+  animation policy, panel geometry, or feature behavior merely to match
+  Omarchy's appearance. Use Aurelia's design tokens and UI primitives.
+- [ ] Treat host survivability under plugin failure as a P0 gate. No plugin
+  parity feature may proceed beyond T02A without evidence that a faulty plugin
+  cannot prevent the host and healthy plugins from loading.
+- [ ] Do not create duplicate compatibility implementations. Compatibility
+  aliases must forward to one canonical owner.
+- [ ] Do not mark a task complete based only on static inspection when runtime
+  behavior is part of its acceptance criteria.
+
+## Status and evidence convention
+
+Use these markers in this file during implementation:
+
+- `[ ]` not started;
+- `[-]` in progress;
+- `[x]` complete with evidence recorded;
+- `[!]` blocked or failed; record the reason and do not silently skip it.
+
+Every completed task must record:
+
+```text
+Evidence:
+- Tests:
+- Runtime/fixture evidence:
+- Files changed:
+- User-visible behavior changed: yes/no
+- Existing Aurelia feature impact:
+- Rollback/migration evidence:
+- Review:
+```
+
+## Mandatory checkpoint protocol
+
+Checkpoints are required before any source, test, manifest, configuration, or
+runtime implementation file is edited. The tracker itself may be edited to
+record checkpoint state; that does not count as implementation.
+
+### CP0 — Working-tree and runtime baseline freeze
+
+Before the first implementation edit:
+
+- [ ] Capture branch, HEAD, full `git status`, tracked diff summary, and
+  untracked-file inventory.
+- [ ] Confirm which existing changes belong to the user and must not be
+  overwritten.
+- [ ] Capture the current Aurelia manifest/plugin inventory and Omarchy
+  reference inventory.
+- [ ] Run the existing repository and Aurelia test entry points in isolated
+  mode and record exact pass/fail/skip results.
+- [ ] Run repository-wide shell syntax validation.
+- [ ] Record available optional verification tools without installing anything.
+- [ ] Record that `./install.sh`, package transactions, live configuration
+  changes, greetd/systemd changes, and reboot are out of scope.
+
+Stop condition: do not edit implementation code until CP0 is recorded in this
+file and the user-visible baseline is understood.
+
+Current CP0 capture (read-only, not yet frozen/approved):
+
+- Date: `2026-09-11`.
+- Aurelia: `21` plugin manifests, `21` top-level plugin directories, and `0`
+  plugin-local test directories.
+- Omarchy reference: `37` manifest entries (`29` conventional plus `8` sibling
+  manifests), and `0` plugin-local test directories.
+- Current repository tests: `228` passed, `0` failed.
+- Current Aurelia Shell tests: `282` passed, `0` failed.
+- Repository-wide shell syntax: `199` scripts passed `bash -n`.
+- ShellCheck: unavailable; no installation attempted.
+- The Aurelia working tree contains pre-existing user modifications and
+  untracked files. No implementation file may be overwritten or normalized as
+  part of baseline capture.
+
+CP0 remains open until the working-tree snapshot, affected-file ownership, and
+preservation baseline are explicitly reviewed. No source-code edit is allowed
+while CP0 is open.
+
+### CP1 — Contract and test readiness
+
+Before the first behavior change:
+
+- [ ] T00, T01, T02, and T02A are reviewed and complete.
+- [ ] The exact manifest/state/API contract for the next task is written down.
+- [ ] The preservation fixture for every affected Aurelia feature exists.
+- [ ] The isolated test or fixture that will fail if the next change regresses
+  the contract is present.
+- [ ] The planned file ownership and mutation owner are identified.
+- [ ] The expected user-visible and runtime impact is explicitly `none` until
+  the controlled cutover task.
+
+Stop condition: no implementation edit is allowed if the contract, test, or
+rollback path is still ambiguous.
+
+### CP2 — Per-task pre-change checkpoint
+
+Before each individual task implementation:
+
+- [ ] Re-run `git status --short` and confirm no unrelated user changes are
+  being included.
+- [ ] Re-run the smallest relevant existing tests and confirm their baseline
+  result.
+- [ ] Record the exact files that may change for the task.
+- [ ] Record the migration/rollback strategy and whether the task changes
+  runtime behavior, persisted state, or only development tooling.
+- [ ] Confirm no live workstation mutation is required.
+
+Stop condition: if the working tree changes unexpectedly or a baseline test
+regresses before editing, stop and re-baseline; do not overwrite or repair the
+unexpected change.
+
+### CP3 — Per-task post-change checkpoint
+
+After each task implementation and before marking it complete:
+
+- [ ] Run the task's focused tests.
+- [ ] Run all affected feature tests.
+- [ ] Run the full repository and Aurelia test entry points when the task
+  changes shared host, registry, configuration, or lifecycle code.
+- [ ] Run syntax checks for every changed shell script and relevant QML/JS
+  runtime fixture checks.
+- [ ] Review the diff for unintended changes to existing Aurelia features,
+  design tokens, user data, ownership, and privilege boundaries.
+- [ ] Verify no temporary files, generated state, or test artifacts remain in
+  the repository.
+- [ ] Record exact evidence and update the task checkbox only after all gates
+  pass.
+
+Stop condition: a failed post-change checkpoint blocks the next task. Repair
+or revert only the task's owned changes; never use destructive Git commands to
+erase unrelated worktree state.
+
+### CP4 — Phase checkpoint
+
+Before moving to the next phase:
+
+- [ ] Every task in the completed phase has CP3 evidence.
+- [ ] Shared tests are green.
+- [ ] No known regression or unclassified risk is carried forward silently.
+- [ ] The next phase's contract and test additions are reviewed before code
+  changes begin.
+
+### CP5 — Final parity checkpoint
+
+Before declaring parity complete:
+
+- [ ] T28 is complete.
+- [ ] All gap-to-task rows are closed with evidence.
+- [ ] All preservation gates pass.
+- [ ] Runtime/visual evidence is separated from static/isolated evidence.
+- [ ] The final working-tree diff is reviewed file-by-file.
+
+No task may skip a checkpoint because it is “small,” “only a refactor,” or
+“test-only.” Shared host and plugin code can change runtime behavior indirectly.
+
+---
+
+## Phase 0 — Freeze the baseline before changing behavior
+
+### T00. Rebuild the inventory and acceptance matrix
+
+- [ ] Recount all Aurelia plugin directories and manifests, including files
+  currently untracked in the working tree.
+- [ ] Recount all Omarchy conventional and sibling manifests from the pinned
+  reference checkout.
+- [ ] Record every manifest ID, kind, entry point, `keepLoaded` value, bar
+  metadata field, local dependency, and plugin-specific state file.
+- [ ] Record all current Aurelia IPC targets and methods.
+- [ ] Record all current Aurelia feature plugins and custom features that must
+  remain unchanged.
+- [ ] Record current Aurelia bar layout, theme tokens, panel geometry, keyboard
+  behavior, backend commands, and failure classifications as preservation
+  fixtures.
+- [ ] Record current test commands, pass counts, optional skips, and available
+  runtime tools without changing the live workstation.
+- [ ] Record the starting Git status and ensure all pre-existing changes are
+  distinguishable from future parity changes.
+- [ ] Complete CP0 and record its exact evidence before beginning T01 or any
+  implementation task.
+
+Exit gate: CP0 is complete, a complete inventory exists in the task evidence or
+an attached review artifact, and every existing Aurelia feature has an explicit
+owner.
+
+Dependencies: none.
+
+### T01. Freeze the reference contract and vocabulary
+
+- [ ] Define the exact Aurelia parity vocabulary from Omarchy: plugin, manifest,
+  kind, entry point, service, panel, overlay, menu, bar-widget, bar option,
+  plugin instance, enabled, active, loaded, visible, and clone.
+- [ ] Adopt one exact kind-to-entry-point mapping for the public contract.
+- [ ] Decide the compatibility treatment for Aurelia's current
+  `entryPoints["bar-widget"]` spelling versus Omarchy's `entryPoints.barWidget`.
+- [ ] Define the reserved first-party namespace and user-plugin namespace.
+- [ ] Define which manifest fields are required, optional, first-party-only,
+  user-visible, or host-internal.
+- [ ] Include the reference optional metadata surface where it has real
+  behavior: `license`, `activation`, `barWidget`, `defaults`, `schema`,
+  `settingsForm`, `clonePaths`, and trusted first-party capability metadata.
+- [ ] Define the exact semantics of `keepLoaded`, multi-kind plugins, multiple
+  bar-widget instances, disabled plugins, and active replacement bars.
+- [ ] Define the compatibility policy: old Aurelia manifests and old
+  `shell.json` state must remain readable during migration; new writes use the
+  canonical parity format only after the migration gate.
+- [ ] Do not add a second competing manifest schema.
+
+Exit gate: a reviewed, versioned contract exists before behavior is migrated.
+
+Dependencies: T00.
+
+### T02. Establish the parity test harness and golden preservation checks
+
+- [ ] Keep `./tests/run.sh` as the repository test entry point.
+- [ ] Keep `./aurelia-shell/tests/run.sh` as the Aurelia Shell test entry point.
+- [ ] Add a coherent plugin-test domain under `aurelia-shell/tests/` rather than
+  scattering contract assertions through unrelated feature tests.
+- [ ] Add reusable fixtures for temporary first-party and third-party plugin
+  trees, temporary `shell.json`, malformed manifests, duplicate IDs, symlinked
+  trees, and failing entry points.
+- [ ] Add golden preservation checks for current Aurelia plugin IDs, layout
+  entries, theme tokens, design primitives, and backend command ownership.
+- [ ] Add a test result format that distinguishes static, isolated runtime,
+  live-session, and skipped evidence.
+- [ ] Do not delete or weaken current feature tests while adding the harness.
+
+Exit gate: the harness can run without installer execution or live system
+mutation, and the current Aurelia behavior has a repeatable baseline.
+
+Dependencies: T00, T01.
+
+### T02A. Establish the non-negotiable Aurelia host-survivability contract
+
+This is the first runtime-safety gate. The required behavior is:
+
+```text
+one faulty plugin
+        -> plugin is rejected, contained, quarantined, or unloaded
+        -> Aurelia host remains alive
+        -> shell ping/listPlugins still respond
+        -> healthy services, panels, overlays, menus, and bar widgets continue
+        -> built-in bar fallback remains available
+```
+
+- [ ] Define the failure classes that must be contained: malformed manifest,
+  missing entry point, unsafe import/path, QML syntax/import failure,
+  `Component.onCompleted` failure, plugin initialization failure, plugin
+  service failure, bar-widget construction failure, and exceptions raised by
+  plugin `open`, `close`, `toggle`, or IPC methods.
+- [ ] Keep discovery failure isolated from host startup. A single rejected
+  manifest must not make the complete registry unavailable.
+- [ ] Keep each plugin entry point behind an independent load boundary. A
+  failed panel, overlay, menu, service, widget, or replacement bar must not
+  terminate or invalidate unrelated loaders.
+- [ ] Guard every host-to-plugin callback and bar-widget invocation at the
+  boundary. A thrown plugin callback must become a recorded plugin failure,
+  not an uncaught host failure.
+- [ ] Add per-plugin failure state with plugin ID, kind, source/entry point,
+  failure phase, bounded error detail, timestamp or generation, and retry or
+  quarantine state.
+- [ ] Prevent an immediately failing plugin from entering an uncontrolled
+  reload loop. Retry only through an explicit bounded policy or after a source
+  generation/configuration change.
+- [ ] Preserve the last known-good host and healthy plugin state when a reload
+  introduces a bad plugin. A failed replacement bar must fall back to the
+  built-in Aurelia bar.
+- [ ] Ensure failure reporting cannot mutate user configuration, remove user
+  data, or disable healthy plugins as a side effect.
+- [ ] Add an isolated runtime fixture containing at least one deliberately
+  broken plugin beside at least one healthy panel, one healthy service, one
+  healthy bar widget, and the host IPC target.
+- [ ] Assert after the broken plugin is introduced that the host process is
+  still alive, `ping` succeeds, `listPlugins` succeeds, the healthy plugin is
+  loaded/usable, the bar remains available, and the bad plugin is explicitly
+  reported as failed.
+- [ ] Repeat the fixture for syntax/import failure, initialization failure,
+  service failure, bar-widget failure, callback exception, and reload-time
+  failure.
+- [ ] Add a separate test for simultaneous failures to prove that failure
+  handling is per plugin rather than a global “shell failed” state.
+
+### Same-process boundary that must remain explicit
+
+Omarchy and the current Aurelia design execute plugins as unsandboxed code in
+the same Quickshell process. Loader and callback containment can protect the
+host from ordinary malformed or failing plugin behavior, but cannot guarantee
+survival if deliberately malicious code calls `Qt.quit()`, corrupts native
+state, or triggers a process/engine crash. A true guarantee against that class
+requires an out-of-process sandbox and would no longer be 1:1 with Omarchy.
+The parity requirement for this tracker is therefore strict containment of
+faulty plugin loading, initialization, callbacks, and reloads; this limitation
+must not be hidden or described as a security sandbox.
+
+Exit gate: a broken plugin is demonstrably non-fatal to the Aurelia host and
+healthy plugins across all listed failure phases, with bounded diagnostics and
+no uncontrolled retry loop.
+
+Dependencies: T02.
+
+---
+
+## Phase 1 — Make the manifest and discovery layers structurally compatible
+
+### T03. Implement one canonical manifest validator
+
+- [ ] Make runtime and CLI validation enforce the same manifest contract.
+- [ ] Validate schema version, ID, name, version, description, kinds, entry
+  points, safe relative paths, regular-file entry points, and symlink policy.
+- [ ] Validate the exact kind-to-entry-point mapping.
+- [ ] Validate bar-widget metadata, including `displayName`, `description`,
+  `category`, `allowMultiple`, `defaultSection`, `defaults`, `settingsForm`,
+  and `schema` where the contract requires them.
+- [ ] Validate `keepLoaded` and all allowed metadata types.
+- [ ] Reject unknown or malformed public kinds fail-closed.
+- [ ] Preserve Aurelia-only metadata under an explicit Aurelia namespace rather
+  than silently colliding with Omarchy fields.
+- [ ] Keep the validator mutation-free and ensure discovery never executes
+  plugin code.
+- [ ] Keep any host/API compatibility metadata explicit and fail closed; do not
+  use the plugin's display version as an implicit host compatibility check.
+- [ ] Add negative tests for every rejected shape.
+
+Exit gate: a manifest accepted by the author-facing validator is accepted by
+the runtime, and a manifest rejected by either boundary is not loadable.
+
+Dependencies: T01, T02, T02A.
+
+### T04. Match Omarchy's plugin tree discovery model
+
+- [ ] Support grouped first-party plugin directories at the same structural
+  depth as the reference.
+- [ ] Support sibling `*.manifest.json` entries where a single first-party
+  source directory intentionally owns multiple simple bar widgets.
+- [ ] Keep third-party plugins as top-level user-owned plugin directories with
+  one canonical manifest per plugin.
+- [ ] Preserve Aurelia's safe path checks, no-symlink-tree policy, and reserved
+  namespace checks.
+- [ ] Define deterministic ordering and duplicate-ID resolution.
+- [ ] Ensure first-party entries cannot be shadowed by user entries.
+- [ ] Preserve the current source-checkout and installed-path resolution.
+- [ ] Add scan failure states that retain safe previous state or fail closed;
+  never report a successful partial catalog without recording the failure.
+- [ ] Bound the scan process and distinguish timeout, unavailable tooling,
+  malformed output, and an empty valid catalog.
+
+Exit gate: discovery structure and ordering match the reference for equivalent
+trees, while current Aurelia directories continue to load unchanged.
+
+Dependencies: T03.
+
+### T05. Add a single source-aware plugin catalog
+
+- [ ] Add a catalog projection containing ID, name, description, kinds, source
+  root, manifest path, entry points, first-party status, version, and bar
+  metadata.
+- [ ] Make CLI commands and management UI consume the catalog instead of
+  reimplementing manifest walking.
+- [ ] Expose machine-readable JSON and human-readable output.
+- [ ] Include rejected manifests and reasons in a diagnostic projection without
+  making rejected code loadable.
+- [ ] Keep catalog generation read-only and bounded.
+- [ ] Add duplicate-ID and reserved-namespace catalog tests.
+
+Exit gate: every plugin-management consumer uses the same catalog projection.
+
+Dependencies: T04.
+
+---
+
+## Phase 2 — Build the Omarchy-level runtime composition boundaries
+
+### T06. Separate registry, component catalog, services, and UI loaders
+
+- [ ] Add the Aurelia equivalent of `BarWidgetRegistry` for component and
+  metadata registration.
+- [ ] Keep the plugin registry responsible for discovery and identity only.
+- [ ] Keep the host responsible for lifecycle and loading only.
+- [ ] Keep services resident according to manifest semantics and ensure one
+  service instance per enabled plugin ID.
+- [ ] Load panel, overlay, and menu entry points on demand.
+- [ ] Load bar-widget entry points through the bar registry and configured
+  layout slots.
+- [ ] Preserve payload queues and deterministic delivery for summons that occur
+  before asynchronous loading completes.
+- [ ] Emit structured load success, load failure, unload, and reload events.
+- [ ] Ensure a failing optional plugin cannot break the Aurelia host or login
+  activation.
+
+Exit gate: a fixture can exercise each supported kind through its intended
+owner without any feature-specific host branch being required.
+
+Dependencies: T02A, T03, T04, T05.
+
+### T07. Implement exact `keepLoaded` and multi-kind lifecycle semantics
+
+- [ ] Define one canonical primary service owner for a multi-kind plugin.
+- [ ] Load every declared functional kind through its own entry point when the
+  kind requires an independent surface.
+- [ ] Keep services and explicitly kept UI surfaces alive across a plugin
+  rescan according to the manifest.
+- [ ] Do not destroy session-lock, notification-bus, or other sensitive/stateful
+  owners during an unrelated plugin reload.
+- [ ] Preserve current Aurelia notification service plus bar-widget behavior.
+- [ ] Add runtime tests for service-plus-widget and menu-plus-widget fixtures.
+- [ ] Add tests for pending opens, repeated summons, close, toggle, and unload.
+
+Exit gate: reload behavior is deterministic and no duplicate service, IPC, timer,
+or notification owner is created.
+
+Dependencies: T06.
+
+### T08. Implement active replacement-bar parity
+
+- [ ] Add a canonical active bar selector equivalent to Omarchy's `bar.id`.
+- [ ] Keep exactly one full bar active at a time.
+- [ ] Preserve the built-in Aurelia bar as the safe fallback.
+- [ ] Load replacement bars asynchronously and fall back when unavailable or
+  when loading fails.
+- [ ] Keep bar-widget registration and lifecycle independent from the active
+  full-bar implementation.
+- [ ] Preserve current Aurelia bar layout, logo, widgets, popup ownership, and
+  theme behavior when the built-in bar remains selected.
+- [ ] Add replacement-bar fixtures for success, failure, disable, rescan, and
+  fallback paths.
+- [ ] Do not leave the public `bar` kind half-implemented.
+
+Exit gate: the active bar path matches Omarchy structurally and the default
+Aurelia bar is byte/behavior compatible with its preservation fixture.
+
+Dependencies: T06, T07.
+
+### T09. Remove hardcoded host assumptions from generic lifecycle routing
+
+- [ ] Replace generic routing that is hardcoded to `aurelia.bar` with registry
+  ownership and active-bar resolution.
+- [ ] Keep compatibility IPC targets as thin forwarding aliases.
+- [ ] Move plugin-specific auxiliary relationships into manifest metadata or
+  explicit, narrow compatibility adapters.
+- [ ] Ensure adding a new panel, service, menu, overlay, bar-widget, or bar
+  option does not require editing unrelated host branches.
+- [ ] Preserve Aurelia's feature-specific backend ownership and existing IPC
+  IDs.
+
+Exit gate: a new fixture plugin can exercise its kind without adding a new
+`if pluginId == ...` branch to the generic host.
+
+Dependencies: T06, T07, T08.
+
+---
+
+## Phase 3 — Bring configuration and bar customization to parity
+
+### T10. Introduce canonical unified shell state with migration
+
+- [ ] Define the canonical Aurelia state shape equivalent to Omarchy's unified
+  `shell.json`: version, idle/runtime state where applicable, active bar, bar
+  layout, plugin instances, and disabled-plugin deviations.
+- [ ] Represent plugin instances as objects when settings or multiple instances
+  are required; retain read support for current string IDs.
+- [ ] Preserve unknown user-owned state unless the contract explicitly owns it.
+- [ ] Normalize malformed state into safe defaults without deleting the source
+  file.
+- [ ] Write state atomically with secure permissions and safe interruption.
+- [ ] Make repeated normalization byte-stable where possible.
+- [ ] Provide an explicit, idempotent migration from current Aurelia
+  `plugins[]`, `disabledPlugins[]`, and bar entries.
+- [ ] Create a recoverable backup before the first migration write, without
+  creating repeated backup pollution on future runs.
+- [ ] Keep theme, notification, keybinding, and other feature-owned state in
+  their existing ownership domains unless the reference contract explicitly
+  requires migration.
+
+Exit gate: an existing Aurelia state file can be read, migrated, re-read, and
+reconciled without losing user settings or changing the default visual result.
+
+Dependencies: T01, T02, T06, T08.
+
+### T11. Make bar-widget metadata operational
+
+- [ ] Consume `displayName`, `description`, `category`, `defaultSection`,
+  `allowMultiple`, `defaults`, `settingsForm`, and `schema` through the bar
+  registry.
+- [ ] Build the catalog from manifest metadata rather than hardcoded widget
+  lists.
+- [ ] Apply manifest defaults only when an instance has no user value.
+- [ ] Preserve explicit user values and unknown user-owned settings.
+- [ ] Enforce `allowMultiple` at the configuration boundary.
+- [ ] Define duplicate-instance addressing so IPC never selects an arbitrary
+  instance.
+- [ ] Keep Aurelia's existing widget geometry and visual design unchanged.
+
+Exit gate: all current Aurelia bar widgets continue to render identically, and
+a new manifest-backed widget can describe itself without host source changes.
+
+Dependencies: T05, T06, T10.
+
+### T12. Add bar placement and settings operations
+
+- [ ] Add equivalent operations for enable-and-place, put, move, and set.
+- [ ] Support section, index, before, and after placement.
+- [ ] Use `defaultSection` when no explicit placement is supplied.
+- [ ] Make placement idempotent.
+- [ ] Preserve a widget's existing position and settings when re-enabled.
+- [ ] Keep disabling distinct from removing and removing distinct from purging.
+- [ ] Provide deterministic errors for missing targets, invalid indices, and
+  ambiguous duplicate instances.
+- [ ] Add CLI and runtime tests for all placement forms.
+
+Exit gate: a third-party bar-widget can be installed, enabled, placed, moved,
+configured, disabled, and re-enabled without manual JSON editing.
+
+Dependencies: T10, T11.
+
+### T13. Add generic plugin instance settings APIs
+
+- [ ] Add a host-owned settings update path equivalent to `updateEntryInline`.
+- [ ] Support settings for panels, overlays, menus, services, and bar widgets
+  where the manifest permits them.
+- [ ] Keep settings JSON-only, bounded, normalized, and free of executable
+  content.
+- [ ] Separate plugin configuration from runtime state, caches, secrets, logs,
+  and personal documents.
+- [ ] Provide safe reset-to-default behavior per plugin instance.
+- [ ] Make settings changes trigger only the necessary reload/update boundary.
+- [ ] Preserve existing Aurelia plugin-owned state files and APIs.
+
+Exit gate: no plugin needs to parse or mutate shared `shell.json` directly.
+
+Dependencies: T10, T11, T12.
+
+---
+
+## Phase 4 — Enforce the third-party API boundary
+
+### T14. Create scoped plugin facades
+
+- [ ] Add a self-scoped registry facade equivalent to Omarchy's
+  `PluginRegistryApi`.
+- [ ] Add a self-scoped lifecycle/settings facade equivalent to
+  `PluginShellApi`.
+- [ ] Add a bar facade equivalent to `PluginBarApi` with scalar state and
+  owner-checked popup/click-target operations.
+- [ ] Add a read-only application-library facade where required.
+- [ ] Add a detached bar-widget registry snapshot for replacement bars.
+- [ ] Keep first-party plugins on trusted objects only where required by their
+  existing implementation.
+- [ ] Give user plugins facades rather than raw `PluginRegistry`, `ShellConfig`,
+  `Bar`, or unrestricted shell IPC objects.
+- [ ] Strip source paths, first-party markers, host capability stamps, and other
+  host-internal fields from third-party manifests.
+- [ ] Add facade revocation when a plugin is disabled, removed, rescanned, or
+  loses a capability.
+- [ ] Ensure facade callbacks enforce owner identity rather than trusting IDs
+  supplied by plugin code.
+
+Exit gate: a third-party fixture cannot use the public API to control an
+unrelated plugin or mutate unrelated host state through the supported facade.
+
+Dependencies: T06, T09, T13.
+
+### T15. Add sensitive-service isolation
+
+- [ ] Identify any Aurelia service that owns authentication, credentials,
+  secrets, session-lock, polkit, or equivalent sensitive state.
+- [ ] Keep sensitive service objects outside the public service map and ordinary
+  visual QML object graph where required.
+- [ ] Stamp sensitive capabilities only from trusted first-party metadata.
+- [ ] Do not allow a user manifest to self-declare trusted authentication
+  capability.
+- [ ] Add runtime tests for service lookup, object ownership, manifest mutation,
+  disable, and reload.
+- [ ] Document clearly that visual QML remains unsandboxed.
+
+Exit gate: sensitive state is not exposed by ordinary third-party facade paths,
+and the limitation is covered by runtime evidence rather than comments only.
+
+Dependencies: T14, T02.
+
+### T16. Preserve Aurelia's command and privilege boundaries
+
+- [ ] Keep system actions in approved Aurelia backends and structured argv.
+- [ ] Ensure plugin facades cannot bypass existing authorization or privilege
+  boundaries.
+- [ ] Keep plugin installation user-level and hook-free.
+- [ ] Keep network operations bounded.
+- [ ] Add tests proving plugin discovery, validation, and enablement do not run
+  plugin install code or sudo.
+- [ ] Preserve current notification, DNS, Bluetooth, screenshot, display,
+  package, and keybinding privilege ownership.
+
+Exit gate: parity work introduces no new privileged plugin execution path.
+
+Dependencies: T14, T15.
+
+---
+
+## Phase 5 — Complete plugin customization and lifecycle tooling
+
+### T17. Implement safe built-in plugin cloning
+
+- [ ] Add `aurelia-plugin clone <id>` for first-party plugins.
+- [ ] Generate a collision-safe user-owned ID.
+- [ ] Copy the complete plugin directory and every declared local dependency.
+- [ ] Add explicit safe clone dependency metadata equivalent to Omarchy's
+  `clonePaths` where a complete directory copy is insufficient.
+- [ ] Rewrite only identity-sensitive metadata and preserve stable source IPC
+  IDs where required.
+- [ ] Record clone origin and source restoration intent.
+- [ ] Preserve bar position, instance settings, active-bar selection, and
+  compatibility aliases when switching to a clone.
+- [ ] Restore the original implementation when an active clone is removed.
+- [ ] Never edit or overwrite the first-party source tree.
+- [ ] Add failure cleanup tests for partial clone, invalid source, collision,
+  missing dependency, and discovery failure.
+
+Exit gate: a user can safely customize any eligible first-party plugin without
+editing packaged Aurelia source.
+
+Dependencies: T03, T04, T10, T12, T14.
+
+### T18. Complete add/update/remove lifecycle
+
+- [ ] Keep add disabled-by-default unless explicitly enabled.
+- [ ] Add preflight duplicate-ID detection against the canonical catalog before
+  moving staged code into the user plugin tree.
+- [ ] Keep staged clone/update validation before activation.
+- [ ] Keep HTTPS and bounded Git operations, disable interactive Git prompts,
+  and reject unsafe transport-helper inputs.
+- [ ] Add interactive review paths for human use and explicit `--yes` paths for
+  automation.
+- [ ] Add update-one and update-all behavior.
+- [ ] Show a reviewable diff before an interactive update.
+- [ ] Refuse updates over local modifications.
+- [ ] Validate updated manifests before activation and roll back on validation
+  or rescan failure.
+- [ ] Record remote URL, selected ref/commit, version, and validation result for
+  provenance and diagnostics.
+- [ ] Make manual/non-Git plugin removal recoverable; never purge user data.
+- [ ] Ensure `remove` disables the plugin before removing its source.
+- [ ] Add local Git repository fixtures so lifecycle tests never require network.
+
+Exit gate: add, update, remove, clone, interruption, validation failure, and
+rollback paths are deterministic and recoverable.
+
+Dependencies: T05, T10, T17.
+
+### T19. Add plugin management and discoverability parity
+
+- [ ] Add a human-readable and JSON plugin list with source, kind, enabled,
+  active, loaded, visible, in-bar, can-disable, clone origin, and error state.
+- [ ] Add plugin enable/disable/clone/remove/update actions to an Aurelia-owned
+  management surface.
+- [ ] Keep management UI separate from plugin mutation internals.
+- [ ] Make management UI consume the canonical catalog and lifecycle APIs.
+- [ ] Preserve Command Center's existing modules and design language.
+- [ ] Add a plugin author preview/validation action without loading plugin code.
+
+Exit gate: a user can discover and manage plugins without knowing private file
+paths or editing JSON manually.
+
+Dependencies: T05, T12, T17, T18.
+
+### T20. Match development reload behavior safely
+
+- [ ] Define the production/development watcher policy explicitly against the
+  Omarchy reference.
+- [ ] Watch only first-party and user plugin trees; never enable broad
+  Quickshell core file watching as a replacement.
+- [ ] Debounce atomic saves.
+- [ ] Support targeted plugin reload and explicit full rescan.
+- [ ] Keep stateful and sensitive services alive across unrelated reloads.
+- [ ] Revoke and recreate facades when plugin capability profiles change.
+- [ ] Preserve the current Aurelia restart boundary for `shell.qml`, shared
+  services, theme core, and Hyprland Lua.
+- [ ] Add tests for changed QML, JS, JSON, Lua/config files, deletion, rename,
+  invalid intermediate writes, and watcher failure.
+
+Exit gate: plugin source changes behave like the reference without duplicate
+hosts, duplicate services, broken lock/notification owners, or broad reloads.
+
+Dependencies: T07, T14, T15.
+
+---
+
+## Phase 6 — Remove static feature assumptions while preserving Aurelia behavior
+
+### T21. Convert the Command Center provider catalog to the parity model
+
+- [ ] Keep the Command Center as an Aurelia feature with its current name,
+  layout, keyboard behavior, and design language.
+- [ ] Separate generic module metadata from provider implementation.
+- [ ] Make the module registry consume declarative metadata and user overrides.
+- [ ] Ensure existing modules remain available with identical behavior.
+- [ ] Add an Aurelia-owned manifest-backed menu surface equivalent to Omarchy's
+  menu plugin, including shipped menu data and user extension data, while
+  preserving the existing Command Center as an Aurelia-specific feature.
+- [ ] Define safe menu visibility, checked-state, and action-provider contracts;
+  use structured argv or explicitly approved Aurelia actions instead of copying
+  arbitrary shell-string evaluation.
+- [ ] Define a safe provider extension point for future modules without allowing
+  arbitrary shell command injection.
+- [ ] Keep unimplemented modules inert and fail-closed.
+- [ ] Add module catalog, enablement, invalid metadata, and provider failure
+  tests.
+
+Exit gate: adding a supported Command Center provider does not require editing
+the host's generic navigation code.
+
+Dependencies: T03, T13, T14.
+
+### T22. Migrate all existing Aurelia plugins to the canonical contract
+
+For each plugin below:
+
+- [ ] migrate its manifest without changing its user-visible behavior;
+- [ ] make its entry points load through the generic registry;
+- [ ] make its settings use the canonical state/API boundary;
+- [ ] preserve its current backend ownership and failure classification;
+- [ ] add or update focused tests and runtime fixtures;
+- [ ] add a design-language review against Aurelia tokens and primitives.
+
+Feature preservation list:
+
+- [ ] `aurelia.bar`: resident bar, exact center anchor, layout, logo, widget
+  ownership, single-popout behavior, themes, and fallback.
+- [ ] `aurelia.background`: per-screen background service, image/video support,
+  safe fallback, and state reload.
+- [ ] `aurelia.image-picker`: image carousel/selector behavior and theme use.
+- [ ] `aurelia.bluetooth`: BlueZ model, discovery ownership, power state,
+  paired/discovered actions, and popup behavior.
+- [ ] `aurelia.calendar`: clock-owned calendar surface and geometry.
+- [ ] `aurelia.clock`: formatting, center placement, and calendar routing.
+- [ ] `aurelia.keybindings`: keyboard capture, provider integration, settings,
+  compatibility targets, and structured backend execution.
+- [ ] `aurelia.launcher`: Command Center navigation, application search,
+  calculator, file search, updates, About, and package workflows.
+- [ ] `aurelia.monitor`: brightness, display scale/resolution, text size, and
+  multi-monitor behavior.
+- [ ] `aurelia.network`: NetworkManager state, DNS authorization, QR handoff,
+  speed-test handoff, and credential boundaries.
+- [ ] `aurelia.notifications`: notification server ownership, bounded history,
+  DND, popups, screenshot previews, and cross-workspace routing.
+- [ ] `aurelia.power`: power actions and confirmation behavior.
+- [ ] `aurelia.screenshot`: bar-owned capture, region selection, delay/pointer
+  settings, clipboard, and notification integration.
+- [ ] `aurelia.speedtest`: bounded cancellable speed-test panel.
+- [ ] `aurelia.tasklist`: tasklist layout and window context menu.
+- [ ] `aurelia.theme`: data-only theme selection and background handoff.
+- [ ] `aurelia.tray`: system tray ownership and menu behavior.
+- [ ] `aurelia.weather`: automatic/pinned location, units, refresh, and popup.
+- [ ] `aurelia.wifiqr`: QR generation, cancellation, and network handoff.
+- [ ] `aurelia.workspace-switcher`: `SUPER + TAB`, workspace cards, preview
+  fallback, and selection behavior.
+- [ ] `aurelia.workspaces`: workspace indicators and Hyprland dispatch.
+
+Exit gate: all existing Aurelia features pass their preservation fixtures after
+being hosted by the parity architecture.
+
+Dependencies: T06 through T21 as applicable to each plugin.
+
+### T23. Eliminate duplicated defaults and feature-specific host registration
+
+- [ ] Move the default bar layout to one canonical repository-owned data file.
+- [ ] Keep an embedded fallback only for safe startup recovery.
+- [ ] Remove duplicate default layout definitions from host and bar code.
+- [ ] Remove generic host registration lists that must be edited for every new
+  plugin.
+- [ ] Preserve current defaults byte-for-byte in the preservation fixture.
+- [ ] Keep feature-specific registration only where the feature owns a real
+  external capability or compatibility alias.
+
+Exit gate: a new manifest-backed plugin can be discovered and managed without
+editing unrelated Aurelia default lists or host registration branches.
+
+Dependencies: T05, T10, T21, T22.
+
+---
+
+## Phase 7 — Complete verification, documentation, and cutover
+
+### T24. Complete the generic plugin test matrix
+
+- [ ] Add manifest enumeration tests for every Aurelia first-party manifest.
+- [ ] Add entry-point existence and safe-path tests for every declared kind.
+- [ ] Add runtime fixture loading for every supported entry-point kind.
+- [ ] Add broken-plugin survivability fixtures proving that syntax/import,
+  initialization, service, widget, callback, and reload failures do not crash
+  the host or prevent healthy plugins from loading.
+- [ ] Assert host `ping`, `listPlugins`, built-in bar fallback, and at least one
+  healthy plugin after every contained failure.
+- [ ] Add first-party and third-party registry tests.
+- [ ] Add duplicate-ID, namespace, symlink, malformed JSON, and unsafe-path
+  tests.
+- [ ] Add bar-widget catalog, placement, settings, multiple-instance, and
+  popup-routing tests.
+- [ ] Add replacement-bar fallback and lifecycle tests.
+- [ ] Add scoped-facade and capability-revocation tests.
+- [ ] Add service isolation tests for every sensitive service.
+- [ ] Add add/update/remove/clone/rollback CLI tests using local Git fixtures.
+- [ ] Add development reload tests.
+- [ ] Add cross-plugin compatibility tests for every retained Aurelia feature.
+- [ ] Keep tests deterministic and isolated from the live workstation.
+
+Exit gate: the generic plugin contract is tested independently of any one
+feature plugin, and all feature-specific suites remain green.
+
+Dependencies: T02 through T23.
+
+### T25. Add visual and interaction parity acceptance checks
+
+- [ ] Verify bar placement, orientation, center anchoring, and popup ownership.
+- [ ] Verify plugin enable/disable/clone/remove flows visually and through IPC.
+- [ ] Verify Command Center/plugin-management navigation using Aurelia's design
+  language.
+- [ ] Verify loading and reload do not create duplicate windows, timers, IPC
+  handlers, service owners, or notification registrations.
+- [ ] Verify all custom Aurelia features retain their current appearance and
+  interaction behavior.
+- [ ] Use live QML/Wayland tests only as a separately authorized validation
+  phase; do not enable them during ordinary repository-only changes.
+
+Exit gate: static and isolated tests agree with runtime/visual evidence, and
+any unavailable live evidence is explicitly recorded rather than claimed.
+
+Dependencies: T22, T24.
+
+### T26. Publish plugin authoring and maintenance documentation
+
+- [ ] Document the canonical manifest schema and kind-to-entry-point mapping.
+- [ ] Document the directory layout and source roots.
+- [ ] Document lifecycle, `keepLoaded`, multi-kind, bar, settings, and reload
+  behavior.
+- [ ] Document the third-party facade API and scope rules.
+- [ ] Document no-sandbox behavior, trust requirements, no-hook policy, and
+  bounded Git operations.
+- [ ] Add a minimal example plugin and validation instructions.
+- [ ] Add clone, update, remove, migration, and rollback instructions.
+- [ ] Document which behavior is Omarchy parity and which behavior is an
+  intentionally preserved Aurelia feature.
+- [ ] Keep README, runtime comments, tests, and implementation synchronized.
+
+Exit gate: a new plugin author can build, validate, install, enable, configure,
+reload, test, update, clone, and remove a plugin without reading host internals.
+
+Dependencies: T03, T05, T14, T17, T18, T24.
+
+### T27. Perform the compatibility cutover
+
+- [ ] Keep old Aurelia manifest/state reads enabled until all migration tests
+  pass.
+- [ ] Enable canonical parity writes only after T24 and T25 pass.
+- [ ] Run the migration against isolated copies of representative old states.
+- [ ] Verify a second run produces no additional changes or backups.
+- [ ] Verify a failed migration leaves the original state usable.
+- [ ] Verify all first-party plugins start through the canonical path.
+- [ ] Verify third-party plugins remain disabled until explicit enablement.
+- [ ] Verify the built-in bar remains the safe default.
+- [ ] Remove compatibility code only in a separately reviewed cleanup task after
+  the migration window is complete.
+
+Exit gate: canonical parity is active, old valid state remains readable, and
+the default Aurelia session is behaviorally unchanged.
+
+Dependencies: T24, T25, T26.
+
+### T28. Final 1:1 parity audit and release gate
+
+- [ ] Re-run the complete manifest and structure comparison against the pinned
+  Omarchy reference.
+- [ ] Verify every Omarchy plugin-platform capability has an Aurelia owner or
+  an explicitly documented, approved difference.
+- [ ] Verify every identified audit gap in the gap matrix below is closed.
+- [ ] Run `./tests/run.sh`.
+- [ ] Run `./aurelia-shell/tests/run.sh`.
+- [ ] Run syntax validation across every shell script in the repository,
+  including the Aurelia tree.
+- [ ] Run ShellCheck when already installed; do not install it only for this
+  gate.
+- [ ] Run authorized QML/runtime/visual acceptance tests separately from unit
+  tests and report skipped evidence honestly.
+- [ ] Confirm no installer execution, package mutation, live configuration
+  mutation, greetd/systemd mutation, or reboot occurred during implementation.
+- [ ] Record starting branch/SHA, final branch/SHA, files changed, tests,
+  commits, remaining risks, and unverified integration scenarios.
+
+Exit gate: Aurelia reaches the agreed Omarchy plugin parity target without
+regressing any preserved Aurelia feature or safety invariant.
+
+Dependencies: T27 and every previous task.
+
+---
+
+## Gap-to-task closure matrix
+
+| Audit gap | Closing task(s) |
+|---|---|
+| `barWidget` metadata accepted but not operational | T03, T05, T11, T24 |
+| Enabling a bar widget does not place it in the bar | T10, T12, T24 |
+| No dedicated Aurelia bar-widget registry | T06, T11 |
+| Declared `bar` kind lacks active replacement-bar semantics | T08, T24, T25 |
+| `plugins[]` stores IDs rather than plugin instances/settings | T10, T13, T27 |
+| No generic multiple-instance enforcement | T11, T12, T24 |
+| Raw third-party host objects are injected | T14, T15, T16, T24 |
+| No sensitive-service isolation pattern | T15, T24 |
+| No built-in clone/customization workflow | T17, T24, T26 |
+| Incomplete add/update/remove CLI lifecycle | T18, T19, T24 |
+| No duplicate-ID preflight before plugin installation | T05, T18, T24 |
+| Manual plugin removal is not recoverable | T18, T24 |
+| No update-all or diff review | T18, T24 |
+| No canonical plugin catalog | T05, T19 |
+| No plugin-management UI | T19, T21, T25 |
+| Limited plugin error/status observability | T05, T06, T19, T24 |
+| A faulty plugin can threaten host startup/runtime survivability | T02A, T06, T07, T20, T24, T25 |
+| No generic all-manifest contract test | T02, T24 |
+| No generic runtime entry-point loading test | T02, T06, T24 |
+| No third-party lifecycle fixtures | T02, T18, T24 |
+| No facade/isolation runtime tests | T02, T14, T15, T24 |
+| Command Center provider catalog remains static | T21, T23, T24 |
+| Default bar layout duplicated in multiple files | T10, T23 |
+| Aurelia/Omarchy manifest key mismatch | T01, T03, T04, T27 |
+| Reference optional manifest metadata is missing or inert | T01, T03, T05, T11, T17 |
+| Plugin development reload is less complete | T07, T20, T24 |
+| No manifest-backed Omarchy-style menu/data-extension surface | T21, T24, T25 |
+| No plugin authoring documentation/template | T26 |
+
+## Final preservation gate
+
+Before declaring parity complete:
+
+- [ ] Existing Aurelia plugin IDs remain valid or have an explicit migration.
+- [ ] Existing Aurelia IPC aliases still forward correctly.
+- [ ] Existing Aurelia bar defaults, theme tokens, panel geometry, keyboard
+  behavior, and popup ownership remain unchanged.
+- [ ] Existing notification, screenshot, network, Bluetooth, display, theme,
+  image-picker, workspace, launcher, keybinding, tray, tasklist, power,
+  calendar, and weather features remain available.
+- [ ] A deliberately faulty plugin cannot prevent Aurelia host readiness or
+  healthy-plugin availability in isolated runtime tests.
+- [ ] Existing backend and privilege ownership remains unchanged.
+- [ ] Existing user configuration is preserved and migration is idempotent.
+- [ ] Existing login-critical architecture is untouched.
+- [ ] No test claims runtime parity without runtime evidence.
+- [ ] Any intentional difference from Omarchy is written here, reviewed, and
+  approved before release.
+
+## Completion record
+
+```text
+Parity status:
+Final Aurelia branch/SHA:
+Reference Omarchy branch/SHA:
+Tasks completed:
+Tasks outstanding:
+Tests:
+Syntax checks:
+ShellCheck:
+Runtime/visual acceptance:
+Files changed:
+Commits:
+Remaining risks:
+./install.sh run: no
+Packages modified: no
+Live user configuration modified: no
+systemd/greetd state modified: no
+VM rebooted: no
+```

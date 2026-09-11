@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+# aurelia-theme-bg — data-only wallpaper selection for Aurelia Background.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-theme/common.sh"
+aurelia_theme_init_paths "$shell_root"
+
+command_name="${1:-}"
+if [[ "$command_name" == "--help" || "$command_name" == "-h" || "$command_name" == "" ]]; then
+    aurelia_theme_bg_usage
+    exit 0
+fi
+shift
+
+case "$command_name" in
+    set)
+        [[ $# -eq 1 ]] || {
+            aurelia_theme_bg_usage
+            exit 2
+        }
+        resolved="$(aurelia_theme_resolve_media_path "$1" 2>/dev/null || true)"
+        [[ -n "$resolved" ]] ||
+            aurelia_theme_fail "Background must be an existing supported image/video file."
+        aurelia_theme_prepare_state
+        aurelia_theme_lock_state
+        aurelia_theme_atomic_text "$resolved" "$AURELIA_THEME_BACKGROUND_PATH"
+        aurelia_theme_notify_shell
+        if [[ "${AURELIA_THEME_LIVE_RELOAD_RESULT:-unavailable}" != "ok" &&
+              "${AURELIA_THEME_LIVE_RELOAD_RESULT:-unavailable}" != "test-skipped" ]]; then
+            printf 'Live wallpaper service was not reloaded; run aurelia-restart-shell in the graphical session.\n' >&2
+        fi
+        printf '%s\n' "$resolved"
+        ;;
+    current)
+        [[ $# -eq 0 ]] || {
+            aurelia_theme_bg_usage
+            exit 2
+        }
+        if [[ -f "$AURELIA_THEME_BACKGROUND_PATH" && ! -L "$AURELIA_THEME_BACKGROUND_PATH" ]]; then
+            sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH"
+        else
+            printf '%s\n' Unknown
+        fi
+        ;;
+    list)
+        json=0
+        theme_slug="$(aurelia_theme_current_slug)"
+        theme_argument_seen=0
+        while [[ $# -gt 0 ]]; do
+            if [[ "$1" == "--json" ]]; then
+                json=1
+            elif [[ "$theme_argument_seen" -eq 0 ]]; then
+                theme_slug="$(aurelia_theme_normalize_name "$1" 2>/dev/null || true)"
+                [[ -n "$theme_slug" ]] || aurelia_theme_fail "Invalid theme name: $1"
+                theme_argument_seen=1
+            else
+                aurelia_theme_bg_usage
+                exit 2
+            fi
+            shift
+        done
+        [[ $# -eq 0 ]] || {
+            aurelia_theme_bg_usage
+            exit 2
+        }
+        theme_dir="$(aurelia_theme_source_dir "$theme_slug" 2>/dev/null || true)"
+        [[ -n "$theme_dir" ]] || aurelia_theme_fail "Theme does not exist: $theme_slug"
+        mapfile -d '' -t backgrounds < <(aurelia_theme_collect_backgrounds "$theme_slug" "$theme_dir")
+        if [[ "$json" -eq 1 ]]; then
+            command -v jq >/dev/null 2>&1 ||
+                aurelia_theme_fail "jq is required for JSON background output."
+            background_json='[]'
+            for background in "${backgrounds[@]}"; do
+                background_json="$(jq -c --arg path "$background" '. + [$path]' <<<"$background_json")"
+            done
+            current="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH" 2>/dev/null || true)"
+            jq -n --arg theme "$theme_slug" --arg current "$current" --argjson backgrounds "$background_json" \
+                '{theme:$theme,current:$current,backgrounds:$backgrounds}'
+        else
+            printf '%s\n' "${backgrounds[@]}"
+        fi
+        ;;
+    next)
+        [[ $# -eq 0 ]] || {
+            aurelia_theme_bg_usage
+            exit 2
+        }
+        theme_slug="$(aurelia_theme_current_slug)"
+        theme_dir="$(aurelia_theme_source_dir "$theme_slug" 2>/dev/null || true)"
+        [[ -n "$theme_dir" ]] || aurelia_theme_fail "Active theme does not exist: $theme_slug"
+        mapfile -d '' -t backgrounds < <(aurelia_theme_collect_backgrounds "$theme_slug" "$theme_dir")
+        [[ "${#backgrounds[@]}" -gt 0 ]] ||
+            aurelia_theme_fail "No backgrounds found for theme: $theme_slug"
+        current="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH" 2>/dev/null || true)"
+        next_index=0
+        for index in "${!backgrounds[@]}"; do
+            if [[ "${backgrounds[$index]}" == "$current" ]]; then
+                next_index=$(((index + 1) % ${#backgrounds[@]}))
+                break
+            fi
+        done
+        exec "$script_dir/aurelia-theme-bg" set "${backgrounds[$next_index]}"
+        ;;
+    *)
+        aurelia_theme_bg_usage
+        exit 2
+        ;;
+esac

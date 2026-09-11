@@ -17,8 +17,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 VERSIONS_FILE="$SCRIPT_DIR/config/versions.conf"
 
-[[ -f "$VERSIONS_FILE" ]] || {
-    printf 'ERROR: Pinned versions file missing at %s\n' "$VERSIONS_FILE" >&2
+[[ -f "$VERSIONS_FILE" && ! -L "$VERSIONS_FILE" ]] || {
+    printf 'ERROR: Pinned versions file missing or is a symlink at %s\n' "$VERSIONS_FILE" >&2
     exit 1
 }
 
@@ -128,4 +128,3 @@ check_github_latest "dovi_tool" "quietvoid/dovi_tool" "${DOVI_TOOL_VERSION:-unkn
 check_github_latest "N_m3u8DL-RE" "nilaoda/N_m3u8DL-RE" "${N_M3U8DL_RE_VERSION:-unknown}"
 
 printf 'Audit complete. Remember to verify SHA-512 checksums and test builds before committing version bumps.\n'
-

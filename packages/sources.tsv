@@ -1,0 +1,7 @@
+# schema=1
+# provider<TAB>source<TAB>url<TAB>scope
+#
+# DNF repositories are configured by modules/repositories.sh and discovered
+# from the enabled DNF repository set. Flatpak remotes declared here are
+# configured idempotently before tracked Flatpak applications are installed.
+flatpak	flathub	https://dl.flathub.org/repo/flathub.flatpakrepo	system

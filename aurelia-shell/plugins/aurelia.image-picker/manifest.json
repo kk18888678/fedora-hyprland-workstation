@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.image-picker",
+  "name": "Image Picker",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Keyboard-first image carousel used by the theme and background selectors.",
+  "icon": "image-x-generic",
+  "kinds": ["overlay"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "ImagePicker.qml"
+  }
+}

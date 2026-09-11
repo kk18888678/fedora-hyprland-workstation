@@ -160,9 +160,18 @@ const rows = search.sortedEntries([
     { id: "hidden", name: "Hidden", noDisplay: true },
 ], "ft");
 if (rows.length !== 1 || rows[0].entry.id !== "foot") process.exit(1);
+
+const globalRows = search.sortRowsWithFilesLast([
+    { id: "file:readme", kind: "file", label: "README", detail: "/home/README" },
+    { id: "app:readme", kind: "app", label: "README Viewer", detail: "Applications" },
+    { id: "action:readme", kind: "action", label: "Readme Action", detail: "Actions" },
+    { id: "module:package-manager", kind: "module", label: "Package Manager", keywords: "readme" },
+], "readme");
+if (globalRows.length !== 4 || globalRows[globalRows.length - 1].kind !== "file" ||
+    globalRows.slice(0, -1).some(row => row.kind === "file")) process.exit(1);
 NODE_LOGIC
     then
-        pass "Calculator and native app search helpers rank/evaluate without eval"
+        pass "Calculator/native app helpers and global file-last search ordering pass without eval"
     else
         fail "Command Center pure logic helpers returned an unexpected result"
     fi

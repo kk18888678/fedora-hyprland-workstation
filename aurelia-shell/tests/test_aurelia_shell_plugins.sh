@@ -104,10 +104,12 @@ if grep -q 'property string userPluginsDir' "$services_root/PluginRegistry.qml" 
    grep -q 'entryPointUrl(id, kind)' "$services_root/PluginRegistry.qml" &&
    grep -q 'find -P' "$services_root/PluginRegistry.qml" &&
    grep -q 'jq -e' "$services_root/PluginRegistry.qml" &&
-   ! grep -q 'inotifywait' "$services_root/PluginRegistry.qml"; then
-    pass "PluginRegistry discovers built-in/user roots, validates entry points, rejects symlink trees, and has no unbounded watcher"
+   grep -q 'localPluginIdForPath' "$services_root/PluginRegistry.qml" &&
+   grep -q 'hotReloadEnabled' "$services_root/PluginRegistry.qml" &&
+   grep -q 'inotifywait' "$services_root/PluginRegistry.qml"; then
+    pass "PluginRegistry discovers safe roots and watches only local plugin trees in development mode"
 else
-    fail "PluginRegistry discovery or safety boundary is incomplete"
+    fail "PluginRegistry discovery, safety, or development watcher boundary is incomplete"
 fi
 
 if grep -q 'Repeater {' "$services_root/PluginHost.qml" &&
@@ -165,7 +167,8 @@ fi
 
 if grep -q 'source_kind.*thirdparty' "$services_root/PluginRegistry.qml" &&
    grep -q 'root_real' "$services_root/PluginRegistry.qml" &&
-   grep -q 'readlink -f' "$services_root/PluginRegistry.qml"; then
+   grep -q 'readlink -f' "$services_root/PluginRegistry.qml" &&
+   grep -q 'configuredShellRoot' "$services_root/PluginRegistry.qml"; then
     pass "PluginRegistry ignores overlapping first-party/user roots instead of rejecting the same plugin twice"
 else
     fail "PluginRegistry does not guard against overlapping first-party/user plugin roots"

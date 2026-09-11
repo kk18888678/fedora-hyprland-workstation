@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# Show or set the focused Hyprland monitor scale. Changes are intentionally
+# runtime-only: the repository owns dotfiles/hypr/monitors.lua and the shell
+# must not rewrite project-owned configuration from a user interaction.
+
+set -Eeuo pipefail
+umask 077
+
+bounded() {
+    timeout --kill-after=1s 3s "$@"
+}
+
+die() {
+    printf 'aurelia-hyprland-monitor-scaling: %s\n' "$*" >&2
+    exit 1
+}
+
+command -v timeout >/dev/null 2>&1 || die "timeout is required"
+command -v hyprctl >/dev/null 2>&1 || die "hyprctl is required"
+command -v jq >/dev/null 2>&1 || die "jq is required"
+command -v awk >/dev/null 2>&1 || die "awk is required"
+
+monitor_json="$(bounded hyprctl monitors -j 2>/dev/null || bounded hyprctl -j monitors 2>/dev/null)" ||
+    die "could not query Hyprland monitors"
+focused="$(jq -e -c '[.[] | select(.focused == true)][0] // empty' <<<"$monitor_json")" ||
+    die "no focused monitor is available"
+
+monitor_name="$(jq -r '.name // empty' <<<"$focused")"
+width="$(jq -r '.width // empty' <<<"$focused")"
+height="$(jq -r '.height // empty' <<<"$focused")"
+refresh_rate="$(jq -r '.refreshRate // empty' <<<"$focused")"
+current_scale="$(jq -r '.scale // empty' <<<"$focused")"
+
+[[ "$monitor_name" =~ ^[A-Za-z0-9._-]+$ ]] || die "Hyprland returned an unsafe monitor name"
+[[ "$width" =~ ^[1-9][0-9]*$ && "$height" =~ ^[1-9][0-9]*$ ]] || die "focused monitor has no usable mode"
+[[ "$current_scale" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "focused monitor has no usable scale"
+
+clean_scale() {
+    awk -v requested="$1" -v mode_width="$width" -v mode_height="$height" '
+        function gcd(a, b, remainder) {
+            while (b) { remainder = a % b; a = b; b = remainder }
+            return a
+        }
+        BEGIN {
+            divisor = gcd(mode_width * 120, mode_height * 120)
+            units = int(requested * 120 + 0.5)
+            if (units < 1 || divisor < 1) exit 1
+            if (units > divisor) units = divisor
+            while (divisor % units != 0) units++
+            printf "%g\n", units / 120
+        }
+    '
+}
+
+choose_adjacent() {
+    awk -v direction="$1" -v current="$current_scale" \
+        -v mode_width="$width" -v mode_height="$height" '
+        function gcd(a, b, remainder) {
+            while (b) { remainder = a % b; a = b; b = remainder }
+            return a
+        }
+        function clean(requested, divisor, units) {
+            divisor = gcd(mode_width * 120, mode_height * 120)
+            units = int(requested * 120 + 0.5)
+            if (units < 1) units = 1
+            if (units > divisor) units = divisor
+            while (divisor % units != 0) units++
+            return units / 120
+        }
+        BEGIN {
+            split("1 1.25 1.6 2 3 4", presets, " ")
+            count = 0
+            for (i = 1; i <= 6; i++) {
+                effective = clean(presets[i])
+                key = sprintf("%.8f", effective)
+                distance = presets[i] - effective
+                if (distance < 0) distance = -distance
+                if (!(key in seen)) {
+                    seen[key] = ++count
+                    values[count] = presets[i]
+                    effective_values[count] = effective
+                    distances[count] = distance
+                } else if (distance < distances[seen[key]]) {
+                    values[seen[key]] = presets[i]
+                    distances[seen[key]] = distance
+                }
+            }
+
+            best = 1
+            best_distance = 1e9
+            for (i = 1; i <= count; i++) {
+                distance = current - effective_values[i]
+                if (distance < 0) distance = -distance
+                if (distance < best_distance) { best_distance = distance; best = i }
+            }
+            if (direction == "up" && best < count) best++
+            if (direction == "down" && best > 1) best--
+            print values[best]
+        }
+    '
+}
+
+requested="${1:-}"
+if [[ -z "$requested" ]]; then
+    printf '%s\n' "$current_scale"
+    exit 0
+fi
+
+case "$requested" in
+    up|down)
+        requested="$(choose_adjacent "$requested")" || die "could not select an adjacent scale"
+        ;;
+    1|1.25|1.6|2|3|4)
+        ;;
+    *)
+        [[ "$requested" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "invalid scale: $requested"
+        awk -v value="$requested" 'BEGIN { exit !(value >= 1 && value <= 4) }' || die "scale must be between 1 and 4"
+        ;;
+esac
+
+effective="$(clean_scale "$requested")" || die "could not clean scale"
+[[ "$effective" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "clean scale is invalid"
+
+mode="preferred"
+if [[ "$refresh_rate" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    mode="${width}x${height}@${refresh_rate}"
+fi
+
+lua_rule="hl.monitor({ output = \"$monitor_name\", mode = \"$mode\", position = \"auto\", scale = $effective })"
+bounded hyprctl eval "$lua_rule" >/dev/null ||
+    die "Hyprland rejected monitor scale update"
+printf '%s\n' "$effective"

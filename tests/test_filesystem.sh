@@ -48,6 +48,11 @@ src_file="$sandbox/test_source"
 echo "source-content" > "$src_file"
 dst_link="$sandbox/test_link"
 
+source_symlink="$sandbox/source-link"
+ln -s -- "$src_file" "$source_symlink"
+source_symlink_status=0
+( ensure_symlink "$source_symlink" "$sandbox/source-link-destination" >/dev/null 2>&1 ) || source_symlink_status=$?
+
 ensure_symlink "$src_file" "$dst_link"
 sym_created=$([[ -L "$dst_link" && "$(readlink "$dst_link")" == "$src_file" ]] && echo 1 || echo 0)
 
@@ -62,6 +67,23 @@ ensure_symlink "$old_src" "$dst_link"
 ensure_symlink "$src_file" "$dst_link"
 sym_retargeted=$([[ -L "$dst_link" && "$(readlink "$dst_link")" == "$src_file" ]] && echo 1 || echo 0)
 backup_count_after_retarget="$(find "$sandbox" -name "test_link.bak*" | wc -l)"
+
+# 6b. Existing unknown symlink is preserved as a symlink backup, never deleted.
+foreign_target="$sandbox/foreign-target"
+echo "foreign-content" > "$foreign_target"
+foreign_dest="$sandbox/foreign-link"
+ln -s "$foreign_target" "$foreign_dest"
+ensure_symlink "$src_file" "$foreign_dest"
+foreign_backup="$(find "$sandbox" -name "foreign-link.bak*" -print -quit)"
+foreign_symlink_backed_up=$([[ -L "$foreign_backup" && "$(readlink "$foreign_backup")" == "$foreign_target" ]] && echo 1 || echo 0)
+
+# 6c. Existing symlinked parent directories are rejected before mutation.
+real_parent="$sandbox/real-parent"
+symlink_parent="$sandbox/symlink-parent"
+mkdir -p "$real_parent"
+ln -s "$real_parent" "$symlink_parent"
+symlink_parent_status=0
+( ensure_directory "$symlink_parent/child" >/dev/null 2>&1 ) || symlink_parent_status=$?
 
 # 7. Existing regular user file backed up before symlink creation
 existing_file_dest="$sandbox/user_regular_file"
@@ -108,10 +130,13 @@ echo "root_dst_status=$root_dst_status"
 echo "dot_dir_status=$dot_dir_status"
 echo "dot_sym_status=$dot_sym_status"
 echo "file_as_dir_status=$file_as_dir_status"
+echo "source_symlink_rejected=$([[ $source_symlink_status -ne 0 ]] && echo 1 || echo 0)"
 echo "sym_created=$sym_created"
 echo "backup_count_after_rerun=$backup_count_after_rerun"
 echo "sym_retargeted=$sym_retargeted"
 echo "backup_count_after_retarget=$backup_count_after_retarget"
+echo "foreign_symlink_backed_up=$foreign_symlink_backed_up"
+echo "symlink_parent_rejected=$([[ $symlink_parent_status -ne 0 ]] && echo 1 || echo 0)"
 echo "file_backed_up=$file_backed_up"
 echo "collision_resolved=$collision_resolved"
 echo "dir_backed_up=$dir_backed_up"
@@ -149,6 +174,12 @@ else
     fail "ensure_directory did not fail on existing regular file: $path_safety_output"
 fi
 
+if printf '%s\n' "$path_safety_output" | grep -q 'source_symlink_rejected=1'; then
+    pass "ensure_symlink rejects a repository source that is itself a symlink"
+else
+    fail "ensure_symlink accepted a symlinked source path: $path_safety_output"
+fi
+
 if printf '%s\n' "$path_safety_output" | grep -q 'sym_created=1' &&
    printf '%s\n' "$path_safety_output" | grep -q 'backup_count_after_rerun=0'; then
     pass "ensure_symlink creates valid symlink and is idempotent on repeat runs without backup pollution"
@@ -157,10 +188,22 @@ else
 fi
 
 if printf '%s\n' "$path_safety_output" | grep -q 'sym_retargeted=1' &&
-   printf '%s\n' "$path_safety_output" | grep -q 'backup_count_after_retarget=0'; then
-    pass "existing project-owned symlink is retargeted cleanly without creating redundant backups"
+   printf '%s\n' "$path_safety_output" | grep -qE 'backup_count_after_retarget=[1-9][0-9]*'; then
+    pass "existing symlink is retargeted only after preserving its previous target"
 else
-    fail "project-owned symlink retargeting failed: $path_safety_output"
+    fail "symlink retargeting did not preserve the previous target: $path_safety_output"
+fi
+
+if printf '%s\n' "$path_safety_output" | grep -q 'foreign_symlink_backed_up=1'; then
+    pass "unknown existing symlink is preserved as a recoverable backup"
+else
+    fail "unknown symlink was replaced without a recoverable backup: $path_safety_output"
+fi
+
+if printf '%s\n' "$path_safety_output" | grep -q 'symlink_parent_rejected=1'; then
+    pass "filesystem helpers reject mutations through symlinked parent directories"
+else
+    fail "filesystem helper followed a symlinked parent directory: $path_safety_output"
 fi
 
 if printf '%s\n' "$path_safety_output" | grep -q 'file_backed_up=1'; then

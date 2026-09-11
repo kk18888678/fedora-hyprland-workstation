@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Set the focused Hyprland monitor to one of the modes advertised by the
+# compositor. The helper validates the requested mode against live monitor
+# state before issuing the bounded keyword mutation.
+
+set -Eeuo pipefail
+umask 077
+
+bounded() {
+    timeout --kill-after=1s 3s "$@"
+}
+
+die() {
+    printf 'aurelia-hyprland-monitor-resolution: %s\n' "$*" >&2
+    exit 1
+}
+
+command -v timeout >/dev/null 2>&1 || die "timeout is required"
+command -v hyprctl >/dev/null 2>&1 || die "hyprctl is required"
+command -v jq >/dev/null 2>&1 || die "jq is required"
+
+requested="${1:-}"
+[[ "$requested" =~ ^[0-9]+x[0-9]+@[0-9]+([.][0-9]+)?$ ]] || die "invalid monitor mode"
+
+monitor_json="$(bounded hyprctl monitors -j 2>/dev/null || bounded hyprctl -j monitors 2>/dev/null)" ||
+    die "could not query Hyprland monitors"
+focused="$(jq -e -c '[.[] | select(.focused == true)][0] // empty' <<<"$monitor_json")" ||
+    die "no focused monitor is available"
+
+monitor_name="$(jq -r '.name // empty' <<<"$focused")"
+scale="$(jq -r '.scale // empty' <<<"$focused")"
+width="$(jq -r '.width // empty' <<<"$focused")"
+height="$(jq -r '.height // empty' <<<"$focused")"
+refresh_rate="$(jq -r '.refreshRate // empty' <<<"$focused")"
+
+[[ "$monitor_name" =~ ^[A-Za-z0-9._-]+$ ]] || die "Hyprland returned an unsafe monitor name"
+[[ "$scale" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "focused monitor has no usable scale"
+
+available="$(jq -r '.availableModes[]? // empty' <<<"$focused" |
+    sed -E 's/[Hh][Zz]$//' |
+    awk -F '@' '$1 ~ /^[0-9]+x[0-9]+$/ && $2 ~ /^[0-9]+([.][0-9]+)?$/ { printf "%s@%g\n", $1, $2 }' |
+    sort -u)"
+if [[ -n "$available" ]]; then
+    grep -Fxq -- "$requested" <<<"$available" || die "requested mode is not available on $monitor_name"
+else
+    [[ "$width" =~ ^[1-9][0-9]*$ && "$height" =~ ^[1-9][0-9]*$ && "$refresh_rate" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+        die "monitor did not advertise modes"
+    current="$(awk -v width="$width" -v height="$height" -v refresh="$refresh_rate" \
+        'BEGIN { printf "%sx%s@%g", width, height, refresh }')"
+    [[ "$requested" == "$current" ]] || die "monitor did not advertise requested mode"
+fi
+
+lua_rule="hl.monitor({ output = \"$monitor_name\", mode = \"$requested\", position = \"auto\", scale = $scale })"
+bounded hyprctl eval "$lua_rule" >/dev/null ||
+    die "Hyprland rejected monitor resolution update"
+printf '%s\n' "$requested"

@@ -44,6 +44,38 @@ local function is_readable_file(path)
     return true
 end
 
+local function resolve_session_shell()
+    local config_home = os.getenv("XDG_CONFIG_HOME") or ""
+    if config_home == "" then
+        config_home = (os.getenv("HOME") or "") .. "/.config"
+    end
+
+    if config_home:sub(1, 1) ~= "/" or config_home == "/" then
+        print("[SESSION] XDG_CONFIG_HOME is invalid; defaulting to Noctalia")
+        return "noctalia"
+    end
+
+    local selector_path = config_home .. "/fedora-hyprland-workstation/session-shell"
+    local handle = io.open(selector_path, "rb")
+    if not handle then
+        -- Preserve the stable behavior of installations made before the
+        -- selector existed. A new profile run deploys the explicit selector.
+        print("[SESSION] desktop-shell selector is missing; defaulting to Noctalia")
+        return "noctalia"
+    end
+
+    local value = handle:read("*a") or ""
+    handle:close()
+    value = value:gsub("\n$", "")
+
+    if value == "aurelia" or value == "noctalia" then
+        return value
+    end
+
+    print("[SESSION] desktop-shell selector is invalid; defaulting to Noctalia")
+    return "noctalia"
+end
+
 local function resolve_aurelia_launcher()
     local override = os.getenv("AURELIA_SHELL_LAUNCHER") or ""
     if override:sub(1, 1) == "/" and is_readable_file(override) then
@@ -76,17 +108,19 @@ hl.on("hyprland.start", function()
     -- Fedora packages hyprpolkitagent as a systemd/D-Bus user service.
     -- Do not manually launch /usr/libexec/hyprpolkitagent here.
 
-    local aurelia_launcher = resolve_aurelia_launcher()
-    if aurelia_launcher then
-        -- aurelia-launch-shell owns --no-duplicate and selects the source
-        -- checkout or installed shell root. Hyprland only owns session start.
-        hl.exec_cmd(shell_quote(aurelia_launcher))
-    else
-        print("[AURELIA] launcher not found; resident shell autostart skipped")
+    local session_shell = resolve_session_shell()
+    if session_shell == "aurelia" then
+        local aurelia_launcher = resolve_aurelia_launcher()
+        if aurelia_launcher then
+            -- aurelia-launch-shell owns --no-duplicate and selects the source
+            -- checkout or installed shell root. Hyprland only owns session start.
+            hl.exec_cmd(shell_quote(aurelia_launcher))
+        else
+            print("[AURELIA] launcher not found; resident shell autostart skipped")
+        end
+    elseif session_shell == "noctalia" then
+        hl.exec_cmd("noctalia")
     end
-
-    -- Noctalia is installed and enabled by the workstation profile.
-    hl.exec_cmd("noctalia")
 
 end)
 

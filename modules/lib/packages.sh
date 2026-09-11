@@ -5,6 +5,34 @@
 package_installed() {
     rpm -q "$1" >/dev/null 2>&1 || rpm -q --whatprovides "$1" >/dev/null 2>&1
 }
+
+package_command_owned() {
+    local package="$1"
+    local command_name="$2"
+    local command_path
+    local owner_name
+
+    command_path="$(command -v "$command_name" 2>/dev/null || true)"
+    [[ "$command_path" == /* && -x "$command_path" && ! -L "$command_path" ]] || return 1
+
+    owner_name="$(rpm -qf --qf '%{NAME}\n' -- "$command_path" 2>/dev/null || true)"
+    [[ "$owner_name" == "$package" ]]
+}
+
+package_evr_is_stable() {
+    local package="$1"
+    local evr
+
+    package_installed "$package" || return 1
+    evr="$(rpm -q --qf '%{EVR}' "$package" 2>/dev/null || true)"
+    [[ -n "$evr" ]] || return 1
+
+    case "${evr,,}" in
+        *alpha*|*beta*|*rc*|*preview*|*nightly*|*snapshot*|*git*|*dev*)
+            return 1
+            ;;
+    esac
+}
 detect_dnf_lock_diagnostics() {
     local log_file="${1:-}"
     local lock_holders=()
@@ -83,7 +111,10 @@ run_dnf_command() {
     fi
 
     local log_tmp
-    log_tmp="$(mktemp)"
+    if ! log_tmp="$(mktemp)"; then
+        error "Could not create a secure temporary DNF log for: ${description}"
+        return 1
+    fi
     local status=0
 
     # Run bounded command with output captured to log_tmp
@@ -202,6 +233,49 @@ dnf_makecache() {
 dnf_install() {
     run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "dnf install $*" \
         sudo dnf install -y "$@"
+}
+
+validate_dnf_source_id() {
+    [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$ ]]
+}
+
+package_available_from_repo() {
+    local repo="$1"
+    local package="$2"
+    local output=""
+    local status=0
+
+    validate_dnf_source_id "$repo" || {
+        error "Invalid DNF source ID: $repo"
+        return 2
+    }
+    output="$(
+        run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery $repo $package" \
+            dnf -q repoquery --available --repoid "$repo" --qf $'%{name}\n' "$package" 2>/dev/null
+    )" || status=$?
+    if (( status != 0 )); then
+        if (( status == 124 )); then
+            error "Package availability query timed out for '$package' from '$repo'."
+        else
+            error "Package availability query failed for '$package' from '$repo' (status $status)."
+        fi
+        return 2
+    fi
+    grep -Fxq -- "$package" <<< "$output"
+}
+
+dnf_install_packages_from_repo() {
+    local repo="$1"
+    shift
+    local packages=("$@")
+
+    validate_dnf_source_id "$repo" || {
+        error "Invalid DNF source ID: $repo"
+        return 1
+    }
+    (( ${#packages[@]} > 0 )) || return 0
+    run_dnf_command "$TIMEOUT_PACKAGE_SECONDS" "dnf install from $repo: ${packages[*]}" \
+        sudo dnf install "--from-repo=$repo" -y "${packages[@]}"
 }
 
 install_dnf_packages() {

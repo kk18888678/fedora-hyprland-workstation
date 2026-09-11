@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+
+# aurelia-theme-preview — bounded preview rows for the Aurelia image picker.
+#
+# This command owns generated selector cache state only. It never evaluates
+# theme Lua/shell hooks and never changes the active theme or background.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-theme/common.sh"
+aurelia_theme_init_paths "$shell_root"
+
+usage() {
+    cat >&2 <<'USAGE'
+Usage: aurelia-theme-preview <themes|backgrounds> [theme-name]
+
+  themes                  Emit theme preview rows for the image picker.
+  backgrounds [theme]     Emit background preview rows for a theme.
+
+Rows are tab-separated and intended for the resident Aurelia image-picker.
+USAGE
+}
+
+field_is_safe() {
+    local value="$1"
+    [[ "$value" != *$'\t'* && "$value" != *$'\n'* && "$value" != *$'\r'* ]]
+}
+
+display_name_for_path() {
+    local path="$1"
+    local name="${path##*/}"
+    name="${name%.*}"
+    printf '%s\n' "$name" | sed -E 's/[-_]+/ /g; s/(^|[[:space:]])([a-z])/\1\U\2/g'
+}
+
+emit_themes() {
+    local cache_lock="$AURELIA_THEME_CACHE_ROOT/theme-selector/.cache.lock"
+    local slug
+    local label
+    local preview
+    local source_real
+    local extension
+    local cached
+    local current
+
+    aurelia_theme_prepare_preview_cache
+    [[ ! -L "$cache_lock" && (! -e "$cache_lock" || -f "$cache_lock") ]] ||
+        aurelia_theme_fail "Aurelia preview cache lock is unsafe."
+    exec 8>"$cache_lock" || aurelia_theme_fail "Could not open Aurelia preview cache lock."
+    flock -w 30 8 || aurelia_theme_fail "Could not acquire Aurelia preview cache lock."
+
+    current="$(aurelia_theme_current_slug)"
+    while IFS= read -r slug; do
+        [[ -n "$slug" ]] || continue
+        label="$(aurelia_theme_display_name "$slug")"
+        preview="$(aurelia_theme_preview_path "$slug" 2>/dev/null || true)"
+        cached=""
+        if [[ -n "$preview" && -f "$preview" && ! -L "$preview" ]]; then
+            source_real="$(readlink -f -- "$preview" 2>/dev/null || true)"
+            if [[ "$source_real" == /* && -f "$source_real" &&
+                  "$source_real" != *$'\t'* && "$source_real" != *$'\n'* && "$source_real" != *$'\r'* ]]; then
+                extension="${source_real##*.}"
+                extension="${extension,,}"
+                if [[ "$extension" =~ ^(jpg|jpeg|png|gif|bmp|webp|mp4|m4v|mov|webm|mkv|avi)$ ]]; then
+                    cached="$AURELIA_THEME_PREVIEW_CACHE_ROOT/$slug.$extension"
+                    aurelia_theme_cache_preview_link "$source_real" "$cached" || cached=""
+                fi
+            fi
+        fi
+        field_is_safe "$slug" || continue
+        field_is_safe "$label" || continue
+        field_is_safe "$cached" || continue
+        field_is_safe "$preview" || preview=""
+        printf '%s\t%s\t%s\t%s\t%s\n' \
+            "$slug" "$label" "$cached" "$preview" "$([[ "$slug" == "$current" ]] && printf 1 || printf 0)"
+    done < <(aurelia_theme_list_slugs)
+}
+
+emit_backgrounds() {
+    local theme_slug="$1"
+    local theme_dir
+    local current
+    local background
+    local thumbnail
+    local label
+
+    theme_slug="$(aurelia_theme_normalize_name "$theme_slug" 2>/dev/null || true)"
+    [[ -n "$theme_slug" ]] || aurelia_theme_fail "Invalid theme name."
+    theme_dir="$(aurelia_theme_source_dir "$theme_slug" 2>/dev/null || true)"
+    [[ -n "$theme_dir" ]] || aurelia_theme_fail "Theme does not exist: $theme_slug"
+    aurelia_theme_prepare_thumbnail_cache
+    current="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH" 2>/dev/null || true)"
+
+    while IFS= read -r -d '' background; do
+        field_is_safe "$background" || continue
+        thumbnail="$(aurelia_theme_thumbnail_for "$background" 2>/dev/null || true)"
+        field_is_safe "$thumbnail" || thumbnail=""
+        label="$(display_name_for_path "$background")"
+        field_is_safe "$label" || label="Background"
+        printf '%s\t%s\t%s\t%s\n' \
+            "$background" "$thumbnail" "$label" "$([[ "$background" == "$current" ]] && printf 1 || printf 0)"
+    done < <(aurelia_theme_collect_backgrounds "$theme_slug" "$theme_dir")
+}
+
+command_name="${1:-}"
+case "$command_name" in
+    themes)
+        [[ $# -eq 1 ]] || { usage; exit 2; }
+        emit_themes
+        ;;
+    backgrounds)
+        [[ $# -le 2 ]] || { usage; exit 2; }
+        theme_name="${2:-$(aurelia_theme_current_slug)}"
+        emit_backgrounds "$theme_name"
+        ;;
+    -h|--help|"")
+        usage
+        [[ -n "$command_name" ]] || exit 0
+        exit 0
+        ;;
+    *)
+        usage
+        exit 2
+        ;;
+esac

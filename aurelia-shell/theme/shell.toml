@@ -1,0 +1,83 @@
+# Aurelia's safe first-run surface tokens. Theme selection generates the same
+# sections under ~/.local/state/aurelia/current/shell.toml from colors.toml.
+
+[bar]
+background = "#232136"
+background-alpha = 1.0
+text = "#e0def4"
+active = "#eb6f92"
+border = "#424659"
+
+[controls]
+normal-color = "#e0def4"
+normal-fill-alpha = 0.04
+normal-border = "#e0def4"
+hover-cursor-color = "#e0def4"
+hover-cursor-fill-alpha = 0.08
+hover-cursor-border = "#9ccfd8"
+focus-color = "#e0def4"
+focus-fill-alpha = 0.08
+focus-border = "#9ccfd8"
+selected-color = "#e0def4"
+selected-fill-alpha = 0.18
+selected-border = "#9ccfd8"
+pressed-fill-alpha = 0.22
+
+[popups]
+background = "#232136"
+background-alpha = 1.0
+text = "#e0def4"
+border = "#9ccfd8"
+border-alpha = 1.0
+
+[tooltip]
+background = "#393552"
+background-alpha = 0.97
+text = "#e0def4"
+border = "#9ccfd8"
+border-alpha = 1.0
+
+[notifications]
+background = "#393552"
+background-alpha = 1.0
+text = "#e0def4"
+border = "#9ccfd8"
+border-alpha = 1.0
+countdown = "#9ccfd8"
+
+[launcher]
+background = "#232136"
+background-alpha = 0.95
+text = "#e0def4"
+border = "#9ccfd8"
+border-alpha = 1.0
+scrim = "#232136"
+scrim-alpha = 0.5
+selected-background = "#e0def4"
+selected-background-alpha = 0.08
+selected-text = "#9ccfd8"
+selected-border = "#9ccfd8"
+selected-border-alpha = 0.25
+
+[menu]
+background = "#232136"
+background-alpha = 1.0
+text = "#e0def4"
+border = "#9ccfd8"
+border-alpha = 1.0
+scrim = "#232136"
+scrim-alpha = 0.5
+selected-background = "#e0def4"
+selected-background-alpha = 0.08
+selected-text = "#9ccfd8"
+selected-border = "#9ccfd8"
+selected-border-alpha = 0.25
+
+[image-picker]
+scrim = "#232136"
+scrim-alpha = 0.5
+text = "#e0def4"
+selected-border = "#9ccfd8"
+selected-border-alpha = 1.0
+unselected-border = "#e0def4"
+unselected-border-alpha = 0.28

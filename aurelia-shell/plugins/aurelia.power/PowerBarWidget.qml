@@ -1,7 +1,6 @@
 import QtQuick
-import Quickshell
-import Quickshell.Widgets
 import "../../theme"
+import "../../ui"
 
 Item {
     id: root
@@ -64,11 +63,14 @@ Item {
 
         HoverHandler { id: powerHover }
 
-        IconImage {
+        AureliaIcon {
             anchors.centerIn: parent
-            width: 18
-            height: 18
-            source: Quickshell.iconPath("system-shutdown", "system-power-off")
+            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+            name: "system-shutdown"
+            fallbackName: "system-power-off"
+            tint: powerHover.hovered ? Theme.text : Theme.textSecondary
         }
 
         MouseArea {

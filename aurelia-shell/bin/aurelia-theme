@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+
+# aurelia-theme — data-only theme selection for Aurelia Shell.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-theme/common.sh"
+aurelia_theme_init_paths "$shell_root"
+
+list_json=0
+command_name="${1:-}"
+if [[ "$command_name" == "--help" || "$command_name" == "-h" || "$command_name" == "" ]]; then
+    aurelia_theme_usage
+    exit 0
+fi
+shift
+
+if [[ "${1:-}" == "--json" ]]; then
+    list_json=1
+    shift
+fi
+
+case "$command_name" in
+    list)
+        [[ $# -eq 0 ]] || {
+            aurelia_theme_usage
+            exit 2
+        }
+        if [[ "$list_json" -eq 1 ]]; then
+            command -v jq >/dev/null 2>&1 ||
+                aurelia_theme_fail "jq is required for JSON theme output."
+            rows=()
+            while IFS= read -r slug; do
+                theme_dir="$(aurelia_theme_source_dir "$slug")" || continue
+                source_file="$(aurelia_theme_source_file "$theme_dir" 2>/dev/null || true)"
+                [[ -n "$source_file" ]] || continue
+                preview="$(aurelia_theme_preview_path "$slug" 2>/dev/null || true)"
+                rows+=("$(jq -n \
+                    --arg id "$slug" \
+                    --arg name "$(aurelia_theme_display_name "$slug")" \
+                    --arg path "$theme_dir" \
+                    --arg source "$source_file" \
+                    --arg preview "$preview" \
+                    '{id:$id,name:$name,path:$path,source:$source,preview:$preview}')")
+            done < <(aurelia_theme_list_slugs)
+            if [[ "${#rows[@]}" -eq 0 ]]; then
+                printf '[]\n'
+            else
+                printf '%s\n' "${rows[@]}" | jq -s .
+            fi
+        else
+            while IFS= read -r slug; do
+                aurelia_theme_display_name "$slug"
+            done < <(aurelia_theme_list_slugs)
+        fi
+        ;;
+    catalog)
+        [[ "$list_json" -eq 1 && $# -eq 0 ]] || {
+            aurelia_theme_usage
+            exit 2
+        }
+        command -v jq >/dev/null 2>&1 ||
+            aurelia_theme_fail "jq is required for JSON theme output."
+        current_slug="$(aurelia_theme_current_slug)"
+        current_background=""
+        if [[ -f "$AURELIA_THEME_BACKGROUND_PATH" && ! -L "$AURELIA_THEME_BACKGROUND_PATH" ]]; then
+            current_background="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH")"
+        fi
+        theme_rows=()
+        while IFS= read -r slug; do
+            theme_dir="$(aurelia_theme_source_dir "$slug")" || continue
+            source_file="$(aurelia_theme_source_file "$theme_dir" 2>/dev/null || true)"
+            [[ -n "$source_file" ]] || continue
+            preview="$(aurelia_theme_preview_path "$slug" 2>/dev/null || true)"
+            preview_unlock="$(aurelia_theme_asset_path "$slug" preview-unlock.png 2>/dev/null || true)"
+            unlock="$(aurelia_theme_asset_path "$slug" unlock.png 2>/dev/null || true)"
+            icons_theme="$(aurelia_theme_asset_path "$slug" icons.theme 2>/dev/null || true)"
+            icon_set=""
+            if [[ -n "$icons_theme" ]]; then
+                icon_set="$(sed -n '1p' "$icons_theme")"
+            fi
+            backgrounds_json='[]'
+            mapfile -d '' -t backgrounds < <(aurelia_theme_collect_backgrounds "$slug" "$theme_dir")
+            for background in "${backgrounds[@]}"; do
+                backgrounds_json="$(jq -c --arg path "$background" '. + [$path]' <<<"$backgrounds_json")"
+            done
+            theme_rows+=("$(jq -n \
+                --arg id "$slug" \
+                --arg name "$(aurelia_theme_display_name "$slug")" \
+                --arg path "$theme_dir" \
+                --arg current "$([[ "$slug" == "$current_slug" ]] && echo true || echo false)" \
+                --arg preview "$preview" \
+                --arg previewUnlock "$preview_unlock" \
+                --arg unlock "$unlock" \
+                --arg iconSet "$icon_set" \
+                --argjson backgrounds "$backgrounds_json" \
+                '{id:$id,name:$name,path:$path,current:($current == "true"),preview:$preview,previewUnlock:$previewUnlock,unlock:$unlock,iconSet:$iconSet,backgrounds:$backgrounds}')")
+        done < <(aurelia_theme_list_slugs)
+        if [[ "${#theme_rows[@]}" -eq 0 ]]; then
+            themes_json='[]'
+        else
+            themes_json="$(printf '%s\n' "${theme_rows[@]}" | jq -s .)"
+        fi
+        jq -n \
+            --arg currentTheme "$current_slug" \
+            --arg currentBackground "$current_background" \
+            --argjson themes "$themes_json" \
+            '{currentTheme:$currentTheme,currentBackground:$currentBackground,themes:$themes}'
+        ;;
+    current)
+        [[ $# -eq 0 ]] || {
+            aurelia_theme_usage
+            exit 2
+        }
+        slug="$(aurelia_theme_current_slug)"
+        if [[ "$list_json" -eq 1 ]]; then
+            command -v jq >/dev/null 2>&1 ||
+                aurelia_theme_fail "jq is required for JSON theme output."
+            jq -n --arg id "$slug" --arg name "$(aurelia_theme_display_name "$slug")" \
+                '{id:$id,name:$name}'
+        else
+            aurelia_theme_display_name "$slug"
+        fi
+        ;;
+    set)
+        [[ $# -eq 1 ]] || {
+            aurelia_theme_usage
+            exit 2
+        }
+        slug="$(aurelia_theme_normalize_name "$1" 2>/dev/null || true)"
+        [[ -n "$slug" ]] || aurelia_theme_fail "Invalid theme name: $1"
+        theme_dir="$(aurelia_theme_source_dir "$slug" 2>/dev/null || true)"
+        [[ -n "$theme_dir" ]] || aurelia_theme_fail "Theme does not exist: $1"
+        source_file="$(aurelia_theme_source_file "$theme_dir" 2>/dev/null || true)"
+        [[ -n "$source_file" ]] ||
+            aurelia_theme_fail "Theme has no theme.conf or colors.toml: $theme_dir"
+
+        aurelia_theme_prepare_state
+        aurelia_theme_lock_state
+        # Stage the full surface-token document before replacing any of the
+        # active palette files. This keeps a failed generator from leaving a
+        # theme name that has no matching bar/popup token set.
+        aurelia_theme_atomic_shell "$slug" "$source_file"
+        aurelia_theme_atomic_copy "$source_file" "$AURELIA_THEME_ACTIVE_PATH"
+        aurelia_theme_atomic_copy "$source_file" "$AURELIA_THEME_ACTIVE_COLORS_PATH"
+        aurelia_theme_atomic_text "$slug" "$AURELIA_THEME_NAME_PATH"
+
+        current_background=""
+        if [[ -f "$AURELIA_THEME_BACKGROUND_PATH" && ! -L "$AURELIA_THEME_BACKGROUND_PATH" ]]; then
+            current_background="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH")"
+        fi
+        if [[ -z "$current_background" ]]; then
+            current_background="$(aurelia_theme_legacy_background 2>/dev/null || true)"
+        fi
+
+        chosen_background=""
+        mapfile -d '' -t backgrounds < <(aurelia_theme_collect_backgrounds "$slug" "$theme_dir")
+        if [[ -n "$current_background" && "${#backgrounds[@]}" -gt 0 ]]; then
+            current_name="$(basename -- "$current_background")"
+            for background in "${backgrounds[@]}"; do
+                if [[ "$(basename -- "$background")" == "$current_name" ]]; then
+                    chosen_background="$background"
+                    break
+                fi
+            done
+        fi
+        [[ -n "$chosen_background" && -f "$chosen_background" ]] ||
+            chosen_background="${backgrounds[0]:-}"
+        if [[ -n "$chosen_background" ]]; then
+            aurelia_theme_atomic_text "$chosen_background" "$AURELIA_THEME_BACKGROUND_PATH"
+        elif [[ -n "$current_background" ]]; then
+            resolved_current="$(aurelia_theme_resolve_media_path "$current_background" 2>/dev/null || true)"
+            [[ -n "$resolved_current" ]] &&
+                aurelia_theme_atomic_text "$resolved_current" "$AURELIA_THEME_BACKGROUND_PATH"
+        fi
+
+        aurelia_theme_notify_shell
+        if [[ "${AURELIA_THEME_LIVE_RELOAD_RESULT:-unavailable}" != "ok" &&
+              "${AURELIA_THEME_LIVE_RELOAD_RESULT:-unavailable}" != "test-skipped" ]]; then
+            printf 'Live shell was not reloaded; run aurelia-restart-shell in the graphical session.\n' >&2
+        fi
+        printf 'Applied Aurelia theme: %s\n' "$(aurelia_theme_display_name "$slug")"
+        ;;
+    *)
+        aurelia_theme_usage
+        exit 2
+        ;;
+esac

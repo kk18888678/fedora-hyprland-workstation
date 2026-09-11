@@ -1,0 +1,450 @@
+#!/usr/bin/env bash
+
+# workstation-about — launch and render the Aurelia About terminal surface.
+#
+# The About surface is intentionally native-image-only. The repository SVG is
+# rasterized into aurelia-mark.png at build time, and Fastfetch sends that PNG
+# directly to the terminal graphics protocol. No text/Chafa fallback is allowed
+# to turn a high-resolution About surface into ASCII art.
+
+set -Eeuo pipefail
+
+[[ -n ${HOME:-} ]] || {
+    printf '%s\n' 'Aurelia About requires HOME to be set.' >&2
+    exit 1
+}
+
+readonly SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)"
+readonly APP_ID="org.aurelia.about"
+readonly TERMINAL_TITLE="Aurelia About"
+
+if [[ ${XDG_CONFIG_HOME:-} == /* ]]; then
+    readonly CONFIG_HOME="$XDG_CONFIG_HOME"
+else
+    readonly CONFIG_HOME="$HOME/.config"
+fi
+
+if [[ ${XDG_STATE_HOME:-} == /* ]]; then
+    readonly STATE_HOME="$XDG_STATE_HOME"
+else
+    readonly STATE_HOME="$HOME/.local/state"
+fi
+
+SHELL_ROOT=""
+root_candidates=()
+if [[ ${AURELIA_SHELL_ROOT:-} == /* ]]; then
+    root_candidates+=("$AURELIA_SHELL_ROOT")
+fi
+root_candidates+=("$SCRIPT_DIR/.." "/usr/local/share/aurelia-shell")
+for candidate in "${root_candidates[@]}"; do
+    if [[ -f "$candidate/config/branding/aurelia-mark.svg" &&
+        -f "$candidate/config/branding/aurelia-mark.png" &&
+        -f "$candidate/config/fastfetch/config.jsonc" ]]; then
+        SHELL_ROOT="$(cd -- "$candidate" && pwd -P)"
+        break
+    fi
+done
+
+[[ -n $SHELL_ROOT ]] || {
+    printf '%s\n' 'Aurelia About branding assets are not installed beside the command.' >&2
+    exit 1
+}
+
+readonly BRANDING_DIR="$CONFIG_HOME/aurelia/branding"
+readonly USER_IMAGE_FILE="$BRANDING_DIR/about.png"
+readonly DEFAULT_IMAGE_FILE="$SHELL_ROOT/config/branding/aurelia-mark.png"
+readonly FIT_FILE="$STATE_HOME/aurelia/windows/about.fit"
+readonly FASTFETCH_CONFIG_FILE="$SHELL_ROOT/config/fastfetch/config.jsonc"
+readonly FIT_SPARE_COLUMNS=6
+readonly FIT_SPARE_ROWS=3
+readonly FIT_FORMAT="image-v2"
+readonly INITIAL_COLUMNS=130
+readonly INITIAL_ROWS=32
+
+IMAGE_FILE="$DEFAULT_IMAGE_FILE"
+
+refresh_image_state() {
+    IMAGE_FILE="$DEFAULT_IMAGE_FILE"
+    if [[ -r $USER_IMAGE_FILE ]]; then
+        IMAGE_FILE="$USER_IMAGE_FILE"
+    fi
+}
+
+refresh_image_state
+
+LOGO_PROTOCOL=kitty-direct
+
+usage() {
+    printf '%s\n' \
+        "Usage: workstation-about <open|about|--render>" \
+        "  open       Open the graphical Aurelia About terminal." \
+        "  about      Render About inside the current terminal." \
+        "  --render   Internal render mode used by the terminal launcher."
+}
+
+resolve_logo_protocol() {
+    local requested="${AURELIA_ABOUT_LOGO_PROTOCOL:-}"
+    local term_program="${TERM_PROGRAM:-}"
+    term_program="${term_program,,}"
+
+    case "$requested" in
+    kitty|kitty-direct) LOGO_PROTOCOL=kitty-direct; return 0 ;;
+    sixel) LOGO_PROTOCOL=sixel; return 0 ;;
+    esac
+
+    if [[ -n ${KITTY_WINDOW_ID:-} || ${TERM:-} == xterm-kitty ||
+        $term_program == kitty ]]; then
+        LOGO_PROTOCOL=kitty-direct
+        return 0
+    fi
+
+    # Ghostty supports the Kitty graphics protocol even though it is not named
+    # Kitty; its terminal identity is stable enough for this explicit choice.
+    if [[ $term_program == ghostty ]]; then
+        LOGO_PROTOCOL=kitty-direct
+        return 0
+    fi
+
+    if [[ ${TERM:-} == foot* || $term_program == foot ]]; then
+        LOGO_PROTOCOL=sixel
+        return 0
+    fi
+
+    return 1
+}
+
+run_fastfetch() {
+    AURELIA_ABOUT_IMAGE="$IMAGE_FILE" fastfetch \
+        --config "$FASTFETCH_CONFIG_FILE" \
+        --pipe false \
+        --logo-type "$LOGO_PROTOCOL" \
+        --logo "$IMAGE_FILE" \
+        --logo-width 54 \
+        --logo-height 26 \
+        --logo-preserve-aspect-ratio true \
+        "$@"
+}
+
+clear_screen() {
+    if command -v clear >/dev/null 2>&1 && [[ -n ${TERM:-} ]]; then
+        clear 2>/dev/null || printf '\e[2J\e[3J\e[H'
+    else
+        printf '\e[2J\e[3J\e[H'
+    fi
+}
+
+display_columns() {
+    LC_ALL=C.UTF-8 wc -L
+}
+
+remember_fit() {
+    local directory tmp
+    directory="$(dirname -- "$FIT_FILE")"
+    mkdir -p -- "$directory"
+    tmp="$(mktemp "$directory/.about.fit.XXXXXX")"
+    printf '%s %s %s %s %s %s %s %s\n' \
+        "$FIT_FORMAT" "$1" "$2" "$3" "$4" "$5" "$6" "$7" >"$tmp"
+    mv -- "$tmp" "$FIT_FILE"
+}
+
+apply_size_rule() {
+    local rule=""
+    (( $# == 2 )) &&
+        rule="aurelia_about_size_rule = hl.window_rule({ match = { class = \"$APP_ID\" }, size = { $1, $2 } })"
+    hyprctl eval \
+        "if aurelia_about_size_rule then aurelia_about_size_rule:set_enabled(false) end; aurelia_about_size_rule = nil; $rule" \
+        >/dev/null 2>&1 || true
+}
+
+presize_window() {
+    local fit_format fit_mode fit_logo_w fit_logo_h fit_cols fit_rows fit_w fit_h
+
+    if [[ -r $FIT_FILE ]] &&
+        read -r fit_format fit_mode fit_logo_w fit_logo_h fit_cols fit_rows fit_w fit_h <"$FIT_FILE"; then
+        if [[ $fit_format == "$FIT_FORMAT" && $fit_mode == image &&
+            $fit_logo_w == 54 && $fit_logo_h == 26 &&
+            $fit_cols =~ ^[0-9]+$ && $fit_rows =~ ^[0-9]+$ &&
+            $fit_w =~ ^[0-9]+$ && $fit_h =~ ^[0-9]+$ ]]; then
+            apply_size_rule "$fit_w" "$fit_h"
+            return
+        fi
+    fi
+
+    apply_size_rule
+}
+
+settle_grid() {
+    local current previous="" held=0
+
+    for _ in {1..20}; do
+        current="$(stty size)"
+        if [[ $current == "$previous" ]]; then
+            (( ++held == 3 )) && break
+        else
+            held=0
+            previous="$current"
+        fi
+        sleep 0.05
+    done
+}
+
+fit_window() {
+    local logo_w=54 logo_h=26 modules module_w module_rows target_c target_r
+
+    modules="$(run_fastfetch --logo none 2>/dev/null)" || return 1
+    module_w="$(printf '%s\n' "$modules" |
+        sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | display_columns)"
+    module_rows="$(printf '%s\n' "$modules" | wc -l)"
+
+    local image_content_rows=$((2 + logo_h))
+    (( module_rows > image_content_rows )) && image_content_rows=$module_rows
+    target_r=$((image_content_rows + 1 + 1))
+
+    # Logo padding: left 2, between logo/modules 6, right 2, plus spare room
+    # for terminal padding and a long hardware value. Native image placement
+    # must not be allowed to reach the right edge and wrap the module column.
+    target_c=$((2 + logo_w + 6 + module_w + 2 + FIT_SPARE_COLUMNS))
+    target_r=$((target_r + FIT_SPARE_ROWS - 1))
+
+    local nudges=0 rows cols address width height shift_w shift_h target_w target_h
+    while :; do
+        read -r rows cols <<<"$(stty size)"
+        read -r address width height <<<"$(hyprctl clients -j 2>/dev/null | jq -r \
+            --arg class "$APP_ID" --arg title "$TERMINAL_TITLE" \
+            '.[] | select((.class // "") == $class or
+                (.initialClass // "") == $class or
+                (.title // "") == $title or
+                (.initialTitle // "") == $title) |
+                "\(.address) \(.size[0]) \(.size[1])"' 2>/dev/null | head -n 1)"
+        if [[ -z ${address:-} ]]; then
+            read -r address width height <<<"$(hyprctl activewindow -j 2>/dev/null | jq -r \
+                'if .address then "\(.address) \(.size[0]) \(.size[1])" else empty end' 2>/dev/null)"
+        fi
+        [[ -n ${address:-} ]] || return 1
+        (( cols > 0 && rows > 0 && width > 0 && height > 0 )) || return 1
+
+        if (( cols >= target_c && cols <= target_c + 1 && rows >= target_r && rows <= target_r + 1 )); then
+            remember_fit image "$logo_w" "$logo_h" "$target_c" "$target_r" "$width" "$height"
+            return 0
+        fi
+
+        (( ++nudges <= 2 )) || return 1
+        shift_w=$(( (target_c - cols) * width ))
+        shift_h=$(( (target_r - rows) * height ))
+        target_w=$(( width + (shift_w >= 0 ? (shift_w + cols - 1) / cols : shift_w / cols) ))
+        target_h=$(( height + (shift_h >= 0 ? (shift_h + rows - 1) / rows : shift_h / rows) ))
+
+        if ! hyprctl dispatch resizeactive \
+            "exact $target_w $target_h" >/dev/null 2>&1; then
+            hyprctl dispatch resizewindowpixel \
+                "exact $target_w $target_h,address:$address" >/dev/null 2>&1 || return 1
+        fi
+        hyprctl dispatch centerwindow >/dev/null 2>&1 || return 1
+        settle_grid
+    done
+}
+
+content_changed() {
+    [[ ${RESIZED:-false} == true ]] && return 0
+    [[ $(stty size) != "$GRID" ||
+        $(stat -c %Y "$IMAGE_FILE" 2>/dev/null || printf 0) != "$LOGO_STAMP" ]]
+}
+
+tick() {
+    read -t "$1" -n 1 -s && exit
+    (( $? > 128 )) || exit
+}
+
+render_about() {
+    [[ -t 0 && -t 1 ]] || {
+        printf '%s\n' 'Refusing About presentation without an interactive terminal.' >&2
+        return 1
+    }
+    command -v fastfetch >/dev/null 2>&1 || {
+        printf '%s\n' 'Fastfetch is required for Aurelia About.' >&2
+        return 1
+    }
+
+    if [[ ! -r $IMAGE_FILE ]]; then
+        printf '%s\n' 'Aurelia About image asset is missing or unreadable.' >&2
+        return 1
+    fi
+    if ! resolve_logo_protocol; then
+        printf '%s\n' 'This terminal does not provide a supported native image protocol.' >&2
+        printf '%s\n' 'Use Kitty/Ghostty (Kitty graphics) or Foot with Sixel support.' >&2
+        return 1
+    fi
+
+    printf '\e[?25l'
+    trap 'printf "\e[?25h\e[0m"' EXIT
+    RESIZED=false
+    trap 'RESIZED=true' WINCH
+    settle_grid
+
+    local fitted=false passes=0
+    while :; do
+        refresh_image_state
+        GRID="$(stty size)"
+        LOGO_STAMP="$(stat -c %Y "$IMAGE_FILE" 2>/dev/null || printf 0)"
+        RESIZED=false
+        clear_screen
+        run_fastfetch
+
+        if [[ $fitted == false ]] && (( ++passes <= 2 )); then
+            if fit_window; then
+                fitted=true
+                continue
+            fi
+        fi
+
+        while :; do
+            tick 0.5
+            if content_changed; then
+                fitted=false
+                break
+            fi
+        done
+    done
+}
+
+read_terminal_preference() {
+    local config_file="$CONFIG_HOME/workstation/desktop.conf"
+    local preference=""
+
+    if [[ -f $config_file ]]; then
+        preference="$(sed -n -E \
+            -e 's/^[[:space:]]*terminal\.default[[:space:]]*=[[:space:]]*//p' \
+            -e 's/^[[:space:]]*terminal_default[[:space:]]*=[[:space:]]*//p' \
+            -e 's/^[[:space:]]*terminal[[:space:]]*=[[:space:]]*//p' \
+            "$config_file" | head -n 1)"
+    fi
+
+    preference="${preference%$'\r'}"
+    preference="${preference#\"}"
+    preference="${preference%\"}"
+    preference="${preference%.desktop}"
+    preference="${preference##*/}"
+    [[ $preference == footclient ]] && preference=foot
+    printf '%s' "$preference"
+}
+
+focus_existing_about() {
+    command -v hyprctl >/dev/null 2>&1 || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+
+    local address
+    address="$(hyprctl clients -j 2>/dev/null | jq -r \
+        --arg class "$APP_ID" '.[] | select(.class == $class or .initialClass == $class) | .address' 2>/dev/null | head -n 1)" || return 1
+    [[ -n $address && $address != null ]] || return 1
+    hyprctl dispatch focuswindow "address:$address" >/dev/null 2>&1
+}
+
+resolve_terminal_argv() {
+    local preferred="$(read_terminal_preference)"
+    local candidate
+    local -a candidates=()
+
+    # xdg-terminal-exec cannot carry Kitty/Foot cell-size options. Prefer the
+    # installed native-image terminal when no explicit terminal preference is
+    # configured, otherwise the image can open at an unrelated saved size.
+    if [[ -z $preferred && ${AURELIA_ABOUT_USE_XDG_TERMINAL:-0} != 1 ]] &&
+        command -v kitty >/dev/null 2>&1; then
+        preferred=kitty
+    fi
+
+    if [[ -z $preferred ]] && command -v xdg-terminal-exec >/dev/null 2>&1; then
+        TERMINAL_ARGV=(xdg-terminal-exec "--app-id=$APP_ID" -e "$SCRIPT_PATH" --render)
+        return 0
+    fi
+
+    [[ -n $preferred ]] && candidates+=("$preferred")
+    candidates+=(kitty foot ghostty alacritty gnome-terminal konsole xterm)
+
+    for candidate in "${candidates[@]}"; do
+        case "$candidate" in
+        kitty)
+            command -v kitty >/dev/null 2>&1 || continue
+            TERMINAL_ARGV=(env AURELIA_ABOUT_LOGO_PROTOCOL=kitty kitty
+                --override remember_window_size=no
+                --override "initial_window_width=${INITIAL_COLUMNS}c"
+                --override "initial_window_height=${INITIAL_ROWS}c"
+                --class "$APP_ID" --title "$TERMINAL_TITLE" "$SCRIPT_PATH" --render)
+            return 0
+            ;;
+        foot)
+            command -v foot >/dev/null 2>&1 || continue
+            TERMINAL_ARGV=(env AURELIA_ABOUT_LOGO_PROTOCOL=sixel foot
+                --window-size-chars "${INITIAL_COLUMNS}x${INITIAL_ROWS}"
+                --app-id "$APP_ID" --title "$TERMINAL_TITLE" "$SCRIPT_PATH" --render)
+            return 0
+            ;;
+        ghostty)
+            command -v ghostty >/dev/null 2>&1 || continue
+            TERMINAL_ARGV=(env AURELIA_ABOUT_LOGO_PROTOCOL=kitty ghostty --class="$APP_ID" --title="$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
+            return 0
+            ;;
+        alacritty)
+            command -v alacritty >/dev/null 2>&1 || continue
+            TERMINAL_ARGV=(alacritty --class "$APP_ID" --title "$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
+            return 0
+            ;;
+        gnome-terminal)
+            command -v gnome-terminal >/dev/null 2>&1 || continue
+            TERMINAL_ARGV=(gnome-terminal --title="$TERMINAL_TITLE" -- "$SCRIPT_PATH" --render)
+            return 0
+            ;;
+        konsole)
+            command -v konsole >/dev/null 2>&1 || continue
+            TERMINAL_ARGV=(konsole --name "$APP_ID" --title "$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
+            return 0
+            ;;
+        xterm)
+            command -v xterm >/dev/null 2>&1 || continue
+            TERMINAL_ARGV=(xterm -class "$APP_ID" -title "$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
+            return 0
+            ;;
+        esac
+    done
+
+    return 1
+}
+
+open_about_terminal() {
+    focus_existing_about && return 0
+    resolve_terminal_argv || {
+        printf '%s\n' 'No supported terminal emulator is installed.' >&2
+        return 1
+    }
+
+    local -a launch_argv=("${TERMINAL_ARGV[@]}")
+    if command -v uwsm-app >/dev/null 2>&1 &&
+        [[ -n ${XDG_RUNTIME_DIR:-} ]] &&
+        [[ -n ${UWSM_FINALIZE_VARNAMES:-} || -n ${UWSM_WAIT_VARNAMES:-} || -n ${IN_UWSM_ENV_PRELOADER:-} ]]; then
+        launch_argv=(uwsm-app -- "${launch_argv[@]}")
+    fi
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -f "${launch_argv[@]}" >/dev/null 2>&1
+    else
+        ("${launch_argv[@]}" >/dev/null 2>&1 &)
+    fi
+}
+
+case "${1:-}" in
+open)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    open_about_terminal
+    ;;
+about|--render)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    render_about
+    ;;
+help|-h|--help)
+    usage
+    ;;
+*)
+    usage >&2
+    exit 2
+    ;;
+esac

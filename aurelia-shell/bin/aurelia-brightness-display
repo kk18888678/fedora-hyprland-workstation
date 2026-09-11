@@ -1,0 +1,222 @@
+#!/bin/bash
+
+# Show or set brightness for the focused Aurelia display.
+#
+# Laptop backlights use brightnessctl. External monitors use DDC/CI when
+# ddcutil can map the Hyprland connector. DDC support is optional; an external
+# display without a usable DDC backend fails closed instead of changing an
+# arbitrary output.
+
+set -Eeuo pipefail
+umask 077
+
+bounded() {
+    timeout --kill-after=1s 3s "$@"
+}
+
+die() {
+    printf 'aurelia-brightness-display: %s\n' "$*" >&2
+    exit 1
+}
+
+monitor_is_internal() {
+    [[ "$1" =~ ^(eDP|LVDS|DSI)-[A-Za-z0-9._-]+$ ]]
+}
+
+valid_monitor_name() {
+    [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+focused_monitor() {
+    command -v jq >/dev/null 2>&1 || return 1
+    local monitors
+    monitors="$(bounded hyprctl monitors -j 2>/dev/null || bounded hyprctl -j monitors 2>/dev/null)" || return 1
+    jq -er '[.[] | select(.focused == true)][0].name // empty' <<<"$monitors"
+}
+
+backlight_path="${AURELIA_BACKLIGHT_PATH:-/sys/class/backlight}"
+[[ "$backlight_path" == /* && "$backlight_path" != "/" ]] || die "backlight path is unsafe"
+
+backlight_device() {
+    [[ -d "$backlight_path" && ! -L "$backlight_path" ]] || return 1
+
+    local candidate device=""
+    for candidate in "$backlight_path"/*; do
+        [[ -d "$candidate" && ! -L "$candidate" ]] || continue
+        [[ "${candidate##*/}" == "appletb_backlight" ]] && continue
+        device="${candidate##*/}"
+        break
+    done
+
+    local pattern
+    for pattern in gmux_backlight amdgpu_bl\* intel_backlight acpi_video\*; do
+        for candidate in "$backlight_path"/$pattern; do
+            [[ -d "$candidate" && ! -L "$candidate" ]] || continue
+            [[ "${candidate##*/}" == "appletb_backlight" ]] && continue
+            device="${candidate##*/}"
+            break 2
+        done
+    done
+
+    [[ -n "$device" ]] || return 1
+    [[ "$device" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    printf '%s\n' "$device"
+}
+
+backlight_read() {
+    local device="$1" output
+    command -v brightnessctl >/dev/null 2>&1 || return 1
+    output="$(bounded brightnessctl -d "$device" -m 2>/dev/null)" || return 1
+    awk -F, '
+        $4 ~ /^[0-9]+%$/ { gsub(/%/, "", $4); print $4; found = 1; exit }
+        END { exit !found }
+    ' <<<"$output"
+}
+
+ddc_bus_for_monitor() {
+    local monitor="$1" detection
+    command -v ddcutil >/dev/null 2>&1 || return 1
+    valid_monitor_name "$monitor" || return 1
+    detection="$(bounded ddcutil --skip-ddc-checks detect --brief 2>/dev/null)" || return 1
+    awk -v target="$monitor" '
+        /^[[:space:]]*I2C bus:/ {
+            bus = $3
+            sub(/^\/dev\/i2c-/, "", bus)
+        }
+        /^[[:space:]]*DRM connector:/ {
+            connector = $3
+            sub(/^card[0-9]+-/, "", connector)
+            if (connector == target && bus ~ /^[0-9]+$/) {
+                print bus
+                exit
+            }
+        }
+    ' <<<"$detection"
+}
+
+ddc_read() {
+    local monitor="$1" bus response
+    bus="$(ddc_bus_for_monitor "$monitor")" || return 1
+    [[ "$bus" =~ ^[0-9]+$ ]] || return 1
+    response="$(bounded ddcutil --bus "$bus" --skip-ddc-checks --noverify getvcp 10 2>/dev/null)" || return 1
+    awk '$1 == "VCP" && $2 == "10" && $3 == "C" && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
+        if ($5 < 1 || $4 < 0 || $4 > $5) exit 1
+        printf "%d %d\n", int(($4 * 100) / $5 + 0.5), $5
+        found = 1
+        exit
+    }
+    END { exit !found }' <<<"$response"
+}
+
+ddc_set() {
+    local monitor="$1" target="$2" bus range maximum ddc_value
+    bus="$(ddc_bus_for_monitor "$monitor")" || return 1
+    [[ "$bus" =~ ^[0-9]+$ ]] || return 1
+    range="$(ddc_read "$monitor")" || return 1
+    maximum="${range##* }"
+    [[ "$maximum" =~ ^[1-9][0-9]*$ ]] || return 1
+    ddc_value=$(( (target * maximum + 50) / 100 ))
+    (( ddc_value < 1 )) && ddc_value=1
+    (( ddc_value > maximum )) && ddc_value="$maximum"
+    bounded ddcutil --bus "$bus" --skip-ddc-checks --noverify setvcp 10 "$ddc_value" >/dev/null
+    printf '%s\n' "$target"
+}
+
+current_brightness() {
+    local monitor="$1" device range
+    if monitor_is_internal "$monitor"; then
+        device="$(backlight_device)" || return 1
+        backlight_read "$device"
+        return
+    fi
+
+    range="$(ddc_read "$monitor")" || return 1
+    printf '%s\n' "${range%% *}"
+}
+
+parse_target() {
+    local current="$1" step="$2" amount target
+    if [[ "$step" =~ ^\+([0-9]+)%$ ]]; then
+        amount="${BASH_REMATCH[1]}"
+        target=$(( current + amount ))
+    elif [[ "$step" =~ ^([0-9]+)%-$ ]]; then
+        amount="${BASH_REMATCH[1]}"
+        target=$(( current - amount ))
+    elif [[ "$step" =~ ^([0-9]+)%$ ]]; then
+        target="${BASH_REMATCH[1]}"
+    else
+        return 1
+    fi
+
+    (( target < 1 )) && target=1
+    (( target > 100 )) && target=100
+    printf '%s\n' "$target"
+}
+
+monitor=""
+step=""
+no_osd=0
+while (( $# > 0 )); do
+    case "$1" in
+        --monitor)
+            (( $# >= 2 )) || die "--monitor requires a connector name"
+            monitor="$2"
+            valid_monitor_name "$monitor" || die "unsafe monitor name"
+            shift 2
+            ;;
+        --no-osd)
+            no_osd=1
+            shift
+            ;;
+        -h|--help)
+            printf '%s\n' 'Usage: aurelia-brightness-display [--no-osd] [--monitor NAME] [N%|+N%|N%-]'
+            exit 0
+            ;;
+        --*)
+            die "unknown option: $1"
+            ;;
+        *)
+            [[ -z "$step" ]] || die "too many brightness arguments"
+            step="$1"
+            shift
+            ;;
+    esac
+done
+
+command -v timeout >/dev/null 2>&1 || die "timeout is required"
+command -v hyprctl >/dev/null 2>&1 || die "hyprctl is required"
+
+if [[ -z "$monitor" ]]; then
+    monitor="$(focused_monitor 2>/dev/null || true)"
+fi
+[[ -n "$monitor" ]] || die "could not determine a focused monitor"
+valid_monitor_name "$monitor" || die "could not determine a safe focused monitor"
+
+if [[ -z "$step" ]]; then
+    current_brightness "$monitor"
+    exit $?
+fi
+
+[[ "$step" != "off" && "$step" != "on" ]] || die "DPMS controls are not part of the brightness helper"
+
+runtime_dir="${XDG_RUNTIME_DIR:-}"
+[[ "$runtime_dir" == /* && "$runtime_dir" != "/" && -d "$runtime_dir" && ! -L "$runtime_dir" ]] ||
+    die "XDG_RUNTIME_DIR is required for safe concurrent brightness updates"
+[[ "$(stat -c '%u' -- "$runtime_dir" 2>/dev/null || true)" == "$(id -u)" ]] ||
+    die "XDG_RUNTIME_DIR is not owned by the current user"
+command -v flock >/dev/null 2>&1 || die "flock is required for safe brightness updates"
+
+lock_path="$runtime_dir/aurelia-brightness-display.lock"
+exec {lock_fd}>"$lock_path"
+flock -n "$lock_fd" || exit 0
+
+current="$(current_brightness "$monitor")" || die "brightness backend unavailable for $monitor"
+target="$(parse_target "$current" "$step")" || die "invalid brightness target: $step"
+
+if monitor_is_internal "$monitor"; then
+    device="$(backlight_device)" || die "no usable kernel backlight device found"
+    bounded brightnessctl -d "$device" set "${target}%" >/dev/null || die "brightnessctl failed"
+    backlight_read "$device" || printf '%s\n' "$target"
+else
+    ddc_set "$monitor" "$target" || die "DDC brightness update failed for $monitor"
+fi

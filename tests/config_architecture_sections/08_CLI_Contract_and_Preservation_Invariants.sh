@@ -19,10 +19,13 @@ fi
 
 # 44. remove != purge
 htop_rem_body="$(type remove_htop_adapter 2>/dev/null)"
-if [[ "$htop_rem_body" != *"rm -rf"* && "$htop_rem_body" == *"dnf remove"* ]]; then
-    pass "44. remove adapters perform safe package removal without purging user data (remove != purge)"
+dnf_remove_helper_body="$(type remove_managed_dnf_package 2>/dev/null)"
+if [[ "$htop_rem_body" != *"rm -rf"* &&
+      "$dnf_remove_helper_body" == *"dnf remove"* &&
+      "$dnf_remove_helper_body" == *"run_dnf_command"* ]]; then
+    pass "44. remove adapters perform bounded, trust-gated package removal without purging user data"
 else
-    fail "44. removal adapter violates remove != purge invariant: $htop_rem_body"
+    fail "44. removal adapter violates bounded remove != purge invariant: $htop_rem_body helper=$dnf_remove_helper_body"
 fi
 
 # 45. Preexisting unmanaged software remains KEEP

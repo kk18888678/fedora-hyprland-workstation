@@ -62,8 +62,8 @@ icon_qml="$shared_ui_root/AureliaIcon.qml"
 if [[ -f "$button_qml" && -f "$icon_qml" ]] &&
    grep -q 'AureliaActionButton 1.0 AureliaActionButton.qml' "$shared_ui_root/qmldir" &&
    grep -q 'AureliaIcon 1.0 AureliaIcon.qml' "$shared_ui_root/qmldir" &&
-   grep -q 'Theme.surfaceElevated' "$button_qml" &&
-   grep -q 'Theme.borderActive' "$button_qml" &&
+   grep -q 'Theme.controls.normalFill' "$button_qml" &&
+   grep -q 'Theme.controls.hoverBorder' "$button_qml" &&
    grep -q 'signal triggered' "$button_qml" &&
    [[ "$(grep -c 'AureliaActionButton {' "$menu_qml")" -eq 2 ]] &&
    grep -q 'popupWidth: 280' "$menu_qml" &&
@@ -115,7 +115,7 @@ if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'captureRequested' "$panel_qml" &&
    grep -q 'captureCompleted' "$panel_qml" &&
    grep -q 'ScreenshotPanel.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'camera-photo' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -Fq 'glyph: "󰄀"' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'import "../../../ui"' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'AureliaToolTip' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
@@ -123,6 +123,8 @@ if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'AureliaIcon' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
    grep -q 'MultiEffect' "$icon_qml" &&
    grep -q 'colorizationColor' "$icon_qml" &&
+   grep -q 'Text.NativeRendering' "$icon_qml" &&
+   grep -q 'sourcePixelRatio: Math.max(1, Screen.devicePixelRatio)' "$icon_qml" &&
    grep -q 'asynchronous: false' "$icon_qml" &&
    ! grep -q 'asynchronous: true' "$icon_qml"; then
     pass "Bar widget owns capture lifecycle, tooltip, and theme-aware icon visibility"
@@ -142,7 +144,7 @@ fi
 if grep -q 'target: "aurelia.bar"' "$bar_root/Bar.qml" &&
    grep -q 'BarWidgetRow' "$bar_root/Bar.qml" &&
    grep -q 'BarCenter' "$bar_root/Bar.qml" &&
-   grep -q 'barSize: 26' "$bar_root/Bar.qml" &&
+   grep -q 'barSize: vertical ? Theme.bar.sizeVertical : Theme.bar.sizeHorizontal' "$bar_root/Bar.qml" &&
    grep -q 'AureliaLogo' "$bar_root/Bar.qml" &&
    grep -q 'centerAnchor' "$bar_root/Bar.qml" &&
    grep -q 'visible: true' "$bar_root/Bar.qml" &&

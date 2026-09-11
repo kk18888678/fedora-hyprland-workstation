@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Persist the Aurelia shell's user-owned text-size override. This intentionally
+# changes Aurelia only; it does not rewrite GTK, terminal, or project-owned
+# configuration files from a display-panel interaction.
+
+set -Eeuo pipefail
+umask 077
+
+die() {
+    printf 'aurelia-display-text-size: %s\n' "$*" >&2
+    exit 1
+}
+
+home="${HOME:-}"
+[[ "$home" == /* && "$home" != "/" && -d "$home" && ! -L "$home" ]] || die "HOME is unsafe"
+
+config_home="${XDG_CONFIG_HOME:-$home/.config}"
+[[ "$config_home" == /* && "$config_home" != "/" ]] || die "XDG_CONFIG_HOME is unsafe"
+[[ ! -L "$config_home" ]] || die "XDG_CONFIG_HOME must not be a symlink"
+
+settings_path="${AURELIA_DISPLAY_SETTINGS_PATH:-$config_home/aurelia/display.conf}"
+[[ "$settings_path" == /* && "$settings_path" != "/" && "$settings_path" != *".."* ]] ||
+    die "display settings path is unsafe"
+settings_dir="$(dirname -- "$settings_path")"
+[[ "$settings_dir" != "/" && ! -L "$settings_dir" ]] || die "display settings directory is unsafe"
+mkdir -p -- "$settings_dir"
+
+read_size() {
+    [[ -f "$settings_path" && ! -L "$settings_path" ]] || {
+        printf '%s\n' 12
+        return 0
+    }
+    local value=""
+    value="$(awk '
+        /^[[:space:]]*fontBaseSize[[:space:]]*=/ {
+            value = $0
+            sub(/^[^=]*=[[:space:]]*/, "", value)
+            sub(/[[:space:]]*(#.*)?$/, "", value)
+            if (value ~ /^[0-9]+$/) print value
+            exit
+        }
+    ' "$settings_path")"
+    if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 9 && value <= 20 )); then
+        printf '%s\n' "$value"
+    else
+        printf '%s\n' 12
+    fi
+}
+
+write_size() {
+    local value="$1" temporary
+    [[ ! -e "$settings_path" || ! -L "$settings_path" ]] || die "refusing symlinked display settings"
+    temporary="$(mktemp "$settings_dir/.display.conf.XXXXXX")" || die "could not create settings staging file"
+    chmod 0600 "$temporary"
+
+    if [[ -f "$settings_path" ]]; then
+        awk -v value="$value" '
+            BEGIN { replaced = 0 }
+            /^[[:space:]]*fontBaseSize[[:space:]]*=/ {
+                if (!replaced) { print "fontBaseSize = " value; replaced = 1 }
+                next
+            }
+            { print }
+            END { if (!replaced) print "fontBaseSize = " value }
+        ' "$settings_path" >"$temporary"
+    else
+        printf '%s\n' "fontBaseSize = $value" >"$temporary"
+    fi
+
+    if ! mv -f -- "$temporary" "$settings_path"; then
+        rm -f -- "$temporary"
+        die "could not commit display settings"
+    fi
+}
+
+case "${1:-}" in
+    "")
+        read_size
+        ;;
+    reset|default)
+        write_size 12
+        ;;
+    -h|--help)
+        printf '%s\n' 'Usage: aurelia-display-text-size [9..20|reset]'
+        ;;
+    *)
+        [[ "${1:-}" =~ ^[0-9]+$ ]] || die "text size must be an integer from 9 to 20"
+        (( $1 >= 9 && $1 <= 20 )) || die "text size must be an integer from 9 to 20"
+        write_size "$1"
+        ;;
+esac

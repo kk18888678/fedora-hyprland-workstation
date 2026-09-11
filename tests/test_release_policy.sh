@@ -510,6 +510,30 @@ unset PRERELEASE_EXCEPTIONS_FILE
 # Reload canonical repository registry
 load_prerelease_exceptions_registry "$ROOT/config/prerelease_exceptions.conf"
 
+# Production release evaluation must ignore a caller-supplied test registry.
+production_override_registry="$(mktemp)"
+cat <<'INNER_EOF' > "$production_override_registry"
+[app_beta_only]
+enabled = true
+allowed_classes = beta
+selection_policy = stable_then_allowed_prerelease
+reason = "Fixture-only beta exception"
+INNER_EOF
+_PRERELEASE_REGISTRY_LOADED=false
+production_registry_err=""
+production_registry_ret=0
+INSTALLER_PRODUCTION_MODE=1 \
+PRERELEASE_EXCEPTIONS_FILE="$production_override_registry" \
+    evaluate_release_eligibility "app_beta_only" "v1.0.0-beta" production_registry_err ||
+    production_registry_ret=$?
+if [[ "$production_registry_ret" -ne 0 && "$production_registry_err" == "prerelease prohibited by default" ]]; then
+    pass "production release policy ignores caller-supplied exception registry"
+else
+    fail "production release policy honored caller-supplied exception registry: ret=$production_registry_ret err=$production_registry_err"
+fi
+rm -f -- "$production_override_registry"
+load_prerelease_exceptions_registry "$ROOT/config/prerelease_exceptions.conf"
+
 section "Supply-Chain Separation: Exceptions Affect Eligibility Only"
 
 # 27. Exception affects eligibility only: checksum/integrity validation path remains strictly required
@@ -717,6 +741,71 @@ else
     fail "parser unavailability failed: st=$st_no_jq count=${#cand_no_jq[@]}"
 fi
 
+# Discovery bounds must reject malformed or unexpectedly large inherited
+# values before invoking the page fetcher.
+invalid_bound_fetcher() {
+    echo "unexpected fetch" >&2
+    return 1
+}
+cand_invalid_bound=()
+st_invalid_bound=""
+RELEASE_DISCOVERY_MAX_PAGES=0 \
+    discover_github_release_candidates "mock/repo" cand_invalid_bound st_invalid_bound invalid_bound_fetcher
+if [[ "$st_invalid_bound" == "invalid_configuration" && "${#cand_invalid_bound[@]}" -eq 0 ]]; then
+    pass "invalid release discovery bounds fail closed before page retrieval"
+else
+    fail "invalid release discovery bound was not rejected: st=$st_invalid_bound count=${#cand_invalid_bound[@]}"
+fi
+
+cand_oversized_bound=()
+st_oversized_bound=""
+RELEASE_DISCOVERY_PER_PAGE=101 \
+    discover_github_release_candidates "mock/repo" cand_oversized_bound st_oversized_bound invalid_bound_fetcher
+if [[ "$st_oversized_bound" == "invalid_configuration" && "${#cand_oversized_bound[@]}" -eq 0 ]]; then
+    pass "oversized release discovery bounds fail closed before page retrieval"
+else
+    fail "oversized release discovery bound was not rejected: st=$st_oversized_bound count=${#cand_oversized_bound[@]}"
+fi
+
+# Output references must be data-only variable names; malformed names are
+# rejected instead of being interpreted as shell code.
+malformed_output_status=0
+malformed_output_marker="unchanged"
+discover_github_release_candidates "mock/repo" 'marker=changed' malformed_output_status invalid_bound_fetcher 2>/dev/null || malformed_output_status=$?
+if [[ "$malformed_output_status" -ne 0 && "$malformed_output_marker" == "unchanged" ]]; then
+    pass "release discovery rejects malformed output variable names without evaluation"
+else
+    fail "release discovery accepted or evaluated a malformed output variable name: status=$malformed_output_status marker=$malformed_output_marker"
+fi
+
+# Production discovery must ignore the fixture-only parser override.
+cand_production_jq=()
+st_production_jq=""
+INSTALLER_PRODUCTION_MODE=1 JQ_CMD="definitely_nonexistent_jq_binary" \
+    discover_github_release_candidates "mock/repo" cand_production_jq st_production_jq mock_fetcher_stable_first
+if [[ "$st_production_jq" == "complete" && "${cand_production_jq[0]:-}" == "v1.0.0|false" ]]; then
+    pass "production release discovery ignores caller-supplied parser override"
+else
+    fail "production release discovery honored parser override: st=$st_production_jq candidates=${cand_production_jq[*]:-none}"
+fi
+
+# Draft releases must never enter the candidate set.
+mock_fetcher_draft_only() {
+    if [[ "$2" -eq 1 ]]; then
+        echo '[{"tag_name":"v9.0.0","prerelease":false,"draft":true}]'
+    else
+        echo '[]'
+    fi
+}
+cand_draft_only=()
+st_draft_only=""
+discover_github_release_candidates "mock/repo" cand_draft_only st_draft_only mock_fetcher_draft_only
+if [[ "$st_draft_only" == "complete" && "${#cand_draft_only[@]}" -eq 0 ]]; then
+    pass "draft GitHub releases are excluded from stable and prerelease candidates"
+else
+    fail "draft GitHub release was accepted: st=$st_draft_only candidates=${cand_draft_only[*]:-none}"
+fi
+
 # 14. Malformed JSON sets parse_error
 mock_fetcher_malformed_json() {
     echo "this is not json"
@@ -848,5 +937,3 @@ if [[ "$sel_comp_out" == "v1.9.0" ]]; then
 else
     fail "complete discovery stable selection failed: out=$sel_comp_out"
 fi
-
-

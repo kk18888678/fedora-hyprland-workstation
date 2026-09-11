@@ -1,8 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import Quickshell.Io
-import Quickshell.Widgets
 import "../../ui"
 import "../../theme"
 
@@ -11,9 +9,23 @@ AureliaKeyboardPanel {
 
     property string confirmAction: ""
 
+    readonly property var iconGlyphs: ({
+        "lock": "󰍁",
+        "logout": "󰍃",
+        "suspend": "󰤄",
+        "reboot": "󰜉",
+        "power": "󰐥",
+        "confirm": "󰄬",
+        "cancel": "󰅖"
+    })
+
     ownerId: "aurelia.power"
-    popupWidth: 280
+    popupWidth: 380
     popupHeight: cardHeight
+    fitHeightToContent: true
+    minPopupHeight: 180
+    maxPopupHeight: 560
+    contentSizingItem: contentColumn
     shown: false
     readonly property int cardHeight: confirmAction === ""
         ? (Theme.spacingXl * 2 + 28 + Theme.spacingSm * 5 + 5 * 40)
@@ -30,6 +42,10 @@ AureliaKeyboardPanel {
     }
 
     function closeForPopoutSwitch() { close() }
+
+    function iconGlyph(name) {
+        return panelRoot.iconGlyphs[name] || ""
+    }
 
     function requestAction(action) {
         if (action === "reboot" || action === "shutdown") {
@@ -53,6 +69,7 @@ AureliaKeyboardPanel {
     }
 
     ColumnLayout {
+        id: contentColumn
         anchors.fill: parent
         spacing: Theme.spacingSm
         focus: panelRoot.shown
@@ -68,14 +85,14 @@ AureliaKeyboardPanel {
 
             Repeater {
                 model: panelRoot.confirmAction === "" ? [
-                    { id: "lock", label: "Lock", icon: "system-lock-screen" },
-                    { id: "logout", label: "Logout", icon: "system-log-out" },
-                    { id: "suspend", label: "Suspend", icon: "system-suspend" },
-                    { id: "reboot", label: "Reboot", icon: "system-reboot" },
-                    { id: "shutdown", label: "Shutdown", icon: "system-shutdown" }
+                    { id: "lock", label: "Lock", icon: "lock" },
+                    { id: "logout", label: "Logout", icon: "logout" },
+                    { id: "suspend", label: "Suspend", icon: "suspend" },
+                    { id: "reboot", label: "Reboot", icon: "reboot" },
+                    { id: "shutdown", label: "Shutdown", icon: "power" }
                 ] : [
-                    { id: "confirm", label: "Confirm", icon: "dialog-ok-apply" },
-                    { id: "cancel", label: "Cancel", icon: "dialog-cancel" }
+                    { id: "confirm", label: "Confirm", icon: "confirm" },
+                    { id: "cancel", label: "Cancel", icon: "cancel" }
                 ]
 
                 delegate: Rectangle {
@@ -92,10 +109,15 @@ AureliaKeyboardPanel {
                         anchors.rightMargin: Theme.spacingSm
                         spacing: Theme.spacingSm
 
-                        IconImage {
+                        Text {
                             Layout.preferredWidth: 18
                             Layout.preferredHeight: 18
-                            source: Quickshell.iconPath(modelData.icon, "system-shutdown")
+                            text: panelRoot.iconGlyph(modelData.icon)
+                            color: powerActionHover.hovered ? Theme.text : Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 18
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                         Text {
                             Layout.fillWidth: true

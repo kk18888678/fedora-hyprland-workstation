@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+# aurelia-branding-about-animation — shared helpers for the About logo sheen.
+#
+# The renderer receives a terminal-cell logo file and writes complete ANSI
+# frames. Fastfetch colour placeholders ($1..$9) are expanded before animation
+# so Aurelia's mark can retain the colours authored by aurelia-mark.svg.
+
+if [[ -z ${ESC:-} ]]; then
+    ESC=$'\e'
+fi
+
+# Aurelia's text colour is bright enough to remain visible over every other mark
+# colour, while keeping the animation entirely inside the SVG palette.
+SHEEN_BAND="${ESC}[1m${ESC}[38;2;224;222;244m"
+SHEEN_SLANT=2
+SHEEN_HALF=2
+SHEEN_FRAME_SECONDS=0.025
+SHEEN_REST_TICKS=8
+SHEEN_POLL_FRAMES=20
+
+compose_frame() {
+    local centre=$1
+    local row line length at from to frame="" column char color band=false
+
+    for (( row = 0; row < SHEEN_ROWS; row++ )); do
+        line=${SHEEN_LINES[row]}
+        length=${#line}
+        at=$((centre - row * SHEEN_SLANT))
+        from=$((at - SHEEN_HALF))
+        (( from < 0 )) && from=0
+        to=$((at + SHEEN_HALF + 1))
+        (( to < 0 )) && to=0
+
+        frame+="${ESC}[$((SHEEN_TOP + row));${SHEEN_LEFT}H${SHEEN_BASE}"
+        for (( column = 0; column < length; column++ )); do
+            char=${line:column:1}
+            color=${SHEEN_CHAR_COLORS["$row:$column"]-}
+
+            if (( column >= from && column < to )); then
+                if [[ $band == false ]]; then
+                    frame+="$SHEEN_BAND"
+                    band=true
+                fi
+                frame+="$char"
+            else
+                if [[ $band == true ]]; then
+                    frame+="$SHEEN_BASE"
+                    band=false
+                fi
+                frame+="$color$char"
+            fi
+        done
+
+        # Always restore the logo/default colour before the cursor moves to the
+        # next row or fastfetch's module column is drawn.
+        frame+="$SHEEN_BASE"
+    done
+
+    SHEEN_COMPOSED=$frame
+}
+
+# Expand Fastfetch's $1..$9 colour placeholders into per-cell colour state.
+# A literal dollar must be written as $$, matching Fastfetch's file-logo syntax.
+expand_logo_line() {
+    local source=$1
+    local current=${SHEEN_DEFAULT_COLOR:-}
+    local output="" i ch next color_var
+
+    SHEEN_EXPANDED_COLORS=()
+    for (( i = 0; i < ${#source}; i++ )); do
+        ch=${source:i:1}
+        if [[ $ch == '$' ]]; then
+            next=${source:i+1:1}
+            if [[ $next =~ [1-9] ]]; then
+                color_var="SHEEN_COLOR_$next"
+                current=${!color_var-}
+                [[ -n $current ]] || return 1
+                i=$((i + 1))
+                continue
+            fi
+            if [[ $next == '$' ]]; then
+                output+='$'
+                SHEEN_EXPANDED_COLORS+=("$current")
+                ((i++))
+                continue
+            fi
+            # An unrecognised placeholder would be interpreted differently by
+            # Fastfetch and could make cursor-positioned animation unsafe.
+            return 1
+        fi
+
+        output+="$ch"
+        SHEEN_EXPANDED_COLORS+=("$current")
+    done
+
+    SHEEN_EXPANDED_LINE=$output
+}
+
+# Builds all frames up front so the frame loop only writes precomputed strings.
+#
+#   sheen_build <logo-file> <top-row> <left-column> <base-colour> <columns>
+sheen_build() {
+    local file=$1 columns=$5
+    local source_line line row column width=0
+
+    SHEEN_TOP=$2
+    SHEEN_LEFT=$3
+    SHEEN_BASE=$4
+    SHEEN_FRAMES=()
+    SHEEN_LINES=()
+    declare -gA SHEEN_CHAR_COLORS=()
+    SHEEN_CHAR_COLORS=()
+
+    mapfile -t SHEEN_SOURCE_LINES 2>/dev/null <"$file" || return 1
+    (( ${#SHEEN_SOURCE_LINES[@]} > 0 )) || return 1
+
+    for row in "${!SHEEN_SOURCE_LINES[@]}"; do
+        source_line=${SHEEN_SOURCE_LINES[row]}
+        expand_logo_line "$source_line" || return 1
+        line=$SHEEN_EXPANDED_LINE
+        SHEEN_LINES+=("$line")
+
+        # The frames slice by Bash character while terminals draw by display
+        # cell. Reject anything that could shift the module column.
+        [[ $line != *$'\t'* && $line != *$'\e'* ]] || return 1
+        (( ${#line} == $(printf '%s' "$line" | LC_ALL=C.UTF-8 wc -L) )) || return 1
+
+        for (( column = 0; column < ${#line}; column++ )); do
+            SHEEN_CHAR_COLORS["$row:$column"]=${SHEEN_EXPANDED_COLORS[column]-}
+        done
+        (( ${#line} > width )) && width=${#line}
+    done
+
+    (( width > 0 && width <= columns )) || return 1
+
+    SHEEN_ROWS=${#SHEEN_LINES[@]}
+    SHEEN_FRAMES=()
+    local centre last=$((width + SHEEN_ROWS * SHEEN_SLANT + SHEEN_HALF))
+    for (( centre = -SHEEN_HALF; centre <= last; centre++ )); do
+        compose_frame "$centre"
+        SHEEN_FRAMES+=("$SHEEN_COMPOSED")
+    done
+}

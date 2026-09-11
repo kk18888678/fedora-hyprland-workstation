@@ -11,6 +11,9 @@ mediainfo
 mkvtoolnix
 gpac
 
+# Image processing CLI (provides the `magick` command)
+ImageMagick
+
 # GStreamer
 gstreamer1
 gstreamer1-plugins-base

@@ -58,10 +58,10 @@ Item {
 
         AureliaIcon {
             anchors.centerIn: parent
-            width: 18
-            height: 18
+            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
             name: root.doNotDisturb ? "notifications-disabled" : "notifications"
-            iconSize: 18
+            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
             tint: hover.hovered ? Theme.text : (root.doNotDisturb ? Theme.warning : Theme.accent)
         }
 

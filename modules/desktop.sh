@@ -10,8 +10,8 @@ deploy_hyprland_config() {
     local source="$SCRIPT_DIR/dotfiles/hypr"
     local destination="$TARGET_HOME/.config/hypr"
 
-    [[ -d "$source" ]] ||
-        die "Hyprland configuration not found: $source"
+    [[ -d "$source" && ! -L "$source" ]] ||
+        die "Hyprland configuration is missing or is a symlink: $source"
 
     ensure_symlink "$source" "$destination"
 
@@ -22,10 +22,16 @@ deploy_noctalia_config() {
     local source="$SCRIPT_DIR/config/noctalia"
     local destination="$TARGET_HOME/.config/noctalia"
 
+    if [[ -L "$source" ]]; then
+        die "Noctalia configuration directory is a symlink: $source"
+    fi
+
     if [[ -d "$source" ]]; then
-        ensure_directory "$destination"
+        ensure_directory "$destination" || return 1
         for file in "$source"/*.toml; do
-            [[ -f "$file" ]] || continue
+            [[ -e "$file" || -L "$file" ]] || continue
+            [[ -f "$file" && ! -L "$file" ]] ||
+                die "Noctalia configuration file is missing or is a symlink: $file"
             local target="$destination/$(basename "$file")"
             ensure_symlink "$file" "$target"
         done
@@ -33,11 +39,17 @@ deploy_noctalia_config() {
     fi
 }
 
-install_noctalia_shell() {
+validate_desktop_shell_selection() {
     case "${DESKTOP_SHELL:-}" in
         noctalia)
             if ! is_true "${INSTALL_NOCTALIA:-false}"; then
                 die "DESKTOP_SHELL=noctalia requires INSTALL_NOCTALIA=true."
+            fi
+            ;;
+        aurelia)
+            if is_true "${INSTALL_GREETER:-false}" &&
+                ! is_true "${INSTALL_NOCTALIA:-false}"; then
+                die "DESKTOP_SHELL=aurelia with INSTALL_GREETER=true requires INSTALL_NOCTALIA=true for the Noctalia greeter."
             fi
             ;;
         omarchy)
@@ -49,31 +61,95 @@ install_noctalia_shell() {
     esac
 }
 
+# Compatibility name retained for older callers. The function now validates
+# the selected post-login shell; Noctalia greeter installation is separate.
+install_noctalia_shell() {
+    validate_desktop_shell_selection
+}
+
+deploy_session_shell_selection() {
+    local selected_shell="${DESKTOP_SHELL:-}"
+    local source="$SCRIPT_DIR/config/session-shell/$selected_shell"
+    local destination
+
+    destination="$(desktop_shell_selector_path 2>/dev/null || true)"
+    if [[ -z "$destination" ]]; then
+        record_required \
+            "desktop" \
+            "session-shell-selector" \
+            "Could not determine a safe XDG configuration path for the selected desktop shell."
+        return 0
+    fi
+
+    if [[ ! -f "$source" || -L "$source" ]]; then
+        record_required \
+            "desktop" \
+            "session-shell-selector" \
+            "Managed session-shell selector is missing: $source"
+        return 0
+    fi
+
+    ensure_symlink "$source" "$destination"
+    info "Post-login desktop shell selected: $selected_shell."
+}
+
+resolve_packaged_executable() {
+    local package="$1"
+    local command_name="$2"
+    local package_path
+    local matches=()
+
+    package_installed "$package" || return 1
+
+    while IFS= read -r package_path || [[ -n "$package_path" ]]; do
+        if [[ "$package_path" == /* && "${package_path##*/}" == "$command_name" &&
+              -x "$package_path" && ! -L "$package_path" ]]; then
+            matches+=("$package_path")
+        fi
+    done < <(rpm -ql "$package" 2>/dev/null)
+
+    [[ "${#matches[@]}" -eq 1 ]] || return 1
+    printf '%s\n' "${matches[0]}"
+}
+
 install_noctalia_greeter() {
     if ! is_true "${INSTALL_GREETER:-false}"; then
         info "Graphical greeter disabled by profile."
         return 0
     fi
 
-    info "Installing Noctalia greeter."
+    info "Validating Noctalia greeter."
 
-    install_dnf_packages noctalia-greeter || {
+    # The desktop package group is the production mutation owner for the
+    # greeter RPM.  This activation-stage function only validates that the
+    # reconciler supplied it; keeping a fallback for a non-migrated caller
+    # preserves compatibility with older isolated module consumers without
+    # creating a second production owner.
+    if is_component_migrated "packages.desktop"; then
+        if ! resolve_packaged_executable noctalia-greeter noctalia-greeter-session >/dev/null; then
+            record_activation_failure \
+                "desktop" \
+                "noctalia-greeter" \
+                "The desktop package group did not provide a unique RPM-owned noctalia-greeter-session executable."
+            return 1
+        fi
+    elif ! install_dnf_packages noctalia-greeter; then
         record_activation_failure \
             "desktop" \
             "noctalia-greeter" \
             "noctalia-greeter package could not be installed."
         return 1
-    }
+    fi
 
-    command_exists noctalia-greeter-session || {
+    if ! resolve_packaged_executable noctalia-greeter noctalia-greeter-session >/dev/null; then
         record_activation_failure \
             "desktop" \
             "noctalia-greeter-session" \
-            "noctalia-greeter-session was not found after installation."
+            "RPM-owned noctalia-greeter-session was not found after installation."
         return 1
-    }
+    fi
 
-    info "Noctalia greeter installed."
+    info "Noctalia greeter validated."
 }
 
 validate_greetd_user() {
@@ -130,7 +206,11 @@ is_virtio_or_vm_gpu() {
 
     # Fallback to lspci if available
     if command_exists lspci; then
-        if lspci -d 1af4:1050 2>/dev/null | grep -q . || lspci -d 1af4:1010 2>/dev/null | grep -q .; then
+        local lspci_1050=""
+        local lspci_1010=""
+        lspci_1050="$(lspci -d 1af4:1050 2>/dev/null || true)"
+        lspci_1010="$(lspci -d 1af4:1010 2>/dev/null || true)"
+        if [[ -n "$lspci_1050" || -n "$lspci_1010" ]]; then
             return 0
         fi
     fi
@@ -146,7 +226,13 @@ configure_greetd() {
     local greeter_session
     local greetd_config="/etc/greetd/config.toml"
 
-    greeter_session="$(command -v noctalia-greeter-session)"
+    if ! greeter_session="$(resolve_packaged_executable noctalia-greeter noctalia-greeter-session)"; then
+        record_activation_failure \
+            "desktop" \
+            "greetd-command" \
+            "Could not resolve the RPM-owned noctalia-greeter-session executable."
+        return 1
+    fi
 
     [[ -n "$greeter_session" ]] || {
         record_activation_failure \
@@ -156,18 +242,35 @@ configure_greetd() {
         return 1
     }
 
-    validate_greetd_user
+    if ! validate_greetd_user; then
+        return 1
+    fi
+
+    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+        ! validate_mutation_path /etc/greetd; then
+        record_activation_failure \
+            "desktop" \
+            "greetd-directory" \
+            "Refusing to configure greetd through an unsafe symlinked path."
+        return 1
+    fi
 
     info "Configuring greetd."
 
-    sudo install -d -m 0755 /etc/greetd
+    if ! sudo install -d -m 0755 /etc/greetd; then
+        record_activation_failure \
+            "desktop" \
+            "greetd-directory" \
+            "Could not create /etc/greetd."
+        return 1
+    fi
 
     local session_cmd="$greeter_session"
     if is_virtio_or_vm_gpu; then
         session_cmd="env WLR_NO_HARDWARE_CURSORS=1 $greeter_session"
     fi
 
-    install_root_file_from_stdin "$greetd_config" 0644 root root <<EOF
+    if ! install_root_file_from_stdin_preserving_existing "$greetd_config" 0644 root root <<EOF
 [terminal]
 vt = 1
 
@@ -175,6 +278,13 @@ vt = 1
 command = "$session_cmd"
 user = "greetd"
 EOF
+    then
+        record_activation_failure \
+            "desktop" \
+            "greetd-config" \
+            "Could not install /etc/greetd/config.toml."
+        return 1
+    fi
 
     info "greetd configured."
 }
@@ -190,15 +300,30 @@ configure_noctalia_greeter_state() {
 
     info "Configuring Noctalia greeter state directory."
 
-    sudo install \
+    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+        ! validate_mutation_path "$dest"; then
+        record_activation_failure \
+            "desktop" \
+            "greeter-state-directory" \
+            "Refusing to configure Noctalia greeter state through an unsafe symlinked path."
+        return 1
+    fi
+
+    if ! sudo install \
         -d \
         -m 0750 \
         -o greetd \
         -g greetd \
-        "$dest"
+        "$dest"; then
+        record_activation_failure \
+            "desktop" \
+            "greeter-state-directory" \
+            "Could not create $dest."
+        return 1
+    fi
 
-    [[ -f "$managed" ]] ||
-        die "Managed greeter config is missing: $managed"
+    [[ -f "$managed" && ! -L "$managed" ]] ||
+        die "Managed greeter config is missing or is a symlink: $managed"
 
     # Login-screen cursor only. Do not change the user Hyprland cursor.
     local content
@@ -214,40 +339,163 @@ scale = 1.0
 "
         fi
     fi
-    install_root_file_from_stdin "$greeter_toml" 0644 greetd greetd <<< "$content"
+    if ! install_root_file_from_stdin_preserving_existing "$greeter_toml" 0644 greetd greetd <<< "$content"; then
+        record_activation_failure \
+            "desktop" \
+            "greeter-state" \
+            "Could not install $greeter_toml."
+        return 1
+    fi
 
     info "Noctalia greeter state directory configured."
 }
 
 enable_desktop_services() {
+    local unit_files=""
+    local failed=0
+
     info "Enabling desktop services."
 
-    if systemctl list-unit-files NetworkManager.service \
-        --no-legend 2>/dev/null |
-        grep -q '^NetworkManager.service'; then
-        sudo systemctl enable NetworkManager.service
+    if unit_files="$(systemctl list-unit-files NetworkManager.service --no-legend 2>/dev/null)" &&
+        grep -q '^NetworkManager.service' <<< "$unit_files"; then
+        if ! sudo systemctl enable NetworkManager.service; then
+            record_required \
+                "desktop" \
+                "networkmanager" \
+                "NetworkManager.service could not be enabled."
+            failed=1
+        fi
     fi
 
-    if systemctl list-unit-files power-profiles-daemon.service \
-        --no-legend 2>/dev/null |
-        grep -q '^power-profiles-daemon.service'; then
-        sudo systemctl enable power-profiles-daemon.service
+    if unit_files="$(systemctl list-unit-files power-profiles-daemon.service --no-legend 2>/dev/null)" &&
+        grep -q '^power-profiles-daemon.service' <<< "$unit_files"; then
+        if ! sudo systemctl enable power-profiles-daemon.service; then
+            record_required \
+                "desktop" \
+                "power-profiles-daemon" \
+                "power-profiles-daemon.service could not be enabled."
+            failed=1
+        fi
     fi
 
     if is_true "${BLUETOOTH:-false}"; then
-        if systemctl list-unit-files bluetooth.service \
-            --no-legend 2>/dev/null |
-            grep -q '^bluetooth.service'; then
-            sudo systemctl enable bluetooth.service
+        if unit_files="$(systemctl list-unit-files bluetooth.service --no-legend 2>/dev/null)" &&
+            grep -q '^bluetooth.service' <<< "$unit_files"; then
+            if ! sudo systemctl enable bluetooth.service; then
+                record_required \
+                    "desktop" \
+                    "bluetooth" \
+                    "bluetooth.service could not be enabled."
+                failed=1
+            fi
         else
             record_required \
                 "desktop" \
                 "bluetooth" \
                 "Bluetooth is enabled by the profile but bluetooth.service was not found."
+            failed=1
         fi
     fi
 
     info "Desktop services configured."
+    return "$failed"
+}
+
+# Install the root-owned helper and the narrowly scoped sudoers policy used by
+# the Aurelia Network widget. This mirrors Omarchy's deployment model: the
+# graphical widget never receives root privileges, and only the three stock
+# providers are allowed to run without an authentication prompt. Custom DNS
+# remains an interactive operation.
+install_aurelia_network_dns_authorization() {
+    if [[ "${DESKTOP_SHELL:-}" != "aurelia" ]]; then
+        info "Aurelia Network DNS authorization is not needed for the selected desktop shell; skipping."
+        return 0
+    fi
+
+    local helper_source="$SCRIPT_DIR/aurelia-shell/bin/aurelia-network-dns"
+    local terminal_source="$SCRIPT_DIR/aurelia-shell/bin/aurelia-network-dns-terminal"
+    local sudoers_source="$SCRIPT_DIR/config/sudoers.d/aurelia-network-dns"
+    local helper_target="/usr/local/bin/aurelia-network-dns"
+    local terminal_target="/usr/local/bin/aurelia-network-dns-terminal"
+    local sudoers_target="/etc/sudoers.d/aurelia-network-dns"
+    local visudo_bin
+
+    if [[ ! -f "$helper_source" || -L "$helper_source" || ! -x "$helper_source" ]]; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "Managed DNS helper is missing or not executable: $helper_source"
+        return 0
+    fi
+
+    if [[ ! -f "$terminal_source" || -L "$terminal_source" || ! -x "$terminal_source" ]]; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "Managed DNS terminal fallback is missing or not executable: $terminal_source"
+        return 0
+    fi
+
+    if [[ ! -f "$sudoers_source" || -L "$sudoers_source" ]]; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "Managed DNS sudoers policy is missing: $sudoers_source"
+        return 0
+    fi
+
+    visudo_bin="$(command -v visudo 2>/dev/null || true)"
+    if [[ -z "$visudo_bin" ]]; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "visudo is required to validate the managed DNS sudoers policy."
+        return 0
+    fi
+
+    if ! "$visudo_bin" -cf "$sudoers_source" >/dev/null 2>&1; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "Managed DNS sudoers policy failed visudo validation."
+        return 0
+    fi
+
+    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+        { ! validate_mutation_path /usr/local/bin ||
+          ! validate_mutation_path /etc/sudoers.d; }; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "A managed DNS authorization directory contains an unsafe symlinked path component."
+        return 0
+    fi
+
+    if ! sudo install -d -m 0755 /usr/local/bin ||
+        ! sudo install -d -m 0750 /etc/sudoers.d ||
+        ! install_root_file_atomically \
+            "$helper_source" "$helper_target" 0755 root root ||
+        ! install_root_file_atomically \
+            "$terminal_source" "$terminal_target" 0755 root root ||
+        ! install_root_file_atomically \
+            "$sudoers_source" "$sudoers_target" 0440 root root; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "Could not install the root-owned DNS helpers or sudoers policy."
+        return 0
+    fi
+
+    if ! sudo "$visudo_bin" -cf "$sudoers_target" >/dev/null 2>&1; then
+        record_required \
+            "desktop" \
+            "aurelia-network-dns-authorization" \
+            "Installed DNS sudoers policy failed final visudo validation."
+        return 0
+    fi
+
+    info "Aurelia Network DNS authorization installed."
+    record_success "aurelia-network-dns-authorization"
 }
 
 enable_greetd() {
@@ -257,7 +505,9 @@ enable_greetd() {
 
     info "Enabling greetd for the next boot (not replacing the current session)."
 
-    sudo systemctl enable greetd.service
+    if ! sudo systemctl enable greetd.service; then
+        return 1
+    fi
 
     info "greetd enabled."
 }
@@ -270,7 +520,9 @@ configure_graphical_target() {
 
     info "Setting graphical.target as the default system target."
 
-    sudo systemctl set-default graphical.target
+    if ! sudo systemctl set-default graphical.target; then
+        return 1
+    fi
 
     info "graphical.target configured."
 }
@@ -278,8 +530,18 @@ configure_graphical_target() {
 install_hack_nerd_font() {
     load_pinned_versions
 
-    local fonts_dir="${FONTS_INSTALL_DIR:-/usr/local/share/fonts/HackNerdFont}"
-    if [[ -d "$fonts_dir" && -f "$fonts_dir/HackNerdFont-Regular.ttf" ]]; then
+    local fonts_dir="/usr/local/share/fonts/HackNerdFont"
+    if installer_test_override_allowed && [[ -n "${FONTS_INSTALL_DIR:-}" ]]; then
+        fonts_dir="$FONTS_INSTALL_DIR"
+    fi
+    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+        ! validate_mutation_path "$fonts_dir"; then
+        record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font destination path is unsafe."
+        return 0
+    fi
+    if [[ -d "$fonts_dir" && ! -L "$fonts_dir" &&
+          -f "$fonts_dir/HackNerdFont-Regular.ttf" &&
+          ! -L "$fonts_dir/HackNerdFont-Regular.ttf" ]]; then
         info "Hack Nerd Font already installed."
         record_success "hack-nerd-font"
         return 0
@@ -293,7 +555,10 @@ install_hack_nerd_font() {
     info "Installing Hack Nerd Font (${HACK_NERD_FONT_VERSION:-pinned})."
 
     local staging_dir
-    staging_dir="$(mktemp -d)"
+    if ! staging_dir="$(mktemp -d)"; then
+        record_deferred "desktop" "hack-nerd-font" "Could not create a secure temporary staging directory."
+        return 0
+    fi
     local staging_archive="$staging_dir/hack.tar.xz"
 
     if ! download_and_verify_artifact "$HACK_NERD_FONT_URL" "$HACK_NERD_FONT_SHA512" "$staging_archive" "Hack Nerd Font"; then
@@ -303,7 +568,11 @@ install_hack_nerd_font() {
     fi
 
     local extracted_dir="$staging_dir/extracted"
-    mkdir -p "$extracted_dir"
+    if ! mkdir -p -- "$extracted_dir"; then
+        rm -rf -- "$staging_dir"
+        record_deferred "desktop" "hack-nerd-font" "Could not create the temporary extraction directory."
+        return 0
+    fi
 
     # Pre-extraction structural validation
     local verbose_listing
@@ -350,16 +619,41 @@ install_hack_nerd_font() {
         return 0
     fi
 
+    if [[ ! -f "$extracted_dir/HackNerdFont-Regular.ttf" ||
+          -L "$extracted_dir/HackNerdFont-Regular.ttf" ]]; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font archive is missing the expected HackNerdFont-Regular.ttf member."
+        return 0
+    fi
+
+    local font_install_failed=0
     if [[ "$fonts_dir" == /usr/* || "$fonts_dir" == /etc/* ]]; then
-        sudo mkdir -p "$fonts_dir"
-        sudo cp -r "$extracted_dir"/* "$fonts_dir/"
-        sudo chmod 0755 "$fonts_dir"
-        sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        if ! sudo mkdir -p "$fonts_dir"; then
+            font_install_failed=1
+        elif ! sudo cp -r "$extracted_dir"/* "$fonts_dir/"; then
+            font_install_failed=1
+        elif ! sudo chmod 0755 "$fonts_dir"; then
+            font_install_failed=1
+        else
+            sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        fi
     else
-        mkdir -p "$fonts_dir"
-        cp -r "$extracted_dir"/* "$fonts_dir/"
-        chmod 0755 "$fonts_dir"
-        chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        if ! mkdir -p "$fonts_dir"; then
+            font_install_failed=1
+        elif ! cp -r "$extracted_dir"/* "$fonts_dir/"; then
+            font_install_failed=1
+        elif ! chmod 0755 "$fonts_dir"; then
+            font_install_failed=1
+        else
+            chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        fi
+    fi
+
+    if (( font_install_failed != 0 )) ||
+        [[ ! -f "$fonts_dir/HackNerdFont-Regular.ttf" || -L "$fonts_dir/HackNerdFont-Regular.ttf" ]]; then
+        rm -rf -- "$staging_dir"
+        record_deferred "desktop" "hack-nerd-font" "Failed to install Hack Nerd Font files."
+        return 0
     fi
 
     rm -rf "$staging_dir"
@@ -375,8 +669,18 @@ install_hack_nerd_font() {
 install_jetbrains_mono_nerd_font() {
     load_pinned_versions
 
-    local fonts_dir="${JETBRAINS_FONTS_INSTALL_DIR:-/usr/local/share/fonts/JetBrainsMonoNerdFont}"
-    if [[ -d "$fonts_dir" && -f "$fonts_dir/JetBrainsMonoNerdFont-Regular.ttf" ]]; then
+    local fonts_dir="/usr/local/share/fonts/JetBrainsMonoNerdFont"
+    if installer_test_override_allowed && [[ -n "${JETBRAINS_FONTS_INSTALL_DIR:-}" ]]; then
+        fonts_dir="$JETBRAINS_FONTS_INSTALL_DIR"
+    fi
+    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+        ! validate_mutation_path "$fonts_dir"; then
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font destination path is unsafe."
+        return 0
+    fi
+    if [[ -d "$fonts_dir" && ! -L "$fonts_dir" &&
+          -f "$fonts_dir/JetBrainsMonoNerdFont-Regular.ttf" &&
+          ! -L "$fonts_dir/JetBrainsMonoNerdFont-Regular.ttf" ]]; then
         info "JetBrainsMono Nerd Font already installed."
         record_success "jetbrains-mono-nerd-font"
         return 0
@@ -390,7 +694,10 @@ install_jetbrains_mono_nerd_font() {
     info "Installing JetBrainsMono Nerd Font (${JETBRAINS_MONO_NERD_FONT_VERSION:-pinned})."
 
     local staging_dir
-    staging_dir="$(mktemp -d)"
+    if ! staging_dir="$(mktemp -d)"; then
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "Could not create a secure temporary staging directory."
+        return 0
+    fi
     local staging_archive="$staging_dir/jetbrains-mono.tar.xz"
 
     if ! download_and_verify_artifact "$JETBRAINS_MONO_NERD_FONT_URL" "$JETBRAINS_MONO_NERD_FONT_SHA512" "$staging_archive" "JetBrainsMono Nerd Font"; then
@@ -400,7 +707,11 @@ install_jetbrains_mono_nerd_font() {
     fi
 
     local extracted_dir="$staging_dir/extracted"
-    mkdir -p "$extracted_dir"
+    if ! mkdir -p -- "$extracted_dir"; then
+        rm -rf -- "$staging_dir"
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "Could not create the temporary extraction directory."
+        return 0
+    fi
 
     # Pre-extraction structural validation
     local verbose_listing
@@ -447,16 +758,41 @@ install_jetbrains_mono_nerd_font() {
         return 0
     fi
 
+    if [[ ! -f "$extracted_dir/JetBrainsMonoNerdFont-Regular.ttf" ||
+          -L "$extracted_dir/JetBrainsMonoNerdFont-Regular.ttf" ]]; then
+        rm -rf "$staging_dir"
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font archive is missing the expected JetBrainsMonoNerdFont-Regular.ttf member."
+        return 0
+    fi
+
+    local font_install_failed=0
     if [[ "$fonts_dir" == /usr/* || "$fonts_dir" == /etc/* ]]; then
-        sudo mkdir -p "$fonts_dir"
-        sudo cp -r "$extracted_dir"/* "$fonts_dir/"
-        sudo chmod 0755 "$fonts_dir"
-        sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        if ! sudo mkdir -p "$fonts_dir"; then
+            font_install_failed=1
+        elif ! sudo cp -r "$extracted_dir"/* "$fonts_dir/"; then
+            font_install_failed=1
+        elif ! sudo chmod 0755 "$fonts_dir"; then
+            font_install_failed=1
+        else
+            sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        fi
     else
-        mkdir -p "$fonts_dir"
-        cp -r "$extracted_dir"/* "$fonts_dir/"
-        chmod 0755 "$fonts_dir"
-        chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        if ! mkdir -p "$fonts_dir"; then
+            font_install_failed=1
+        elif ! cp -r "$extracted_dir"/* "$fonts_dir/"; then
+            font_install_failed=1
+        elif ! chmod 0755 "$fonts_dir"; then
+            font_install_failed=1
+        else
+            chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+        fi
+    fi
+
+    if (( font_install_failed != 0 )) ||
+        [[ ! -f "$fonts_dir/JetBrainsMonoNerdFont-Regular.ttf" || -L "$fonts_dir/JetBrainsMonoNerdFont-Regular.ttf" ]]; then
+        rm -rf -- "$staging_dir"
+        record_deferred "desktop" "jetbrains-mono-nerd-font" "Failed to install JetBrainsMono Nerd Font files."
+        return 0
     fi
 
     rm -rf "$staging_dir"
@@ -473,6 +809,11 @@ install_rose_pine_gtk_theme() {
     load_pinned_versions
 
     local theme_dest="$TARGET_HOME/.local/share/themes/rose-pine-moon-gtk"
+    local themes_dir="$TARGET_HOME/.local/share/themes"
+    if ! safe_user_config_home "$themes_dir"; then
+        record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK destination directory is unsafe or symlinked."
+        return 0
+    fi
     if [[ -d "$theme_dest" && -f "$theme_dest/index.theme" && -f "$theme_dest/gtk-3.0/gtk.css" ]]; then
         info "Rosé Pine Moon GTK theme already installed."
         record_success "rose-pine-gtk"
@@ -487,7 +828,10 @@ install_rose_pine_gtk_theme() {
     info "Installing Rosé Pine Moon GTK theme (${ROSE_PINE_GTK_VERSION:-pinned})."
 
     local staging_dir
-    staging_dir="$(mktemp -d)"
+    if ! staging_dir="$(mktemp -d)"; then
+        record_deferred "desktop" "rose-pine-gtk" "Could not create a secure temporary staging directory."
+        return 0
+    fi
     local staging_archive="$staging_dir/theme.tar.gz"
 
     if ! download_and_verify_artifact "$ROSE_PINE_GTK_URL" "$ROSE_PINE_GTK_SHA512" "$staging_archive" "Rosé Pine GTK theme"; then
@@ -582,7 +926,11 @@ install_rose_pine_gtk_theme() {
     fi
 
     local extracted_dir="$staging_dir/extracted"
-    mkdir -p "$extracted_dir"
+    if ! mkdir -p -- "$extracted_dir"; then
+        rm -rf -- "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Could not create the temporary extraction directory."
+        return 0
+    fi
 
     # Extract only the required rose-pine-moon-gtk subtree
     if ! tar --warning=no-unknown-keyword -xzf "$staging_archive" -C "$extracted_dir" 2>/dev/null; then
@@ -617,9 +965,18 @@ install_rose_pine_gtk_theme() {
     fi
 
     # Stage safely and atomically as TARGET_USER
-    run_as_target_user mkdir -p "$TARGET_HOME/.local/share/themes"
+    if ! run_as_target_user mkdir -p "$themes_dir"; then
+        rm -rf -- "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Failed to create the user theme directory."
+        return 0
+    fi
     local staging_target
-    staging_target="$(run_as_target_user mktemp -d "$TARGET_HOME/.local/share/themes/.rose-pine-moon-gtk.tmp.XXXXXX")"
+    if ! staging_target="$(run_as_target_user mktemp -d "$TARGET_HOME/.local/share/themes/.rose-pine-moon-gtk.tmp.XXXXXX")" ||
+       [[ -z "$staging_target" || ! -d "$staging_target" ]]; then
+        rm -rf -- "$staging_dir"
+        record_deferred "desktop" "rose-pine-gtk" "Failed to create the temporary user theme directory."
+        return 0
+    fi
 
     if ! run_as_target_user cp -a "$theme_src"/* "$staging_target/"; then
         run_as_target_user rm -rf "$staging_target"
@@ -628,10 +985,37 @@ install_rose_pine_gtk_theme() {
         return 0
     fi
 
-    # Atomically replace destination
-    run_as_target_user rm -rf "$theme_dest"
-    if ! run_as_target_user mv "$staging_target" "$theme_dest"; then
-        run_as_target_user rm -rf "$staging_target"
+    # Preserve any existing destination before the final rename.  This covers
+    # user-created customizations and symlinks as well as an earlier partial
+    # installation; normal replacement must never recursively delete it.
+    local theme_backup=""
+    if [[ -e "$theme_dest" || -L "$theme_dest" ]]; then
+        local backup_stamp
+        if ! backup_stamp="$(date +%Y%m%d-%H%M%S)"; then
+            run_as_target_user rm -rf -- "$staging_target" || true
+            rm -rf -- "$staging_dir"
+            record_deferred "desktop" "rose-pine-gtk" "Could not create a safe backup name for the existing Rosé Pine GTK theme."
+            return 0
+        fi
+        theme_backup="${theme_dest}.bak.${backup_stamp}"
+        local backup_counter=1
+        while [[ -e "$theme_backup" || -L "$theme_backup" ]]; do
+            theme_backup="${theme_dest}.bak.${backup_stamp}.${backup_counter}"
+            backup_counter=$((backup_counter + 1))
+        done
+
+        if ! run_as_target_user mv -T -- "$theme_dest" "$theme_backup"; then
+            run_as_target_user rm -rf -- "$staging_target" || true
+            rm -rf -- "$staging_dir"
+            record_deferred "desktop" "rose-pine-gtk" "Failed to preserve the existing Rosé Pine GTK theme before replacement."
+            return 0
+        fi
+    fi
+    if ! run_as_target_user mv -T -- "$staging_target" "$theme_dest"; then
+        if [[ -n "$theme_backup" && ! -e "$theme_dest" && ! -L "$theme_dest" ]]; then
+            run_as_target_user mv -T -- "$theme_backup" "$theme_dest" || true
+        fi
+        run_as_target_user rm -rf -- "$staging_target" || true
         rm -rf "$staging_dir"
         record_deferred "desktop" "rose-pine-gtk" "Failed to install Rosé Pine GTK theme to $theme_dest."
         return 0
@@ -661,7 +1045,8 @@ converge_gtk_bookmarks_file() {
 
     local dir
     dir="$(dirname "$bookmark_file")"
-    ensure_directory "$dir"
+    [[ ! -L "$bookmark_file" && ! -L "$dir" ]] || return 1
+    ensure_directory "$dir" || return 1
 
     local default_uris=(
         "file://${home_dir}/Documents"
@@ -674,12 +1059,22 @@ converge_gtk_bookmarks_file() {
     # Fresh/empty file: write default baseline in exact desired order
     if [[ ! -f "$bookmark_file" || ! -s "$bookmark_file" ]]; then
         local tmp
-        tmp="$(mktemp)"
+        if ! tmp="$(mktemp)"; then
+            return 1
+        fi
         for uri in "${default_uris[@]}"; do
-            printf '%s\n' "$uri" >> "$tmp"
+            if ! printf '%s\n' "$uri" >> "$tmp"; then
+                rm -f -- "$tmp"
+                return 1
+            fi
         done
-        run_as_target_user mv "$tmp" "$bookmark_file"
-        run_as_target_user chmod 0644 "$bookmark_file"
+        if ! run_as_target_user mv -- "$tmp" "$bookmark_file"; then
+            rm -f -- "$tmp"
+            return 1
+        fi
+        if ! run_as_target_user chmod 0644 "$bookmark_file"; then
+            return 1
+        fi
         return 0
     fi
 
@@ -746,21 +1141,42 @@ converge_gtk_bookmarks_file() {
     fi
 
     local tmp
-    tmp="$(mktemp)"
+    if ! tmp="$(mktemp)"; then
+        return 1
+    fi
     for line in "${target_lines[@]}"; do
-        printf '%s\n' "$line" >> "$tmp"
+        if ! printf '%s\n' "$line" >> "$tmp"; then
+            rm -f -- "$tmp"
+            return 1
+        fi
     done
 
-    run_as_target_user mv "$tmp" "$bookmark_file"
-    run_as_target_user chmod 0644 "$bookmark_file"
+    if ! run_as_target_user mv -- "$tmp" "$bookmark_file"; then
+        rm -f -- "$tmp"
+        return 1
+    fi
+    if ! run_as_target_user chmod 0644 "$bookmark_file"; then
+        return 1
+    fi
 }
 
 converge_gtk_bookmarks() {
     local home_dir="${1:-$TARGET_HOME}"
 
     info "Converging GTK Places bookmarks."
-    converge_gtk_bookmarks_file "$home_dir/.config/gtk-3.0/bookmarks" "$home_dir"
-    converge_gtk_bookmarks_file "$home_dir/.config/gtk-4.0/bookmarks" "$home_dir"
+    if declare -F safe_user_config_home >/dev/null 2>&1 &&
+        ! safe_user_config_home "$home_dir/.config"; then
+        record_deferred \
+            "desktop" \
+            "gtk-bookmarks" \
+            "Refusing to follow a symlinked or unsafe GTK configuration path."
+        return 0
+    fi
+    if ! converge_gtk_bookmarks_file "$home_dir/.config/gtk-3.0/bookmarks" "$home_dir" ||
+       ! converge_gtk_bookmarks_file "$home_dir/.config/gtk-4.0/bookmarks" "$home_dir"; then
+        record_deferred "desktop" "gtk-bookmarks" "Failed to converge GTK Places bookmarks."
+        return 0
+    fi
     record_success "gtk-bookmarks"
 }
 
@@ -772,17 +1188,29 @@ install_desktop() {
 
     info "Configuring Hyprland desktop."
 
-    install_noctalia_shell
+    validate_desktop_shell_selection
     deploy_hyprland_config
-    deploy_noctalia_config
+    deploy_session_shell_selection
+    if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]]; then
+        deploy_noctalia_config
+    else
+        info "Noctalia user session configuration skipped; it remains installed only for the greeter."
+    fi
     install_hack_nerd_font
     install_jetbrains_mono_nerd_font
     install_rose_pine_gtk_theme
-    converge_gtk_bookmarks
-    install_noctalia_greeter
-    configure_greetd
-    configure_noctalia_greeter_state
-    enable_desktop_services
+    if ! install_noctalia_greeter; then
+        return 1
+    fi
+    if ! configure_greetd; then
+        return 1
+    fi
+    if ! configure_noctalia_greeter_state; then
+        return 1
+    fi
+    if ! enable_desktop_services; then
+        return 1
+    fi
 
     validate_hyprland_desktop || {
         record_activation_failure \
@@ -805,6 +1233,50 @@ install_desktop() {
 }
 
 # Final controlled activation. Never use enable --now on greetd.
+GRAPHICAL_ACTIVATION_SNAPSHOT_VALID=0
+GRAPHICAL_PREVIOUS_GREETD_STATE=""
+GRAPHICAL_PREVIOUS_DEFAULT_TARGET=""
+
+capture_graphical_activation_state() {
+    local greetd_state
+    local default_target
+
+    greetd_state="$(systemctl is-enabled greetd.service 2>/dev/null || true)"
+    default_target="$(systemctl get-default 2>/dev/null || true)"
+
+    if [[ -z "$greetd_state" || ! "$default_target" =~ ^[A-Za-z0-9_.@:-]+\.target$ ]]; then
+        return 1
+    fi
+
+    GRAPHICAL_PREVIOUS_GREETD_STATE="$greetd_state"
+    GRAPHICAL_PREVIOUS_DEFAULT_TARGET="$default_target"
+    GRAPHICAL_ACTIVATION_SNAPSHOT_VALID=1
+}
+
+restore_graphical_activation_state() {
+    (( GRAPHICAL_ACTIVATION_SNAPSHOT_VALID == 1 )) || return 0
+
+    local failed=0
+    case "$GRAPHICAL_PREVIOUS_GREETD_STATE" in
+        enabled*)
+            sudo systemctl enable greetd.service || failed=1
+            ;;
+        *)
+            sudo systemctl disable greetd.service || failed=1
+            ;;
+    esac
+
+    sudo systemctl set-default "$GRAPHICAL_PREVIOUS_DEFAULT_TARGET" || failed=1
+    GRAPHICAL_ACTIVATION_SNAPSHOT_VALID=0
+    return "$failed"
+}
+
+rollback_graphical_activation() {
+    if ! restore_graphical_activation_state; then
+        error "Could not fully restore the previous graphical activation state."
+    fi
+}
+
 activate_graphical_session() {
     if (( ACTIVATION_BLOCKED != 0 )); then
         GRAPHICAL_ACTIVATION_STATE="skipped"
@@ -832,11 +1304,38 @@ activate_graphical_session() {
         return 0
     fi
 
-    enable_greetd
-    configure_graphical_target
+    if ! capture_graphical_activation_state; then
+        GRAPHICAL_ACTIVATION_STATE="skipped"
+        record_activation_failure \
+            "activation" \
+            "snapshot" \
+            "Could not capture the current greetd and system-target state before activation."
+        return 0
+    fi
+
+    if ! enable_greetd; then
+        GRAPHICAL_ACTIVATION_STATE="skipped"
+        rollback_graphical_activation
+        record_activation_failure \
+            "activation" \
+            "greetd" \
+            "Refusing to activate graphical login: greetd could not be enabled."
+        return 0
+    fi
+
+    if ! configure_graphical_target; then
+        GRAPHICAL_ACTIVATION_STATE="skipped"
+        rollback_graphical_activation
+        record_activation_failure \
+            "activation" \
+            "systemd-target" \
+            "Refusing to activate graphical login: graphical.target could not be configured."
+        return 0
+    fi
 
     if ! validate_graphical_activation; then
         GRAPHICAL_ACTIVATION_STATE="skipped"
+        rollback_graphical_activation
         record_activation_failure \
             "activation" \
             "systemd" \
@@ -844,6 +1343,7 @@ activate_graphical_session() {
         return 0
     fi
 
+    GRAPHICAL_ACTIVATION_SNAPSHOT_VALID=0
     GRAPHICAL_ACTIVATION_STATE="completed"
     info "Graphical login activation complete."
     record_success "activate_graphical_session"

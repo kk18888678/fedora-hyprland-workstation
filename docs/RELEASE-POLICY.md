@@ -17,6 +17,11 @@ The workstation provides a **cutting-edge, but not bleeding-edge** environment:
 - **Explicit Documented Exceptions**:
   - **Official OpenAI ChatGPT for Linux Public Preview** (Vendor Distribution Channel Exception): Supported as official vendor desktop distribution with Fedora 43/44 support for workstation AI workflows. Future updates are managed by OpenAI's signed DNF repository.
   - **N_m3u8DL-RE** (Direct Upstream Release Class Exception: `beta`): Upstream nilaoda/N_m3u8DL-RE distributes its supported release line exclusively with the `-beta` suffix; no stable release has ever been published. Pinned SHA-512 byte verification and archive sandboxing remain strictly enforced.
+- **Aurelia Quickshell source**: When Aurelia is selected, Quickshell is
+  sourced from the upstream-documented release COPR rather than the
+  Hyprland COPR, which can publish git-suffixed development builds. The
+  installer rejects prerelease/git/older-than-v0.3 installed versions. This
+  is a source-selection rule, not permission to install prerelease software.
 
 ---
 
@@ -26,8 +31,16 @@ For software installed directly from upstream release assets rather than Fedora 
 
 1. **Pinned Metadata**: Every upstream artifact must have a pinned version, HTTPS download URL, and 128-character SHA-512 cryptographic checksum in `config/versions.conf`.
 2. **Cryptographic Verification Before Execution**: Artifacts are downloaded to an isolated `mktemp` staging directory, verified against the pinned SHA-512 checksum, and only extracted/installed if the checksum matches.
-3. **Atomic Deployment**: Binaries are installed to `/usr/local/bin` (root) or `~/.local/bin` (user) with mode `0755` using atomic staging to prevent partial state on interruption.
-4. **Temporary Resource Cleanup**: Staging directories are strictly cleaned on success and on failure.
+3. **Atomic Deployment**: Binaries are installed to `/usr/local/bin` (root) or `~/.local/bin` (user) with mode `0755` using unique sibling staging and final renames. Multi-binary archives roll back earlier members when a later member fails; pre-existing paths are preserved as recoverable `.bak.<timestamp>` backups.
+4. **Rerun Integrity**: Pinned direct artifacts record the expected source checksum and the installed executable digests in root-owned manifests under the installer state directory. A missing, altered, or mismatched manifest causes the artifact to be re-verified and redeployed; an altered executable is never accepted merely because it is executable.
+5. **Temporary Resource Cleanup**: Staging directories are strictly cleaned on success and on failure.
+
+The interactive Aurelia package provider is the user-managed exception to the
+`config/versions.conf` table above: it accepts only exact official GitHub
+repositories, discovers stable releases, and records the selected release,
+asset URL, and SHA-256 digest in `packages/user-managed.tsv`. It does not accept
+archives or run upstream installation scripts. Restoration consumes that Git
+pin directly; refresh may discover candidates but never rewrites it.
 
 ### Pinned Upstream Artifacts Table
 
@@ -71,6 +84,7 @@ When contributing a new tool or application:
    - Flathub Flatpak (for isolated GUI apps).
    - Official Vendor RPM repository with GPG verification (e.g. Cursor, ChatGPT).
    - Pinned upstream release binary/archive with SHA-512 verification in `config/versions.conf` and `provision_verified_*`.
+   - Explicitly adopted Aurelia GitHub release binary with SHA-256 verification in `packages/user-managed.tsv`.
 3. **Classify Failures**:
    - Is it essential for graphical login? -> `record_activation_failure`.
    - Is it a required workstation CLI tool? -> `record_required`.

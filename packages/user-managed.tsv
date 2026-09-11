@@ -1,0 +1,5 @@
+# schema=2
+# provider<TAB>source<TAB>identifier<TAB>scope<TAB>profiles
+# Aurelia rows append: version<TAB>asset<TAB>checksum<TAB>target<TAB>artifact_url
+# User-adopted package intent only; dependencies and runtimes are not tracked automatically.
+aurelia	github.com/bjarneo/cliamp	cliamp	user	all	v2.2.0	cliamp-linux-amd64	sha256:60fd335e367d920fbfa898a6c87e419616acb55e712e17b5439ab7573f60d882	.local/bin/cliamp	https://github.com/bjarneo/cliamp/releases/download/v2.2.0/cliamp-linux-amd64

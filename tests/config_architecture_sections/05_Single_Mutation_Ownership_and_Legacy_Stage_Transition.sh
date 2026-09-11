@@ -59,3 +59,43 @@ if ! is_component_migrated "brave-origin"; then
 else
     fail "30. non-migrated component was mistakenly classified as migrated"
 fi
+
+if is_component_migrated "noctalia" && is_component_migrated "desktop.environment.noctalia"; then
+    pass "30b. Noctalia package alias resolves to its qualified reconciler component"
+else
+    fail "30b. Noctalia package alias created a second mutation owner"
+fi
+
+# 30c. The migrated desktop package group owns the greeter RPM; the activation
+# stage must validate presence rather than invoke a second DNF mutation.
+greeter_ownership_output="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+ROOT="$1"
+SCRIPT_DIR="$ROOT"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/status.sh"
+source "$ROOT/modules/desktop.sh"
+
+greeter_dnf_called=0
+package_installed() {
+    [[ "${1:-}" == "noctalia-greeter" ]]
+}
+install_dnf_packages() {
+    greeter_dnf_called=1
+    return 0
+}
+command_exists() {
+    [[ "${1:-}" == "noctalia-greeter-session" ]]
+}
+INSTALL_GREETER=true
+greeter_validation_status=0
+install_noctalia_greeter >/dev/null 2>&1 || greeter_validation_status=$?
+printf 'status=%s dnf=%s\n' "$greeter_validation_status" "$greeter_dnf_called"
+EOS
+)"
+if grep -q 'status=0 dnf=0' <<< "$greeter_ownership_output"; then
+    pass "30c. migrated desktop group supplies noctalia-greeter without duplicate DNF mutation"
+else
+    fail "30c. migrated desktop group triggered duplicate greeter installation: $greeter_ownership_output"
+fi

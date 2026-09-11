@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.workspace-switcher",
+  "name": "Workspace Overview",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Mission Control-inspired Hyprland workspace overview with window previews.",
+  "icon": "view-list",
+  "kinds": ["overlay"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "WorkspaceSwitcher.qml"
+  }
+}

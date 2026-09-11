@@ -15,8 +15,13 @@ AureliaKeyboardPanel {
     readonly property string windowTitle: windowTarget ? String(windowTarget.title || "Application") : "Application"
 
     ownerId: "aurelia.tasklist"
-    popupWidth: 300
-    popupHeight: 190
+    popupWidth: 280
+    popupHeight: 160
+    contentPadding: Theme.popupPadding
+    contentSizingItem: menuColumn
+    fitHeightToContent: true
+    minPopupHeight: 132
+    maxPopupHeight: 220
     shown: false
 
     function openForWindow(target, itemAnchor) {
@@ -49,8 +54,9 @@ AureliaKeyboardPanel {
     }
 
     ColumnLayout {
+        id: menuColumn
         anchors.fill: parent
-        spacing: Theme.spacingSm
+        spacing: Theme.popupRowGap
         focus: panelRoot.shown
 
             Text {
@@ -65,32 +71,112 @@ AureliaKeyboardPanel {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 36
+                Layout.preferredHeight: Theme.rowHeight
                 radius: Theme.radiusSm
-                color: focusHover.hovered ? Theme.selection : Theme.surface
+                color: focusHover.hovered ? Theme.selectionHover : "transparent"
                 HoverHandler { id: focusHover }
-                Text { anchors.centerIn: parent; text: "Focus window"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSm }
-                MouseArea { anchors.fill: parent; onClicked: function(mouse) { mouse.accepted = true; panelRoot.activateWindow() } }
+
+                Rectangle {
+                    visible: focusHover.hovered
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingXs
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 2
+                    height: Math.max(14, parent.height - Theme.spacingSm)
+                    radius: width / 2
+                    color: Theme.accent
+                }
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingMd
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Focus window"
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSm
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    acceptedButtons: Qt.LeftButton
+                    onClicked: function(mouse) { mouse.accepted = true; panelRoot.activateWindow() }
+                }
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 36
+                Layout.preferredHeight: Theme.rowHeight
                 radius: Theme.radiusSm
-                color: fullscreenHover.hovered ? Theme.selection : Theme.surface
+                color: fullscreenHover.hovered ? Theme.selectionHover : "transparent"
                 HoverHandler { id: fullscreenHover }
-                Text { anchors.centerIn: parent; text: "Toggle fullscreen"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSm }
-                MouseArea { anchors.fill: parent; onClicked: function(mouse) { mouse.accepted = true; panelRoot.toggleFullscreen() } }
+
+                Rectangle {
+                    visible: fullscreenHover.hovered
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingXs
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 2
+                    height: Math.max(14, parent.height - Theme.spacingSm)
+                    radius: width / 2
+                    color: Theme.accent
+                }
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingMd
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Toggle fullscreen"
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSm
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    acceptedButtons: Qt.LeftButton
+                    onClicked: function(mouse) { mouse.accepted = true; panelRoot.toggleFullscreen() }
+                }
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 36
+                Layout.preferredHeight: Theme.rowHeight
                 radius: Theme.radiusSm
-                color: closeHover.hovered ? Theme.error : Theme.surface
+                color: closeHover.hovered
+                    ? Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.16)
+                    : "transparent"
                 HoverHandler { id: closeHover }
-                Text { anchors.centerIn: parent; text: "Close window"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSm }
-                MouseArea { anchors.fill: parent; onClicked: function(mouse) { mouse.accepted = true; panelRoot.closeWindow() } }
+
+                Rectangle {
+                    visible: closeHover.hovered
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingXs
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 2
+                    height: Math.max(14, parent.height - Theme.spacingSm)
+                    radius: width / 2
+                    color: Theme.error
+                }
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingMd
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Close window"
+                    color: closeHover.hovered ? Theme.error : Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSm
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    acceptedButtons: Qt.LeftButton
+                    onClicked: function(mouse) { mouse.accepted = true; panelRoot.closeWindow() }
+                }
             }
     }
 }

@@ -15,17 +15,17 @@ PopupWindow {
     property string text: ""
     property bool hovered: false
     property int delay: 400
-    property int margin: Theme.spacingSm
+    property int margin: 6
     property int maxTextWidth: 260
-    property int horizontalPadding: Theme.spacingSm
-    property int verticalPadding: Theme.spacingXs
+    property int horizontalPadding: 10
+    property int verticalPadding: 7
     property bool revealed: false
 
     readonly property var anchorWindow: triggerItem && triggerItem.QsWindow && triggerItem.QsWindow.window
         ? triggerItem.QsWindow.window
         : null
 
-    readonly property int contentWidth: Math.max(80, Math.min(maxTextWidth, tooltipMetrics.advanceWidth))
+    readonly property int contentWidth: Math.min(maxTextWidth, Math.max(1, tooltipMetrics.advanceWidth))
 
     visible: root.hovered && root.revealed && root.anchorWindow !== null && root.triggerItem !== null && root.text !== ""
     color: "transparent"
@@ -110,8 +110,8 @@ PopupWindow {
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusSm
-        color: Theme.surfaceElevated
-        border.color: Theme.borderActive
+        color: Theme.tooltip.background
+        border.color: Theme.tooltip.border
         border.width: Theme.borderWidthDefault
 
         Text {
@@ -121,7 +121,7 @@ PopupWindow {
             width: root.contentWidth
             height: implicitHeight
             text: root.text
-            color: Theme.text
+            color: Theme.tooltip.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeXs
             wrapMode: Text.WordWrap

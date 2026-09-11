@@ -41,11 +41,40 @@ Rectangle {
         return key.toUpperCase()
     }
 
+    function actionGlyph(): string {
+        var item = rowRoot.modelData || {}
+        var icon = String(item.icon || "")
+        if (icon.length > 0 && !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(icon)) return icon
+        var glyphs = ({
+            "applications-system": "󰀻",
+            "system-run": "",
+            "utilities-terminal": "",
+            "system-software-update": "",
+            "system-reboot": "󰜉",
+            "system-file-manager": "󰉋",
+            "accessories-calculator": ""
+        })
+        if (glyphs[icon]) return glyphs[icon]
+        if (item.mouse === true || item.category === "Mouse Controls") return "󰍽"
+        return "󰘦"
+    }
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: KeybindingsConfig.rowPaddingHorizontal
         anchors.rightMargin: KeybindingsConfig.rowPaddingHorizontal
         spacing: Theme.spacingXl
+
+        Text {
+            Layout.preferredWidth: 24
+            Layout.alignment: Qt.AlignVCenter
+            text: rowRoot.actionGlyph()
+            color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeLg
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
 
         // Column 1: compact shortcut text. The palette stays light and avoids
         // turning every shortcut into a separate keycap component.
@@ -117,10 +146,9 @@ Rectangle {
         preventStealing: true
         acceptedButtons: Qt.LeftButton
         cursorShape: Qt.PointingHandCursor
-        onEntered: {
-            if (keybindingsModel && keybindingsModel.selectedIndex !== rowRoot.index) {
-                keybindingsModel.selectedIndex = rowRoot.index
-            }
+        onEntered: windowRoot.selectFromPointer(rowRoot, { x: mouseX, y: mouseY })
+        onPositionChanged: function(mouse) {
+            windowRoot.selectFromPointer(rowRoot, mouse)
         }
         onPressed: function(mouse) {
             // Claim the pointer event before any synchronous model transition.
@@ -134,6 +162,7 @@ Rectangle {
         onClicked: function(mouse) {
             mouse.accepted = true
             var viewAtClick = keybindingsModel.activeView
+            windowRoot.resetPointerGate()
             console.info("[EVENT] keybindings.input.mouse_click index=" + rowRoot.index + " view=" + viewAtClick)
             keybindingsModel.selectedIndex = rowRoot.index
             if (ListView.view) {

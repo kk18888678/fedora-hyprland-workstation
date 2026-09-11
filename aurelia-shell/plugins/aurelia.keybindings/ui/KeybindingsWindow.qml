@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import "."
 import "../../../theme"
+import "../../../ui"
 
 // Aurelia Keybindings is a first-party shell component hosted by the resident
 // Aurelia Shell. This Window owns lifecycle, navigation, capture state, and
@@ -167,6 +168,7 @@ PanelWindow {
     // Settings -> Bound. Reverse traversal is the exact inverse.
     function cycleTopLevelView(forward: bool) {
         if (windowRoot.isRecording) return
+        windowRoot.resetPointerGate()
 
         var current = keybindingsModel.activeView
         var nextView = "bound"
@@ -244,6 +246,7 @@ PanelWindow {
     }
 
     function goBack() {
+        windowRoot.resetPointerGate()
         if (windowRoot.isRecording || keybindingsModel.operationState !== "idle") {
             cancelCapture()
             return
@@ -523,6 +526,7 @@ PanelWindow {
 
     onVisibleChanged: {
         if (visible) {
+            pointerGate.reset()
             console.info("[LIFECYCLE] keybindings.window.visible=true")
             keybindingsModel.operationState = "idle"
             keybindingsModel.operationMessage = ""
@@ -554,8 +558,25 @@ PanelWindow {
 
     KeybindingsModel { id: keybindingsModel }
 
+    PointerMoveGate {
+        id: pointerGate
+        referenceItem: surfaceCard
+    }
+
+    function resetPointerGate() {
+        pointerGate.reset()
+    }
+
+    function selectFromPointer(row, mouse): bool {
+        if (!row || !mouse || !pointerGate.moved(row, mouse)) return false
+        keybindingsModel.selectedIndex = row.index
+        return true
+    }
+
     Connections {
         target: keybindingsModel
+        function onActiveViewChanged() { pointerGate.reset() }
+        function onSearchQueryChanged() { pointerGate.reset() }
         function onSelectedIndexChanged() {
             if (keybindingsModel.selectedIndex >= 0 && keybindingsModel.selectedIndex < actionList.listView.count) {
                 actionList.listView.positionViewAtIndex(keybindingsModel.selectedIndex, ListView.Contain)

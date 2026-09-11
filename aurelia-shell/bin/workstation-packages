@@ -1,0 +1,1031 @@
+#!/usr/bin/env bash
+
+# workstation-packages — Fedora DNF, Flatpak, and Aurelia package browser.
+#
+# The interactive surface follows the Omarchy reference's fzf workflow, but
+# package ownership is explicit: DNF and Flatpak are Fedora providers, while
+# Aurelia manages verified user-local upstream binaries. Source/origin is
+# visible, desired state lives in one tracked TSV, and the UI delegates every
+# mutation to this backend.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+
+resolve_repo_root() {
+    local candidate
+    local configured="${WORKSTATION_PACKAGE_REPO:-}"
+
+    if [[ -n "$configured" ]]; then
+        [[ "$configured" == /* ]] || {
+            printf 'ERROR: WORKSTATION_PACKAGE_REPO must be absolute.\n' >&2
+            return 1
+        }
+        wsp_repo_root_is_safe "$configured" || {
+            printf 'ERROR: WORKSTATION_PACKAGE_REPO is not a valid repository root: %s\n' "$configured" >&2
+            return 1
+        }
+        printf '%s\n' "$configured"
+        return 0
+    fi
+
+    for candidate in \
+        "$(cd -- "$script_dir/../.." && pwd -P)" \
+        "/usr/local/share/fedora-hyprland-workstation"; do
+        if wsp_repo_root_is_safe "$candidate" &&
+           [[ -f "$candidate/packages/user-managed.tsv" && ! -L "$candidate/packages/user-managed.tsv" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/common.sh"
+
+WSP_SCRIPT_PATH="$script_path"
+WSP_REPO_ROOT="$(resolve_repo_root 2>/dev/null || true)"
+if [[ -z "$WSP_REPO_ROOT" ]]; then
+    printf '%s\n' 'ERROR: Could not locate the Fedora workstation repository. Set WORKSTATION_PACKAGE_REPO to its absolute path.' >&2
+    exit 1
+fi
+WSP_MANIFEST="${WORKSTATION_PACKAGE_MANIFEST:-$WSP_REPO_ROOT/packages/user-managed.tsv}"
+WSP_SOURCES="${WORKSTATION_PACKAGE_SOURCES:-$WSP_REPO_ROOT/packages/sources.tsv}"
+WSP_CACHE_DIR="${WORKSTATION_PACKAGE_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/fedora-hyprland-workstation/package-manager}"
+WSP_CATALOG_FILE="$WSP_CACHE_DIR/catalog.tsv"
+WSP_CATALOG_META="$WSP_CACHE_DIR/catalog.meta"
+WSP_CATALOG_ERRORS="$WSP_CACHE_DIR/catalog.errors"
+WSP_LOCK_FD=""
+WSP_REFRESH_PID=""
+
+[[ "$WSP_MANIFEST" == /* && "$WSP_SOURCES" == /* && "$WSP_CACHE_DIR" == /* ]] || {
+    printf '%s\n' 'ERROR: Package-manager paths must be absolute.' >&2
+    exit 1
+}
+
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/aurelia.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/manifest.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/catalog.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/inventory.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/transactions.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/schedule.sh"
+
+cleanup() {
+    local package_temp
+
+    if [[ -n "${WSP_REFRESH_PID:-}" ]] && kill -0 "$WSP_REFRESH_PID" 2>/dev/null; then
+        kill -TERM "$WSP_REFRESH_PID" 2>/dev/null || true
+        wait "$WSP_REFRESH_PID" 2>/dev/null || true
+    fi
+    WSP_REFRESH_PID=""
+    wsp_lock_stop
+    if [[ -n "${WSP_CATALOG_ROWS:-}" ]]; then
+        rm -f -- "$WSP_CATALOG_ROWS"
+    fi
+    if [[ -n "${WSP_REFRESH_ERRORS:-}" ]]; then
+        rm -f -- "$WSP_REFRESH_ERRORS"
+    fi
+    for package_temp in "${WSP_AURELIA_TEMP_FILES[@]}"; do
+        [[ -n "$package_temp" && "$package_temp" == /* && ! -L "$package_temp" ]] || continue
+        rm -f -- "$package_temp"
+    done
+    WSP_AURELIA_TEMP_FILES=()
+}
+
+on_signal() {
+    local signal="$1"
+    cleanup
+    case "$signal" in
+        INT) exit 130 ;;
+        TERM) exit 143 ;;
+        HUP) exit 129 ;;
+        *) exit 1 ;;
+    esac
+}
+
+trap cleanup EXIT
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
+trap 'on_signal HUP' HUP
+
+usage() {
+    cat <<'EOF'
+Usage: workstation-packages <command>
+
+Read-only:
+  open                                      Open the interactive package manager terminal.
+  tui                                       Run the interactive package manager in this terminal.
+  refresh [--scheduled]                     Refresh Fedora, Flatpak, and Aurelia catalogs only.
+  search [query]                            Search the cached multi-source catalog.
+  info --provider P --source S --id ID      Show package metadata from the catalog.
+  status [--json]                           Show tracked, missing, drifted, and unmanaged packages.
+  source list                               Show configured and discovered sources.
+  daily status                             Show the daily refresh timer state.
+
+Explicit mutations:
+  install P S ID [scope] [--track] [--yes]   Install, optionally track in user-managed.tsv.
+  adopt P S ID [scope] [--yes]               Track an already-installed package.
+  remove P S ID [scope] [--forget] [--yes]   Remove without purging data; optionally forget it.
+  source add flatpak NAME URL [scope] [--yes] Add an HTTPS Flatpak remote and track it.
+  source add aurelia GITHUB_URL [--yes]     Add an official GitHub release source.
+  source remove flatpak NAME [scope] [--yes] Stop tracking a Flatpak source.
+  source remove aurelia SOURCE [--yes]      Stop tracking an Aurelia GitHub source.
+  restore --aurelia                         Restore tracked Aurelia binaries.
+  daily enable|disable                       Enable or disable daily catalog refresh.
+
+P is dnf, flatpak, or aurelia. Flatpak scope is system or user; DNF uses
+system; Aurelia installs verified binaries into ~/.local/bin as the user.
+Only explicit install/adopt/remove/source actions modify the host or tracked files.
+EOF
+}
+
+require_manifest_files() {
+    [[ -f "$WSP_MANIFEST" && ! -L "$WSP_MANIFEST" ]] || {
+        wsp_error "Tracked package manifest is missing or is a symlink: $WSP_MANIFEST"
+        return 1
+    }
+    [[ -f "$WSP_SOURCES" && ! -L "$WSP_SOURCES" ]] || {
+        wsp_error "Package source manifest is missing or is a symlink: $WSP_SOURCES"
+        return 1
+    }
+}
+
+require_tty() {
+    [[ -t 0 && -t 1 ]] || {
+        wsp_error "The interactive package manager requires a terminal."
+        return 1
+    }
+}
+
+confirm() {
+    local prompt="$1"
+    local answer
+
+    if [[ "${WSP_ASSUME_YES:-0}" == 1 ]]; then
+        return 0
+    fi
+    require_tty || return 1
+    read -r -p "$prompt [y/N] " answer || return 1
+    [[ "$answer" == y || "$answer" == Y || "$answer" == yes || "$answer" == YES ]]
+}
+
+read_terminal_preference() {
+    local config_file="${XDG_CONFIG_HOME:-$HOME/.config}/workstation/desktop.conf"
+    local preference=""
+
+    if [[ -f "$config_file" ]]; then
+        preference="$(sed -n -E \
+            -e 's/^[[:space:]]*terminal\.default[[:space:]]*=[[:space:]]*//p' \
+            -e 's/^[[:space:]]*terminal_default[[:space:]]*=[[:space:]]*//p' \
+            -e 's/^[[:space:]]*terminal[[:space:]]*=[[:space:]]*//p' \
+            "$config_file" | head -n 1)"
+    fi
+    preference="${preference%$'\r'}"
+    preference="${preference#\"}"
+    preference="${preference%\"}"
+    preference="${preference%.desktop}"
+    preference="${preference##*/}"
+    [[ "$preference" == footclient ]] && preference=foot
+    printf '%s' "$preference"
+}
+
+resolve_terminal_argv() {
+    local preferred
+    local candidate
+
+    preferred="$(read_terminal_preference)"
+    TERMINAL_ARGV=()
+    [[ -n "$preferred" ]] && TERMINAL_CANDIDATES=("$preferred") || TERMINAL_CANDIDATES=()
+    TERMINAL_CANDIDATES+=(kitty foot ghostty alacritty gnome-terminal konsole xterm)
+
+    for candidate in "${TERMINAL_CANDIDATES[@]}"; do
+        case "$candidate" in
+            kitty)
+                command -v kitty >/dev/null 2>&1 || continue
+                TERMINAL_ARGV=(kitty --class org.aurelia.packages --title "Fedora Package Manager" "$script_path" tui search)
+                return 0
+                ;;
+            foot)
+                command -v foot >/dev/null 2>&1 || continue
+                TERMINAL_ARGV=(foot --app-id org.aurelia.packages --title "Fedora Package Manager" "$script_path" tui search)
+                return 0
+                ;;
+            ghostty)
+                command -v ghostty >/dev/null 2>&1 || continue
+                TERMINAL_ARGV=(ghostty --class=org.aurelia.packages --title="Fedora Package Manager" -e "$script_path" tui search)
+                return 0
+                ;;
+            alacritty)
+                command -v alacritty >/dev/null 2>&1 || continue
+                TERMINAL_ARGV=(alacritty --class org.aurelia.packages --title "Fedora Package Manager" -e "$script_path" tui search)
+                return 0
+                ;;
+            gnome-terminal)
+                command -v gnome-terminal >/dev/null 2>&1 || continue
+                TERMINAL_ARGV=(gnome-terminal --title="Fedora Package Manager" -- "$script_path" tui search)
+                return 0
+                ;;
+            konsole)
+                command -v konsole >/dev/null 2>&1 || continue
+                TERMINAL_ARGV=(konsole --name org.aurelia.packages --title "Fedora Package Manager" -e "$script_path" tui search)
+                return 0
+                ;;
+            xterm)
+                command -v xterm >/dev/null 2>&1 || continue
+                TERMINAL_ARGV=(xterm -class org.aurelia.packages -title "Fedora Package Manager" -e "$script_path" tui search)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+open_terminal() {
+    local -a launch_argv=()
+
+    resolve_terminal_argv || {
+        wsp_error "No supported terminal emulator is installed."
+        return 1
+    }
+    launch_argv=("${TERMINAL_ARGV[@]}")
+    if command -v uwsm-app >/dev/null 2>&1 &&
+       [[ -n "${XDG_RUNTIME_DIR:-}" ]] &&
+       [[ -n "${UWSM_FINALIZE_VARNAMES:-}" || -n "${UWSM_WAIT_VARNAMES:-}" || -n "${IN_UWSM_ENV_PRELOADER:-}" ]]; then
+        launch_argv=(uwsm-app -- "${launch_argv[@]}")
+    fi
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -f "${launch_argv[@]}" >/dev/null 2>&1
+    else
+        ("${launch_argv[@]}" >/dev/null 2>&1 &)
+    fi
+}
+
+start_background_catalog_refresh() {
+    [[ -z "${WSP_LOCK_FD:-}" ]] || return 1
+    [[ -n "${WSP_REFRESH_PID:-}" ]] && return 0
+    wsp_catalog_needs_refresh || return 1
+
+    (
+        WSP_QUIET_REFRESH=1 "$script_path" refresh --scheduled >/dev/null 2>&1 || true
+    ) &
+    WSP_REFRESH_PID=$!
+    return 0
+}
+
+open_package_manager() {
+    # Match Omarchy's launch boundary: open the selector immediately. The
+    # terminal-owned search surface quietly prepares or reuses its catalog.
+    open_terminal
+}
+
+parse_scope() {
+    local provider="$1"
+    local candidate="${2:-}"
+
+    if [[ "$provider" == dnf ]]; then
+        if [[ -n "$candidate" && "$candidate" != --* ]]; then
+            [[ "$candidate" == system ]] || return 1
+        fi
+        printf '%s\n' system
+    elif [[ "$provider" == aurelia ]]; then
+        if [[ -n "$candidate" && "$candidate" != --* ]]; then
+            [[ "$candidate" == user ]] || return 1
+        fi
+        printf '%s\n' user
+    else
+        if [[ "$candidate" == system || "$candidate" == user ]]; then
+            printf '%s\n' "$candidate"
+        else
+            printf '%s\n' system
+        fi
+    fi
+}
+
+run_mutation() {
+    local function_name="$1"
+    shift
+    wsp_lock_start || return 1
+    "$function_name" "$@"
+}
+
+format_catalog_rows_for_fzf() {
+    local provider
+    local source
+    local identifier
+    local name
+    local summary
+    local version
+    local scope
+    local state
+    local asset
+    local checksum
+    local target
+    local artifact_url
+
+    while IFS=$'\t' read -r provider source identifier name summary version scope asset checksum target artifact_url; do
+        [[ -n "$identifier" ]] || continue
+        # Omarchy's selector renders the complete sync database first and
+        # performs state-changing/presence checks only after selection. Do not
+        # fork DNF/RPM/Flatpak once per row; that makes the selector appear
+        # blank on a catalog with thousands of entries.
+        state="available"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$provider" "$source" "$identifier" "$name" "$version" "$state" "$scope" "$summary" \
+            "$asset" "$checksum" "$target" "$artifact_url"
+    done
+}
+
+wsp_manifest_record_for_identity() {
+    local provider="$1"
+    local source="$2"
+    local identifier="$3"
+    local scope="$4"
+
+    wsp_manifest_rows | awk -F '\t' -v p="$provider" -v s="$source" \
+        -v i="$identifier" -v c="$scope" \
+        '$1 == p && $2 == s && $3 == i && $4 == c { print; exit }'
+}
+
+wsp_profile_applies() {
+    local profiles="$1"
+    local active_profile="${WORKSTATION_PACKAGE_PROFILE:-}"
+
+    [[ -n "$active_profile" ]] || return 0
+    case "$profiles" in
+        all) return 0 ;;
+        workstation|vm) [[ "$active_profile" == "$profiles" ]] ;;
+        'workstation vm'|'vm workstation') return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+tui_pause() {
+    read -r -p 'Press Enter to continue... ' _ || true
+}
+
+tui_show_done() {
+    local message="${1:-Done!}"
+    local tty_path="/dev/tty"
+    local tty_fd=""
+    local ignored_input
+
+    # Keep the result visible after the transaction and close only after the
+    # user acknowledges it.  Use one tty descriptor for the drain, prompt, and
+    # acknowledgement so a pending Enter from the preceding selector cannot
+    # re-enter the package-manager menu.
+    if ! exec {tty_fd}<>"$tty_path"; then
+        tui_pause
+        return 0
+    fi
+    while IFS= read -r -s -n 1 -t 0.1 ignored_input <&"$tty_fd"; do
+        :
+    done
+    printf '\n\033[32m●\033[0m %s Press any key to close...' "$message" >&"$tty_fd"
+    IFS= read -r -s -n 1 <&"$tty_fd" || true
+    printf '\n' >&"$tty_fd"
+    exec {tty_fd}>&-
+}
+
+tui_search_install() {
+    local selected
+    local line
+    local provider
+    local source
+    local identifier
+    local scope
+    local asset
+    local checksum
+    local target
+    local artifact_url
+    local tracked_row
+    local tracked_version
+    local tracked_asset
+    local tracked_checksum
+    local tracked_target
+    local tracked_artifact_url
+    local count=0
+    local failed=0
+    local track_selected=1
+    local track_answer=""
+    local reload_command=""
+    local -a fzf_args=()
+
+    # The selector must render immediately. A stale/missing catalog is
+    # refreshed in the background and the fzf input is atomically reloaded
+    # when that bounded refresh finishes.
+    start_background_catalog_refresh || true
+    command -v fzf >/dev/null 2>&1 || {
+        wsp_error "fzf is required for package search."
+        return 1
+    }
+    fzf_args=(
+        --multi
+        --delimiter=$'\t'
+        --with-nth=1,2,3,4,5,6,7
+        --header='TAB select · ENTER install · source is shown explicitly'
+        --prompt='Search Fedora, Flatpak, and Aurelia > '
+        --preview="$script_path info --provider {1} --source {2} --id {3}"
+        --preview-label='alt-p: toggle preview, alt-j/k: scroll, tab: multi-select'
+        --preview-label-pos='bottom'
+        --preview-window='down:65%:wrap'
+        --bind='alt-p:toggle-preview'
+        --bind='alt-d:preview-half-page-down,alt-u:preview-half-page-up'
+        --bind='alt-k:preview-up,alt-j:preview-down'
+        --color='pointer:green,marker:green'
+    )
+    printf -v reload_command '%q catalog-tui-rows' "$script_path"
+    fzf_args+=("--bind=ctrl-r:reload($reload_command)")
+    selected="$(wsp_catalog_rows_for_tui | format_catalog_rows_for_fzf | fzf "${fzf_args[@]}")" || return 0
+    [[ -n "$selected" ]] || return 0
+
+    if [[ "${WSP_ASSUME_YES:-0}" != 1 ]]; then
+        read -r -p 'Track selected packages in user-managed.tsv? [Y/n] ' track_answer || return 0
+        case "$track_answer" in
+            n|N|no|NO) track_selected=0 ;;
+            ''|y|Y|yes|YES) ;;
+            *) wsp_info 'Cancelled.'; return 0 ;;
+        esac
+    fi
+    if ! confirm "Install the selected package(s) now?"; then
+        wsp_info 'Cancelled.'
+        return 0
+    fi
+    [[ -n "${WSP_LOCK_FD:-}" ]] || wsp_lock_start || return 1
+
+    while IFS=$'\t' read -r provider source identifier _name _version _state scope _summary asset checksum target artifact_url; do
+        [[ -n "$identifier" ]] || continue
+        count=$((count + 1))
+        if (( track_selected == 1 )); then
+                if wsp_manifest_contains_identity "$provider" "$source" "$identifier" "$scope"; then
+                    if wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
+                        wsp_info "Already tracked and installed: $provider/$source/$identifier"
+                    elif [[ "$provider" == aurelia ]]; then
+                        # Never replace a tracked upstream pin with a newer
+                        # catalog candidate merely because it was selected.
+                        tracked_row="$(wsp_manifest_record_for_identity "$provider" "$source" "$identifier" "$scope")"
+                        IFS=$'\t' read -r _tracked_provider _tracked_source _tracked_identifier _tracked_scope _tracked_profiles \
+                            tracked_version tracked_asset tracked_checksum tracked_target tracked_artifact_url <<< "$tracked_row"
+                        wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+                            "$tracked_version" "$tracked_asset" "$tracked_checksum" "$tracked_target" "$tracked_artifact_url" || failed=1
+                    else
+                        wsp_install_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                    fi
+                elif wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
+                    wsp_adopt_row "$provider" "$source" "$identifier" "$scope" \
+                        "$_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
+                else
+                    wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" \
+                        "$_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
+                fi
+        else
+                if ! wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
+                    wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+                        "$_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
+                else
+                    wsp_info "Already installed: $provider/$source/$identifier"
+                fi
+        fi
+    done <<< "$selected"
+    wsp_info "Processed $count package selection(s)."
+    (( failed == 0 )) || return 1
+}
+
+tui_review_inventory() {
+    local rows
+    local selected
+    local action
+    local provider
+    local source
+    local identifier
+    local scope
+    local name
+    local version
+    local failed=0
+
+    rows="$(wsp_status_json | jq -r '.unmanaged[]? | [.provider,.source,.identifier,.scope,.name,.version] | @tsv')"
+    if [[ -z "$rows" ]]; then
+        wsp_info 'No unmanaged user-installed packages were detected.'
+        tui_pause
+        return 0
+    fi
+    selected="$(printf '%s\n' "$rows" | fzf --multi --height=16 --layout=reverse --border=rounded \
+        --delimiter=$'\t' --with-nth=1,2,3,4,5,6 \
+        --header='Select packages to adopt or remove')" || return 0
+    [[ -n "$selected" ]] || return 0
+    action="$(printf '%s\n' 'Adopt selected' 'Remove selected without tracking' 'Cancel' |
+        fzf --height=8 --layout=reverse --border=rounded --header='Choose the action')" || return 0
+    [[ "$action" != Cancel && -n "$action" ]] || return 0
+    confirm "Apply '$action'?" || return 0
+    while IFS=$'\t' read -r provider source identifier scope name version; do
+        [[ -n "$identifier" ]] || continue
+        case "$action" in
+            'Adopt selected')
+                if [[ "$source" == unknown ]]; then
+                    wsp_error "Cannot adopt $identifier because its source is unknown."
+                    failed=1
+                else
+                    wsp_adopt_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                fi
+                ;;
+            'Remove selected without tracking')
+                wsp_remove_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                ;;
+        esac
+    done <<< "$selected"
+    (( failed == 0 )) || return 1
+}
+
+tui_review_tracked() {
+    local rows
+    local selected
+    local action
+    local provider
+    local source
+    local identifier
+    local scope
+    local profiles
+    local state
+    local failed=0
+
+    rows="$(wsp_status_json | jq -r '.tracked[]? | [.provider,.source,.identifier,.scope,.profiles,.state] | @tsv')"
+    if [[ -z "$rows" ]]; then
+        wsp_info 'No tracked packages are present in user-managed.tsv.'
+        tui_pause
+        return 0
+    fi
+    selected="$(printf '%s\n' "$rows" | fzf --multi --height=16 --layout=reverse --border=rounded \
+        --delimiter=$'\t' --with-nth=1,2,3,4,5,6 \
+        --header='Select tracked packages to remove or forget')" || return 0
+    [[ -n "$selected" ]] || return 0
+    action="$(printf '%s\n' 'Remove and forget selected' 'Forget declaration only' 'Cancel' |
+        fzf --height=8 --layout=reverse --border=rounded --header='Choose the action')" || return 0
+    [[ "$action" != Cancel && -n "$action" ]] || return 0
+    confirm "Apply '$action'?" || return 0
+    while IFS=$'\t' read -r provider source identifier scope profiles state; do
+        [[ -n "$identifier" ]] || continue
+        case "$action" in
+            'Remove and forget selected')
+                wsp_remove_and_forget_row "$provider" "$source" "$identifier" "$scope" "$profiles" || failed=1
+                ;;
+            'Forget declaration only')
+                wsp_manifest_remove "$provider" "$source" "$identifier" "$scope" "$profiles" || failed=1
+                ;;
+        esac
+    done <<< "$selected"
+    (( failed == 0 )) || return 1
+}
+
+configure_flatpak_source() {
+    local source="$1"
+    local url="$2"
+    local scope="$3"
+    local -a command_argv=()
+
+    if [[ "$scope" == system ]]; then
+        command_argv=(sudo flatpak remote-add --if-not-exists --system "$source" "$url")
+    else
+        command_argv=(flatpak remote-add --if-not-exists --user "$source" "$url")
+    fi
+    wsp_run_timeout 120 "${command_argv[@]}"
+}
+
+add_flatpak_source_mutation() {
+    local source="$1"
+    local url="$2"
+    local scope="$3"
+
+    configure_flatpak_source "$source" "$url" "$scope" || return 1
+    wsp_source_add flatpak "$source" "$url" "$scope"
+}
+
+add_aurelia_source_mutation() {
+    local source="$1"
+    local url="$2"
+    local profiles="${3:-all}"
+
+    wsp_aurelia_source_add "$source" "$url" "$profiles" || return 1
+    # The source-add flow already performed bounded release discovery. Seed
+    # that exact row so returning to search is instant and does not require a
+    # second network request before fzf is visible.
+    wsp_catalog_seed_aurelia_discovery ||
+        wsp_warn 'Aurelia source was tracked, but the package catalog could not be seeded; refresh the catalog to load it.'
+}
+
+tui_add_flatpak_source() {
+    local source
+    local url
+    local scope
+
+    require_tty || return 1
+    read -r -p 'Flatpak source name: ' source
+    read -r -p 'HTTPS .flatpakrepo URL: ' url
+    read -r -p 'Scope (system/user) [system]: ' scope
+    scope="${scope:-system}"
+    wsp_valid_source "$source" || { wsp_error 'Invalid source name.'; return 1; }
+    wsp_validate_url "$url" || { wsp_error 'Only HTTPS source URLs are accepted.'; return 1; }
+    wsp_valid_scope "$scope" || { wsp_error 'Scope must be system or user.'; return 1; }
+    confirm "Add Flatpak source '$source' from '$url' to $scope scope?" || return 0
+    configure_flatpak_source "$source" "$url" "$scope" || return 1
+    wsp_source_add flatpak "$source" "$url" "$scope"
+}
+
+tui_add_aurelia_source() {
+    local url
+    local source
+
+    require_tty || return 1
+    read -r -p 'GitHub repository URL (https://github.com/OWNER/REPOSITORY): ' url
+    source="$(wsp_aurelia_source_from_url "$url" 2>/dev/null || true)"
+    [[ -n "$source" ]] || {
+        wsp_error 'Only exact official GitHub repository URLs are accepted.'
+        return 1
+    }
+    if ! wsp_aurelia_discover_source "$url"; then
+        wsp_error "${WSP_AURELIA_LAST_ERROR:-Could not discover a stable checked release for $source.}"
+        return 1
+    fi
+    printf '\nAurelia release selected:\n'
+    printf '  Repository : %s\n' "$WSP_AURELIA_DISCOVERY_SOURCE"
+    printf '  Release    : %s\n' "$WSP_AURELIA_DISCOVERY_VERSION"
+    printf '  Asset      : %s\n' "$WSP_AURELIA_DISCOVERY_ASSET"
+    printf '  SHA-256    : %s\n' "$WSP_AURELIA_DISCOVERY_CHECKSUM"
+    printf '  Target     : ~/%s\n' "$WSP_AURELIA_DISCOVERY_TARGET"
+    printf '  URL        : %s\n\n' "$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
+    confirm "Track Aurelia source '$source' for stable release discovery?" || return 0
+    add_aurelia_source_mutation "$source" "$url" all
+}
+
+tui_sources() {
+    wsp_validate_sources || return 1
+    printf '%s\n' 'Configured Flatpak sources:'
+    wsp_sources_rows | while IFS=$'\t' read -r provider source url scope; do
+        printf '  %s/%s (%s) %s\n' "$provider" "$source" "$scope" "$url"
+    done
+    printf '\nConfigured Aurelia GitHub sources:\n'
+    wsp_aurelia_sources_rows | while IFS=$'\t' read -r source url profiles; do
+        printf '  aurelia/%s (%s) %s\n' "$source" "$profiles" "$url"
+    done
+    printf '\nEnabled DNF repositories:\n'
+    if command -v dnf >/dev/null 2>&1; then
+        wsp_run_timeout 45 dnf repolist --enabled 2>/dev/null || wsp_warn 'Could not enumerate enabled DNF repositories.'
+    else
+        printf '  DNF unavailable\n'
+    fi
+    printf '\n'
+    local source_action
+    source_action="$(printf '%s\n' 'Add Flatpak source' 'Add Aurelia GitHub source' 'Back' |
+        fzf --height=8 --layout=reverse --border=rounded --header='Add a source')" || return 0
+    case "$source_action" in
+        'Add Flatpak source') tui_add_flatpak_source ;;
+        'Add Aurelia GitHub source') tui_add_aurelia_source ;;
+        *) return 0 ;;
+    esac
+    tui_pause
+}
+
+tui_daily() {
+    local choice
+
+    choice="$(printf '%s\n' 'Enable daily catalog refresh' 'Disable daily catalog refresh' 'Show daily refresh status' 'Back' |
+        fzf --height=10 --layout=reverse --border=rounded --header='Catalog refresh never installs packages')" || return 0
+    case "$choice" in
+        'Enable daily catalog refresh') wsp_daily_enable ;;
+        'Disable daily catalog refresh') wsp_daily_disable ;;
+        'Show daily refresh status') wsp_daily_status ;;
+        *) return 0 ;;
+    esac
+    tui_pause
+}
+
+tui() {
+    local mode="${1:-menu}"
+    local choice
+
+    require_tty || return 1
+    command -v fzf >/dev/null 2>&1 || {
+        wsp_error 'fzf is required for the Package Manager TUI.'
+        return 1
+    }
+    wsp_validate_manifest || return 1
+    wsp_validate_sources || return 1
+    wsp_aurelia_validate_sources || return 1
+
+    if [[ "$mode" == search ]]; then
+        local search_status=0
+        tui_search_install || search_status=$?
+        if (( search_status == 0 )); then
+            tui_show_done 'Done!'
+        else
+            tui_show_done 'Package operation finished.'
+        fi
+        # The search surface is the terminal's one-shot entry point.  The
+        # acknowledgement above is the final interaction; never return to the
+        # package-manager selector after it is accepted.
+        return "$search_status"
+    fi
+
+    wsp_lock_start || return 1
+    while true; do
+        choice="$(printf '%s\n' \
+            'Search and install packages' \
+            'Review unmanaged installed packages' \
+            'Review tracked packages' \
+            'Refresh all package sources' \
+            'Manage package sources' \
+            'Daily catalog refresh' \
+            'Show package status' \
+            'Exit' | fzf --height=14 --layout=reverse --border=rounded \
+                --header='Fedora Package Manager · DNF, Flatpak, Aurelia · source-aware desired state' \
+                --prompt='Package Manager > ' )" || break
+        case "$choice" in
+            'Search and install packages') tui_search_install || true ;;
+            'Review unmanaged installed packages') tui_review_inventory || true ;;
+            'Review tracked packages') tui_review_tracked || true ;;
+            'Refresh all package sources') wsp_catalog_refresh || true; tui_pause ;;
+            'Manage package sources') tui_sources || true ;;
+            'Daily catalog refresh') tui_daily || true ;;
+            'Show package status') wsp_status_text; tui_pause ;;
+            'Exit'|'') break ;;
+        esac
+    done
+}
+
+restore_aurelia_packages() {
+    local rows
+    local provider
+    local source
+    local identifier
+    local scope
+    local profiles
+    local version
+    local asset
+    local checksum
+    local target
+    local artifact_url
+    local failed=0
+
+    wsp_validate_manifest || return 1
+    rows="$(wsp_manifest_rows)" || return 1
+    while IFS=$'\t' read -r provider source identifier scope profiles version asset checksum target artifact_url; do
+        [[ "$provider" == aurelia ]] || continue
+        wsp_profile_applies "$profiles" || continue
+        if wsp_aurelia_entry_installed "$source" "$identifier" "$target"; then
+            wsp_info "Tracked Aurelia already installed: $identifier."
+            continue
+        fi
+        if ! wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+            "$version" "$asset" "$checksum" "$target" "$artifact_url"; then
+            failed=1
+        fi
+    done <<< "$rows"
+    (( failed == 0 ))
+}
+
+parse_mutation_options() {
+    WSP_ASSUME_YES=0
+    WSP_TRACK=0
+    WSP_FORGET=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --yes) WSP_ASSUME_YES=1 ;;
+            --track) WSP_TRACK=1 ;;
+            --forget) WSP_FORGET=1 ;;
+            *) printf '%s\n' "$1" >&2; return 2 ;;
+        esac
+        shift
+    done
+}
+
+dispatch_record_mutation() {
+    local action="$1"
+    local provider="$2"
+    local source="$3"
+    local identifier="$4"
+    local scope="$5"
+    shift 5
+    local result=0
+
+    wsp_valid_provider "$provider" || { wsp_error 'Provider must be dnf, flatpak, or aurelia.'; return 2; }
+    wsp_valid_source "$source" || { wsp_error 'Invalid package source.'; return 2; }
+    case "$provider" in
+        dnf)
+            [[ "$scope" == system ]] || { wsp_error 'DNF scope must be system.'; return 2; }
+            wsp_valid_dnf_id "$identifier" || { wsp_error 'Invalid DNF package ID.'; return 2; }
+            ;;
+        flatpak)
+            wsp_valid_flatpak_id "$identifier" || { wsp_error 'Invalid Flatpak application ID.'; return 2; }
+            wsp_valid_scope "$scope" || { wsp_error 'Flatpak scope must be system or user.'; return 2; }
+            ;;
+        aurelia)
+            [[ "$scope" == user ]] || { wsp_error 'Aurelia scope must be user.'; return 2; }
+            wsp_valid_dnf_id "$identifier" || { wsp_error 'Invalid Aurelia binary ID.'; return 2; }
+            ;;
+    esac
+    parse_mutation_options "$@" || { wsp_error 'Unknown mutation option.'; return 2; }
+
+    case "$action" in
+        install)
+            if [[ "$WSP_TRACK" == 1 ]]; then
+                confirm "Install and track $provider/$source/$identifier?" || return 0
+            else
+                confirm "Install $provider/$source/$identifier?" || return 0
+            fi
+            if [[ "$WSP_TRACK" == 1 ]]; then
+                run_mutation wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" || result=$?
+            else
+                run_mutation wsp_install_row "$provider" "$source" "$identifier" "$scope" || result=$?
+            fi
+            ;;
+        adopt)
+            confirm "Adopt $provider/$source/$identifier into user-managed.tsv?" || return 0
+            run_mutation wsp_adopt_row "$provider" "$source" "$identifier" "$scope" || result=$?
+            ;;
+        remove)
+            confirm "Remove $provider/$source/$identifier without purging personal data?" || return 0
+            if [[ "$WSP_FORGET" == 1 ]]; then
+                run_mutation wsp_remove_and_forget_row "$provider" "$source" "$identifier" "$scope" || result=$?
+            else
+                run_mutation wsp_remove_row "$provider" "$source" "$identifier" "$scope" || result=$?
+            fi
+            ;;
+    esac
+    return "$result"
+}
+
+dispatch() {
+    local command="${1:-help}"
+    shift || true
+
+    if [[ "$command" != help && "$command" != -h && "$command" != --help ]]; then
+        require_manifest_files || return 1
+    fi
+    case "$command" in
+        help|-h|--help) usage ;;
+        open) open_package_manager ;;
+        tui) tui "${1:-}" ;;
+        refresh)
+            [[ "${1:-}" == --scheduled || -z "${1:-}" ]] || { usage >&2; return 2; }
+            wsp_lock_start || return 1
+            wsp_catalog_refresh
+            ;;
+        search)
+            wsp_catalog_ensure || return 1
+            wsp_catalog_search "${1:-}"
+            ;;
+        catalog-tui-rows)
+            [[ $# -eq 0 ]] || return 2
+            wsp_catalog_rows_for_tui
+            ;;
+        info)
+            local provider=""
+            local source=""
+            local identifier=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --provider) provider="$2"; shift 2 ;;
+                    --source) source="$2"; shift 2 ;;
+                    --id) identifier="$2"; shift 2 ;;
+                    *) usage >&2; return 2 ;;
+                esac
+            done
+            [[ -s "$WSP_CATALOG_FILE" ]] || return 1
+            wsp_catalog_info "$provider" "$source" "$identifier"
+            ;;
+        status)
+            if [[ "${1:-}" == --json ]]; then
+                wsp_status_json
+            elif [[ -z "${1:-}" ]]; then
+                wsp_status_text
+            else
+                usage >&2
+                return 2
+            fi
+            ;;
+        restore)
+            [[ "${1:-}" == --aurelia && $# -eq 1 ]] || { usage >&2; return 2; }
+            wsp_lock_start || return 1
+            restore_aurelia_packages
+            ;;
+        source)
+            local source_action="${1:-list}"
+            shift || true
+            case "$source_action" in
+                list)
+                    wsp_validate_sources || return 1
+                    wsp_aurelia_validate_sources || return 1
+                    wsp_sources_rows
+                    printf '\nConfigured Aurelia GitHub sources:\n'
+                    wsp_aurelia_sources_rows
+                    if command -v dnf >/dev/null 2>&1; then
+                        printf '\nEnabled DNF repositories:\n'
+                        wsp_run_timeout 45 dnf repolist --enabled 2>/dev/null || true
+                    fi
+                    ;;
+                add)
+                    local provider="${1:-}"
+                    local source=""
+                    local url=""
+                    local scope="system"
+                    [[ $# -ge 1 ]] || { usage >&2; return 2; }
+                    if [[ "$provider" == aurelia ]]; then
+                        [[ $# -ge 2 ]] || { usage >&2; return 2; }
+                        url="$2"
+                        shift 2
+                        parse_mutation_options "$@" || return 2
+                        source="$(wsp_aurelia_source_from_url "$url" 2>/dev/null || true)"
+                        [[ -n "$source" ]] || {
+                            wsp_error 'Aurelia source must be an exact official GitHub repository URL.'
+                            return 2
+                        }
+                        if ! wsp_aurelia_discover_source "$url"; then
+                            wsp_error "${WSP_AURELIA_LAST_ERROR:-Could not discover a stable checked GitHub release for $source.}"
+                            return 1
+                        fi
+                        printf 'Aurelia release selected:\n'
+                        printf '  Repository : %s\n  Release    : %s\n  Asset      : %s\n  SHA-256    : %s\n  Target     : ~/%s\n  URL        : %s\n' \
+                            "$WSP_AURELIA_DISCOVERY_SOURCE" \
+                            "$WSP_AURELIA_DISCOVERY_VERSION" \
+                            "$WSP_AURELIA_DISCOVERY_ASSET" \
+                            "$WSP_AURELIA_DISCOVERY_CHECKSUM" \
+                            "$WSP_AURELIA_DISCOVERY_TARGET" \
+                            "$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
+                        confirm "Track Aurelia source '$source' for stable release discovery?" || return 0
+                        run_mutation add_aurelia_source_mutation "$source" "$url" all
+                    else
+                        [[ $# -ge 3 ]] || { usage >&2; return 2; }
+                        source="$2"
+                        url="$3"
+                        shift 3
+                        if [[ "${1:-}" == system || "${1:-}" == user ]]; then
+                            scope="$1"
+                            shift
+                        fi
+                        parse_mutation_options "$@" || return 2
+                        [[ "$provider" == flatpak ]] || { wsp_error 'Only Flatpak or Aurelia sources can be added here.'; return 2; }
+                        confirm "Add Flatpak source '$source' from '$url' to $scope scope?" || return 0
+                        run_mutation add_flatpak_source_mutation "$source" "$url" "$scope"
+                    fi
+                    ;;
+                remove)
+                    local provider="${1:-}"
+                    local source="${2:-}"
+                    local scope="system"
+                    [[ $# -ge 2 ]] || { usage >&2; return 2; }
+                    shift 2
+                    if [[ "$provider" == aurelia ]]; then
+                        parse_mutation_options "$@" || return 2
+                        confirm "Stop tracking Aurelia source '$source'?" || return 0
+                        run_mutation wsp_aurelia_source_remove "$source"
+                    else
+                        if [[ "${1:-}" == system || "${1:-}" == user ]]; then
+                            scope="$1"
+                            shift
+                        fi
+                        parse_mutation_options "$@" || return 2
+                        confirm "Stop tracking Flatpak source '$source' for $scope scope?" || return 0
+                        run_mutation wsp_source_remove "$provider" "$source" "$scope"
+                    fi
+                    ;;
+                *) usage >&2; return 2 ;;
+            esac
+            ;;
+        daily)
+            local daily_action="${1:-status}"
+            case "$daily_action" in
+                status) wsp_daily_status ;;
+                enable) wsp_lock_start; wsp_daily_enable ;;
+                disable) wsp_lock_start; wsp_daily_disable ;;
+                *) usage >&2; return 2 ;;
+            esac
+            ;;
+        install|adopt|remove)
+            local provider="${1:-}"
+            local source="${2:-}"
+            local identifier="${3:-}"
+            local scope=""
+            [[ $# -ge 3 ]] || { usage >&2; return 2; }
+            shift 3
+            if [[ "${1:-}" == system || "${1:-}" == user ]]; then
+                scope="$1"
+                shift
+            else
+                scope="$(parse_scope "$provider" "${1:-}")" || { wsp_error 'Invalid package scope.'; return 2; }
+            fi
+            dispatch_record_mutation "$command" "$provider" "$source" "$identifier" "$scope" "$@"
+            ;;
+        *)
+            usage >&2
+            return 2
+            ;;
+    esac
+}
+
+dispatch "$@"

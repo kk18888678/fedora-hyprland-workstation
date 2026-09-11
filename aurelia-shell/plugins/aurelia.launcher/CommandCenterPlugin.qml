@@ -19,6 +19,21 @@ Item {
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-shell-keybindings"
         : "/usr/local/bin/aurelia-shell-keybindings"
+    readonly property string updatesBin: aureliaPath !== ""
+        ? aureliaPath + "/bin/workstation-updates"
+        : "/usr/local/bin/workstation-updates"
+    readonly property string aboutBin: aureliaPath !== ""
+        ? aureliaPath + "/bin/workstation-about"
+        : "/usr/local/bin/workstation-about"
+    readonly property string packagesBin: aureliaPath !== ""
+        ? aureliaPath + "/bin/workstation-packages"
+        : "/usr/local/bin/workstation-packages"
+    readonly property string shellClientBin: aureliaPath !== ""
+        ? aureliaPath + "/bin/aurelia-shell"
+        : "/usr/local/bin/aurelia-shell"
+    readonly property string shellRestartBin: aureliaPath !== ""
+        ? aureliaPath + "/bin/aurelia-restart-shell"
+        : "/usr/local/bin/aurelia-restart-shell"
     readonly property var processEnvironment: ({})
 
     CommandCenterModuleRegistry {
@@ -77,6 +92,11 @@ Item {
     CommandCenterPanel {
         id: commandCenterPanel
         backendBin: pluginRoot.backendBin
+        updatesBin: pluginRoot.updatesBin
+        aboutBin: pluginRoot.aboutBin
+        packagesBin: pluginRoot.packagesBin
+        shellClientBin: pluginRoot.shellClientBin
+        shellRestartBin: pluginRoot.shellRestartBin
         processEnvironment: pluginRoot.processEnvironment
         appLibrary: pluginRoot.appLibrary
         moduleRegistry: moduleRegistry

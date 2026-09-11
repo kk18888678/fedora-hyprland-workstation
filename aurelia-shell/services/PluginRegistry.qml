@@ -5,13 +5,22 @@ import Quickshell.Io
 // Aurelia's manifest registry follows the Omarchy contract while keeping the
 // discovery surface deliberately small. It scans only plugin directories,
 // validates metadata before a Loader can see it, and never executes plugin
-// code during discovery. Rescans are explicit; an unbounded recursive watcher
-// is not part of the shell's idle path.
+// code during discovery. In development mode it also follows Omarchy's
+// bounded plugin-only watcher contract: a changed local plugin requests a
+// debounced host reload, while the shell's own core files remain restart-only.
 QtObject {
     id: registry
 
-    readonly property string packageRoot: pathFromUrl(Qt.resolvedUrl(".."))
-    property string firstPartyDir: pathFromUrl(Qt.resolvedUrl("../plugins"))
+    readonly property string configuredShellRoot: {
+        var value = Quickshell.env("AURELIA_SHELL_ROOT") || ""
+        return value.charAt(0) === "/" && value !== "/" ? value.replace(/\/$/, "") : ""
+    }
+    readonly property string packageRoot: configuredShellRoot !== ""
+        ? configuredShellRoot
+        : pathFromUrl(Qt.resolvedUrl(".."))
+    property string firstPartyDir: configuredShellRoot !== ""
+        ? configuredShellRoot + "/plugins"
+        : pathFromUrl(Qt.resolvedUrl("../plugins"))
     readonly property string home: Quickshell.env("HOME") || ""
     readonly property string configHomeOverride: Quickshell.env("XDG_CONFIG_HOME") || ""
     readonly property string configHome: configHomeOverride.charAt(0) === "/" ? configHomeOverride : (home + "/.config")
@@ -23,10 +32,22 @@ QtObject {
     property bool scanning: false
     property string lastError: ""
     property int rejectedCount: 0
+    property bool localPluginWatcherUnavailable: false
+    readonly property bool hotReloadEnabled: Quickshell.env("AURELIA_HOT_RELOAD") === "1"
+        || Quickshell.env("AURELIA_DEVELOPMENT_MODE") === "1"
 
     signal pluginsChanged()
     signal scanFinished()
     signal pluginRejected(string sourcePath, string reason)
+    signal localPluginChanged(string pluginId)
+
+    property Connections shellConfigConnection: Connections {
+        target: registry.shellConfig
+        function onConfigChanged() {
+            registry.registryRevision++
+            registry.pluginsChanged()
+        }
+    }
 
     readonly property var supportedKinds: ["bar-widget", "bar", "panel", "overlay", "menu", "service"]
     readonly property var loadKindOrder: ["panel", "overlay", "menu", "bar", "bar-widget", "service"]
@@ -51,6 +72,25 @@ QtObject {
 
     function isValidPluginId(value) {
         return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value) && value.indexOf("..") === -1
+    }
+
+    function localPluginIdForPath(filePath) {
+        var path = String(filePath || "").trim()
+        var roots = [firstPartyDir, userPluginsDir]
+        for (var i = 0; i < roots.length; i++) {
+            var base = String(roots[i] || "").replace(/\/$/, "") + "/"
+            if (base === "/" || path.indexOf(base) !== 0) continue
+
+            var relative = path.slice(base.length)
+            // Hidden entries and checkout metadata are not plugin changes.
+            if (!relative || relative.indexOf(".") === 0 || relative.indexOf("/.git/") !== -1 || relative.endsWith("/.git")) return ""
+            if (!/\.(qml|js|json|jsonc|lua|conf)$/.test(relative)) return ""
+
+            var slash = relative.indexOf("/")
+            var pluginId = slash === -1 ? relative : relative.slice(0, slash)
+            return isValidPluginId(pluginId) ? pluginId : ""
+        }
+        return ""
     }
 
     function isValidIconName(value) {
@@ -293,9 +333,66 @@ QtObject {
             if (code !== 0) {
                 registry.scanning = false
                 registry.lastError = scanError.text || "Aurelia plugin scan failed."
+                registry.scanFinished()
                 return
             }
             registry.parseScanOutput(scanOutput.text)
+        }
+    }
+
+    property Process ensureUserPluginsDir: Process {
+        id: ensureUserPluginsDir
+        command: ["bash", "-c", "mkdir -p -- \"$1\"", "aurelia-plugin-init", registry.userPluginsDir]
+
+        onExited: function(code) {
+            if (code !== 0) {
+                registry.lastError = "Could not initialize the Aurelia plugin directory."
+                registry.scan()
+                return
+            }
+            if (registry.hotReloadEnabled && !registry.localPluginWatcherUnavailable) registry.localPluginWatcher.running = true
+            registry.scan()
+        }
+    }
+
+    property Process localPluginWatcher: Process {
+        id: localPluginWatcher
+        command: [
+            "inotifywait",
+            "-m",
+            "-r",
+            "-q",
+            "-e",
+            "close_write,create,delete,move",
+            "--format",
+            "%w%f",
+            registry.firstPartyDir,
+            registry.userPluginsDir
+        ]
+
+        stdout: SplitParser {
+            onRead: function(path) {
+                var pluginId = registry.localPluginIdForPath(path)
+                if (pluginId) registry.localPluginChanged(pluginId)
+            }
+        }
+
+        onExited: function(code) {
+            if (code === 127) {
+                registry.localPluginWatcherUnavailable = true
+                registry.lastError = "Automatic Aurelia plugin reload is unavailable: inotify-tools is not installed."
+                return
+            }
+            if (registry.hotReloadEnabled && !registry.localPluginWatcherUnavailable) localPluginWatcherRestart.restart()
+        }
+    }
+
+    property Timer localPluginWatcherRestart: Timer {
+        id: localPluginWatcherRestart
+        interval: 1000
+        repeat: false
+        onTriggered: {
+            if (registry.hotReloadEnabled && !registry.localPluginWatcherUnavailable) registry.localPluginWatcher.running = true
         }
     }
 
@@ -308,5 +405,5 @@ QtObject {
         return true
     }
 
-    Component.onCompleted: scan()
+    Component.onCompleted: ensureUserPluginsDir.running = true
 }

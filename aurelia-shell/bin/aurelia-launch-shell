@@ -11,6 +11,7 @@ shell_root="${XDG_CONFIG_HOME:-$HOME/.config}/aurelia"
 if [[ -f "$source_shell_root/shell.qml" && "${AURELIA_USE_INSTALLED_SHELL:-0}" != "1" ]]; then
     shell_root="$source_shell_root"
     export AURELIA_DEVELOPMENT_MODE=1
+    export AURELIA_HOT_RELOAD=1
     export AURELIA_SHELL_ROOT="$shell_root"
 fi
 if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
@@ -70,6 +71,7 @@ shell_root="$(readlink -f -- "$shell_root")" || {
 development_backend="$shell_root/bin/workstation-keybindings"
 if [[ -x "$development_backend" && -z "${AURELIA_SHELL_KEYBINDINGS_BIN:-}" ]]; then
     export AURELIA_DEVELOPMENT_MODE=1
+    export AURELIA_HOT_RELOAD=1
     export AURELIA_SHELL_KEYBINDINGS_BIN="$development_backend"
 fi
 
@@ -88,4 +90,8 @@ else
     exit 1
 fi
 
-exec "$qs_bin" --no-duplicate --path "$shell_root/shell.qml"
+# Aurelia owns the reload boundary. PluginRegistry watches only local plugin
+# trees in development mode; core shell files still use aurelia-restart-shell.
+# Disable Quickshell's broad file watcher so a package/source write cannot
+# create a second engine generation while a tree is being updated.
+exec env QS_DISABLE_FILE_WATCHER=1 "$qs_bin" --no-duplicate --path "$shell_root/shell.qml"

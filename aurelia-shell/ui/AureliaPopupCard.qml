@@ -14,8 +14,12 @@ PopupWindow {
     property string ownerId: ""
     property bool shown: false
     property int margin: Theme.popupMargin
-    property int popupWidth: 340
-    property int popupHeight: 300
+    property int popupWidth: 280
+    property int popupHeight: 200
+    property bool fitHeightToContent: false
+    property Item contentSizingItem: null
+    property int minPopupHeight: 0
+    property int maxPopupHeight: 0
     property bool centerOnBar: false
     property var dismissHandler: null
 
@@ -32,8 +36,15 @@ PopupWindow {
     // until the owning bar item has a real QsWindow.
     visible: shown && root.anchorItem !== null && root.anchorWindow !== null && root.bar !== null
     color: "transparent"
-    implicitWidth: popupWidth
-    implicitHeight: popupHeight
+    implicitWidth: Theme.scaleGeometry(popupWidth)
+    implicitHeight: {
+        var desired = Theme.scaleGeometry(popupHeight)
+        if (root.fitHeightToContent && root.contentSizingItem)
+            desired = root.contentSizingItem.implicitHeight + Theme.popupPadding * 2
+        if (root.minPopupHeight > 0) desired = Math.max(desired, root.minPopupHeight)
+        if (root.maxPopupHeight > 0) desired = Math.min(desired, root.maxPopupHeight)
+        return Math.max(1, Math.round(desired))
+    }
 
     function syncPopoutOwnership() {
         if (!bar) return
@@ -136,8 +147,8 @@ PopupWindow {
         id: card
         anchors.fill: parent
         radius: Theme.radiusLg
-        color: Theme.bgBase
-        border.color: Theme.border
+        color: Theme.popups.background
+        border.color: Theme.popups.border
         border.width: Theme.borderWidthDefault
 
         FocusScope {

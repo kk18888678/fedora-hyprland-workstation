@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.bluetooth",
+  "name": "Bluetooth",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Bluetooth device list with connect, disconnect, pair, and forget controls.",
+  "icon": "bluetooth",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "bar-widget": "BluetoothBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Bluetooth",
+    "description": "Bluetooth device list with connect/disconnect",
+    "category": "Connectivity",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+
+# aurelia-theme-color — resolve an Omarchy-compatible colors.toml palette.
+#
+# This is intentionally a read-only resolver. It gives diagnostics, tests, and
+# future data-only integrations the same canonical palette aliases without
+# evaluating TOML, sourcing theme code, or executing anything from a theme.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-theme/common.sh"
+aurelia_theme_init_paths "$shell_root"
+
+COLORS_FILE="$AURELIA_THEME_ACTIVE_COLORS_PATH"
+OUTPUT=""
+QUERY_KEY=""
+QUERY_FALLBACK=""
+
+usage() {
+    printf '%s\n' 'Usage: aurelia-theme-color [--file <colors.toml>] (--all | --raw | <key> [fallback])'
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        --file)
+            (( $# >= 2 )) || {
+                usage >&2
+                exit 2
+            }
+            COLORS_FILE="$2"
+            shift 2
+            ;;
+        --all)
+            [[ -z "$OUTPUT" && -z "$QUERY_KEY" ]] || {
+                usage >&2
+                exit 2
+            }
+            OUTPUT="all"
+            shift
+            ;;
+        --raw)
+            [[ -z "$OUTPUT" && -z "$QUERY_KEY" ]] || {
+                usage >&2
+                exit 2
+            }
+            OUTPUT="raw"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            [[ -z "$OUTPUT" ]] || {
+                usage >&2
+                exit 2
+            }
+            if [[ -z "$QUERY_KEY" ]]; then
+                QUERY_KEY="$1"
+            elif [[ -z "$QUERY_FALLBACK" ]]; then
+                QUERY_FALLBACK="$1"
+            else
+                usage >&2
+                exit 2
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$OUTPUT" && -z "$QUERY_KEY" ]]; then
+    usage >&2
+    exit 2
+fi
+
+if [[ "$COLORS_FILE" == "$AURELIA_THEME_ACTIVE_COLORS_PATH" && ! -f "$COLORS_FILE" ]]; then
+    COLORS_FILE="$AURELIA_THEME_ACTIVE_PATH"
+fi
+
+COLORS_DIR="$(dirname -- "$COLORS_FILE")"
+declare -A THEME_COLORS=()
+
+mix_color() {
+    local start="${1#\#}"
+    local end="${2#\#}"
+    local amount="$3"
+
+    [[ "$start" =~ ^[0-9A-Fa-f]{6}$ && "$end" =~ ^[0-9A-Fa-f]{6}$ ]] || return 1
+
+    awk -v start="$start" -v end="$end" -v amount="$amount" '
+        function hex_value(char) {
+            return index("0123456789abcdef", tolower(char)) - 1
+        }
+        function hex_pair_to_int(hex, idx) {
+            return hex_value(substr(hex, idx, 1)) * 16 + hex_value(substr(hex, idx + 1, 1))
+        }
+        BEGIN {
+            if (amount ~ /%$/) {
+                sub(/%$/, "", amount)
+                amount = amount / 100
+            } else {
+                amount += 0
+                if (amount > 1) amount = amount / 100
+            }
+            if (amount < 0) amount = 0
+            if (amount > 1) amount = 1
+
+            red = int(hex_pair_to_int(start, 1) * (1 - amount) + hex_pair_to_int(end, 1) * amount + 0.5)
+            green = int(hex_pair_to_int(start, 3) * (1 - amount) + hex_pair_to_int(end, 3) * amount + 0.5)
+            blue = int(hex_pair_to_int(start, 5) * (1 - amount) + hex_pair_to_int(end, 5) * amount + 0.5)
+            printf "#%02x%02x%02x\n", red, green, blue
+        }
+    '
+}
+
+theme_color_set_if_missing() {
+    local key="$1"
+    local fallback="$2"
+
+    if [[ -z "${THEME_COLORS[$key]:-}" && -n "${THEME_COLORS[$fallback]:-}" ]]; then
+        THEME_COLORS[$key]="${THEME_COLORS[$fallback]}"
+    fi
+}
+
+resolve_theme_mode() {
+    local bg_hex
+    local luminance
+
+    theme_color_set_if_missing mode theme_type
+    [[ -n "${THEME_COLORS[mode]:-}" ]] && return 0
+
+    if [[ -f "$COLORS_DIR/light.mode" && ! -L "$COLORS_DIR/light.mode" ]]; then
+        THEME_COLORS[mode]="light"
+    elif [[ "${THEME_COLORS[background]:-}" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+        bg_hex="${THEME_COLORS[background]#\#}"
+        luminance=$((
+            $(printf '%d' "0x${bg_hex:0:2}") +
+            $(printf '%d' "0x${bg_hex:2:2}") +
+            $(printf '%d' "0x${bg_hex:4:2}")
+        ))
+        if (( luminance > 382 )); then
+            THEME_COLORS[mode]="light"
+        else
+            THEME_COLORS[mode]="dark"
+        fi
+    else
+        THEME_COLORS[mode]="dark"
+    fi
+}
+
+parse_colors_file() {
+    local line
+    local key
+    local raw_value
+    local value
+    local quote
+
+    [[ -f "$COLORS_FILE" && ! -L "$COLORS_FILE" ]] || return 0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -n "$line" && "$line" != \#* ]] || continue
+        [[ "$line" =~ ^([A-Za-z0-9_-]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+
+        key="${BASH_REMATCH[1]}"
+        raw_value="${BASH_REMATCH[2]}"
+        if [[ "$raw_value" == \"* || "$raw_value" == \'* ]]; then
+            quote="${raw_value:0:1}"
+            value="${raw_value#"$quote"}"
+            value="${value%%"$quote"*}"
+        else
+            value="${raw_value#"${raw_value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+        fi
+
+        [[ "$key" =~ ^[A-Za-z0-9_-]+$ ]] || continue
+        [[ "$value" =~ ^[A-Za-z0-9#(),._+/%\ -]*$ ]] || continue
+        THEME_COLORS[$key]="$value"
+        if [[ "$OUTPUT" == "raw" ]]; then
+            printf '%s\t%s\n' "$key" "$value"
+        fi
+    done <"$COLORS_FILE"
+}
+
+resolve_theme_colors() {
+    local key
+
+    declare -A legacy_palette_alias=(
+        [background]=bg
+        [dark_background]=dark_bg
+        [darker_background]=darker_bg
+        [lighter_background]=lighter_bg
+        [foreground]=fg
+        [dark_foreground]=dark_fg
+        [light_foreground]=light_fg
+        [bright_foreground]=bright_fg
+    )
+    for key in "${!legacy_palette_alias[@]}"; do
+        theme_color_set_if_missing "$key" "${legacy_palette_alias[$key]}"
+    done
+
+    theme_color_set_if_missing background color0
+    theme_color_set_if_missing foreground color7
+    [[ -n "${THEME_COLORS[background]:-}" ]] && THEME_COLORS[color0]="${THEME_COLORS[background]}"
+    [[ -n "${THEME_COLORS[foreground]:-}" ]] && THEME_COLORS[color7]="${THEME_COLORS[foreground]}"
+
+    declare -A legacy_alias=(
+        [red]=color1
+        [green]=color2
+        [yellow]=color3
+        [blue]=color4
+        [magenta]=color5
+        [cyan]=color6
+        [bright_red]=color9
+        [bright_green]=color10
+        [bright_yellow]=color11
+        [bright_blue]=color12
+        [bright_magenta]=color13
+        [bright_cyan]=color14
+    )
+    for key in "${!legacy_alias[@]}"; do
+        theme_color_set_if_missing "$key" "${legacy_alias[$key]}"
+    done
+    theme_color_set_if_missing magenta purple
+    theme_color_set_if_missing bright_magenta bright_purple
+
+    theme_color_set_if_missing light_foreground color7
+    theme_color_set_if_missing bright_foreground color15
+    THEME_COLORS[cursor]="${THEME_COLORS[bright_foreground]:-${THEME_COLORS[foreground]:-}}"
+    theme_color_set_if_missing lighter_background color0
+    theme_color_set_if_missing dark_foreground color8
+    theme_color_set_if_missing muted color8
+    theme_color_set_if_missing selection selection_background
+    theme_color_set_if_missing selection color8
+    theme_color_set_if_missing selection_background selection
+    theme_color_set_if_missing selection_foreground bright_foreground
+    theme_color_set_if_missing orange yellow
+
+    if [[ -z "${THEME_COLORS[brown]:-}" && "${THEME_COLORS[orange]:-}" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+        THEME_COLORS[brown]="$(mix_color "${THEME_COLORS[orange]}" '#000000' 50%)"
+    fi
+
+    if [[ -z "${THEME_COLORS[dark_background]:-}" && "${THEME_COLORS[background]:-}" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+        THEME_COLORS[dark_background]="$(mix_color "${THEME_COLORS[background]}" '#000000' 25%)"
+    fi
+    if [[ -z "${THEME_COLORS[darker_background]:-}" && "${THEME_COLORS[background]:-}" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+        THEME_COLORS[darker_background]="$(mix_color "${THEME_COLORS[background]}" '#000000' 50%)"
+    fi
+    for key in red yellow green cyan blue magenta; do
+        local bright_key="bright_$key"
+        if [[ -z "${THEME_COLORS[$bright_key]:-}" && "${THEME_COLORS[$key]:-}" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+            THEME_COLORS[$bright_key]="$(mix_color "${THEME_COLORS[$key]}" '#ffffff' 20%)"
+        fi
+    done
+    theme_color_set_if_missing purple magenta
+    theme_color_set_if_missing bright_purple bright_magenta
+
+    declare -A ansi_alias=(
+        [color0]=background
+        [color1]=red
+        [color2]=green
+        [color3]=yellow
+        [color4]=blue
+        [color5]=magenta
+        [color6]=cyan
+        [color7]=foreground
+        [color8]=muted
+        [color9]=bright_red
+        [color10]=bright_green
+        [color11]=bright_yellow
+        [color12]=bright_blue
+        [color13]=bright_magenta
+        [color14]=bright_cyan
+        [color15]=bright_foreground
+    )
+    for key in "${!ansi_alias[@]}"; do
+        theme_color_set_if_missing "$key" "${ansi_alias[$key]}"
+    done
+
+    for key in "${!legacy_palette_alias[@]}"; do
+        if [[ -n "${THEME_COLORS[$key]:-}" ]]; then
+            THEME_COLORS["${legacy_palette_alias[$key]}"]="${THEME_COLORS[$key]}"
+        fi
+    done
+
+    resolve_theme_mode
+    THEME_COLORS[theme_type]="${THEME_COLORS[mode]:-dark}"
+}
+
+parse_colors_file
+if [[ "$OUTPUT" == "raw" ]]; then
+    exit 0
+fi
+
+resolve_theme_colors
+
+if [[ "$OUTPUT" == "all" ]]; then
+    while IFS= read -r key; do
+        printf '%s\t%s\n' "$key" "${THEME_COLORS[$key]}"
+    done < <(printf '%s\n' "${!THEME_COLORS[@]}" | LC_ALL=C sort)
+    exit 0
+fi
+
+value="${THEME_COLORS[$QUERY_KEY]:-}"
+if [[ -z "$value" && -n "$QUERY_FALLBACK" ]]; then
+    value="${THEME_COLORS[$QUERY_FALLBACK]:-$QUERY_FALLBACK}"
+fi
+
+[[ -n "$value" ]] || exit 1
+printf '%s\n' "$value"

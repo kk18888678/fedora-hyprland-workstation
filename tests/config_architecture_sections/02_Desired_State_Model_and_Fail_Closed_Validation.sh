@@ -171,3 +171,40 @@ if [[ "$valid_def_rc" -eq 0 ]]; then
 else
     fail "12. valid managed default failed: rc=$valid_def_rc"
 fi
+
+# 12b. Desktop shell is part of Desired State and supports both shell choices.
+create_recommended_desired_state "DS_SHELL_AURELIA" "workstation" "aurelia"
+shell_state_rc=0
+validate_desired_state "DS_SHELL_AURELIA" || shell_state_rc=$?
+if [[ "$shell_state_rc" -eq 0 && "$(desired_state_get_desktop_shell DS_SHELL_AURELIA)" == "aurelia" ]]; then
+    pass "12b. desired state carries the selected Aurelia desktop shell"
+else
+    fail "12b. desired-state desktop shell selection was not validated"
+fi
+
+desired_state_set_component DS_SHELL_AURELIA packages.aurelia unmanaged
+aurelia_group_rc=0
+validate_desired_state DS_SHELL_AURELIA 2>/dev/null || aurelia_group_rc=$?
+if [[ "$aurelia_group_rc" -ne 0 ]]; then
+    pass "12b1. Aurelia desired state cannot omit its shell support package group"
+else
+    fail "12b1. Aurelia desired state allowed missing shell support packages"
+fi
+
+create_recommended_desired_state DS_SHELL_NOCTALIA workstation noctalia
+noctalia_group_rc=0
+desired_state_set_component DS_SHELL_NOCTALIA packages.aurelia managed
+validate_desired_state DS_SHELL_NOCTALIA 2>/dev/null || noctalia_group_rc=$?
+if [[ "$noctalia_group_rc" -ne 0 ]]; then
+    pass "12b2. Noctalia desired state rejects Aurelia-only support packages"
+else
+    fail "12b2. Noctalia desired state accepted Aurelia-only support packages"
+fi
+
+bad_shell_rc=0
+init_desired_state "DS_BAD_SHELL" "workstation" "recommended" "unsupported" || bad_shell_rc=$?
+if [[ "$bad_shell_rc" -ne 0 ]]; then
+    pass "12c. unsupported desktop shell is rejected before planning"
+else
+    fail "12c. unsupported desktop shell was accepted"
+fi

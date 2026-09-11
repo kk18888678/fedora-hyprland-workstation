@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.theme",
+  "name": "Theme and Wallpaper",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Choose Aurelia themes and their image/video backgrounds.",
+  "kinds": ["panel"],
+  "entryPoints": {
+    "panel": "ThemePanel.qml"
+  }
+}

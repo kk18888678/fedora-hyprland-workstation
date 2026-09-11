@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# aurelia-bluetooth-device — pair/connect/disconnect/forget one device.
+
+set -Eeuo pipefail
+
+usage() {
+    printf '%s\n' "Usage: aurelia-bluetooth-device [pair|connect|disconnect|forget] <address>" >&2
+    exit 1
+}
+
+[[ $# -eq 2 ]] || usage
+action="$1"
+address="$2"
+
+case "$action" in
+    pair|connect|disconnect|forget) ;;
+    *) usage ;;
+esac
+
+[[ "$address" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || usage
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+power_helper="$script_dir/aurelia-bluetooth-power"
+[[ -x "$power_helper" ]] || power_helper="$(command -v aurelia-bluetooth-power 2>/dev/null || true)"
+
+power_on() {
+    if [[ "$(timeout 2s bluetoothctl show 2>/dev/null || true)" == *"Powered: yes"* ]]; then
+        return 0
+    fi
+
+    [[ -x "$power_helper" ]] || return 1
+    # BlueZ refuses to power up while the persistent rfkill block is set.
+    "$power_helper" on || true
+}
+
+trust_device() {
+    timeout 10s bluetoothctl trust "$address" >/dev/null 2>&1 || true
+}
+
+case "$action" in
+    pair)
+        power_on || true
+        timeout 20s bluetoothctl pair "$address" >/dev/null 2>&1 || true
+        trust_device
+        timeout 20s bluetoothctl connect "$address" >/dev/null 2>&1 || true
+        ;;
+    connect)
+        power_on || true
+        trust_device
+        timeout 20s bluetoothctl connect "$address" >/dev/null 2>&1 || true
+        ;;
+    disconnect)
+        timeout 10s bluetoothctl disconnect "$address" >/dev/null 2>&1 || true
+        ;;
+    forget)
+        power_on || true
+        timeout 10s bluetoothctl disconnect "$address" >/dev/null 2>&1 || true
+        timeout 10s bluetoothctl remove "$address" >/dev/null 2>&1 || true
+        ;;
+esac

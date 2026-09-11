@@ -13,8 +13,11 @@ Item {
     property var pluginRegistry: null
     property string aureliaPath: ""
 
-    implicitWidth: rowLayout.implicitWidth
-    implicitHeight: bar ? bar.barSize : 38
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
+
+    implicitWidth: root.vertical ? root.barSize : gridLayout.implicitWidth
+    implicitHeight: root.vertical ? gridLayout.implicitHeight : root.barSize
     width: implicitWidth
     height: implicitHeight
 
@@ -37,10 +40,12 @@ Item {
         return result
     }
 
-    RowLayout {
-        id: rowLayout
+    GridLayout {
+        id: gridLayout
         anchors.fill: parent
-        spacing: Theme.spacingXs
+        columns: root.vertical ? 1 : Math.max(1, root.entries.length)
+        columnSpacing: root.vertical ? 0 : Theme.spacingXs
+        rowSpacing: root.vertical ? Theme.spacingXs : 0
 
         Repeater {
             model: root.entries
@@ -53,8 +58,8 @@ Item {
                 shell: root.shell
                 pluginRegistry: root.pluginRegistry
                 aureliaPath: root.aureliaPath
-                Layout.preferredWidth: implicitWidth
-                Layout.preferredHeight: root.implicitHeight
+                Layout.preferredWidth: root.vertical ? root.barSize : implicitWidth
+                Layout.preferredHeight: root.vertical ? implicitHeight : root.barSize
             }
         }
     }

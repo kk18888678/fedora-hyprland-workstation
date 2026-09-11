@@ -211,7 +211,7 @@ uwsm
 sddm
 pipewire / pipewire-alsa / pipewire-jack / pipewire-pulse
 wireplumber
-bluez / bluez-tools / bluez-utils
+bluez / bluez-tools (profile-gated Bluetooth capability)
 networkmanager
 power-profiles-daemon
 grim

@@ -1,51 +1,112 @@
 # Theme, wallpaper, and cross-application synchronization
 
-Themes are a state pipeline, not just a palette file:
+Themes are a state pipeline, not just a palette file. In this repository the
+active pipeline is:
 
 ~~~text
-theme source
-  -> installed/user theme resolution
-  -> guarded staging directory
-  -> colors.toml normalization
-  -> generated application and shell configs
-  -> background selection/transition
-  -> atomic current-theme swap
-  -> live shell theme IPC
-  -> parallel application retinting
-  -> user theme-set hook
-  -> selector-cache warmup
+stock/user theme data
+  -> safe palette resolution
+  -> Omarchy-compatible color aliases
+  -> deterministic background selection
+  -> atomic Aurelia state writes and surface-token generation
+  -> one live Aurelia theme/background apply boundary
+  -> resident wallpaper transition reveal
 ~~~
 
 The editable sources live in user configuration or the packaged theme tree. The
-active generated result lives under user state and is the only path consumed by
-the running desktop.
+active palette lives under user state and is the only theme data consumed by the
+running Aurelia shell.
 
-## Theme source locations
+## Aurelia stock catalog
+
+The checked-in stock catalog is copied from the inspected Omarchy reference
+snapshot at commit `b5589faaf80c6f87c07d4560fca37c4a81722f28`. It contains 22
+themes, 249 exact source files, and 92 supported background assets:
 
 ~~~text
-<root>/themes/<name>/                         packaged theme
-~/.config/<namespace>/themes/<name>/           user theme or Git clone
-~/.local/state/<namespace>/current/theme/      generated active theme
-~/.local/state/<namespace>/current/theme.name current normalized slug
-~/.local/state/<namespace>/current/background  symlink to active media
-~/.config/<namespace>/backgrounds/<theme>/     extra user backgrounds
-~/.config/<namespace>/themed/                  user template overrides
-~/.cache/<namespace>/theme-selector/           theme preview cache
-~/.cache/<namespace>/image-selector/           image thumbnail cache
+catppuccin       catppuccin-latte  ethereal       everforest
+flexoki-light    gruvbox           hackerman      kanagawa
+last-horizon     lumon             lupine         matte-black
+miasma           nord              osaka-jade     retro-82
+ristretto        rose-pine         solitude       tokyo-night
+vantablack       white
 ~~~
 
-Theme list resolution combines user and packaged directories, sorts, removes
-duplicate names, and formats slugs for display. User directories take
-precedence when a packaged and user theme have the same name.
+`aurelia-shell/themes/SHA256SUMS` is a checked-in integrity manifest for
+those reference files. Each theme keeps its exact `colors.toml`,
+`icons.theme`, previews, unlock artwork, backgrounds, and optional metadata.
 
-A user-authored directory and a theme cloned by the theme installer are treated
-differently:
+## Aurelia state and commands
 
-- a hand-authored user directory is not subject to the Git-installed deny
-  filter and is copied as the user’s own theme; the normal `*` copy still
-  excludes dotfiles;
-- a Git checkout under the user theme directory is treated as untrusted
-  installed theme input and is filtered before it reaches active state.
+~~~text
+aurelia-shell/themes/<name>/                  packaged source data
+~/.config/aurelia/themes/<name>/               user theme or overlay
+~/.local/state/aurelia/current/theme.conf     active palette compatibility copy
+~/.local/state/aurelia/current/colors.toml    active canonical palette copy
+~/.local/state/aurelia/current/shell.toml     active bar/popup/control tokens
+~/.local/state/aurelia/current/theme.name     normalized active slug
+~/.local/state/aurelia/current/background.path absolute active media path
+~/.config/aurelia/backgrounds/<theme>/        extra user backgrounds
+~/.cache/aurelia/theme-selector/previews/     generated theme preview links
+~/.cache/aurelia/image-selector/              generated media thumbnails
+~~~
+
+Use:
+
+~~~bash
+aurelia-theme list
+aurelia-theme current
+aurelia-theme set "Tokyo Night"
+aurelia-theme catalog --json
+aurelia-theme-preview themes
+aurelia-theme-preview backgrounds
+aurelia-theme-bg list --json
+aurelia-theme-bg next
+aurelia-theme-color --all
+~~~
+
+`colors.toml` is preferred over the older Aurelia `theme.conf` format. The
+read-only `aurelia-theme-color` resolver matches the reference alias,
+fallback, mode, and RGB-mixing rules; the theme setter derives a data-only
+`shell.toml` surface document from those values and never evaluates TOML or
+executes anything from a theme.
+
+The resident image picker is opened by the Omarchy-aligned bindings:
+
+~~~text
+SUPER + CTRL + SPACE          Background Picker
+SUPER + SHIFT + CTRL + SPACE  Theme Picker
+~~~
+
+It parses cached preview rows, keeps the selected item centered in a carousel,
+loads nearby images lazily, and accepts arrows/Tab, typing filters, Enter, and
+Escape. Applying a selection delegates to `aurelia-theme` or `aurelia-theme-bg`;
+the UI never mutates theme state itself.
+
+A matching user theme overlays the stock palette and metadata. Background
+candidates combine the user theme's `backgrounds/`, extra user backgrounds,
+and stock `backgrounds/`, then sort deterministically. Applying a theme keeps
+the current basename when the new theme supplies it; otherwise it uses the
+first candidate. Direct background selection resolves and stores an absolute
+supported image/video path.
+
+## Safety boundary
+
+Aurelia preserves the reference theme files as inert source data for exact
+catalog fidelity. It does not source theme Lua, install terminal launchers,
+run shell hooks, install editor extensions, alter Plymouth unlock state, or
+silently perform Arch-specific application retint operations. Those reference
+operations are deliberately not merged into the Fedora installer or the
+Aurelia mutation boundary.
+
+User theme downloads are likewise outside the normal selector. Review a theme
+before placing it under `~/.config/aurelia/themes/`; theme selection itself
+only reads regular palette/media data and reloads Aurelia.
+
+## Reference design (read-only comparison)
+
+The remaining sections record the inspected Omarchy implementation and its
+differences from Aurelia. They are not claims about active Aurelia behavior.
 
 ## Installing a Git theme
 

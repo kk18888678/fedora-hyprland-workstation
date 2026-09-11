@@ -297,6 +297,33 @@ else
     fail "XDG user directory failure did not produce exit code 2: $xdg_failure_test_output"
 fi
 
+xdg_symlink_safety_output="$(
+    bash -s <<'EOS'
+set -Eeuo pipefail
+SCRIPT_DIR="$HELPER_ROOT"
+TARGET_USER="xdgtester"
+TARGET_HOME="$(mktemp -d)"
+source "$SCRIPT_DIR/modules/common.sh"
+source "$SCRIPT_DIR/modules/status.sh"
+source "$SCRIPT_DIR/modules/shell.sh"
+
+outside="$(mktemp -d)"
+trap 'rm -rf -- "$TARGET_HOME" "$outside"' EXIT
+ln -s -- "$outside" "$TARGET_HOME/.config"
+xdg-user-dirs-update() { return 0; }
+configure_user_directories
+printf 'config_symlink_deferred=%s outside_untouched=%s\n' \
+    "$(grep -c 'Refusing to follow a symlinked or unsafe user configuration path' <(printf '%s\n' "${INSTALL_DEFERRED[@]}") || true)" \
+    "$([[ -z "$(find "$outside" -mindepth 1 -print -quit)" ]] && echo 1 || echo 0)"
+EOS
+)"
+
+if grep -q 'config_symlink_deferred=1 outside_untouched=1' <<< "$xdg_symlink_safety_output"; then
+    pass "XDG initialization refuses symlinked user configuration paths without mutation"
+else
+    fail "XDG symlink safety boundary failed: $xdg_symlink_safety_output"
+fi
+
 section "GTK / Thunar Places Bookmarks"
 
 gtk_bookmarks_test_output="$(

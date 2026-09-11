@@ -21,14 +21,10 @@ Item {
     width: parent ? parent.width : 0
     implicitHeight: Math.max(valueHeight, 60)
 
-    HoverHandler {
-        id: rowHover
-    }
-
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusSm
-        color: rowRoot.selected ? Theme.selection : (rowHover.hovered ? Theme.surfaceElevated : "transparent")
+        color: rowRoot.selected ? Theme.selection : "transparent"
         border.width: rowRoot.selected || rowRoot.editing ? Theme.borderWidthDefault : 0
         border.color: rowRoot.editing ? Theme.accent : Theme.borderActive
 

@@ -66,8 +66,10 @@ Rectangle {
         acceptedButtons: Qt.LeftButton
         cursorShape: Qt.PointingHandCursor
 
-        onEntered: {
-            rowRoot.modelController.selectedIndex = rowRoot.index
+        onEntered: rowRoot.windowController.selectFromPointer(rowRoot, { x: mouseX, y: mouseY })
+
+        onPositionChanged: function(mouse) {
+            rowRoot.windowController.selectFromPointer(rowRoot, mouse)
         }
 
         onPressed: function(mouse) {
@@ -81,6 +83,7 @@ Rectangle {
         onClicked: function(mouse) {
             mouse.accepted = true
             var viewAtClick = rowRoot.modelController.activeView
+            rowRoot.windowController.resetPointerGate()
             rowRoot.modelController.selectedIndex = rowRoot.index
             console.info("[EVENT] keybindings.add_action_type.click index=" + rowRoot.index + " view=" + viewAtClick)
             if (viewAtClick === "add_action_type") rowRoot.windowController.activateSelected("mouse")

@@ -15,8 +15,15 @@ PanelWindow {
     property string ownerId: ""
     property bool shown: false
     property int margin: Theme.popupMargin
-    property int popupWidth: 340
-    property int popupHeight: 300
+    property int contentPadding: Theme.popupPadding
+    // Omarchy's KeyboardPanel defaults are 280x200; feature panels normally
+    // override width and fit height to their live content.
+    property int popupWidth: 280
+    property int popupHeight: 200
+    property bool fitHeightToContent: false
+    property Item contentSizingItem: null
+    property int minPopupHeight: 0
+    property int maxPopupHeight: 0
     property bool centerOnBar: false
     property var dismissHandler: null
     property var focusTarget: null
@@ -40,12 +47,24 @@ PanelWindow {
     readonly property var anchorWindow: resolvedAnchorItem && resolvedAnchorItem.QsWindow && resolvedAnchorItem.QsWindow.window
         ? resolvedAnchorItem.QsWindow.window
         : (bar && bar.contentItem ? bar : null)
-    readonly property var popupScreen: anchorWindow ? anchorWindow.screen : null
+    readonly property var popupScreen: anchorWindow && anchorWindow.screen
+        ? anchorWindow.screen
+        : (Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
     readonly property real screenW: root.screen ? root.screen.width : (popupScreen ? popupScreen.width : 0)
     readonly property real screenH: root.screen ? root.screen.height : (popupScreen ? popupScreen.height : 0)
     readonly property real barW: anchorWindow ? anchorWindow.width : 0
     readonly property real barH: anchorWindow ? anchorWindow.height : (bar ? bar.barSize : 0)
     readonly property var anchorTransform: anchorWindow ? anchorWindow.windowTransform : null
+    readonly property int resolvedPopupWidth: Math.max(120, Theme.scaleGeometry(root.popupWidth))
+    readonly property int resolvedPopupHeight: {
+        var desired = Math.max(1, Theme.scaleGeometry(root.popupHeight))
+        if (root.fitHeightToContent && root.contentSizingItem) {
+            desired = root.contentSizingItem.implicitHeight + root.contentPadding * 2
+        }
+        if (root.minPopupHeight > 0) desired = Math.max(desired, root.minPopupHeight)
+        if (root.maxPopupHeight > 0) desired = Math.min(desired, root.maxPopupHeight)
+        return Math.max(1, Math.round(desired))
+    }
     readonly property point anchorScreenPos: {
         // mapToItem() is one-shot. The bar layer query completes after
         // resident widget layout, so surfaceReady is the explicit reactive
@@ -60,35 +79,38 @@ PanelWindow {
         if (!resolvedAnchorItem || !bar || screenW <= 0 || screenH <= 0) return Qt.point(margin, margin)
         var x = 0
         var y = 0
-        var actualBarTop = root.surfaceReady ? root.surfaceY : 0
-        var actualBarLeft = root.surfaceReady ? root.surfaceX : 0
-        var actualBarWidth = root.surfaceReady ? root.surfaceWidth : barW
-        var actualBarHeight = root.surfaceReady ? root.surfaceHeight : barH
+        // The actual bar PanelWindow is the anchor window. Use its mapped
+        // geometry directly; querying compositor layer state adds latency and
+        // can fail closed when a popup is opened from a fresh session.
+        var actualBarTop = 0
+        var actualBarLeft = 0
+        var actualBarWidth = barW
+        var actualBarHeight = barH
         if (centerOnBar && (bar.position === "top" || bar.position === "bottom")) {
-            x = screenW / 2 - popupWidth / 2
+            x = screenW / 2 - root.resolvedPopupWidth / 2
             y = bar.position === "bottom"
-                ? screenH - root.surfaceBottomGap - actualBarHeight - popupHeight - margin
+                ? screenH - actualBarHeight - root.resolvedPopupHeight - margin
                 : actualBarTop + actualBarHeight + margin
         } else if (centerOnBar) {
             x = bar.position === "left"
                 ? actualBarLeft + actualBarWidth + margin
-                : screenW - root.surfaceRightGap - actualBarWidth - popupWidth - margin
-            y = screenH / 2 - popupHeight / 2
+                : screenW - actualBarWidth - root.resolvedPopupWidth - margin
+            y = screenH / 2 - root.resolvedPopupHeight / 2
         } else if (bar.position === "bottom") {
-            x = anchorScreenPos.x + resolvedAnchorItem.width / 2 - popupWidth / 2
-            y = screenH - root.surfaceBottomGap - actualBarHeight - popupHeight - margin
+            x = anchorScreenPos.x + resolvedAnchorItem.width / 2 - root.resolvedPopupWidth / 2
+            y = screenH - actualBarHeight - root.resolvedPopupHeight - margin
         } else if (bar.position === "left") {
             x = actualBarLeft + actualBarWidth + margin
-            y = anchorScreenPos.y + resolvedAnchorItem.height / 2 - popupHeight / 2
+            y = anchorScreenPos.y + resolvedAnchorItem.height / 2 - root.resolvedPopupHeight / 2
         } else if (bar.position === "right") {
-            x = screenW - root.surfaceRightGap - actualBarWidth - popupWidth - margin
-            y = anchorScreenPos.y + resolvedAnchorItem.height / 2 - popupHeight / 2
+            x = screenW - actualBarWidth - root.resolvedPopupWidth - margin
+            y = anchorScreenPos.y + resolvedAnchorItem.height / 2 - root.resolvedPopupHeight / 2
         } else {
-            x = anchorScreenPos.x + resolvedAnchorItem.width / 2 - popupWidth / 2
+            x = anchorScreenPos.x + resolvedAnchorItem.width / 2 - root.resolvedPopupWidth / 2
             y = actualBarTop + actualBarHeight + margin
         }
-        x = Math.max(margin, Math.min(x, screenW - popupWidth - margin))
-        y = Math.max(margin, Math.min(y, screenH - popupHeight - margin))
+        x = Math.max(margin, Math.min(x, screenW - root.resolvedPopupWidth - margin))
+        y = Math.max(margin, Math.min(y, screenH - root.resolvedPopupHeight - margin))
         return Qt.point(Math.round(x), Math.round(y))
     }
 
@@ -124,14 +146,12 @@ PanelWindow {
 
     onShownChanged: {
         if (shown) {
-            surfaceReady = false
-            geometryProcess.running = true
+            surfaceReady = true
             focusPrimed = false
             beginFocusPrime()
             Qt.callLater(function() { root.focusPanel() })
             if (bar && typeof bar.requestPopout === "function") bar.requestPopout(root, ownerId)
         } else {
-            geometryProcess.running = false
             surfaceReady = false
             focusPrimeTimer.stop()
             focusPrimed = false
@@ -154,61 +174,6 @@ PanelWindow {
         }
     }
 
-    Item {
-        width: 0
-        height: 0
-        visible: true
-
-        Process {
-            id: geometryProcess
-            command: ["/usr/bin/timeout", "--kill-after=1s", "2s", "/usr/bin/hyprctl", "layers", "-j"]
-            stdout: StdioCollector { id: geometryStdout }
-            stderr: StdioCollector { id: geometryStderr }
-
-            onExited: function(code) {
-                if (code !== 0) {
-                    console.error("[POPUP] bar_geometry_failed owner=" + root.ownerId + " code=" + code + " error=" + geometryStderr.text.trim())
-                    return
-                }
-                try {
-                    var payload = JSON.parse(geometryStdout.text || "{}")
-                    var found = null
-                    function visit(value) {
-                        if (found || value === null || value === undefined) return
-                        if (Array.isArray(value)) {
-                            for (var i = 0; i < value.length; i++) visit(value[i])
-                            return
-                        }
-                        if (typeof value !== "object") return
-                        if (String(value.namespace || "") === "aurelia-bar" &&
-                            Number.isFinite(Number(value.x)) && Number.isFinite(Number(value.y)) &&
-                            Number.isFinite(Number(value.w)) && Number.isFinite(Number(value.h))) {
-                            found = value
-                            return
-                        }
-                        for (var key in value) visit(value[key])
-                    }
-                    visit(payload)
-                    if (!found) {
-                        console.error("[POPUP] bar_geometry_missing owner=" + root.ownerId)
-                        return
-                    }
-                    root.surfaceX = Math.round(Number(found.x))
-                    root.surfaceY = Math.round(Number(found.y))
-                    root.surfaceWidth = Math.round(Number(found.w))
-                    root.surfaceHeight = Math.round(Number(found.h))
-                    root.surfaceRightGap = root.screenW - root.surfaceX - root.surfaceWidth
-                    root.surfaceBottomGap = root.screenH - root.surfaceY - root.surfaceHeight
-                    root.surfaceReady = true
-                    console.info("[POPUP] bar_geometry owner=" + root.ownerId + " rect=" + root.surfaceX + "," + root.surfaceY + " " + root.surfaceWidth + "x" + root.surfaceHeight)
-                    console.info("[POPUP] card_geometry owner=" + root.ownerId + " anchor=" + root.anchorScreenPos.x + "," + root.anchorScreenPos.y + " origin=" + root.cardOrigin.x + "," + root.cardOrigin.y)
-                } catch (error) {
-                    console.error("[POPUP] bar_geometry_invalid owner=" + root.ownerId + " error=" + error)
-                }
-            }
-        }
-    }
-
     MouseArea {
         anchors.fill: parent
         z: 0
@@ -224,14 +189,14 @@ PanelWindow {
         id: card
         x: root.cardOrigin.x
         y: root.cardOrigin.y
-        width: root.popupWidth
-        height: root.popupHeight
+        width: root.resolvedPopupWidth
+        height: root.resolvedPopupHeight
         z: 1
         radius: Theme.radiusLg
-        color: Theme.bgBase
-        border.color: Theme.border
+        color: Theme.popups.background
+        border.color: Theme.popups.border
         border.width: Theme.borderWidthDefault
-        visible: root.surfaceReady && root.shown
+        visible: root.shown
 
         MouseArea {
             anchors.fill: parent
@@ -243,7 +208,7 @@ PanelWindow {
         FocusScope {
             id: contentScope
             anchors.fill: parent
-            anchors.margins: Theme.popupPadding
+            anchors.margins: root.contentPadding
             focus: root.shown
             z: 1
 

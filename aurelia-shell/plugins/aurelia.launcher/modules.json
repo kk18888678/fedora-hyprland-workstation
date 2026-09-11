@@ -11,19 +11,19 @@
       "order": 10
     },
     {
-      "id": "actions",
-      "name": "Actions",
-      "icon": "system-run",
-      "description": "Run configured Aurelia and workstation actions.",
+      "id": "files",
+      "name": "Files",
+      "icon": "system-file-manager",
+      "description": "Search files and folders in your home directory.",
       "enabled": true,
       "implemented": true,
       "order": 20
     },
     {
-      "id": "files",
-      "name": "Files",
-      "icon": "system-file-manager",
-      "description": "Search files and folders in your home directory.",
+      "id": "actions",
+      "name": "Actions",
+      "icon": "system-run",
+      "description": "Run configured Aurelia and workstation actions.",
       "enabled": true,
       "implemented": true,
       "order": 30
@@ -38,13 +38,31 @@
       "order": 40
     },
     {
+      "id": "package-manager",
+      "name": "Package Manager",
+      "icon": "system-software-install",
+      "description": "Search Fedora, Flatpak, and Aurelia sources, install, adopt, and track packages.",
+      "enabled": true,
+      "implemented": true,
+      "order": 50
+    },
+    {
+      "id": "updates",
+      "name": "Updates",
+      "icon": "system-software-update",
+      "description": "Check Fedora packages and Flatpak updates.",
+      "enabled": true,
+      "implemented": true,
+      "order": 60
+    },
+    {
       "id": "weather",
       "name": "Weather",
       "icon": "weather-clear",
       "description": "Current weather and forecast.",
       "enabled": false,
       "implemented": false,
-      "order": 50
+      "order": 70
     },
     {
       "id": "currency",
@@ -53,7 +71,7 @@
       "description": "Currency conversion and rates.",
       "enabled": false,
       "implemented": false,
-      "order": 60
+      "order": 80
     },
     {
       "id": "metals",
@@ -62,7 +80,7 @@
       "description": "Gold and precious-metal prices.",
       "enabled": false,
       "implemented": false,
-      "order": 70
+      "order": 90
     },
     {
       "id": "stocks",
@@ -71,7 +89,25 @@
       "description": "Market prices and watchlists.",
       "enabled": false,
       "implemented": false,
-      "order": 80
+      "order": 100
+    },
+    {
+      "id": "aurelia-shell",
+      "name": "Aurelia Shell",
+      "icon": "utilities-terminal",
+      "description": "Reload plugins or restart the resident shell while developing.",
+      "enabled": true,
+      "implemented": true,
+      "order": 110
+    },
+    {
+      "id": "about",
+      "name": "About",
+      "icon": "help-about",
+      "description": "View Aurelia system details and graphical branding.",
+      "enabled": true,
+      "implemented": true,
+      "order": 120
     }
   ]
 }

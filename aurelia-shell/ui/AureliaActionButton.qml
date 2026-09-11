@@ -13,6 +13,7 @@ Rectangle {
     property string icon: ""
     property bool primary: false
     property bool compact: false
+    property bool centerLabel: false
 
     signal triggered()
 
@@ -21,10 +22,10 @@ Rectangle {
     radius: Theme.radiusMd
     color: root.primary
         ? (actionHover.hovered ? Theme.accentAlt : Theme.accent)
-        : (actionHover.hovered ? Theme.selection : Theme.surfaceElevated)
+        : (actionHover.hovered ? Theme.controls.hoverFill : Theme.controls.normalFill)
     border.color: root.primary
         ? Theme.accent
-        : (actionHover.hovered ? Theme.borderActive : Theme.border)
+        : (actionHover.hovered ? Theme.controls.hoverBorder : Theme.controls.normalBorder)
     border.width: Theme.borderWidthDefault
     opacity: root.enabled ? 1.0 : 0.5
 
@@ -56,6 +57,7 @@ Rectangle {
                 font.family: Theme.fontFamily
                 font.pixelSize: root.compact ? Theme.fontSizeXs : Theme.fontSizeSm
                 font.weight: Theme.fontWeightMedium
+                horizontalAlignment: root.centerLabel ? Text.AlignHCenter : Text.AlignLeft
                 elide: Text.ElideRight
             }
 
@@ -65,6 +67,7 @@ Rectangle {
                 color: root.primary ? Theme.bgBase : Theme.textMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeXs
+                horizontalAlignment: root.centerLabel ? Text.AlignHCenter : Text.AlignLeft
                 elide: Text.ElideRight
                 visible: root.detail !== ""
             }

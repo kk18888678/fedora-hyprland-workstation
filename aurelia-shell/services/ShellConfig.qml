@@ -29,28 +29,34 @@ QtObject {
         blockLoading: true
         blockWrites: true
         atomicWrites: true
+        watchChanges: true
         // A missing first-run config is an expected state handled by reload();
         // do not emit a misleading runtime warning for it.
         printErrors: false
 
         onSaved: configRoot.lastSaveOk = true
         onSaveFailed: configRoot.lastSaveOk = false
+        onFileChanged: configRoot.reload()
     }
 
     function defaultBarConfig() {
         return {
+            id: "aurelia.bar",
             position: "top",
             transparent: false,
             centerAnchor: "aurelia.clock",
             layout: {
                 left: [{ id: "aurelia.workspaces" }],
                 center: [
+                    { id: "aurelia.notifications" },
                     { id: "aurelia.clock", format: "MMM d, dddd HH:mm" },
                     { id: "aurelia.weather", location: "auto" }
                 ],
                 right: [
                     { id: "aurelia.tray" },
-                    { id: "aurelia.notifications" },
+                    { id: "aurelia.network" },
+                    { id: "aurelia.bluetooth" },
+                    { id: "aurelia.monitor" },
                     { id: "aurelia.screenshot" },
                     { id: "aurelia.power" }
                 ]
@@ -93,9 +99,13 @@ QtObject {
     function normalizeBar(candidate) {
         var source = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {}
         var sourceLayout = source.layout && typeof source.layout === "object" && !Array.isArray(source.layout) ? source.layout : {}
-        var position = source.position === "bottom" ? "bottom" : "top"
+        var barId = isValidPluginId(source.id) ? source.id : "aurelia.bar"
+        var position = ["top", "bottom", "left", "right"].indexOf(source.position) !== -1
+            ? source.position
+            : "top"
         var centerAnchor = isValidPluginId(source.centerAnchor) ? source.centerAnchor : ""
         return {
+            id: barId,
             position: position,
             transparent: source.transparent === true,
             centerAnchor: centerAnchor,

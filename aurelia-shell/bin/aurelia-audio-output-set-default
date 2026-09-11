@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# aurelia-audio-output-set-default — select a PipeWire/PulseAudio sink and
+# move real application streams to it. Bluetooth uses this after a device
+# connects because BlueZ may publish its sink after the device state changes.
+
+set -Eeuo pipefail
+
+node_id="${1:-}"
+sink_name="${2:-}"
+[[ "$node_id" =~ ^[0-9]+$ && -n "$sink_name" ]] || {
+    printf '%s\n' "Usage: aurelia-audio-output-set-default <node-id> <sink-name>" >&2
+    exit 1
+}
+
+timeout 2s wpctl set-default "$node_id" >/dev/null 2>&1 || true
+timeout 2s pactl set-default-sink "$sink_name" >/dev/null 2>&1 || true
+
+# DSP filter chains and EasyEffects are not ordinary application streams. Move
+# only sink inputs that expose an application name, preserving their topology.
+timeout 2s pactl list sink-inputs 2>/dev/null | awk '
+    /^Sink Input #/ { id = substr($3, 2) }
+    /application\.name = / {
+        app = $0
+        sub(/.*application\.name = "/, "", app)
+        sub(/"$/, "", app)
+        if (app != "EasyEffects") print id
+    }
+' | while IFS= read -r input; do
+    [[ -n "$input" ]] || continue
+    timeout 2s pactl move-sink-input "$input" "$sink_name" >/dev/null 2>&1 || true
+done
