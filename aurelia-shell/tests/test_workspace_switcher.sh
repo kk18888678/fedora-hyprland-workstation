@@ -47,6 +47,9 @@ if grep -q 'Quickshell.Hyprland' "$switcher_qml" &&
    grep -q 'return "edge"' "$switcher_qml" &&
    grep -q 'Hyprland.refreshMonitors' "$switcher_qml" &&
    grep -q 'ListView.StrictlyEnforceRange' "$switcher_qml" &&
+   grep -q 'interactive: false' "$switcher_qml" &&
+   grep -q 'currentIndex: -1' "$switcher_qml" &&
+   grep -q 'workspaceListView.currentIndex = index' "$switcher_qml" &&
    grep -q 'positionViewAtIndex(index, ListView.Center)' "$switcher_qml" &&
    grep -q 'id: workspaceInputShield' "$switcher_qml" &&
    grep -q 'onClicked: function(mouse) { mouse.accepted = true }' "$switcher_qml" &&

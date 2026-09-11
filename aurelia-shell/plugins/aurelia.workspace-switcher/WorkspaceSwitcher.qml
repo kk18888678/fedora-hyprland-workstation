@@ -91,11 +91,15 @@ Item {
     function keepSelectionVisible() {
         var index = root.selectedIndex()
         if (index < 0 || workspaceListView.count === 0) return
+        if (workspaceListView.currentIndex !== index) workspaceListView.currentIndex = index
         workspaceListView.positionViewAtIndex(index, ListView.Center)
         Qt.callLater(function() {
             if (workspaceListView.count === 0) return
             var current = root.selectedIndex()
-            if (current >= 0) workspaceListView.positionViewAtIndex(current, ListView.Center)
+            if (current >= 0) {
+                if (workspaceListView.currentIndex !== current) workspaceListView.currentIndex = current
+                workspaceListView.positionViewAtIndex(current, ListView.Center)
+            }
         })
     }
 
@@ -334,13 +338,17 @@ Item {
                         spacing: Theme.spacingMd
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
+                        interactive: false
                         highlightRangeMode: ListView.StrictlyEnforceRange
                         preferredHighlightBegin: Math.max(0, (width - root.workspaceCardWidth) / 2)
                         preferredHighlightEnd: Math.max(root.workspaceCardWidth, (width + root.workspaceCardWidth) / 2)
                         highlightMoveDuration: Theme.durationNormal
                         leftMargin: root.workspaceListSideMargin
                         rightMargin: root.workspaceListSideMargin
-                        currentIndex: root.selectedIndex()
+                        // Root owns selection. Keeping the view's initial
+                        // index unset prevents ListView startup from choosing
+                        // workspace 1 before the focus seed is applied.
+                        currentIndex: -1
                         model: root.workspaceIds()
 
                         delegate: WorkspaceCard {
