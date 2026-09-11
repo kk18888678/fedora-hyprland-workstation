@@ -21,6 +21,11 @@ Item {
     property int selectedWorkspaceId: 1
     property int modelRevision: 0
 
+    readonly property int currentWorkspaceId: {
+        var revision = root.modelRevision
+        return root.detectedFocusedWorkspaceId()
+    }
+
     readonly property int workspaceCardWidth: {
         var available = workspaceLayout.width - Theme.spacingXxl * 2 - Theme.spacingMd * 3
         return Math.max(250, Math.min(340, Math.floor(available / 4)))
@@ -59,9 +64,24 @@ Item {
         return index >= 0 ? index : 0
     }
 
-    function seedSelection() {
+    function detectedFocusedWorkspaceId() {
+        var monitor = Hyprland.focusedMonitor
+        var activeWorkspace = monitor ? monitor.activeWorkspace : null
+        if (activeWorkspace) return Number(activeWorkspace.id)
+
+        var values = root.workspaceValues()
+        for (var i = 0; i < values.length; i++) {
+            if (values[i] && values[i].focused === true) return Number(values[i].id)
+        }
+
+        // Keep the singleton as a bounded fallback while the workspace model
+        // is catching up with Hyprland's focus event.
         var focused = Hyprland.focusedWorkspace
-        var focusedId = focused ? Number(focused.id) : 0
+        return focused ? Number(focused.id) : 0
+    }
+
+    function seedSelection() {
+        var focusedId = root.detectedFocusedWorkspaceId()
         var ids = root.workspaceIds()
         root.selectedWorkspaceId = ids.indexOf(focusedId) >= 0
             ? focusedId
@@ -99,8 +119,12 @@ Item {
 
         var index = root.selectedIndex()
         var step = Number(delta) < 0 ? -1 : 1
-        index = (index + step + ids.length) % ids.length
-        root.selectedWorkspaceId = ids[index]
+        var nextIndex = Math.max(0, Math.min(ids.length - 1, index + step))
+        if (nextIndex === index) {
+            root.keepSelectionVisible()
+            return "edge"
+        }
+        root.selectedWorkspaceId = ids[nextIndex]
         root.keepSelectionVisible()
         return "cycled"
     }
@@ -134,11 +158,20 @@ Item {
     function open(payloadJson) {
         if (root.isOpen) return root.cycle(1)
 
-        root.seedSelection()
+        if (typeof Hyprland.refreshMonitors === "function") Hyprland.refreshMonitors()
         if (typeof Hyprland.refreshWorkspaces === "function") Hyprland.refreshWorkspaces()
         if (typeof Hyprland.refreshToplevels === "function") Hyprland.refreshToplevels()
+        root.modelRevision++
+        root.seedSelection()
         root.isOpen = true
-        Qt.callLater(function() { root.focusSurface() })
+        Qt.callLater(function() {
+            if (!root.isOpen) return
+            // refreshWorkspaces may publish its model on the next event turn;
+            // seed once more so the first visible selection is never stale.
+            root.modelRevision++
+            root.seedSelection()
+            root.focusSurface()
+        })
         return "ok"
     }
 
@@ -160,6 +193,10 @@ Item {
         target: Hyprland
         function onRawEvent(event) {
             root.modelRevision++
+        }
+        function onFocusedWorkspaceChanged() {
+            root.modelRevision++
+            if (!root.isOpen) root.seedSelection()
         }
     }
 
@@ -308,13 +345,14 @@ Item {
 
                         delegate: WorkspaceCard {
                             required property int modelData
+                            property var workspaceEntry: root.workspaceById(modelData)
 
                             width: root.workspaceCardWidth
                             height: Math.max(204, Math.min(216, workspaceListView.height))
                             workspaceId: modelData
-                            workspace: root.workspaceById(modelData)
+                            workspace: workspaceEntry
                             selected: root.selectedWorkspaceId === modelData
-                            focused: Hyprland.focusedWorkspace !== null && Hyprland.focusedWorkspace.id === modelData
+                            focused: root.currentWorkspaceId === modelData
                             previewActive: root.isOpen
                             modelRevision: root.modelRevision
                             onHovered: root.selectWorkspace(workspaceId)

@@ -37,13 +37,22 @@ if grep -q 'Quickshell.Hyprland' "$switcher_qml" &&
    grep -q 'opacity: 0.95' "$switcher_qml" &&
    grep -q 'function workspaceIds()' "$switcher_qml" &&
    grep -q 'function workspaceById(id)' "$switcher_qml" &&
+   grep -q 'function detectedFocusedWorkspaceId()' "$switcher_qml" &&
+   grep -q 'activeWorkspace = monitor ? monitor.activeWorkspace : null' "$switcher_qml" &&
+   grep -q 'values\[i\].focused === true' "$switcher_qml" &&
+   grep -q 'function onFocusedWorkspaceChanged()' "$switcher_qml" &&
    grep -q 'function activateWorkspace(id)' "$switcher_qml" &&
    grep -q 'if (root.isOpen) return root.cycle(1)' "$switcher_qml" &&
+   grep -q 'Math.max(0, Math.min(ids.length - 1, index + step))' "$switcher_qml" &&
+   grep -q 'return "edge"' "$switcher_qml" &&
+   grep -q 'Hyprland.refreshMonitors' "$switcher_qml" &&
    grep -q 'ListView.StrictlyEnforceRange' "$switcher_qml" &&
    grep -q 'positionViewAtIndex(index, ListView.Center)' "$switcher_qml" &&
    grep -q 'id: workspaceInputShield' "$switcher_qml" &&
    grep -q 'onClicked: function(mouse) { mouse.accepted = true }' "$switcher_qml" &&
    grep -q 'Hyprland.refreshToplevels' "$switcher_qml" &&
+   grep -q 'property var workspaceEntry' "$switcher_qml" &&
+   grep -q 'focused: root.currentWorkspaceId === modelData' "$switcher_qml" &&
    grep -q 'WorkspaceCard {' "$switcher_qml"; then
     pass "overview derives workspace state from Hyprland and keeps activation in the plugin controller"
 else
