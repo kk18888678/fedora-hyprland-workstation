@@ -30,8 +30,10 @@ reference architecture easier to copy.
 
 This tracker was created after a read-only comparison of:
 
-- Aurelia working tree: branch `installer-resilience`, starting HEAD
-  `a18bd5cb14513aaab8840ccb9037ce629bde2ac8`;
+- Aurelia initial audit HEAD: `a18bd5cb14513aaab8840ccb9037ce629bde2ac8`;
+- Aurelia Git checkpoint: `9f3781d19260b12d8f55836132cc5822789d4bde`;
+- Aurelia current pre-T01 baseline: branch `installer-resilience`, HEAD
+  `e6a48b2a61baa1e1b381935f4208e4dbc77dc61b`;
 - Omarchy reference: `/tmp/omarchy-reference`, branch `quattro`, HEAD
   `b5589faaf80c6f87c07d4560fca37c4a81722f28`.
 
@@ -116,27 +118,31 @@ record checkpoint state; that does not count as implementation.
 
 ### CP0 — Working-tree and runtime baseline freeze
 
+Status: `[x]` complete for the current pre-T01 baseline.
+
 Before the first implementation edit:
 
-- [ ] Capture branch, HEAD, full `git status`, tracked diff summary, and
+- [x] Capture branch, HEAD, full `git status`, tracked diff summary, and
   untracked-file inventory.
-- [ ] Confirm which existing changes belong to the user and must not be
+- [x] Confirm which existing changes belong to the user and must not be
   overwritten.
-- [ ] Capture the current Aurelia manifest/plugin inventory and Omarchy
+- [x] Capture the current Aurelia manifest/plugin inventory and Omarchy
   reference inventory.
-- [ ] Run the existing repository and Aurelia test entry points in isolated
+- [x] Run the existing repository and Aurelia test entry points in isolated
   mode and record exact pass/fail/skip results.
-- [ ] Run repository-wide shell syntax validation.
-- [ ] Record available optional verification tools without installing anything.
-- [ ] Record that `./install.sh`, package transactions, live configuration
+- [x] Run repository-wide shell syntax validation.
+- [x] Record available optional verification tools without installing anything.
+- [x] Record that `./install.sh`, package transactions, live configuration
   changes, greetd/systemd changes, and reboot are out of scope.
 
 Stop condition: do not edit implementation code until CP0 is recorded in this
 file and the user-visible baseline is understood.
 
-Current CP0 capture (read-only, not yet frozen/approved):
+Current CP0 capture (read-only, frozen for T01):
 
 - Date: `2026-09-11`.
+- Git checkpoint ancestor: `9f3781d19260b12d8f55836132cc5822789d4bde`.
+- Current pre-T01 HEAD: `e6a48b2a61baa1e1b381935f4208e4dbc77dc61b`.
 - Aurelia: `21` plugin manifests, `21` top-level plugin directories, and `0`
   plugin-local test directories.
 - Omarchy reference: `37` manifest entries (`29` conventional plus `8` sibling
@@ -145,13 +151,13 @@ Current CP0 capture (read-only, not yet frozen/approved):
 - Current Aurelia Shell tests: `282` passed, `0` failed.
 - Repository-wide shell syntax: `199` scripts passed `bash -n`.
 - ShellCheck: unavailable; no installation attempted.
-- The Aurelia working tree contains pre-existing user modifications and
-  untracked files. No implementation file may be overwritten or normalized as
-  part of baseline capture.
+- The current working tree is clean after the user-owned commits above. The
+  committed snapshot includes the pre-existing Aurelia/installer changes and
+  this tracker. No implementation file may be overwritten or normalized as
+  part of future checkpointing.
 
-CP0 remains open until the working-tree snapshot, affected-file ownership, and
-preservation baseline are explicitly reviewed. No source-code edit is allowed
-while CP0 is open.
+CP0 is closed for the current baseline. If the working tree changes before a
+future task's CP2, re-baseline before editing that task.
 
 ### CP1 — Contract and test readiness
 
@@ -236,51 +242,80 @@ No task may skip a checkpoint because it is “small,” “only a refactor,” 
 
 ### T00. Rebuild the inventory and acceptance matrix
 
-- [ ] Recount all Aurelia plugin directories and manifests, including files
+Status: `[x]` complete — CP0 evidence captured against HEAD
+`e6a48b2a61baa1e1b381935f4208e4dbc77dc61b`.
+
+- [x] Recount all Aurelia plugin directories and manifests, including files
   currently untracked in the working tree.
-- [ ] Recount all Omarchy conventional and sibling manifests from the pinned
+- [x] Recount all Omarchy conventional and sibling manifests from the pinned
   reference checkout.
-- [ ] Record every manifest ID, kind, entry point, `keepLoaded` value, bar
+- [x] Record every manifest ID, kind, entry point, `keepLoaded` value, bar
   metadata field, local dependency, and plugin-specific state file.
-- [ ] Record all current Aurelia IPC targets and methods.
-- [ ] Record all current Aurelia feature plugins and custom features that must
+- [x] Record all current Aurelia IPC targets and methods.
+- [x] Record all current Aurelia feature plugins and custom features that must
   remain unchanged.
-- [ ] Record current Aurelia bar layout, theme tokens, panel geometry, keyboard
+- [x] Record current Aurelia bar layout, theme tokens, panel geometry, keyboard
   behavior, backend commands, and failure classifications as preservation
   fixtures.
-- [ ] Record current test commands, pass counts, optional skips, and available
+- [x] Record current test commands, pass counts, optional skips, and available
   runtime tools without changing the live workstation.
-- [ ] Record the starting Git status and ensure all pre-existing changes are
+- [x] Record the starting Git status and ensure all pre-existing changes are
   distinguishable from future parity changes.
-- [ ] Complete CP0 and record its exact evidence before beginning T01 or any
+- [x] Complete CP0 and record its exact evidence before beginning T01 or any
   implementation task.
 
-Exit gate: CP0 is complete, a complete inventory exists in the task evidence or
-an attached review artifact, and every existing Aurelia feature has an explicit
-owner.
+Exit gate: CP0 is complete, a complete inventory exists in this tracker/task
+evidence, and every existing Aurelia feature has an explicit owner.
 
 Dependencies: none.
 
 ### T01. Freeze the reference contract and vocabulary
 
-- [ ] Define the exact Aurelia parity vocabulary from Omarchy: plugin, manifest,
+Status: `[x]` complete — CP2 and CP3 passed; documentation-only task.
+
+CP2 pre-change boundary:
+
+- Allowed files: this tracker and
+  `aurelia-shell/docs/aurelia-plugin-contract-v1.md`.
+- Runtime/source behavior impact: none intended.
+- Persisted user state impact: none.
+- Rollback: remove only the task-owned documentation changes if verification
+  fails; preserve all other worktree history.
+
+CP3 post-change evidence:
+
+- Tests: `./tests/run.sh` — `228` passed, `0` failed.
+- Tests: `./aurelia-shell/tests/run.sh` — `282` passed, `0` failed.
+- Syntax: repository-wide `bash -n` — `199` scripts passed.
+- Diff validation: `git diff --check` passed.
+- Runtime/fixture evidence: no runtime behavior changed; live QML smoke tests
+  were not enabled for this documentation-only task.
+- Files changed: this tracker and
+  `aurelia-shell/docs/aurelia-plugin-contract-v1.md`.
+- User-visible behavior changed: no.
+- Existing Aurelia feature impact: none intended and no feature source changed.
+- Rollback/migration evidence: documentation-only; no persisted state touched.
+- Review: canonical manifest, state, lifecycle, failure-containment, API,
+  testing, and migration rules are recorded in the contract document.
+
+- [x] Define the exact Aurelia parity vocabulary from Omarchy: plugin, manifest,
   kind, entry point, service, panel, overlay, menu, bar-widget, bar option,
   plugin instance, enabled, active, loaded, visible, and clone.
-- [ ] Adopt one exact kind-to-entry-point mapping for the public contract.
-- [ ] Decide the compatibility treatment for Aurelia's current
+- [x] Adopt one exact kind-to-entry-point mapping for the public contract.
+- [x] Decide the compatibility treatment for Aurelia's current
   `entryPoints["bar-widget"]` spelling versus Omarchy's `entryPoints.barWidget`.
-- [ ] Define the reserved first-party namespace and user-plugin namespace.
-- [ ] Define which manifest fields are required, optional, first-party-only,
+- [x] Define the reserved first-party namespace and user-plugin namespace.
+- [x] Define which manifest fields are required, optional, first-party-only,
   user-visible, or host-internal.
-- [ ] Include the reference optional metadata surface where it has real
+- [x] Include the reference optional metadata surface where it has real
   behavior: `license`, `activation`, `barWidget`, `defaults`, `schema`,
   `settingsForm`, `clonePaths`, and trusted first-party capability metadata.
-- [ ] Define the exact semantics of `keepLoaded`, multi-kind plugins, multiple
+- [x] Define the exact semantics of `keepLoaded`, multi-kind plugins, multiple
   bar-widget instances, disabled plugins, and active replacement bars.
-- [ ] Define the compatibility policy: old Aurelia manifests and old
+- [x] Define the compatibility policy: old Aurelia manifests and old
   `shell.json` state must remain readable during migration; new writes use the
   canonical parity format only after the migration gate.
-- [ ] Do not add a second competing manifest schema.
+- [x] Do not add a second competing manifest schema.
 
 Exit gate: a reviewed, versioned contract exists before behavior is migrated.
 
