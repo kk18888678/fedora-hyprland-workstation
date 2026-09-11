@@ -123,6 +123,7 @@ function workspaceRouteData(notification, fallback) {
 
 function workspaceRouteScore(route, windowInfo) {
     var requested = route && Array.isArray(route.identities) ? route.identities : []
+    var routeSource = route || {}
     var candidate = windowInfo || {}
     var candidates = []
     pushIdentity(candidates, candidate.desktopEntry, 3)
@@ -150,6 +151,24 @@ function workspaceRouteScore(route, windowInfo) {
             }
         }
     }
+
+    // Browser web-app windows can deliberately reuse a native application's
+    // desktop/app id. Prefer a window title that identifies the sender itself
+    // (for example the native ChatGPT window titled "ChatGPT") over an
+    // activated Chromium window whose title belongs to another site.
+    var senderNames = [normalizedIdentity(routeSource.appName), normalizedIdentity(routeSource.desktopEntry)]
+    var candidateTitles = [normalizedIdentity(candidate.title), normalizedIdentity(candidate.initialTitle)]
+    var exactSenderTitle = false
+    var containsSenderTitle = false
+    for (var s = 0; s < senderNames.length; s++) {
+        if (senderNames[s].length < 3) continue
+        for (var t = 0; t < candidateTitles.length; t++) {
+            if (candidateTitles[t] === senderNames[s]) exactSenderTitle = true
+            else if (candidateTitles[t].indexOf(senderNames[s]) !== -1) containsSenderTitle = true
+        }
+    }
+    if (exactSenderTitle) score += 70
+    else if (containsSenderTitle) score += 35
 
     if (score > 0 && candidate.activated === true) score += 25
     return score

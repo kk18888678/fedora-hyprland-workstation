@@ -272,6 +272,9 @@ const parsedHistory = logic.parseHistory(JSON.stringify({ notifications: [histor
 if (parsedHistory.length !== 1 || parsedHistory[0].actions.length !== 1 || parsedHistory[0].defaultActionText !== "Open") process.exit(1);
 const chatRoute = logic.workspaceRouteData({ desktopEntry: "chatgpt.desktop", appName: "ChatGPT" });
 if (!chatRoute.enabled || logic.workspaceRouteScore(chatRoute, { appId: "chatgpt", className: "chatgpt", activated: false }) <= 0) process.exit(1);
+const nativeChatScore = logic.workspaceRouteScore(chatRoute, { appId: "chatgpt", className: "Chatgpt", title: "ChatGPT", activated: false });
+const browserChatScore = logic.workspaceRouteScore(chatRoute, { appId: "chatgpt", className: "chatgpt", title: "(1) Home / X - Chromium", initialTitle: "New Tab - Chromium", activated: true });
+if (nativeChatScore <= browserChatScore) process.exit(1);
 if (logic.workspaceRouteScore(chatRoute, { appId: "org.mozilla.firefox", className: "firefox", activated: false }) !== 0) process.exit(1);
 if (logic.workspaceRouteScore(logic.workspaceRouteData({ appName: "chat" }), { appId: "chatgpt", className: "chatgpt" }) !== 0) process.exit(1);
 if (logic.workspaceRouteScore(chatRoute, { appId: "chatgpt", activated: true }) <= logic.workspaceRouteScore(chatRoute, { appId: "chatgpt", activated: false })) process.exit(1);
