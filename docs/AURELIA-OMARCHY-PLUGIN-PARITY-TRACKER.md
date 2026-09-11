@@ -323,18 +323,52 @@ Dependencies: T00.
 
 ### T02. Establish the parity test harness and golden preservation checks
 
-- [ ] Keep `./tests/run.sh` as the repository test entry point.
-- [ ] Keep `./aurelia-shell/tests/run.sh` as the Aurelia Shell test entry point.
-- [ ] Add a coherent plugin-test domain under `aurelia-shell/tests/` rather than
+Status: `[x]` complete — CP2 and CP3 passed; test-domain-only task.
+
+CP2 pre-change boundary:
+
+- Allowed files: `aurelia-shell/tests/`,
+  `aurelia-shell/docs/` only where test documentation is required, and this
+  tracker.
+- Runtime/source behavior impact: none intended.
+- Persisted user state impact: none.
+- Rollback: remove only T02-owned test harness/fixture/tracker changes if a
+  mandatory gate fails; preserve all production and user-owned files.
+
+CP3 post-change evidence:
+
+- Tests: `./aurelia-shell/tests/test_plugin_harness.sh` — `13` passed,
+  `0` failed.
+- Tests: `./aurelia-shell/tests/run.sh` — `295` passed, `0` failed.
+- Tests: `./tests/run.sh` — `228` passed, `0` failed.
+- Syntax: repository-wide `bash -n` — `203` scripts passed.
+- Diff validation: `git diff --check` passed.
+- Runtime/fixture evidence: reusable fixture creation and preservation checks
+  passed; live QML tests remain separately classified and were not enabled.
+- Files changed: `aurelia-shell/tests/plugin/`,
+  `aurelia-shell/tests/fixtures/plugin-preservation.json`,
+  `aurelia-shell/tests/test_plugin_harness.sh`,
+  `aurelia-shell/tests/run.sh`, and this tracker.
+- User-visible behavior changed: no.
+- Existing Aurelia feature impact: no production/plugin implementation files
+  changed; current manifest/layout/design/backend preservation checks passed.
+- Rollback/migration evidence: test-only temporary sandboxes are cleaned by the
+  harness; no live or persisted user state was touched.
+- Review: T02 establishes tagged static, fixture, isolated-runtime, and
+  skipped-live-session result labels for later plugin tests.
+
+- [x] Keep `./tests/run.sh` as the repository test entry point.
+- [x] Keep `./aurelia-shell/tests/run.sh` as the Aurelia Shell test entry point.
+- [x] Add a coherent plugin-test domain under `aurelia-shell/tests/` rather than
   scattering contract assertions through unrelated feature tests.
-- [ ] Add reusable fixtures for temporary first-party and third-party plugin
+- [x] Add reusable fixtures for temporary first-party and third-party plugin
   trees, temporary `shell.json`, malformed manifests, duplicate IDs, symlinked
   trees, and failing entry points.
-- [ ] Add golden preservation checks for current Aurelia plugin IDs, layout
+- [x] Add golden preservation checks for current Aurelia plugin IDs, layout
   entries, theme tokens, design primitives, and backend command ownership.
-- [ ] Add a test result format that distinguishes static, isolated runtime,
+- [x] Add a test result format that distinguishes static, isolated runtime,
   live-session, and skipped evidence.
-- [ ] Do not delete or weaken current feature tests while adding the harness.
+- [x] Do not delete or weaken current feature tests while adding the harness.
 
 Exit gate: the harness can run without installer execution or live system
 mutation, and the current Aurelia behavior has a repeatable baseline.

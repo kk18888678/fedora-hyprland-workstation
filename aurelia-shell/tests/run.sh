@@ -10,6 +10,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$ROOT/tests/test_helper.sh"
 
 run_suite "$ROOT/tests/test_aurelia_shell_plugins.sh"
+run_suite "$ROOT/tests/test_plugin_harness.sh"
 run_suite "$ROOT/tests/test_shell_reload.sh"
 run_suite "$ROOT/tests/test_dev_session.sh"
 run_suite "$ROOT/tests/test_keybindings_interaction.sh"
