@@ -31,6 +31,9 @@ Item {
         ? pluginRegistry.installedPlugins[pluginId]
         : null
     readonly property bool available: {
+        var failureRevision = pluginRegistry ? pluginRegistry.runtimeFailureRevision : 0
+        if (pluginRegistry && typeof pluginRegistry.hasActiveRuntimeFailure === "function" &&
+            pluginRegistry.hasActiveRuntimeFailure(pluginId, "bar-widget")) return false
         if (root.customType !== "") return true
         var revision = pluginRegistry ? pluginRegistry.registryRevision : 0
         return revision >= 0 && pluginManifest !== null &&
@@ -67,6 +70,66 @@ Item {
         if ("settings" in target) target.settings = root.settings || ({})
         if ("manifest" in target) target.manifest = root.pluginManifest || ({})
         if ("pluginRegistry" in target) target.pluginRegistry = root.pluginRegistry
+    }
+
+    function failureSource() {
+        try {
+            if (root.customQml) return root.fileUrl(root.safeCustomSource())
+            if (root.customCommand) return Qt.resolvedUrl("CustomCommandBarWidget.qml")
+            if (root.pluginRegistry && typeof root.pluginRegistry.entryPointUrl === "function")
+                return String(root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget") || "")
+        } catch (e) {
+            return ""
+        }
+        return ""
+    }
+
+    function reportFailure(phase, error) {
+        var detail = "bar widget failure"
+        try {
+            if (root.pluginRegistry && typeof root.pluginRegistry.boundedFailureDetail === "function")
+                detail = root.pluginRegistry.boundedFailureDetail(error)
+            else if (error) detail = String(error)
+        } catch (e) {
+            detail = "bar widget failure detail unavailable"
+        }
+        try {
+            if (root.pluginRegistry && typeof root.pluginRegistry.recordRuntimeFailure === "function")
+                root.pluginRegistry.recordRuntimeFailure(root.pluginId, "bar-widget", phase || "runtime",
+                    root.failureSource(), "bar-widget", detail)
+        } catch (registryError) {
+            console.warn("[PLUGIN] aurelia.plugin.failure_recording_failed id=" + root.pluginId)
+        }
+        console.warn("[BAR] aurelia.bar.widget_failure id=" + root.pluginId + " phase=" + String(phase || "runtime"))
+    }
+
+    function scheduleFailure(phase, error) {
+        Qt.callLater(function() {
+            if (!root.pluginRegistry || typeof root.pluginRegistry.hasActiveRuntimeFailure !== "function" ||
+                !root.pluginRegistry.hasActiveRuntimeFailure(root.pluginId, "bar-widget"))
+                root.reportFailure(phase, error)
+        })
+    }
+
+    function safeConfigure(target) {
+        if (!target) return true
+        try {
+            root.configure(target)
+            return true
+        } catch (error) {
+            root.reportFailure("initialization", error)
+            return false
+        }
+    }
+
+    function handleLoaded(target) {
+        if (!root.safeConfigure(target)) return
+        try {
+            if (target && typeof target.aureliaInitialize === "function") target.aureliaInitialize()
+            if (root.bar && typeof root.bar.bumpWidgetRevision === "function") root.bar.bumpWidgetRevision()
+        } catch (error) {
+            root.reportFailure("initialization", error)
+        }
     }
 
     function safeCustomSource() {
@@ -113,13 +176,25 @@ Item {
     }
 
     function invoke(method, argument) {
+        if (!root.available) return "error"
         if (!widgetItem || typeof widgetItem[method] !== "function") return "not-loaded"
-        if (argument === undefined || argument === null || argument === "") return String(widgetItem[method]() || "")
-        return String(widgetItem[method](argument) || "")
+        try {
+            if (argument === undefined || argument === null || argument === "") return String(widgetItem[method]() || "")
+            return String(widgetItem[method](argument) || "")
+        } catch (error) {
+            root.reportFailure("callback", error)
+            return "error"
+        }
     }
 
     function reload() {
         if (root.reloading) return
+        try {
+            if (root.pluginRegistry && typeof root.pluginRegistry.clearRuntimeFailure === "function")
+                root.pluginRegistry.clearRuntimeFailure(root.pluginId, "bar-widget")
+        } catch (e) {
+            console.warn("[PLUGIN] aurelia.plugin.failure_clear_failed id=" + root.pluginId)
+        }
         root.reloading = true
         Qt.callLater(function() { root.reloading = false })
     }
@@ -142,14 +217,10 @@ Item {
         active: root.active && root.available && !root.reloading
         source: active ? root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget") : ""
 
-        onLoaded: {
-            root.configure(item)
-            if (root.bar && typeof root.bar.bumpWidgetRevision === "function") root.bar.bumpWidgetRevision()
-        }
+        onLoaded: root.handleLoaded(item)
         onStatusChanged: {
-            if (status === Loader.Error) {
-                console.warn("[BAR] aurelia.bar.widget_load_failed id=" + root.pluginId)
-            }
+            if (status === Loader.Error && !root.available) return
+            if (status === Loader.Error) root.scheduleFailure("load", "registered widget Loader.Error")
         }
     }
 
@@ -158,13 +229,10 @@ Item {
         anchors.fill: parent
         active: root.customQml && !root.reloading
         source: root.customQml ? root.fileUrl(root.safeCustomSource()) : ""
-        onLoaded: {
-            root.configure(item)
-            if (root.bar && typeof root.bar.bumpWidgetRevision === "function") root.bar.bumpWidgetRevision()
-        }
+        onLoaded: root.handleLoaded(item)
         onStatusChanged: {
-            if (status === Loader.Error)
-                console.warn("[BAR] aurelia.bar.custom_qml_load_failed id=" + root.pluginId)
+            if (status === Loader.Error && !root.available) return
+            if (status === Loader.Error) root.scheduleFailure("load", "custom QML Loader.Error")
         }
     }
 
@@ -173,20 +241,17 @@ Item {
         anchors.fill: parent
         active: root.customCommand && !root.reloading
         source: active ? Qt.resolvedUrl("CustomCommandBarWidget.qml") : ""
-        onLoaded: {
-            root.configure(item)
-            if (root.bar && typeof root.bar.bumpWidgetRevision === "function") root.bar.bumpWidgetRevision()
-        }
+        onLoaded: root.handleLoaded(item)
         onStatusChanged: {
-            if (status === Loader.Error)
-                console.warn("[BAR] aurelia.bar.custom_command_load_failed id=" + root.pluginId)
+            if (status === Loader.Error && !root.available) return
+            if (status === Loader.Error) root.scheduleFailure("load", "custom command Loader.Error")
         }
     }
 
     onSettingsChanged: {
-        root.configure(widgetLoader.item)
-        root.configure(qmlLoader.item)
-        root.configure(commandLoader.item)
+        root.safeConfigure(widgetLoader.item)
+        root.safeConfigure(qmlLoader.item)
+        root.safeConfigure(commandLoader.item)
     }
 
     property Connections pluginChangeConnection: Connections {

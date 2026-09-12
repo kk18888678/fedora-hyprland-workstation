@@ -32,6 +32,11 @@ QtObject {
     property bool scanning: false
     property string lastError: ""
     property int rejectedCount: 0
+    // Runtime failures are deliberately ephemeral. They keep a bad entry
+    // point out of the current generation without changing shell.json,
+    // enabled state, or any user-owned data.
+    property var runtimeFailures: ({})
+    property int runtimeFailureRevision: 0
     property bool localPluginWatcherUnavailable: false
     readonly property bool hotReloadEnabled: Quickshell.env("AURELIA_HOT_RELOAD") === "1"
         || Quickshell.env("AURELIA_DEVELOPMENT_MODE") === "1"
@@ -39,6 +44,7 @@ QtObject {
     signal pluginsChanged()
     signal scanFinished()
     signal pluginRejected(string sourcePath, string reason)
+    signal pluginFailureRecorded(string pluginId, string kind, string phase, string sourcePath, string entryPoint, string detail)
     signal localPluginChanged(string pluginId)
 
     property Connections shellConfigConnection: Connections {
@@ -99,6 +105,122 @@ QtObject {
 
     function isSafeEntryPoint(value) {
         return typeof value === "string" && value.length > 0 && value.charAt(0) !== "/" && value.indexOf("..") === -1 && value.indexOf("\\") === -1 && value.indexOf(":") === -1
+    }
+
+    function runtimeFailureKey(id, kind) {
+        return String(id || "") + "::" + String(kind || "")
+    }
+
+    function boundedFailureDetail(value) {
+        var detail = ""
+        try {
+            if (value && value.message !== undefined) detail = String(value.message)
+            else detail = String(value || "")
+        } catch (e) {
+            detail = "plugin failure detail unavailable"
+        }
+        detail = detail.replace(/\s+/g, " ").trim()
+        if (detail.length > 512) detail = detail.substring(0, 512) + "..."
+        return detail || "plugin failure"
+    }
+
+    function failureCopy(failure) {
+        if (!failure) return null
+        var result = {}
+        for (var property in failure) result[property] = failure[property]
+        result.active = failure.quarantined === true && Number(failure.generation) === registry.registryRevision
+        return result
+    }
+
+    function runtimeFailureFor(id, kind) {
+        var key = registry.runtimeFailureKey(id, kind)
+        return failureCopy(registry.runtimeFailures[key])
+    }
+
+    function runtimeFailuresFor(id) {
+        var prefix = String(id || "") + "::"
+        var result = []
+        var keys = Object.keys(registry.runtimeFailures || {})
+        for (var i = 0; i < keys.length; i++) {
+            if (keys[i].indexOf(prefix) !== 0) continue
+            var failure = failureCopy(registry.runtimeFailures[keys[i]])
+            if (failure) result.push(failure)
+        }
+        result.sort(function(left, right) {
+            return String(left.kind || "").localeCompare(String(right.kind || ""))
+        })
+        return result
+    }
+
+    function hasActiveRuntimeFailure(id, kind) {
+        // Read the revision so QML bindings depending on this method are
+        // reevaluated when a loader is quarantined or a failure is cleared.
+        var failureRevision = registry.runtimeFailureRevision
+        var pluginId = String(id || "")
+        if (kind !== undefined && kind !== null && String(kind) !== "") {
+            var exact = registry.runtimeFailures[registry.runtimeFailureKey(pluginId, kind)]
+            return !!exact && exact.quarantined === true && Number(exact.generation) === registry.registryRevision
+        }
+        var failures = registry.runtimeFailuresFor(pluginId)
+        for (var i = 0; i < failures.length; i++) {
+            if (failures[i].active === true) return true
+        }
+        return false
+    }
+
+    function recordRuntimeFailure(id, kind, phase, sourcePath, entryPoint, detail) {
+        var pluginId = String(id || "").trim()
+        var pluginKind = String(kind || "").trim()
+        if (!registry.isValidPluginId(pluginId) || !pluginKind || !/^[A-Za-z0-9-]+$/.test(pluginKind)) return false
+
+        var key = registry.runtimeFailureKey(pluginId, pluginKind)
+        var next = {}
+        var existing = registry.runtimeFailures[key]
+        for (var existingKey in (registry.runtimeFailures || {})) next[existingKey] = registry.runtimeFailures[existingKey]
+        var attempts = existing && Number(existing.attempts) > 0 ? Number(existing.attempts) + 1 : 1
+        var boundedSource = String(sourcePath || "")
+        var boundedEntry = String(entryPoint || "")
+        if (boundedSource.length > 1024) boundedSource = boundedSource.substring(0, 1024) + "..."
+        if (boundedEntry.length > 256) boundedEntry = boundedEntry.substring(0, 256) + "..."
+        next[key] = {
+            id: pluginId,
+            kind: pluginKind,
+            phase: String(phase || "runtime"),
+            sourcePath: boundedSource,
+            entryPoint: boundedEntry,
+            detail: registry.boundedFailureDetail(detail),
+            timestamp: Date.now(),
+            generation: registry.registryRevision,
+            attempts: attempts,
+            quarantined: true,
+            retryState: "requires-explicit-reload"
+        }
+        registry.runtimeFailures = next
+        registry.runtimeFailureRevision++
+        console.warn("[PLUGIN] aurelia.plugin.failure id=" + pluginId +
+            " kind=" + pluginKind + " phase=" + String(phase || "runtime") +
+            " state=quarantined detail=" + next[key].detail)
+        registry.pluginFailureRecorded(pluginId, pluginKind, String(phase || "runtime"),
+            boundedSource, boundedEntry, next[key].detail)
+        return true
+    }
+
+    function clearRuntimeFailure(id, kind) {
+        var pluginId = String(id || "").trim()
+        if (!pluginId) return false
+        var next = {}
+        var changed = false
+        var prefix = pluginId + "::"
+        for (var key in (registry.runtimeFailures || {})) {
+            var matches = key.indexOf(prefix) === 0 &&
+                (kind === undefined || kind === null || String(kind) === "" || key === registry.runtimeFailureKey(pluginId, kind))
+            if (matches) changed = true
+            else next[key] = registry.runtimeFailures[key]
+        }
+        if (!changed) return false
+        registry.runtimeFailures = next
+        registry.runtimeFailureRevision++
+        return true
     }
 
     function hasKind(manifest, kind) {
@@ -202,7 +324,8 @@ QtObject {
                 kinds: manifest.kinds.slice(),
                 firstParty: manifest.__isFirstParty === true,
                 enabled: isEnabled(ids[i]),
-                keepLoaded: manifest.keepLoaded === true
+                keepLoaded: manifest.keepLoaded === true,
+                failures: runtimeFailuresFor(ids[i])
             })
         }
         return result

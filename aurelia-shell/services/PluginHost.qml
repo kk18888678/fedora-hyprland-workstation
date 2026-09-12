@@ -28,6 +28,7 @@ Item {
     readonly property bool selectedBarAvailable: {
         var selected = selectedBarId
         var selectedManifest = manifestFor(selected)
+        var failureRevision = registry ? registry.runtimeFailureRevision : 0
         if (!selectedManifest || !Array.isArray(selectedManifest.kinds) ||
             selectedManifest.kinds.indexOf("bar") === -1 || !selectedManifest.entryPoints ||
             typeof selectedManifest.entryPoints.bar !== "string") return false
@@ -47,6 +48,89 @@ Item {
         return registry && registry.isKnown(id) ? registry.installedPlugins[id] : null
     }
 
+    function failureDetail(error) {
+        try {
+            if (registry && typeof registry.boundedFailureDetail === "function")
+                return registry.boundedFailureDetail(error)
+            return String(error || "plugin failure")
+        } catch (e) {
+            return "plugin failure detail unavailable"
+        }
+    }
+
+    function hasActiveFailure(id, kind) {
+        var failureRevision = registry ? registry.runtimeFailureRevision : 0
+        return !!(registry && typeof registry.hasActiveRuntimeFailure === "function" &&
+            registry.hasActiveRuntimeFailure(id, kind))
+    }
+
+    function sourceFor(id, kind) {
+        try {
+            return registry && typeof registry.entryPointUrl === "function"
+                ? String(registry.entryPointUrl(id, kind) || "")
+                : ""
+        } catch (e) {
+            return ""
+        }
+    }
+
+    function recordFailure(id, kind, phase, error, sourcePath, entryPoint) {
+        var pluginId = String(id || "").trim()
+        var pluginKind = String(kind || "").trim() || "plugin"
+        var source = String(sourcePath || "")
+        var entry = String(entryPoint || pluginKind)
+        var detail = host.failureDetail(error)
+        if (!source) source = host.sourceFor(pluginId, pluginKind)
+        try {
+            if (registry && typeof registry.recordRuntimeFailure === "function")
+                registry.recordRuntimeFailure(pluginId, pluginKind, phase || "runtime", source, entry, detail)
+        } catch (registryError) {
+            console.warn("[PLUGIN] aurelia.plugin.failure_recording_failed id=" + pluginId)
+        }
+
+        if (pluginId === host.activeBarId && pluginId !== "aurelia.bar") host.failedBarId = pluginId
+
+        var nextInstances = host.copyMap(host.instances)
+        delete nextInstances[pluginId]
+        host.instances = nextInstances
+        var nextRequested = host.copyMap(host.requested)
+        delete nextRequested[pluginId]
+        host.requested = nextRequested
+        var nextPending = host.copyMap(host.pendingOpens)
+        delete nextPending[pluginId]
+        host.pendingOpens = nextPending
+        return false
+    }
+
+    function clearFailure(id, kind) {
+        try {
+            if (registry && typeof registry.clearRuntimeFailure === "function")
+                registry.clearRuntimeFailure(id, kind)
+        } catch (e) {
+            console.warn("[PLUGIN] aurelia.plugin.failure_clear_failed id=" + String(id || ""))
+        }
+    }
+
+    function scheduleFailure(id, kind, phase, error, sourcePath, entryPoint) {
+        Qt.callLater(function() {
+            if (!host.hasActiveFailure(id, kind))
+                host.recordFailure(id, kind, phase, error, sourcePath, entryPoint)
+        })
+    }
+
+    function invokeTarget(id, target, method, argument, kind, phase) {
+        try {
+            if (!target || typeof target[method] !== "function") return { ok: false, value: "not-loaded" }
+            var value = argument === undefined || argument === null || argument === ""
+                ? target[method]()
+                : target[method](argument)
+            return { ok: true, value: value }
+        } catch (error) {
+            host.recordFailure(id, kind || "plugin", phase || "callback", error)
+            return { ok: false, value: "error" }
+        }
+    }
+
     function activeBar() {
         return itemFor(host.activeBarId)
     }
@@ -63,6 +147,9 @@ Item {
         // the explicit boundary for changing the service entry point.
         if (reloading && isReloadTarget && id !== "aurelia.bar" && id !== "aurelia.notifications") return false
         if (!manifest || !registry.isEnabled(id)) return false
+        var failureRevision = registry ? registry.runtimeFailureRevision : 0
+        var primaryKind = registry && typeof registry.primaryKind === "function" ? registry.primaryKind(id) : ""
+        if (host.hasActiveFailure(id, primaryKind)) return false
         if (Array.isArray(manifest.kinds) && manifest.kinds.indexOf("bar") !== -1 &&
             id !== host.activeBarId) return false
         if (manifest.keepLoaded === true || (manifest.kinds && manifest.kinds.indexOf("service") !== -1)) return true
@@ -72,6 +159,19 @@ Item {
     function beginReload(pluginIds) {
         reloading = true
         reloadingPluginIds = pluginIds === undefined ? null : pluginIds
+
+        // Reload is an explicit retry boundary. Clear only ephemeral failure
+        // state; the registry never changes enabled state or persisted config.
+        if (registry && typeof registry.clearRuntimeFailure === "function") {
+            if (reloadingPluginIds === null) {
+                var reloadIds = registry.pluginIds || []
+                for (var reloadIndex = 0; reloadIndex < reloadIds.length; reloadIndex++)
+                    registry.clearRuntimeFailure(reloadIds[reloadIndex])
+            } else {
+                for (var requestedId in reloadingPluginIds)
+                    if (reloadingPluginIds[requestedId] === true) registry.clearRuntimeFailure(requestedId)
+            }
+        }
 
         var nextRequested = {}
         var nextPendingOpens = {}
@@ -130,11 +230,16 @@ Item {
 
     function completePendingOpen(id, target) {
         var pending = pendingOpens[id]
-        if (!pending || !target || typeof target.open !== "function") return
+        if (!pending) return true
+        if (!target || typeof target.open !== "function") {
+            host.recordFailure(id, registry.primaryKind(id), "initialization", "plugin has no open method")
+            return false
+        }
         var next = copyMap(pendingOpens)
         delete next[id]
         pendingOpens = next
-        target.open(pending.payloadJson || "{}")
+        return host.invokeTarget(id, target, "open", pending.payloadJson || "{}",
+            registry.primaryKind(id), "callback").ok
     }
 
     function setRequested(id, value) {
@@ -148,12 +253,18 @@ Item {
     function callBarWidget(id, method, argument) {
         var bar = host.activeBar()
         if (!bar || typeof bar.callWidget !== "function") return "not-loaded"
-        return bar.callWidget(id, method, argument)
+        try {
+            return bar.callWidget(id, method, argument)
+        } catch (error) {
+            host.recordFailure(id, "bar-widget", "callback", error)
+            return "error"
+        }
     }
 
     function open(id, payloadJson) {
         if (!registry || !registry.isKnown(id)) return "unknown"
         if (!registry.isEnabled(id)) return "disabled"
+        if (host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
         var barResult = callBarWidget(id, "open", payloadJson || "{}")
         if (barResult !== "not-loaded") return barResult || "ok"
         setRequested(id, true)
@@ -165,33 +276,42 @@ Item {
             return "pending"
         }
         if (typeof target.open !== "function") return "invalid"
-        target.open(payloadJson || "{}")
-        return "ok"
+        return host.invokeTarget(id, target, "open", payloadJson || "{}",
+            registry.primaryKind(id), "callback").ok ? "ok" : "error"
     }
 
     function close(id) {
         if (!registry || !registry.isKnown(id)) return "unknown"
+        if (host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
         var barResult = callBarWidget(id, "close", "")
         if (barResult !== "not-loaded") return barResult || "ok"
         var target = itemFor(id)
-        if (target && typeof target.close === "function") target.close()
+        if (target && typeof target.close === "function" &&
+            !host.invokeTarget(id, target, "close", undefined, registry.primaryKind(id), "callback").ok) return "error"
         var manifest = manifestFor(id)
         if (!manifest || manifest.keepLoaded !== true) setRequested(id, false)
         return target ? "ok" : "not-loaded"
     }
 
     function isVisible(id) {
+        if (host.hasActiveFailure(id, registry && typeof registry.primaryKind === "function" ? registry.primaryKind(id) : "")) return false
         var barResult = callBarWidget(id, "isVisible", "")
         if (barResult !== "not-loaded") return barResult === true || barResult === "true"
         var target = itemFor(id)
         if (!target) return false
-        if (typeof target.isVisible === "function") return target.isVisible()
+        if (typeof target.isVisible === "function")
+            return host.invokeTarget(id, target, "isVisible", undefined, registry.primaryKind(id), "callback").value === true
         return target.visible === true
     }
 
     function toggle(id, payloadJson) {
+        if (registry && registry.isKnown(id) && host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
         var barResult = callBarWidget(id, "toggle", payloadJson || "{}")
         if (barResult !== "not-loaded") return barResult || "ok"
+        var target = itemFor(id)
+        if (target && typeof target.toggle === "function")
+            return host.invokeTarget(id, target, "toggle", payloadJson || "{}",
+                registry.primaryKind(id), "callback").ok ? "ok" : "error"
         if (isVisible(id)) return close(id)
         return open(id, payloadJson || "{}")
     }
@@ -202,8 +322,9 @@ Item {
         if (barResult !== "not-loaded") return barResult
         var target = itemFor(id)
         if (!target || typeof target[method] !== "function") return "not-loaded"
-        if (argument === undefined || argument === null || argument === "") return String(target[method]() || "")
-        return String(target[method](argument) || "")
+        if (registry && registry.isKnown(id) && host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
+        var outcome = host.invokeTarget(id, target, method, argument, registry.primaryKind(id), "callback")
+        return outcome.ok ? String(outcome.value || "") : "error"
     }
 
     function summaries() {
@@ -222,6 +343,12 @@ Item {
         function onPluginsChanged() {
             host.failedBarId = ""
             host.loadRevision++
+        }
+
+        function onPluginFailureRecorded(pluginId, kind) {
+            if (String(pluginId || "") === host.selectedBarId &&
+                (String(kind || "") === "bar" || String(kind || "") === "bar-widget") &&
+                host.selectedBarId !== "aurelia.bar") host.failedBarId = host.selectedBarId
         }
     }
 
@@ -244,23 +371,28 @@ Item {
             source: active ? host.registry.entryPointUrl(pluginId, host.registry.primaryKind(pluginId)) : ""
 
             onLoaded: {
-                host.configurePlugin(pluginId, item)
-                var next = host.copyMap(host.instances)
-                next[pluginId] = item
-                host.instances = next
-                host.completePendingOpen(pluginId, item)
-                console.info("[PLUGIN] aurelia.plugin.loaded id=" + pluginId)
+                var pluginKind = host.registry.primaryKind(pluginId)
+                try {
+                    host.configurePlugin(pluginId, item)
+                    // This optional namespaced hook gives plugins an explicit
+                    // host-controlled initialization boundary. Existing
+                    // plugins are unchanged because the hook is opt-in.
+                    if (item && typeof item.aureliaInitialize === "function") item.aureliaInitialize()
+                    var next = host.copyMap(host.instances)
+                    next[pluginId] = item
+                    host.instances = next
+                    if (!host.completePendingOpen(pluginId, item)) return
+                    host.clearFailure(pluginId, pluginKind)
+                    console.info("[PLUGIN] aurelia.plugin.loaded id=" + pluginId)
+                } catch (error) {
+                    host.scheduleFailure(pluginId, pluginKind, "initialization", error, source, pluginKind)
+                }
             }
 
             onStatusChanged: {
-                if (status === Loader.Error) {
-                    console.warn("[PLUGIN] aurelia.plugin.load_failed id=" + pluginId)
-                    if (pluginId === host.activeBarId && pluginId !== "aurelia.bar")
-                        host.failedBarId = pluginId
-                    var removed = host.copyMap(host.instances)
-                    delete removed[pluginId]
-                    host.instances = removed
-                }
+                if (status === Loader.Error && !host.hasActiveFailure(pluginId, host.registry.primaryKind(pluginId)))
+                    host.scheduleFailure(pluginId, host.registry.primaryKind(pluginId), "load",
+                        "Loader.Error", source, host.registry.primaryKind(pluginId))
             }
         }
 

@@ -377,7 +377,7 @@ Dependencies: T00, T01.
 
 ### T02A. Establish the non-negotiable Aurelia host-survivability contract
 
-Status: `[-]` in progress — CP2 recorded; host failure-containment task.
+Status: `[x]` complete — CP2 and CP3 passed; host failure-containment task.
 
 CP2 pre-change boundary:
 
@@ -393,6 +393,41 @@ CP2 pre-change boundary:
 - Rollback: revert only T02A-owned production/test/tracker changes if any
   checkpoint fails; preserve the T00/T01/T02 commits and user-owned history.
 
+CP3 post-change evidence:
+
+- Focused runtime gate: test_plugin_survivability.sh — 4 assertions passed,
+  0 failed, including a disposable offscreen QuickShell process.
+- Isolated runtime coverage: malformed/syntax and missing entry points,
+  host-controlled initialization, service initialization, open, close, toggle,
+  and IPC callback exceptions, bar-widget construction/callback failure,
+  simultaneous failures, explicit reload retry, no-retry-loop behavior, host
+  ping/listPlugins responses, healthy panel/service/widget continuity, and
+  replacement-bar fallback.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 299 passed, 0
+  failed. The T02A isolated runtime gate ran as part of this count.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 204 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+- Files changed for T02A: PluginRegistry.qml, PluginHost.qml,
+  BarWidgetSlot.qml, aurelia-shell/tests/run.sh,
+  aurelia-shell/tests/test_plugin_survivability.sh, and the isolated
+  tests/fixtures/plugin-survivability/ fixtures.
+- Concurrent user-owned notification edits appeared during this task and were
+  intentionally left unstaged and outside the T02A commit.
+- Evidence classification: loader/callback survival and healthy-plugin
+  continuity are isolated-runtime tested; manifest-discovery continuation and
+  same-process limits remain code-inspected/contract-documented. QML
+  Component.onCompleted exceptions are demonstrably non-fatal but are not
+  exposed by Qt as Loader.Error; the opt-in aureliaInitialize hook covers the
+  host-controlled initialization boundary. Deliberate Qt.quit(), native
+  crashes, and engine corruption remain outside the same-process guarantee.
+
 This is the first runtime-safety gate. The required behavior is:
 
 ```text
@@ -404,41 +439,41 @@ one faulty plugin
         -> built-in bar fallback remains available
 ```
 
-- [ ] Define the failure classes that must be contained: malformed manifest,
+- [x] Define the failure classes that must be contained: malformed manifest,
   missing entry point, unsafe import/path, QML syntax/import failure,
   `Component.onCompleted` failure, plugin initialization failure, plugin
   service failure, bar-widget construction failure, and exceptions raised by
   plugin `open`, `close`, `toggle`, or IPC methods.
-- [ ] Keep discovery failure isolated from host startup. A single rejected
+- [x] Keep discovery failure isolated from host startup. A single rejected
   manifest must not make the complete registry unavailable.
-- [ ] Keep each plugin entry point behind an independent load boundary. A
+- [x] Keep each plugin entry point behind an independent load boundary. A
   failed panel, overlay, menu, service, widget, or replacement bar must not
   terminate or invalidate unrelated loaders.
-- [ ] Guard every host-to-plugin callback and bar-widget invocation at the
+- [x] Guard every host-to-plugin callback and bar-widget invocation at the
   boundary. A thrown plugin callback must become a recorded plugin failure,
   not an uncaught host failure.
-- [ ] Add per-plugin failure state with plugin ID, kind, source/entry point,
+- [x] Add per-plugin failure state with plugin ID, kind, source/entry point,
   failure phase, bounded error detail, timestamp or generation, and retry or
   quarantine state.
-- [ ] Prevent an immediately failing plugin from entering an uncontrolled
+- [x] Prevent an immediately failing plugin from entering an uncontrolled
   reload loop. Retry only through an explicit bounded policy or after a source
   generation/configuration change.
-- [ ] Preserve the last known-good host and healthy plugin state when a reload
+- [x] Preserve the last known-good host and healthy plugin state when a reload
   introduces a bad plugin. A failed replacement bar must fall back to the
   built-in Aurelia bar.
-- [ ] Ensure failure reporting cannot mutate user configuration, remove user
+- [x] Ensure failure reporting cannot mutate user configuration, remove user
   data, or disable healthy plugins as a side effect.
-- [ ] Add an isolated runtime fixture containing at least one deliberately
+- [x] Add an isolated runtime fixture containing at least one deliberately
   broken plugin beside at least one healthy panel, one healthy service, one
   healthy bar widget, and the host IPC target.
-- [ ] Assert after the broken plugin is introduced that the host process is
+- [x] Assert after the broken plugin is introduced that the host process is
   still alive, `ping` succeeds, `listPlugins` succeeds, the healthy plugin is
   loaded/usable, the bar remains available, and the bad plugin is explicitly
   reported as failed.
-- [ ] Repeat the fixture for syntax/import failure, initialization failure,
+- [x] Repeat the fixture for syntax/import failure, initialization failure,
   service failure, bar-widget failure, callback exception, and reload-time
   failure.
-- [ ] Add a separate test for simultaneous failures to prove that failure
+- [x] Add a separate test for simultaneous failures to prove that failure
   handling is per plugin rather than a global “shell failed” state.
 
 ### Same-process boundary that must remain explicit
