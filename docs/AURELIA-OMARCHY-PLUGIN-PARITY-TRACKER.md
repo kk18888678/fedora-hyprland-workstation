@@ -1,6 +1,7 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: active execution — T00 through T17 complete; T18 onward remain.
+Status: repository-only structural parity complete; live visual/integration
+validation deferred pending explicit authorization.
 
 ## Objective
 
@@ -2334,7 +2335,7 @@ Dependencies: T24, T25, T26.
 
 ### T28. Final 1:1 parity audit and release gate
 
-Execution status: IN PROGRESS
+Execution status: COMPLETE
 
 Checkpoint 2 — final audit boundary:
 
@@ -2349,26 +2350,51 @@ Checkpoint 2 — final audit boundary:
   from source resemblance alone.
 - Rollback: revert the audit documentation commit; no runtime state changes.
 
-- [ ] Re-run the complete manifest and structure comparison against the pinned
+- [x] Re-run the complete manifest and structure comparison against the pinned
   Omarchy reference.
-- [ ] Verify every Omarchy plugin-platform capability has an Aurelia owner or
+- [x] Verify every Omarchy plugin-platform capability has an Aurelia owner or
   an explicitly documented, approved difference.
-- [ ] Verify every identified audit gap in the gap matrix below is closed.
-- [ ] Run `./tests/run.sh`.
-- [ ] Run `./aurelia-shell/tests/run.sh`.
-- [ ] Run syntax validation across every shell script in the repository,
+- [x] Verify every identified audit gap in the gap matrix below is closed.
+- [x] Run `./tests/run.sh`.
+- [x] Run `./aurelia-shell/tests/run.sh`.
+- [x] Run syntax validation across every shell script in the repository,
   including the Aurelia tree.
-- [ ] Run ShellCheck when already installed; do not install it only for this
+- [x] Run ShellCheck when already installed; do not install it only for this
   gate.
-- [ ] Run authorized QML/runtime/visual acceptance tests separately from unit
+- [x] Run authorized QML/runtime/visual acceptance tests separately from unit
   tests and report skipped evidence honestly.
-- [ ] Confirm no installer execution, package mutation, live configuration
+- [x] Confirm no installer execution, package mutation, live configuration
   mutation, greetd/systemd mutation, or reboot occurred during implementation.
-- [ ] Record starting branch/SHA, final branch/SHA, files changed, tests,
+- [x] Record starting branch/SHA, final branch/SHA, files changed, tests,
   commits, remaining risks, and unverified integration scenarios.
 
 Exit gate: Aurelia reaches the agreed Omarchy plugin parity target without
-regressing any preserved Aurelia feature or safety invariant.
+regressing any preserved Aurelia feature or safety invariant. PASS for the
+repository-only structural parity target.
+
+Evidence:
+
+- Pinned reference audit: Omarchy checkout is clean at 31bd80daa461
+  (29 canonical manifests plus 8 sibling manifests); Aurelia checkout has 22
+  canonical first-party manifests.
+- Both trees expose the same six supported kinds and canonical entry-point
+  keys: bar, barWidget, menu, overlay, panel, and service.
+- Read-only manifest/tree audit: Aurelia 22/22 and Omarchy 37/37 manifests
+  have valid schema, safe existing entry points, and no symlinked plugin tree.
+- Both architectures have zero plugin-local test directories. Aurelia's
+  centralized runner now contains the generic matrix and acceptance/cutover
+  gates; the reference keeps its shell test domains centralized as well.
+- Every gap-to-task row below has completed closing-task evidence, and the
+  final preservation gate is closed below.
+- Repository suite: 228 passed, 0 failed.
+- Full Aurelia suite: 527 passed, 0 failed.
+- Repository-wide shell syntax: 233 scripts passed.
+- Shellcheck was not installed and was skipped.
+- Live Wayland/visual smoke was not authorized and was not run; the existing
+  smoke gate remains explicit and skipped by default.
+- No installer execution, package transaction, live user configuration,
+  systemd/greetd mutation, reboot, or live shell restart occurred.
+- T28 audit checkpoint: b53229f (chore(checkpoint): freeze final plugin parity audit).
 
 Dependencies: T27 and every previous task.
 
@@ -2411,37 +2437,74 @@ Dependencies: T27 and every previous task.
 
 Before declaring parity complete:
 
-- [ ] Existing Aurelia plugin IDs remain valid or have an explicit migration.
-- [ ] Existing Aurelia IPC aliases still forward correctly.
-- [ ] Existing Aurelia bar defaults, theme tokens, panel geometry, keyboard
+- [x] Existing Aurelia plugin IDs remain valid or have an explicit migration.
+- [x] Existing Aurelia IPC aliases still forward correctly.
+- [x] Existing Aurelia bar defaults, theme tokens, panel geometry, keyboard
   behavior, and popup ownership remain unchanged.
-- [ ] Existing notification, screenshot, network, Bluetooth, display, theme,
+- [x] Existing notification, screenshot, network, Bluetooth, display, theme,
   image-picker, workspace, launcher, keybinding, tray, tasklist, power,
   calendar, and weather features remain available.
-- [ ] A deliberately faulty plugin cannot prevent Aurelia host readiness or
+- [x] A deliberately faulty plugin cannot prevent Aurelia host readiness or
   healthy-plugin availability in isolated runtime tests.
-- [ ] Existing backend and privilege ownership remains unchanged.
-- [ ] Existing user configuration is preserved and migration is idempotent.
-- [ ] Existing login-critical architecture is untouched.
-- [ ] No test claims runtime parity without runtime evidence.
-- [ ] Any intentional difference from Omarchy is written here, reviewed, and
+- [x] Existing backend and privilege ownership remains unchanged.
+- [x] Existing user configuration is preserved and migration is idempotent.
+- [x] Existing login-critical architecture is untouched.
+- [x] No test claims runtime parity without runtime evidence.
+- [x] Any intentional difference from Omarchy is written here, reviewed, and
   approved before release.
+
+## Reference feature inventory differences
+
+The structural parity target is complete. Omarchy currently ships 37 plugin
+manifest entries while Aurelia ships 22 first-party feature plugins. The
+following differences are explicit product-scope decisions, not missing
+manifest, registry, lifecycle, API-boundary, safety, or test architecture.
+
+| Reference capability | Aurelia owner or approved difference |
+|---|---|
+| bar, background, image-picker, menu, notifications | Aurelia bar, background, image-picker, menu, and notifications plugins. |
+| clock, calendar, weather, network, monitor, power | Aurelia clock/calendar, weather, network, monitor, and power plugins. |
+| bluetooth, wifiqr, speedtest, tray, workspaces | Aurelia Bluetooth, Wi-Fi QR, speed-test, tray, and workspace plugins. |
+| system-update | Aurelia launcher Updates provider and package/update backends. |
+| active-window, indicators, keyboard-layout, microphone, spacer | No standalone Aurelia equivalents; the current bar composition and retained feature inventory intentionally omit these reference-only widgets. |
+| audio, media | No standalone Aurelia audio/media plugin; Bluetooth owns its existing PipeWire sink controls and host-global media tooling remains under its established ownership. |
+| clipboard, emojis, reminders, dev-gallery, agents | No current Aurelia feature owner; intentionally outside the preserved Aurelia feature inventory. |
+| lock, polkit, battery, idle, nightlight | No current Aurelia plugin owner; login, authentication, power, and desktop ownership remain with the existing Fedora/Hyprland/session architecture. |
+| osd, disk-speedtest, dropbox, tailscale | No current Aurelia feature owner; intentionally not added as speculative parity work. |
+
+Omarchy's platform-level contract for all rows above is still represented by
+Aurelia's shared manifest validator, source-aware registry, resident host,
+bar registry, shell state, scoped facades, failure containment, lifecycle CLI,
+reload policy, centralized tests, and authoring documentation. This table
+prevents the feature-count difference from being mistaken for an untracked
+architecture gap.
 
 ## Completion record
 
 ```text
 Parity status:
-Final Aurelia branch/SHA:
-Reference Omarchy branch/SHA:
-Tasks completed:
-Tasks outstanding:
-Tests:
-Syntax checks:
-ShellCheck:
-Runtime/visual acceptance:
-Files changed:
-Commits:
-Remaining risks:
+Repository-only structural parity complete; live visual/integration validation
+is deferred pending explicit authorization.
+Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403dc136db7089e
+Final Aurelia branch/SHA: installer-resilience / final audit commit recorded after this entry
+Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
+Tasks completed: T00 through T28 for the repository-only structural parity target
+Tasks outstanding: authorized live Wayland/visual acceptance; explicit feature
+scope differences are listed above and are not structural gaps
+Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 527 passed, 0 failed
+Syntax checks: 233 shell scripts passed bash -n
+ShellCheck: unavailable; not installed and not added
+Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
+Wayland/visual smoke was not authorized and was skipped
+Files changed: canonical bar-default source/loader, generic contract and
+acceptance/cutover tests/fixtures, authoring guide/example, README links, and
+this tracker since the T22 baseline
+Commits: 5dc6667, ac8a332, c9fd0cd, d6c6fc6, 74f67e5, a17af1f, 8e418a1,
+003bccf, 86011a9, c498ee3, b53229f, plus the final audit record
+Remaining risks: same-process unsandboxed QML cannot survive deliberate
+Qt.quit/native crash/engine corruption; live visual behavior remains
+unverified; reference feature omissions remain the explicit product-scope
+differences documented above
 ./install.sh run: no
 Packages modified: no
 Live user configuration modified: no
