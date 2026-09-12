@@ -1255,6 +1255,35 @@ Dependencies: T10, T11, T12.
 
 ### T14. Create scoped plugin facades
 
+Status: `[-]` in progress — scoped plugin-facade boundary task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: new facade QML types under
+  `aurelia-shell/services/`, `PluginHost.qml`, `PluginRegistry.qml`,
+  `BarWidgetRegistry.qml`, `shell.qml`, and narrow existing plugin injection
+  adapters required to give third-party entries detached, owner-checked API
+  views.
+- Allowed test files: `aurelia-shell/tests/`, including isolated third-party
+  facade fixtures for self/foreign lookups, lifecycle/settings ownership, bar
+  state, application catalog reads, revocation, and this tracker.
+- Compatibility boundary: first-party plugin behavior, current plugin IDs,
+  feature-owned services, bar geometry/design, existing compatibility IPC
+  aliases, and trusted built-in injection must remain unchanged. Third-party
+  plugins must not receive raw host objects through newly created paths.
+- Runtime behavior impact: facade construction, detached snapshots, ownership
+  checks, and revocation only; no plugin source installation, automatic state
+  migration, live bar restart, installer mutation, or live system changes.
+- Persisted user state impact: none except isolated settings calls in fixtures;
+  facade reads must not mutate shared config, and facade writes must continue
+  through T13's host-owned settings boundary.
+- Security boundary: facades reduce authority and enforce supported API
+  ownership, but same-process QML remains unsandboxed; sensitive services must
+  stay outside the third-party object graph.
+- Rollback: revert only T14 facade/injection/test/tracker changes if a
+  mandatory gate fails; preserve completed T00–T13 history and user-owned
+  changes.
+
 - [ ] Add a self-scoped registry facade equivalent to Omarchy's
   `PluginRegistryApi`.
 - [ ] Add a self-scoped lifecycle/settings facade equivalent to
