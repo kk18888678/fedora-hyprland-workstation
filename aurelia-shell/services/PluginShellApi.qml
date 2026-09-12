@@ -2,6 +2,7 @@ import QtQuick
 
 // Lifecycle/settings facade scoped to one plugin identity. Every callback is
 // closed over that identity by PluginHost; caller-supplied foreign IDs fail.
+// This is a supported API boundary, not a same-process QML sandbox.
 QtObject {
     id: api
 

@@ -231,6 +231,24 @@ QtObject {
         return true
     }
 
+    function trustedCapabilitiesForManifest(manifest, firstParty) {
+        if (firstParty !== true || !isPlainObject(manifest) || !isPlainObject(manifest.aurelia) ||
+            !Array.isArray(manifest.aurelia.capabilities)) return []
+        var result = []
+        for (var i = 0; i < manifest.aurelia.capabilities.length; i++) {
+            var capability = manifest.aurelia.capabilities[i]
+            if (isSafeSettingKey(capability) && result.indexOf(capability) === -1)
+                result.push(capability)
+        }
+        return result
+    }
+
+    function hasTrustedCapability(id, capability) {
+        var manifest = installedPlugins[String(id || "")]
+        if (!manifest || manifest.__isFirstParty !== true || !Array.isArray(manifest.__hostCapabilities)) return false
+        return manifest.__hostCapabilities.indexOf(String(capability || "")) !== -1
+    }
+
     function cloneManifest(manifest) {
         try {
             return JSON.parse(JSON.stringify(manifest))
@@ -408,6 +426,7 @@ QtObject {
         if (!copy) return null
         copy.__sourceDir = sourcePath
         copy.__isFirstParty = firstParty === true
+        copy.__hostCapabilities = registry.trustedCapabilitiesForManifest(copy, firstParty)
         return copy
     }
 

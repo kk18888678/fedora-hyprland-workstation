@@ -1347,7 +1347,7 @@ Dependencies: T06, T09, T13.
 
 ### T15. Add sensitive-service isolation
 
-Status: `[-]` in progress — sensitive-service isolation task.
+Status: `[x]` complete — sensitive-service isolation task.
 
 CP2 pre-change boundary:
 
@@ -1377,16 +1377,49 @@ CP2 pre-change boundary:
   a mandatory gate fails; preserve completed T00–T14 history and user-owned
   changes.
 
-- [ ] Identify any Aurelia service that owns authentication, credentials,
+CP3 post-change evidence:
+
+- Focused sensitive-service gate: test_sensitive_service_boundary.sh — 4
+  assertions passed, 0 failed.
+- Inventory: no current resident Aurelia service manifest declares
+  authentication, credentials, secrets, session-lock, or polkit ownership.
+  Network and Wi-Fi QR credential strings remain transient panel-local state;
+  the resident notifications service owns notification state, not
+  authentication state, and is not exposed through third-party self-scoped
+  lookup.
+- Capability coverage: only explicitly trusted first-party manifest metadata
+  can be converted into `__hostCapabilities`; user/third-party capability
+  declarations are rejected and ordinary third-party manifests receive an
+  empty trusted-capability stamp.
+- Service boundary coverage: third-party lifecycle facades return only their
+  own service object and reject foreign service IDs, while manifest copies and
+  capability state remain detached across mutation and reload/disable checks.
+- Object-graph limitation: visual QML executes in the same resident process and
+  is not a security sandbox, matching Omarchy. The supported facade path does
+  not publish sensitive services; true malicious-process isolation is outside
+  1:1 in-process parity.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 374 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 219 shell scripts passed.
+- Diff validation: git diff --check passed for the reviewed change.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+
+- [x] Identify any Aurelia service that owns authentication, credentials,
   secrets, session-lock, polkit, or equivalent sensitive state.
-- [ ] Keep sensitive service objects outside the public service map and ordinary
+- [x] Keep sensitive service objects outside the public service map and ordinary
   visual QML object graph where required.
-- [ ] Stamp sensitive capabilities only from trusted first-party metadata.
-- [ ] Do not allow a user manifest to self-declare trusted authentication
+- [x] Stamp sensitive capabilities only from trusted first-party metadata.
+- [x] Do not allow a user manifest to self-declare trusted authentication
   capability.
-- [ ] Add runtime tests for service lookup, object ownership, manifest mutation,
+- [x] Add runtime tests for service lookup, object ownership, manifest mutation,
   disable, and reload.
-- [ ] Document clearly that visual QML remains unsandboxed.
+- [x] Document clearly that visual QML remains unsandboxed.
 
 Exit gate: sensitive state is not exposed by ordinary third-party facade paths,
 and the limitation is covered by runtime evidence rather than comments only.

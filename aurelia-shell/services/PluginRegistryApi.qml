@@ -23,7 +23,12 @@ QtObject {
     readonly property var installedPlugins: {
         var snapshot = ({})
         var copy = api.cloneJson(api.manifest)
-        if (copy) snapshot[api.pluginId] = copy
+        if (copy) {
+            var keys = Object.keys(copy)
+            for (var i = 0; i < keys.length; i++)
+                if (keys[i].indexOf("__") === 0) delete copy[keys[i]]
+            snapshot[api.pluginId] = copy
+        }
         return snapshot
     }
 
