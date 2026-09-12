@@ -843,6 +843,24 @@ Dependencies: T06.
 
 ### T08. Implement active replacement-bar parity
 
+Status: `[-]` in progress — active replacement-bar task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/PluginHost.qml`, the
+  active Aurelia bar boundary files, and `shell.qml` only where the active-bar
+  seam requires it.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  replacement-bar fixtures, and this tracker.
+- Compatibility boundary: built-in Aurelia bar selection, layout order, logo,
+  widgets, popup ownership, theme behavior, and existing IPC identities must
+  remain unchanged.
+- Runtime behavior impact: active-bar selection/fallback only; no persisted
+  state, installer, package, systemd, or live-session mutation.
+- Persisted user state impact: none.
+- Rollback: revert only T08 active-bar/test/tracker changes if a mandatory
+  gate fails; preserve completed T00–T07 history and user-owned changes.
+
 - [ ] Add a canonical active bar selector equivalent to Omarchy's `bar.id`.
 - [ ] Keep exactly one full bar active at a time.
 - [ ] Preserve the built-in Aurelia bar as the safe fallback.
