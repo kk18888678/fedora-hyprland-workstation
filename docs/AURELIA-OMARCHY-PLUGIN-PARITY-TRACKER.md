@@ -2551,7 +2551,7 @@ Parity status:
 Repository-only structural parity complete; live visual/integration validation
 is deferred pending explicit authorization.
 Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403dc136db7089e
-Final Aurelia branch/SHA: installer-resilience / a35da04d2522cb96b26e270ace4e1aa8c2d049a4
+Final Aurelia branch/SHA: installer-resilience / f77c93d9b5ad2fac345f42b7ff4f043f45502270
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
 Tasks completed: T00 through T29 for the repository-only structural parity target
 Tasks outstanding: authorized live Wayland/visual acceptance; explicit feature
@@ -2565,7 +2565,7 @@ Files changed: canonical bar-default source/loader, generic contract and
 acceptance/cutover tests/fixtures, authoring guide/example, README links, and
 this tracker since the T22 baseline
 Commits: 5dc6667, ac8a332, c9fd0cd, d6c6fc6, 74f67e5, a17af1f, 8e418a1,
-003bccf, 86011a9, c498ee3, b53229f, a35da04
+003bccf, 86011a9, c498ee3, b53229f, a35da04, ee20444, f77c93d
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; live visual behavior remains
 unverified; reference feature omissions remain the explicit product-scope
