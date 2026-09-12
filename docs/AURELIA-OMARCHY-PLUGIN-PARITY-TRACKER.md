@@ -2087,7 +2087,7 @@ Dependencies: T05, T10, T21, T22.
 
 ### T24. Complete the generic plugin test matrix
 
-Execution status: IN PROGRESS
+Execution status: COMPLETE
 
 Checkpoint 2 — generic contract-matrix boundary:
 
@@ -2105,29 +2105,56 @@ Checkpoint 2 — generic contract-matrix boundary:
 - Rollback: revert the matrix commit; no production runtime or live state is
   changed by the task.
 
-- [ ] Add manifest enumeration tests for every Aurelia first-party manifest.
-- [ ] Add entry-point existence and safe-path tests for every declared kind.
-- [ ] Add runtime fixture loading for every supported entry-point kind.
-- [ ] Add broken-plugin survivability fixtures proving that syntax/import,
+- [x] Add manifest enumeration tests for every Aurelia first-party manifest.
+- [x] Add entry-point existence and safe-path tests for every declared kind.
+- [x] Add runtime fixture loading for every supported entry-point kind.
+- [x] Add broken-plugin survivability fixtures proving that syntax/import,
   initialization, service, widget, callback, and reload failures do not crash
   the host or prevent healthy plugins from loading.
-- [ ] Assert host `ping`, `listPlugins`, built-in bar fallback, and at least one
+- [x] Assert host ping, listPlugins, built-in bar fallback, and at least one
   healthy plugin after every contained failure.
-- [ ] Add first-party and third-party registry tests.
-- [ ] Add duplicate-ID, namespace, symlink, malformed JSON, and unsafe-path
+- [x] Add first-party and third-party registry tests.
+- [x] Add duplicate-ID, namespace, symlink, malformed JSON, and unsafe-path
   tests.
-- [ ] Add bar-widget catalog, placement, settings, multiple-instance, and
+- [x] Add bar-widget catalog, placement, settings, multiple-instance, and
   popup-routing tests.
-- [ ] Add replacement-bar fallback and lifecycle tests.
-- [ ] Add scoped-facade and capability-revocation tests.
-- [ ] Add service isolation tests for every sensitive service.
-- [ ] Add add/update/remove/clone/rollback CLI tests using local Git fixtures.
-- [ ] Add development reload tests.
-- [ ] Add cross-plugin compatibility tests for every retained Aurelia feature.
-- [ ] Keep tests deterministic and isolated from the live workstation.
+- [x] Add replacement-bar fallback and lifecycle tests.
+- [x] Add scoped-facade and capability-revocation tests.
+- [x] Add service isolation tests for every sensitive service.
+- [x] Add add/update/remove/clone/rollback CLI tests using local Git fixtures.
+- [x] Add development reload tests.
+- [x] Add cross-plugin compatibility tests for every retained Aurelia feature.
+- [x] Keep tests deterministic and isolated from the live workstation.
 
 Exit gate: the generic plugin contract is tested independently of any one
-feature plugin, and all feature-specific suites remain green.
+feature plugin, and all feature-specific suites remain green. PASS.
+
+Evidence:
+
+- Added tests/test_plugin_contract_matrix.sh and the disposable
+  tests/fixtures/plugin-contract-matrix/shell.qml.
+- The matrix enumerates all 22 first-party manifests, validates each through
+  the canonical CLI boundary, checks each declared kind's entry point, and
+  rejects symlinked plugin trees.
+- Isolated CLI fixtures reject malformed JSON, reserved namespaces, unsafe
+  entry-point paths, and symlinked entry points. An isolated real registry
+  fixture rejects duplicate IDs while retaining the valid generation.
+- The runtime fixture loads bar, bar-widget, panel, overlay, menu, and service
+  entry points through the real PluginHost; it verifies ping/list projection,
+  open/close routing, callback quarantine, targeted reload recovery, healthy
+  service/widget retention, replacement-bar quarantine, and built-in fallback.
+- Existing generic suites are linked by the matrix coverage map for registry
+  source separation, survivability, bar metadata/placement/settings,
+  replacement lifecycle, facades, sensitive services, lifecycle
+  add/update/remove/rollback, watcher reload, and migration preservation.
+- T24 matrix: 82 passed, 0 failed.
+- Full Aurelia suite: 510 passed, 0 failed.
+- Repository suite: 228 passed, 0 failed.
+- Repository-wide shell syntax: 230 scripts passed.
+- Shellcheck was not installed and was skipped.
+- No live shell, installer, packages, systemd/greetd state, or user
+  configuration was touched.
+- Checkpoint: c9fd0cd (chore(checkpoint): freeze generic plugin test matrix boundary).
 
 Dependencies: T02 through T23.
 
