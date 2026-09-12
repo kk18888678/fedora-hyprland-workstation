@@ -8,6 +8,7 @@ Usage: aurelia-plugin <command> [arguments]
 Commands:
   validate [--first-party] [--manifest-file <name>] <directory>
   list
+  catalog [--json]
   rescan
   enable <plugin-id>
   disable <plugin-id>
@@ -235,6 +236,34 @@ aurelia_plugin_main() {
             [[ "$manifest_file_explicit" -eq 1 ]] && require_directory_name=0
            aurelia_plugin_validate_manifest "$validate_path" "$allow_first_party" "$require_directory_name" "$manifest_name" || return 1
             printf 'Valid Aurelia plugin: %s\n' "$(jq -r '.id' "$validate_path/$manifest_name")"
+            ;;
+        catalog)
+            [[ $# -eq 0 || ( $# -eq 1 && "$1" == "--json" ) ]] || {
+                aurelia_plugin_fail "Usage: aurelia-plugin catalog [--json]"
+                return 1
+            }
+            local catalog_shell_cli catalog_json
+            catalog_shell_cli="$(aurelia_plugin_shell_cli)" || return 1
+            catalog_json="$("$catalog_shell_cli" shell catalogPlugins)" || return 1
+            jq -e 'type == "object" and (.plugins | type == "array") and (.rejected | type == "array") and (.scan | type == "object")' \
+                <<<"$catalog_json" >/dev/null || {
+                aurelia_plugin_fail "Resident shell returned an invalid plugin catalog"
+                return 1
+            }
+            if [[ "${1:-}" == "--json" ]]; then
+                printf '%s\n' "$catalog_json"
+            else
+                printf 'Plugin catalog (%s plugins, scan=%s)\n' \
+                    "$(jq -r '.plugins | length' <<<"$catalog_json")" \
+                    "$(jq -r '.scan.state // "unknown"' <<<"$catalog_json")"
+                printf 'ID\tVERSION\tSOURCE\tKINDS\tROOT\n'
+                jq -r '.plugins[] | [.id, .version, (if .firstParty then "first-party" else "third-party" end), (.kinds | join(",")), .sourceRoot] | @tsv' \
+                    <<<"$catalog_json"
+                if [[ "$(jq -r '.rejected | length' <<<"$catalog_json")" -gt 0 ]]; then
+                    printf '\nRejected manifests:\n'
+                    jq -r '.rejected[] | [.manifestPath, .reason] | @tsv' <<<"$catalog_json"
+                fi
+            fi
             ;;
         list)
             [[ $# -eq 0 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin list"; return 1; }

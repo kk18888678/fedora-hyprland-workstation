@@ -86,7 +86,8 @@ ShellRoot {
             results: results,
             discoveryScanFinished: root.scanDone,
             discoveredCount: Object.keys(root.runtimeRegistry.installedPlugins || {}).length,
-            discoveryError: String(root.runtimeRegistry.lastError || "")
+            discoveryError: String(root.runtimeRegistry.lastError || ""),
+            catalog: root.runtimeRegistry.pluginCatalog()
         })
     }
 

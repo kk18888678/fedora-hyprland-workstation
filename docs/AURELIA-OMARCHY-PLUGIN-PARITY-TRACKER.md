@@ -648,7 +648,7 @@ Dependencies: T03.
 
 ### T05. Add a single source-aware plugin catalog
 
-Status: `[-]` in progress — source-aware plugin catalog task.
+Status: `[x]` complete — source-aware plugin catalog task.
 
 CP2 pre-change boundary:
 
@@ -665,16 +665,44 @@ CP2 pre-change boundary:
 - Rollback: revert only T05 catalog/CLI/test/tracker changes if a mandatory
   gate fails; preserve completed T00–T04 history and user-owned changes.
 
-- [ ] Add a catalog projection containing ID, name, description, kinds, source
+CP3 post-change evidence:
+
+- Focused catalog gate: test_plugin_catalog.sh — 4 assertions passed, 0
+  failed.
+- Catalog coverage: registry projection includes ID, name, version, author,
+  license, description, kinds, canonical entry points, bar metadata, source
+  root, manifest path, enablement, lifecycle state, failures, scan state, and
+  rejected-manifest diagnostics.
+- Runtime coverage: a real offscreen registry scan produced a 21-plugin
+  catalog; legacy Aurelia bar-widget keys were projected as canonical
+  barWidget keys without changing the source manifests.
+- CLI coverage: catalog --json and the human-readable catalog consume a
+  resident shell catalog response; existing listPlugins output remains
+  available.
+- Read-only boundary: catalog IPC reads PluginRegistry directly and does not
+  invoke plugin visibility/callback methods.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 336 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 207 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+
+- [x] Add a catalog projection containing ID, name, description, kinds, source
   root, manifest path, entry points, first-party status, version, and bar
   metadata.
-- [ ] Make CLI commands and management UI consume the catalog instead of
+- [x] Make CLI commands and management UI consume the catalog instead of
   reimplementing manifest walking.
-- [ ] Expose machine-readable JSON and human-readable output.
-- [ ] Include rejected manifests and reasons in a diagnostic projection without
+- [x] Expose machine-readable JSON and human-readable output.
+- [x] Include rejected manifests and reasons in a diagnostic projection without
   making rejected code loadable.
-- [ ] Keep catalog generation read-only and bounded.
-- [ ] Add duplicate-ID and reserved-namespace catalog tests.
+- [x] Keep catalog generation read-only and bounded.
+- [x] Add duplicate-ID and reserved-namespace catalog tests.
 
 Exit gate: every plugin-management consumer uses the same catalog projection.
 

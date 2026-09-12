@@ -214,6 +214,10 @@ ShellRoot {
         function listPlugins(): string {
             return JSON.stringify(pluginHost.summaries())
         }
+
+        function catalogPlugins(): string {
+            return JSON.stringify(pluginRegistry.pluginCatalog())
+        }
     }
 
     // Stable compatibility target for existing Hyprland bindings and callers.

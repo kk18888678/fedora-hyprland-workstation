@@ -327,15 +327,23 @@ Item {
         return outcome.ok ? String(outcome.value || "") : "error"
     }
 
-    function summaries() {
-        if (!registry) return []
-        var result = registry.pluginSummaries()
+    function catalog() {
+        if (!registry) return { plugins: [], rejected: [], scan: {} }
+        var catalog = typeof registry.pluginCatalog === "function"
+            ? registry.pluginCatalog()
+            : { plugins: registry.pluginSummaries(), rejected: [], scan: {} }
+        var result = catalog.plugins || []
         var bar = host.activeBar()
         for (var i = 0; i < result.length; i++) {
             result[i].loaded = !!itemFor(result[i].id) || !!(bar && typeof bar.hasWidget === "function" && bar.hasWidget(result[i].id))
             result[i].visible = isVisible(result[i].id)
         }
-        return result
+        catalog.plugins = result
+        return catalog
+    }
+
+    function summaries() {
+        return host.catalog().plugins
     }
 
     Connections {

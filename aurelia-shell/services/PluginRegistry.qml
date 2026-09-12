@@ -36,6 +36,8 @@ QtObject {
     property string scanState: "idle"
     property string scanFailureClass: ""
     property int rejectedCount: 0
+    property var rejectedPlugins: []
+    readonly property int rejectedDiagnosticLimit: 128
     // Runtime failures are deliberately ephemeral. They keep a bad entry
     // point out of the current generation without changing shell.json,
     // enabled state, or any user-owned data.
@@ -447,6 +449,82 @@ QtObject {
         return manifest && isValidIconName(manifest.icon) ? manifest.icon : ""
     }
 
+    function boundedDiagnosticPath(value) {
+        var path = String(value || "").replace(/\s+/g, " ").trim()
+        return path.length > 1024 ? path.substring(0, 1024) + "..." : path
+    }
+
+    function appendRejectedPlugin(sourcePath, manifestPath, reason) {
+        var next = rejectedPlugins.slice()
+        if (next.length < rejectedDiagnosticLimit) {
+            next.push({
+                sourcePath: boundedDiagnosticPath(sourcePath),
+                manifestPath: boundedDiagnosticPath(manifestPath || sourcePath),
+                reason: boundedFailureDetail(reason)
+            })
+        }
+        rejectedPlugins = next
+    }
+
+    function catalogEntryPoints(manifest) {
+        var result = {}
+        if (!manifest || !Array.isArray(manifest.kinds)) return result
+        for (var i = 0; i < manifest.kinds.length; i++) {
+            var kind = manifest.kinds[i]
+            var key = kind === "bar-widget" ? "barWidget" : kind
+            var entryPoint = entryPointForKind(manifest, kind)
+            if (isSafeEntryPoint(entryPoint)) result[key] = entryPoint
+        }
+        return result
+    }
+
+    function pluginCatalog() {
+        var plugins = []
+        var ids = Object.keys(installedPlugins)
+        ids.sort(function(left, right) {
+            var leftName = String(installedPlugins[left].name || left).toLowerCase()
+            var rightName = String(installedPlugins[right].name || right).toLowerCase()
+            return leftName === rightName ? left.localeCompare(right) : leftName.localeCompare(rightName)
+        })
+        for (var i = 0; i < ids.length; i++) {
+            var manifest = installedPlugins[ids[i]]
+            var sourceRoot = boundedDiagnosticPath(manifest.__sourceDir || "")
+            var manifestPath = boundedDiagnosticPath(manifest.__manifestPath ||
+                (sourceRoot ? sourceRoot + "/manifest.json" : ""))
+            plugins.push({
+                id: ids[i],
+                name: manifest.name,
+                version: manifest.version,
+                author: manifest.author || "",
+                license: manifest.license || "",
+                description: manifest.description || "",
+                icon: iconForManifest(manifest),
+                kinds: manifest.kinds.slice(),
+                entryPoints: catalogEntryPoints(manifest),
+                barWidget: hasField(manifest, "barWidget") ? cloneManifest(manifest.barWidget) : null,
+                sourceRoot: sourceRoot,
+                manifestPath: manifestPath,
+                firstParty: manifest.__isFirstParty === true,
+                enabled: isEnabled(ids[i]),
+                keepLoaded: manifest.keepLoaded === true,
+                failures: runtimeFailuresFor(ids[i])
+            })
+        }
+        var rejected = []
+        for (var rejectedIndex = 0; rejectedIndex < rejectedPlugins.length; rejectedIndex++)
+            rejected.push(cloneManifest(rejectedPlugins[rejectedIndex]))
+        return {
+            plugins: plugins,
+            rejected: rejected,
+            scan: {
+                state: scanState,
+                failureClass: scanFailureClass,
+                error: lastError,
+                rejectedCount: rejectedCount
+            }
+        }
+    }
+
     readonly property var pluginIds: {
         var revision = registryRevision
         var ids = Object.keys(installedPlugins)
@@ -465,29 +543,7 @@ QtObject {
     }
 
     function pluginSummaries() {
-        var result = []
-        var ids = Object.keys(installedPlugins)
-        ids.sort(function(left, right) {
-            var leftName = String(installedPlugins[left].name || left).toLowerCase()
-            var rightName = String(installedPlugins[right].name || right).toLowerCase()
-            return leftName === rightName ? left.localeCompare(right) : leftName.localeCompare(rightName)
-        })
-        for (var i = 0; i < ids.length; i++) {
-            var manifest = installedPlugins[ids[i]]
-            result.push({
-                id: ids[i],
-                name: manifest.name,
-                version: manifest.version,
-                description: manifest.description || "",
-                icon: iconForManifest(manifest),
-                kinds: manifest.kinds.slice(),
-                firstParty: manifest.__isFirstParty === true,
-                enabled: isEnabled(ids[i]),
-                keepLoaded: manifest.keepLoaded === true,
-                failures: runtimeFailuresFor(ids[i])
-            })
-        }
-        return result
+        return pluginCatalog().plugins
     }
 
     function setPluginEnabled(id, enabled) {
@@ -510,15 +566,18 @@ QtObject {
         var lines = String(text || "").split("\n")
         var discovered = {}
         registry.rejectedCount = 0
+        registry.rejectedPlugins = []
         var emptyMarker = false
         var malformedOutput = false
         var currentSource = ""
+        var currentManifestPath = ""
         var currentFirstParty = false
         var currentJson = []
 
         function flush() {
             if (currentSource === "") return
             var raw = currentJson.join("\n").trim()
+            var manifestPath = currentManifestPath || (currentSource + "/manifest.json")
             try {
                 var parsed = JSON.parse(raw)
                 var validated = registry.validateManifest(parsed, currentSource, currentFirstParty)
@@ -526,19 +585,24 @@ QtObject {
                     registry.rejectedCount++
                     console.warn("[PLUGIN] aurelia.plugin.rejected path=" + currentSource + " reason=manifest_validation")
                     registry.pluginRejected(currentSource, "manifest validation failed")
+                    registry.appendRejectedPlugin(currentSource, manifestPath, "manifest validation failed")
                 } else if (discovered[validated.id]) {
                     registry.rejectedCount++
                     console.warn("[PLUGIN] aurelia.plugin.rejected path=" + currentSource + " reason=duplicate_id")
                     registry.pluginRejected(currentSource, "plugin id is duplicated")
+                    registry.appendRejectedPlugin(currentSource, manifestPath, "plugin id is duplicated")
                 } else {
+                    validated.__manifestPath = manifestPath
                     discovered[validated.id] = validated
                 }
             } catch (e) {
                 registry.rejectedCount++
                 console.warn("[PLUGIN] aurelia.plugin.rejected path=" + currentSource + " reason=invalid_json")
                 registry.pluginRejected(currentSource, "manifest is not valid JSON")
+                registry.appendRejectedPlugin(currentSource, manifestPath, "manifest is not valid JSON")
             }
             currentSource = ""
+            currentManifestPath = ""
             currentJson = []
         }
 
@@ -554,6 +618,13 @@ QtObject {
                 if (currentSource !== "") malformedOutput = true
                 registry.rejectedCount++
                 registry.pluginRejected(rejectedMarker[1], "manifest rejected by canonical validator")
+                registry.appendRejectedPlugin(rejectedMarker[1], rejectedMarker[1], "manifest rejected by canonical validator")
+                continue
+            }
+            var manifestMarker = line.match(/^===AURELIA_PLUGIN_MANIFEST::(.*)===$/)
+            if (manifestMarker) {
+                if (currentSource === "" || currentManifestPath !== "") malformedOutput = true
+                else currentManifestPath = manifestMarker[1]
                 continue
             }
             var start = line.match(/^===([a-z-]+)::(.+)===$/)
@@ -562,6 +633,7 @@ QtObject {
                 flush()
                 currentFirstParty = start[1] === "firstparty"
                 currentSource = start[2].replace(/\/$/, "")
+                currentManifestPath = ""
                 currentJson = []
                 continue
             }
@@ -649,6 +721,7 @@ QtObject {
         "    fi",
         "    emitted=$((emitted + 1))",
         "    printf '===%s::%s===\\n' \"$source_kind\" \"$plugin_dir\"",
+        "    printf '===AURELIA_PLUGIN_MANIFEST::%s===\\n' \"$manifest_path\"",
         "    cat \"$manifest_path\"",
         "    printf '\\n===AURELIA_PLUGIN_END===\\n'",
         "  }",

@@ -82,7 +82,8 @@ ShellRoot {
             lastError: root.runtimeRegistry.lastError,
             rejectedCount: root.runtimeRegistry.rejectedCount,
             ids: ids,
-            sources: sources
+            sources: sources,
+            catalog: root.runtimeRegistry.pluginCatalog()
         })
     }
 
