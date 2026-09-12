@@ -208,7 +208,7 @@ ShellRoot {
         }
 
         function barThemeStatus(): string {
-            var bar = pluginHost.itemFor("aurelia.bar")
+            var bar = pluginHost.activeBar()
             if (!bar || typeof bar.themeStatus !== "function") return "not-loaded"
             return bar.themeStatus()
         }

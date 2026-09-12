@@ -26,10 +26,11 @@ if grep -q 'property bool reloading: false' "$host_root" &&
    grep -q 'property var reloadingPluginIds: null' "$host_root" &&
    grep -q 'function beginReload(pluginIds)' "$host_root" &&
    grep -q 'function finishReload()' "$host_root" &&
-   grep -q 'id !== "aurelia.bar"' "$host_root" &&
-   grep -q 'id !== "aurelia.notifications"' "$host_root" &&
+   grep -q 'property string defaultBarId' "$host_root" &&
+   grep -q '!host.keepsResident' "$host_root" &&
+   grep -q 'instanceId === host.defaultBarId' "$host_root" &&
    grep -q 'reloadingPluginIds\[instanceId\]' "$host_root"; then
-    pass "PluginHost keeps the resident bar and notification DBus owner mounted while scoping Loader reloads to changed ids"
+    pass "PluginHost keeps the default bar and keepLoaded owners mounted while scoping Loader reloads to changed ids"
 else
     fail "PluginHost targeted reload or resident-bar lifecycle is incomplete"
 fi

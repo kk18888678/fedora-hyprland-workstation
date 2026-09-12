@@ -903,7 +903,7 @@ Dependencies: T06, T07.
 
 ### T09. Remove hardcoded host assumptions from generic lifecycle routing
 
-Status: `[-]` in progress — generic lifecycle-routing task.
+Status: `[x]` complete — generic lifecycle-routing task.
 
 CP2 pre-change boundary:
 
@@ -921,14 +921,36 @@ CP2 pre-change boundary:
 - Rollback: revert only T09 routing/test/tracker changes if a mandatory gate
   fails; preserve completed T00–T08 history and user-owned changes.
 
-- [ ] Replace generic routing that is hardcoded to `aurelia.bar` with registry
+CP3 post-change evidence:
+
+- Focused generic-routing gate: test_generic_routing.sh — 3 assertions
+  passed, 0 failed.
+- Generic routing now resolves the default bar through one host seam, uses
+  active-bar resolution for status, and derives resident reload behavior from
+  keepLoaded semantics rather than naming the notification service.
+- Compatibility IPC aliases remain explicit forwarding adapters; feature-owned
+  backend commands and plugin IDs were not changed.
+- Existing generic lifecycle fixture covers new panel/service/menu/widget kinds
+  without adding an ID-specific host branch.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 349 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 211 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+- [x] Replace generic routing that is hardcoded to `aurelia.bar` with registry
   ownership and active-bar resolution.
-- [ ] Keep compatibility IPC targets as thin forwarding aliases.
-- [ ] Move plugin-specific auxiliary relationships into manifest metadata or
+- [x] Keep compatibility IPC targets as thin forwarding aliases.
+- [x] Move plugin-specific auxiliary relationships into manifest metadata or
   explicit, narrow compatibility adapters.
-- [ ] Ensure adding a new panel, service, menu, overlay, bar-widget, or bar
+- [x] Ensure adding a new panel, service, menu, overlay, bar-widget, or bar
   option does not require editing unrelated host branches.
-- [ ] Preserve Aurelia's feature-specific backend ownership and existing IPC
+- [x] Preserve Aurelia's feature-specific backend ownership and existing IPC
   IDs.
 
 Exit gate: a new fixture plugin can exercise its kind without adding a new

@@ -19,6 +19,9 @@ Item {
     // null means a full plugin reload. A map means only the listed plugin
     // ids are being recreated; unrelated resident surfaces stay mounted.
     property var reloadingPluginIds: null
+    // One compatibility identity for the built-in fallback. Generic routing
+    // uses this seam instead of repeating a plugin id in lifecycle branches.
+    property string defaultBarId: "aurelia.bar"
 
     signal pluginLoaded(string pluginId, string kind)
     signal pluginLoadFailed(string pluginId, string kind, string phase, string detail)
@@ -27,8 +30,8 @@ Item {
     readonly property string selectedBarId: {
         var config = registry && registry.shellConfig ? registry.shellConfig.config : null
         var bar = config && config.bar ? config.bar : null
-        var id = bar && typeof bar.id === "string" ? bar.id : "aurelia.bar"
-        return /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(id) ? id : "aurelia.bar"
+        var id = bar && typeof bar.id === "string" ? bar.id : host.defaultBarId
+        return /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(id) ? id : host.defaultBarId
     }
     property string failedBarId: ""
     readonly property bool selectedBarAvailable: {
@@ -42,7 +45,7 @@ Item {
     }
     readonly property string activeBarId: selectedBarId !== failedBarId && selectedBarAvailable
         ? selectedBarId
-        : "aurelia.bar"
+        : host.defaultBarId
 
     function copyMap(source) {
         var result = {}
@@ -95,7 +98,7 @@ Item {
         }
 
         var hadInstance = !!host.instances[pluginId]
-        if (pluginId === host.activeBarId && pluginId !== "aurelia.bar") host.failedBarId = pluginId
+        if (pluginId === host.activeBarId && pluginId !== host.defaultBarId) host.failedBarId = pluginId
 
         var nextInstances = host.copyMap(host.instances)
         delete nextInstances[pluginId]
@@ -160,7 +163,7 @@ Item {
         // that owner resident during targeted plugin reloads; its separate bar
         // widget still reloads through BarWidgetSlot. A full shell restart is
         // the explicit boundary for changing the service entry point.
-        if (reloading && isReloadTarget && id !== "aurelia.bar" && id !== "aurelia.notifications" &&
+        if (reloading && isReloadTarget && id !== host.defaultBarId &&
             !host.keepsResident(id)) return false
         if (!manifest || !registry.isEnabled(id)) return false
         var failureRevision = registry ? registry.runtimeFailureRevision : 0
@@ -200,13 +203,13 @@ Item {
             nextPendingOpens[pendingId] = pendingOpens[pendingId]
         }
         for (var instanceId in instances) {
-            // A full reload preserves the bar host; a targeted Bar.qml change
-            // is allowed to recreate aurelia.bar itself.
+            // A full reload preserves the default bar host; a targeted bar
+            // change is allowed to recreate that default bar itself.
             var reloadInstance = reloadingPluginIds === null
-                ? instanceId !== "aurelia.bar" && instanceId !== "aurelia.notifications" &&
+                ? instanceId !== host.defaultBarId &&
                     !host.keepsResident(instanceId)
                 : reloadingPluginIds[instanceId] === true &&
-                    instanceId !== "aurelia.notifications" && !host.keepsResident(instanceId)
+                    (instanceId === host.defaultBarId || !host.keepsResident(instanceId))
             if (!reloadInstance) nextInstances[instanceId] = instances[instanceId]
             else host.pluginUnloaded(instanceId,
                 registry && typeof registry.primaryKind === "function"
@@ -402,7 +405,7 @@ Item {
         function onPluginFailureRecorded(pluginId, kind) {
             if (String(pluginId || "") === host.selectedBarId &&
                 (String(kind || "") === "bar" || String(kind || "") === "bar-widget") &&
-                host.selectedBarId !== "aurelia.bar") host.failedBarId = host.selectedBarId
+                host.selectedBarId !== host.defaultBarId) host.failedBarId = host.selectedBarId
         }
     }
 
