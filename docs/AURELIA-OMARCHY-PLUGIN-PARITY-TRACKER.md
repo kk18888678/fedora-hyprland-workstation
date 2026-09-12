@@ -501,6 +501,26 @@ Dependencies: T02.
 
 ### T03. Implement one canonical manifest validator
 
+Status: `[-]` in progress — CP2 recorded; canonical manifest-validation task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/bin/lib/aurelia-plugin/manifest.sh`,
+  `aurelia-shell/services/PluginRegistry.qml`, and the runtime scan command
+  wiring in that registry.
+- Allowed test files: `aurelia-shell/tests/`, including an isolated manifest
+  validator fixture, and this tracker.
+- Compatibility boundary: canonical `entryPoints.barWidget` is added as the
+  preferred form; existing `entryPoints["bar-widget"]` manifests remain
+  readable, and legacy bar-widget metadata omissions remain loadable until the
+  later migration/metadata tasks.
+- Runtime behavior impact: validation and rejection only; no plugin source
+  execution, loader activation, persisted-state write, or live-session change.
+- Persisted user state impact: none.
+- Rollback: revert only T03 validator/test/tracker changes if a mandatory gate
+  fails; preserve the completed T00/T01/T02/T02A history and user-owned
+  changes.
+
 - [ ] Make runtime and CLI validation enforce the same manifest contract.
 - [ ] Validate schema version, ID, name, version, description, kinds, entry
   points, safe relative paths, regular-file entry points, and symlink policy.
