@@ -132,7 +132,11 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
         .sources["aurelia.duplicate"] == $first and
         .sources["aurelia.grouped"] == $grouped and
         .sources["aurelia.sibling"] == $sibling and
-        .sources["fixture.third"] == $third
+        .sources["fixture.third"] == $third and
+        (.catalog.plugins | length == 5) and
+        ([.catalog.plugins[] | select(.id == "aurelia.sibling")][0].entryPoints.barWidget == "Sibling.qml") and
+        ([.catalog.plugins[] | select(.id == "aurelia.sibling")][0].manifestPath == ($sibling + "/Sibling.manifest.json")) and
+        (.catalog.rejected | length >= 3)
     ' "$runtime_result" >/dev/null; then
     pass "[isolated-runtime] grouped, sibling, duplicate, first-party precedence, third-party, and rejected discovery cases pass"
 else
