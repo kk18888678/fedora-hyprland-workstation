@@ -2062,8 +2062,8 @@ editing unrelated Aurelia default lists or host registration branches. PASS.
 
 Evidence:
 
-- Added \`aurelia-shell/config/bar-default.json\` as the canonical repository
-  default document and \`BarDefaultConfig.qml\` as its read-only, validated
+- Added `aurelia-shell/config/bar-default.json` as the canonical repository
+  default document and `BarDefaultConfig.qml` as its read-only, validated
   loader with an embedded recovery value.
 - ShellConfig and the resident bar consume the loader; feature-specific
   compatibility seams remain untouched.
@@ -2077,7 +2077,7 @@ Evidence:
   widget IDs in an isolated temporary XDG environment.
 - No live shell, installer, packages, systemd/greetd state, or user
   configuration was touched.
-- Checkpoint: \`5dc6667\` (\`chore(checkpoint): freeze canonical bar defaults boundary\`).
+- Checkpoint: `5dc6667` (`chore(checkpoint): freeze canonical bar defaults boundary`).
 
 Dependencies: T05, T10, T21, T22.
 
@@ -2086,6 +2086,24 @@ Dependencies: T05, T10, T21, T22.
 ## Phase 7 — Complete verification, documentation, and cutover
 
 ### T24. Complete the generic plugin test matrix
+
+Execution status: IN PROGRESS
+
+Checkpoint 2 — generic contract-matrix boundary:
+
+- Allowed scope: isolated Aurelia test modules, disposable plugin fixtures,
+  deterministic local Git fixtures, and the test runner/tracker.
+- Compatibility boundary: tests must not mutate the live workstation, launch
+  the production shell, alter installed/user plugin trees, or change any
+  feature implementation.
+- Survivability boundary: every contained fault must be asserted against host
+  liveness, healthy-plugin availability, and built-in bar fallback before a
+  failure is considered contained.
+- Escalation rule: if the matrix exposes a production defect, stop at the
+  failing invariant and create a separate corrective checkpoint before any
+  production edit.
+- Rollback: revert the matrix commit; no production runtime or live state is
+  changed by the task.
 
 - [ ] Add manifest enumeration tests for every Aurelia first-party manifest.
 - [ ] Add entry-point existence and safe-path tests for every declared kind.
