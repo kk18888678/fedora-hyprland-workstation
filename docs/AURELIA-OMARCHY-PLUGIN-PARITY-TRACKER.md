@@ -2334,6 +2334,21 @@ Dependencies: T24, T25, T26.
 
 ### T28. Final 1:1 parity audit and release gate
 
+Execution status: IN PROGRESS
+
+Checkpoint 2 — final audit boundary:
+
+- Allowed scope: read-only comparison against the pinned Omarchy reference,
+  repository test execution, tracker/completion evidence, and final risk
+  documentation.
+- Compatibility boundary: no production code, plugin source, manifest,
+  configuration, installer, package, live Wayland, systemd/greetd state, or
+  user data may be changed for this audit.
+- Evidence boundary: distinguish static comparison, isolated runtime evidence,
+  and unavailable live visual/integration evidence; do not claim 1:1 behavior
+  from source resemblance alone.
+- Rollback: revert the audit documentation commit; no runtime state changes.
+
 - [ ] Re-run the complete manifest and structure comparison against the pinned
   Omarchy reference.
 - [ ] Verify every Omarchy plugin-platform capability has an Aurelia owner or
