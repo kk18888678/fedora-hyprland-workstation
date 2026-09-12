@@ -32,6 +32,7 @@ QtObject {
     property var installedPlugins: ({})
     property PluginProvenance cloneProvenance: PluginProvenance { registry: registry }
     property PluginCatalogProjection catalogProjection: PluginCatalogProjection { registry: registry }
+    property PluginWatcherPolicy watcherPolicy: PluginWatcherPolicy { registry: registry }
     property int registryRevision: 0
     property bool scanning: false
     property string lastError: ""
@@ -46,6 +47,7 @@ QtObject {
     property var runtimeFailures: ({})
     property int runtimeFailureRevision: 0
     property bool localPluginWatcherUnavailable: false
+    property string localPluginWatcherFailureClass: ""
     readonly property bool hotReloadEnabled: Quickshell.env("AURELIA_HOT_RELOAD") === "1"
         || Quickshell.env("AURELIA_DEVELOPMENT_MODE") === "1"
 
@@ -54,6 +56,7 @@ QtObject {
     signal pluginRejected(string sourcePath, string reason)
     signal pluginFailureRecorded(string pluginId, string kind, string phase, string sourcePath, string entryPoint, string detail)
     signal localPluginChanged(string pluginId)
+    signal localPluginTreeChanged()
 
     property Connections shellConfigConnection: Connections {
         target: registry.shellConfig
@@ -88,24 +91,7 @@ QtObject {
         return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value) && value.indexOf("..") === -1
     }
 
-    function localPluginIdForPath(filePath) {
-        var path = String(filePath || "").trim()
-        var roots = [firstPartyDir, userPluginsDir]
-        for (var i = 0; i < roots.length; i++) {
-            var base = String(roots[i] || "").replace(/\/$/, "") + "/"
-            if (base === "/" || path.indexOf(base) !== 0) continue
-
-            var relative = path.slice(base.length)
-            // Hidden entries and checkout metadata are not plugin changes.
-            if (!relative || relative.indexOf(".") === 0 || relative.indexOf("/.git/") !== -1 || relative.endsWith("/.git")) return ""
-            if (!/\.(qml|js|json|jsonc|lua|conf)$/.test(relative)) return ""
-
-            var slash = relative.indexOf("/")
-            var pluginId = slash === -1 ? relative : relative.slice(0, slash)
-            return isValidPluginId(pluginId) ? pluginId : ""
-        }
-        return ""
-    }
+    function localPluginIdForPath(filePath) { return watcherPolicy.pluginIdForPath(filePath) }
 
     function isValidIconName(value) {
         return typeof value === "string" && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value)
@@ -917,13 +903,17 @@ QtObject {
             onRead: function(path) {
                 var pluginId = registry.localPluginIdForPath(path)
                 if (pluginId) registry.localPluginChanged(pluginId)
+                else if (registry.watcherPolicy.isWatchedPath(path)) registry.localPluginTreeChanged()
             }
         }
 
         onExited: function(code) {
-            if (code === 127) {
+            if (code !== 0) {
                 registry.localPluginWatcherUnavailable = true
-                registry.lastError = "Automatic Aurelia plugin reload is unavailable: inotify-tools is not installed."
+                registry.localPluginWatcherFailureClass = code === 127 ? "tooling-unavailable" : "watcher-exited"
+                registry.lastError = code === 127
+                    ? "Automatic Aurelia plugin reload is unavailable: inotify-tools is not installed."
+                    : "Automatic Aurelia plugin reload stopped unexpectedly; use explicit rescan."
                 return
             }
             if (registry.hotReloadEnabled && !registry.localPluginWatcherUnavailable) localPluginWatcherRestart.restart()

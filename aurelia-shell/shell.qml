@@ -149,6 +149,11 @@ ShellRoot {
             root.queuePluginReload(pluginId)
         }
 
+        function onLocalPluginTreeChanged() {
+            console.info("[PLUGIN] aurelia.plugin.tree_changed reload=full")
+            root.requestFullPluginReload()
+        }
+
         function onScanFinished() {
             if (root.pluginReloading) {
                 root.pluginReloading = false

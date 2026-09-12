@@ -1759,7 +1759,7 @@ Dependencies: T05, T12, T17, T18.
 
 ### T20. Match development reload behavior safely
 
-Status: `[-]` in progress — bounded plugin watcher and targeted reload task.
+Status: `[x]` complete — CP2 and CP3 passed; bounded plugin watcher and targeted reload task.
 
 CP2 pre-change boundary:
 
@@ -1785,18 +1785,45 @@ CP2 pre-change boundary:
   tests, and tracker if a gate fails; preserve all prior lifecycle and host
   commits.
 
-- [ ] Define the production/development watcher policy explicitly against the
+- [x] Define the production/development watcher policy explicitly against the
   Omarchy reference.
-- [ ] Watch only first-party and user plugin trees; never enable broad
+- [x] Watch only first-party and user plugin trees; never enable broad
   Quickshell core file watching as a replacement.
-- [ ] Debounce atomic saves.
-- [ ] Support targeted plugin reload and explicit full rescan.
-- [ ] Keep stateful and sensitive services alive across unrelated reloads.
-- [ ] Revoke and recreate facades when plugin capability profiles change.
-- [ ] Preserve the current Aurelia restart boundary for `shell.qml`, shared
+- [x] Debounce atomic saves.
+- [x] Support targeted plugin reload and explicit full rescan.
+- [x] Keep stateful and sensitive services alive across unrelated reloads.
+- [x] Revoke and recreate facades when plugin capability profiles change.
+- [x] Preserve the current Aurelia restart boundary for `shell.qml`, shared
   services, theme core, and Hyprland Lua.
-- [ ] Add tests for changed QML, JS, JSON, Lua/config files, deletion, rename,
+- [x] Add tests for changed QML, JS, JSON, Lua/config files, deletion, rename,
   invalid intermediate writes, and watcher failure.
+
+Evidence:
+- Tests: `bash aurelia-shell/tests/test_plugin_watcher.sh` — `4` passed, `0`
+  failed; `bash aurelia-shell/tests/run.sh` — `418` passed, `0` failed; root
+  `bash tests/run.sh` — `228` passed, `0` failed.
+- Runtime/fixture evidence: the real `PluginWatcherPolicy.qml` mapped direct,
+  grouped, sibling-ambiguous, user, new first-party, hidden staging, `.git`,
+  and out-of-scope paths across QML/JS/JSON/Lua/conf extensions. Known paths
+  target one plugin; ambiguous/new grouped paths request a full rescan. Static
+  and existing reload fixtures verify the 150ms debounce, targeted Loader
+  boundary, resident-service retention, facade sync/revocation, and explicit
+  fail-closed watcher state. No live watcher or active session was touched.
+- Files changed: `PluginWatcherPolicy.qml`, registry watcher mapping/failure
+  state and signal wiring, shell full-rescan handling, services `qmldir`, the
+  watcher fixture/test, the Aurelia test runner, and this tracker.
+- User-visible behavior changed: no in normal operation; development-mode
+  plugin changes now map grouped/sibling paths correctly and watcher failure
+  reports an explicit unavailable state instead of retrying indefinitely.
+- Existing Aurelia feature impact: no regressions observed; shell core restart
+  boundaries, bar geometry, resident notification/service ownership, scoped
+  facade behavior, and plugin IPC remain unchanged.
+- Rollback/migration evidence: watcher events are read-only and do not modify
+  persisted state; only exact plugin IDs are targeted, otherwise the existing
+  bounded full-rescan path is used. Pre-change checkpoint: `edcfbae`.
+- Review: CP3 passed. Repository-wide shell syntax passed for `226` scripts;
+  `git diff --check` passed; ShellCheck was unavailable and was not installed;
+  no temporary repository artifacts remain.
 
 Exit gate: plugin source changes behave like the reference without duplicate
 hosts, duplicate services, broken lock/notification owners, or broad reloads.
