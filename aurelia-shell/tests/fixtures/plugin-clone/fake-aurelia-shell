@@ -4,6 +4,7 @@ set -Eeuo pipefail
 case " $* " in
     *" shell rescanPlugins "*)
         printf 'rescan\n' >>"$FAKE_CALLS"
+        printf 'ok\n'
         ;;
     *" shell listPlugins "*)
         if [[ "${FAKE_NO_DISCOVERY:-0}" == "1" ]]; then

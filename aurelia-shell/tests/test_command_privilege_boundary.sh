@@ -7,14 +7,15 @@ set -Eeuo pipefail
 section "Aurelia Command and Privilege Boundary"
 
 plugin_cli="$ROOT/bin/lib/aurelia-plugin"
+lifecycle_cli="$plugin_cli/lifecycle.sh"
 facade_root="$ROOT/services"
 network_root="$ROOT/plugins/aurelia.network"
 custom_bar_root="$ROOT/plugins/aurelia.bar/CustomCommandBarWidget.qml"
 
-if grep -q 'GIT_TERMINAL_PROMPT=0' "$ROOT/bin/lib/aurelia-plugin/main.sh" &&
+if grep -q 'GIT_TERMINAL_PROMPT=0' "$lifecycle_cli" &&
    grep -q 'aurelia_plugin_validate_manifest' "$ROOT/bin/lib/aurelia-plugin/main.sh" &&
-   grep -q 'aurelia_plugin_require_root' "$ROOT/bin/lib/aurelia-plugin/main.sh" &&
-   grep -q '60s git clone' "$ROOT/bin/lib/aurelia-plugin/main.sh" &&
+   grep -q 'aurelia_plugin_require_root' "$lifecycle_cli" &&
+   grep -q '60s git clone' "$lifecycle_cli" &&
    ! grep -R -Eq '\\b(sudo|pkexec|systemctl)\\b' "$facade_root"/Plugin*Api.qml "$facade_root"/PluginHost.qml &&
    grep -q 'function safeArgv' "$ROOT/plugins/aurelia.bar/BarWidgetSlot.qml" &&
    grep -q 'function boundedArgv' "$custom_bar_root"; then
@@ -28,7 +29,7 @@ if grep -q '/usr/bin/timeout' "$network_root/NetworkPanel.qml" &&
    grep -q 'stdinEnabled: true' "$network_root/NetworkPanel.qml" &&
    grep -q 'aurelia-network-dns' "$network_root/NetworkPanel.qml" &&
    grep -q 'AURELIA_SHELL_IPC_TIMEOUT' "$ROOT/bin/aurelia-shell" &&
-   grep -q 'AURELIA_PLUGIN_STAGING' "$plugin_cli/main.sh"; then
+   grep -q 'AURELIA_PLUGIN_STAGING' "$lifecycle_cli"; then
     pass "[static] approved system actions remain bounded and credential input stays on the existing backend/stdin paths"
 else
     fail "[static] bounded system-action or credential ownership contract is incomplete"
@@ -69,6 +70,7 @@ add_output="$(
         source "$1/placement.sh"
         source "$1/manifest.sh"
         source "$1/main.sh"
+        source "$1/lifecycle.sh"
         aurelia_plugin_add https://example.invalid/acme-test-widget.git --enable --yes
     ' _ "$plugin_cli"
 )"

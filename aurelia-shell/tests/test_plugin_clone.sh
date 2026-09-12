@@ -60,6 +60,7 @@ plugin_command() {
         source "$module_root/manifest.sh"
         source "$module_root/main.sh"
         source "$module_root/clone.sh"
+        source "$module_root/lifecycle.sh"
         aurelia_plugin_main "$@"
     ' _ "$cli_root" "$@"
 }

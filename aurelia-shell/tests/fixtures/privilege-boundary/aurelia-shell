@@ -12,6 +12,9 @@ case "$method" in
     listPlugins)
         printf '%s\n' '[{"id":"acme.test-widget"}]'
         ;;
+    catalogPlugins)
+        printf '%s\n' '{"plugins":[],"rejected":[],"scan":{"state":"success"}}'
+        ;;
     enablePlugin)
         printf '%s\n' "enablePlugin $*" >>"$AURELIA_PRIVILEGE_CALLS"
         printf '%s\n' 'ok'

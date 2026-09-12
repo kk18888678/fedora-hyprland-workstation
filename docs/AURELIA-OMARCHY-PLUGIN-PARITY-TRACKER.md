@@ -1597,7 +1597,7 @@ Dependencies: T03, T04, T10, T12, T14.
 
 ### T18. Complete add/update/remove lifecycle
 
-- Status: `[-]` in progress — staged add/update/remove lifecycle task.
+Status: `[x]` complete — CP2 and CP3 passed; staged add/update/remove lifecycle task.
 
 CP2 pre-change boundary:
 
@@ -1625,24 +1625,55 @@ CP2 pre-change boundary:
   discovery succeed. On failure restore the old tree and preserve the user
   tree; never use destructive Git reset/checkout or overwrite unrelated files.
 
-- [ ] Keep add disabled-by-default unless explicitly enabled.
-- [ ] Add preflight duplicate-ID detection against the canonical catalog before
+- [x] Keep add disabled-by-default unless explicitly enabled.
+- [x] Add preflight duplicate-ID detection against the canonical catalog before
   moving staged code into the user plugin tree.
-- [ ] Keep staged clone/update validation before activation.
-- [ ] Keep HTTPS and bounded Git operations, disable interactive Git prompts,
+- [x] Keep staged clone/update validation before activation.
+- [x] Keep HTTPS and bounded Git operations, disable interactive Git prompts,
   and reject unsafe transport-helper inputs.
-- [ ] Add interactive review paths for human use and explicit `--yes` paths for
+- [x] Add interactive review paths for human use and explicit `--yes` paths for
   automation.
-- [ ] Add update-one and update-all behavior.
-- [ ] Show a reviewable diff before an interactive update.
-- [ ] Refuse updates over local modifications.
-- [ ] Validate updated manifests before activation and roll back on validation
+- [x] Add update-one and update-all behavior.
+- [x] Show a reviewable diff before an interactive update.
+- [x] Refuse updates over local modifications.
+- [x] Validate updated manifests before activation and roll back on validation
   or rescan failure.
-- [ ] Record remote URL, selected ref/commit, version, and validation result for
+- [x] Record remote URL, selected ref/commit, version, and validation result for
   provenance and diagnostics.
-- [ ] Make manual/non-Git plugin removal recoverable; never purge user data.
-- [ ] Ensure `remove` disables the plugin before removing its source.
-- [ ] Add local Git repository fixtures so lifecycle tests never require network.
+- [x] Make manual/non-Git plugin removal recoverable; never purge user data.
+- [x] Ensure `remove` disables the plugin before removing its source.
+- [x] Add local Git repository fixtures so lifecycle tests never require network.
+
+Evidence:
+- Tests: `bash aurelia-shell/tests/test_plugin_lifecycle_management.sh` — `14`
+  passed, `0` failed; `bash aurelia-shell/tests/run.sh` — `409` passed, `0`
+  failed; root `bash tests/run.sh` — `228` passed, `0` failed.
+- Runtime/fixture evidence: local fake Git/shell fixtures verified canonical
+  duplicate preflight, disabled-by-default add, explicit enablement, provenance
+  sidecars with mode `600`, transport environment neutralization, non-TTY
+  confirmation, update-one/update-all, dirty-tree refusal, invalid update
+  rejection, rescan/discovery rollback, disable-before-remove, and recoverable
+  non-Git backups. Existing clone and privilege suites remained green. No live
+  network, plugin code, shell activation, or installer execution was used.
+- Files changed: plugin CLI module loading/help/dispatch, the new lifecycle
+  module, the T16 inert command fixtures/assertions required by the module
+  split, the Aurelia test runner, lifecycle management fixtures/tests, and this
+  tracker.
+- User-visible behavior changed: yes — add/update/remove now require explicit
+  confirmation in interactive use or `--yes` in automation, update supports
+  `--all`, and removal reports a recoverable backup path. Existing explicit
+  `add --enable`, `update <id> --yes`, and `remove <id> --yes` remain supported.
+- Existing Aurelia feature impact: no regressions observed; plugin IDs,
+  settings, bar state, clone behavior, privilege ownership, and feature UI are
+  unchanged. Lifecycle changes remain user-plugin-tree scoped.
+- Rollback/migration evidence: staged add/update trees are cleaned on failure;
+  update retains the previous tree through validation, publication, rescan,
+  and discovery and restores it on failure; remove moves source to a hidden,
+  collision-safe backup; Git prompts/config/transport helpers are bounded or
+  neutralized. Pre-change checkpoint: `0c269e3`.
+- Review: CP3 passed. Repository-wide shell syntax passed for `224` scripts;
+  `git diff --check` passed; ShellCheck was unavailable and was not installed;
+  no temporary repository artifacts remain.
 
 Exit gate: add, update, remove, clone, interruption, validation failure, and
 rollback paths are deterministic and recoverable.

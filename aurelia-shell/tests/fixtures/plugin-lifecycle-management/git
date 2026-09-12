@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if [[ "$1" == "-C" ]]; then
+    plugin_path="$2"
+    operation="$3"
+    case "$operation" in
+        status)
+            if [[ "$FAKE_GIT_DIRTY" == "1" ]]; then
+                printf '%s\n' ' M fixture'
+            fi
+            ;;
+        config)
+            if [[ "$FAKE_GIT_REMOTE_FROM_DIR" == "1" ]]; then
+                printf 'https://example.invalid/%s\n' "$(basename -- "$plugin_path")"
+            else
+                printf '%s\n' "$FAKE_GIT_REMOTE"
+            fi
+            ;;
+        rev-parse)
+            printf '%s\n' "$FAKE_GIT_COMMIT"
+            ;;
+        *)
+            exit 1
+            ;;
+    esac
+    exit 0
+fi
+
+[[ "$1" == "clone" ]] || exit 1
+destination="$7"
+mkdir -p -- "$destination/.git"
+clone_id="$FAKE_GIT_ID"
+if [[ "$FAKE_GIT_ID_FROM_REMOTE" == "1" ]]; then
+    clone_id="$(basename -- "$6")"
+fi
+
+if [[ "$FAKE_GIT_INVALID" == "1" ]]; then
+    printf '%s\n' '{\"schemaVersion\":1,\"id\":\"broken\"}' >"$destination/manifest.json"
+else
+    jq -n \
+        --arg id "$clone_id" \
+        --arg version "$FAKE_GIT_VERSION" \
+        '{
+            schemaVersion: 1,
+            id: $id,
+            name: "Lifecycle Fixture",
+            version: $version,
+            description: "Local Git-free lifecycle fixture",
+            kinds: ["bar-widget"],
+            entryPoints: {barWidget: "Widget.qml"},
+            barWidget: {
+                displayName: "Lifecycle Fixture",
+                description: "Local lifecycle fixture",
+                category: "Testing",
+                allowMultiple: false,
+                defaultSection: "center"
+            }
+        }' >"$destination/manifest.json"
+fi
+printf '%s\n' 'import QtQuick' 'Item { implicitWidth: 1; implicitHeight: 1 }' >"$destination/Widget.qml"
+printf 'git-clone remote=%s ssh=%s proxy=%s askpass=%s config-count=%s\n' \
+    "$6" \"$(printenv GIT_SSH_COMMAND || true)\" \"$(printenv GIT_PROXY_COMMAND || true)\" \
+    \"$(printenv GIT_ASKPASS || true)\" \"$(printenv GIT_CONFIG_COUNT || true)\" >>"$FAKE_GIT_CALLS"

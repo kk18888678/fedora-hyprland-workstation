@@ -11,7 +11,7 @@ if [[ ! -d "$lib_dir" && -d "$script_dir/../lib/aurelia-plugin" ]]; then
     lib_dir="$script_dir/../lib/aurelia-plugin"
 fi
 
-for module in common placement manifest main clone; do
+for module in common placement manifest main clone lifecycle; do
     module_path="$lib_dir/$module.sh"
     if [[ ! -f "$module_path" ]]; then
         printf 'Error: Missing Aurelia plugin module: %s\n' "$module_path" >&2

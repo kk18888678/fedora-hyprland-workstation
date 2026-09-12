@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+[[ "$1" == "shell" ]] || exit 1
+method="$2"
+case "$method" in
+    rescanPlugins)
+        count=0
+        if [[ -f "$FAKE_RESCAN_COUNT_FILE" ]]; then
+            count="$(cat "$FAKE_RESCAN_COUNT_FILE")"
+        fi
+        count=$((count + 1))
+        printf '%s\n' "$count" >"$FAKE_RESCAN_COUNT_FILE"
+        printf 'rescanPlugins\n' >>"$FAKE_CALLS"
+        if [[ "$FAKE_RESCAN_FAIL_ONCE" == "1" && "$count" -eq 1 ]]; then
+            printf '%s\n' 'error'
+        else
+            printf '%s\n' 'ok'
+        fi
+        ;;
+    listPlugins)
+        if [[ "$FAKE_NO_DISCOVERY" == "1" ]]; then
+            printf '%s\n' '[]'
+            exit 0
+        fi
+        first=1
+        printf '['
+        while IFS= read -r -d '' manifest; do
+            plugin_dir="$(dirname -- "$manifest")"
+            plugin_name="$(basename -- "$plugin_dir")"
+            [[ "$plugin_name" != .* ]] || continue
+            [[ "$first" == "1" ]] || printf ','
+            jq -cn --arg id "$(jq -r '.id' "$manifest")" '{id:$id,enabled:true}'
+            first=0
+        done < <(find -P "$AURELIA_PLUGIN_DIR" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+        printf ']\n'
+        ;;
+    catalogPlugins)
+        first=1
+        printf '{"plugins":['
+        while IFS= read -r -d '' manifest; do
+            plugin_dir="$(dirname -- "$manifest")"
+            plugin_name="$(basename -- "$plugin_dir")"
+            [[ "$plugin_name" != .* ]] || continue
+            [[ "$first" == "1" ]] || printf ','
+            jq -cn --arg id "$(jq -r '.id' "$manifest")" '{id:$id}'
+            first=0
+        done < <(find -P "$AURELIA_PLUGIN_DIR" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+        printf '],"rejected":[],"scan":{"state":"success"}}\n'
+        ;;
+    enablePlugin)
+        printf 'enablePlugin %s\n' "$*" >>"$FAKE_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    setPluginEnabled)
+        printf 'setPluginEnabled %s\n' "$*" >>"$FAKE_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    *)
+        exit 1
+        ;;
+esac

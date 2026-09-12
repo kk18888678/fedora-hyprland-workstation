@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+if [[ "${1:-}" == "rev-parse" || ( "${1:-}" == "-C" && "${3:-}" == "rev-parse" ) ]]; then
+    printf '%s\n' 't16-fixture-commit'
+    exit 0
+fi
 [[ "${1:-}" == "clone" ]] || exit 1
 destination="${@: -1}"
 mkdir -p -- "$destination"
