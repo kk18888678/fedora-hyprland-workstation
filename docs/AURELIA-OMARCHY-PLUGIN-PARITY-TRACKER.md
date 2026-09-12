@@ -1512,6 +1512,11 @@ CP2 pre-change boundary:
 - Allowed production files: the Aurelia plugin CLI lifecycle modules,
   `PluginRegistry.qml`, `ShellConfig.qml`, narrow clone/provenance helpers, and
   only the manifest metadata needed to describe safe local clone paths.
+- Narrow compatibility amendment recorded before implementation: the existing
+  `PluginHost.qml` and already-scoped facade QML types may receive only the
+  source-ID-to-active-clone routing needed to preserve copied plugin IPC
+  identities. This does not widen third-party capabilities or change the
+  existing owner checks.
 - Allowed test files: `aurelia-shell/tests/`, including isolated temporary
   first-party/user plugin trees and local Git-free clone fixtures, and this
   tracker.
@@ -1529,6 +1534,11 @@ CP2 pre-change boundary:
 - Security boundary: cloning copies unsandboxed QML source but never executes
   plugin code or install hooks. Clone metadata cannot grant trusted
   capabilities to a user plugin.
+- Contract freeze: `aurelia.clonedFrom` is syntactic provenance only; runtime
+  routing may use it only when the referenced manifest is currently discovered
+  as first-party. A clone receives no trusted capability stamp. A clone state
+  record must retain the prior active bar, source-bar presence, source disable
+  state, and clone/source IDs so disable/remove can restore the prior state.
 - Rollback: revert only T17 clone/provenance/test/tracker changes if a
   mandatory gate fails; preserve completed T00–T16 history and user-owned
   changes.
