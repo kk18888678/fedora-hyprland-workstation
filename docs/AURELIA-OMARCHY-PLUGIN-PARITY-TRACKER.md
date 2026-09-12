@@ -903,6 +903,24 @@ Dependencies: T06, T07.
 
 ### T09. Remove hardcoded host assumptions from generic lifecycle routing
 
+Status: `[-]` in progress — generic lifecycle-routing task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/PluginHost.qml`,
+  `aurelia-shell/shell.qml`, and narrow registry/compatibility adapter
+  files required to centralize active-bar ownership.
+- Allowed test files: `aurelia-shell/tests/`, including generic
+  routing fixtures and this tracker.
+- Compatibility boundary: existing compatibility IPC targets, feature-owned
+  backend commands, plugin IDs, and active-bar fallback behavior must remain
+  unchanged.
+- Runtime behavior impact: generic routing/refactoring only; no persisted
+  state, installer, package, systemd, or live-session mutation.
+- Persisted user state impact: none.
+- Rollback: revert only T09 routing/test/tracker changes if a mandatory gate
+  fails; preserve completed T00–T08 history and user-owned changes.
+
 - [ ] Replace generic routing that is hardcoded to `aurelia.bar` with registry
   ownership and active-bar resolution.
 - [ ] Keep compatibility IPC targets as thin forwarding aliases.
