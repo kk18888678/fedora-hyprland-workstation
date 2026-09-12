@@ -32,12 +32,42 @@ ShellRoot {
         id: aureliaAppLibrary
     }
 
+    Component {
+        id: pluginRegistryApiComponent
+        PluginRegistryApi { }
+    }
+
+    Component {
+        id: pluginShellApiComponent
+        PluginShellApi { }
+    }
+
+    Component {
+        id: pluginBarApiComponent
+        PluginBarApi { }
+    }
+
+    Component {
+        id: pluginBarWidgetRegistryApiComponent
+        PluginBarWidgetRegistryApi { }
+    }
+
+    Component {
+        id: pluginAppLibraryApiComponent
+        PluginAppLibraryApi { }
+    }
+
     PluginHost {
         id: pluginHost
         registry: pluginRegistry
         shellApi: shellIpc
         appLibrary: aureliaAppLibrary
         barWidgetRegistry: barWidgetRegistry
+        registryApiComponent: pluginRegistryApiComponent
+        shellApiComponent: pluginShellApiComponent
+        barApiComponent: pluginBarApiComponent
+        barWidgetRegistryApiComponent: pluginBarWidgetRegistryApiComponent
+        appLibraryApiComponent: pluginAppLibraryApiComponent
     }
 
     // Omarchy-style plugin hot reload. Only plugin-owned entry points are

@@ -10,10 +10,22 @@ Item {
     property var shellApi: null
     property var appLibrary: null
     property var barWidgetRegistry: null
+    property Component registryApiComponent: null
+    property Component shellApiComponent: null
+    property Component barApiComponent: null
+    property Component barWidgetRegistryApiComponent: null
+    property Component appLibraryApiComponent: null
     property var loaders: ({})
     property var instances: ({})
     property var requested: ({})
     property var pendingOpens: ({})
+    property var scopedRegistryApis: ({})
+    property var scopedShellApis: ({})
+    property var scopedBarApis: ({})
+    property var scopedBarApiOwners: ({})
+    property var scopedBarWidgetRegistryApis: ({})
+    property var scopedAppLibraryApis: ({})
+    property var scopedFacadeProfiles: ({})
     property int loadRevision: 0
     property bool reloading: false
     // null means a full plugin reload. A map means only the listed plugin
@@ -53,8 +65,378 @@ Item {
         return result
     }
 
+    function cloneJson(value) {
+        try {
+            return JSON.parse(JSON.stringify(value))
+        } catch (e) {
+            return null
+        }
+    }
+
+    function publicPluginManifest(manifest) {
+        var copy = host.cloneJson(manifest)
+        if (!copy) return null
+        var keys = Object.keys(copy)
+        for (var i = 0; i < keys.length; i++)
+            if (keys[i].indexOf("__") === 0) delete copy[keys[i]]
+        return copy
+    }
+
+    function publicBarConfig() {
+        var config = registry && registry.shellConfig ? registry.shellConfig.config : ({})
+        return host.cloneJson(config && config.bar ? config.bar : {}) || ({})
+    }
+
+    function publicBarWidgetSnapshot() {
+        var source = host.barWidgetRegistry ? host.barWidgetRegistry.widgets : ({})
+        var snapshot = {}
+        for (var id in (source || {})) {
+            var entry = source[id]
+            if (!entry) continue
+            var metadata = host.cloneJson(entry.barWidget) || ({})
+            if (metadata.displayName === undefined) metadata.displayName = String(entry.name || id)
+            if (metadata.description === undefined) metadata.description = String(entry.description || "")
+            if (metadata.category === undefined) metadata.category = "Plugin"
+            if (metadata.allowMultiple === undefined) metadata.allowMultiple = false
+            if (metadata.defaults === undefined) metadata.defaults = ({})
+            if (metadata.settingsForm === undefined) metadata.settingsForm = ""
+            if (metadata.schema === undefined) metadata.schema = []
+            snapshot[id] = {
+                id: id,
+                name: String(entry.name || id),
+                version: String(entry.version || ""),
+                description: String(entry.description || ""),
+                metadata: metadata
+            }
+        }
+        return snapshot
+    }
+
+    function facadeProfile(manifest) {
+        if (!manifest) return ""
+        var kinds = Array.isArray(manifest.kinds) ? manifest.kinds.slice() : []
+        kinds.sort()
+        return (manifest.__isFirstParty === false ? "third" : "first") + "|" + kinds.join(",")
+    }
+
+    function activeThirdParty(id) {
+        var manifest = host.manifestFor(id)
+        return !!(manifest && manifest.__isFirstParty === false && registry && registry.isEnabled(id))
+    }
+
+    function destroyFacade(value) {
+        if (value && typeof value.destroy === "function") value.destroy()
+    }
+
+    function updateBarApiState(api) {
+        if (!api) return
+        var bar = host.activeBar()
+        api.barHidden = !!(bar && bar.barHidden === true)
+        api.barSize = bar ? Math.max(0, Number(bar.barSize || 0)) : 0
+        api.position = bar ? String(bar.position || "top") : "top"
+        api.vertical = !!(bar && bar.vertical === true)
+        api.activePopoutId = bar ? String(bar.activePopoutId || "") : ""
+    }
+
     function manifestFor(id) {
         return registry && registry.isKnown(id) ? registry.installedPlugins[id] : null
+    }
+
+    function scopedRegistryApiFor(pluginId) {
+        var id = String(pluginId || "")
+        if (!id || !registryApiComponent || !activeThirdParty(id)) return null
+        var cached = host.scopedRegistryApis[id]
+        if (cached) return cached
+        var manifest = host.manifestFor(id)
+        var api = registryApiComponent.createObject(null, {
+            pluginId: id,
+            manifest: host.publicPluginManifest(manifest),
+            enabled: registry.isEnabled(id),
+            registryRevision: registry.registryRevision,
+            _hasActiveFailure: function(kind) { return host.hasActiveFailure(id, kind) },
+            _entryPointUrl: function(kind) {
+                var requestedKind = String(kind || "") === "barWidget" ? "bar-widget" : String(kind || "")
+                return host.sourceFor(id, requestedKind)
+            }
+        })
+        if (!api) return null
+        var next = host.copyMap(host.scopedRegistryApis)
+        next[id] = api
+        host.scopedRegistryApis = next
+        var profiles = host.copyMap(host.scopedFacadeProfiles)
+        profiles[id] = host.facadeProfile(manifest)
+        host.scopedFacadeProfiles = profiles
+        return api
+    }
+
+    function scopedBarApiFor(pluginId, instanceId, ownerObject) {
+        var id = String(pluginId || "")
+        var instance = String(instanceId || id)
+        var key = id + "::" + instance
+        if (!id || !barApiComponent || !host.activeThirdParty(id)) return null
+        var cached = host.scopedBarApis[key]
+        if (cached && host.scopedBarApiOwners[key] === ownerObject) {
+            host.updateBarApiState(cached)
+            return cached
+        }
+        if (cached) host.destroyFacade(cached)
+        var api = barApiComponent.createObject(null, {ownerPluginId: id, instanceId: instance})
+        if (!api) return null
+        api._requestPopout = function() {
+            var bar = host.activeBar()
+            if (!ownerObject || !bar || typeof bar.requestPopout !== "function") return false
+            try {
+                bar.requestPopout(ownerObject, instance)
+                return true
+            } catch (e) {
+                return false
+            }
+        }
+        api._releasePopout = function() {
+            var bar = host.activeBar()
+            if (!ownerObject || !bar || typeof bar.releasePopout !== "function") return false
+            try {
+                bar.releasePopout(ownerObject)
+                return true
+            } catch (e) {
+                return false
+            }
+        }
+        api._invoke = function(method, argument) {
+            var bar = host.activeBar()
+            if (!bar || typeof bar.callWidget !== "function") return "not-loaded"
+            try {
+                return bar.callWidget(instance, method, argument)
+            } catch (e) {
+                return "error"
+            }
+        }
+        api._registerClickTarget = function() {
+            var bar = host.activeBar()
+            if (!ownerObject || !bar || typeof bar.registerWidgetSlot !== "function") return false
+            bar.registerWidgetSlot(ownerObject)
+            return true
+        }
+        api._unregisterClickTarget = function() {
+            var bar = host.activeBar()
+            if (!ownerObject || !bar || typeof bar.unregisterWidgetSlot !== "function") return false
+            bar.unregisterWidgetSlot(ownerObject)
+            return true
+        }
+        host.updateBarApiState(api)
+        var next = host.copyMap(host.scopedBarApis)
+        next[key] = api
+        host.scopedBarApis = next
+        var owners = host.copyMap(host.scopedBarApiOwners)
+        owners[key] = ownerObject
+        host.scopedBarApiOwners = owners
+        var profiles = host.copyMap(host.scopedFacadeProfiles)
+        profiles[key] = host.facadeProfile(host.manifestFor(id))
+        host.scopedFacadeProfiles = profiles
+        return api
+    }
+
+    function scopedBarWidgetRegistryApiFor(pluginId) {
+        var id = String(pluginId || "")
+        if (!id || !barWidgetRegistryApiComponent || !activeThirdParty(id)) return null
+        var cached = host.scopedBarWidgetRegistryApis[id]
+        if (cached) return cached
+        var api = barWidgetRegistryApiComponent.createObject(null, {
+            widgets: host.publicBarWidgetSnapshot(),
+            revision: host.barWidgetRegistry ? host.barWidgetRegistry.revision : 0
+        })
+        if (!api) return null
+        var next = host.copyMap(host.scopedBarWidgetRegistryApis)
+        next[id] = api
+        host.scopedBarWidgetRegistryApis = next
+        var profiles = host.copyMap(host.scopedFacadeProfiles)
+        profiles[id] = host.facadeProfile(host.manifestFor(id))
+        host.scopedFacadeProfiles = profiles
+        return api
+    }
+
+    function scopedAppLibraryApiFor(pluginId) {
+        var id = String(pluginId || "")
+        if (!id || !appLibraryApiComponent || !activeThirdParty(id)) return null
+        var cached = host.scopedAppLibraryApis[id]
+        if (cached) return cached
+        var api = appLibraryApiComponent.createObject(null, {
+            ownerPluginId: id,
+            _rows: function(query) {
+                return host.appLibrary && typeof host.appLibrary.appRows === "function"
+                    ? host.appLibrary.appRows(query) : []
+            },
+            _iconSource: function(icon) {
+                return host.appLibrary && typeof host.appLibrary.iconSource === "function"
+                    ? host.appLibrary.iconSource(icon) : ""
+            }
+        })
+        if (!api) return null
+        var next = host.copyMap(host.scopedAppLibraryApis)
+        next[id] = api
+        host.scopedAppLibraryApis = next
+        var profiles = host.copyMap(host.scopedFacadeProfiles)
+        profiles[id] = host.facadeProfile(host.manifestFor(id))
+        host.scopedFacadeProfiles = profiles
+        return api
+    }
+
+    function scopedShellApiFor(pluginId, instanceId, ownerObject) {
+        var id = String(pluginId || "")
+        var instance = String(instanceId || id)
+        var key = id + "::" + instance
+        if (!id || !shellApiComponent || !activeThirdParty(id)) return null
+        var cached = host.scopedShellApis[key]
+        if (cached) return cached
+        var manifest = host.manifestFor(id)
+        var targetId = instance || id
+        var api = shellApiComponent.createObject(null, {
+            pluginId: id,
+            bar: host.scopedBarApiFor(id, instance, ownerObject),
+            appLibrary: manifest && Array.isArray(manifest.kinds) && manifest.kinds.indexOf("menu") !== -1
+                ? host.scopedAppLibraryApiFor(id) : null,
+            barConfig: host.publicBarConfig(),
+            settings: registry && typeof registry.settingsForEntry === "function"
+                ? registry.settingsForEntry(targetId, {}) : ({}),
+            _serviceLookup: function() { return host.itemFor(id) },
+            _summon: function(payloadJson) {
+                var result = host.open(id, payloadJson || "{}")
+                return result === "ok" || result === "pending"
+            },
+            _hide: function() { return host.close(id) === "ok" },
+            _toggle: function(payloadJson) {
+                var result = host.toggle(id, payloadJson || "{}")
+                return result === "ok" || result === "pending" || result === "closed"
+            },
+            _isOpen: function() { return host.isVisible(id) },
+            _settingsFor: function(selector) {
+                return registry && typeof registry.settingsForEntry === "function"
+                    ? registry.settingsForEntry(targetId, selector || ({})) : ({})
+            },
+            _updateSettings: function(settings, selector) {
+                return !!(registry && typeof registry.updateEntryInline === "function" &&
+                    registry.updateEntryInline(targetId, settings, selector || ({})))
+            },
+            _resetSettings: function(selector) {
+                return !!(registry && typeof registry.resetEntryInline === "function" &&
+                    registry.resetEntryInline(targetId, selector || ({})))
+            }
+        })
+        if (!api) return null
+        var next = host.copyMap(host.scopedShellApis)
+        next[key] = api
+        host.scopedShellApis = next
+        var profiles = host.copyMap(host.scopedFacadeProfiles)
+        profiles[key] = host.facadeProfile(manifest)
+        host.scopedFacadeProfiles = profiles
+        return api
+    }
+
+    function facadeOwnerId(cacheKey) {
+        var key = String(cacheKey || "")
+        var separator = key.indexOf("::")
+        return separator === -1 ? key : key.substring(0, separator)
+    }
+
+    function facadeInstanceId(cacheKey) {
+        var key = String(cacheKey || "")
+        var separator = key.indexOf("::")
+        return separator === -1 ? key : key.substring(separator + 2)
+    }
+
+    function pruneScopedFacades() {
+        var profiles = host.scopedFacadeProfiles
+        var profilesNext = {}
+        var registryNext = {}
+        for (var registryId in host.scopedRegistryApis) {
+            var registryManifest = host.manifestFor(registryId)
+            var registryProfile = host.facadeProfile(registryManifest)
+            if (host.activeThirdParty(registryId) && profiles[registryId] === registryProfile) {
+                registryNext[registryId] = host.scopedRegistryApis[registryId]
+                profilesNext[registryId] = registryProfile
+            } else {
+                host.destroyFacade(host.scopedRegistryApis[registryId])
+            }
+        }
+
+        var shellNext = {}
+        for (var shellKey in host.scopedShellApis) {
+            var shellOwner = host.facadeOwnerId(shellKey)
+            var shellManifest = host.manifestFor(shellOwner)
+            var shellProfile = host.facadeProfile(shellManifest)
+            if (host.activeThirdParty(shellOwner) && profiles[shellKey] === shellProfile) {
+                shellNext[shellKey] = host.scopedShellApis[shellKey]
+                profilesNext[shellKey] = shellProfile
+            } else {
+                host.destroyFacade(host.scopedShellApis[shellKey])
+            }
+        }
+
+        var barNext = {}
+        var ownerNext = {}
+        for (var barKey in host.scopedBarApis) {
+            var barOwner = host.facadeOwnerId(barKey)
+            var barProfile = host.facadeProfile(host.manifestFor(barOwner))
+            if (host.activeThirdParty(barOwner) && profiles[barKey] === barProfile) {
+                barNext[barKey] = host.scopedBarApis[barKey]
+                ownerNext[barKey] = host.scopedBarApiOwners[barKey]
+                profilesNext[barKey] = barProfile
+            } else {
+                host.destroyFacade(host.scopedBarApis[barKey])
+            }
+        }
+
+        var widgetNext = {}
+        for (var widgetId in host.scopedBarWidgetRegistryApis) {
+            var widgetProfile = host.facadeProfile(host.manifestFor(widgetId))
+            if (host.activeThirdParty(widgetId) && profiles[widgetId] === widgetProfile) {
+                widgetNext[widgetId] = host.scopedBarWidgetRegistryApis[widgetId]
+                profilesNext[widgetId] = widgetProfile
+            } else host.destroyFacade(host.scopedBarWidgetRegistryApis[widgetId])
+        }
+
+        var appNext = {}
+        for (var appId in host.scopedAppLibraryApis) {
+            var appProfile = host.facadeProfile(host.manifestFor(appId))
+            if (host.activeThirdParty(appId) && profiles[appId] === appProfile) {
+                appNext[appId] = host.scopedAppLibraryApis[appId]
+                profilesNext[appId] = appProfile
+            } else host.destroyFacade(host.scopedAppLibraryApis[appId])
+        }
+
+        host.scopedRegistryApis = registryNext
+        host.scopedShellApis = shellNext
+        host.scopedBarApis = barNext
+        host.scopedBarApiOwners = ownerNext
+        host.scopedBarWidgetRegistryApis = widgetNext
+        host.scopedAppLibraryApis = appNext
+        host.scopedFacadeProfiles = profilesNext
+    }
+
+    function syncScopedFacades() {
+        if (!registry) return
+        host.pruneScopedFacades()
+        for (var registryId in host.scopedRegistryApis) {
+            var registryApi = host.scopedRegistryApis[registryId]
+            var manifest = host.manifestFor(registryId)
+            registryApi.manifest = host.publicPluginManifest(manifest)
+            registryApi.enabled = !!manifest && registry.isEnabled(registryId)
+            registryApi.registryRevision = registry.registryRevision
+        }
+        for (var shellKey in host.scopedShellApis) {
+            var shellApi = host.scopedShellApis[shellKey]
+            var shellTargetId = host.facadeInstanceId(shellKey)
+            shellApi.barConfig = host.publicBarConfig()
+            shellApi.settings = typeof registry.settingsForEntry === "function"
+                ? registry.settingsForEntry(shellTargetId, {}) : ({})
+            host.updateBarApiState(shellApi.bar)
+        }
+        for (var barKey in host.scopedBarApis) host.updateBarApiState(host.scopedBarApis[barKey])
+        for (var widgetId in host.scopedBarWidgetRegistryApis) {
+            var widgetApi = host.scopedBarWidgetRegistryApis[widgetId]
+            widgetApi.widgets = host.publicBarWidgetSnapshot()
+            widgetApi.revision = host.barWidgetRegistry ? host.barWidgetRegistry.revision : 0
+        }
     }
 
     function failureDetail(error) {
@@ -254,24 +636,53 @@ Item {
         return true
     }
 
-    function configurePlugin(id, target) {
+    function configurePluginTarget(id, target, context) {
         if (!target || !registry) return
         var manifest = manifestFor(id)
         if (!manifest) return
+        var firstParty = manifest.__isFirstParty !== false
+        var current = context || ({})
+        var instanceId = String(current.instanceId || id)
+        var configuredSettings = current.settings !== undefined ? current.settings :
+            (registry.shellConfig && typeof registry.shellConfig.settingsForEntry === "function"
+                ? registry.shellConfig.settingsForEntry(instanceId, {}) : ({}))
+
         // Entry points intentionally do not declare these as required: a URL
         // Loader constructs the object before onLoaded, and a required
         // property would fail before the host could inject it.
         if ("aureliaPath" in target) target.aureliaPath = registry.packageRoot
-        if ("shell" in target) target.shell = shellApi
-        if ("appLibrary" in target) target.appLibrary = host.appLibrary
-        if ("bar" in target) target.bar = host.activeBar()
-        if ("shellConfig" in target) target.shellConfig = registry.shellConfig
-        if ("settings" in target && registry.shellConfig &&
-            typeof registry.shellConfig.settingsForEntry === "function")
-            target.settings = registry.shellConfig.settingsForEntry(id, {})
-        if ("manifest" in target) target.manifest = manifest
-        if ("pluginRegistry" in target) target.pluginRegistry = registry
-        if ("barWidgetRegistry" in target) target.barWidgetRegistry = barWidgetRegistry
+        if (firstParty) {
+            if ("shell" in target) target.shell = shellApi
+            if ("appLibrary" in target) target.appLibrary = host.appLibrary
+            if ("bar" in target) target.bar = current.bar !== undefined ? current.bar : host.activeBar()
+            if ("barAnchorItem" in target && current.barAnchorItem !== undefined)
+                target.barAnchorItem = current.barAnchorItem
+            if ("moduleName" in target) target.moduleName = id
+            if ("shellConfig" in target) target.shellConfig = registry.shellConfig
+            if ("settings" in target) target.settings = configuredSettings
+            if ("manifest" in target) target.manifest = manifest
+            if ("pluginRegistry" in target) target.pluginRegistry = registry
+            if ("barWidgetRegistry" in target) target.barWidgetRegistry = barWidgetRegistry
+            if ("pluginHost" in target) target.pluginHost = host
+            return
+        }
+
+        if ("shell" in target) target.shell = host.scopedShellApiFor(id, instanceId, current.ownerObject || null)
+        if ("appLibrary" in target) {
+            target.appLibrary = manifest.kinds && manifest.kinds.indexOf("menu") !== -1
+                ? host.scopedAppLibraryApiFor(id) : null
+        }
+        if ("bar" in target) target.bar = host.scopedBarApiFor(id, instanceId, current.ownerObject || null)
+        if ("moduleName" in target) target.moduleName = instanceId
+        if ("settings" in target) target.settings = configuredSettings
+        if ("manifest" in target) target.manifest = host.publicPluginManifest(manifest)
+        if ("pluginRegistry" in target) target.pluginRegistry = host.scopedRegistryApiFor(id)
+        if ("barWidgetRegistry" in target)
+            target.barWidgetRegistry = host.scopedBarWidgetRegistryApiFor(id)
+    }
+
+    function configurePlugin(id, target) {
+        host.configurePluginTarget(id, target, {})
     }
 
     function refreshPluginSettings() {
@@ -417,6 +828,7 @@ Item {
         function onPluginsChanged() {
             host.failedBarId = ""
             host.loadRevision++
+            host.syncScopedFacades()
         }
 
         function onPluginFailureRecorded(pluginId, kind) {
@@ -431,6 +843,7 @@ Item {
         function onConfigChanged() {
             host.failedBarId = ""
             host.loadRevision++
+            host.syncScopedFacades()
             Qt.callLater(host.refreshPluginSettings)
         }
     }

@@ -1255,7 +1255,7 @@ Dependencies: T10, T11, T12.
 
 ### T14. Create scoped plugin facades
 
-Status: `[-]` in progress — scoped plugin-facade boundary task.
+Status: `[x]` complete — scoped plugin-facade boundary task.
 
 CP2 pre-change boundary:
 
@@ -1284,23 +1284,60 @@ CP2 pre-change boundary:
   mandatory gate fails; preserve completed T00–T13 history and user-owned
   changes.
 
-- [ ] Add a self-scoped registry facade equivalent to Omarchy's
+CP3 post-change evidence:
+
+- Focused facade gate: test_plugin_facades.sh — 4 assertions passed, 0
+  failed.
+- Facade coverage: third-party plugins receive self-scoped registry and
+  lifecycle/settings APIs, a scalar/owner-checked bar facade, a detached
+  bar-widget catalog snapshot, and a read-only detached application catalog.
+- Injection coverage: the real `PluginHost` and `BarWidgetSlot` fixture loads a
+  third-party bar widget only after the facade host is wired; it receives no
+  raw `PluginRegistry`, `ShellConfig`, `Bar`, or unrestricted shell IPC object.
+- Ownership coverage: self lifecycle/settings/entry-point requests succeed;
+  foreign IDs and foreign popup ownership fail deterministically. Detached
+  manifest, bar-config, app-row, and widget-metadata mutations do not affect
+  host-side objects.
+- Revocation coverage: disable and capability-profile changes destroy cached
+  registry, shell, bar, widget-catalog, and app-library facades.
+- Compatibility coverage: manifests without a production trust stamp remain
+  compatible with existing first-party test fixtures; production discovery
+  continues to use the explicit `__isFirstParty` stamp. First-party injection
+  remains on the prior trusted-object path.
+- Shell safety: disposable actual-shell startup reaches configuration load
+  without `Maximum call stack size exceeded`, duplicate-property assignment,
+  unresolved facade-type, or configuration-load-failure signatures. The
+  offscreen environment cannot prove visual bar rendering because its
+  `PanelWindow` backend is absent.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 370 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 218 shell scripts passed.
+- Diff validation: git diff --check passed for the reviewed change.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+
+- [x] Add a self-scoped registry facade equivalent to Omarchy's
   `PluginRegistryApi`.
-- [ ] Add a self-scoped lifecycle/settings facade equivalent to
+- [x] Add a self-scoped lifecycle/settings facade equivalent to
   `PluginShellApi`.
-- [ ] Add a bar facade equivalent to `PluginBarApi` with scalar state and
+- [x] Add a bar facade equivalent to `PluginBarApi` with scalar state and
   owner-checked popup/click-target operations.
-- [ ] Add a read-only application-library facade where required.
-- [ ] Add a detached bar-widget registry snapshot for replacement bars.
-- [ ] Keep first-party plugins on trusted objects only where required by their
+- [x] Add a read-only application-library facade where required.
+- [x] Add a detached bar-widget registry snapshot for replacement bars.
+- [x] Keep first-party plugins on trusted objects only where required by their
   existing implementation.
-- [ ] Give user plugins facades rather than raw `PluginRegistry`, `ShellConfig`,
+- [x] Give user plugins facades rather than raw `PluginRegistry`, `ShellConfig`,
   `Bar`, or unrestricted shell IPC objects.
-- [ ] Strip source paths, first-party markers, host capability stamps, and other
+- [x] Strip source paths, first-party markers, host capability stamps, and other
   host-internal fields from third-party manifests.
-- [ ] Add facade revocation when a plugin is disabled, removed, rescanned, or
+- [x] Add facade revocation when a plugin is disabled, removed, rescanned, or
   loses a capability.
-- [ ] Ensure facade callbacks enforce owner identity rather than trusting IDs
+- [x] Ensure facade callbacks enforce owner identity rather than trusting IDs
   supplied by plugin code.
 
 Exit gate: a third-party fixture cannot use the public API to control an

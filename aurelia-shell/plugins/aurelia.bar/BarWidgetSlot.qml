@@ -12,6 +12,7 @@ Item {
     property var shell: null
     property var pluginRegistry: null
     property var barWidgetRegistry: null
+    property var pluginHost: null
     property string aureliaPath: ""
     property string pluginId: ""
     property var settings: ({})
@@ -67,6 +68,16 @@ Item {
 
     function configure(target) {
         if (!target) return
+        if (root.pluginHost && typeof root.pluginHost.configurePluginTarget === "function") {
+            root.pluginHost.configurePluginTarget(root.pluginId, target, {
+                bar: root.bar,
+                barAnchorItem: root,
+                instanceId: root.instanceId,
+                ownerObject: root,
+                settings: root.settings
+            })
+            return
+        }
         if ("bar" in target) target.bar = root.bar
         if ("barAnchorItem" in target) target.barAnchorItem = root
         if ("shell" in target) target.shell = root.shell
@@ -235,7 +246,8 @@ Item {
     Loader {
         id: widgetLoader
         anchors.fill: parent
-        active: root.active && root.available && !root.reloading
+        active: root.active && root.available && !root.reloading &&
+            (root.pluginManifest === null || root.pluginManifest.__isFirstParty !== false || root.pluginHost !== null)
         source: active
             ? (root.barWidgetRegistry && typeof root.barWidgetRegistry.entryPointUrl === "function"
                 ? root.barWidgetRegistry.entryPointUrl(root.pluginId)
@@ -274,6 +286,7 @@ Item {
     }
 
     onSettingsChanged: Qt.callLater(root.refreshSettings)
+    onPluginHostChanged: Qt.callLater(root.refreshSettings)
 
     property Connections pluginChangeConnection: Connections {
         target: root.pluginRegistry

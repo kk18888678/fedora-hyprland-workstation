@@ -13,6 +13,7 @@ Item {
     property var shell: null
     property var pluginRegistry: null
     property var barWidgetRegistry: null
+    property var pluginHost: null
     property string aureliaPath: ""
 
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
@@ -75,6 +76,7 @@ Item {
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry
+        pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
         width: implicitWidth
         height: implicitHeight
@@ -92,6 +94,7 @@ Item {
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry
+        pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
     }
 
@@ -107,6 +110,7 @@ Item {
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry
+        pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
     }
 
@@ -122,6 +126,7 @@ Item {
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry
+        pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
     }
 
