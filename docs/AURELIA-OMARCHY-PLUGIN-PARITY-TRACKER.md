@@ -2160,6 +2160,20 @@ Dependencies: T02 through T23.
 
 ### T25. Add visual and interaction parity acceptance checks
 
+Execution status: IN PROGRESS
+
+Checkpoint 2 — repository-only acceptance boundary:
+
+- Allowed scope: deterministic static checks, isolated QuickShell fixtures,
+  existing feature interaction contracts, and the test runner/tracker.
+- Compatibility boundary: preserve all Aurelia feature implementations and
+  design tokens; do not launch the production shell or modify live Wayland,
+  Hyprland, user configuration, systemd, or greetd state.
+- Live-validation boundary: actual Wayland/visual acceptance remains a
+  separately authorized phase and must be recorded as deferred here.
+- Rollback: revert the acceptance-test commit; no production runtime or live
+  state is changed by this task.
+
 - [ ] Verify bar placement, orientation, center anchoring, and popup ownership.
 - [ ] Verify plugin enable/disable/clone/remove flows visually and through IPC.
 - [ ] Verify Command Center/plugin-management navigation using Aurelia's design
