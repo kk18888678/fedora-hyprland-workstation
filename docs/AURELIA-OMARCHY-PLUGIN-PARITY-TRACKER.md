@@ -1172,6 +1172,30 @@ Dependencies: T10, T11.
 
 ### T13. Add generic plugin instance settings APIs
 
+Status: `[-]` in progress — generic plugin instance settings API task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/ShellConfig.qml`,
+  `PluginRegistry.qml`, the existing `PluginHost.qml` injection/lifecycle
+  seam, `shell.qml` IPC, and the narrow plugin CLI/settings helpers required
+  to route instance updates through the host owner.
+- Allowed test files: `aurelia-shell/tests/`, including isolated JSON/state
+  fixtures for every plugin kind, bounded-value/rejection cases, reset, reload
+  scope, and this tracker.
+- Compatibility boundary: current plugin-owned state files, IPC identities,
+  bar layout/settings, notification/theme/keybinding state, plugin loading
+  behavior, and user-owned unknown fields must remain unchanged unless an
+  explicit settings operation targets that instance.
+- Runtime behavior impact: settings updates and reset only; no automatic
+  migration, installer mutation, package/repository change, live systemd or
+  greetd change, or live-session restart.
+- Persisted user state impact: isolated temporary state only. Shared shell
+  state writes must be atomic, mode-600, JSON-only, bounded, fail closed on
+  executable/content injection, and must preserve unrelated state.
+- Rollback: revert only T13 settings/API/test/tracker changes if a mandatory
+  gate fails; preserve completed T00–T12 history and user-owned changes.
+
 - [ ] Add a host-owned settings update path equivalent to `updateEntryInline`.
 - [ ] Support settings for panels, overlays, menus, services, and bar widgets
   where the manifest permits them.
