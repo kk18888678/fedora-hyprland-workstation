@@ -170,7 +170,7 @@ if jq -e '
     .version == 1 and
     ([.modules | sort_by(.order) | .[].id] == [
         "apps", "files", "actions", "calculator", "package-manager", "updates",
-        "weather", "currency", "metals", "stocks", "aurelia-shell", "about"
+        "weather", "currency", "metals", "stocks", "aurelia-shell", "about", "plugins"
     ]) and
     ([.modules[].id] | index("apps")) != null and
     ([.modules[].id] | index("actions")) != null and
@@ -192,6 +192,7 @@ if jq -e '
    grep -q 'id: "updates".*order: 60' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'id: "aurelia-shell".*order: 110' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'id: "about".*order: 120' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+   grep -q 'id: "plugins".*order: 130' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'userModulesPath' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'setModuleEnabled' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'implemented' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&

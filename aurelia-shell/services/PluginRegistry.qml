@@ -31,6 +31,7 @@ QtObject {
     property var shellConfig: null
     property var installedPlugins: ({})
     property PluginProvenance cloneProvenance: PluginProvenance { registry: registry }
+    property PluginCatalogProjection catalogProjection: PluginCatalogProjection { registry: registry }
     property int registryRevision: 0
     property bool scanning: false
     property string lastError: ""
@@ -503,52 +504,7 @@ QtObject {
         return result
     }
 
-    function pluginCatalog() {
-        var plugins = []
-        var ids = Object.keys(installedPlugins)
-        ids.sort(function(left, right) {
-            var leftName = String(installedPlugins[left].name || left).toLowerCase()
-            var rightName = String(installedPlugins[right].name || right).toLowerCase()
-            return leftName === rightName ? left.localeCompare(right) : leftName.localeCompare(rightName)
-        })
-        for (var i = 0; i < ids.length; i++) {
-            var manifest = installedPlugins[ids[i]]
-            var sourceRoot = boundedDiagnosticPath(manifest.__sourceDir || "")
-            var manifestPath = boundedDiagnosticPath(manifest.__manifestPath ||
-                (sourceRoot ? sourceRoot + "/manifest.json" : ""))
-            plugins.push({
-                id: ids[i],
-                name: manifest.name,
-                version: manifest.version,
-                author: manifest.author || "",
-                license: manifest.license || "",
-                description: manifest.description || "",
-                icon: iconForManifest(manifest),
-                kinds: manifest.kinds.slice(),
-                entryPoints: catalogEntryPoints(manifest),
-                barWidget: hasField(manifest, "barWidget") ? cloneManifest(manifest.barWidget) : null,
-                sourceRoot: sourceRoot,
-                manifestPath: manifestPath,
-                firstParty: manifest.__isFirstParty === true, clonedFrom: registry.cloneSourceIdForManifest(manifest),
-                enabled: isEnabled(ids[i]),
-                keepLoaded: manifest.keepLoaded === true,
-                failures: runtimeFailuresFor(ids[i])
-            })
-        }
-        var rejected = []
-        for (var rejectedIndex = 0; rejectedIndex < rejectedPlugins.length; rejectedIndex++)
-            rejected.push(cloneManifest(rejectedPlugins[rejectedIndex]))
-        return {
-            plugins: plugins,
-            rejected: rejected,
-            scan: {
-                state: scanState,
-                failureClass: scanFailureClass,
-                error: lastError,
-                rejectedCount: rejectedCount
-            }
-        }
-    }
+    function pluginCatalog() { return catalogProjection.build() }
 
     readonly property var pluginIds: {
         var revision = registryRevision

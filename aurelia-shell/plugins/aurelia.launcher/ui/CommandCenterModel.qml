@@ -24,6 +24,7 @@ QtObject {
     property var processEnvironment: ({})
     property var appLibrary: null
     property var moduleRegistry: null
+    property var pluginManagement: null
 
     property var actionItems: []
     property var fileItems: []
@@ -42,7 +43,7 @@ QtObject {
     property string errorMessage: ""
     property string statusMessage: ""
 
-    readonly property bool loading: actionsLoading || filesLoading
+    readonly property bool loading: actionsLoading || filesLoading || !!(root.pluginManagement && root.pluginManagement.busy)
     readonly property string activeModuleName: {
         if (!root.activeModule || !root.moduleRegistry) return "Command Center"
         var module = root.moduleRegistry.moduleFor(root.activeModule)
@@ -102,6 +103,7 @@ QtObject {
         root.errorMessage = ""
         root.statusMessage = ""
         root.loadActions()
+        if (root.pluginManagement) root.pluginManagement.open()
         root.rebuildResults()
     }
 
@@ -176,6 +178,11 @@ QtObject {
         return Search.sortRows(rows, queryValue)
     }
 
+    function pluginRows(queryValue) {
+        if (!root.moduleEnabled("plugins") || !root.pluginManagement) return []
+        return root.pluginManagement.pluginRows(queryValue)
+    }
+
     function fileRows(queryValue) {
         if (!root.moduleEnabled("files") || root.fileQuery !== queryValue) return []
         var rows = []
@@ -221,6 +228,7 @@ QtObject {
         rows = rows.concat(root.appRows(queryValue))
             .concat(root.actionRows(queryValue))
             .concat(root.shellRows(queryValue))
+            .concat(root.pluginRows(queryValue))
             .concat(root.calculatorRows(queryValue))
             .concat(root.fileRows(queryValue))
         return Search.sortRowsWithFilesLast(rows, queryValue)
@@ -242,6 +250,8 @@ QtObject {
             rows = root.actionRows(queryValue)
         } else if (root.activeModule === "aurelia-shell") {
             rows = root.shellRows(queryValue)
+        } else if (root.activeModule === "plugins") {
+            rows = root.pluginRows(queryValue)
         } else if (root.activeModule === "files") {
             rows = root.fileRows(queryValue)
         } else if (root.activeModule === "calculator") {
@@ -323,6 +333,7 @@ QtObject {
         root.errorMessage = ""
         root.statusMessage = ""
         if (id === "actions") root.loadActions()
+        if (id === "plugins" && root.pluginManagement) root.pluginManagement.open()
         root.rebuildResults()
     }
 
@@ -357,6 +368,9 @@ QtObject {
             root.statusMessage = "Copying result..."
             return true
         }
+
+        if (row.kind === "plugin-action")
+            return root.pluginManagement ? root.pluginManagement.activate(row) : false
 
         if (row.kind === "shell-action") return root.activateShellAction(row)
 
@@ -556,5 +570,20 @@ QtObject {
     property Connections appLibraryConnection: Connections {
         target: root.appLibrary
         function onAppsChanged() { root.rebuildResults() }
+    }
+
+    property Connections pluginManagementConnection: Connections {
+        target: root.pluginManagement
+        function onPluginItemsChanged() { root.rebuildResults() }
+        function onActionFinished(success, message) {
+            if (success) {
+                root.statusMessage = "Plugin action completed."
+                root.errorMessage = ""
+            } else {
+                root.statusMessage = ""
+                root.errorMessage = String(message || "Plugin management action failed.")
+            }
+            root.launchFinished(success, String(message || ""))
+        }
     }
 }

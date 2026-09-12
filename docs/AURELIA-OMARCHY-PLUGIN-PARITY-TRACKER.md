@@ -1682,7 +1682,7 @@ Dependencies: T05, T10, T17.
 
 ### T19. Add plugin management and discoverability parity
 
-Status: `[-]` in progress — plugin discoverability and management-surface task.
+Status: `[x]` complete — CP2 and CP3 passed; plugin discoverability and management-surface task.
 
 CP2 pre-change boundary:
 
@@ -1712,14 +1712,45 @@ CP2 pre-change boundary:
   model, and isolated fixtures if a gate fails; preserve all prior Command
   Center and plugin behavior.
 
-- [ ] Add a human-readable and JSON plugin list with source, kind, enabled,
+- [x] Add a human-readable and JSON plugin list with source, kind, enabled,
   active, loaded, visible, in-bar, can-disable, clone origin, and error state.
-- [ ] Add plugin enable/disable/clone/remove/update actions to an Aurelia-owned
+- [x] Add plugin enable/disable/clone/remove/update actions to an Aurelia-owned
   management surface.
-- [ ] Keep management UI separate from plugin mutation internals.
-- [ ] Make management UI consume the canonical catalog and lifecycle APIs.
-- [ ] Preserve Command Center's existing modules and design language.
-- [ ] Add a plugin author preview/validation action without loading plugin code.
+- [x] Keep management UI separate from plugin mutation internals.
+- [x] Make management UI consume the canonical catalog and lifecycle APIs.
+- [x] Preserve Command Center's existing modules and design language.
+- [x] Add a plugin author preview/validation action without loading plugin code.
+
+Evidence:
+- Tests: `bash aurelia-shell/tests/test_plugin_management.sh` — `5` passed,
+  `0` failed; affected launcher/catalog/backend/clone suites — `31` passed,
+  `0` failed; `bash aurelia-shell/tests/run.sh` — `414` passed, `0` failed;
+  root `bash tests/run.sh` — `228` passed, `0` failed.
+- Runtime/fixture evidence: the real `PluginRegistry` catalog projection
+  reported source, kind, active, enablement, in-bar, can-disable, clone
+  provenance, and error state. The real Command Center
+  `PluginManagementModel` generated enable/disable/clone/update/remove/
+  validate rows and invoked a fake CLI with structured `remove <id> --yes`
+  argv. No plugin code, live action, installer, package, or user state was
+  executed.
+- Files changed: `PluginCatalogProjection.qml`, host/shell catalog projection
+  wiring, `PluginManagementModel.qml`, Command Center model/plugin/module
+  metadata, the human/JSON plugin list CLI projection, affected preservation
+  tests, management fixtures, and this tracker.
+- User-visible behavior changed: yes — an additive `Plugins` Command Center
+  module and complete `aurelia-plugin list` projections; existing modules,
+  shortcuts, layout, theme tokens, and design language are unchanged.
+- Existing Aurelia feature impact: no regressions observed. The management UI
+  launches only the existing user-level lifecycle CLI; it does not mutate
+  `ShellConfig`, packages, services, or system state directly.
+- Rollback/migration evidence: catalog reads and rows are detached; lifecycle
+  mutation remains owned by T18 CLI paths with its existing `--yes`, staging,
+  backup, and rollback boundaries. Removing T19 changes removes only the
+  additive catalog fields/module/model and preserves prior Command Center
+  behavior. Pre-change checkpoint: `10693b2`.
+- Review: CP3 passed. Repository-wide shell syntax passed for `225` scripts;
+  `git diff --check` passed; ShellCheck was unavailable and was not installed;
+  no temporary repository artifacts remain.
 
 Exit gate: a user can discover and manage plugins without knowing private file
 paths or editing JSON manually.

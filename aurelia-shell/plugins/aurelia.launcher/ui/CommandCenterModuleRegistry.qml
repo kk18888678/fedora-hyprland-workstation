@@ -28,7 +28,8 @@ QtObject {
         { id: "metals", name: "Gold & Metals", icon: "emblem-money", description: "Gold and precious-metal prices.", enabled: false, implemented: false, order: 90 },
         { id: "stocks", name: "Stocks", icon: "view-statistics", description: "Market prices and watchlists.", enabled: false, implemented: false, order: 100 },
         { id: "aurelia-shell", name: "Aurelia Shell", icon: "utilities-terminal", description: "Reload plugins or restart the resident shell while developing.", enabled: true, implemented: true, order: 110 },
-        { id: "about", name: "About", icon: "help-about", description: "View Aurelia system details and graphical branding.", enabled: true, implemented: true, order: 120 }
+        { id: "about", name: "About", icon: "help-about", description: "View Aurelia system details and graphical branding.", enabled: true, implemented: true, order: 120 },
+        { id: "plugins", name: "Plugins", icon: "system-run", description: "Enable, disable, clone, update, or remove Aurelia plugins.", enabled: true, implemented: true, order: 130 }
     ]
 
     property var modules: builtinModules

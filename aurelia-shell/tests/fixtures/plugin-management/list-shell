@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+[[ "$1" == "shell" && "$2" == "listPlugins" ]] || exit 1
+printf '%s\n' '[{
+    "id": "aurelia.clock",
+    "source": "first-party",
+    "kind": "bar-widget",
+    "kinds": ["bar-widget"],
+    "enabled": true,
+    "active": false,
+    "loaded": true,
+    "visible": false,
+    "inBar": true,
+    "canDisable": true,
+    "clonedFrom": "",
+    "errorState": null
+}, {
+    "id": "tester.clock",
+    "source": "user",
+    "kind": "bar-widget",
+    "kinds": ["bar-widget"],
+    "enabled": true,
+    "active": false,
+    "loaded": false,
+    "visible": false,
+    "inBar": true,
+    "canDisable": true,
+    "clonedFrom": "aurelia.clock",
+    "errorState": {"detail": "fixture failure"}
+}]'

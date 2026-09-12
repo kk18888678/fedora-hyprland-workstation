@@ -10,3 +10,4 @@ PluginBarWidgetRegistryApi 1.0 PluginBarWidgetRegistryApi.qml
 PluginAppLibraryApi 1.0 PluginAppLibraryApi.qml
 PluginCloneState 1.0 PluginCloneState.qml
 PluginProvenance 1.0 PluginProvenance.qml
+PluginCatalogProjection 1.0 PluginCatalogProjection.qml

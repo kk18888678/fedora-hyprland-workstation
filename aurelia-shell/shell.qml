@@ -316,7 +316,7 @@ ShellRoot {
         }
 
         function catalogPlugins(): string {
-            return JSON.stringify(pluginRegistry.pluginCatalog())
+            return JSON.stringify(pluginHost.catalog())
         }
     }
 

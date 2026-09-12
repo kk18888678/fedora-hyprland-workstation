@@ -15,6 +15,7 @@ Item {
     property var appLibrary: null
     property var manifest: ({})
     property var pluginRegistry: null
+    property var pluginHost: null
 
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-shell-keybindings"
@@ -34,10 +35,20 @@ Item {
     readonly property string shellRestartBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-restart-shell"
         : "/usr/local/bin/aurelia-restart-shell"
+    readonly property string pluginCliBin: aureliaPath !== ""
+        ? aureliaPath + "/bin/aurelia-plugin"
+        : "/usr/local/bin/aurelia-plugin"
     readonly property var processEnvironment: ({})
 
     CommandCenterModuleRegistry {
         id: moduleRegistry
+    }
+
+    PluginManagementModel {
+        id: pluginManagement
+        pluginRegistry: pluginRoot.pluginRegistry
+        pluginHost: pluginRoot.pluginHost
+        pluginCliBin: pluginRoot.pluginCliBin
     }
 
     function open(payloadJson) {
@@ -100,6 +111,7 @@ Item {
         processEnvironment: pluginRoot.processEnvironment
         appLibrary: pluginRoot.appLibrary
         moduleRegistry: moduleRegistry
+        pluginManagement: pluginManagement
         anchorWindow: pluginRoot.bar
     }
 }

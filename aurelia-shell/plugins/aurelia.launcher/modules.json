@@ -108,6 +108,15 @@
       "enabled": true,
       "implemented": true,
       "order": 120
+    },
+    {
+      "id": "plugins",
+      "name": "Plugins",
+      "icon": "system-run",
+      "description": "Enable, disable, clone, update, or remove Aurelia plugins.",
+      "enabled": true,
+      "implemented": true,
+      "order": 130
     }
   ]
 }

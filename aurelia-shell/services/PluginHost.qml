@@ -844,6 +844,7 @@ Item {
         for (var i = 0; i < result.length; i++) {
             result[i].loaded = !!itemFor(result[i].id) || !!(bar && typeof bar.hasWidget === "function" && bar.hasWidget(result[i].id))
             result[i].visible = isVisible(result[i].id)
+            result[i].active = result[i].active === true || result[i].id === host.activeBarId
         }
         catalog.plugins = result
         return catalog

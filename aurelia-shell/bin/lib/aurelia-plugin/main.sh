@@ -10,6 +10,7 @@ Commands:
   list
   catalog [--json]
   rescan
+  list [--json]
   enable <plugin-id> [placement]
   disable <plugin-id>
   clone <aurelia.plugin-id> [--edit]
@@ -100,6 +101,40 @@ aurelia_plugin_enable() {
     fi
 }
 
+aurelia_plugin_list() {
+    local json=0 arg shell_cli listing
+    for arg in "$@"; do
+        case "$arg" in
+            --json) json=1 ;;
+            *) aurelia_plugin_fail "Unknown list option: $arg"; return 1 ;;
+        esac
+    done
+    shell_cli="$(aurelia_plugin_shell_cli)" || return 1
+    listing="$("$shell_cli" shell listPlugins)" || return 1
+    jq -e 'type == "array"' <<<"$listing" >/dev/null || {
+        aurelia_plugin_fail "Resident shell returned an invalid plugin list"
+        return 1
+    }
+    if [[ "$json" -eq 1 ]]; then
+        printf '%s\n' "$listing"
+        return 0
+    fi
+    printf 'ID\tSOURCE\tKIND\tENABLED\tACTIVE\tLOADED\tVISIBLE\tIN-BAR\tCAN-DISABLE\tCLONE-OF\tERROR\n'
+    jq -r '.[] | [
+        .id,
+        (.source // (if .firstParty then "first-party" else "user" end)),
+        (.kind // ((.kinds // []) | join(","))),
+        (if .enabled then "yes" else "no" end),
+        (if .active then "yes" else "no" end),
+        (if .loaded then "yes" else "no" end),
+        (if .visible then "yes" else "no" end),
+        (if .inBar then "yes" else "no" end),
+        (if .canDisable then "yes" else "no" end),
+        (.clonedFrom // "-"),
+        (if .errorState then (.errorState.detail // .errorState.reason // "error") else "" end)
+    ] | @tsv' <<<"$listing"
+}
+
 aurelia_plugin_main() {
     local command="${1:-help}"
     shift || true
@@ -179,10 +214,7 @@ aurelia_plugin_main() {
             fi
             ;;
         list)
-            [[ $# -eq 0 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin list"; return 1; }
-            local shell_cli
-            shell_cli="$(aurelia_plugin_shell_cli)" || return 1
-            "$shell_cli" shell listPlugins
+            aurelia_plugin_list "$@"
             ;;
         rescan)
             [[ $# -eq 0 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin rescan"; return 1; }

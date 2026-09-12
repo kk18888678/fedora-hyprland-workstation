@@ -8,13 +8,14 @@ set -Eeuo pipefail
 section "Aurelia Source-Aware Plugin Catalog"
 
 registry_root="$ROOT/services/PluginRegistry.qml"
+projection_root="$ROOT/services/PluginCatalogProjection.qml"
 host_root="$ROOT/services/PluginHost.qml"
 shell_root="$ROOT/shell.qml"
 main_root="$ROOT/bin/lib/aurelia-plugin/main.sh"
 
 if grep -q 'function pluginCatalog' "$registry_root" &&
-   grep -q 'sourceRoot' "$registry_root" &&
-   grep -q 'manifestPath' "$registry_root" &&
+   grep -q 'sourceRoot' "$projection_root" &&
+   grep -q 'manifestPath' "$projection_root" &&
    grep -q 'function catalog()' "$host_root" &&
    grep -q 'function catalogPlugins(): string' "$shell_root" &&
    grep -q 'catalog \[--json\]' "$main_root"; then

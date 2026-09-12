@@ -10,6 +10,7 @@ set -Eeuo pipefail
 shell_root="$ROOT"
 plugin_root="$shell_root/plugins/aurelia.keybindings"
 services_root="$shell_root/services"
+catalog_projection_root="$services_root/PluginCatalogProjection.qml"
 
 section "Aurelia Shell Package and Plugin Contract"
 
@@ -93,7 +94,7 @@ else
 fi
 
 if grep -q 'function iconForManifest' "$services_root/PluginRegistry.qml" &&
-   grep -q 'icon: iconForManifest(manifest)' "$services_root/PluginRegistry.qml" &&
+   grep -q 'icon: owner.iconForManifest(manifest)' "$catalog_projection_root" &&
    grep -q 'isValidIconName' "$services_root/PluginRegistry.qml" &&
    grep -q 'Manifest icon name is invalid' "$ROOT/bin/lib/aurelia-plugin/manifest.sh"; then
     pass "plugin summaries expose validated icon metadata without accepting filesystem paths"
