@@ -648,6 +648,23 @@ Dependencies: T03.
 
 ### T05. Add a single source-aware plugin catalog
 
+Status: `[-]` in progress — source-aware plugin catalog task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/PluginRegistry.qml`,
+  `aurelia-shell/services/PluginHost.qml`, `aurelia-shell/shell.qml`, and the
+  plugin CLI files needed to expose the catalog.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  catalog fixtures, and this tracker.
+- Compatibility boundary: existing `listPlugins` array output and current
+  plugin lifecycle commands remain readable; catalog output is additive.
+- Runtime behavior impact: read-only catalog projection and diagnostics only;
+  no plugin activation, source execution, or persisted-state mutation.
+- Persisted user state impact: none.
+- Rollback: revert only T05 catalog/CLI/test/tracker changes if a mandatory
+  gate fails; preserve completed T00–T04 history and user-owned changes.
+
 - [ ] Add a catalog projection containing ID, name, description, kinds, source
   root, manifest path, entry points, first-party status, version, and bar
   metadata.
