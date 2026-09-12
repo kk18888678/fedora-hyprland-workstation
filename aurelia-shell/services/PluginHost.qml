@@ -144,6 +144,12 @@ Item {
         return itemFor(host.activeBarId)
     }
 
+    function keepsResident(id) {
+        var manifest = manifestFor(id)
+        return !!(manifest && (manifest.keepLoaded === true ||
+            (Array.isArray(manifest.kinds) && manifest.kinds.indexOf("service") !== -1)))
+    }
+
     function shouldLoad(id) {
         var revision = loadRevision
         var manifest = manifestFor(id)
@@ -154,7 +160,8 @@ Item {
         // that owner resident during targeted plugin reloads; its separate bar
         // widget still reloads through BarWidgetSlot. A full shell restart is
         // the explicit boundary for changing the service entry point.
-        if (reloading && isReloadTarget && id !== "aurelia.bar" && id !== "aurelia.notifications") return false
+        if (reloading && isReloadTarget && id !== "aurelia.bar" && id !== "aurelia.notifications" &&
+            !host.keepsResident(id)) return false
         if (!manifest || !registry.isEnabled(id)) return false
         var failureRevision = registry ? registry.runtimeFailureRevision : 0
         var primaryKind = registry && typeof registry.primaryKind === "function" ? registry.primaryKind(id) : ""
@@ -190,16 +197,20 @@ Item {
             nextRequested[id] = requested[id]
         }
         for (var pendingId in pendingOpens) {
-            if (reloadingPluginIds === null || reloadingPluginIds[pendingId] === true) continue
             nextPendingOpens[pendingId] = pendingOpens[pendingId]
         }
         for (var instanceId in instances) {
             // A full reload preserves the bar host; a targeted Bar.qml change
             // is allowed to recreate aurelia.bar itself.
             var reloadInstance = reloadingPluginIds === null
-                ? instanceId !== "aurelia.bar" && instanceId !== "aurelia.notifications"
-                : reloadingPluginIds[instanceId] === true && instanceId !== "aurelia.notifications"
+                ? instanceId !== "aurelia.bar" && instanceId !== "aurelia.notifications" &&
+                    !host.keepsResident(instanceId)
+                : reloadingPluginIds[instanceId] === true &&
+                    instanceId !== "aurelia.notifications" && !host.keepsResident(instanceId)
             if (!reloadInstance) nextInstances[instanceId] = instances[instanceId]
+            else host.pluginUnloaded(instanceId,
+                registry && typeof registry.primaryKind === "function"
+                    ? registry.primaryKind(instanceId) : "plugin", "reload")
         }
         requested = nextRequested
         pendingOpens = nextPendingOpens
@@ -227,6 +238,19 @@ Item {
         return instances[id] || null
     }
 
+    function removeInstance(id, reason) {
+        var pluginId = String(id || "")
+        var existing = instances[pluginId]
+        if (!existing) return false
+        var next = host.copyMap(host.instances)
+        delete next[pluginId]
+        host.instances = next
+        host.pluginUnloaded(pluginId,
+            registry && typeof registry.primaryKind === "function" ? registry.primaryKind(pluginId) : "plugin",
+            reason || "unload")
+        return true
+    }
+
     function configurePlugin(id, target) {
         if (!target || !registry) return
         var manifest = manifestFor(id)
@@ -247,6 +271,7 @@ Item {
     function completePendingOpen(id, target) {
         var pending = pendingOpens[id]
         if (!pending) return true
+        var queue = Array.isArray(pending) ? pending.slice() : [pending]
         if (!target || typeof target.open !== "function") {
             host.recordFailure(id, registry.primaryKind(id), "initialization", "plugin has no open method")
             return false
@@ -254,8 +279,11 @@ Item {
         var next = copyMap(pendingOpens)
         delete next[id]
         pendingOpens = next
-        return host.invokeTarget(id, target, "open", pending.payloadJson || "{}",
-            registry.primaryKind(id), "callback").ok
+        for (var i = 0; i < queue.length; i++) {
+            if (!host.invokeTarget(id, target, "open", queue[i].payloadJson || "{}",
+                registry.primaryKind(id), "callback").ok) return false
+        }
+        return true
     }
 
     function setRequested(id, value) {
@@ -287,7 +315,9 @@ Item {
         var target = itemFor(id)
         if (!target) {
             var pending = copyMap(pendingOpens)
-            pending[id] = { payloadJson: payloadJson || "{}" }
+            var queue = Array.isArray(pending[id]) ? pending[id].slice() : (pending[id] ? [pending[id]] : [])
+            queue.push({ payloadJson: payloadJson || "{}" })
+            pending[id] = queue
             pendingOpens = pending
             return "pending"
         }
@@ -419,13 +449,17 @@ Item {
                     host.scheduleFailure(pluginId, host.registry.primaryKind(pluginId), "load",
                         "Loader.Error", source, host.registry.primaryKind(pluginId))
             }
+
+            onActiveChanged: {
+                if (!active) Qt.callLater(function() {
+                    if (!active) host.removeInstance(pluginId, "unload")
+                })
+            }
         }
 
         onItemRemoved: function(index, item) {
             if (!item) return
-            var removed = host.copyMap(host.instances)
-            delete removed[item.pluginId]
-            host.instances = removed
+            host.removeInstance(item.pluginId, "repeater-removed")
         }
     }
 }

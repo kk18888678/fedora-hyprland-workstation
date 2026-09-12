@@ -781,7 +781,7 @@ Dependencies: T02A, T03, T04, T05.
 
 ### T07. Implement exact `keepLoaded` and multi-kind lifecycle semantics
 
-Status: `[-]` in progress — resident and multi-kind lifecycle task.
+Status: `[x]` complete — resident and multi-kind lifecycle task.
 
 CP2 pre-change boundary:
 
@@ -800,16 +800,41 @@ CP2 pre-change boundary:
 - Rollback: revert only T07 lifecycle/test/tracker changes if a mandatory gate
   fails; preserve completed T00–T06 history and user-owned changes.
 
-- [ ] Define one canonical primary service owner for a multi-kind plugin.
-- [ ] Load every declared functional kind through its own entry point when the
+CP3 post-change evidence:
+
+- Focused lifecycle gate: test_plugin_lifecycle.sh — 3 assertions passed, 0
+  failed.
+- Runtime coverage: one resident service instance and one kept panel retained
+  object identity across a full reload; a service+bar-widget and
+  menu+bar-widget plugin used separate owners; two pending summons delivered
+  in order; toggle/close worked; and a non-kept panel unloaded after close.
+- Host behavior: reload now preserves resident/keepLoaded instances, pending
+  opens use ordered queues, and reload/unload lifecycle events are emitted.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 343 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 209 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Compatibility: current notification service residency, bar-widget behavior,
+  payload contract, and IPC identities were preserved; no persisted state or
+  plugin manifests were changed.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+
+- [x] Define one canonical primary service owner for a multi-kind plugin.
+- [x] Load every declared functional kind through its own entry point when the
   kind requires an independent surface.
-- [ ] Keep services and explicitly kept UI surfaces alive across a plugin
+- [x] Keep services and explicitly kept UI surfaces alive across a plugin
   rescan according to the manifest.
-- [ ] Do not destroy session-lock, notification-bus, or other sensitive/stateful
+- [x] Do not destroy session-lock, notification-bus, or other sensitive/stateful
   owners during an unrelated plugin reload.
-- [ ] Preserve current Aurelia notification service plus bar-widget behavior.
-- [ ] Add runtime tests for service-plus-widget and menu-plus-widget fixtures.
-- [ ] Add tests for pending opens, repeated summons, close, toggle, and unload.
+- [x] Preserve current Aurelia notification service plus bar-widget behavior.
+- [x] Add runtime tests for service-plus-widget and menu-plus-widget fixtures.
+- [x] Add tests for pending opens, repeated summons, close, toggle, and unload.
 
 Exit gate: reload behavior is deterministic and no duplicate service, IPC, timer,
 or notification owner is created.
