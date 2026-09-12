@@ -1032,6 +1032,27 @@ Dependencies: T01, T02, T06, T08.
 
 ### T11. Make bar-widget metadata operational
 
+Status: `[-]` in progress — operational bar-widget metadata task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/BarWidgetRegistry.qml`,
+  `ShellConfig.qml`, the Aurelia bar row/center/slot boundaries,
+  `shell.qml` injection wiring, and narrow host helpers needed for
+  duplicate-instance addressing.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  metadata/defaults/duplicate-instance fixtures, and this tracker.
+- Compatibility boundary: current layout order, explicit widget settings,
+  geometry, visual design, plugin IDs, and single-instance current widgets
+  must remain unchanged.
+- Runtime behavior impact: metadata projection and bar-entry resolution only;
+  no live bar restart, persisted state migration, or installer mutation.
+- Persisted user state impact: duplicate filtering must be deterministic and
+  preserve explicit values; no user data may be removed outside the managed
+  duplicate-instance rule.
+- Rollback: revert only T11 metadata/bar/test/tracker changes if a mandatory
+  gate fails; preserve completed T00–T10 history and user-owned changes.
+
 - [ ] Consume `displayName`, `description`, `category`, `defaultSection`,
   `allowMultiple`, `defaults`, `settingsForm`, and `schema` through the bar
   registry.
