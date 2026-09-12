@@ -505,7 +505,7 @@ AureliaKeyboardPanel {
     onScaleValuesChanged: clampCursor()
     onResolutionValuesChanged: clampCursor()
     onVisibleSectionsChanged: clampCursor()
-    onBackendRootChanged: Qt.callLater(function() { root.refresh() })
+    onBackendRootChanged: root.refresh()
 
     FocusScope {
         id: keyScope

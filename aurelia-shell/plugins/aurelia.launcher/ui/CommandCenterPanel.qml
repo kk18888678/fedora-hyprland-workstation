@@ -20,6 +20,7 @@ PanelWindow {
     property var processEnvironment: ({})
     property var appLibrary: null
     property var moduleRegistry: null
+    property var pluginManagement: null
     property var anchorWindow: null
 
     readonly property int calculatedCardHeight: {

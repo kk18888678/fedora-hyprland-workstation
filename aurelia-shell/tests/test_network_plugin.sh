@@ -120,6 +120,9 @@ fi
 
 if grep -Fq 'aurelia.network' "$ROOT/config/bar-default.json" &&
    grep -Fq 'aurelia.network' "$ROOT/plugins/aurelia.network/manifest.json" &&
+   grep -Fq 'readonly property bool ipcOwner' "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml" &&
+   grep -Fq 'property bool ipcReady' "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml" &&
+   grep -Fq 'active: root.ipcOwner && root.ipcReady' "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml" &&
    grep -Fq 'SUPER + CTRL + W' "$network_root/keybindings.lua" &&
    grep -Fq 'aurelia.network' "$network_root/keybindings.lua" &&
    grep -Fxq 'iw' "$ROOT/../packages/base.txt" &&

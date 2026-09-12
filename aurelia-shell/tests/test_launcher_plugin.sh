@@ -37,6 +37,7 @@ if grep -q 'property string aureliaPath' "$command_center_root/CommandCenterPlug
    grep -q 'property var appLibrary' "$command_center_root/CommandCenterPlugin.qml" &&
    grep -q 'CommandCenterModuleRegistry {' "$command_center_root/CommandCenterPlugin.qml" &&
    grep -q 'CommandCenterPanel {' "$command_center_root/CommandCenterPlugin.qml" &&
+   grep -q 'property var pluginManagement: null' "$command_center_root/ui/CommandCenterPanel.qml" &&
    grep -q 'target: "aurelia.launcher"' "$command_center_root/CommandCenterPlugin.qml" &&
    ! grep -Eq '/home/[A-Za-z0-9_./-]+|Projects/fedora-hyprland-workstation|/usr/bin/uwsm-app|/usr/bin/gtk-launch' \
        "$command_center_root/CommandCenterPlugin.qml" "$command_center_root/ui/CommandCenterModel.qml" "$command_center_root/ui/CommandCenterPanel.qml"; then

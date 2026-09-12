@@ -37,6 +37,8 @@ if grep -Fq 'AureliaKeyboardPanel' "$plugin_root/DisplayPanel.qml" &&
    grep -Fq 'function setResolution' "$plugin_root/DisplayPanel.qml" &&
    grep -Fq 'enabledDisplayCount <= 1' "$plugin_root/DisplayPanel.qml" &&
    grep -Fq 'function closeForPopoutSwitch' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'onBackendRootChanged: root.refresh()' "$plugin_root/DisplayPanel.qml" &&
+   ! grep -Fq 'onBackendRootChanged: Qt.callLater' "$plugin_root/DisplayPanel.qml" &&
    ! grep -Eq 'bash[[:space:]]*-c|eval[[:space:]]' "$plugin_root/DisplayPanel.qml"; then
     pass "Display keeps UI state in QML and routes system actions through bounded helpers"
 else

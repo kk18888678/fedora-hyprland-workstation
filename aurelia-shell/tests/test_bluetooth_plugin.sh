@@ -60,6 +60,8 @@ if jq -e '(.kinds == ["bar-widget"]) and ((.kinds | index("panel")) == null)' "$
    grep -Fq 'readonly property var bluetoothPopup' "$bar_file" &&
    grep -Fq 'implicitWidth: adapterAvailable ? (bar ? bar.barSize : 32) : 0' "$bar_file" &&
    grep -Fq 'visible: adapterAvailable' "$bar_file" &&
+   grep -Fq 'property bool ipcReady' "$bar_file" &&
+   grep -Fq 'active: root.ipcOwner && root.ipcReady' "$bar_file" &&
    grep -Fq 'target: "aurelia.bluetooth"' "$bar_file" &&
    ! grep -Fq 'IpcHandler' "$panel_file"; then
     pass "Bluetooth is exposed only as a bar widget with an internally owned popup"
@@ -109,6 +111,8 @@ fi
 
 if grep -Fq 'id: bluezProbe' "$bar_file" &&
    grep -Fq '"/usr/bin/busctl"' "$bar_file" &&
+   grep -Fq '"introspect"' "$bar_file" &&
+   grep -Fq '"org.freedesktop.DBus.ObjectManager"' "$bar_file" &&
    grep -Fq 'active: root.bluezServiceAvailable' "$bar_file" &&
    grep -Fq 'function hasBluezService(output)' "$bar_file"; then
     pass "Bluetooth probes for BlueZ before constructing the native QML model"

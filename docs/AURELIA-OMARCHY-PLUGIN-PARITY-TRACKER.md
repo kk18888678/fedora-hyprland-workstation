@@ -1,7 +1,7 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
 Status: repository-only structural parity complete; T29 runtime-warning cleanup
-in progress; live visual/integration validation deferred pending explicit
+complete; live visual/integration validation deferred pending explicit
 authorization.
 
 ## Objective
@@ -2401,7 +2401,7 @@ Dependencies: T27 and every previous task.
 
 ### T29. Eliminate observed startup warning contracts
 
-Execution status: IN PROGRESS
+Execution status: COMPLETE
 
 Checkpoint 2 — warning-cleanup boundary:
 
@@ -2419,21 +2419,46 @@ Checkpoint 2 — warning-cleanup boundary:
 - Rollback: revert the T29 production/test commit; prior feature behavior and
   IPC owners remain recoverable.
 
-- [ ] Add a runtime test that loads the real Command Center plugin and catches
+- [x] Add a runtime test that loads the real Command Center plugin and catches
   missing-property construction failures.
-- [ ] Add a runtime test for DisplayPanel destruction during delayed refresh.
-- [ ] Ensure each network/Bluetooth bar widget instance has one effective IPC
+- [x] Add a runtime test for DisplayPanel destruction during delayed refresh.
+- [x] Ensure each network/Bluetooth bar widget instance has one effective IPC
   owner without duplicate-handler warnings.
-- [ ] Probe BlueZ's object-manager capability before constructing native
+- [x] Probe BlueZ's object-manager capability before constructing native
   Quickshell Bluetooth objects.
-- [ ] Keep benign unavailable-hardware conditions classified without hiding
+- [x] Keep benign unavailable-hardware conditions classified without hiding
   actionable QML warnings.
-- [ ] Run the affected and full Aurelia test suites and keep the root suite
+- [x] Run the affected and full Aurelia test suites and keep the root suite
   green.
 
 Exit gate: the isolated warning fixture loads the affected components without
 the reported construction, duplicate-handler, stale-refresh, or unsafe-BlueZ
-warnings, while the existing feature and IPC contracts remain green.
+warnings, while the existing feature and IPC contracts remain green. PASS.
+
+Evidence:
+
+- Added tests/fixtures/plugin-warning-smoke/shell.qml and
+  tests/test_runtime_warning_contracts.sh.
+- Fixed the missing CommandCenterPanel.pluginManagement property and removed
+  the stale DisplayPanel delayed refresh callback.
+- Network and Bluetooth compatibility IPC handlers are now instantiated only
+  by the settled active bar-slot owner; NetworkPanel imports its local
+  NetworkRow type.
+- Bluetooth requires a successful object-manager introspection before loading
+  Quickshell Bluetooth objects, preventing the reported BlueZ warning when the
+  capability is unavailable.
+- Warning-stream fixture: 5 passed, 0 failed. It checks the exact reported
+  warning signatures and owner handoff. The offscreen runtime cannot construct
+  PanelWindow-backed surfaces, so launcher/display construction remains
+  statically checked there and requires separately authorized live validation.
+- Affected suites: 94 passed, 0 failed.
+- Full Aurelia suite: 532 passed, 0 failed.
+- Repository suite: 228 passed, 0 failed.
+- Repository-wide shell syntax: 234 scripts passed.
+- Shellcheck was not installed and was skipped.
+- No installer, package, live configuration, systemd/greetd state, or reboot
+  was touched.
+- Checkpoint: ee20444 (chore(checkpoint): freeze runtime warning cleanup boundary).
 
 Dependencies: T24 through T28.
 
@@ -2471,6 +2496,7 @@ Dependencies: T24 through T28.
 | Plugin development reload is less complete | T07, T20, T24 |
 | No manifest-backed Omarchy-style menu/data-extension surface | T21, T24, T25 |
 | No plugin authoring documentation/template | T26 |
+| Observed startup warning-producing component graph lacked regression coverage | T29 |
 
 ## Final preservation gate
 
@@ -2527,7 +2553,7 @@ is deferred pending explicit authorization.
 Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403dc136db7089e
 Final Aurelia branch/SHA: installer-resilience / a35da04d2522cb96b26e270ace4e1aa8c2d049a4
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: T00 through T28 for the repository-only structural parity target
+Tasks completed: T00 through T29 for the repository-only structural parity target
 Tasks outstanding: authorized live Wayland/visual acceptance; explicit feature
 scope differences are listed above and are not structural gaps
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 527 passed, 0 failed

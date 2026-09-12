@@ -18,7 +18,27 @@ Item {
     property var manifest: ({})
     property var pluginRegistry: null
     property var barAnchorItem: null
+    property bool ipcReady: false
 
+    readonly property bool ipcOwner: {
+        var revision = root.bar && root.bar.widgetRevision !== undefined
+            ? root.bar.widgetRevision : -1
+        if (!root.barAnchorItem) return false
+        if (!root.bar || typeof root.bar.anchorItemFor !== "function") return true
+        return root.bar.anchorItemFor(root.moduleName) === root.barAnchorItem
+    }
+
+    Timer {
+        id: ipcOwnerSettleTimer
+        interval: 50
+        repeat: false
+        onTriggered: root.ipcReady = root.ipcOwner
+    }
+
+    onIpcOwnerChanged: {
+        root.ipcReady = false
+        ipcOwnerSettleTimer.restart()
+    }
     readonly property string sourceBinRoot: decodeURIComponent(
         String(Qt.resolvedUrl("../../bin")).replace(/^file:\/\//, "")
     )
@@ -79,21 +99,30 @@ Item {
         return !!networkPanel && networkPanel.shown === true
     }
 
-    IpcHandler {
-        target: "aurelia.network"
+    Component {
+        id: networkIpcHandler
 
-        function ping(): bool { return networkPanel !== null }
-        function open(): void { root.open("{}") }
-        function close(): void { root.close() }
-        function show(): void { root.open("{}") }
-        function hide(): void { root.close() }
-        function toggle(): void { root.toggle("{}") }
-        function toggleNetwork(): void {
-            if (networkPanel && typeof networkPanel.toggleNetwork === "function") networkPanel.toggleNetwork()
+        IpcHandler {
+            target: "aurelia.network"
+
+            function ping(): bool { return networkPanel !== null }
+            function open(): void { root.open("{}") }
+            function close(): void { root.close() }
+            function show(): void { root.open("{}") }
+            function hide(): void { root.close() }
+            function toggle(): void { root.toggle("{}") }
+            function toggleNetwork(): void {
+                if (networkPanel && typeof networkPanel.toggleNetwork === "function") networkPanel.toggleNetwork()
+            }
+            function checkConnectivity(): void {
+                if (networkPanel && typeof networkPanel.checkConnectivity === "function") networkPanel.checkConnectivity()
+            }
         }
-        function checkConnectivity(): void {
-            if (networkPanel && typeof networkPanel.checkConnectivity === "function") networkPanel.checkConnectivity()
-        }
+    }
+
+    Loader {
+        active: root.ipcOwner && root.ipcReady
+        sourceComponent: networkIpcHandler
     }
 
     Loader {

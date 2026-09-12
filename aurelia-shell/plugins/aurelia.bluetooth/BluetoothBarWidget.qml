@@ -21,7 +21,27 @@ Item {
     property var barAnchorItem: null
     property bool bluezServiceAvailable: false
     property int bluezProbeAttempts: 0
+    property bool ipcReady: false
 
+    readonly property bool ipcOwner: {
+        var revision = root.bar && root.bar.widgetRevision !== undefined
+            ? root.bar.widgetRevision : -1
+        if (!root.barAnchorItem) return false
+        if (!root.bar || typeof root.bar.anchorItemFor !== "function") return true
+        return root.bar.anchorItemFor(root.moduleName) === root.barAnchorItem
+    }
+
+    Timer {
+        id: ipcOwnerSettleTimer
+        interval: 50
+        repeat: false
+        onTriggered: root.ipcReady = root.ipcOwner
+    }
+
+    onIpcOwnerChanged: {
+        root.ipcReady = false
+        ipcOwnerSettleTimer.restart()
+    }
     readonly property string sourceBinRoot: decodeURIComponent(
         String(Qt.resolvedUrl("../../bin")).replace(/^file:\/\//, "")
     )
@@ -80,12 +100,7 @@ Item {
     }
 
     function hasBluezService(output) {
-        var lines = String(output || "").split("\n")
-        for (var i = 0; i < lines.length; i++) {
-            var fields = lines[i].trim().split(/\s+/)
-            if (fields.length > 0 && fields[0] === "org.bluez") return true
-        }
-        return false
+        return String(output || "").indexOf("org.freedesktop.DBus.ObjectManager") !== -1
     }
 
     function probeBluez() {
@@ -99,18 +114,27 @@ Item {
             root.bluetoothPopup.releaseDiscoveryOnDestruction()
     }
 
-    IpcHandler {
-        target: "aurelia.bluetooth"
+    Component {
+        id: bluetoothIpcHandler
 
-        function ping(): bool { return root.adapterAvailable }
-        function open(): void { root.open("{}") }
-        function close(): void { root.close() }
-        function show(): void { root.open("{}") }
-        function hide(): void { root.close() }
-        function toggle(): void { root.toggle("{}") }
-        function toggleBluetooth(): void {
-            if (root.bluetoothPopup) root.bluetoothPopup.toggleBluetooth()
+        IpcHandler {
+            target: "aurelia.bluetooth"
+
+            function ping(): bool { return root.adapterAvailable }
+            function open(): void { root.open("{}") }
+            function close(): void { root.close() }
+            function show(): void { root.open("{}") }
+            function hide(): void { root.close() }
+            function toggle(): void { root.toggle("{}") }
+            function toggleBluetooth(): void {
+                if (root.bluetoothPopup) root.bluetoothPopup.toggleBluetooth()
+            }
         }
+    }
+
+    Loader {
+        active: root.ipcOwner && root.ipcReady
+        sourceComponent: bluetoothIpcHandler
     }
 
     Loader {
@@ -130,7 +154,8 @@ Item {
         id: bluezProbe
         command: [
             "/usr/bin/timeout", "--kill-after=1s", "2s",
-            "/usr/bin/busctl", "--system", "--no-pager", "list", "--no-legend"
+            "/usr/bin/busctl", "--system", "--no-pager", "introspect",
+            "org.bluez", "/", "org.freedesktop.DBus.ObjectManager"
         ]
         running: false
         stdout: StdioCollector {

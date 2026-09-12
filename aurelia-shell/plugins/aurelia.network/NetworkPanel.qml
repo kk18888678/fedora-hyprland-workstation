@@ -7,6 +7,7 @@ import Quickshell.Networking
 import "../../ui"
 import "../../theme"
 import "Model.js" as Model
+import "."
 AureliaKeyboardPanel {
     id: root
     property var shell: null
