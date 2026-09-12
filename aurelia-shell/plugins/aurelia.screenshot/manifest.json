@@ -8,6 +8,13 @@
   "icon": "camera-photo",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "ui/ScreenshotBarWidget.qml"
+    "barWidget": "ui/ScreenshotBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Screenshots",
+    "description": "Minimal bar-owned screen and region capture with configurable delay, pointer, save, and clipboard behavior.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

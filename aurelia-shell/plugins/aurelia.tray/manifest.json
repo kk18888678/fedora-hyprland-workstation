@@ -8,6 +8,13 @@
   "icon": "applications-system",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "TrayBarWidget.qml"
+    "barWidget": "TrayBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "System Tray",
+    "description": "StatusNotifier system tray widget for the Aurelia bar.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

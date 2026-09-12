@@ -8,7 +8,7 @@
   "icon": "video-display",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "DisplayBarWidget.qml"
+    "barWidget": "DisplayBarWidget.qml"
   },
   "barWidget": {
     "displayName": "Display",

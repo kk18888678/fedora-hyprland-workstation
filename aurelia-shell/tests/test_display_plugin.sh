@@ -18,7 +18,7 @@ if [[ -f "$plugin_root/manifest.json" &&
           .id == "aurelia.monitor" and
           .name == "Display" and
           (.kinds == ["bar-widget"]) and
-          .entryPoints["bar-widget"] == "DisplayBarWidget.qml" and
+          .entryPoints.barWidget == "DisplayBarWidget.qml" and
           .barWidget.defaultSection == "right"' "$plugin_root/manifest.json" >/dev/null &&
    "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null 2>&1; then
     pass "Display declares a validated first-party bar-widget plugin"

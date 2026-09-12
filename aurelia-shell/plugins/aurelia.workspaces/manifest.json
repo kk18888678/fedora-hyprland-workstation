@@ -8,6 +8,13 @@
   "icon": "view-list",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "WorkspacesBarWidget.qml"
+    "barWidget": "WorkspacesBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Workspaces",
+    "description": "Hyprland workspace switcher for the Aurelia bar.",
+    "category": "Workspace",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

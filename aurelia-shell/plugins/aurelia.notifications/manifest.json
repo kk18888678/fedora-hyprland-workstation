@@ -10,6 +10,13 @@
   "keepLoaded": true,
   "entryPoints": {
     "service": "Service.qml",
-    "bar-widget": "BarWidget.qml"
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Notifications",
+    "description": "Notification popups, history, and Do Not Disturb",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

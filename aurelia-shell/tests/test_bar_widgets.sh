@@ -270,7 +270,7 @@ else
 fi
 
 if [[ -f "$clock_root/manifest.json" && -f "$clock_root/ClockBarWidget.qml" ]] &&
-   jq -e '.schemaVersion == 1 and .id == "aurelia.clock" and (.kinds == ["bar-widget"]) and .entryPoints["bar-widget"] == "ClockBarWidget.qml"' "$clock_root/manifest.json" >/dev/null &&
+   jq -e '.schemaVersion == 1 and .id == "aurelia.clock" and (.kinds == ["bar-widget"]) and .entryPoints.barWidget == "ClockBarWidget.qml"' "$clock_root/manifest.json" >/dev/null &&
    "$ROOT/bin/aurelia-plugin" validate --first-party "$clock_root" >/dev/null 2>&1; then
     pass "Clock is a validated first-party bar-widget plugin"
 else
@@ -278,7 +278,7 @@ else
 fi
 
 if [[ -f "$weather_root/manifest.json" && -f "$weather_root/WeatherBarWidget.qml" ]] &&
-   jq -e '.schemaVersion == 1 and .id == "aurelia.weather" and (.kinds == ["bar-widget"]) and .entryPoints["bar-widget"] == "WeatherBarWidget.qml"' "$weather_root/manifest.json" >/dev/null &&
+   jq -e '.schemaVersion == 1 and .id == "aurelia.weather" and (.kinds == ["bar-widget"]) and .entryPoints.barWidget == "WeatherBarWidget.qml"' "$weather_root/manifest.json" >/dev/null &&
    "$ROOT/bin/aurelia-plugin" validate --first-party "$weather_root" >/dev/null 2>&1; then
     pass "Weather is a validated first-party bar-widget plugin"
 else

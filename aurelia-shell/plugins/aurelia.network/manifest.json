@@ -8,7 +8,7 @@
   "icon": "network-wireless",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "NetworkBarWidget.qml"
+    "barWidget": "NetworkBarWidget.qml"
   },
   "barWidget": {
     "displayName": "Network",

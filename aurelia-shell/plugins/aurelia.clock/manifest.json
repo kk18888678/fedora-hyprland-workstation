@@ -8,6 +8,13 @@
   "icon": "clock",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "ClockBarWidget.qml"
+    "barWidget": "ClockBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Clock",
+    "description": "Theme-aware center clock bar widget.",
+    "category": "Time",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

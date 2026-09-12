@@ -26,7 +26,7 @@ if [[ -f "$plugin_root/manifest.json" &&
           .name == "Bluetooth" and
           .icon == "bluetooth" and
           (.kinds == ["bar-widget"]) and
-          .entryPoints["bar-widget"] == "BluetoothBarWidget.qml" and
+          .entryPoints.barWidget == "BluetoothBarWidget.qml" and
           .barWidget.defaultSection == "right" and
           .barWidget.allowMultiple == false' "$plugin_root/manifest.json" >/dev/null &&
    "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null 2>&1; then

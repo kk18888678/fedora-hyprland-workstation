@@ -8,6 +8,13 @@
   "icon": "view-list",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "TasklistBarWidget.qml"
+    "barWidget": "TasklistBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Task List",
+    "description": "Running Hyprland application icons with window actions.",
+    "category": "Windows",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

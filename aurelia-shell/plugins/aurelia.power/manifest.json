@@ -8,6 +8,13 @@
   "icon": "system-shutdown",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "PowerBarWidget.qml"
+    "barWidget": "PowerBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Power",
+    "description": "Lock, logout, suspend, reboot, and shutdown controls for the Aurelia bar.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

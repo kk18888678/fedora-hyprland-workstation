@@ -22,7 +22,7 @@ if [[ -f "$network_root/manifest.json" &&
        .id == "aurelia.network" and
        .name == "Network" and
        (.kinds == ["bar-widget"]) and
-       .entryPoints["bar-widget"] == "NetworkBarWidget.qml" and
+       .entryPoints.barWidget == "NetworkBarWidget.qml" and
        .barWidget.defaultSection == "right"
    ' "$network_root/manifest.json" >/dev/null &&
    "$ROOT/bin/aurelia-plugin" validate --first-party "$network_root" >/dev/null 2>&1; then

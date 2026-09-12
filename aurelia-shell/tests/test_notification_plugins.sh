@@ -21,7 +21,7 @@ if [[ -f "$plugin_root/manifest.json" ]] &&
        (.kinds | index("service")) != null and
        (.kinds | index("bar-widget")) != null and
        .entryPoints.service == "Service.qml" and
-       .entryPoints["bar-widget"] == "BarWidget.qml"
+       .entryPoints.barWidget == "BarWidget.qml"
    ' "$plugin_root/manifest.json" >/dev/null; then
     pass "Notifications declares a resident service and separate bar affordance"
 else

@@ -8,6 +8,13 @@
   "icon": "weather-clear-wind",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "bar-widget": "WeatherBarWidget.qml"
+    "barWidget": "WeatherBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Weather",
+    "description": "Automatic weather bar widget with city and coordinate overrides.",
+    "category": "Weather",
+    "allowMultiple": false,
+    "defaultSection": "center"
   }
 }

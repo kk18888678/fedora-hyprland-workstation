@@ -227,14 +227,15 @@ if [[ -x "$ROOT/bin/workstation-updates" ]] &&
    grep -q 'aboutBin' "$command_center_root/CommandCenterPlugin.qml" &&
    grep -q 'aboutBin: panelRoot.aboutBin' "$command_center_root/ui/CommandCenterPanel.qml" &&
    grep -q 'function openAbout' "$command_center_root/ui/CommandCenterModel.qml" &&
-   grep -q 'row.moduleId === "about"' "$command_center_root/ui/CommandCenterModel.qml" &&
+   grep -q 'var moduleProvider = root.moduleProvider(row.moduleId)' "$command_center_root/ui/CommandCenterModel.qml" &&
+   grep -q 'moduleProvider === "about"' "$command_center_root/ui/CommandCenterModel.qml" &&
    grep -q 'updatesBin' "$command_center_root/CommandCenterPlugin.qml" &&
    grep -q 'updatesBin: panelRoot.updatesBin' "$command_center_root/ui/CommandCenterPanel.qml" &&
    grep -q 'function openUpdates' "$command_center_root/ui/CommandCenterModel.qml" &&
-   grep -q 'row.moduleId === "updates"' "$command_center_root/ui/CommandCenterModel.qml" &&
+   grep -q 'moduleProvider === "updates"' "$command_center_root/ui/CommandCenterModel.qml" &&
    grep -q 'packagesBin' "$command_center_root/CommandCenterPlugin.qml" &&
    grep -q 'function openPackageManager' "$command_center_root/ui/CommandCenterModel.qml" &&
-   grep -q 'row.moduleId === "package-manager"' "$command_center_root/ui/CommandCenterModel.qml" &&
+   grep -q 'moduleProvider === "package-manager"' "$command_center_root/ui/CommandCenterModel.qml" &&
    ! grep -q 'updateProviderId' "$command_center_root/ui/CommandCenterModel.qml"; then
     pass "Updates and Package Manager are terminal-owned Command Center workflows without nested provider UI"
 else

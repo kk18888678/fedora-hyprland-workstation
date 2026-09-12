@@ -18,7 +18,7 @@ if [[ -f "$plugin_root/manifest.json" ]] &&
        .schemaVersion == 1 and
        .id == "aurelia.screenshot" and
        (.kinds == ["bar-widget"]) and
-       .entryPoints["bar-widget"] == "ui/ScreenshotBarWidget.qml" and
+       .entryPoints.barWidget == "ui/ScreenshotBarWidget.qml" and
        ((.description | ascii_downcase | contains("window")) | not)
    ' "$plugin_root/manifest.json" >/dev/null; then
     pass "Screenshot plugin declares a minimal bar-only entry point"

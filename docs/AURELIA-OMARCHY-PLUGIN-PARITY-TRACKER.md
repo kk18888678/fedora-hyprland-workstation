@@ -1921,7 +1921,7 @@ Dependencies: T03, T13, T14.
 
 ### T22. Migrate all existing Aurelia plugins to the canonical contract
 
-Status: `[-]` in progress — existing-plugin canonical manifest migration task.
+Status: `[x]` complete — CP2 and CP3 passed; existing-plugin canonical manifest migration task.
 
 CP2 pre-change boundary:
 
@@ -1952,46 +1952,79 @@ CP2 pre-change boundary:
 
 For each plugin below:
 
-- [ ] migrate its manifest without changing its user-visible behavior;
-- [ ] make its entry points load through the generic registry;
-- [ ] make its settings use the canonical state/API boundary;
-- [ ] preserve its current backend ownership and failure classification;
-- [ ] add or update focused tests and runtime fixtures;
-- [ ] add a design-language review against Aurelia tokens and primitives.
+- [x] migrate its manifest without changing its user-visible behavior;
+- [x] make its entry points load through the generic registry;
+- [x] make its settings use the canonical state/API boundary;
+- [x] preserve its current backend ownership and failure classification;
+- [x] add or update focused tests and runtime fixtures;
+- [x] add a design-language review against Aurelia tokens and primitives.
 
 Feature preservation list:
 
-- [ ] `aurelia.bar`: resident bar, exact center anchor, layout, logo, widget
+- [x] `aurelia.bar`: resident bar, exact center anchor, layout, logo, widget
   ownership, single-popout behavior, themes, and fallback.
-- [ ] `aurelia.background`: per-screen background service, image/video support,
+- [x] `aurelia.background`: per-screen background service, image/video support,
   safe fallback, and state reload.
-- [ ] `aurelia.image-picker`: image carousel/selector behavior and theme use.
-- [ ] `aurelia.bluetooth`: BlueZ model, discovery ownership, power state,
+- [x] `aurelia.image-picker`: image carousel/selector behavior and theme use.
+- [x] `aurelia.bluetooth`: BlueZ model, discovery ownership, power state,
   paired/discovered actions, and popup behavior.
-- [ ] `aurelia.calendar`: clock-owned calendar surface and geometry.
-- [ ] `aurelia.clock`: formatting, center placement, and calendar routing.
-- [ ] `aurelia.keybindings`: keyboard capture, provider integration, settings,
+- [x] `aurelia.calendar`: clock-owned calendar surface and geometry.
+- [x] `aurelia.clock`: formatting, center placement, and calendar routing.
+- [x] `aurelia.keybindings`: keyboard capture, provider integration, settings,
   compatibility targets, and structured backend execution.
-- [ ] `aurelia.launcher`: Command Center navigation, application search,
+- [x] `aurelia.launcher`: Command Center navigation, application search,
   calculator, file search, updates, About, and package workflows.
-- [ ] `aurelia.monitor`: brightness, display scale/resolution, text size, and
+- [x] `aurelia.monitor`: brightness, display scale/resolution, text size, and
   multi-monitor behavior.
-- [ ] `aurelia.network`: NetworkManager state, DNS authorization, QR handoff,
+- [x] `aurelia.network`: NetworkManager state, DNS authorization, QR handoff,
   speed-test handoff, and credential boundaries.
-- [ ] `aurelia.notifications`: notification server ownership, bounded history,
+- [x] `aurelia.notifications`: notification server ownership, bounded history,
   DND, popups, screenshot previews, and cross-workspace routing.
-- [ ] `aurelia.power`: power actions and confirmation behavior.
-- [ ] `aurelia.screenshot`: bar-owned capture, region selection, delay/pointer
+- [x] `aurelia.power`: power actions and confirmation behavior.
+- [x] `aurelia.screenshot`: bar-owned capture, region selection, delay/pointer
   settings, clipboard, and notification integration.
-- [ ] `aurelia.speedtest`: bounded cancellable speed-test panel.
-- [ ] `aurelia.tasklist`: tasklist layout and window context menu.
-- [ ] `aurelia.theme`: data-only theme selection and background handoff.
-- [ ] `aurelia.tray`: system tray ownership and menu behavior.
-- [ ] `aurelia.weather`: automatic/pinned location, units, refresh, and popup.
-- [ ] `aurelia.wifiqr`: QR generation, cancellation, and network handoff.
-- [ ] `aurelia.workspace-switcher`: `SUPER + TAB`, workspace cards, preview
+- [x] `aurelia.speedtest`: bounded cancellable speed-test panel.
+- [x] `aurelia.tasklist`: tasklist layout and window context menu.
+- [x] `aurelia.theme`: data-only theme selection and background handoff.
+- [x] `aurelia.tray`: system tray ownership and menu behavior.
+- [x] `aurelia.weather`: automatic/pinned location, units, refresh, and popup.
+- [x] `aurelia.wifiqr`: QR generation, cancellation, and network handoff.
+- [x] `aurelia.workspace-switcher`: `SUPER + TAB`, workspace cards, preview
   fallback, and selection behavior.
-- [ ] `aurelia.workspaces`: workspace indicators and Hyprland dispatch.
+- [x] `aurelia.workspaces`: workspace indicators and Hyprland dispatch.
+
+Additional first-party surface covered by T21:
+
+- [x] `aurelia.menu`: manifest-backed menu model, approved providers/actions,
+  user extension boundary, and Aurelia token review.
+
+Evidence:
+- Tests: `bash aurelia-shell/tests/test_plugin_migration.sh` — `3` passed,
+  `0` failed; affected first-party feature/manifest suites — `145` passed,
+  `0` failed; `bash aurelia-shell/tests/run.sh` — `425` passed, `0` failed;
+  root `bash tests/run.sh` — `228` passed, `0` failed.
+- Runtime/fixture evidence: the all-plugin matrix validated all `22` shipped
+  first-party manifests and every declared entry point; every bar widget now
+  uses canonical `entryPoints.barWidget` and explicit metadata. Existing bar,
+  background, picker, Bluetooth, display, network, notification, screenshot,
+  Command Center/menu, and other feature fixtures remained green.
+- Files changed: the `11` canonicalized bar-widget manifests, the T22
+  preservation inventory and focused migration/feature test assertions, and
+  this tracker. No plugin implementation, backend, state file, or visual
+  token was changed.
+- User-visible behavior changed: no intended behavior change; this is a
+  canonical metadata representation migration with previous fallback values
+  made explicit.
+- Existing Aurelia feature impact: no regressions observed; IDs, entry-point
+  paths, default bar layout, settings, backend ownership, IPC aliases,
+  failure classes, and design language are preserved.
+- Rollback/migration evidence: legacy `bar-widget` manifest reads remain
+  supported for third-party compatibility; reverting the manifest/test/tracker
+  changes restores the prior representation without touching user state.
+  Pre-change checkpoint: `0b7f400`.
+- Review: CP3 passed. Repository-wide shell syntax passed for `228` scripts;
+  `git diff --check` passed; ShellCheck was unavailable and was not installed;
+  no temporary repository artifacts remain.
 
 Exit gate: all existing Aurelia features pass their preservation fixtures after
 being hosted by the parity architecture.
