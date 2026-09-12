@@ -15,6 +15,9 @@ Lua, shell hooks, or arbitrary application configuration supplied by a theme.
 This directory contains first-party Aurelia Shell plugins. First-party and
 user plugins share the same manifest contract; only their source roots differ.
 
+For the complete authoring, testing, lifecycle, reload, and maintenance guide,
+see [aurelia-plugin-authoring.md](../docs/aurelia-plugin-authoring.md).
+
 ## Minimal panel plugin
 
 ```json

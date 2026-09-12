@@ -116,6 +116,11 @@ and `entryPoints`. User plugins live in
 `~/.config/aurelia/plugins/<plugin-id>/`. The `aurelia.` id namespace is
 reserved for first-party plugins.
 
+Plugin authors should use the [authoring and maintenance
+guide](docs/aurelia-plugin-authoring.md) together with the normative
+[plugin contract](docs/aurelia-plugin-contract-v1.md). It covers validation,
+testing, lifecycle, scoped facades, reload, clone, update, and rollback.
+
 The shell discovers manifests without executing plugin code. Invalid manifests,
 unsafe entry points, symlinked plugin trees, and duplicate ids are rejected.
 Third-party plugins are disabled until explicitly enabled in

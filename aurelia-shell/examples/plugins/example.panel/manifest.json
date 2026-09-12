@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "example.panel",
+  "name": "Aurelia Example Panel",
+  "version": "1.0.0",
+  "author": "Aurelia contributors",
+  "license": "MIT",
+  "description": "A minimal on-demand panel used by the plugin authoring guide.",
+  "kinds": ["panel"],
+  "entryPoints": {
+    "panel": "Panel.qml"
+  },
+  "keepLoaded": false
+}

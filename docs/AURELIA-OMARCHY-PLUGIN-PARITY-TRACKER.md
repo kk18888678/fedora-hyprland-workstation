@@ -2216,7 +2216,7 @@ Dependencies: T22, T24.
 
 ### T26. Publish plugin authoring and maintenance documentation
 
-Execution status: IN PROGRESS
+Execution status: COMPLETE
 
 Checkpoint 2 — authoring-documentation boundary:
 
@@ -2231,21 +2231,45 @@ Checkpoint 2 — authoring-documentation boundary:
 - Rollback: revert the documentation/example commit; no production runtime or
   live state is changed by this task.
 
-- [ ] Document the canonical manifest schema and kind-to-entry-point mapping.
-- [ ] Document the directory layout and source roots.
-- [ ] Document lifecycle, `keepLoaded`, multi-kind, bar, settings, and reload
+- [x] Document the canonical manifest schema and kind-to-entry-point mapping.
+- [x] Document the directory layout and source roots.
+- [x] Document lifecycle, keepLoaded, multi-kind, bar, settings, and reload
   behavior.
-- [ ] Document the third-party facade API and scope rules.
-- [ ] Document no-sandbox behavior, trust requirements, no-hook policy, and
+- [x] Document the third-party facade API and scope rules.
+- [x] Document no-sandbox behavior, trust requirements, no-hook policy, and
   bounded Git operations.
-- [ ] Add a minimal example plugin and validation instructions.
-- [ ] Add clone, update, remove, migration, and rollback instructions.
-- [ ] Document which behavior is Omarchy parity and which behavior is an
+- [x] Add a minimal example plugin and validation instructions.
+- [x] Add clone, update, remove, migration, and rollback instructions.
+- [x] Document which behavior is Omarchy parity and which behavior is an
   intentionally preserved Aurelia feature.
-- [ ] Keep README, runtime comments, tests, and implementation synchronized.
+- [x] Keep README, runtime comments, tests, and implementation synchronized.
 
 Exit gate: a new plugin author can build, validate, install, enable, configure,
 reload, test, update, clone, and remove a plugin without reading host internals.
+PASS.
+
+Evidence:
+
+- Added docs/aurelia-plugin-authoring.md as the operational companion to the
+  normative v1 contract and linked it from both Aurelia README surfaces.
+- Added the isolated example plugin at
+  examples/plugins/example.panel; it is outside the production plugin root,
+  uses the canonical panel manifest, has safe injected-property defaults, and
+  validates through the real aurelia-plugin CLI.
+- The guide documents all supported kinds, canonical and legacy entry-point
+  rules, source roots, lifecycle and reload behavior, bar metadata/settings,
+  facades, trust/no-hook boundaries, maintenance commands, rollback, testing,
+  parity language, and intentionally retained Aurelia features.
+- Added test_plugin_documentation.sh to enforce documentation links, required
+  topics, example safety, canonical validation, and command coverage.
+- T26 documentation suite: 5 passed, 0 failed.
+- Full Aurelia suite: 521 passed, 0 failed.
+- Repository suite: 228 passed, 0 failed after the T26-only changes.
+- Repository-wide shell syntax: 232 scripts passed.
+- Shellcheck was not installed and was skipped.
+- No installer, packages, systemd/greetd state, or user configuration was
+  touched.
+- Checkpoint: 8e418a1 (chore(checkpoint): freeze plugin authoring docs boundary).
 
 Dependencies: T03, T05, T14, T17, T18, T24.
 
