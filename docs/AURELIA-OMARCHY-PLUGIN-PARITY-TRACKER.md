@@ -1597,6 +1597,34 @@ Dependencies: T03, T04, T10, T12, T14.
 
 ### T18. Complete add/update/remove lifecycle
 
+- Status: `[-]` in progress — staged add/update/remove lifecycle task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: the Aurelia plugin CLI lifecycle modules, the
+  existing bounded Git/placement helpers, narrow lifecycle/provenance helpers,
+  and their help/dispatch wiring. No shell UI, installer, package, systemd,
+  greetd, or live-session state is in scope.
+- Allowed test files: `aurelia-shell/tests/`, including local Git-free command
+  fixtures and temporary user-plugin trees. No network or live plugin source
+  execution is allowed.
+- Compatibility boundary: existing `add --enable`, `update <id> --yes`,
+  `remove <id> --yes`, manifest validation, clone behavior, user settings,
+  first-party trees, and current CLI output remain compatible unless the new
+  lifecycle safety contract requires an explicit failure or backup message.
+- Runtime behavior impact: user-owned plugin-tree mutation only; every staged
+  tree must validate before publication, and every publication must remain
+  recoverable until rescan/discovery succeeds.
+- Persisted user state impact: no new shell-state schema is required. Removal
+  must move user plugin trees to an installer-owned hidden backup rather than
+  purge them; update/add provenance is a sidecar in the managed plugin tree.
+- Security boundary: only HTTPS Git sources are accepted; Git transport/config
+  helper environment is neutralized or rejected; no install hooks, sudo, or
+  plugin code execution is introduced.
+- Rollback: keep the old plugin tree until validation, publication, rescan, and
+  discovery succeed. On failure restore the old tree and preserve the user
+  tree; never use destructive Git reset/checkout or overwrite unrelated files.
+
 - [ ] Keep add disabled-by-default unless explicitly enabled.
 - [ ] Add preflight duplicate-ID detection against the canonical catalog before
   moving staged code into the user plugin tree.
