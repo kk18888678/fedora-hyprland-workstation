@@ -18,6 +18,7 @@ Item {
     property bool active: true
     property bool registered: false
     property bool reloading: false
+    property string instanceId: pluginId
     readonly property string home: Quickshell.env("HOME") || ""
     readonly property string configHome: {
         var override = Quickshell.env("XDG_CONFIG_HOME") || ""
@@ -46,7 +47,7 @@ Item {
     }
     readonly property var widgetItem: root.customQml ? qmlLoader.item
         : (root.customCommand ? commandLoader.item : widgetLoader.item)
-    readonly property bool popoutActive: root.bar && root.bar.activePopoutId === root.pluginId
+    readonly property bool popoutActive: root.bar && root.bar.activePopoutId === root.instanceId
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
 

@@ -28,6 +28,9 @@ Item {
     }
 
     function entrySettings(entry) {
+        var id = root.entryId(entry)
+        if (root.barWidgetRegistry && typeof root.barWidgetRegistry.settingsFor === "function")
+            return root.barWidgetRegistry.settingsFor(id, entry)
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) return {}
         var result = {}
         for (var key in entry) {
@@ -39,6 +42,13 @@ Item {
             }
         }
         return result
+    }
+
+    function entryInstanceId(entry) {
+        var id = root.entryId(entry)
+        if (root.barWidgetRegistry && typeof root.barWidgetRegistry.instanceIdFor === "function")
+            return root.barWidgetRegistry.instanceIdFor(id, entry)
+        return id
     }
 
     GridLayout {
@@ -54,6 +64,7 @@ Item {
             delegate: BarWidgetSlot {
                 required property var modelData
                 pluginId: root.entryId(modelData)
+                instanceId: root.entryInstanceId(modelData)
                 settings: root.entrySettings(modelData)
                 bar: root.bar
                 shell: root.shell

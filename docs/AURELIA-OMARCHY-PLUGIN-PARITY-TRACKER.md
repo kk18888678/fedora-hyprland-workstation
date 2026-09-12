@@ -1032,7 +1032,7 @@ Dependencies: T01, T02, T06, T08.
 
 ### T11. Make bar-widget metadata operational
 
-Status: `[-]` in progress — operational bar-widget metadata task.
+Status: `[x]` complete — operational bar-widget metadata task.
 
 CP2 pre-change boundary:
 
@@ -1053,17 +1053,44 @@ CP2 pre-change boundary:
 - Rollback: revert only T11 metadata/bar/test/tracker changes if a mandatory
   gate fails; preserve completed T00–T10 history and user-owned changes.
 
-- [ ] Consume `displayName`, `description`, `category`, `defaultSection`,
+CP3 post-change evidence:
+
+- Focused metadata gate: test_bar_widget_metadata.sh — 3 assertions passed, 0
+  failed.
+- Metadata coverage: `BarWidgetRegistry` projects display name, description,
+  category, default section, multiplicity, defaults, settings-form identity,
+  schema, and entry-point metadata from validated manifests.
+- Configuration coverage: manifest defaults are applied only through the
+  registry when an entry has no explicit value; inline and legacy nested
+  settings remain compatible, including unknown user-owned values.
+- Duplicate coverage: `allowMultiple` is enforced while normalizing bar
+  entries; explicit instance IDs are preserved and widget routing returns a
+  deterministic ambiguity result instead of selecting an arbitrary duplicate.
+- Visual compatibility: existing bar geometry, layout structure, widget
+  loading, popup ownership, and design boundaries were not changed.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 356 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 213 shell scripts passed.
+- Diff validation: git diff --check passed for the reviewed change.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+
+- [x] Consume `displayName`, `description`, `category`, `defaultSection`,
   `allowMultiple`, `defaults`, `settingsForm`, and `schema` through the bar
   registry.
-- [ ] Build the catalog from manifest metadata rather than hardcoded widget
+- [x] Build the catalog from manifest metadata rather than hardcoded widget
   lists.
-- [ ] Apply manifest defaults only when an instance has no user value.
-- [ ] Preserve explicit user values and unknown user-owned settings.
-- [ ] Enforce `allowMultiple` at the configuration boundary.
-- [ ] Define duplicate-instance addressing so IPC never selects an arbitrary
+- [x] Apply manifest defaults only when an instance has no user value.
+- [x] Preserve explicit user values and unknown user-owned settings.
+- [x] Enforce `allowMultiple` at the configuration boundary.
+- [x] Define duplicate-instance addressing so IPC never selects an arbitrary
   instance.
-- [ ] Keep Aurelia's existing widget geometry and visual design unchanged.
+- [x] Keep Aurelia's existing widget geometry and visual design unchanged.
 
 Exit gate: all current Aurelia bar widgets continue to render identically, and
 a new manifest-backed widget can describe itself without host source changes.

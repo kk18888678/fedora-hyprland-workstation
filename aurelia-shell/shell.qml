@@ -15,6 +15,7 @@ ShellRoot {
 
     ShellConfig {
         id: shellConfig
+        barWidgetRegistry: barWidgetRegistry
     }
 
     PluginRegistry {

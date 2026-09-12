@@ -20,6 +20,7 @@ QtObject {
     }
 
     property var config: ({ version: 1, plugins: [], disabledPlugins: [] })
+    property var barWidgetRegistry: null
     property int revision: 0
     property string lastError: ""
     property bool lastSaveOk: false
@@ -193,6 +194,18 @@ QtObject {
             if (typeof entry === "string") entry = { id: entry }
             if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
             if (!isValidPluginId(entry.id)) continue
+            var allowMultiple = barWidgetRegistry && typeof barWidgetRegistry.allowMultipleFor === "function"
+                ? barWidgetRegistry.allowMultipleFor(entry.id) : null
+            if (allowMultiple === false) {
+                var alreadyPresent = false
+                for (var existingIndex = 0; existingIndex < result.length; existingIndex++) {
+                    if (result[existingIndex].id === entry.id) {
+                        alreadyPresent = true
+                        break
+                    }
+                }
+                if (alreadyPresent) continue
+            }
             var normalizedEntry = cloneEntrySettings(entry)
             normalizedEntry.id = entry.id
             result.push(normalizedEntry)
@@ -261,6 +274,13 @@ QtObject {
         normalized.disabledPlugins = uniqueIds(candidate.disabledPlugins)
         normalized.bar = candidate.bar === undefined ? defaultBarConfig() : normalizeBar(candidate.bar)
         return normalized
+    }
+
+    property Connections barWidgetRegistryConnection: Connections {
+        target: configRoot.barWidgetRegistry
+        function onWidgetCatalogChanged() {
+            configRoot.config = configRoot.normalize(configRoot.config)
+        }
     }
 
     function serializeConfig(value) {

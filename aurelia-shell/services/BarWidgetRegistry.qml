@@ -79,6 +79,86 @@ QtObject {
         return widget && widget.barWidget ? widget.barWidget : null
     }
 
+    function displayNameFor(id) {
+        var widget = root.widgetFor(id)
+        var metadata = root.metadataFor(id)
+        return metadata && typeof metadata.displayName === "string"
+            ? metadata.displayName : (widget ? widget.name : String(id || ""))
+    }
+
+    function descriptionFor(id) {
+        var widget = root.widgetFor(id)
+        var metadata = root.metadataFor(id)
+        return metadata && typeof metadata.description === "string"
+            ? metadata.description : (widget ? widget.description : "")
+    }
+
+    function categoryFor(id) {
+        var metadata = root.metadataFor(id)
+        return metadata && typeof metadata.category === "string" ? metadata.category : ""
+    }
+
+    function cloneJson(value) {
+        try {
+            return JSON.parse(JSON.stringify(value))
+        } catch (e) {
+            return null
+        }
+    }
+
+    function defaultsFor(id) {
+        var metadata = root.metadataFor(id)
+        return metadata && metadata.defaults && typeof metadata.defaults === "object" &&
+            !Array.isArray(metadata.defaults) ? root.cloneJson(metadata.defaults) || ({}) : ({})
+    }
+
+    function defaultSectionFor(id) {
+        var metadata = root.metadataFor(id)
+        var section = metadata && typeof metadata.defaultSection === "string"
+            ? metadata.defaultSection : "center"
+        return ["left", "center", "right"].indexOf(section) !== -1 ? section : "center"
+    }
+
+    function allowMultipleFor(id) {
+        var metadata = root.metadataFor(id)
+        return metadata && typeof metadata.allowMultiple === "boolean" ? metadata.allowMultiple : null
+    }
+
+    function schemaFor(id) {
+        var metadata = root.metadataFor(id)
+        return metadata && Array.isArray(metadata.schema) ? root.cloneJson(metadata.schema) || [] : []
+    }
+
+    function settingsFormFor(id) {
+        var metadata = root.metadataFor(id)
+        return metadata && typeof metadata.settingsForm === "string" ? metadata.settingsForm : ""
+    }
+
+    function settingsFor(id, entry) {
+        var result = root.defaultsFor(id)
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return result
+        var explicit = {}
+        for (var key in entry) {
+            if (key !== "id" && key !== "settings" && key !== "instanceId") {
+                result[key] = entry[key]
+                explicit[key] = true
+            }
+        }
+        if (entry.settings && typeof entry.settings === "object" && !Array.isArray(entry.settings)) {
+            for (var nestedKey in entry.settings) {
+                if (!explicit[nestedKey]) result[nestedKey] = entry.settings[nestedKey]
+            }
+        }
+        return result
+    }
+
+    function instanceIdFor(id, entry) {
+        var configured = entry && typeof entry === "object" && !Array.isArray(entry)
+            ? entry.instanceId : ""
+        return typeof configured === "string" &&
+            /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(configured) ? configured : String(id || "")
+    }
+
     function entryPointUrl(id) {
         var currentRevision = root.revision
         return root.pluginRegistry && typeof root.pluginRegistry.entryPointUrl === "function"
