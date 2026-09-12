@@ -1347,6 +1347,36 @@ Dependencies: T06, T09, T13.
 
 ### T15. Add sensitive-service isolation
 
+Status: `[-]` in progress — sensitive-service isolation task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/PluginHost.qml`,
+  `PluginRegistry.qml`, the narrow facade/injection files from T14, and only
+  the specific sensitive-service ownership seams required to remove accidental
+  third-party reachability.
+- Allowed test files: `aurelia-shell/tests/`, including isolated fake-service
+  fixtures for authentication/credential/secret/lock/polkit lookup,
+  capability stamping, disable, rescan, and object-parent reachability, and
+  this tracker.
+- Compatibility boundary: current first-party notification, keyring/PAM,
+  lock, polkit, screenshot, DNS, Bluetooth, and other privileged behavior must
+  remain unchanged. First-party owners keep only the trusted access they
+  already require.
+- Runtime behavior impact: third-party service visibility and capability
+  stamping only; no live authentication/PAM/polkit changes, installer or
+  package mutation, systemd/greetd change, live-session restart, or secret
+  migration.
+- Persisted user state impact: none. Tests must use disposable services and
+  temporary state; no secret, credential, lock state, notification history, or
+  user file may be rewritten.
+- Security boundary: same-process visual QML remains unsandboxed and must be
+  documented as such; this task narrows supported API reachability and does
+  not claim process isolation.
+- Rollback: revert only T15 sensitive-service/injection/test/tracker changes if
+  a mandatory gate fails; preserve completed T00–T14 history and user-owned
+  changes.
+
 - [ ] Identify any Aurelia service that owns authentication, credentials,
   secrets, session-lock, polkit, or equivalent sensitive state.
 - [ ] Keep sensitive service objects outside the public service map and ordinary
