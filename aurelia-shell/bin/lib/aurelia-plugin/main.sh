@@ -10,7 +10,7 @@ Commands:
   list
   catalog [--json]
   rescan
-  enable <plugin-id>
+  enable <plugin-id> [placement]
   disable <plugin-id>
   add <https-git-url> [--enable] --yes
   update <plugin-id> --yes
@@ -18,6 +18,9 @@ Commands:
 
 Third-party plugins are user-owned, unsandboxed QML code. Review a plugin
 before enabling it. The CLI never runs plugin install hooks.
+
+Enable placement: --section <left|center|right>, --index <n>,
+--before <plugin-id>, or --after <plugin-id>.
 USAGE
 }
 
@@ -51,7 +54,40 @@ aurelia_plugin_set_enabled() {
         aurelia_plugin_fail "Plugin is not present in the resident registry: $plugin_id"
         return 1
     }
-    "$shell_cli" shell setPluginEnabled "$plugin_id" "$enabled"
+    if [[ "$enabled" == "true" ]]; then
+        local enable_result
+        enable_result="$("$shell_cli" shell enablePlugin "$plugin_id" "{}")" || return 1
+        [[ "$enable_result" == "ok" ]] || {
+            aurelia_plugin_fail "$enable_result"
+            return 1
+        }
+    else
+        "$shell_cli" shell setPluginEnabled "$plugin_id" "$enabled"
+    fi
+}
+
+aurelia_plugin_enable() {
+    local plugin_id="$1"
+    shift
+    aurelia_plugin_require_id "$plugin_id" || return 1
+    aurelia_plugin_parse_placement enable 1 "$@" || return 1
+    local placement shell_cli result
+    placement="$(aurelia_plugin_placement_json)" || return 1
+    shell_cli="$(aurelia_plugin_shell_cli)" || return 1
+    aurelia_plugin_wait_for_scan "$shell_cli" "$plugin_id" || {
+        aurelia_plugin_fail "Plugin is not present in the resident registry: $plugin_id"
+        return 1
+    }
+    result="$("$shell_cli" shell enablePlugin "$plugin_id" "$placement")" || return 1
+    [[ "$result" == "ok" ]] || {
+        aurelia_plugin_fail "$result"
+        return 1
+    }
+    if [[ "$placement" == "{}" ]]; then
+        printf 'Enabled %s.\n' "$plugin_id"
+    else
+        printf 'Enabled and placed %s.\n' "$plugin_id"
+    fi
 }
 
 aurelia_plugin_clone_remote() {
@@ -102,7 +138,7 @@ aurelia_plugin_add() {
         return 1
     }
     if [[ "$enable" -eq 1 ]]; then
-        aurelia_plugin_set_enabled "$plugin_id" true || return 1
+        aurelia_plugin_enable "$plugin_id" || return 1
     fi
     printf 'Installed %s (disabled until reviewed%s).\n' "$plugin_id" "$([[ "$enable" -eq 1 ]] && echo ' and explicitly enabled' || true)"
 }
@@ -275,9 +311,15 @@ aurelia_plugin_main() {
             [[ $# -eq 0 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin rescan"; return 1; }
             aurelia_plugin_reload_shell
             ;;
-        enable|disable)
-            [[ $# -eq 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin $command <plugin-id>"; return 1; }
-            aurelia_plugin_set_enabled "$1" "$([[ "$command" == enable ]] && echo true || echo false)"
+        enable)
+            [[ $# -ge 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin enable <plugin-id> [placement]"; return 1; }
+            local enable_id="$1"
+            shift
+            aurelia_plugin_enable "$enable_id" "$@"
+            ;;
+        disable)
+            [[ $# -eq 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin disable <plugin-id>"; return 1; }
+            aurelia_plugin_set_enabled "$1" false
             ;;
         add)
             [[ $# -ge 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin add <https-git-url> [--enable] --yes"; return 1; }

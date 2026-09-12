@@ -1099,7 +1099,7 @@ Dependencies: T05, T06, T10.
 
 ### T12. Add bar placement and settings operations
 
-Status: `[-]` in progress — bar placement and settings operations task.
+Status: `[x]` complete — bar placement and settings operations task.
 
 CP2 pre-change boundary:
 
@@ -1123,15 +1123,47 @@ CP2 pre-change boundary:
 - Rollback: revert only T12 placement/CLI/test/tracker changes if a mandatory
   gate fails; preserve completed T00–T11 history and user-owned changes.
 
-- [ ] Add equivalent operations for enable-and-place, put, move, and set.
-- [ ] Support section, index, before, and after placement.
-- [ ] Use `defaultSection` when no explicit placement is supplied.
-- [ ] Make placement idempotent.
-- [ ] Preserve a widget's existing position and settings when re-enabled.
-- [ ] Keep disabling distinct from removing and removing distinct from purging.
-- [ ] Provide deterministic errors for missing targets, invalid indices, and
+- CP3 post-change evidence:
+
+- Focused bar-operations gate: test_bar_operations.sh — 6 assertions passed, 0
+  failed.
+- Operation coverage: `enablePlugin`, `putBarWidget`, `moveBarWidget`, and
+  `setBarWidget` are host-owned operations with one atomic state transition;
+  CLI placement parsing emits the same section/index/before/after vocabulary as
+  Omarchy.
+- Placement coverage: manifest-provided `defaultSection`, explicit index,
+  before/after targets, source section/index selectors, missing-target fallback
+  for `put`, and deterministic invalid-section/index errors passed in isolated
+  QuickShell and CLI fixtures.
+- State safety: repeated enable/put leaves an existing position alone, move and
+  set preserve unknown entry fields/settings, duplicate instances require an
+  explicit address, and disable/re-enable preserves the widget's position and
+  user setting without purge or source removal.
+- Shell survivability: the catalog/config feedback fixture converges without a
+  recursive signal loop; an isolated offscreen `shell.qml` startup reached
+  configuration load without the observed stack overflow. The offscreen run
+  cannot prove visual bar rendering because its `PanelWindow` backend is absent.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 362 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 216 shell scripts passed.
+- Diff validation: git diff --check passed for the reviewed change.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes, CLI mocks,
+  and temporary XDG/runtime directories were used. ./install.sh was not run;
+  no packages, repositories, systemd/greetd state, live user configuration, or
+  the VM were modified, and no reboot occurred.
+
+- [x] Add equivalent operations for enable-and-place, put, move, and set.
+- [x] Support section, index, before, and after placement.
+- [x] Use `defaultSection` when no explicit placement is supplied.
+- [x] Make placement idempotent.
+- [x] Preserve a widget's existing position and settings when re-enabled.
+- [x] Keep disabling distinct from removing and removing distinct from purging.
+- [x] Provide deterministic errors for missing targets, invalid indices, and
   ambiguous duplicate instances.
-- [ ] Add CLI and runtime tests for all placement forms.
+- [x] Add CLI and runtime tests for all placement forms.
 
 Exit gate: a third-party bar-widget can be installed, enabled, placed, moved,
 configured, disabled, and re-enabled without manual JSON editing.

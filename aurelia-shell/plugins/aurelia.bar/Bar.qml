@@ -131,15 +131,18 @@ PanelWindow {
     }
 
     function callWidget(pluginId, method, argument) {
-        var matches = []
+        var exactMatches = []
+        var baseMatches = []
         for (var i = 0; i < widgetSlots.length; i++) {
             var slot = widgetSlots[i]
             if (!slot) continue
-            if (slot.instanceId === pluginId) return slot.invoke(method, argument)
-            if (slot.pluginId === pluginId) matches.push(slot)
+            if (slot.instanceId === pluginId) exactMatches.push(slot)
+            else if (slot.pluginId === pluginId) baseMatches.push(slot)
         }
-        if (matches.length > 1) return "ambiguous"
-        if (matches.length === 1) return matches[0].invoke(method, argument)
+        if (exactMatches.length > 1) return "ambiguous"
+        if (exactMatches.length === 1) return exactMatches[0].invoke(method, argument)
+        if (baseMatches.length > 1) return "ambiguous"
+        if (baseMatches.length === 1) return baseMatches[0].invoke(method, argument)
         return "not-loaded"
     }
 

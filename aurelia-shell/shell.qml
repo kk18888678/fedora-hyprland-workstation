@@ -222,6 +222,44 @@ ShellRoot {
             return pluginRegistry.setPluginEnabled(pluginId, enabled === "true") ? "ok" : (pluginRegistry.lastError || "error")
         }
 
+        function enablePlugin(pluginId: string, placementJson: string): string {
+            try {
+                return pluginRegistry.enablePlugin(pluginId, JSON.parse(placementJson || "{}"))
+                    ? "ok" : (pluginRegistry.lastError || "error")
+            } catch (error) {
+                return "invalid placement: " + error
+            }
+        }
+
+        function putBarWidget(pluginId: string, placementJson: string): string {
+            try {
+                var putError = pluginRegistry.putBarWidget(pluginId, JSON.parse(placementJson || "{}"))
+                return putError ? putError : "ok"
+            } catch (error) {
+                return "invalid placement: " + error
+            }
+        }
+
+        function moveBarWidget(pluginId: string, placementJson: string): string {
+            try {
+                var moveError = pluginRegistry.moveBarWidget(pluginId, JSON.parse(placementJson || "{}"))
+                return moveError ? moveError : "ok"
+            } catch (error) {
+                return "invalid placement: " + error
+            }
+        }
+
+        function setBarWidget(pluginId: string, key: string, valueJson: string, selectorJson: string): string {
+            try {
+                var value = JSON.parse(valueJson)
+                var selector = JSON.parse(selectorJson || "{}")
+                var setError = pluginRegistry.setBarWidget(pluginId, key, value, selector)
+                return setError ? setError : "ok"
+            } catch (error) {
+                return "invalid widget setting: " + error
+            }
+        }
+
         function listPlugins(): string {
             return JSON.stringify(pluginHost.summaries())
         }

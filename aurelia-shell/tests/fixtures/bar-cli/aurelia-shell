@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+[[ "${1:-}" == "shell" ]] || exit 1
+method="${2:-}"
+shift 2
+
+case "$method" in
+    listPlugins)
+        printf '%s\n' '[{"id":"fixture.widget"}]'
+        ;;
+    enablePlugin)
+        jq -cn --arg method "$method" --arg id "${1:-}" --arg placement "${2:-}" \
+            '{method: $method, id: $id, placement: $placement}' >>"$AURELIA_BAR_CLI_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    putBarWidget|moveBarWidget)
+        jq -cn --arg method "$method" --arg id "${1:-}" --arg placement "${2:-}" \
+            '{method: $method, id: $id, placement: $placement}' >>"$AURELIA_BAR_CLI_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    setBarWidget)
+        jq -cn --arg method "$method" --arg id "${1:-}" --arg key "${2:-}" \
+            --arg value "${3:-}" --arg selector "${4:-}" \
+            '{method: $method, id: $id, key: $key, value: $value, selector: $selector}' \
+            >>"$AURELIA_BAR_CLI_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    *)
+        exit 1
+        ;;
+esac

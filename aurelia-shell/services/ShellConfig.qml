@@ -132,6 +132,52 @@ QtObject {
         }
     }
 
+    function isPlainObject(value) {
+        return value !== null && typeof value === "object" && !Array.isArray(value)
+    }
+
+    function objectHas(value, key) {
+        return configRoot.isPlainObject(value) && Object.keys(value).indexOf(String(key)) !== -1
+    }
+
+    function prepareMutationConfig() {
+        var next = configRoot.cloneJson(configRoot.config)
+        if (!configRoot.isPlainObject(next)) next = configRoot.defaultConfig()
+        next.version = 1
+        next.idle = configRoot.normalizeIdle(next.idle)
+        next.plugins = configRoot.normalizePluginEntries(next.plugins)
+        next.disabledPlugins = configRoot.uniqueIds(next.disabledPlugins)
+        next.bar = configRoot.normalizeBar(next.bar)
+        return next
+    }
+
+    function persistConfig(next) {
+        var serialized = configRoot.serializeConfig(next)
+        var previous = configRoot.config
+        var current = ""
+        try {
+            current = configRoot.configFile.text()
+        } catch (e) {}
+        if (current === serialized) {
+            configRoot.config = next
+            configRoot.lastSaveOk = true
+            configRoot.lastError = ""
+            return true
+        }
+
+        configRoot.lastSaveOk = false
+        configRoot.config = next
+        configRoot.configFile.setText(serialized)
+        if (!configRoot.lastSaveOk) {
+            configRoot.config = previous
+            configRoot.lastError = "Could not persist Aurelia shell config."
+            return false
+        }
+        configRoot.lastError = ""
+        configRoot.revision++
+        return true
+    }
+
     function pluginEntryId(entry) {
         if (typeof entry === "string") return entry
         return entry && typeof entry === "object" && !Array.isArray(entry)
@@ -242,6 +288,10 @@ QtObject {
         return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value) && value.indexOf("..") === -1
     }
 
+    function isSafeSettingKey(value) {
+        return typeof value === "string" && /^[A-Za-z][A-Za-z0-9_.-]*$/.test(value)
+    }
+
     function uniqueIds(value) {
         var result = []
         var seen = {}
@@ -279,7 +329,9 @@ QtObject {
     property Connections barWidgetRegistryConnection: Connections {
         target: configRoot.barWidgetRegistry
         function onWidgetCatalogChanged() {
-            configRoot.config = configRoot.normalize(configRoot.config)
+            var normalized = configRoot.normalize(configRoot.config)
+            if (configRoot.serializeConfig(normalized) !== configRoot.serializeConfig(configRoot.config))
+                configRoot.config = normalized
         }
     }
 
@@ -383,13 +435,278 @@ QtObject {
         return -1
     }
 
-    function isPluginEnabled(id, firstParty) {
-        if (!isValidPluginId(id)) return false
-        if (firstParty) return !contains(configRoot.config.disabledPlugins, id)
-        return containsPluginEntry(configRoot.config.plugins, id)
+    function barEntryId(entry) {
+        if (typeof entry === "string") return entry
+        return configRoot.isPlainObject(entry) && typeof entry.id === "string" ? entry.id : ""
     }
 
-    function setPluginEnabled(id, firstParty, enabled) {
+    function barEntryInstanceId(entry) {
+        var id = configRoot.barEntryId(entry)
+        if (configRoot.barWidgetRegistry && typeof configRoot.barWidgetRegistry.instanceIdFor === "function")
+            return configRoot.barWidgetRegistry.instanceIdFor(id, entry)
+        return id
+    }
+
+    function findBarLocation(config, id, section) {
+        var requested = String(id || "")
+        if (!configRoot.isValidPluginId(requested)) return {found: false, error: "Invalid widget id: " + requested}
+        if (!configRoot.isPlainObject(config) || !configRoot.isPlainObject(config.bar) ||
+            !configRoot.isPlainObject(config.bar.layout)) return {found: false}
+
+        var sections = ["left", "center", "right"]
+        var exact = []
+        var base = []
+        for (var sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+            var currentSection = sections[sectionIndex]
+            if (section && currentSection !== section) continue
+            var entries = config.bar.layout[currentSection]
+            if (!Array.isArray(entries)) continue
+            for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+                var entry = entries[entryIndex]
+                var location = {found: true, section: currentSection, index: entryIndex}
+                if (configRoot.barEntryInstanceId(entry) === requested) exact.push(location)
+                if (configRoot.barEntryId(entry) === requested) base.push(location)
+            }
+        }
+        if (exact.length > 1 || (exact.length === 0 && base.length > 1))
+            return {found: false, error: "ambiguous widget " + requested}
+        if (exact.length === 1) return exact[0]
+        if (base.length === 1) return base[0]
+        return {found: false}
+    }
+
+    function barLocationAt(config, section, index) {
+        var entries = config && config.bar && config.bar.layout ? config.bar.layout[section] : null
+        if (!Array.isArray(entries) || index < 0 || index >= entries.length)
+            return {found: false, error: "no widget at " + section + "[" + index + "]"}
+        return {found: true, section: section, index: index}
+    }
+
+    function entryMatchesWidget(entry, id) {
+        var requested = String(id || "")
+        return configRoot.barEntryId(entry) === requested || configRoot.barEntryInstanceId(entry) === requested
+    }
+
+    function isBarSection(value) {
+        return typeof value === "string" && ["left", "center", "right"].indexOf(value) !== -1
+    }
+
+    function isNonNegativeInteger(value) {
+        return typeof value === "number" && isFinite(value) && value >= 0 && Math.floor(value) === value
+    }
+
+    function validatePlacement(value, allowFrom) {
+        var placement = value === undefined || value === null ? ({}) : configRoot.cloneJson(value)
+        if (!configRoot.isPlainObject(placement)) return {ok: false, error: "placement must be an object"}
+        var allowed = ["section", "index", "before", "after"]
+        if (allowFrom) allowed = allowed.concat(["fromSection", "fromIndex"])
+        var keys = Object.keys(placement)
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+            if (allowed.indexOf(keys[keyIndex]) === -1)
+                return {ok: false, error: "unknown placement option: " + keys[keyIndex]}
+        }
+        if (configRoot.objectHas(placement, "section") && !configRoot.isBarSection(placement.section))
+            return {ok: false, error: "section must be left, center, or right"}
+        if (configRoot.objectHas(placement, "index") && !configRoot.isNonNegativeInteger(placement.index))
+            return {ok: false, error: "index must be a non-negative integer"}
+        if (configRoot.objectHas(placement, "before") && configRoot.objectHas(placement, "after"))
+            return {ok: false, error: "use only one of before or after"}
+        if (configRoot.objectHas(placement, "before") && !configRoot.isValidPluginId(placement.before))
+            return {ok: false, error: "before requires a valid widget id"}
+        if (configRoot.objectHas(placement, "after") && !configRoot.isValidPluginId(placement.after))
+            return {ok: false, error: "after requires a valid widget id"}
+        if (allowFrom && configRoot.objectHas(placement, "fromSection") &&
+            !configRoot.isBarSection(placement.fromSection))
+            return {ok: false, error: "from-section must be left, center, or right"}
+        if (allowFrom && configRoot.objectHas(placement, "fromIndex") &&
+            !configRoot.isNonNegativeInteger(placement.fromIndex))
+            return {ok: false, error: "from-index must be a non-negative integer"}
+        if (allowFrom && configRoot.objectHas(placement, "fromIndex") &&
+            !configRoot.objectHas(placement, "fromSection"))
+            return {ok: false, error: "from-index requires from-section"}
+        if (!allowFrom && (configRoot.objectHas(placement, "fromSection") ||
+            configRoot.objectHas(placement, "fromIndex")))
+            return {ok: false, error: "this operation does not accept source selectors"}
+        return {ok: true, value: placement}
+    }
+
+    function barTarget(config, placement, fallbackSection) {
+        var target = placement || ({})
+        var section = configRoot.objectHas(target, "section") ? target.section : fallbackSection
+        if (!configRoot.isBarSection(section)) return {error: "section must be left, center, or right"}
+        var entries = config.bar.layout[section]
+        if (!Array.isArray(entries)) {
+            config.bar.layout[section] = []
+            entries = config.bar.layout[section]
+        }
+
+        var relativeId = configRoot.objectHas(target, "before") ? target.before :
+            (configRoot.objectHas(target, "after") ? target.after : "")
+        if (relativeId) {
+            var relativeSection = configRoot.objectHas(target, "section") ? section : ""
+            var relative = configRoot.findBarLocation(config, relativeId, relativeSection)
+            if (relative.error) return {error: relative.error}
+            if (!relative.found) return {error: "could not find target widget " + relativeId}
+            return {
+                section: relative.section,
+                index: relative.index + (configRoot.objectHas(target, "after") ? 1 : 0)
+            }
+        }
+        if (configRoot.objectHas(target, "index"))
+            return {section: section, index: Math.min(target.index, entries.length)}
+
+        var anchors = {left: "aurelia.workspaces", center: "aurelia.weather", right: "aurelia.tray"}
+        var anchor = configRoot.findBarLocation(config, anchors[section], section)
+        return {
+            section: section,
+            index: anchor.found ? anchor.index + 1 : entries.length
+        }
+    }
+
+    function resolveBarLocation(config, id, placement) {
+        if (configRoot.objectHas(placement, "fromIndex")) {
+            var from = configRoot.barLocationAt(config, placement.fromSection, placement.fromIndex)
+            if (!from.found) return from
+            if (!configRoot.entryMatchesWidget(config.bar.layout[from.section][from.index], id))
+                return {found: false, error: "widget at " + from.section + "[" + from.index + "] is not " + id}
+            return from
+        }
+        var section = configRoot.objectHas(placement, "fromSection") ? placement.fromSection : ""
+        var location = configRoot.findBarLocation(config, id, section)
+        if (location.error) return location
+        return location.found ? location : {found: false, error: "could not find widget " + id}
+    }
+
+    function moveBarEntry(config, id, placement) {
+        var source = configRoot.resolveBarLocation(config, id, placement)
+        if (!source.found) return source.error
+        var entry = configRoot.cloneJson(config.bar.layout[source.section][source.index])
+        if (!configRoot.isPlainObject(entry)) return "widget entry must be an object"
+        config.bar.layout[source.section].splice(source.index, 1)
+        var target = configRoot.barTarget(config, placement, source.section)
+        if (target.error) {
+            config.bar.layout[source.section].splice(source.index, 0, entry)
+            return target.error
+        }
+        config.bar.layout[target.section].splice(target.index, 0, entry)
+        return ""
+    }
+
+    function removeDisabledId(list, id) {
+        if (!Array.isArray(list)) return []
+        var result = []
+        for (var i = 0; i < list.length; i++) if (list[i] !== id) result.push(list[i])
+        return result
+    }
+
+    function enableBarPluginInConfig(config, id, firstParty, isBarWidget, hasNonWidgetKind,
+                                     defaultSection, placement, putOnly) {
+        config.disabledPlugins = configRoot.removeDisabledId(config.disabledPlugins, id)
+        if (!isBarWidget) {
+            if (!firstParty && !configRoot.containsPluginEntry(config.plugins, id)) config.plugins.push({id: id})
+            return ""
+        }
+
+        var location = configRoot.findBarLocation(config, id, "")
+        if (location.error) return location.error
+        if (!location.found) {
+            var target = configRoot.barTarget(config, placement, configRoot.isBarSection(defaultSection)
+                ? defaultSection : "center")
+            if (target.error && putOnly && target.error.indexOf("could not find target widget ") === 0) {
+                var fallbackPlacement = configRoot.cloneJson(placement) || ({})
+                delete fallbackPlacement.before
+                delete fallbackPlacement.after
+                target = configRoot.barTarget(config, fallbackPlacement, configRoot.isBarSection(defaultSection)
+                    ? defaultSection : "center")
+            }
+            if (target.error) return target.error
+            config.bar.layout[target.section].splice(target.index, 0, {id: id})
+        } else if (!putOnly && Object.keys(placement || ({})).length > 0) {
+            var moveError = configRoot.moveBarEntry(config, id, placement)
+            if (moveError) return moveError
+        }
+
+        if (!firstParty && hasNonWidgetKind && !configRoot.containsPluginEntry(config.plugins, id))
+            config.plugins.push({id: id})
+        return ""
+    }
+
+    function enablePlugin(id, firstParty, isBarWidget, hasNonWidgetKind, defaultSection, placement, putOnly, isBarOption) {
+        if (!configRoot.isValidPluginId(id)) return "Invalid plugin id: " + id
+        var placementResult = configRoot.validatePlacement(placement, false)
+        if (!placementResult.ok) return placementResult.error
+        var next = configRoot.prepareMutationConfig()
+        if (isBarOption === true) {
+            if (Object.keys(placementResult.value).length > 0) return "bar options do not accept widget placement"
+            next.disabledPlugins = configRoot.removeDisabledId(next.disabledPlugins, id)
+            next.bar.id = id
+        } else {
+            var error = configRoot.enableBarPluginInConfig(next, id, firstParty === true, isBarWidget === true,
+                hasNonWidgetKind === true, defaultSection, placementResult.value, putOnly === true)
+            if (error) return error
+        }
+        if (!configRoot.persistConfig(next)) return configRoot.lastError || "Could not persist Aurelia shell config."
+        return ""
+    }
+
+    function moveBarWidget(id, placement) {
+        if (!configRoot.isValidPluginId(id)) return "Invalid widget id: " + id
+        var placementResult = configRoot.validatePlacement(placement, true)
+        if (!placementResult.ok) return placementResult.error
+        var next = configRoot.prepareMutationConfig()
+        var error = configRoot.moveBarEntry(next, id, placementResult.value)
+        if (error) return error
+        if (!configRoot.persistConfig(next)) return configRoot.lastError || "Could not persist Aurelia shell config."
+        return ""
+    }
+
+    function setBarWidget(id, key, value, selector) {
+        if (!configRoot.isValidPluginId(id)) return "Invalid widget id: " + id
+        if (!configRoot.isSafeSettingKey(key) || ["id", "instanceId", "settings"].indexOf(String(key)) !== -1)
+            return "Invalid widget setting key: " + key
+        var selectorResult = configRoot.validatePlacement(selector, true)
+        if (!selectorResult.ok) return selectorResult.error
+        var selected = selectorResult.value
+        if (configRoot.objectHas(selected, "before") || configRoot.objectHas(selected, "after"))
+            return "set does not accept before or after"
+        if (configRoot.objectHas(selected, "section") && configRoot.objectHas(selected, "fromSection"))
+            return "set accepts only one of section or from-section"
+        if (configRoot.objectHas(selected, "index") && configRoot.objectHas(selected, "fromIndex"))
+            return "set accepts only one of index or from-index"
+        if (configRoot.objectHas(selected, "index") && !configRoot.objectHas(selected, "section"))
+            return "index requires section"
+        if (configRoot.objectHas(selected, "fromIndex") && !configRoot.objectHas(selected, "fromSection"))
+            return "from-index requires from-section"
+        var next = configRoot.prepareMutationConfig()
+        var lookup = configRoot.cloneJson(selected) || ({})
+        if (configRoot.objectHas(lookup, "section")) {
+            lookup.fromSection = lookup.section
+            delete lookup.section
+        }
+        if (configRoot.objectHas(lookup, "index")) {
+            lookup.fromIndex = lookup.index
+            delete lookup.index
+        }
+        var location = configRoot.resolveBarLocation(next, id, lookup)
+        if (!location.found) return location.error
+        var entry = next.bar.layout[location.section][location.index]
+        if (!configRoot.isPlainObject(entry)) return "widget entry must be an object"
+        var copiedValue = configRoot.cloneJson(value)
+        if (copiedValue === null && value !== null) return "widget setting value must be JSON"
+        entry[String(key)] = copiedValue
+        if (!configRoot.persistConfig(next)) return configRoot.lastError || "Could not persist Aurelia shell config."
+        return ""
+    }
+
+    function isPluginEnabled(id, firstParty) {
+        if (!isValidPluginId(id)) return false
+        if (contains(configRoot.config.disabledPlugins, id)) return false
+        if (firstParty) return true
+        if (containsPluginEntry(configRoot.config.plugins, id)) return true
+        return configRoot.findBarLocation(configRoot.config, id, "").found
+    }
+
+    function setPluginEnabled(id, firstParty, enabled, isBarWidget) {
         if (!isValidPluginId(id)) {
             configRoot.lastError = "Invalid plugin id."
             return false
@@ -404,42 +721,21 @@ QtObject {
         var list = firstParty ? next.disabledPlugins : next.plugins
         var index = firstParty ? list.indexOf(id) : findPluginEntryIndex(list, id)
         if (enabled) {
-            if (firstParty) {
-                if (index !== -1) list.splice(index, 1)
-            } else if (index === -1) {
+            next.disabledPlugins = removeDisabledId(next.disabledPlugins, id)
+            if (!firstParty && index === -1) {
                 list.push({ id: id })
             }
         } else {
             if (firstParty) {
                 if (index === -1) list.push(id)
-            } else if (index !== -1) {
-                list.splice(index, 1)
+            } else {
+                if (index !== -1) list.splice(index, 1)
+                if (isBarWidget === true && !contains(next.disabledPlugins, id)) next.disabledPlugins.push(id)
             }
         }
         next.disabledPlugins.sort()
 
-        var serialized = JSON.stringify(next, null, 2) + "\n"
-        var previous = configRoot.config
-        var current = ""
-        try {
-            current = configFile.text()
-        } catch (e) {}
-        if (current === serialized) {
-            configRoot.config = next
-            return true
-        }
-
-        configRoot.lastSaveOk = false
-        configRoot.config = next
-        configFile.setText(serialized)
-        if (!configRoot.lastSaveOk) {
-            configRoot.config = previous
-            configRoot.lastError = "Could not persist Aurelia shell config."
-            return false
-        }
-        configRoot.lastError = ""
-        configRoot.revision++
-        return true
+        return configRoot.persistConfig(next)
     }
 
     Component.onCompleted: configRoot.reload()

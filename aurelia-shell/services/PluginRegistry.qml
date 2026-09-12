@@ -552,7 +552,8 @@ QtObject {
             lastError = "Unknown plugin: " + id
             return false
         }
-        if (!shellConfig.setPluginEnabled(id, manifest.__isFirstParty === true, enabled)) {
+        if (!shellConfig.setPluginEnabled(id, manifest.__isFirstParty === true, enabled,
+            hasKind(manifest, "bar-widget"))) {
             lastError = shellConfig.lastError || ("Could not persist plugin state: " + id)
             return false
         }
@@ -560,6 +561,85 @@ QtObject {
         registryRevision++
         pluginsChanged()
         return true
+    }
+
+    function defaultBarWidgetSection(manifest) {
+        var metadata = manifest && isPlainObject(manifest.barWidget) ? manifest.barWidget : null
+        var section = metadata && typeof metadata.defaultSection === "string"
+            ? metadata.defaultSection : "center"
+        return ["left", "center", "right"].indexOf(section) !== -1 ? section : "center"
+    }
+
+    function enablePlugin(id, placement) {
+        var pluginId = String(id || "")
+        var manifest = installedPlugins[pluginId]
+        if (!manifest || !shellConfig) {
+            lastError = "Unknown plugin: " + pluginId
+            return false
+        }
+        var kinds = Array.isArray(manifest.kinds) ? manifest.kinds : []
+        var isBarWidget = kinds.indexOf("bar-widget") !== -1
+        var isBarOption = kinds.indexOf("bar") !== -1
+        var hasNonWidgetKind = false
+        for (var kindIndex = 0; kindIndex < kinds.length; kindIndex++) {
+            if (kinds[kindIndex] !== "bar-widget") {
+                hasNonWidgetKind = true
+                break
+            }
+        }
+        var error = shellConfig.enablePlugin(pluginId, manifest.__isFirstParty === true,
+            isBarWidget, hasNonWidgetKind, defaultBarWidgetSection(manifest), placement || ({}),
+            false, isBarOption)
+        if (error) {
+            lastError = String(error)
+            return false
+        }
+        lastError = ""
+        registryRevision++
+        pluginsChanged()
+        return true
+    }
+
+    function putBarWidget(id, placement) {
+        var pluginId = String(id || "")
+        var manifest = installedPlugins[pluginId]
+        if (!manifest) return "unknown"
+        if (!hasKind(manifest, "bar-widget")) return "not-a-bar-widget"
+        var kinds = Array.isArray(manifest.kinds) ? manifest.kinds : []
+        var hasNonWidgetKind = false
+        for (var kindIndex = 0; kindIndex < kinds.length; kindIndex++) {
+            if (kinds[kindIndex] !== "bar-widget") {
+                hasNonWidgetKind = true
+                break
+            }
+        }
+        var error = shellConfig.enablePlugin(pluginId, manifest.__isFirstParty === true,
+            true, hasNonWidgetKind, defaultBarWidgetSection(manifest), placement || ({}), true, false)
+        if (error) return String(error)
+        lastError = ""
+        registryRevision++
+        pluginsChanged()
+        return ""
+    }
+
+    function moveBarWidget(id, placement) {
+        if (!shellConfig) return "shell configuration is unavailable"
+        var error = shellConfig.moveBarWidget(String(id || ""), placement || ({}))
+        if (error) return String(error)
+        lastError = ""
+        registryRevision++
+        pluginsChanged()
+        return ""
+    }
+
+    function setBarWidget(id, key, value, selector) {
+        if (!shellConfig) return "shell configuration is unavailable"
+        var error = shellConfig.setBarWidget(String(id || ""), String(key || ""), value, selector || ({}))
+        if (error) return String(error)
+        lastError = ""
+        registryRevision++
+        pluginsChanged()
+        return ""
     }
 
     function parseScanOutput(text) {
