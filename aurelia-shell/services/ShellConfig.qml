@@ -21,6 +21,7 @@ QtObject {
 
     property var config: ({ version: 1, plugins: [], disabledPlugins: [] })
     property var barWidgetRegistry: null
+    property PluginCloneState cloneState: PluginCloneState { owner: configRoot }
     property int revision: 0
     property string lastError: ""
     property bool lastSaveOk: false
@@ -155,6 +156,10 @@ QtObject {
         next.plugins = configRoot.normalizePluginEntries(next.plugins)
         next.disabledPlugins = configRoot.uniqueIds(next.disabledPlugins)
         next.bar = configRoot.normalizeBar(next.bar)
+        if (configRoot.objectHas(next, "cloneSourceRestores")) {
+            next.cloneSourceRestores = configRoot.cloneState.normalizeCloneSourceRestores(next.cloneSourceRestores)
+            if (next.cloneSourceRestores.length === 0) delete next.cloneSourceRestores
+        }
         return next
     }
 
@@ -371,7 +376,7 @@ QtObject {
             configRoot.lastError = "Unsupported Aurelia shell config version. Using defaults."
             return normalized
         }
-        var known = ["version", "idle", "plugins", "disabledPlugins", "bar"]
+        var known = ["version", "idle", "plugins", "disabledPlugins", "bar", "cloneSourceRestores"]
         for (var key in candidate) {
             if (known.indexOf(key) === -1) {
                 var preserved = cloneJson(candidate[key])
@@ -382,6 +387,10 @@ QtObject {
         normalized.plugins = normalizePluginEntries(candidate.plugins)
         normalized.disabledPlugins = uniqueIds(candidate.disabledPlugins)
         normalized.bar = candidate.bar === undefined ? defaultBarConfig() : normalizeBar(candidate.bar)
+        if (objectHas(candidate, "cloneSourceRestores")) {
+            normalized.cloneSourceRestores = configRoot.cloneState.normalizeCloneSourceRestores(candidate.cloneSourceRestores)
+            if (normalized.cloneSourceRestores.length === 0) delete normalized.cloneSourceRestores
+        }
         return normalized
     }
 
@@ -763,22 +772,44 @@ QtObject {
         return ""
     }
 
-    function enablePlugin(id, firstParty, isBarWidget, hasNonWidgetKind, defaultSection, placement, putOnly, isBarOption) {
+    function enablePlugin(id, firstParty, isBarWidget, hasNonWidgetKind, defaultSection, placement, putOnly, isBarOption, cloneSourceId) {
         if (!configRoot.isValidPluginId(id)) return "Invalid plugin id: " + id
         var placementResult = configRoot.validatePlacement(placement, false)
         if (!placementResult.ok) return placementResult.error
         var next = configRoot.prepareMutationConfig()
-        if (isBarOption === true) {
-            if (Object.keys(placementResult.value).length > 0) return "bar options do not accept widget placement"
-            next.disabledPlugins = configRoot.removeDisabledId(next.disabledPlugins, id)
-            next.bar.id = id
+        var originId = String(cloneSourceId || "")
+        if (originId !== "" && (firstParty === true || !configRoot.isValidPluginId(originId) || originId === String(id)))
+            return "Invalid clone source: " + originId
+
+        var error = ""
+        if (originId !== "") {
+            error = configRoot.cloneState.enableClonePluginInConfig(next, id, originId, isBarWidget === true,
+                hasNonWidgetKind === true, defaultSection, placementResult.value, putOnly === true,
+                isBarOption === true)
         } else {
-            var error = configRoot.enableBarPluginInConfig(next, id, firstParty === true, isBarWidget === true,
-                hasNonWidgetKind === true, defaultSection, placementResult.value, putOnly === true)
-            if (error) return error
+            if (firstParty === true) {
+                var activeClone = configRoot.cloneState.cloneSourceRestoreForSource(next, id)
+                if (activeClone) {
+                    error = configRoot.cloneState.restoreCloneInConfig(next, activeClone.cloneId, id)
+                    if (error) return error
+                }
+            }
+            if (isBarOption === true) {
+                if (Object.keys(placementResult.value).length > 0) return "bar options do not accept widget placement"
+                next.disabledPlugins = configRoot.removeDisabledId(next.disabledPlugins, id)
+                next.bar.id = id
+            } else {
+                error = configRoot.enableBarPluginInConfig(next, id, firstParty === true, isBarWidget === true,
+                    hasNonWidgetKind === true, defaultSection, placementResult.value, putOnly === true)
+            }
         }
+        if (error) return error
         if (!configRoot.persistConfig(next)) return configRoot.lastError || "Could not persist Aurelia shell config."
         return ""
+    }
+
+    function setPluginEnabled(id, firstParty, enabled, isBarWidget, cloneSourceId) {
+        return configRoot.cloneState.setPluginEnabled(id, firstParty, enabled, isBarWidget, cloneSourceId)
     }
 
     function moveBarWidget(id, placement) {
@@ -940,38 +971,6 @@ QtObject {
         if (firstParty) return true
         if (containsPluginEntry(configRoot.config.plugins, id)) return true
         return configRoot.findBarLocation(configRoot.config, id, "").found
-    }
-
-    function setPluginEnabled(id, firstParty, enabled, isBarWidget) {
-        if (!isValidPluginId(id)) {
-            configRoot.lastError = "Invalid plugin id."
-            return false
-        }
-
-        var next = cloneJson(configRoot.config) || defaultConfig()
-        next.version = 1
-        next.idle = normalizeIdle(next.idle)
-        next.plugins = normalizePluginEntries(next.plugins)
-        next.disabledPlugins = uniqueIds(next.disabledPlugins)
-        next.bar = normalizeBar(next.bar)
-        var list = firstParty ? next.disabledPlugins : next.plugins
-        var index = firstParty ? list.indexOf(id) : findPluginEntryIndex(list, id)
-        if (enabled) {
-            next.disabledPlugins = removeDisabledId(next.disabledPlugins, id)
-            if (!firstParty && index === -1) {
-                list.push({ id: id })
-            }
-        } else {
-            if (firstParty) {
-                if (index === -1) list.push(id)
-            } else {
-                if (index !== -1) list.splice(index, 1)
-                if (isBarWidget === true && !contains(next.disabledPlugins, id)) next.disabledPlugins.push(id)
-            }
-        }
-        next.disabledPlugins.sort()
-
-        return configRoot.persistConfig(next)
     }
 
     Component.onCompleted: configRoot.reload()

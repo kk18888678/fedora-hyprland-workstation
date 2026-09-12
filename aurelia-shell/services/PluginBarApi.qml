@@ -7,6 +7,7 @@ QtObject {
 
     required property string ownerPluginId
     property string instanceId: ownerPluginId
+    property string compatibilityId: ""
     property bool barHidden: false
     property int barSize: 0
     property string position: "top"
@@ -19,15 +20,19 @@ QtObject {
     property var _registerClickTarget: null
     property var _unregisterClickTarget: null
 
+    function accepts(id) {
+        var requested = String(id || "")
+        return requested === "" || requested === api.instanceId || requested === api.ownerPluginId ||
+            (api.compatibilityId !== "" && requested === api.compatibilityId)
+    }
+
     function requestPopout(requestedId) {
-        var requested = String(requestedId || "")
-        if (requested !== "" && requested !== api.instanceId && requested !== api.ownerPluginId) return false
+        if (!api.accepts(requestedId)) return false
         return api._requestPopout ? api._requestPopout() : false
     }
 
     function releasePopout(requestedId) {
-        var requested = String(requestedId || "")
-        if (requested !== "" && requested !== api.instanceId && requested !== api.ownerPluginId) return false
+        if (!api.accepts(requestedId)) return false
         return api._releasePopout ? api._releasePopout() : false
     }
 
@@ -37,14 +42,12 @@ QtObject {
     }
 
     function registerClickTarget(requestedId) {
-        var requested = String(requestedId || "")
-        if (requested !== "" && requested !== api.instanceId && requested !== api.ownerPluginId) return false
+        if (!api.accepts(requestedId)) return false
         return api._registerClickTarget ? api._registerClickTarget() : false
     }
 
     function unregisterClickTarget(requestedId) {
-        var requested = String(requestedId || "")
-        if (requested !== "" && requested !== api.instanceId && requested !== api.ownerPluginId) return false
+        if (!api.accepts(requestedId)) return false
         return api._unregisterClickTarget ? api._unregisterClickTarget() : false
     }
 

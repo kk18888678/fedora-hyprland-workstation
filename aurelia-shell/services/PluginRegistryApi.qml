@@ -6,6 +6,7 @@ QtObject {
     id: api
 
     required property string pluginId
+    property string compatibilityId: ""
     property var manifest: null
     property bool enabled: false
     property int registryRevision: 0
@@ -20,6 +21,11 @@ QtObject {
         }
     }
 
+    function owns(id) {
+        var requested = String(id || "")
+        return requested === api.pluginId || (api.compatibilityId !== "" && requested === api.compatibilityId)
+    }
+
     readonly property var installedPlugins: {
         var snapshot = ({})
         var copy = api.cloneJson(api.manifest)
@@ -28,30 +34,31 @@ QtObject {
             for (var i = 0; i < keys.length; i++)
                 if (keys[i].indexOf("__") === 0) delete copy[keys[i]]
             snapshot[api.pluginId] = copy
+            if (api.compatibilityId !== "") snapshot[api.compatibilityId] = copy
         }
         return snapshot
     }
 
     function isEnabled(id) {
-        return String(id || "") === api.pluginId && api.enabled === true
+        return api.owns(id) && api.enabled === true
     }
 
     function isKnown(id) {
-        return String(id || "") === api.pluginId && api.manifest !== null
+        return api.owns(id) && api.manifest !== null
     }
 
     function hasActiveRuntimeFailure(id, kind) {
-        return String(id || "") === api.pluginId && api._hasActiveFailure
+        return api.owns(id) && api._hasActiveFailure
             ? api._hasActiveFailure(String(kind || "")) : false
     }
 
     function resolveEnabledId(id) {
-        return String(id || "") === api.pluginId && api.enabled === true ? api.pluginId : ""
+        return api.owns(id) && api.enabled === true ? api.pluginId : ""
     }
 
     function entryPointUrl(candidate, kind) {
         var candidateId = typeof candidate === "string" ? candidate : (candidate ? candidate.id : "")
-        if (String(candidateId || "") !== api.pluginId || !api.enabled) return ""
+        if (!api.owns(candidateId) || !api.enabled) return ""
         return api._entryPointUrl ? api._entryPointUrl(String(kind || "")) : ""
     }
 }

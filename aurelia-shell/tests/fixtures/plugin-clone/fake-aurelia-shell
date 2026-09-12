@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+case " $* " in
+    *" shell rescanPlugins "*)
+        printf 'rescan\n' >>"$FAKE_CALLS"
+        ;;
+    *" shell listPlugins "*)
+        if [[ "${FAKE_NO_DISCOVERY:-0}" == "1" ]]; then
+            printf '[]\n'
+        else
+            first=1
+            printf '['
+            while IFS= read -r -d '' manifest; do
+                id="$(jq -r '.id' "$manifest")"
+                [[ "$first" == "1" ]] || printf ','
+                jq -cn --arg id "$id" '{id: $id}'
+                first=0
+            done < <(find -P "$AURELIA_PLUGIN_DIR" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print0)
+            printf ']\n'
+        fi
+        ;;
+    *" shell enablePlugin "*)
+        printf 'enable %s\n' "$*" >>"$FAKE_CALLS"
+        if [[ "${FAKE_ENABLE_FAIL:-0}" == "1" ]]; then
+            printf 'error\n'
+            exit 1
+        fi
+        printf 'ok\n'
+        ;;
+    *" shell setPluginEnabled "*)
+        printf 'set %s\n' "$*" >>"$FAKE_CALLS"
+        printf 'ok\n'
+        ;;
+    *)
+        printf 'ok\n'
+        ;;
+esac

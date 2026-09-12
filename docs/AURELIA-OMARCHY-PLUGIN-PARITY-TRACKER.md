@@ -1,6 +1,6 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: planning only. No implementation work is authorized by this document.
+Status: active execution — T00 through T17 complete; T18 onward remain.
 
 ## Objective
 
@@ -1505,7 +1505,7 @@ Dependencies: T14, T15.
 
 ### T17. Implement safe built-in plugin cloning
 
-Status: `[-]` in progress — safe built-in plugin cloning task.
+Status: `[x]` complete — CP2 and CP3 passed; safe built-in plugin cloning task.
 
 CP2 pre-change boundary:
 
@@ -1543,20 +1543,52 @@ CP2 pre-change boundary:
   mandatory gate fails; preserve completed T00–T16 history and user-owned
   changes.
 
-- [ ] Add `aurelia-plugin clone <id>` for first-party plugins.
-- [ ] Generate a collision-safe user-owned ID.
-- [ ] Copy the complete plugin directory and every declared local dependency.
-- [ ] Add explicit safe clone dependency metadata equivalent to Omarchy's
+- [x] Add `aurelia-plugin clone <id>` for first-party plugins.
+- [x] Generate a collision-safe user-owned ID.
+- [x] Copy the complete plugin directory and every declared local dependency.
+- [x] Add explicit safe clone dependency metadata equivalent to Omarchy's
   `clonePaths` where a complete directory copy is insufficient.
-- [ ] Rewrite only identity-sensitive metadata and preserve stable source IPC
+- [x] Rewrite only identity-sensitive metadata and preserve stable source IPC
   IDs where required.
-- [ ] Record clone origin and source restoration intent.
-- [ ] Preserve bar position, instance settings, active-bar selection, and
+- [x] Record clone origin and source restoration intent.
+- [x] Preserve bar position, instance settings, active-bar selection, and
   compatibility aliases when switching to a clone.
-- [ ] Restore the original implementation when an active clone is removed.
-- [ ] Never edit or overwrite the first-party source tree.
-- [ ] Add failure cleanup tests for partial clone, invalid source, collision,
+- [x] Restore the original implementation when an active clone is removed.
+- [x] Never edit or overwrite the first-party source tree.
+- [x] Add failure cleanup tests for partial clone, invalid source, collision,
   missing dependency, and discovery failure.
+
+Evidence:
+- Tests: `bash aurelia-shell/tests/test_plugin_clone.sh` — `18` passed, `0`
+  failed; `bash aurelia-shell/tests/run.sh` — `395` passed, `0` failed; root
+  `bash tests/run.sh` — `228` passed, `0` failed.
+- Runtime/fixture evidence: inert first-party and sibling-manifest clone
+  fixtures verified complete/dependency copies, identity rewriting, stable
+  source IDs, collision allocation, `--edit`, invalid/symlink/missing-source
+  rejection, discovery and enablement cleanup, and remove-before-delete. The
+  isolated QML state fixture verified bar settings/position, active-bar
+  restoration, multi-kind source disablement, and `cloneSourceRestores`; the
+  facade fixture verified source-ID aliases remain owner-scoped. No live shell
+  activation or restart was performed.
+- Files changed: the dedicated `clone.sh`, plugin CLI wiring and removal
+  boundary, canonical manifest metadata validation, `PluginCloneState.qml`,
+  `PluginProvenance.qml`, `PluginRegistry.qml`, `ShellConfig.qml`,
+  `PluginHost.qml`, the three scoped facade types, services `qmldir`, the
+  Aurelia test runner, clone fixtures, and this tracker.
+- User-visible behavior changed: yes — additive `aurelia-plugin clone
+  <aurelia.plugin-id> [--edit]` workflow; existing Aurelia feature behavior and
+  design language are unchanged.
+- Existing Aurelia feature impact: no regressions observed; first-party source
+  files, current IDs, bar defaults/settings, compatibility IPC, and plugin
+  capabilities remain unchanged. Clones never inherit trusted capabilities.
+- Rollback/migration evidence: all clone writes stage under the user plugin
+  directory, validate before publication, reject symlinks/traversal/special
+  files, clean up on discovery/enablement failure, and require disable/state
+  rollback before removal. Clone state is normalized through the existing
+  atomic mode-600 shell config writer. Pre-change checkpoint: `26a8d91`.
+- Review: CP3 passed. Repository-wide shell syntax passed for `222` scripts;
+  `git diff --check` passed; ShellCheck was unavailable and was not installed;
+  no temporary repository artifacts remain.
 
 Exit gate: a user can safely customize any eligible first-party plugin without
 editing packaged Aurelia source.

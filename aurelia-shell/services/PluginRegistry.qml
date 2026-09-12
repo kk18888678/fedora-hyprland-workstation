@@ -30,6 +30,7 @@ QtObject {
 
     property var shellConfig: null
     property var installedPlugins: ({})
+    property PluginProvenance cloneProvenance: PluginProvenance { registry: registry }
     property int registryRevision: 0
     property bool scanning: false
     property string lastError: ""
@@ -201,7 +202,7 @@ QtObject {
 
     function validateAureliaMetadata(metadata, firstParty) {
         if (!isPlainObject(metadata)) return false
-        var allowed = ["icon", "clonePaths", "capabilities", "compatibility"]
+        var allowed = ["icon", "clonePaths", "capabilities", "compatibility", "clonedFrom"]
         var keys = Object.keys(metadata)
         for (var i = 0; i < keys.length; i++) if (allowed.indexOf(keys[i]) === -1) return false
         if (hasField(metadata, "icon") && !isValidIconName(metadata.icon)) return false
@@ -228,6 +229,7 @@ QtObject {
                 Object.keys(metadata.compatibility).length !== 1 ||
                 !isNonEmptyText(metadata.compatibility.hostApi)) return false
         }
+        if (hasField(metadata, "clonedFrom") && !isValidPluginId(metadata.clonedFrom)) return false
         return true
     }
 
@@ -248,6 +250,9 @@ QtObject {
         if (!manifest || manifest.__isFirstParty !== true || !Array.isArray(manifest.__hostCapabilities)) return false
         return manifest.__hostCapabilities.indexOf(String(capability || "")) !== -1
     }
+
+    function cloneSourceIdForManifest(manifest) { return cloneProvenance.cloneSourceIdForManifest(manifest) }
+    function resolveEnabledId(id) { return cloneProvenance.resolveEnabledId(id) }
 
     function cloneManifest(manifest) {
         try {
@@ -444,7 +449,8 @@ QtObject {
     }
 
     function entryPointUrl(id, kind) {
-        var manifest = installedPlugins[id]
+        var resolvedId = registry.resolveEnabledId(id)
+        var manifest = installedPlugins[resolvedId]
         var entryPoint = entryPointForKind(manifest, kind)
         if (!manifest || !isSafeEntryPoint(entryPoint)) return ""
         var sourceDir = String(manifest.__sourceDir || "")
@@ -523,7 +529,7 @@ QtObject {
                 barWidget: hasField(manifest, "barWidget") ? cloneManifest(manifest.barWidget) : null,
                 sourceRoot: sourceRoot,
                 manifestPath: manifestPath,
-                firstParty: manifest.__isFirstParty === true,
+                firstParty: manifest.__isFirstParty === true, clonedFrom: registry.cloneSourceIdForManifest(manifest),
                 enabled: isEnabled(ids[i]),
                 keepLoaded: manifest.keepLoaded === true,
                 failures: runtimeFailuresFor(ids[i])
@@ -571,8 +577,10 @@ QtObject {
             lastError = "Unknown plugin: " + id
             return false
         }
+        var cloneSourceId = registry.cloneProvenance.validatedCloneSourceId(manifest)
+        if (cloneSourceId === null) { lastError = "Clone source is not an available first-party plugin: " + id; return false }
         if (!shellConfig.setPluginEnabled(id, manifest.__isFirstParty === true, enabled,
-            hasKind(manifest, "bar-widget"))) {
+            hasKind(manifest, "bar-widget"), cloneSourceId || "")) {
             lastError = shellConfig.lastError || ("Could not persist plugin state: " + id)
             return false
         }
@@ -647,9 +655,11 @@ QtObject {
                 break
             }
         }
+        var cloneSourceId = registry.cloneProvenance.validatedCloneSourceId(manifest)
+        if (cloneSourceId === null) { lastError = "Clone source is not an available first-party plugin: " + pluginId; return false }
         var error = shellConfig.enablePlugin(pluginId, manifest.__isFirstParty === true,
             isBarWidget, hasNonWidgetKind, defaultBarWidgetSection(manifest), placement || ({}),
-            false, isBarOption)
+            false, isBarOption, cloneSourceId || "")
         if (error) {
             lastError = String(error)
             return false
@@ -673,8 +683,11 @@ QtObject {
                 break
             }
         }
+        var cloneSourceId = registry.cloneProvenance.validatedCloneSourceId(manifest)
+        if (cloneSourceId === null) return "clone source is not an available first-party plugin"
         var error = shellConfig.enablePlugin(pluginId, manifest.__isFirstParty === true,
-            true, hasNonWidgetKind, defaultBarWidgetSection(manifest), placement || ({}), true, false)
+            true, hasNonWidgetKind, defaultBarWidgetSection(manifest), placement || ({}), true, false,
+            cloneSourceId || "")
         if (error) return String(error)
         lastError = ""
         registryRevision++

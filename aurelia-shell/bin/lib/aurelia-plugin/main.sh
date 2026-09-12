@@ -12,6 +12,7 @@ Commands:
   rescan
   enable <plugin-id> [placement]
   disable <plugin-id>
+  clone <aurelia.plugin-id> [--edit]
   add <https-git-url> [--enable] --yes
   update <plugin-id> --yes
   remove <plugin-id> --yes
@@ -62,7 +63,12 @@ aurelia_plugin_set_enabled() {
             return 1
         }
     else
-        "$shell_cli" shell setPluginEnabled "$plugin_id" "$enabled"
+        local disable_result
+        disable_result="$("$shell_cli" shell setPluginEnabled "$plugin_id" "$enabled")" || return 1
+        [[ "$disable_result" == "ok" ]] || {
+            aurelia_plugin_fail "$disable_result"
+            return 1
+        }
     fi
 }
 
@@ -215,6 +221,10 @@ aurelia_plugin_remove() {
     }
     aurelia_plugin_validate_manifest "$target" 0 || return 1
     [[ "$(aurelia_plugin_manifest_id "$target")" == "$plugin_id" ]] || return 1
+    aurelia_plugin_set_enabled "$plugin_id" false || {
+        aurelia_plugin_fail "Could not disable plugin before removal: $plugin_id"
+        return 1
+    }
     rm -rf -- "$target"
     aurelia_plugin_reload_shell || {
         aurelia_plugin_fail "Plugin removed but the resident shell could not rescan it"
@@ -320,6 +330,10 @@ aurelia_plugin_main() {
         disable)
             [[ $# -eq 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin disable <plugin-id>"; return 1; }
             aurelia_plugin_set_enabled "$1" false
+            ;;
+        clone)
+            [[ $# -ge 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin clone <aurelia.plugin-id> [--edit]"; return 1; }
+            aurelia_plugin_clone "$@"
             ;;
         add)
             [[ $# -ge 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin add <https-git-url> [--enable] --yes"; return 1; }

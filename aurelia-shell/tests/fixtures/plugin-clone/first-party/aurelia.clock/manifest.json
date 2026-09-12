@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.clock",
+  "name": "Clock",
+  "version": "1.0.0",
+  "description": "Clock fixture",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Clock.qml"},
+  "barWidget": {
+    "displayName": "Clock",
+    "description": "Clock fixture",
+    "category": "Time",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  }
+}

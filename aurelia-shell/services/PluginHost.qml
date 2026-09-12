@@ -116,7 +116,9 @@ Item {
         if (!manifest) return ""
         var kinds = Array.isArray(manifest.kinds) ? manifest.kinds.slice() : []
         kinds.sort()
-        return (manifest.__isFirstParty === false ? "third" : "first") + "|" + kinds.join(",")
+        var cloneSource = registry && typeof registry.cloneSourceIdForManifest === "function"
+            ? registry.cloneSourceIdForManifest(manifest) : ""
+        return (manifest.__isFirstParty === false ? "third" : "first") + "|" + kinds.join(",") + "|" + cloneSource
     }
 
     function activeThirdParty(id) {
@@ -150,6 +152,8 @@ Item {
         var manifest = host.manifestFor(id)
         var api = registryApiComponent.createObject(null, {
             pluginId: id,
+            compatibilityId: registry && typeof registry.cloneSourceIdForManifest === "function"
+                ? registry.cloneSourceIdForManifest(manifest) : "",
             manifest: host.publicPluginManifest(manifest),
             enabled: registry.isEnabled(id),
             registryRevision: registry.registryRevision,
@@ -180,7 +184,13 @@ Item {
             return cached
         }
         if (cached) host.destroyFacade(cached)
-        var api = barApiComponent.createObject(null, {ownerPluginId: id, instanceId: instance})
+        var manifest = host.manifestFor(id)
+        var api = barApiComponent.createObject(null, {
+            ownerPluginId: id,
+            instanceId: instance,
+            compatibilityId: registry && typeof registry.cloneSourceIdForManifest === "function"
+                ? registry.cloneSourceIdForManifest(manifest) : ""
+        })
         if (!api) return null
         api._requestPopout = function() {
             var bar = host.activeBar()
@@ -292,6 +302,8 @@ Item {
         var targetId = instance || id
         var api = shellApiComponent.createObject(null, {
             pluginId: id,
+            compatibilityId: registry && typeof registry.cloneSourceIdForManifest === "function"
+                ? registry.cloneSourceIdForManifest(manifest) : "",
             bar: host.scopedBarApiFor(id, instance, ownerObject),
             appLibrary: manifest && Array.isArray(manifest.kinds) && manifest.kinds.indexOf("menu") !== -1
                 ? host.scopedAppLibraryApiFor(id) : null,
@@ -450,9 +462,10 @@ Item {
     }
 
     function hasActiveFailure(id, kind) {
+        var resolvedId = host.resolvePluginId(id)
         var failureRevision = registry ? registry.runtimeFailureRevision : 0
         return !!(registry && typeof registry.hasActiveRuntimeFailure === "function" &&
-            registry.hasActiveRuntimeFailure(id, kind))
+            registry.hasActiveRuntimeFailure(resolvedId, kind))
     }
 
     function sourceFor(id, kind) {
@@ -463,6 +476,17 @@ Item {
         } catch (e) {
             return ""
         }
+    }
+
+    function resolvePluginId(id) {
+        var requested = String(id || "")
+        try {
+            if (registry && typeof registry.resolveEnabledId === "function") {
+                var resolved = String(registry.resolveEnabledId(requested) || "")
+                if (resolved !== "") return resolved
+            }
+        } catch (e) {}
+        return requested
     }
 
     function recordFailure(id, kind, phase, error, sourcePath, entryPoint) {
@@ -620,7 +644,7 @@ Item {
     }
 
     function itemFor(id) {
-        return instances[id] || null
+        return instances[host.resolvePluginId(id)] || null
     }
 
     function removeInstance(id, reason) {
@@ -726,81 +750,87 @@ Item {
     }
 
     function callBarWidget(id, method, argument) {
+        var resolvedId = host.resolvePluginId(id)
         var bar = host.activeBar()
         if (!bar || typeof bar.callWidget !== "function") return "not-loaded"
         try {
-            return bar.callWidget(id, method, argument)
+            return bar.callWidget(resolvedId, method, argument)
         } catch (error) {
-            host.recordFailure(id, "bar-widget", "callback", error)
+            host.recordFailure(resolvedId, "bar-widget", "callback", error)
             return "error"
         }
     }
 
     function open(id, payloadJson) {
-        if (!registry || !registry.isKnown(id)) return "unknown"
-        if (!registry.isEnabled(id)) return "disabled"
-        if (host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
-        var barResult = callBarWidget(id, "open", payloadJson || "{}")
+        var pluginId = host.resolvePluginId(id)
+        if (!registry || !registry.isKnown(pluginId)) return "unknown"
+        if (!registry.isEnabled(pluginId)) return "disabled"
+        if (host.hasActiveFailure(pluginId, registry.primaryKind(pluginId))) return "error"
+        var barResult = callBarWidget(pluginId, "open", payloadJson || "{}")
         if (barResult !== "not-loaded") return barResult || "ok"
-        setRequested(id, true)
-        var target = itemFor(id)
+        setRequested(pluginId, true)
+        var target = itemFor(pluginId)
         if (!target) {
             var pending = copyMap(pendingOpens)
-            var queue = Array.isArray(pending[id]) ? pending[id].slice() : (pending[id] ? [pending[id]] : [])
+            var queue = Array.isArray(pending[pluginId]) ? pending[pluginId].slice() : (pending[pluginId] ? [pending[pluginId]] : [])
             queue.push({ payloadJson: payloadJson || "{}" })
-            pending[id] = queue
+            pending[pluginId] = queue
             pendingOpens = pending
             return "pending"
         }
         if (typeof target.open !== "function") return "invalid"
-        return host.invokeTarget(id, target, "open", payloadJson || "{}",
-            registry.primaryKind(id), "callback").ok ? "ok" : "error"
+        return host.invokeTarget(pluginId, target, "open", payloadJson || "{}",
+            registry.primaryKind(pluginId), "callback").ok ? "ok" : "error"
     }
 
     function close(id) {
-        if (!registry || !registry.isKnown(id)) return "unknown"
-        if (host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
-        var barResult = callBarWidget(id, "close", "")
+        var pluginId = host.resolvePluginId(id)
+        if (!registry || !registry.isKnown(pluginId)) return "unknown"
+        if (host.hasActiveFailure(pluginId, registry.primaryKind(pluginId))) return "error"
+        var barResult = callBarWidget(pluginId, "close", "")
         if (barResult !== "not-loaded") return barResult || "ok"
-        var target = itemFor(id)
+        var target = itemFor(pluginId)
         if (target && typeof target.close === "function" &&
-            !host.invokeTarget(id, target, "close", undefined, registry.primaryKind(id), "callback").ok) return "error"
-        var manifest = manifestFor(id)
-        if (!manifest || manifest.keepLoaded !== true) setRequested(id, false)
+            !host.invokeTarget(pluginId, target, "close", undefined, registry.primaryKind(pluginId), "callback").ok) return "error"
+        var manifest = manifestFor(pluginId)
+        if (!manifest || manifest.keepLoaded !== true) setRequested(pluginId, false)
         return target ? "ok" : "not-loaded"
     }
 
     function isVisible(id) {
-        if (host.hasActiveFailure(id, registry && typeof registry.primaryKind === "function" ? registry.primaryKind(id) : "")) return false
-        var barResult = callBarWidget(id, "isVisible", "")
+        var pluginId = host.resolvePluginId(id)
+        if (host.hasActiveFailure(pluginId, registry && typeof registry.primaryKind === "function" ? registry.primaryKind(pluginId) : "")) return false
+        var barResult = callBarWidget(pluginId, "isVisible", "")
         if (barResult !== "not-loaded") return barResult === true || barResult === "true"
-        var target = itemFor(id)
+        var target = itemFor(pluginId)
         if (!target) return false
         if (typeof target.isVisible === "function")
-            return host.invokeTarget(id, target, "isVisible", undefined, registry.primaryKind(id), "callback").value === true
+            return host.invokeTarget(pluginId, target, "isVisible", undefined, registry.primaryKind(pluginId), "callback").value === true
         return target.visible === true
     }
 
     function toggle(id, payloadJson) {
-        if (registry && registry.isKnown(id) && host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
-        var barResult = callBarWidget(id, "toggle", payloadJson || "{}")
+        var pluginId = host.resolvePluginId(id)
+        if (registry && registry.isKnown(pluginId) && host.hasActiveFailure(pluginId, registry.primaryKind(pluginId))) return "error"
+        var barResult = callBarWidget(pluginId, "toggle", payloadJson || "{}")
         if (barResult !== "not-loaded") return barResult || "ok"
-        var target = itemFor(id)
+        var target = itemFor(pluginId)
         if (target && typeof target.toggle === "function")
-            return host.invokeTarget(id, target, "toggle", payloadJson || "{}",
-                registry.primaryKind(id), "callback").ok ? "ok" : "error"
-        if (isVisible(id)) return close(id)
-        return open(id, payloadJson || "{}")
+            return host.invokeTarget(pluginId, target, "toggle", payloadJson || "{}",
+                registry.primaryKind(pluginId), "callback").ok ? "ok" : "error"
+        if (isVisible(pluginId)) return close(pluginId)
+        return open(pluginId, payloadJson || "{}")
     }
 
     function call(id, method, argument) {
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(method || ""))) return "invalid-method"
-        var barResult = callBarWidget(id, method, argument)
+        var pluginId = host.resolvePluginId(id)
+        var barResult = callBarWidget(pluginId, method, argument)
         if (barResult !== "not-loaded") return barResult
-        var target = itemFor(id)
+        var target = itemFor(pluginId)
         if (!target || typeof target[method] !== "function") return "not-loaded"
-        if (registry && registry.isKnown(id) && host.hasActiveFailure(id, registry.primaryKind(id))) return "error"
-        var outcome = host.invokeTarget(id, target, method, argument, registry.primaryKind(id), "callback")
+        if (registry && registry.isKnown(pluginId) && host.hasActiveFailure(pluginId, registry.primaryKind(pluginId))) return "error"
+        var outcome = host.invokeTarget(pluginId, target, method, argument, registry.primaryKind(pluginId), "callback")
         return outcome.ok ? String(outcome.value || "") : "error"
     }
 

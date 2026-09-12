@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'editor %s\n' "$*" >>"$FAKE_CALLS"

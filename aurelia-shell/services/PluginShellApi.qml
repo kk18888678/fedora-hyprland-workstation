@@ -7,6 +7,7 @@ QtObject {
     id: api
 
     required property string pluginId
+    property string compatibilityId: ""
     property var bar: null
     property var appLibrary: null
     property var barConfig: ({})
@@ -22,7 +23,8 @@ QtObject {
     property var _resetSettings: null
 
     function owns(id) {
-        return String(id || "") === api.pluginId
+        var requested = String(id || "")
+        return requested === api.pluginId || (api.compatibilityId !== "" && requested === api.compatibilityId)
     }
 
     function serviceFor(id) {

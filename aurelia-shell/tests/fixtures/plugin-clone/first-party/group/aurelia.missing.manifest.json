@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.missing",
+  "name": "Missing Dependency",
+  "version": "1.0.0",
+  "description": "Missing dependency clone fixture",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Missing.qml"},
+  "barWidget": {
+    "displayName": "Missing Dependency",
+    "description": "Missing dependency clone fixture",
+    "category": "Testing",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  },
+  "aurelia": {
+    "clonePaths": [{"source": "not-present", "target": "not-present"}]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.multi",
+  "name": "Multi Surface",
+  "version": "1.0.0",
+  "description": "Sibling manifest clone fixture",
+  "kinds": ["menu", "bar-widget"],
+  "entryPoints": {"menu": "Menu.qml", "barWidget": "Widget.qml"},
+  "barWidget": {
+    "displayName": "Multi Surface",
+    "description": "Sibling manifest clone fixture",
+    "category": "Testing",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  },
+  "aurelia": {
+    "clonePaths": [{"source": "shared", "target": "copied"}]
+  }
+}

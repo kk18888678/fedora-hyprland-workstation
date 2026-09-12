@@ -133,13 +133,18 @@ aurelia_plugin_validate_manifest() {
         def valid_aurelia:
             if type != "object" then false
             else
-                ((keys - ["icon", "clonePaths", "capabilities", "compatibility"]) | length == 0)
+                ((keys - ["icon", "clonePaths", "capabilities", "compatibility", "clonedFrom"]) | length == 0)
                 and (if has("icon") then (.icon | safe_icon) else true end)
                 and (if has("clonePaths") then (.clonePaths | valid_clone_paths) else true end)
                 and (if has("capabilities") then
                     (.capabilities | type == "array" and all(.[]; safe_setting_key))
                     else true end)
                 and (if has("compatibility") then (.compatibility | valid_compatibility) else true end)
+                and (if has("clonedFrom") then
+                    (.clonedFrom | type == "string" and
+                        test("^[A-Za-z0-9][A-Za-z0-9_.-]*$") and
+                        (contains("..") | not))
+                    else true end)
             end;
         if type != "object" then false
         else
