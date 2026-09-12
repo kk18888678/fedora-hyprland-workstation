@@ -2275,6 +2275,22 @@ Dependencies: T03, T05, T14, T17, T18, T24.
 
 ### T27. Perform the compatibility cutover
 
+Execution status: IN PROGRESS
+
+Checkpoint 2 — compatibility-cutover boundary:
+
+- Allowed scope: explicit cutover/read-write invariant tests, isolated
+  migration fixtures, tracker evidence, and narrowly observable documentation
+  updates.
+- Compatibility boundary: keep legacy manifest/state reads and compatibility
+  aliases; do not remove migration code, change first-party features, or alter
+  live user state.
+- Activation boundary: canonical writes are verified only through isolated
+  temporary state; no production installer, shell restart, package change,
+  Wayland action, systemd/greetd mutation, or reboot is permitted.
+- Rollback: revert the cutover-test commit; existing legacy-compatible runtime
+  behavior remains unchanged.
+
 - [ ] Keep old Aurelia manifest/state reads enabled until all migration tests
   pass.
 - [ ] Enable canonical parity writes only after T24 and T25 pass.
