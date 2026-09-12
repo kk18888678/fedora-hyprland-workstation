@@ -56,6 +56,22 @@ QtObject {
         return root.moduleRegistry && root.moduleRegistry.isEnabled(id)
     }
 
+    function providerEnabled(provider) {
+        if (!root.moduleRegistry) return false
+        if (typeof root.moduleRegistry.modules === "undefined") return root.moduleEnabled(provider)
+        for (var i = 0; i < root.moduleRegistry.modules.length; i++) {
+            var module = root.moduleRegistry.modules[i]
+            var moduleProvider = module && module.provider ? module.provider : (module ? module.id : "")
+            if (moduleProvider === provider && root.moduleRegistry.isEnabled(module.id)) return true
+        }
+        return false
+    }
+
+    function moduleProvider(id) {
+        return root.moduleRegistry && typeof root.moduleRegistry.providerFor === "function"
+            ? root.moduleRegistry.providerFor(id) : String(id || "")
+    }
+
     function openUpdates() {
         if (!root.updatesBin) {
             root.errorMessage = "Updates backend is unavailable."
@@ -121,12 +137,12 @@ QtObject {
     }
 
     function appRows(queryValue) {
-        if (!root.moduleEnabled("apps") || !root.appLibrary) return []
+        if (!root.providerEnabled("apps") || !root.appLibrary) return []
         return root.appLibrary.appRows(queryValue)
     }
 
     function actionRows(queryValue) {
-        if (!root.moduleEnabled("actions")) return []
+        if (!root.providerEnabled("actions")) return []
         var rows = []
         for (var i = 0; i < root.actionItems.length; i++) {
             var item = root.actionItems[i]
@@ -148,7 +164,7 @@ QtObject {
     }
 
     function shellRows(queryValue) {
-        if (!root.moduleEnabled("aurelia-shell")) return []
+        if (!root.providerEnabled("aurelia-shell")) return []
         var rows = [
             {
                 id: "aurelia-shell:reload-plugins",
@@ -184,7 +200,7 @@ QtObject {
     }
 
     function fileRows(queryValue) {
-        if (!root.moduleEnabled("files") || root.fileQuery !== queryValue) return []
+        if (!root.providerEnabled("files") || root.fileQuery !== queryValue) return []
         var rows = []
         for (var i = 0; i < root.fileItems.length; i++) {
             var item = root.fileItems[i]
@@ -206,7 +222,7 @@ QtObject {
     }
 
     function calculatorRows(queryValue) {
-        if (!root.moduleEnabled("calculator") || !Calculator.isExpressionQuery(queryValue)) return []
+        if (!root.providerEnabled("calculator") || !Calculator.isExpressionQuery(queryValue)) return []
         var result = Calculator.evaluateQuery(queryValue)
         if (!result.ok) return []
         return [{
@@ -244,17 +260,17 @@ QtObject {
         var queryValue = String(root.query || "").trim()
         if (queryValue === "" && root.activeModule === "") {
             rows = root.moduleRegistry ? root.moduleRegistry.moduleRows() : []
-        } else if (root.activeModule === "apps") {
+        } else if (root.moduleProvider(root.activeModule) === "apps") {
             rows = root.appRows(queryValue)
-        } else if (root.activeModule === "actions") {
+        } else if (root.moduleProvider(root.activeModule) === "actions") {
             rows = root.actionRows(queryValue)
-        } else if (root.activeModule === "aurelia-shell") {
+        } else if (root.moduleProvider(root.activeModule) === "aurelia-shell") {
             rows = root.shellRows(queryValue)
-        } else if (root.activeModule === "plugins") {
+        } else if (root.moduleProvider(root.activeModule) === "plugins") {
             rows = root.pluginRows(queryValue)
-        } else if (root.activeModule === "files") {
+        } else if (root.moduleProvider(root.activeModule) === "files") {
             rows = root.fileRows(queryValue)
-        } else if (root.activeModule === "calculator") {
+        } else if (root.moduleProvider(root.activeModule) === "calculator") {
             rows = root.calculatorRows(queryValue)
         } else if (queryValue !== "") {
             rows = root.globalRows(queryValue)
@@ -290,7 +306,7 @@ QtObject {
         root.errorMessage = ""
         root.rebuildResults()
 
-        if (root.moduleEnabled("files") && (root.activeModule === "files" || next.trim().length >= 2)) {
+        if (root.providerEnabled("files") && (root.moduleProvider(root.activeModule) === "files" || next.trim().length >= 2)) {
             root.pendingFileQuery = next.trim()
             fileRequestTimer.restart()
         } else {
@@ -332,8 +348,8 @@ QtObject {
         root.selectedId = ""
         root.errorMessage = ""
         root.statusMessage = ""
-        if (id === "actions") root.loadActions()
-        if (id === "plugins" && root.pluginManagement) root.pluginManagement.open()
+        if (root.moduleProvider(id) === "actions") root.loadActions()
+        if (root.moduleProvider(id) === "plugins" && root.pluginManagement) root.pluginManagement.open()
         root.rebuildResults()
     }
 
@@ -356,9 +372,10 @@ QtObject {
         var row = root.results[root.selectedIndex]
         if (!row) return false
         if (row.kind === "module") {
-            if (row.moduleId === "updates") return root.openUpdates()
-            if (row.moduleId === "about") return root.openAbout()
-            if (row.moduleId === "package-manager") return root.openPackageManager()
+            var moduleProvider = root.moduleProvider(row.moduleId)
+            if (moduleProvider === "updates") return root.openUpdates()
+            if (moduleProvider === "about") return root.openAbout()
+            if (moduleProvider === "package-manager") return root.openPackageManager()
             root.setModule(row.moduleId)
             return true
         }

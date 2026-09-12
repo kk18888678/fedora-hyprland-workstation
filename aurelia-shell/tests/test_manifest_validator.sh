@@ -162,7 +162,7 @@ XDG_CACHE_HOME="$test_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
-   jq -e '.discoveryScanFinished == true and .discoveredCount == 21 and .discoveryError == "" and
+   jq -e '.discoveryScanFinished == true and .discoveredCount == 22 and .discoveryError == "" and
        (.results | length == 25 and all(.[]; .accepted == .expected and .inputUnchanged == true))' \
        "$runtime_result" >/dev/null; then
     pass "[isolated-runtime] QML registry accepts/rejects the same 25 manifest cases as the CLI and does not mutate input"

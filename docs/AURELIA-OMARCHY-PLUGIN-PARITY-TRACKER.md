@@ -1836,7 +1836,7 @@ Dependencies: T07, T14, T15.
 
 ### T21. Convert the Command Center provider catalog to the parity model
 
-Status: `[-]` in progress — Command Center provider catalog and menu-surface task.
+Status: `[x]` complete — CP2 and CP3 passed; Command Center provider catalog and menu-surface task.
 
 CP2 pre-change boundary:
 
@@ -1867,22 +1867,52 @@ CP2 pre-change boundary:
 - Rollback: revert only provider metadata/model/menu files and isolated tests if
   a gate fails; preserve all completed T00–T20 commits and current features.
 
-- [ ] Keep the Command Center as an Aurelia feature with its current name,
+- [x] Keep the Command Center as an Aurelia feature with its current name,
   layout, keyboard behavior, and design language.
-- [ ] Separate generic module metadata from provider implementation.
-- [ ] Make the module registry consume declarative metadata and user overrides.
-- [ ] Ensure existing modules remain available with identical behavior.
-- [ ] Add an Aurelia-owned manifest-backed menu surface equivalent to Omarchy's
+- [x] Separate generic module metadata from provider implementation.
+- [x] Make the module registry consume declarative metadata and user overrides.
+- [x] Ensure existing modules remain available with identical behavior.
+- [x] Add an Aurelia-owned manifest-backed menu surface equivalent to Omarchy's
   menu plugin, including shipped menu data and user extension data, while
   preserving the existing Command Center as an Aurelia-specific feature.
-- [ ] Define safe menu visibility, checked-state, and action-provider contracts;
+- [x] Define safe menu visibility, checked-state, and action-provider contracts;
   use structured argv or explicitly approved Aurelia actions instead of copying
   arbitrary shell-string evaluation.
-- [ ] Define a safe provider extension point for future modules without allowing
+- [x] Define a safe provider extension point for future modules without allowing
   arbitrary shell command injection.
-- [ ] Keep unimplemented modules inert and fail-closed.
-- [ ] Add module catalog, enablement, invalid metadata, and provider failure
+- [x] Keep unimplemented modules inert and fail-closed.
+- [x] Add module catalog, enablement, invalid metadata, and provider failure
   tests.
+
+Evidence:
+- Tests: `bash aurelia-shell/tests/test_aurelia_menu.sh` — `4` passed, `0`
+  failed; affected menu/manifest/catalog/bar/launcher suites — `52` passed,
+  `0` failed; `bash aurelia-shell/tests/run.sh` — `422` passed, `0` failed;
+  root `bash tests/run.sh` — `228` passed, `0` failed.
+- Runtime/fixture evidence: `aurelia.menu` was validated and its real
+  `MenuModel` fixture merged shipped and XDG user data, rejected arbitrary
+  action strings, expanded the bounded plugin provider, evaluated checked
+  state, and dispatched the approved bar action. The real registry catalog
+  projection and Command Center management/provider model remained isolated;
+  no live menu action, plugin code, installer, package, or active user state
+  was executed.
+- Files changed: the first-party `aurelia.menu` manifest/data/model/surface,
+  Command Center provider metadata/dispatch, inventory/preservation fixture
+  updates, menu/catalog tests and fixtures, the Aurelia test runner, and this
+  tracker.
+- User-visible behavior changed: yes — an additive manifest-backed Aurelia
+  Menu and a provider-driven Plugins module; existing Command Center layout,
+  shortcuts, design tokens, modules, and backend behavior are preserved.
+- Existing Aurelia feature impact: no regressions observed. Menu data accepts
+  only approved Aurelia actions/providers; invalid or unimplemented entries are
+  inert and fail closed. No arbitrary shell-string execution was introduced.
+- Rollback/migration evidence: shipped menu data is repository-owned and user
+  extensions are read-only optional XDG input; the menu has no write path.
+  Removing the task removes only the additive menu/provider files and expected
+  inventory/test fixtures. Pre-change checkpoint: `e89db75`.
+- Review: CP3 passed. Repository-wide shell syntax passed for `227` scripts;
+  `git diff --check` passed; ShellCheck was unavailable and was not installed;
+  no temporary repository artifacts remain.
 
 Exit gate: adding a supported Command Center provider does not require editing
 the host's generic navigation code.

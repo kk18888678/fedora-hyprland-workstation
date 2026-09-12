@@ -36,6 +36,8 @@ QtObject {
     property var userOverrides: ({})
     property string lastError: ""
     property bool lastSaveOk: false
+    readonly property var supportedProviders: ["apps", "files", "actions", "calculator",
+        "package-manager", "updates", "aurelia-shell", "about", "plugins"]
 
     function pathFromUrl(value) {
         var text = String(value || "")
@@ -60,11 +62,14 @@ QtObject {
             var module = parsed[i]
             if (!module || typeof module.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(module.id)) continue
             if (typeof module.name !== "string" || module.name.trim() === "") continue
+            var provider = module.provider === undefined ? module.id : String(module.provider)
+            if (root.supportedProviders.indexOf(provider) === -1) continue
             valid.push({
                 id: module.id,
                 name: module.name,
                 icon: String(module.icon || "application-x-executable"),
                 description: String(module.description || ""),
+                provider: provider,
                 enabled: module.enabled === true,
                 implemented: module.implemented === true,
                 order: Number(module.order || (i + 1) * 10)
@@ -102,6 +107,12 @@ QtObject {
         return module.enabled === true
     }
 
+    function providerFor(id) {
+        var module = root.moduleFor(id)
+        var provider = module && module.provider ? String(module.provider) : String(id || "")
+        return root.supportedProviders.indexOf(provider) !== -1 ? provider : ""
+    }
+
     function enabledModuleIds() {
         var ids = []
         for (var i = 0; i < root.modules.length; i++) {
@@ -122,6 +133,7 @@ QtObject {
                 id: "module:" + module.id,
                 kind: "module",
                 moduleId: module.id,
+                provider: root.providerFor(module.id),
                 label: module.name,
                 subtitle: module.description,
                 detail: "Open module",

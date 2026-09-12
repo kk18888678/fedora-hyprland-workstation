@@ -8,6 +8,7 @@
     {"id":"aurelia.image-picker","kinds":["overlay"],"entryPoints":{"overlay":"ImagePicker.qml"},"keepLoaded":true,"barWidget":null},
     {"id":"aurelia.keybindings","kinds":["panel"],"entryPoints":{"panel":"KeybindingsPlugin.qml"},"keepLoaded":true,"barWidget":null},
     {"id":"aurelia.launcher","kinds":["panel"],"entryPoints":{"panel":"CommandCenterPlugin.qml"},"keepLoaded":true,"barWidget":null},
+    {"id":"aurelia.menu","kinds":["menu"],"entryPoints":{"menu":"Menu.qml"},"keepLoaded":false,"barWidget":null},
     {"id":"aurelia.monitor","kinds":["bar-widget"],"entryPoints":{"bar-widget":"DisplayBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Display","description":"Brightness, text-size, display scale, and monitor controls","category":"System","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.network","kinds":["bar-widget"],"entryPoints":{"bar-widget":"NetworkBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Network","description":"Wi-Fi list and connection state","category":"Connectivity","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.notifications","kinds":["service","bar-widget"],"entryPoints":{"service":"Service.qml","bar-widget":"BarWidget.qml"},"keepLoaded":true,"barWidget":null},

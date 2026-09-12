@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.menu",
+  "name": "Aurelia Menu",
+  "version": "1.0.0",
+  "description": "A small manifest-backed Aurelia action menu.",
+  "kinds": ["menu"],
+  "entryPoints": {"menu": "Menu.qml"},
+  "activation": "on-demand"
+}

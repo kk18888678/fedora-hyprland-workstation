@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "command-center",
+      "label": "Command Center",
+      "icon": "system-search",
+      "description": "Search applications, files, actions, and plugins.",
+      "action": "open-command-center",
+      "order": 10
+    },
+    {
+      "id": "plugin-status",
+      "label": "Plugins",
+      "icon": "system-run",
+      "description": "Open plugin management for an installed plugin.",
+      "provider": "plugins",
+      "action": "open-command-center",
+      "when": "plugins-present",
+      "order": 20
+    },
+    {
+      "id": "reload-plugins",
+      "label": "Reload Aurelia Plugins",
+      "icon": "view-refresh",
+      "description": "Rescan local plugin trees through the resident host.",
+      "action": "reload-plugins",
+      "order": 30
+    },
+    {
+      "id": "toggle-bar",
+      "label": "Toggle Bar",
+      "icon": "view-list",
+      "description": "Show or hide the active Aurelia bar.",
+      "action": "toggle-bar",
+      "checked": "bar-visible",
+      "order": 40
+    }
+  ]
+}

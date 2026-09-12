@@ -108,6 +108,8 @@ if grep -q 'ListView.isCurrentItem' "$command_center_root/ui/CommandCenterPanel.
    grep -q 'cursorVisible: activeFocus && text.length > 0' "$command_center_root/ui/CommandCenterPanel.qml" &&
    grep -q 'text.length === 0 && activeFocus' "$command_center_root/ui/CommandCenterPanel.qml" &&
    grep -q 'function globalRows' "$command_center_root/ui/CommandCenterModel.qml" &&
+   grep -q 'function providerEnabled' "$command_center_root/ui/CommandCenterModel.qml" &&
+   grep -q 'function moduleProvider' "$command_center_root/ui/CommandCenterModel.qml" &&
    grep -q 'sortRowsWithFilesLast' "$command_center_root/ui/CommandCenterModel.qml" &&
    grep -q 'moduleRegistry.moduleRows()' "$command_center_root/ui/CommandCenterModel.qml" &&
    grep -q 'PointerMoveGate {' "$command_center_root/ui/CommandCenterPanel.qml" &&

@@ -108,7 +108,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
    jq -e --arg root "$ROOT" '
         .catalog.scan.state == "success" and
         .catalog.scan.rejectedCount == 0 and
-        (.catalog.plugins | length == 21) and
+        (.catalog.plugins | length == 22) and
         ([.catalog.plugins[] | select(.id == "aurelia.clock")][0].sourceRoot == ($root + "/plugins/aurelia.clock")) and
         ([.catalog.plugins[] | select(.id == "aurelia.clock")][0].manifestPath == ($root + "/plugins/aurelia.clock/manifest.json")) and
         ([.catalog.plugins[] | select(.id == "aurelia.clock")][0].entryPoints.barWidget == "ClockBarWidget.qml") and

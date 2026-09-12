@@ -65,7 +65,7 @@ XDG_CACHE_HOME="$runtime_root/cache" \
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
    jq -e --arg root "$ROOT" --argjson expected "$expected_widgets" '
         .scanState == "success" and
-        .pluginCount == 21 and
+        .pluginCount == 22 and
         (.widgetIds | length == $expected) and
         (.widgetIds | index("aurelia.clock")) and
         (.widgetIds | index("aurelia.notifications")) and
