@@ -563,6 +563,47 @@ QtObject {
         return true
     }
 
+    function settingsForEntry(id, selector) {
+        if (!shellConfig || typeof shellConfig.settingsForEntry !== "function") return ({})
+        return shellConfig.settingsForEntry(String(id || ""), selector || ({}))
+    }
+
+    function updateEntryInline(id, settings, selector) {
+        if (!shellConfig || typeof shellConfig.updateEntryInline !== "function") {
+            lastError = "shell configuration is unavailable"
+            return false
+        }
+        var changed = shellConfig.updateEntryInline(String(id || ""), settings, selector || ({}))
+        if (!changed && shellConfig.lastError) {
+            lastError = String(shellConfig.lastError)
+            return false
+        }
+        lastError = ""
+        if (changed) {
+            registryRevision++
+            pluginsChanged()
+        }
+        return true
+    }
+
+    function resetEntryInline(id, selector) {
+        if (!shellConfig || typeof shellConfig.resetEntryInline !== "function") {
+            lastError = "shell configuration is unavailable"
+            return false
+        }
+        var changed = shellConfig.resetEntryInline(String(id || ""), selector || ({}))
+        if (!changed && shellConfig.lastError) {
+            lastError = String(shellConfig.lastError)
+            return false
+        }
+        lastError = ""
+        if (changed) {
+            registryRevision++
+            pluginsChanged()
+        }
+        return true
+    }
+
     function defaultBarWidgetSection(manifest) {
         var metadata = manifest && isPlainObject(manifest.barWidget) ? manifest.barWidget : null
         var section = metadata && typeof metadata.defaultSection === "string"

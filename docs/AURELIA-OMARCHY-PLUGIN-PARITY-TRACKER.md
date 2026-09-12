@@ -1172,7 +1172,7 @@ Dependencies: T10, T11.
 
 ### T13. Add generic plugin instance settings APIs
 
-Status: `[-]` in progress — generic plugin instance settings API task.
+Status: `[x]` complete — generic plugin instance settings API task.
 
 CP2 pre-change boundary:
 
@@ -1196,16 +1196,54 @@ CP2 pre-change boundary:
 - Rollback: revert only T13 settings/API/test/tracker changes if a mandatory
   gate fails; preserve completed T00–T12 history and user-owned changes.
 
-- [ ] Add a host-owned settings update path equivalent to `updateEntryInline`.
-- [ ] Support settings for panels, overlays, menus, services, and bar widgets
+CP3 post-change evidence:
+
+- Focused settings gate: test_plugin_settings.sh — 4 assertions passed, 0
+  failed.
+- API coverage: `ShellConfig` owns generic inline settings reads, updates, and
+  reset; `PluginRegistry` and the `shell` IPC target expose the one canonical
+  forwarding boundary for bar and top-level plugin entries.
+- Kind coverage: configured bar-widget and panel entries are covered by
+  isolated runtime fixtures; the same JSON entry path is available to
+  overlay, menu, and service entries without touching their plugin-owned state
+  files.
+- Safety coverage: settings are bounded JSON with safe keys, finite values,
+  bounded depth/nodes/arrays/strings/serialized size, and no functions or
+  executable QML content; malformed selectors, ambiguous instances, and
+  unchanged writes fail or converge deterministically.
+- Reset coverage: reset removes only inline settings for the selected instance,
+  preserves its position and explicit instance ID, is idempotent, and leaves a
+  separate plugin-owned state file byte-stable.
+- Live update coverage: resident plugin objects receive refreshed settings and
+  an optional `aureliaSettingsChanged` hook in place; bar loaders retain all
+  existing safe-configure branches and exactly one settings-change handler.
+- Shell safety: the catalog/config signal-cycle regression and the duplicate
+  `onSettingsChanged` regression both pass; disposable actual-shell startup
+  reaches configuration load without either observed fatal signature. The
+  offscreen environment cannot prove visual bar rendering because its
+  `PanelWindow` backend is absent.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 366 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 217 shell scripts passed.
+- Diff validation: git diff --check passed for the reviewed change.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+
+- [x] Add a host-owned settings update path equivalent to `updateEntryInline`.
+- [x] Support settings for panels, overlays, menus, services, and bar widgets
   where the manifest permits them.
-- [ ] Keep settings JSON-only, bounded, normalized, and free of executable
+- [x] Keep settings JSON-only, bounded, normalized, and free of executable
   content.
-- [ ] Separate plugin configuration from runtime state, caches, secrets, logs,
+- [x] Separate plugin configuration from runtime state, caches, secrets, logs,
   and personal documents.
-- [ ] Provide safe reset-to-default behavior per plugin instance.
-- [ ] Make settings changes trigger only the necessary reload/update boundary.
-- [ ] Preserve existing Aurelia plugin-owned state files and APIs.
+- [x] Provide safe reset-to-default behavior per plugin instance.
+- [x] Make settings changes trigger only the necessary reload/update boundary.
+- [x] Preserve existing Aurelia plugin-owned state files and APIs.
 
 Exit gate: no plugin needs to parse or mutate shared `shell.json` directly.
 

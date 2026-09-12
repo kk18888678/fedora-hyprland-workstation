@@ -266,9 +266,26 @@ Item {
         if ("appLibrary" in target) target.appLibrary = host.appLibrary
         if ("bar" in target) target.bar = host.activeBar()
         if ("shellConfig" in target) target.shellConfig = registry.shellConfig
+        if ("settings" in target && registry.shellConfig &&
+            typeof registry.shellConfig.settingsForEntry === "function")
+            target.settings = registry.shellConfig.settingsForEntry(id, {})
         if ("manifest" in target) target.manifest = manifest
         if ("pluginRegistry" in target) target.pluginRegistry = registry
         if ("barWidgetRegistry" in target) target.barWidgetRegistry = barWidgetRegistry
+    }
+
+    function refreshPluginSettings() {
+        var currentInstances = host.copyMap(host.instances)
+        for (var id in currentInstances) {
+            var target = currentInstances[id]
+            try {
+                host.configurePlugin(id, target)
+                if (target && typeof target.aureliaSettingsChanged === "function")
+                    target.aureliaSettingsChanged()
+            } catch (error) {
+                host.recordFailure(id, registry.primaryKind(id), "settings", error)
+            }
+        }
     }
 
     function completePendingOpen(id, target) {
@@ -414,6 +431,7 @@ Item {
         function onConfigChanged() {
             host.failedBarId = ""
             host.loadRevision++
+            Qt.callLater(host.refreshPluginSettings)
         }
     }
 

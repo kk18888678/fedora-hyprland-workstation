@@ -260,6 +260,27 @@ ShellRoot {
             }
         }
 
+        function updateEntryInline(pluginId: string, settingsJson: string, selectorJson: string): string {
+            try {
+                var settings = JSON.parse(settingsJson)
+                var selector = JSON.parse(selectorJson || "{}")
+                return pluginRegistry.updateEntryInline(pluginId, settings, selector)
+                    ? "ok" : (pluginRegistry.lastError || "error")
+            } catch (error) {
+                return "invalid plugin settings: " + error
+            }
+        }
+
+        function resetEntryInline(pluginId: string, selectorJson: string): string {
+            try {
+                var selector = JSON.parse(selectorJson || "{}")
+                return pluginRegistry.resetEntryInline(pluginId, selector)
+                    ? "ok" : (pluginRegistry.lastError || "error")
+            } catch (error) {
+                return "invalid settings selector: " + error
+            }
+        }
+
         function listPlugins(): string {
             return JSON.stringify(pluginHost.summaries())
         }

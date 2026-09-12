@@ -24,10 +24,17 @@ QtObject {
     property int revision: 0
     property string lastError: ""
     property bool lastSaveOk: false
+    property bool lastMutationChanged: false
     property bool migrationNeeded: false
     property bool migrationInProgress: false
     property string migrationResult: ""
     property string migrationText: ""
+    readonly property int settingsMaxBytes: 65536
+    readonly property int settingsMaxDepth: 8
+    readonly property int settingsMaxNodes: 512
+    readonly property int settingsMaxKeys: 64
+    readonly property int settingsMaxArrayLength: 128
+    readonly property int settingsMaxStringLength: 4096
     readonly property string migrationBackupPath: configRoot.configPath + ".pre-migration.bak"
 
     property FileView configFile: FileView {
@@ -161,11 +168,13 @@ QtObject {
         if (current === serialized) {
             configRoot.config = next
             configRoot.lastSaveOk = true
+            configRoot.lastMutationChanged = false
             configRoot.lastError = ""
             return true
         }
 
         configRoot.lastSaveOk = false
+        configRoot.lastMutationChanged = true
         configRoot.config = next
         configRoot.configFile.setText(serialized)
         if (!configRoot.lastSaveOk) {
@@ -290,6 +299,56 @@ QtObject {
 
     function isSafeSettingKey(value) {
         return typeof value === "string" && /^[A-Za-z][A-Za-z0-9_.-]*$/.test(value)
+    }
+
+    function validateJsonValue(value, depth, counters) {
+        counters.nodes++
+        if (counters.nodes > configRoot.settingsMaxNodes || depth > configRoot.settingsMaxDepth) return false
+        if (value === null) return true
+        if (typeof value === "string") return value.length <= configRoot.settingsMaxStringLength
+        if (typeof value === "boolean") return true
+        if (typeof value === "number") return isFinite(value)
+        if (typeof value !== "object" || typeof value === "function" || typeof value === "undefined") return false
+
+        if (Array.isArray(value)) {
+            if (value.length > configRoot.settingsMaxArrayLength) return false
+            for (var arrayIndex = 0; arrayIndex < value.length; arrayIndex++)
+                if (!configRoot.validateJsonValue(value[arrayIndex], depth + 1, counters)) return false
+            return true
+        }
+        if (!configRoot.isPlainObject(value)) return false
+        var keys = Object.keys(value)
+        if (keys.length > configRoot.settingsMaxKeys) return false
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+            if (!configRoot.isSafeSettingKey(keys[keyIndex])) return false
+            if (!configRoot.validateJsonValue(value[keys[keyIndex]], depth + 1, counters)) return false
+        }
+        return true
+    }
+
+    function validateSettingsObject(value) {
+        if (!configRoot.isPlainObject(value)) return {ok: false, error: "settings must be a JSON object"}
+        var keys = Object.keys(value)
+        var counters = {nodes: 0}
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+            var key = keys[keyIndex]
+            if (["id", "instanceId", "settings"].indexOf(key) !== -1 ||
+                !configRoot.isSafeSettingKey(key))
+                return {ok: false, error: "invalid setting key: " + key}
+            if (!configRoot.validateJsonValue(value[key], 1, counters))
+                return {ok: false, error: "setting value is not bounded JSON: " + key}
+        }
+        var serialized = ""
+        try {
+            serialized = JSON.stringify(value)
+        } catch (e) {
+            return {ok: false, error: "settings must be serializable JSON"}
+        }
+        if (typeof serialized !== "string" || serialized.length > configRoot.settingsMaxBytes)
+            return {ok: false, error: "settings exceed the bounded JSON size"}
+        var copy = configRoot.cloneJson(value)
+        if (!configRoot.isPlainObject(copy)) return {ok: false, error: "settings must be serializable JSON"}
+        return {ok: true, value: copy}
     }
 
     function uniqueIds(value) {
@@ -433,6 +492,79 @@ QtObject {
             if (pluginEntryId(list[i]) === id) return i
         }
         return -1
+    }
+
+    function pluginEntryInstanceId(entry) {
+        var id = pluginEntryId(entry)
+        var configured = isPlainObject(entry) ? entry.instanceId : ""
+        return typeof configured === "string" && isValidPluginId(configured) ? configured : id
+    }
+
+    function findPluginEntryLocation(config, id) {
+        var requested = String(id || "")
+        if (!isPlainObject(config) || !Array.isArray(config.plugins)) return {found: false}
+        var exact = []
+        var base = []
+        for (var i = 0; i < config.plugins.length; i++) {
+            var entry = config.plugins[i]
+            var location = {found: true, kind: "plugin", index: i}
+            if (pluginEntryInstanceId(entry) === requested) exact.push(location)
+            if (pluginEntryId(entry) === requested) base.push(location)
+        }
+        if (exact.length > 1 || (exact.length === 0 && base.length > 1))
+            return {found: false, error: "ambiguous plugin " + requested}
+        if (exact.length === 1) return exact[0]
+        if (base.length === 1) return base[0]
+        return {found: false}
+    }
+
+    function validateSettingsSelector(value) {
+        var selectorResult = validatePlacement(value, true)
+        if (!selectorResult.ok) return selectorResult
+        var selector = selectorResult.value
+        if (objectHas(selector, "before") || objectHas(selector, "after"))
+            return {ok: false, error: "settings selectors do not accept before or after"}
+        if (objectHas(selector, "section") && objectHas(selector, "fromSection"))
+            return {ok: false, error: "settings selectors accept only one of section or from-section"}
+        if (objectHas(selector, "index") && objectHas(selector, "fromIndex"))
+            return {ok: false, error: "settings selectors accept only one of index or from-index"}
+        if (objectHas(selector, "index") && !objectHas(selector, "section"))
+            return {ok: false, error: "index requires section"}
+        return {ok: true, value: selector}
+    }
+
+    function barLookupSelector(selector) {
+        var lookup = cloneJson(selector) || ({})
+        if (objectHas(lookup, "section")) {
+            lookup.fromSection = lookup.section
+            delete lookup.section
+        }
+        if (objectHas(lookup, "index")) {
+            lookup.fromIndex = lookup.index
+            delete lookup.index
+        }
+        return lookup
+    }
+
+    function findConfigEntry(config, id, selector) {
+        var requested = String(id || "")
+        if (!isValidPluginId(requested)) return {found: false, error: "Invalid plugin id: " + requested}
+        var selected = selector || ({})
+        var hasBarSelector = objectHas(selected, "section") || objectHas(selected, "index") ||
+            objectHas(selected, "fromSection") || objectHas(selected, "fromIndex")
+        if (hasBarSelector) {
+            var barLocation = resolveBarLocation(config, requested, barLookupSelector(selected))
+            if (!barLocation.found) return barLocation
+            return {found: true, kind: "bar", section: barLocation.section, index: barLocation.index}
+        }
+
+        var bar = findBarLocation(config, requested, "")
+        if (bar.error) return bar
+        if (bar.found) return {found: true, kind: "bar", section: bar.section, index: bar.index}
+        var plugin = findPluginEntryLocation(config, requested)
+        if (plugin.error) return plugin
+        if (plugin.found) return plugin
+        return {found: false, error: "could not find configured plugin " + requested}
     }
 
     function barEntryId(entry) {
@@ -696,6 +828,110 @@ QtObject {
         entry[String(key)] = copiedValue
         if (!configRoot.persistConfig(next)) return configRoot.lastError || "Could not persist Aurelia shell config."
         return ""
+    }
+
+    function inlineSettingsFromEntry(entry) {
+        var result = {}
+        if (!configRoot.isPlainObject(entry)) return result
+        var explicit = {}
+        for (var key in entry) {
+            if (key !== "id" && key !== "instanceId" && key !== "settings") {
+                result[key] = entry[key]
+                explicit[key] = true
+            }
+        }
+        if (configRoot.isPlainObject(entry.settings)) {
+            for (var nestedKey in entry.settings) {
+                if (!explicit[nestedKey]) result[nestedKey] = entry.settings[nestedKey]
+            }
+        }
+        return result
+    }
+
+    function settingsForEntry(id, selector) {
+        var selectorResult = configRoot.validateSettingsSelector(selector)
+        if (!selectorResult.ok) return ({})
+        var location = configRoot.findConfigEntry(configRoot.config, String(id || ""), selectorResult.value)
+        if (!location.found) return ({})
+        var entry = location.kind === "bar"
+            ? configRoot.config.bar.layout[location.section][location.index]
+            : configRoot.config.plugins[location.index]
+        if (location.kind === "bar" && configRoot.barWidgetRegistry &&
+            typeof configRoot.barWidgetRegistry.settingsFor === "function")
+            return configRoot.barWidgetRegistry.settingsFor(String(entry.id || id || ""), entry)
+        return configRoot.cloneJson(configRoot.inlineSettingsFromEntry(entry)) || ({})
+    }
+
+    function updateEntryInline(id, settings, selector) {
+        var selectorResult = configRoot.validateSettingsSelector(selector)
+        if (!selectorResult.ok) {
+            configRoot.lastError = selectorResult.error
+            return false
+        }
+        var settingsResult = configRoot.validateSettingsObject(settings)
+        if (!settingsResult.ok) {
+            configRoot.lastError = settingsResult.error
+            return false
+        }
+        var next = configRoot.prepareMutationConfig()
+        var location = configRoot.findConfigEntry(next, String(id || ""), selectorResult.value)
+        if (!location.found) {
+            configRoot.lastError = location.error || "could not find configured plugin " + id
+            return false
+        }
+        var entry = location.kind === "bar"
+            ? next.bar.layout[location.section][location.index]
+            : next.plugins[location.index]
+        if (!configRoot.isPlainObject(entry)) {
+            configRoot.lastError = "configured plugin entry must be an object"
+            return false
+        }
+        var before = configRoot.serializeConfig(next)
+        var keys = Object.keys(settingsResult.value)
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
+            entry[keys[keyIndex]] = settingsResult.value[keys[keyIndex]]
+        if (before === configRoot.serializeConfig(next)) {
+            configRoot.config = next
+            configRoot.lastSaveOk = true
+            configRoot.lastError = ""
+            return false
+        }
+        if (!configRoot.persistConfig(next)) return false
+        return true
+    }
+
+    function resetEntryInline(id, selector) {
+        var selectorResult = configRoot.validateSettingsSelector(selector)
+        if (!selectorResult.ok) {
+            configRoot.lastError = selectorResult.error
+            return false
+        }
+        var next = configRoot.prepareMutationConfig()
+        var location = configRoot.findConfigEntry(next, String(id || ""), selectorResult.value)
+        if (!location.found) {
+            configRoot.lastError = location.error || "could not find configured plugin " + id
+            return false
+        }
+        var entries = location.kind === "bar" ? next.bar.layout[location.section] : next.plugins
+        var entry = entries[location.index]
+        if (!configRoot.isPlainObject(entry)) {
+            configRoot.lastError = "configured plugin entry must be an object"
+            return false
+        }
+        var resetEntry = {}
+        if (typeof entry.instanceId === "string" && configRoot.isValidPluginId(entry.instanceId))
+            resetEntry.instanceId = entry.instanceId
+        resetEntry.id = entry.id
+        var before = configRoot.serializeConfig(next)
+        entries[location.index] = resetEntry
+        if (before === configRoot.serializeConfig(next)) {
+            configRoot.config = next
+            configRoot.lastSaveOk = true
+            configRoot.lastError = ""
+            return false
+        }
+        if (!configRoot.persistConfig(next)) return false
+        return true
     }
 
     function isPluginEnabled(id, firstParty) {

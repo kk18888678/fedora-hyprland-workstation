@@ -130,6 +130,19 @@ Item {
         }
     }
 
+    function refreshSettings() {
+        root.safeConfigure(widgetLoader.item)
+        root.safeConfigure(qmlLoader.item)
+        root.safeConfigure(commandLoader.item)
+        var target = root.widgetItem
+        if (!target) return
+        try {
+            if (typeof target.aureliaSettingsChanged === "function") target.aureliaSettingsChanged()
+        } catch (error) {
+            root.reportFailure("settings", error)
+        }
+    }
+
     function handleLoaded(target) {
         if (!root.safeConfigure(target)) return
         try {
@@ -260,11 +273,7 @@ Item {
         }
     }
 
-    onSettingsChanged: {
-        root.safeConfigure(widgetLoader.item)
-        root.safeConfigure(qmlLoader.item)
-        root.safeConfigure(commandLoader.item)
-    }
+    onSettingsChanged: Qt.callLater(root.refreshSettings)
 
     property Connections pluginChangeConnection: Connections {
         target: root.pluginRegistry
