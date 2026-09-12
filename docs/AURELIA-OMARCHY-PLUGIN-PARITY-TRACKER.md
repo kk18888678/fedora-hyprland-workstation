@@ -1505,6 +1505,34 @@ Dependencies: T14, T15.
 
 ### T17. Implement safe built-in plugin cloning
 
+Status: `[-]` in progress — safe built-in plugin cloning task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: the Aurelia plugin CLI lifecycle modules,
+  `PluginRegistry.qml`, `ShellConfig.qml`, narrow clone/provenance helpers, and
+  only the manifest metadata needed to describe safe local clone paths.
+- Allowed test files: `aurelia-shell/tests/`, including isolated temporary
+  first-party/user plugin trees and local Git-free clone fixtures, and this
+  tracker.
+- Compatibility boundary: packaged first-party plugin files, current plugin
+  IDs, active-bar selection, bar layout/settings, compatibility IPC aliases,
+  user-owned plugin trees, and plugin-owned state files must remain unchanged
+  unless an isolated clone operation explicitly targets the fixture.
+- Runtime behavior impact: user-level source copy, manifest identity, and
+  explicit clone provenance only; no live plugin activation, shell restart,
+  installer/package/repository mutation, systemd/greetd change, or live-session
+  change.
+- Persisted user state impact: isolated clone/config fixtures only. Clone
+  writes must validate before mutation, refuse symlink/traversal/collision
+  hazards, preserve bar position/settings, and clean up recoverably on failure.
+- Security boundary: cloning copies unsandboxed QML source but never executes
+  plugin code or install hooks. Clone metadata cannot grant trusted
+  capabilities to a user plugin.
+- Rollback: revert only T17 clone/provenance/test/tracker changes if a
+  mandatory gate fails; preserve completed T00–T16 history and user-owned
+  changes.
+
 - [ ] Add `aurelia-plugin clone <id>` for first-party plugins.
 - [ ] Generate a collision-safe user-owned ID.
 - [ ] Copy the complete plugin directory and every declared local dependency.
