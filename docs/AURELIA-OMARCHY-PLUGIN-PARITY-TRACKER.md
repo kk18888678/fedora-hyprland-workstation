@@ -419,7 +419,8 @@ CP3 post-change evidence:
   aurelia-shell/tests/test_plugin_survivability.sh, and the isolated
   tests/fixtures/plugin-survivability/ fixtures.
 - Concurrent user-owned notification edits appeared during this task and were
-  intentionally left unstaged and outside the T02A commit.
+  intentionally kept outside the T02A commit; they were subsequently committed
+  separately as 40ed5bb (feat(notifications): compact popup surfaces).
 - Evidence classification: loader/callback survival and healthy-plugin
   continuity are isolated-runtime tested; manifest-discovery continuation and
   same-process limits remain code-inspected/contract-documented. QML
