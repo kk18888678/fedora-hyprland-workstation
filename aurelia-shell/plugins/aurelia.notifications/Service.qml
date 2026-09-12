@@ -1084,8 +1084,24 @@ Item {
     }
 
     function closeCenter() {
+        // The center panel is loader-owned and may be destroyed as soon as
+        // centerOpen changes. Release the bar popout while the panel object is
+        // still available so a closed notification center cannot leave the
+        // bar's active underline behind.
+        releaseCenterPopout()
         centerOpen = false
         return "ok"
+    }
+
+    function releaseCenterPopout() {
+        var panel = centerPanel.item
+        if (panel && bar && typeof bar.releasePopout === "function") {
+            bar.releasePopout(panel)
+        }
+    }
+
+    onCenterOpenChanged: {
+        if (!centerOpen) releaseCenterPopout()
     }
 
     function toggleCenter() {

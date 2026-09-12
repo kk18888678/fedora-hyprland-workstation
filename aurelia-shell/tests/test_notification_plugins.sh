@@ -66,11 +66,28 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'defaultActionInvoked' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'Flow {' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'maximumLineCount: 2' "$plugin_root/ui/NotificationToast.qml" &&
+   ! grep -q 'maximumLineCount: 3' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'font.family: "Liberation Sans"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'font.pixelSize: Theme.fontSizeSm' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'import Quickshell' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'Quickshell.iconPath' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'preserveColors: true' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'readonly property string smallIconSource: root.image.length > 0' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'implicitWidth: 416' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'sourceSize.width: smallIconSlot.width \* Screen.devicePixelRatio \* 4' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'property bool showActions: defaultActionText !== ""' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'radius: 0' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'readonly property int actionGroupWidth' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'anchors.horizontalCenter: parent.horizontalCenter' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'primary: false' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'border.width: 0' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'width: Theme.scaleGeometry(64)' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'centerLabel: true' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'showArchive' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'label: "Archive"' "$plugin_root/ui/NotificationToast.qml" &&
    ! grep -q 'timestamp: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    ! grep -q 'timestamp: historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'timestampLabel: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'actions: historyDelegate.actions' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'invokeHistoryDefault' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'implicitHeight: toastCard.implicitHeight' "$plugin_root/ui/NotificationToast.qml" &&
@@ -97,6 +114,8 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'function toggleDnd' "$plugin_root/Service.qml" &&
    grep -q 'function showHistory' "$plugin_root/Service.qml" &&
    grep -q 'function clearHistory' "$plugin_root/Service.qml" &&
+   grep -q 'function releaseCenterPopout' "$plugin_root/Service.qml" &&
+   grep -q 'onCenterOpenChanged' "$plugin_root/Service.qml" &&
    grep -q 'function dismissAll' "$plugin_root/Service.qml" &&
    grep -q 'function publishScreenshot' "$plugin_root/Service.qml" &&
    grep -q 'property var liveSnapshots' "$plugin_root/Service.qml" &&
@@ -173,19 +192,23 @@ if [[ -f "$ROOT/ui/AureliaIconButton.qml" ]] &&
    grep -q '^AureliaKeyboardPanel {' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'bar: root.service ? root.service.bar : null' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'ownerId: "aurelia.notifications"' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'popupWidth: Math.min(400' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'popupWidth: Math.min(416' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'popupHeight: Math.min' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'minPopupHeight: 280' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'maxPopupHeight: 476' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'contentPadding: Theme.spacingSm' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'anchorItemFor("aurelia.notifications")' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'var targetScreen = root.screenModel' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'visible: root.notificationService !== null && root.notificationService.popupModel.count > 0 && root.anchored' "$plugin_root/ui/NotificationPopupSurface.qml" &&
-   grep -q 'showArchive: true' "$plugin_root/ui/NotificationPopupSurface.qml" &&
-   grep -q 'showArchive: true' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'Math.min(416' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'showArchive: false' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'showArchive: false' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'function archiveByIdentity' "$plugin_root/Service.qml" &&
    grep -q 'inbox.archived' "$plugin_root/Service.qml" &&
    grep -q 'popupOrigin' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'AureliaIconButton' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'currentViewEmpty' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'Layout.maximumHeight: 32' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'Layout.maximumHeight: 26' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'You’re all caught up' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    ! grep -q 'AureliaActionButton {' "$plugin_root/ui/NotificationCenterPanel.qml"; then
     pass "Notification center uses compact icon actions, a lighter segmented layout, and a dynamic bar anchor"

@@ -18,12 +18,16 @@ AureliaKeyboardPanel {
 
     bar: root.service ? root.service.bar : null
     ownerId: "aurelia.notifications"
-    popupWidth: Math.min(400, Math.max(300, root.width - Theme.spacingLg * 2))
-    popupHeight: Math.min(root.currentViewEmpty ? 360 : 520, Math.max(260, root.height - root.margin * 2))
+    // The reference KeyboardPanel defaults to 280x200. This center keeps a
+    // readable two-tab layout while applying the requested +30% width and
+    // +40% height to the previous Aurelia compact bounds.
+    popupWidth: Math.min(416, Math.max(320, root.width - Theme.spacingLg * 2))
+    popupHeight: Math.min(root.currentViewEmpty ? 308 : 476, Math.max(280, root.height - root.margin * 2))
     contentSizingItem: centerColumn
     fitHeightToContent: true
-    minPopupHeight: 260
-    maxPopupHeight: 520
+    minPopupHeight: 280
+    maxPopupHeight: 476
+    contentPadding: Theme.spacingSm
     shown: root.service !== null && root.service.centerOpen
     dismissHandler: function() {
         root.close()
@@ -51,7 +55,7 @@ AureliaKeyboardPanel {
         ColumnLayout {
             id: centerColumn
             anchors.fill: parent
-            spacing: Theme.spacingSm
+            spacing: Theme.spacingXs
 
             RowLayout {
                 Layout.fillWidth: true
@@ -59,7 +63,7 @@ AureliaKeyboardPanel {
                     Layout.fillWidth: true
                     text: "Notifications"
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyProse
                     font.pixelSize: Theme.fontSizeLg
                     font.weight: Theme.fontWeightBold
                 }
@@ -82,27 +86,29 @@ AureliaKeyboardPanel {
                 Layout.fillWidth: true
                 text: (root.service ? root.service.activeModel.count : 0) + " inbox · " + (root.service ? root.service.historyModel.count : 0) + " saved · " + (root.service ? root.service.serverStatus : "") + (root.service && root.service.doNotDisturb ? " · DND on" : "")
                 color: Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyProse
                 font.pixelSize: Theme.fontSizeXs
                 elide: Text.ElideRight
             }
 
             RowLayout {
+                id: viewTabs
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
-                Layout.minimumHeight: 32
-                Layout.maximumHeight: 32
+                Layout.preferredHeight: 26
+                Layout.minimumHeight: 26
+                Layout.maximumHeight: 26
                 spacing: Theme.spacingMd
 
                 Item {
                     Layout.fillWidth: true
-                    height: 32
+                    Layout.fillHeight: true
 
                     Text {
                         anchors.centerIn: parent
                         text: "Inbox  " + (root.service ? root.service.activeModel.count : 0)
-                        color: root.service && root.service.centerMode === "active" ? Theme.text : Theme.textMuted
-                        font.family: Theme.fontFamily
+                        color: root.service && root.service.centerMode === "active"
+                            ? Theme.text : Theme.textMuted
+                        font.family: Theme.fontFamilyProse
                         font.pixelSize: Theme.fontSizeSm
                         font.weight: Theme.fontWeightMedium
                     }
@@ -111,7 +117,7 @@ AureliaKeyboardPanel {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
-                        height: 2
+                        height: 1
                         color: Theme.accent
                         visible: !!(root.service && root.service.centerMode === "active")
                     }
@@ -127,13 +133,14 @@ AureliaKeyboardPanel {
 
                 Item {
                     Layout.fillWidth: true
-                    height: 32
+                    Layout.fillHeight: true
 
                     Text {
                         anchors.centerIn: parent
                         text: "History  " + (root.service ? root.service.historyModel.count : 0)
-                        color: root.service && root.service.centerMode === "history" ? Theme.text : Theme.textMuted
-                        font.family: Theme.fontFamily
+                        color: root.service && root.service.centerMode === "history"
+                            ? Theme.text : Theme.textMuted
+                        font.family: Theme.fontFamilyProse
                         font.pixelSize: Theme.fontSizeSm
                         font.weight: Theme.fontWeightMedium
                     }
@@ -142,7 +149,7 @@ AureliaKeyboardPanel {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
-                        height: 2
+                        height: 1
                         color: Theme.accent
                         visible: !!(root.service && root.service.centerMode === "history")
                     }
@@ -159,9 +166,9 @@ AureliaKeyboardPanel {
 
             RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 24
-                Layout.minimumHeight: 24
-                Layout.maximumHeight: 24
+                Layout.preferredHeight: 20
+                Layout.minimumHeight: 20
+                Layout.maximumHeight: 20
 
                 Item { Layout.fillWidth: true }
 
@@ -169,8 +176,9 @@ AureliaKeyboardPanel {
                     visible: !!(root.service && root.service.activeModel.count > 0)
                     text: "Dismiss all"
                     color: textDismissMouse.containsMouse ? Theme.text : Theme.textMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyProse
                     font.pixelSize: Theme.fontSizeXs
+                    font.weight: Theme.fontWeightMedium
 
                     MouseArea {
                         id: textDismissMouse
@@ -188,8 +196,9 @@ AureliaKeyboardPanel {
                     visible: !!(root.service && root.service.historyModel.count > 0)
                     text: "Clear history"
                     color: textClearMouse.containsMouse ? Theme.text : Theme.textMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyProse
                     font.pixelSize: Theme.fontSizeXs
+                    font.weight: Theme.fontWeightMedium
 
                     MouseArea {
                         id: textClearMouse
@@ -220,17 +229,17 @@ AureliaKeyboardPanel {
 
                         delegate: Item {
                             id: activeDelegate
-                                required property int index
-                                required property var originalId
-                                required property var app
-                                required property var appIcon
-                                required property var desktopEntry
-                                required property var summary
-                                required property var body
-                                required property var image
-                                required property var glyph
-                                required property var execArgv
-                                required property var actions
+                            required property int index
+                            required property var originalId
+                            required property var app
+                            required property var appIcon
+                            required property var desktopEntry
+                            required property var summary
+                            required property var body
+                            required property var image
+                            required property var glyph
+                            required property var execArgv
+                            required property var actions
                             required property var defaultActionText
                             required property int urgency
                             required property double timestamp
@@ -240,18 +249,21 @@ AureliaKeyboardPanel {
                             NotificationToast {
                                 id: activeRow
                                 anchors.fill: parent
-                                    app: String(activeDelegate.app || "")
-                                    appIcon: String(activeDelegate.appIcon || "")
-                                    desktopEntry: String(activeDelegate.desktopEntry || "")
-                                    summary: String(activeDelegate.summary || "")
-                                    body: String(activeDelegate.body || "")
-                                    image: String(activeDelegate.image || "")
-                                    glyph: String(activeDelegate.glyph || "")
-                                    execArgv: String(activeDelegate.execArgv || "")
+                                app: String(activeDelegate.app || "")
+                                appIcon: String(activeDelegate.appIcon || "")
+                                desktopEntry: String(activeDelegate.desktopEntry || "")
+                                summary: String(activeDelegate.summary || "")
+                                body: String(activeDelegate.body || "")
+                                image: String(activeDelegate.image || "")
+                                glyph: String(activeDelegate.glyph || "")
+                                execArgv: String(activeDelegate.execArgv || "")
                                 actions: activeDelegate.actions || []
                                 defaultActionText: String(activeDelegate.defaultActionText || "")
                                 urgency: activeDelegate.urgency
-                                showArchive: true
+                                timestampLabel: activeDelegate.timestamp > 0
+                                    ? Qt.formatTime(new Date(activeDelegate.timestamp), "HH:mm")
+                                    : ""
+                                showArchive: false
                                 onDismissed: root.service.dismissAt(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                                 onActivated: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                                 onDefaultActionInvoked: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
@@ -318,12 +330,12 @@ AureliaKeyboardPanel {
 
                     AureliaIcon {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        width: 28
-                        height: 28
+                        width: 24
+                        height: 24
                         name: root.service && root.service.centerMode === "history"
                             ? "document-open-recent"
                             : "notifications"
-                        iconSize: 28
+                        iconSize: 24
                         tint: Theme.accent
                     }
 
@@ -333,9 +345,9 @@ AureliaKeyboardPanel {
                             ? "No saved notifications"
                             : "You’re all caught up"
                         color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSm
-                        font.weight: Theme.fontWeightMedium
+                        font.family: Theme.fontFamilyProse
+                        font.pixelSize: Theme.fontSizeMd
+                        font.weight: Theme.fontWeightBold
                     }
 
                     Text {
@@ -345,14 +357,14 @@ AureliaKeyboardPanel {
                             : "New alerts will appear here automatically."
                         color: Theme.textSecondary
                         font.family: Theme.fontFamilyProse
-                        font.pixelSize: Theme.fontSizeXs
+                        font.pixelSize: Theme.fontSizeSm
                     }
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "Click the bell to open this center · right-click it for DND"
                         color: Theme.textMuted
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyProse
                         font.pixelSize: Theme.fontSizeXs
                     }
                 }

@@ -47,7 +47,7 @@ PanelWindow {
             targetScreen !== null &&
             (root.anchorWindow.screen === targetScreen || (screenName !== "" && screenName === anchorScreenName))
     }
-    readonly property real columnWidth: Math.max(1, Math.min(380, root.width - Theme.spacingMd * 2))
+    readonly property real columnWidth: Math.max(1, Math.min(416, root.width - Theme.spacingMd * 2))
     readonly property point popupOrigin: {
         var revision = root.bar ? root.bar.widgetRevision : 0
         var columnHeight = popupColumn.implicitHeight
@@ -171,7 +171,7 @@ PanelWindow {
                     actions: popupSlot.actions
                     defaultActionText: String(popupSlot.defaultActionText || "")
                     urgency: popupSlot.urgency
-                    showArchive: true
+                    showArchive: false
                     onDismissed: root.notificationService.dismissAt(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onActivated: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onDefaultActionInvoked: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)

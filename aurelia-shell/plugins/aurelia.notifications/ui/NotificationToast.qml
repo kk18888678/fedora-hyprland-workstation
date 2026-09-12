@@ -1,11 +1,13 @@
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import "../../../ui"
 import "../../../theme"
 import "../NotificationLogic.js" as Logic
 
-// One shared notification card for popup, Active, and History. Every surface
-// keeps the same title -> two-line body -> actions hierarchy.
+// Shared presentational card for popup, Active, and History. Its visual layout
+// follows the Omarchy NotificationCard: a compact leading image/glyph slot,
+// Liberation Sans title/body text, and a restrained close affordance.
 Item {
     id: root
 
@@ -23,7 +25,7 @@ Item {
     property bool interactive: true
     property bool showDismiss: true
     property bool showArchive: false
-    property bool showActions: true
+    property bool showActions: defaultActionText !== ""
     property bool defaultActionEnabled: true
     property bool actionButtonsEnabled: true
     property string timestampLabel: ""
@@ -33,9 +35,24 @@ Item {
         + (root.actions && typeof root.actions.length === "number" ? root.actions.length : 0)
         + (root.showArchive ? 1 : 0)
     readonly property int actionGroupWidth: root.actionCount > 0
-        ? root.actionCount * 92 + (root.actionCount - 1) * Theme.spacingXs
+        ? root.actionCount * Theme.scaleGeometry(64)
+            + (root.actionCount - 1) * Theme.spacingXs
         : 0
+    readonly property bool hasGlyph: root.glyph.length > 0
+    readonly property string smallIconSource: root.image.length > 0
+        ? root.image
+        : root.iconSource(root.appIcon)
+    readonly property bool hasSmallIcon: root.smallIconSource.length > 0
+    readonly property bool compactGlyph: Logic.shouldRenderCompactGlyph(
+        root.glyph, root.smallIconSource, root.singleLineToast)
+    readonly property bool summaryStartsWithGlyph: Logic.summaryStartsWithGlyph(root.summary)
+    readonly property bool singleLineToast: root.sanitizedBody.length === 0
+    readonly property bool collapseRedundantIcon: root.singleLineToast &&
+        !root.hasGlyph && root.summaryStartsWithGlyph
+    readonly property string sanitizedBody: Logic.sanitizeBody(root.body, root.app, root.appIcon)
     readonly property string styledBody: Logic.styledBody(root.body, root.app, root.appIcon)
+    readonly property color bodyColor: Qt.darker(Theme.notifications.text, 1.15)
+    readonly property color dimColor: Qt.darker(Theme.notifications.text, 1.4)
 
     signal dismissed()
     signal activated()
@@ -43,50 +60,38 @@ Item {
     signal actionInvoked(string identifier)
     signal archiveRequested()
 
-    implicitWidth: 380
+    implicitWidth: 416
     implicitHeight: toastCard.implicitHeight
+
+    function iconSource(value) {
+        var source = String(value || "")
+        if (source === "") return ""
+        if (source.indexOf("file://") === 0 || source.indexOf("image://") === 0) return source
+        if (source.charAt(0) === "/") return source
+        return Quickshell.iconPath(source, "application-x-executable")
+    }
 
     function iconName(value) {
         var source = String(value || "")
-        if (source === "" || source.indexOf("file://") === 0 || source.charAt(0) === "/") return "application-x-executable"
-        return source
-    }
-
-    function localImageSource(value) {
-        var source = String(value || "")
-        if (source.indexOf("file://") === 0) {
-            try { source = decodeURIComponent(source.slice(7)) } catch (error) { return "" }
+        if (source === "" || source.indexOf("file://") === 0 ||
+            source.indexOf("image://") === 0 || source.charAt(0) === "/") {
+            return "application-x-executable"
         }
-        return source.charAt(0) === "/" ? source : ""
-    }
-
-    function imageSource() {
-        var rawImage = String(root.image || "")
-        if (rawImage.indexOf("image://") === 0) return rawImage
-        var notificationImage = root.localImageSource(root.image)
-        return notificationImage !== "" ? notificationImage : root.localImageSource(root.appIcon)
+        return source
     }
 
     HoverHandler { id: toastHover }
 
     Rectangle {
         id: toastCard
-        width: root.width > 0 ? root.width : root.implicitWidth
-        implicitHeight: cardContent.implicitHeight + Theme.spacingSm * 2
+        width: Math.min(root.width > 0 ? root.width : root.implicitWidth, root.implicitWidth)
+        implicitHeight: mainColumn.implicitHeight + Theme.borderWidthFocus * 2
         height: implicitHeight
-        radius: Theme.radiusMd
+        radius: 0
         color: Theme.notifications.background
-        border.color: root.urgency === 2 ? Theme.error : (root.hovered ? Theme.notifications.border : Theme.border)
-        border.width: root.urgency === 2 ? Theme.borderWidthFocus : Theme.borderWidthDefault
-
-        Rectangle {
-            width: 3
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            anchors.left: parent.left
-            radius: width / 2
-            color: root.urgency === 2 ? Theme.error : Theme.notifications.countdown
-        }
+        border.color: root.urgency === 2 ? Theme.error : Theme.notifications.border
+        border.width: Theme.borderWidthFocus
+        clip: true
 
         MouseArea {
             anchors.fill: parent
@@ -101,104 +106,139 @@ Item {
         }
 
         ColumnLayout {
-            id: cardContent
+            id: mainColumn
+            anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.leftMargin: Theme.spacingMd
-            anchors.rightMargin: Theme.spacingSm
-            anchors.topMargin: Theme.spacingSm
-            spacing: Theme.spacingXs
+            anchors.topMargin: Theme.borderWidthFocus
+            anchors.leftMargin: Theme.borderWidthFocus
+            anchors.rightMargin: Theme.borderWidthFocus
+            spacing: 0
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Theme.spacingSm
+                Layout.leftMargin: Theme.spacingMd
+                Layout.rightMargin: Theme.spacingMd
+                Layout.topMargin: root.singleLineToast ? Theme.scaleGeometry(7) : Theme.scaleGeometry(10)
+                Layout.bottomMargin: root.singleLineToast ? Theme.scaleGeometry(7) : Theme.scaleGeometry(10)
+                spacing: root.collapseRedundantIcon ? 0
+                    : (root.compactGlyph ? Theme.scaleGeometry(8) : Theme.spacingMd)
 
                 Item {
-                    Layout.alignment: Qt.AlignTop
-                    Layout.preferredWidth: 40
-                    Layout.preferredHeight: 40
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: Theme.radiusSm
-                        color: Theme.surface
-                    }
+                    id: smallIconSlot
+                    Layout.preferredWidth: visible ? Theme.scaleGeometry(40) : 0
+                    Layout.preferredHeight: visible ? Theme.scaleGeometry(40) : 0
+                    Layout.alignment: Qt.AlignVCenter
+                    visible: !root.collapseRedundantIcon && !root.compactGlyph &&
+                        (root.hasSmallIcon || root.hasGlyph) &&
+                        (root.hasGlyph || smallIconImage.status !== Image.Error)
 
                     Image {
-                        id: iconImage
+                        id: smallIconImage
                         anchors.fill: parent
-                        anchors.margins: 4
-                        source: root.imageSource()
-                        sourceSize: Qt.size(40, 40)
+                        source: root.smallIconSource
+                        // Decode above display resolution before the thumbnail
+                        // is minified. This keeps screenshot previews crisp
+                        // without changing Omarchy's 40px visual slot.
+                        sourceSize.width: smallIconSlot.width * Screen.devicePixelRatio * 4
+                        sourceSize.height: smallIconSlot.height * Screen.devicePixelRatio * 4
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         smooth: true
+                        visible: !root.hasGlyph || smallIconImage.status === Image.Ready
                     }
 
+                    // Preserve native app artwork. This fallback is used only
+                    // when the image cannot be resolved; semantic names such
+                    // as camera-photo still use Aurelia's native glyph map.
                     AureliaIcon {
                         anchors.centerIn: parent
-                        width: 24
-                        height: 24
-                        visible: iconImage.status !== Image.Ready && root.glyph === ""
+                        width: Theme.scaleGeometry(24)
+                        height: Theme.scaleGeometry(24)
+                        visible: !root.hasGlyph && smallIconImage.status !== Image.Ready && root.appIcon !== ""
                         name: root.iconName(root.appIcon)
-                        iconSize: 24
-                        tint: Theme.accent
+                        iconSize: Theme.scaleGeometry(24)
+                        preserveColors: true
+                        tint: root.urgency === 2 ? Theme.error : Theme.notifications.text
                     }
 
                     Text {
                         anchors.centerIn: parent
-                        visible: iconImage.status !== Image.Ready && root.glyph !== ""
+                        textFormat: Text.PlainText
+                        visible: root.hasGlyph && smallIconImage.status !== Image.Ready
                         text: root.glyph
-                        color: Theme.accent
+                        color: Theme.notifications.text
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeXl
+                        font.pixelSize: Theme.scaleGeometry(28)
                     }
+                }
+
+                Text {
+                    textFormat: Text.PlainText
+                    Layout.alignment: Qt.AlignVCenter
+                    visible: root.compactGlyph
+                    text: root.glyph
+                    color: Theme.notifications.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.scaleGeometry(14)
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.spacingXs
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-
-                        Text {
-                            Layout.fillWidth: true
-                            textFormat: Text.PlainText
-                            text: root.summary === ""
-                                ? (root.app === "" ? "Notification" : root.app)
-                                : root.summary
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                        }
-
-                    }
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.rightMargin: Theme.scaleGeometry(10)
+                    spacing: Theme.scaleGeometry(2)
 
                     Text {
                         Layout.fillWidth: true
-                        visible: root.styledBody.length > 0
-                        text: root.styledBody
-                        textFormat: Text.StyledText
-                        color: Theme.textSecondary
-                        font.family: Theme.fontFamilyProse
-                        font.pixelSize: Theme.fontSizeSm
+                        visible: root.summary.length > 0
+                        textFormat: Text.PlainText
+                        text: root.summary
+                        color: Theme.notifications.text
+                        font.family: "Liberation Sans"
+                        font.pixelSize: Theme.fontSizeMd
+                        font.weight: Theme.fontWeightBold
                         wrapMode: Text.WordWrap
                         maximumLineCount: 2
                         elide: Text.ElideRight
                     }
 
-                    Item {
-                        id: actionContainer
+                    Text {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: visible ? actionFlow.implicitHeight : 0
-                        visible: root.showActions && (root.defaultActionText !== "" || (root.actions && root.actions.length > 0) || root.showArchive)
+                        Layout.topMargin: Theme.scaleGeometry(2)
+                        visible: root.sanitizedBody.length > 0
+                        text: root.styledBody
+                        textFormat: Text.StyledText
+                        color: root.bodyColor
+                        font.family: "Liberation Sans"
+                        font.pixelSize: Theme.fontSizeSm
+                        font.weight: Theme.fontWeightNormal
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
+            // Keep the reference card compact. Only a notification with an
+            // explicit default action gets the small Open-style footer; the
+            // whole card remains the primary interaction surface.
+            Item {
+                id: actionContainer
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? actionToolbar.implicitHeight : 0
+                Layout.topMargin: Theme.scaleGeometry(2)
+                visible: root.showActions && (root.defaultActionText !== "" ||
+                    (root.actions && root.actions.length > 0) || root.showArchive)
+
+                ColumnLayout {
+                    id: actionToolbar
+                    width: parent.width
+                    spacing: 0
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: actionFlow.implicitHeight
 
                         Flow {
                             id: actionFlow
@@ -211,6 +251,11 @@ Item {
                                 enabled: root.defaultActionEnabled
                                 compact: true
                                 centerLabel: true
+                                primary: false
+                                border.width: 0
+                                border.color: "transparent"
+                                width: Theme.scaleGeometry(64)
+                                height: Theme.scaleGeometry(28)
                                 label: root.defaultActionText
                                 onTriggered: root.defaultActionInvoked()
                             }
@@ -222,6 +267,10 @@ Item {
                                     enabled: root.actionButtonsEnabled
                                     compact: true
                                     centerLabel: true
+                                    border.width: 0
+                                    border.color: "transparent"
+                                    width: Theme.scaleGeometry(64)
+                                    height: Theme.scaleGeometry(28)
                                     label: modelData.text || "Action"
                                     onTriggered: root.actionInvoked(String(modelData.identifier || ""))
                                 }
@@ -232,32 +281,42 @@ Item {
                                 enabled: root.actionButtonsEnabled
                                 compact: true
                                 centerLabel: true
+                                border.width: 0
+                                border.color: "transparent"
+                                width: Theme.scaleGeometry(64)
+                                height: Theme.scaleGeometry(28)
                                 label: "Archive"
                                 onTriggered: root.archiveRequested()
                             }
                         }
                     }
-
                 }
             }
         }
 
+        // Hover-revealed close, matching the reference card's quiet idle state.
         Item {
-            id: closeButton
             anchors.top: parent.top
             anchors.right: parent.right
-            anchors.topMargin: Theme.spacingXs
-            anchors.rightMargin: Theme.spacingXs
-            width: 18
-            height: 18
+            anchors.topMargin: Theme.borderWidthFocus + Theme.scaleGeometry(3)
+            anchors.rightMargin: Theme.borderWidthFocus + Theme.scaleGeometry(3)
+            width: Theme.scaleGeometry(18)
+            height: Theme.scaleGeometry(18)
             z: 2
-            visible: root.showDismiss && root.hovered
+            visible: opacity > 0
+            opacity: root.showDismiss && root.hovered ? 1 : 0
+
+            Behavior on opacity {
+                NumberAnimation { duration: Theme.effectiveDurationFast }
+            }
 
             Text {
                 anchors.centerIn: parent
-                text: "×"
-                color: closeMouse.containsMouse ? Theme.text : Theme.textSubtle
-                font.pixelSize: Theme.fontSizeLg
+                textFormat: Text.PlainText
+                text: "✕"
+                color: closeMouse.containsMouse ? Theme.notifications.text : root.dimColor
+                font.family: "Liberation Sans"
+                font.pixelSize: Theme.scaleGeometry(14)
             }
 
             MouseArea {
