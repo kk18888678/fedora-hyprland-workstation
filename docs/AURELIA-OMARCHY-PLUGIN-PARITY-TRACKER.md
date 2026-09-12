@@ -781,6 +781,25 @@ Dependencies: T02A, T03, T04, T05.
 
 ### T07. Implement exact `keepLoaded` and multi-kind lifecycle semantics
 
+Status: `[-]` in progress — resident and multi-kind lifecycle task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/PluginHost.qml`,
+  `BarWidgetRegistry.qml`, the Aurelia bar boundary files, and the
+  structured plugin lifecycle contract files needed for resident ownership.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  multi-kind, resident-reload, pending-open, and unload fixtures, and this
+  tracker.
+- Compatibility boundary: notification service ownership, bar-widget behavior,
+  current keepLoaded values, payload delivery, and plugin IPC identities must
+  remain unchanged for healthy plugins.
+- Runtime behavior impact: reload retention and lifecycle observability only;
+  no persisted-state schema or live-session mutation.
+- Persisted user state impact: none.
+- Rollback: revert only T07 lifecycle/test/tracker changes if a mandatory gate
+  fails; preserve completed T00–T06 history and user-owned changes.
+
 - [ ] Define one canonical primary service owner for a multi-kind plugin.
 - [ ] Load every declared functional kind through its own entry point when the
   kind requires an independent surface.
