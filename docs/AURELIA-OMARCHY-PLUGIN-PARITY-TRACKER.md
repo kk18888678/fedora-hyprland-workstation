@@ -574,7 +574,7 @@ Dependencies: T01, T02, T02A.
 
 ### T04. Match Omarchy's plugin tree discovery model
 
-Status: `[-]` in progress — plugin discovery parity task.
+Status: `[x]` complete — plugin discovery parity task.
 
 CP2 pre-change boundary:
 
@@ -594,20 +594,51 @@ CP2 pre-change boundary:
   mandatory gate fails; preserve completed T00–T03 history and user-owned
   changes.
 
-- [ ] Support grouped first-party plugin directories at the same structural
+CP3 post-change evidence:
+
+- Focused discovery gate: test_plugin_discovery.sh — 6 assertions passed, 0
+  failed.
+- Runtime coverage: the real registry discovered grouped first-party
+  directories, sibling *.manifest.json entries, top-level third-party
+  plugins, deterministic duplicate handling, first-party precedence over a
+  reserved-namespace shadow attempt, and rejected manifests.
+- Failure-state coverage: malformed scanner output, empty valid catalogs, and
+  timeout/unavailable state wiring are covered by the runtime fixture or
+  explicit state assertions; prior-catalog retention remains a future
+  integration extension.
+- Sibling/grouped authoring path: the canonical validator accepted a sibling
+  manifest and a grouped source directory whose basename differs from its ID.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 332 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 206 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Compatibility: current one-directory manifests remain unchanged and the
+  source-checkout/installed-path resolver remains intact.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  discovery roots/XDG directories were used. ./install.sh was not run; no
+  packages, repositories, systemd/greetd state, live user configuration, or
+  the VM were modified, and no reboot occurred.
+- Files changed for T04: PluginRegistry.qml, manifest.sh, main.sh,
+  aurelia-shell/tests/run.sh, test_plugin_discovery.sh, and the isolated
+  plugin-discovery fixture.
+
+- [x] Support grouped first-party plugin directories at the same structural
   depth as the reference.
-- [ ] Support sibling `*.manifest.json` entries where a single first-party
+- [x] Support sibling `*.manifest.json` entries where a single first-party
   source directory intentionally owns multiple simple bar widgets.
-- [ ] Keep third-party plugins as top-level user-owned plugin directories with
+- [x] Keep third-party plugins as top-level user-owned plugin directories with
   one canonical manifest per plugin.
-- [ ] Preserve Aurelia's safe path checks, no-symlink-tree policy, and reserved
+- [x] Preserve Aurelia's safe path checks, no-symlink-tree policy, and reserved
   namespace checks.
-- [ ] Define deterministic ordering and duplicate-ID resolution.
-- [ ] Ensure first-party entries cannot be shadowed by user entries.
-- [ ] Preserve the current source-checkout and installed-path resolution.
-- [ ] Add scan failure states that retain safe previous state or fail closed;
+- [x] Define deterministic ordering and duplicate-ID resolution.
+- [x] Ensure first-party entries cannot be shadowed by user entries.
+- [x] Preserve the current source-checkout and installed-path resolution.
+- [x] Add scan failure states that retain safe previous state or fail closed;
   never report a successful partial catalog without recording the failure.
-- [ ] Bound the scan process and distinguish timeout, unavailable tooling,
+- [x] Bound the scan process and distinguish timeout, unavailable tooling,
   malformed output, and an empty valid catalog.
 
 Exit gate: discovery structure and ordering match the reference for equivalent

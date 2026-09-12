@@ -19,6 +19,7 @@ QtObject {
         ? configuredShellRoot
         : pathFromUrl(Qt.resolvedUrl(".."))
     readonly property string manifestValidatorPath: packageRoot + "/bin/aurelia-plugin"
+    readonly property string scanTimeoutPath: "/usr/bin/timeout"
     property string firstPartyDir: configuredShellRoot !== ""
         ? configuredShellRoot + "/plugins"
         : pathFromUrl(Qt.resolvedUrl("../plugins"))
@@ -32,6 +33,8 @@ QtObject {
     property int registryRevision: 0
     property bool scanning: false
     property string lastError: ""
+    property string scanState: "idle"
+    property string scanFailureClass: ""
     property int rejectedCount: 0
     // Runtime failures are deliberately ephemeral. They keep a bad entry
     // point out of the current generation without changing shell.json,
@@ -507,6 +510,8 @@ QtObject {
         var lines = String(text || "").split("\n")
         var discovered = {}
         registry.rejectedCount = 0
+        var emptyMarker = false
+        var malformedOutput = false
         var currentSource = ""
         var currentFirstParty = false
         var currentJson = []
@@ -539,8 +544,21 @@ QtObject {
 
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i]
+            if (line === "===AURELIA_PLUGIN_EMPTY===") {
+                if (currentSource !== "") malformedOutput = true
+                emptyMarker = true
+                continue
+            }
+            var rejectedMarker = line.match(/^===AURELIA_PLUGIN_REJECTED::(.*)===$/)
+            if (rejectedMarker) {
+                if (currentSource !== "") malformedOutput = true
+                registry.rejectedCount++
+                registry.pluginRejected(rejectedMarker[1], "manifest rejected by canonical validator")
+                continue
+            }
             var start = line.match(/^===([a-z-]+)::(.+)===$/)
             if (start) {
+                if (currentSource !== "") malformedOutput = true
                 flush()
                 currentFirstParty = start[1] === "firstparty"
                 currentSource = start[2].replace(/\/$/, "")
@@ -548,15 +566,46 @@ QtObject {
                 continue
             }
             if (line === "===AURELIA_PLUGIN_END===") {
-                flush()
+                if (currentSource === "") malformedOutput = true
+                else flush()
                 continue
             }
             if (currentSource !== "") currentJson.push(line)
+            else if (line.trim() !== "") malformedOutput = true
         }
+        var incompleteRecord = currentSource !== ""
         flush()
+        if (incompleteRecord) malformedOutput = true
+
+        var discoveredCount = Object.keys(discovered).length
+        if (malformedOutput || (!emptyMarker && discoveredCount === 0) ||
+            (emptyMarker && discoveredCount > 0)) {
+            registry.scanning = false
+            registry.scanState = "malformed-output"
+            registry.scanFailureClass = "malformed-output"
+            registry.lastError = "Aurelia plugin scan output was malformed."
+            registry.scanFinished()
+            return
+        }
+
+        if (emptyMarker) {
+            registry.scanning = false
+            registry.scanState = "empty"
+            registry.scanFailureClass = registry.rejectedCount > 0
+                ? "no-valid-plugins" : "empty-valid-catalog"
+            registry.lastError = registry.rejectedCount > 0
+                ? "No valid Aurelia plugins were discovered."
+                : ""
+            registry.scanFinished()
+            return
+        }
 
         installedPlugins = discovered
-        lastError = ""
+        registry.scanState = registry.rejectedCount > 0 ? "partial" : "success"
+        registry.scanFailureClass = registry.rejectedCount > 0 ? "rejected-manifests" : ""
+        registry.lastError = registry.rejectedCount > 0
+            ? String(registry.rejectedCount) + " Aurelia plugin manifest(s) were rejected."
+            : ""
         registryRevision++
         scanning = false
         pluginsChanged()
@@ -565,11 +614,13 @@ QtObject {
 
     readonly property string scanScript: [
         "set -Eeuo pipefail",
-        "command -v jq >/dev/null 2>&1 || exit 1",
+        "command -v jq >/dev/null 2>&1 || exit 127",
         "validator=\"$3\"",
-        "[[ -x \"$validator\" ]] || exit 1",
+        "[[ -x \"$validator\" ]] || exit 127",
         "first_party_root=\"$(readlink -f -- \"$1\" 2>/dev/null || true)\"",
         "[[ -n \"$first_party_root\" ]] || exit 1",
+        "emitted=0",
+        "rejected=0",
         "scan_tree() {",
         "  local source_kind=\"$1\"",
         "  local root=\"$2\"",
@@ -582,35 +633,66 @@ QtObject {
         "      return 0",
         "    fi",
         "  fi",
-        "  while IFS= read -r manifest_path; do",
-        "    local plugin_dir=\"${manifest_path%/manifest.json}\"",
-        "    [[ -L \"$plugin_dir\" ]] && continue",
-        "    find -P \"$plugin_dir\" -type l -print -quit | grep -q . && continue",
-        "    jq -e '.schemaVersion == 1 and (.id | type == \"string\") and (.name | type == \"string\") and (.version | type == \"string\") and (.kinds | type == \"array\") and (.entryPoints | type == \"object\")' \"$manifest_path\" >/dev/null 2>&1 || continue",
+        "  scan_one() {",
+        "    local manifest_path=\"$1\"",
+        "    local manifest_name=\"${manifest_path##*/}\"",
+        "    local plugin_dir",
+        "    if [[ \"$manifest_name\" == \"manifest.json\" ]]; then plugin_dir=\"${manifest_path%/manifest.json}\"; else plugin_dir=\"${manifest_path%/*}\"; fi",
+        "    if [[ -L \"$plugin_dir\" ]]; then rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; fi",
+        "    if find -P \"$plugin_dir\" -type l -print -quit | grep -q .; then rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; fi",
+        "    if ! jq -e '.schemaVersion == 1 and (.id | type == \"string\") and (.name | type == \"string\") and (.version | type == \"string\") and (.kinds | type == \"array\") and (.entryPoints | type == \"object\")' \"$manifest_path\" >/dev/null 2>&1; then rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; fi",
         "    if [[ \"$source_kind\" == \"firstparty\" ]]; then",
-        "      \"$validator\" validate --first-party \"$plugin_dir\" >/dev/null 2>&1 || continue",
+        "      \"$validator\" validate --first-party --manifest-file \"$manifest_name\" \"$plugin_dir\" >/dev/null 2>&1 || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
         "    else",
-        "      \"$validator\" validate \"$plugin_dir\" >/dev/null 2>&1 || continue",
+        "      [[ \"$manifest_name\" == \"manifest.json\" ]] || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
+        "      \"$validator\" validate \"$plugin_dir\" >/dev/null 2>&1 || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
         "    fi",
+        "    emitted=$((emitted + 1))",
         "    printf '===%s::%s===\\n' \"$source_kind\" \"$plugin_dir\"",
         "    cat \"$manifest_path\"",
         "    printf '\\n===AURELIA_PLUGIN_END===\\n'",
-        "  done < <(find -P \"$root\" -mindepth 2 -maxdepth \"$max_depth\" -type f -name manifest.json -print | LC_ALL=C sort)",
+        "  }",
+        "  if [[ \"$source_kind\" == \"firstparty\" ]]; then",
+        "    while IFS= read -r manifest_path; do [[ -n \"$manifest_path\" ]] && scan_one \"$manifest_path\"; done < <(find -P \"$root\" -mindepth 2 -maxdepth \"$max_depth\" -type f \\( -name manifest.json -o -name '*.manifest.json' \\) -print | LC_ALL=C sort)",
+        "  else",
+        "    while IFS= read -r manifest_path; do [[ -n \"$manifest_path\" ]] && scan_one \"$manifest_path\"; done < <(find -P \"$root\" -mindepth 2 -maxdepth \"$max_depth\" -type f -name manifest.json -print | LC_ALL=C sort)",
+        "  fi",
         "}",
         "scan_tree firstparty \"$1\" 3",
-        "scan_tree thirdparty \"$2\" 2"
+        "scan_tree thirdparty \"$2\" 2",
+        "if [[ \"$emitted\" -eq 0 ]]; then printf '===AURELIA_PLUGIN_EMPTY===\\n'; fi"
     ].join("\n")
 
     property Process scanProcess: Process {
         id: scanProcess
-        command: ["bash", "-c", registry.scanScript, "aurelia-plugin-scan", registry.firstPartyDir, registry.userPluginsDir, registry.manifestValidatorPath]
+        command: [registry.scanTimeoutPath, "--kill-after=1s", "15s", "bash", "-c",
+            registry.scanScript, "aurelia-plugin-scan", registry.firstPartyDir,
+            registry.userPluginsDir, registry.manifestValidatorPath]
 
         stdout: StdioCollector { id: scanOutput }
         stderr: StdioCollector { id: scanError }
 
         onExited: function(code) {
+            if (code === 124 || code === 137) {
+                registry.scanning = false
+                registry.scanState = "timeout"
+                registry.scanFailureClass = "timeout"
+                registry.lastError = "Aurelia plugin scan timed out."
+                registry.scanFinished()
+                return
+            }
+            if (code === 127) {
+                registry.scanning = false
+                registry.scanState = "unavailable"
+                registry.scanFailureClass = "tooling-unavailable"
+                registry.lastError = scanError.text || "Aurelia plugin scan tooling is unavailable."
+                registry.scanFinished()
+                return
+            }
             if (code !== 0) {
                 registry.scanning = false
+                registry.scanState = "failed"
+                registry.scanFailureClass = "scan-command-failed"
                 registry.lastError = scanError.text || "Aurelia plugin scan failed."
                 registry.scanFinished()
                 return
@@ -678,8 +760,11 @@ QtObject {
     function scan() {
         if (scanning || scanProcess.running) return false
         scanning = true
+        scanState = "running"
+        scanFailureClass = ""
         lastError = ""
-        scanProcess.command = ["bash", "-c", scanScript, "aurelia-plugin-scan", firstPartyDir, userPluginsDir, manifestValidatorPath]
+        scanProcess.command = [scanTimeoutPath, "--kill-after=1s", "15s", "bash", "-c",
+            scanScript, "aurelia-plugin-scan", firstPartyDir, userPluginsDir, manifestValidatorPath]
         scanProcess.running = true
         return true
     }

@@ -4,12 +4,17 @@
 
 aurelia_plugin_validate_manifest() {
     local plugin_path="$1"
-    local allow_first_party="${2:-0}"
-    local require_directory_name="${3:-1}"
-    if [[ "$plugin_path" != /* ]]; then
-        plugin_path="$PWD/$plugin_path"
+   local allow_first_party="${2:-0}"
+   local require_directory_name="${3:-1}"
+    local manifest_name="${4:-manifest.json}"
+   if [[ "$plugin_path" != /* ]]; then
+       plugin_path="$PWD/$plugin_path"
+   fi
+    if [[ "$manifest_name" != "manifest.json" && ( "$manifest_name" != *.manifest.json || "$manifest_name" == */* || "$manifest_name" == *..* || "$manifest_name" == *\\* ) ]]; then
+        aurelia_plugin_fail "Manifest filename must be manifest.json or a sibling *.manifest.json: $manifest_name"
+        return 1
     fi
-    local manifest_path="$plugin_path/manifest.json"
+    local manifest_path="$plugin_path/$manifest_name"
 
     if ! [[ "$plugin_path" == /* && "$plugin_path" != "/" && -d "$plugin_path" && ! -L "$plugin_path" ]]; then
         aurelia_plugin_fail "Plugin path must be an absolute real directory: $plugin_path"

@@ -6,7 +6,7 @@ print_aurelia_plugin_help() {
 Usage: aurelia-plugin <command> [arguments]
 
 Commands:
-  validate [--first-party] <directory>
+  validate [--first-party] [--manifest-file <name>] <directory>
   list
   rescan
   enable <plugin-id>
@@ -195,10 +195,46 @@ aurelia_plugin_main() {
             ;;
         validate)
             local allow_first_party=0
-            if [[ "${1:-}" == "--first-party" ]]; then allow_first_party=1; shift; fi
-            [[ $# -eq 1 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin validate [--first-party] <directory>"; return 1; }
-            aurelia_plugin_validate_manifest "$1" "$allow_first_party" || return 1
-            printf 'Valid Aurelia plugin: %s\n' "$(aurelia_plugin_manifest_id "$1")"
+           local manifest_name="manifest.json"
+           local validate_path=""
+            local manifest_file_explicit=0
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --first-party)
+                        allow_first_party=1
+                        shift
+                        ;;
+                    --manifest-file)
+                        [[ $# -ge 2 ]] || {
+                            aurelia_plugin_fail "Usage: aurelia-plugin validate [--first-party] [--manifest-file <name>] <directory>"
+                            return 1
+                       }
+                       manifest_name="$2"
+                        manifest_file_explicit=1
+                       shift 2
+                        ;;
+                    --*)
+                        aurelia_plugin_fail "Unknown validate option: $1"
+                        return 1
+                        ;;
+                    *)
+                        [[ -z "$validate_path" ]] || {
+                            aurelia_plugin_fail "Usage: aurelia-plugin validate [--first-party] [--manifest-file <name>] <directory>"
+                            return 1
+                        }
+                        validate_path="$1"
+                        shift
+                        ;;
+                esac
+            done
+            [[ -n "$validate_path" ]] || {
+                aurelia_plugin_fail "Usage: aurelia-plugin validate [--first-party] [--manifest-file <name>] <directory>"
+                return 1
+           }
+           local require_directory_name=1
+            [[ "$manifest_file_explicit" -eq 1 ]] && require_directory_name=0
+           aurelia_plugin_validate_manifest "$validate_path" "$allow_first_party" "$require_directory_name" "$manifest_name" || return 1
+            printf 'Valid Aurelia plugin: %s\n' "$(jq -r '.id' "$validate_path/$manifest_name")"
             ;;
         list)
             [[ $# -eq 0 ]] || { aurelia_plugin_fail "Usage: aurelia-plugin list"; return 1; }
