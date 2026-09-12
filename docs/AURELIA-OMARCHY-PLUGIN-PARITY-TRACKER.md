@@ -843,7 +843,7 @@ Dependencies: T06.
 
 ### T08. Implement active replacement-bar parity
 
-Status: `[-]` in progress — active replacement-bar task.
+Status: `[x]` complete — active replacement-bar task.
 
 CP2 pre-change boundary:
 
@@ -861,18 +861,40 @@ CP2 pre-change boundary:
 - Rollback: revert only T08 active-bar/test/tracker changes if a mandatory
   gate fails; preserve completed T00–T07 history and user-owned changes.
 
-- [ ] Add a canonical active bar selector equivalent to Omarchy's `bar.id`.
-- [ ] Keep exactly one full bar active at a time.
-- [ ] Preserve the built-in Aurelia bar as the safe fallback.
-- [ ] Load replacement bars asynchronously and fall back when unavailable or
+CP3 post-change evidence:
+
+- Focused active-bar gate: test_active_bar.sh — 3 assertions passed, 0 failed.
+- Runtime coverage: built-in selection, healthy replacement activation,
+  broken replacement failure fallback, disabled replacement fallback,
+  successful rescan, host ping continuity, and exactly one active full-bar
+  instance all passed in a disposable offscreen QuickShell process.
+- Ownership coverage: full-bar selection remains separate from the dedicated
+  bar-widget registry and current Aurelia bar layout/design boundaries.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 346 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 210 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Compatibility: the built-in Aurelia bar remains the fallback and no default
+  layout, theme, popup, widget, or IPC identity was changed.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+- [x] Add a canonical active bar selector equivalent to Omarchy's `bar.id`.
+- [x] Keep exactly one full bar active at a time.
+- [x] Preserve the built-in Aurelia bar as the safe fallback.
+- [x] Load replacement bars asynchronously and fall back when unavailable or
   when loading fails.
-- [ ] Keep bar-widget registration and lifecycle independent from the active
+- [x] Keep bar-widget registration and lifecycle independent from the active
   full-bar implementation.
-- [ ] Preserve current Aurelia bar layout, logo, widgets, popup ownership, and
+- [x] Preserve current Aurelia bar layout, logo, widgets, popup ownership, and
   theme behavior when the built-in bar remains selected.
-- [ ] Add replacement-bar fixtures for success, failure, disable, rescan, and
+- [x] Add replacement-bar fixtures for success, failure, disable, rescan, and
   fallback paths.
-- [ ] Do not leave the public `bar` kind half-implemented.
+- [x] Do not leave the public `bar` kind half-implemented.
 
 Exit gate: the active bar path matches Omarchy structurally and the default
 Aurelia bar is byte/behavior compatible with its preservation fixture.
