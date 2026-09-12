@@ -11,6 +11,7 @@ Item {
     property var bar: null
     property var shell: null
     property var pluginRegistry: null
+    property var barWidgetRegistry: null
     property string aureliaPath: ""
 
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
@@ -57,6 +58,7 @@ Item {
                 bar: root.bar
                 shell: root.shell
                 pluginRegistry: root.pluginRegistry
+                barWidgetRegistry: root.barWidgetRegistry
                 aureliaPath: root.aureliaPath
                 Layout.preferredWidth: root.vertical ? root.barSize : implicitWidth
                 Layout.preferredHeight: root.vertical ? implicitHeight : root.barSize

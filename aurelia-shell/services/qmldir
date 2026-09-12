@@ -1,4 +1,5 @@
 PluginRegistry 1.0 PluginRegistry.qml
+BarWidgetRegistry 1.0 BarWidgetRegistry.qml
 PluginHost 1.0 PluginHost.qml
 ShellConfig 1.0 ShellConfig.qml
 AureliaAppLibrary 1.0 AureliaAppLibrary.qml

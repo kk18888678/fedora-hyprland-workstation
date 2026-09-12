@@ -9,6 +9,7 @@ Item {
     property var registry: null
     property var shellApi: null
     property var appLibrary: null
+    property var barWidgetRegistry: null
     property var loaders: ({})
     property var instances: ({})
     property var requested: ({})
@@ -18,6 +19,11 @@ Item {
     // null means a full plugin reload. A map means only the listed plugin
     // ids are being recreated; unrelated resident surfaces stay mounted.
     property var reloadingPluginIds: null
+
+    signal pluginLoaded(string pluginId, string kind)
+    signal pluginLoadFailed(string pluginId, string kind, string phase, string detail)
+    signal pluginUnloaded(string pluginId, string kind, string reason)
+    signal pluginReloaded(string pluginId)
     readonly property string selectedBarId: {
         var config = registry && registry.shellConfig ? registry.shellConfig.config : null
         var bar = config && config.bar ? config.bar : null
@@ -88,6 +94,7 @@ Item {
             console.warn("[PLUGIN] aurelia.plugin.failure_recording_failed id=" + pluginId)
         }
 
+        var hadInstance = !!host.instances[pluginId]
         if (pluginId === host.activeBarId && pluginId !== "aurelia.bar") host.failedBarId = pluginId
 
         var nextInstances = host.copyMap(host.instances)
@@ -99,6 +106,8 @@ Item {
         var nextPending = host.copyMap(host.pendingOpens)
         delete nextPending[pluginId]
         host.pendingOpens = nextPending
+        if (hadInstance) host.pluginUnloaded(pluginId, pluginKind, "failure")
+        host.pluginLoadFailed(pluginId, pluginKind, phase || "runtime", detail)
         return false
     }
 
@@ -199,9 +208,15 @@ Item {
     }
 
     function finishReload() {
+        var reloadedIds = []
+        if (registry) {
+            if (reloadingPluginIds === null) reloadedIds = registry.pluginIds || []
+            else reloadedIds = Object.keys(reloadingPluginIds || {})
+        }
         reloading = false
         reloadingPluginIds = null
         loadRevision++
+        for (var i = 0; i < reloadedIds.length; i++) host.pluginReloaded(reloadedIds[i])
     }
 
     function loaderFor(id) {
@@ -226,6 +241,7 @@ Item {
         if ("shellConfig" in target) target.shellConfig = registry.shellConfig
         if ("manifest" in target) target.manifest = manifest
         if ("pluginRegistry" in target) target.pluginRegistry = registry
+        if ("barWidgetRegistry" in target) target.barWidgetRegistry = barWidgetRegistry
     }
 
     function completePendingOpen(id, target) {
@@ -391,6 +407,7 @@ Item {
                     host.instances = next
                     if (!host.completePendingOpen(pluginId, item)) return
                     host.clearFailure(pluginId, pluginKind)
+                    host.pluginLoaded(pluginId, pluginKind)
                     console.info("[PLUGIN] aurelia.plugin.loaded id=" + pluginId)
                 } catch (error) {
                     host.scheduleFailure(pluginId, pluginKind, "initialization", error, source, pluginKind)

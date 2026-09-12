@@ -11,6 +11,7 @@ Item {
     property var bar: null
     property var shell: null
     property var pluginRegistry: null
+    property var barWidgetRegistry: null
     property string aureliaPath: ""
     property string pluginId: ""
     property var settings: ({})
@@ -27,11 +28,14 @@ Item {
     readonly property bool customQml: root.customType === "qml"
     readonly property bool customCommand: root.customType === "command"
 
-    readonly property var pluginManifest: pluginRegistry && pluginRegistry.isKnown(pluginId)
-        ? pluginRegistry.installedPlugins[pluginId]
-        : null
+    readonly property var pluginManifest: barWidgetRegistry && typeof barWidgetRegistry.manifestFor === "function"
+        ? barWidgetRegistry.manifestFor(pluginId)
+        : (pluginRegistry && pluginRegistry.isKnown(pluginId) ? pluginRegistry.installedPlugins[pluginId] : null)
     readonly property bool available: {
         var failureRevision = pluginRegistry ? pluginRegistry.runtimeFailureRevision : 0
+        var widgetRevision = barWidgetRegistry ? barWidgetRegistry.revision : 0
+        if (barWidgetRegistry && typeof barWidgetRegistry.hasWidget === "function" &&
+            !barWidgetRegistry.hasWidget(pluginId)) return false
         if (pluginRegistry && typeof pluginRegistry.hasActiveRuntimeFailure === "function" &&
             pluginRegistry.hasActiveRuntimeFailure(pluginId, "bar-widget")) return false
         if (root.customType !== "") return true
@@ -70,12 +74,15 @@ Item {
         if ("settings" in target) target.settings = root.settings || ({})
         if ("manifest" in target) target.manifest = root.pluginManifest || ({})
         if ("pluginRegistry" in target) target.pluginRegistry = root.pluginRegistry
+        if ("barWidgetRegistry" in target) target.barWidgetRegistry = root.barWidgetRegistry
     }
 
     function failureSource() {
         try {
             if (root.customQml) return root.fileUrl(root.safeCustomSource())
             if (root.customCommand) return Qt.resolvedUrl("CustomCommandBarWidget.qml")
+            if (root.barWidgetRegistry && typeof root.barWidgetRegistry.entryPointUrl === "function")
+                return String(root.barWidgetRegistry.entryPointUrl(root.pluginId) || "")
             if (root.pluginRegistry && typeof root.pluginRegistry.entryPointUrl === "function")
                 return String(root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget") || "")
         } catch (e) {
@@ -215,7 +222,11 @@ Item {
         id: widgetLoader
         anchors.fill: parent
         active: root.active && root.available && !root.reloading
-        source: active ? root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget") : ""
+        source: active
+            ? (root.barWidgetRegistry && typeof root.barWidgetRegistry.entryPointUrl === "function"
+                ? root.barWidgetRegistry.entryPointUrl(root.pluginId)
+                : root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget"))
+            : ""
 
         onLoaded: root.handleLoaded(item)
         onStatusChanged: {

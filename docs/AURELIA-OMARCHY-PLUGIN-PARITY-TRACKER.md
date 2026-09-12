@@ -714,7 +714,7 @@ Dependencies: T04.
 
 ### T06. Separate registry, component catalog, services, and UI loaders
 
-Status: `[-]` in progress — runtime composition-boundary task.
+Status: `[x]` complete — runtime composition-boundary task.
 
 CP2 pre-change boundary:
 
@@ -732,19 +732,46 @@ CP2 pre-change boundary:
 - Rollback: revert only T06 composition/test/tracker changes if a mandatory
   gate fails; preserve completed T00–T05 history and user-owned changes.
 
-- [ ] Add the Aurelia equivalent of `BarWidgetRegistry` for component and
+CP3 post-change evidence:
+
+- Focused composition gate: test_bar_widget_registry.sh — 4 assertions passed,
+  0 failed.
+- Runtime coverage: the real registry scan populated a dedicated
+  BarWidgetRegistry with the current bar-widget set, canonical entry-point
+  projection, Bluetooth metadata, and the multi-kind notification widget.
+- Ownership coverage: Bar, BarCenter, BarWidgetRow, and BarWidgetSlot receive
+  the dedicated registry; the host injects it without changing existing
+  widget IDs or layout data.
+- Lifecycle coverage: PluginHost now emits structured loaded, load-failed,
+  unloaded, and reloaded events; existing T02A survivability fixtures remain
+  green.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 340 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 208 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Compatibility: current bar layout, service ownership, popup behavior, and
+  plugin IPC identities were preserved; no plugin manifests or persisted state
+  were changed.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+- [x] Add the Aurelia equivalent of `BarWidgetRegistry` for component and
   metadata registration.
-- [ ] Keep the plugin registry responsible for discovery and identity only.
-- [ ] Keep the host responsible for lifecycle and loading only.
-- [ ] Keep services resident according to manifest semantics and ensure one
+- [x] Keep the plugin registry responsible for discovery and identity only.
+- [x] Keep the host responsible for lifecycle and loading only.
+- [x] Keep services resident according to manifest semantics and ensure one
   service instance per enabled plugin ID.
-- [ ] Load panel, overlay, and menu entry points on demand.
-- [ ] Load bar-widget entry points through the bar registry and configured
+- [x] Load panel, overlay, and menu entry points on demand.
+- [x] Load bar-widget entry points through the bar registry and configured
   layout slots.
-- [ ] Preserve payload queues and deterministic delivery for summons that occur
+- [x] Preserve payload queues and deterministic delivery for summons that occur
   before asynchronous loading completes.
-- [ ] Emit structured load success, load failure, unload, and reload events.
-- [ ] Ensure a failing optional plugin cannot break the Aurelia host or login
+- [x] Emit structured load success, load failure, unload, and reload events.
+- [x] Ensure a failing optional plugin cannot break the Aurelia host or login
   activation.
 
 Exit gate: a fixture can exercise each supported kind through its intended

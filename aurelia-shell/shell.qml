@@ -22,6 +22,11 @@ ShellRoot {
         shellConfig: shellConfig
     }
 
+    BarWidgetRegistry {
+        id: barWidgetRegistry
+        pluginRegistry: pluginRegistry
+    }
+
     AureliaAppLibrary {
         id: aureliaAppLibrary
     }
@@ -31,6 +36,7 @@ ShellRoot {
         registry: pluginRegistry
         shellApi: shellIpc
         appLibrary: aureliaAppLibrary
+        barWidgetRegistry: barWidgetRegistry
     }
 
     // Omarchy-style plugin hot reload. Only plugin-owned entry points are

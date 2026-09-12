@@ -17,6 +17,7 @@ PanelWindow {
     property var shellConfig: null
     property var manifest: ({})
     property var pluginRegistry: null
+    property var barWidgetRegistry: null
     property var widgetSlots: []
     property int widgetRevision: 0
 
@@ -267,6 +268,7 @@ PanelWindow {
                     bar: barRoot
                     shell: barRoot.shell
                     pluginRegistry: barRoot.pluginRegistry
+                    barWidgetRegistry: barRoot.barWidgetRegistry
                     aureliaPath: barRoot.aureliaPath
                     Layout.preferredWidth: barRoot.vertical ? barRoot.barSize : implicitWidth
                     Layout.preferredHeight: barRoot.vertical ? implicitHeight : barRoot.barSize
@@ -280,6 +282,7 @@ PanelWindow {
                 bar: barRoot
                 shell: barRoot.shell
                 pluginRegistry: barRoot.pluginRegistry
+                barWidgetRegistry: barRoot.barWidgetRegistry
                 aureliaPath: barRoot.aureliaPath
             }
 
@@ -293,6 +296,7 @@ PanelWindow {
                 bar: barRoot
                 shell: barRoot.shell
                 pluginRegistry: barRoot.pluginRegistry
+                barWidgetRegistry: barRoot.barWidgetRegistry
                 aureliaPath: barRoot.aureliaPath
             }
         }
