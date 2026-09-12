@@ -1682,6 +1682,36 @@ Dependencies: T05, T10, T17.
 
 ### T19. Add plugin management and discoverability parity
 
+Status: `[-]` in progress — plugin discoverability and management-surface task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: the canonical plugin catalog/host projection,
+  existing shell catalog IPC, and Aurelia Command Center plugin/model/module
+  files plus inert metadata needed to expose a `Plugins` module. The existing
+  Command Center layout, theme tokens, keyboard behavior, and provider actions
+  remain unchanged.
+- Allowed test files: `aurelia-shell/tests/`, including isolated catalog and
+  Command Center fixtures with fake CLI/shell processes. No live plugin action,
+  installer, package, systemd, greetd, or user configuration mutation is
+  allowed.
+- Compatibility boundary: current catalog fields, `listPlugins`/`catalogPlugins`
+  IPC, existing Command Center modules and shortcuts, plugin CLI ownership,
+  scoped facades, and all first-party feature behavior remain compatible.
+- Runtime behavior impact: additive read-only catalog fields and an explicit
+  management UI action path. UI handlers may launch only the existing
+  structured plugin CLI; they do not mutate shell state directly.
+- Persisted user state impact: none for catalog reads or management actions;
+  any mutation remains owned by the T18 CLI lifecycle and its existing state/
+  backup boundaries.
+- Security boundary: management UI receives detached catalog rows and invokes
+  user-level CLI argv only. It must not receive raw registry/config objects,
+  run shell strings, bypass `--yes` lifecycle boundaries, or make third-party
+  code loadable.
+- Rollback: remove only the additive catalog fields, module rows, management
+  model, and isolated fixtures if a gate fails; preserve all prior Command
+  Center and plugin behavior.
+
 - [ ] Add a human-readable and JSON plugin list with source, kind, enabled,
   active, loaded, visible, in-bar, can-disable, clone origin, and error state.
 - [ ] Add plugin enable/disable/clone/remove/update actions to an Aurelia-owned
