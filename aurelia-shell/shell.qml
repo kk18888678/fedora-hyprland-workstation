@@ -171,6 +171,10 @@ ShellRoot {
             return "ok"
         }
 
+        function migrateConfig(): string {
+            return shellConfig.migrate()
+        }
+
         function reloadTheme(): string {
             Theme.reloadTheme()
             return "ok"

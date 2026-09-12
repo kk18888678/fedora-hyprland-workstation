@@ -964,7 +964,7 @@ Dependencies: T06, T07, T08.
 
 ### T10. Introduce canonical unified shell state with migration
 
-Status: `[-]` in progress — unified shell-state migration task.
+Status: `[x]` complete — unified shell-state migration task.
 
 CP2 pre-change boundary:
 
@@ -983,21 +983,45 @@ CP2 pre-change boundary:
 - Rollback: revert only T10 state/test/tracker changes if a mandatory gate
   fails; preserve completed T00–T09 history and user-owned changes.
 
-- [ ] Define the canonical Aurelia state shape equivalent to Omarchy's unified
+CP3 post-change evidence:
+
+- Focused state gate: test_shell_state_migration.sh — 4 assertions passed, 0
+  failed.
+- State coverage: version-1 legacy plugin strings and nested settings normalize
+  to inline objects; idle, active bar/layout, disabled deviations, unknown
+  fields, and explicit null values are preserved.
+- Migration coverage: explicit migration creates one adjacent recoverable
+  pre-migration backup, writes mode-600 canonical state atomically, and leaves
+  a second run byte-stable without backup pollution.
+- Failure coverage: malformed source state falls back to safe in-memory
+  defaults without rewriting or deleting the source file.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 353 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 212 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+
+- [x] Define the canonical Aurelia state shape equivalent to Omarchy's unified
   `shell.json`: version, idle/runtime state where applicable, active bar, bar
   layout, plugin instances, and disabled-plugin deviations.
-- [ ] Represent plugin instances as objects when settings or multiple instances
+- [x] Represent plugin instances as objects when settings or multiple instances
   are required; retain read support for current string IDs.
-- [ ] Preserve unknown user-owned state unless the contract explicitly owns it.
-- [ ] Normalize malformed state into safe defaults without deleting the source
+- [x] Preserve unknown user-owned state unless the contract explicitly owns it.
+- [x] Normalize malformed state into safe defaults without deleting the source
   file.
-- [ ] Write state atomically with secure permissions and safe interruption.
-- [ ] Make repeated normalization byte-stable where possible.
-- [ ] Provide an explicit, idempotent migration from current Aurelia
+- [x] Write state atomically with secure permissions and safe interruption.
+- [x] Make repeated normalization byte-stable where possible.
+- [x] Provide an explicit, idempotent migration from current Aurelia
   `plugins[]`, `disabledPlugins[]`, and bar entries.
-- [ ] Create a recoverable backup before the first migration write, without
+- [x] Create a recoverable backup before the first migration write, without
   creating repeated backup pollution on future runs.
-- [ ] Keep theme, notification, keybinding, and other feature-owned state in
+- [x] Keep theme, notification, keybinding, and other feature-owned state in
   their existing ownership domains unless the reference contract explicitly
   requires migration.
 
