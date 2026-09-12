@@ -964,6 +964,25 @@ Dependencies: T06, T07, T08.
 
 ### T10. Introduce canonical unified shell state with migration
 
+Status: `[-]` in progress — unified shell-state migration task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/ShellConfig.qml`,
+  the shell state IPC seam, and narrowly scoped state-migration helpers.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  temporary-home/state fixtures, and this tracker.
+- Compatibility boundary: current version-1 Aurelia `plugins[]`,
+  `disabledPlugins[]`, string bar entries, nested settings, default layout,
+  notification/theme/keybinding state ownership, and atomic writes must remain
+  readable and behavior-compatible.
+- Runtime behavior impact: normalize/migrate only in test-owned state paths;
+  no live user-state write or installer execution.
+- Persisted user state impact: isolated fixtures only; migration writes must
+  be explicit, recoverable, idempotent, and preserve unknown fields.
+- Rollback: revert only T10 state/test/tracker changes if a mandatory gate
+  fails; preserve completed T00–T09 history and user-owned changes.
+
 - [ ] Define the canonical Aurelia state shape equivalent to Omarchy's unified
   `shell.json`: version, idle/runtime state where applicable, active bar, bar
   layout, plugin instances, and disabled-plugin deviations.
