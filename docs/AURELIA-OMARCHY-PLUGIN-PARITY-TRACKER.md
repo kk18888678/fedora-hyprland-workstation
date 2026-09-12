@@ -2033,6 +2033,21 @@ Dependencies: T06 through T21 as applicable to each plugin.
 
 ### T23. Eliminate duplicated defaults and feature-specific host registration
 
+Execution status: IN PROGRESS
+
+Checkpoint 2 — canonical bar-default boundary:
+
+- Allowed production scope: the repository-owned bar-default data document, its
+  read-only loader/service registration, and the narrow host/bar bindings needed
+  to consume that document.
+- Compatibility boundary: preserve the existing default bar identity, widget
+  order, widget settings, anchor, and fallback behavior; do not change plugin
+  feature behavior or live workstation state.
+- Verification boundary: static preservation checks and an isolated loader
+  fixture must pass before this task is committed.
+- Rollback: revert the task commit; the prior embedded default remains the
+  recovery source.
+
 - [ ] Move the default bar layout to one canonical repository-owned data file.
 - [ ] Keep an embedded fallback only for safe startup recovery.
 - [ ] Remove duplicate default layout definitions from host and bar code.
