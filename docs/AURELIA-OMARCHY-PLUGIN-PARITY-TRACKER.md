@@ -1759,6 +1759,32 @@ Dependencies: T05, T12, T17, T18.
 
 ### T20. Match development reload behavior safely
 
+Status: `[-]` in progress — bounded plugin watcher and targeted reload task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `PluginRegistry.qml`, `shell.qml`, a narrow
+  watcher/path-policy helper, and existing reload timer wiring. No production
+  plugin source, live configuration, installer, package, systemd, greetd, or
+  reboot changes are in scope.
+- Allowed test files: `aurelia-shell/tests/`, including isolated watcher-policy
+  fixtures and fake event/process inputs. Tests must not start a live watcher
+  against user trees or mutate the active shell.
+- Compatibility boundary: current targeted reload behavior, resident bar and
+  sensitive-service retention, scoped-facade revocation, plugin IPC, and the
+  restart boundary for shell core/theme/Hyprland files remain unchanged.
+- Runtime behavior impact: development mode only. Known plugin paths continue
+  through debounced targeted reload; grouped/sibling/new/ambiguous plugin-tree
+  changes use a bounded full rescan. Watcher failure becomes an explicit
+  unavailable state with no uncontrolled retry loop.
+- Persisted user state impact: none. Watcher events never write shell config or
+  plugin-owned state.
+- Security boundary: only the first-party and user plugin roots are watched;
+  no broad Quickshell/core tree watch or plugin code execution is introduced.
+- Rollback: revert only the watcher-policy helper, registry/shell event wiring,
+  tests, and tracker if a gate fails; preserve all prior lifecycle and host
+  commits.
+
 - [ ] Define the production/development watcher policy explicitly against the
   Omarchy reference.
 - [ ] Watch only first-party and user plugin trees; never enable broad
