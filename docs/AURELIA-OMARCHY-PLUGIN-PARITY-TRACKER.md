@@ -377,6 +377,22 @@ Dependencies: T00, T01.
 
 ### T02A. Establish the non-negotiable Aurelia host-survivability contract
 
+Status: `[-]` in progress — CP2 recorded; host failure-containment task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/PluginRegistry.qml`,
+  `aurelia-shell/services/PluginHost.qml`, and the Aurelia bar widget boundary
+  files required to report widget failures.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  `plugin-survivability` fixtures and this tracker.
+- Runtime behavior impact: intentionally additive failure containment only;
+  healthy-plugin behavior and the built-in default path must remain unchanged.
+- Persisted user state impact: none; failure/quarantine state is in-memory and
+  must not disable or remove plugins from user configuration.
+- Rollback: revert only T02A-owned production/test/tracker changes if any
+  checkpoint fails; preserve the T00/T01/T02 commits and user-owned history.
+
 This is the first runtime-safety gate. The required behavior is:
 
 ```text
