@@ -574,6 +574,26 @@ Dependencies: T01, T02, T02A.
 
 ### T04. Match Omarchy's plugin tree discovery model
 
+Status: `[-]` in progress — plugin discovery parity task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/PluginRegistry.qml`,
+  `aurelia-shell/bin/lib/aurelia-plugin/manifest.sh`, and the
+  `aurelia-shell/bin/lib/aurelia-plugin/main.sh` validation wiring needed for
+  sibling manifests.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  discovery fixtures, and this tracker.
+- Compatibility boundary: current one-directory Aurelia manifests and source
+  checkout/installed-path resolution must continue to load unchanged; grouped
+  first-party and sibling manifest support is additive.
+- Runtime behavior impact: discovery/catalogue state only; no plugin source
+  execution, UI activation, persisted-state write, or live-session change.
+- Persisted user state impact: none.
+- Rollback: revert only T04 discovery/validator/test/tracker changes if a
+  mandatory gate fails; preserve completed T00–T03 history and user-owned
+  changes.
+
 - [ ] Support grouped first-party plugin directories at the same structural
   depth as the reference.
 - [ ] Support sibling `*.manifest.json` entries where a single first-party
