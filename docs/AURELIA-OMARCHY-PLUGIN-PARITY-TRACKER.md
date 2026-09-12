@@ -2216,6 +2216,21 @@ Dependencies: T22, T24.
 
 ### T26. Publish plugin authoring and maintenance documentation
 
+Execution status: IN PROGRESS
+
+Checkpoint 2 — authoring-documentation boundary:
+
+- Allowed scope: plugin authoring/maintenance documentation, a minimal
+  disposable example plugin fixture, documentation links, documentation
+  synchronization tests, and the tracker.
+- Compatibility boundary: documentation and fixtures must describe existing
+  behavior; they must not add a second manifest schema, production runtime
+  path, installer mutation, or live configuration.
+- Safety boundary: examples must validate without executing install hooks,
+  requiring privileges, or touching the live plugin directory.
+- Rollback: revert the documentation/example commit; no production runtime or
+  live state is changed by this task.
+
 - [ ] Document the canonical manifest schema and kind-to-entry-point mapping.
 - [ ] Document the directory layout and source roots.
 - [ ] Document lifecycle, `keepLoaded`, multi-kind, bar, settings, and reload
