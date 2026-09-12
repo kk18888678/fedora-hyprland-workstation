@@ -1428,7 +1428,7 @@ Dependencies: T14, T02.
 
 ### T16. Preserve Aurelia's command and privilege boundaries
 
-Status: `[-]` in progress — command and privilege boundary task.
+Status: `[x]` complete — command and privilege boundary task.
 
 CP2 pre-change boundary:
 
@@ -1454,14 +1454,45 @@ CP2 pre-change boundary:
   mandatory gate fails; preserve completed T00–T15 history and user-owned
   changes.
 
-- [ ] Keep system actions in approved Aurelia backends and structured argv.
-- [ ] Ensure plugin facades cannot bypass existing authorization or privilege
+CP3 post-change evidence:
+
+- Focused command/privilege gate: test_command_privilege_boundary.sh — 3
+  assertions passed, 0 failed.
+- Installation coverage: a fake bounded Git clone creates a plugin containing
+  an executable-looking install hook; add, manifest validation, rescan, and
+  enable complete without running that hook or invoking sudo. The resident
+  shell is contacted only through the expected structured IPC operations.
+- Facade coverage: scoped facade files contain no sudo, pkexec, or systemd
+  execution path. Existing authorization remains owned by the approved DNS,
+  Bluetooth, network, screenshot, display, package, notification, and
+  keybinding backends.
+- Execution coverage: plugin custom argv remains validated and bounded;
+  network/credential paths retain explicit timeouts and stdin-only secret
+  delivery where required. Existing package ownership and privilege tests
+  remain green.
+- No production implementation change was necessary for T16; the audit
+  confirmed T14's facade and T00–T15 command boundaries already satisfy the
+  required ownership model.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 377 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 220 shell scripts passed.
+- Diff validation: git diff --check passed for the reviewed change.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Runtime scope: only disposable CLI mocks and temporary plugin trees were
+  used. ./install.sh was not run; no packages, repositories, systemd/greetd
+  state, live user configuration, or the VM were modified, and no reboot
+  occurred.
+
+- [x] Keep system actions in approved Aurelia backends and structured argv.
+- [x] Ensure plugin facades cannot bypass existing authorization or privilege
   boundaries.
-- [ ] Keep plugin installation user-level and hook-free.
-- [ ] Keep network operations bounded.
-- [ ] Add tests proving plugin discovery, validation, and enablement do not run
+- [x] Keep plugin installation user-level and hook-free.
+- [x] Keep network operations bounded.
+- [x] Add tests proving plugin discovery, validation, and enablement do not run
   plugin install code or sudo.
-- [ ] Preserve current notification, DNS, Bluetooth, screenshot, display,
+- [x] Preserve current notification, DNS, Bluetooth, screenshot, display,
   package, and keybinding privilege ownership.
 
 Exit gate: parity work introduces no new privileged plugin execution path.

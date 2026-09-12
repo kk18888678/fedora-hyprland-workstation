@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+[[ "${1:-}" == "shell" ]] || exit 1
+method="${2:-}"
+shift 2
+case "$method" in
+    rescanPlugins)
+        printf '%s\n' 'rescanPlugins' >>"$AURELIA_PRIVILEGE_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    listPlugins)
+        printf '%s\n' '[{"id":"acme.test-widget"}]'
+        ;;
+    enablePlugin)
+        printf '%s\n' "enablePlugin $*" >>"$AURELIA_PRIVILEGE_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    *)
+        exit 1
+        ;;
+esac

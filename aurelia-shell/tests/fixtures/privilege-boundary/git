@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+[[ "${1:-}" == "clone" ]] || exit 1
+destination="${@: -1}"
+mkdir -p -- "$destination"
+printf '%s\n' '{
+  "schemaVersion": 1,
+  "id": "acme.test-widget",
+  "name": "Test Widget",
+  "version": "1.0.0",
+  "description": "T16 lifecycle fixture",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Widget.qml"},
+  "barWidget": {
+    "displayName": "Test Widget",
+    "description": "T16 fixture",
+    "category": "Testing",
+    "allowMultiple": false
+  }
+}' >"$destination/manifest.json"
+printf '%s\n' 'import QtQuick; Item { implicitWidth: 1; implicitHeight: 1 }' >"$destination/Widget.qml"
+printf '%s\n' '#!/usr/bin/env bash' 'touch "$AURELIA_HOOK_MARKER"' >"$destination/install.sh"
+chmod 0755 "$destination/install.sh"
