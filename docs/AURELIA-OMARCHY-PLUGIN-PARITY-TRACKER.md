@@ -1836,6 +1836,37 @@ Dependencies: T07, T14, T15.
 
 ### T21. Convert the Command Center provider catalog to the parity model
 
+Status: `[-]` in progress — Command Center provider catalog and menu-surface task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: existing Aurelia Command Center module/provider
+  files, new narrow provider/menu model helpers, the first-party
+  `aurelia.menu` plugin and its shipped menu data, and generic host/catalog
+  wiring required to discover that manifest. No existing Command Center visual
+  layout, theme token, shortcut, backend ownership, or plugin feature may be
+  rewritten for Omarchy appearance.
+- Allowed test files: `aurelia-shell/tests/`, including isolated module,
+  provider, manifest-menu, user-extension, visibility/checked-state, and
+  provider-failure fixtures. No arbitrary shell command, package transaction,
+  live menu action, installer, or active user-state mutation is allowed.
+- Compatibility boundary: current Command Center modules/providers/actions,
+  `aurelia.launcher` IPC, first-party plugin discovery, user module overrides,
+  and all existing Aurelia design language remain compatible. The menu surface
+  is additive and uses a separate `aurelia.menu` identity.
+- Runtime behavior impact: declarative provider metadata and an on-demand
+  manifest-backed menu surface. Provider actions must be allow-listed,
+  structured argv or approved Aurelia APIs; unknown/invalid providers and
+  actions remain inert and fail closed.
+- Persisted user state impact: shipped menu data is immutable repository-owned
+  input; user menu extensions are read-only input from a separate optional
+  XDG file and are never merged by the shell into unrelated state.
+- Security boundary: menu/provider data is validated before presentation; no
+  manifest menu field may contain an executable shell string or bypass facade,
+  privilege, or lifecycle boundaries. Same-process QML remains unsandboxed.
+- Rollback: revert only provider metadata/model/menu files and isolated tests if
+  a gate fails; preserve all completed T00–T20 commits and current features.
+
 - [ ] Keep the Command Center as an Aurelia feature with its current name,
   layout, keyboard behavior, and design language.
 - [ ] Separate generic module metadata from provider implementation.
