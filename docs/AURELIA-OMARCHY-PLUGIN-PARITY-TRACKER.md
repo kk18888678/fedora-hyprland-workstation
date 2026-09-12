@@ -228,11 +228,11 @@ Before moving to the next phase:
 
 Before declaring parity complete:
 
-- [ ] T28 is complete.
-- [ ] All gap-to-task rows are closed with evidence.
-- [ ] All preservation gates pass.
-- [ ] Runtime/visual evidence is separated from static/isolated evidence.
-- [ ] The final working-tree diff is reviewed file-by-file.
+- [x] T28 is complete.
+- [x] All gap-to-task rows are closed with evidence.
+- [x] All preservation gates pass.
+- [x] Runtime/visual evidence is separated from static/isolated evidence.
+- [x] The final working-tree diff is reviewed file-by-file.
 
 No task may skip a checkpoint because it is “small,” “only a refactor,” or
 “test-only.” Shared host and plugin code can change runtime behavior indirectly.
