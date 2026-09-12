@@ -714,6 +714,24 @@ Dependencies: T04.
 
 ### T06. Separate registry, component catalog, services, and UI loaders
 
+Status: `[-]` in progress — runtime composition-boundary task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/BarWidgetRegistry.qml`,
+  the services `qmldir`, `PluginHost.qml`, the Aurelia bar
+  composition files, `shell.qml`, and the plugin contract files needed
+  for structured lifecycle events.
+- Allowed test files: `aurelia-shell/tests/`, including isolated
+  bar-registry/runtime-composition fixtures, and this tracker.
+- Compatibility boundary: current bar layout, widget IDs, service ownership,
+  popup behavior, and plugin IPC identities must remain unchanged.
+- Runtime behavior impact: composition ownership and event observability only;
+  no persisted-state schema change, installer mutation, or live-session change.
+- Persisted user state impact: none.
+- Rollback: revert only T06 composition/test/tracker changes if a mandatory
+  gate fails; preserve completed T00–T05 history and user-owned changes.
+
 - [ ] Add the Aurelia equivalent of `BarWidgetRegistry` for component and
   metadata registration.
 - [ ] Keep the plugin registry responsible for discovery and identity only.
