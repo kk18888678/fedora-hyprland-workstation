@@ -1,8 +1,8 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity complete; T29 runtime-warning cleanup
-complete; live visual/integration validation deferred pending explicit
-authorization.
+Status: repository-only structural parity complete; T30 per-plugin test-layout
+task queued and not started; live visual/integration validation deferred pending
+explicit authorization.
 
 ## Objective
 
@@ -2464,6 +2464,45 @@ Dependencies: T24 through T28.
 
 ---
 
+### T30. Add plugin-local test directories
+
+Execution status: NOT STARTED (queued by explicit user request)
+
+Scope note: the prior audit recorded zero plugin-local test directories in
+both Omarchy and Aurelia. This task intentionally introduces a new Aurelia
+test-layout requirement and therefore is not marked as Omarchy parity until
+the structure and ownership decision are implemented and verified.
+
+Checkpoint requirement: create a CP2 tracker entry before touching any plugin
+directory, test file, runner, manifest, or documentation implementation.
+
+- [ ] Define the exact local test-directory convention for every production
+  Aurelia plugin, including naming, fixture placement, and runner ownership.
+- [ ] Decide which existing centralized tests remain global and which focused
+  contracts move beside their owning plugin.
+- [ ] Add a local test directory to every production Aurelia plugin without
+  changing plugin behavior, manifests, entry points, or user-visible design.
+- [ ] Provide deterministic per-plugin test entry points that can be invoked
+  independently and through aurelia-shell/tests/run.sh.
+- [ ] Preserve the generic cross-plugin matrix, host survivability tests,
+  centralized root command, and no-plugin-local-test claim only where still
+  accurate.
+- [ ] Add negative, lifecycle, settings, reload, and feature-preservation
+  tests for each plugin where its responsibility requires them.
+- [ ] Keep all local tests isolated from the live workstation, installer,
+  packages, user configuration, systemd/greetd state, and reboot.
+- [ ] Update the authoring guide, plugin README, tracker inventory, and test
+  counts after implementation.
+
+Exit gate: every production Aurelia plugin has the approved local test
+structure, local and centralized test ownership is non-duplicative, the
+one-command Aurelia test runner remains green, and no existing feature or
+shell safety invariant regresses.
+
+Dependencies: T24 through T29.
+
+---
+
 ## Gap-to-task closure matrix
 
 | Audit gap | Closing task(s) |
@@ -2497,6 +2536,7 @@ Dependencies: T24 through T28.
 | No manifest-backed Omarchy-style menu/data-extension surface | T21, T24, T25 |
 | No plugin authoring documentation/template | T26 |
 | Observed startup warning-producing component graph lacked regression coverage | T29 |
+| No plugin-local test directory structure (new requested requirement) | T30 |
 
 ## Final preservation gate
 
@@ -2554,8 +2594,9 @@ Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403
 Final Aurelia branch/SHA: installer-resilience / f77c93d9b5ad2fac345f42b7ff4f043f45502270
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
 Tasks completed: T00 through T29 for the repository-only structural parity target
-Tasks outstanding: authorized live Wayland/visual acceptance; explicit feature
-scope differences are listed above and are not structural gaps
+Tasks outstanding: T30 plugin-local test directories (queued, not started);
+authorized live Wayland/visual acceptance; explicit feature scope differences
+are listed above and are not structural gaps
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 527 passed, 0 failed
 Syntax checks: 233 shell scripts passed bash -n
 ShellCheck: unavailable; not installed and not added
