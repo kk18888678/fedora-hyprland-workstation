@@ -1428,6 +1428,32 @@ Dependencies: T14, T02.
 
 ### T16. Preserve Aurelia's command and privilege boundaries
 
+Status: `[-]` in progress — command and privilege boundary task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: the T14 facade/injection files, plugin CLI/common
+  helpers, approved Aurelia backend wrappers, and only narrow host/manifest
+  validation seams needed to preserve existing ownership and timeout rules.
+- Allowed test files: `aurelia-shell/tests/` and repository tests for isolated
+  argv/privilege/timeout/hook-free plugin lifecycle fixtures, plus this tracker.
+- Compatibility boundary: current Fedora package ownership, DNS/Bluetooth/
+  network/password, screenshot, display, notification, keybinding, terminal,
+  and rootless Podman actions must remain behaviorally unchanged. Existing
+  user features and Aurelia design language are out of scope.
+- Runtime behavior impact: validation and bounded command routing only; no
+  live sudo/polkit/PAM/systemd/greetd action, package/repository mutation,
+  installer run, or live-session restart.
+- Persisted user state impact: none except disposable isolated fixtures; no
+  credentials, tokens, package manifests, plugin source, or user configuration
+  may be changed.
+- Security boundary: plugin installation remains user-level and hook-free;
+  third-party QML remains unsandboxed but cannot gain new privilege through
+  supported facade APIs.
+- Rollback: revert only T16 command/privilege/test/tracker changes if a
+  mandatory gate fails; preserve completed T00–T15 history and user-owned
+  changes.
+
 - [ ] Keep system actions in approved Aurelia backends and structured argv.
 - [ ] Ensure plugin facades cannot bypass existing authorization or privilege
   boundaries.
