@@ -234,8 +234,8 @@ else
 fi
 
 if grep -q 'if (hasKind(manifest, "service")) return "service"' "$ROOT/services/PluginRegistry.qml" &&
-   grep -q 'aurelia.notifications' "$ROOT/services/ShellConfig.qml" &&
-   grep -q 'aurelia.notifications' "$ROOT/plugins/aurelia.bar/Bar.qml"; then
+   grep -q 'aurelia.notifications' "$ROOT/config/bar-default.json" &&
+   grep -q 'aurelia.notifications' "$ROOT/plugins/aurelia.notifications/manifest.json"; then
     pass "Multi-kind notification plugins load their service owner before bar presentation"
 else
     fail "Multi-kind plugin selection or default bar registration is incomplete"

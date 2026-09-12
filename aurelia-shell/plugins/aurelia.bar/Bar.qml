@@ -22,28 +22,13 @@ PanelWindow {
     property var widgetSlots: []
     property int widgetRevision: 0
 
-    readonly property var defaultConfig: ({
-        id: "aurelia.bar",
-        position: "top",
-        transparent: false,
-        centerAnchor: "aurelia.clock",
-        layout: {
-            left: [{ id: "aurelia.workspaces" }],
-            center: [
-                { id: "aurelia.notifications" },
-                { id: "aurelia.clock", format: "MMM d, dddd HH:mm" },
-                { id: "aurelia.weather", location: "auto" }
-            ],
-            right: [
-                { id: "aurelia.tray" },
-                { id: "aurelia.network" },
-                { id: "aurelia.bluetooth" },
-                { id: "aurelia.monitor" },
-                { id: "aurelia.screenshot" },
-                { id: "aurelia.power" }
-            ]
-        }
-    })
+    // ShellConfig is present in the production host. Keep only a minimal
+    // recovery shape here so a missing state object cannot prevent a bar from
+    // constructing; the canonical default layout lives in bar-default.json.
+    readonly property var defaultConfig: shellConfig && typeof shellConfig.defaultBarConfig === "function"
+        ? shellConfig.defaultBarConfig()
+        : ({id: "aurelia.bar", position: "top", transparent: false,
+            centerAnchor: "aurelia.clock", layout: {left: [], center: [], right: []}})
     readonly property var barConfig: shellConfig && shellConfig.config && shellConfig.config.bar
         ? shellConfig.config.bar
         : defaultConfig

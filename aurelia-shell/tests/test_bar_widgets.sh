@@ -128,7 +128,7 @@ else
     fail "Scaled structural bar metric contract is incomplete"
 fi
 
-if grep -q 'id: "aurelia.bar"' "$ROOT/services/ShellConfig.qml" &&
+if grep -q '"id": "aurelia.bar"' "$ROOT/config/bar-default.json" &&
    grep -q 'var barId = isValidPluginId(source.id)' "$ROOT/services/ShellConfig.qml" &&
    grep -q 'readonly property string selectedBarId' "$ROOT/services/PluginHost.qml" &&
    grep -q 'readonly property string activeBarId' "$ROOT/services/PluginHost.qml" &&
@@ -317,12 +317,12 @@ else
     fail "Weather backend safety contract is incomplete"
 fi
 
-if grep -q 'aurelia.clock' "$ROOT/services/ShellConfig.qml" &&
-   grep -q 'aurelia.weather' "$ROOT/services/ShellConfig.qml" &&
-   grep -q 'centerAnchor: "aurelia.clock"' "$ROOT/services/ShellConfig.qml" &&
+if grep -q 'aurelia.clock' "$ROOT/config/bar-default.json" &&
+   grep -q 'aurelia.weather' "$ROOT/config/bar-default.json" &&
+   grep -q 'centerAnchor.*aurelia.clock' "$ROOT/config/bar-default.json" &&
    grep -q 'function cloneEntrySettings(entry)' "$ROOT/services/ShellConfig.qml" &&
    grep -q 'entry.settings' "$bar_root/BarWidgetRow.qml" &&
-   grep -q 'location: "auto"' "$ROOT/services/ShellConfig.qml"; then
+   grep -q 'location.*auto' "$ROOT/config/bar-default.json"; then
     pass "Bar defaults include a centered clock and automatic weather location"
 else
     fail "Bar default widget layout or settings normalization is incomplete"

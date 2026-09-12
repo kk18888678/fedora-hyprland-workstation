@@ -12,3 +12,4 @@ PluginCloneState 1.0 PluginCloneState.qml
 PluginProvenance 1.0 PluginProvenance.qml
 PluginCatalogProjection 1.0 PluginCatalogProjection.qml
 PluginWatcherPolicy 1.0 PluginWatcherPolicy.qml
+BarDefaultConfig 1.0 BarDefaultConfig.qml

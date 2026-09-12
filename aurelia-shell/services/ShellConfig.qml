@@ -21,6 +21,7 @@ QtObject {
 
     property var config: ({ version: 1, plugins: [], disabledPlugins: [] })
     property var barWidgetRegistry: null
+    property BarDefaultConfig barDefaults: BarDefaultConfig { }
     property PluginCloneState cloneState: PluginCloneState { owner: configRoot }
     property int revision: 0
     property string lastError: ""
@@ -108,28 +109,7 @@ QtObject {
     }
 
     function defaultBarConfig() {
-        return {
-            id: "aurelia.bar",
-            position: "top",
-            transparent: false,
-            centerAnchor: "aurelia.clock",
-            layout: {
-                left: [{ id: "aurelia.workspaces" }],
-                center: [
-                    { id: "aurelia.notifications" },
-                    { id: "aurelia.clock", format: "MMM d, dddd HH:mm" },
-                    { id: "aurelia.weather", location: "auto" }
-                ],
-                right: [
-                    { id: "aurelia.tray" },
-                    { id: "aurelia.network" },
-                    { id: "aurelia.bluetooth" },
-                    { id: "aurelia.monitor" },
-                    { id: "aurelia.screenshot" },
-                    { id: "aurelia.power" }
-                ]
-            }
-        }
+        return configRoot.barDefaults.copy()
     }
 
     function cloneJson(value) {

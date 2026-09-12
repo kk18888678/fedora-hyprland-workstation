@@ -26,15 +26,17 @@
   "defaultBar": {
     "id": "aurelia.bar",
     "layout": {
-      "left": ["aurelia.workspaces"],
-      "center": ["aurelia.notifications", "aurelia.clock", "aurelia.weather"],
-      "right": ["aurelia.tray", "aurelia.network", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.power"]
+      "left": [{"id":"aurelia.workspaces"}],
+      "center": [{"id":"aurelia.notifications"}, {"id":"aurelia.clock", "format":"MMM d, dddd HH:mm"}, {"id":"aurelia.weather", "location":"auto"}],
+      "right": [{"id":"aurelia.tray"}, {"id":"aurelia.network"}, {"id":"aurelia.bluetooth"}, {"id":"aurelia.monitor"}, {"id":"aurelia.screenshot"}, {"id":"aurelia.power"}]
     }
   },
   "requiredFiles": [
     "services/PluginRegistry.qml",
     "services/PluginHost.qml",
     "services/ShellConfig.qml",
+    "services/BarDefaultConfig.qml",
+    "config/bar-default.json",
     "shell.qml",
     "plugins/aurelia.bar/Bar.qml",
     "plugins/aurelia.bar/BarWidgetSlot.qml",

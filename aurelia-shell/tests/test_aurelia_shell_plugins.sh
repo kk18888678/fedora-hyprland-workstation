@@ -131,7 +131,7 @@ if grep -q 'FileView' "$services_root/ShellConfig.qml" &&
    grep -q 'aurelia/shell.json' "$services_root/ShellConfig.qml" &&
    grep -q 'function normalizeBar(candidate)' "$services_root/ShellConfig.qml" &&
    grep -q 'candidate.bar === undefined ? defaultBarConfig()' "$services_root/ShellConfig.qml" &&
-   grep -q 'aurelia.screenshot' "$services_root/ShellConfig.qml"; then
+   grep -q 'aurelia.screenshot' "$shell_root/config/bar-default.json"; then
     pass "ShellConfig persists plugin state and the normalized bar layout with atomic writes"
 else
     fail "ShellConfig persistence boundary is incomplete"

@@ -52,7 +52,6 @@ plugin_harness_run_preservation_contract() {
     if ROOT="$ROOT" python3 - "$fixture" <<'PY'
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -60,19 +59,14 @@ fixture_path = Path(sys.argv[1])
 root = Path(os.environ["ROOT"])
 fixture = json.loads(fixture_path.read_text())
 
-for relative in ("services/ShellConfig.qml", "plugins/aurelia.bar/Bar.qml"):
-    source = (root / relative).read_text()
-    for region in ("left", "center", "right"):
-        cursor = -1
-        for plugin_id in fixture["defaultBar"]["layout"][region]:
-            pattern = re.compile(r"\bid\s*:\s*['\"]" + re.escape(plugin_id) + r"['\"]")
-            matches = [match.start() for match in pattern.finditer(source) if match.start() > cursor]
-            if not matches:
-                raise SystemExit(f"{relative}: {region} layout lost or reordered {plugin_id}")
-            cursor = matches[0]
+default_file = root / "config/bar-default.json"
+actual = json.loads(default_file.read_text())
+expected = fixture["defaultBar"]
+if actual["id"] != expected["id"] or actual["layout"] != expected["layout"]:
+    raise SystemExit("config/bar-default.json: default id or layout changed")
 PY
     then
-        plugin_harness_pass preservation "default Aurelia bar layout order is preserved in host and bar fallback"
+        plugin_harness_pass preservation "canonical Aurelia bar default JSON preserves the frozen id and layout"
     else
         plugin_harness_fail preservation "default Aurelia bar layout order changed in host or bar fallback"
     fi

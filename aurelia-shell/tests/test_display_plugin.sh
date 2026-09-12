@@ -63,8 +63,8 @@ if grep -Fq 'fontBaseSize' "$ROOT/theme/Theme.qml" &&
    grep -Fq 'displaySettingsProbe' "$ROOT/theme/Theme.qml" &&
    grep -Fq 'watchChanges: themeRoot.displaySettingsAvailable' "$ROOT/theme/Theme.qml" &&
    grep -Fq 'reloadDisplaySettings' "$ROOT/theme/Theme.qml" &&
-   grep -Fq 'aurelia.monitor' "$ROOT/services/ShellConfig.qml" &&
-   grep -Fq 'aurelia.monitor' "$ROOT/plugins/aurelia.bar/Bar.qml"; then
+   grep -Fq 'aurelia.monitor' "$ROOT/config/bar-default.json" &&
+   grep -Fq 'aurelia.monitor' "$ROOT/plugins/aurelia.monitor/manifest.json"; then
     pass "Display is included in the default bar and its user-owned text setting is watched"
 else
     fail "Display default-bar or text-size integration is incomplete"

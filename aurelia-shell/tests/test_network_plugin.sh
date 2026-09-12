@@ -118,8 +118,8 @@ else
     fail "Speed-test plugin contract is incomplete"
 fi
 
-if grep -Fq 'aurelia.network' "$ROOT/plugins/aurelia.bar/Bar.qml" &&
-   grep -Fq 'aurelia.network' "$ROOT/services/ShellConfig.qml" &&
+if grep -Fq 'aurelia.network' "$ROOT/config/bar-default.json" &&
+   grep -Fq 'aurelia.network' "$ROOT/plugins/aurelia.network/manifest.json" &&
    grep -Fq 'SUPER + CTRL + W' "$network_root/keybindings.lua" &&
    grep -Fq 'aurelia.network' "$network_root/keybindings.lua" &&
    grep -Fxq 'iw' "$ROOT/../packages/base.txt" &&

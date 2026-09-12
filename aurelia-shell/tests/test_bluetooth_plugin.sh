@@ -116,8 +116,8 @@ else
     fail "Bluetooth does not gate its native QML model on bounded BlueZ availability"
 fi
 
-if grep -Fq 'aurelia.bluetooth' "$ROOT/services/ShellConfig.qml" &&
-   grep -Fq 'aurelia.bluetooth' "$ROOT/plugins/aurelia.bar/Bar.qml"; then
+if grep -Fq 'aurelia.bluetooth' "$ROOT/config/bar-default.json" &&
+   grep -Fq 'aurelia.bluetooth' "$ROOT/plugins/aurelia.bluetooth/manifest.json"; then
     pass "Bluetooth is present in the Aurelia default bar layout"
 else
     fail "Bluetooth default bar integration is incomplete"

@@ -2033,7 +2033,7 @@ Dependencies: T06 through T21 as applicable to each plugin.
 
 ### T23. Eliminate duplicated defaults and feature-specific host registration
 
-Execution status: IN PROGRESS
+Execution status: COMPLETE
 
 Checkpoint 2 — canonical bar-default boundary:
 
@@ -2048,17 +2048,36 @@ Checkpoint 2 — canonical bar-default boundary:
 - Rollback: revert the task commit; the prior embedded default remains the
   recovery source.
 
-- [ ] Move the default bar layout to one canonical repository-owned data file.
-- [ ] Keep an embedded fallback only for safe startup recovery.
-- [ ] Remove duplicate default layout definitions from host and bar code.
-- [ ] Remove generic host registration lists that must be edited for every new
+- [x] Move the default bar layout to one canonical repository-owned data file.
+- [x] Keep an embedded fallback only for safe startup recovery.
+- [x] Remove duplicate default layout definitions from host and bar code.
+- [x] Remove generic host registration lists that must be edited for every new
   plugin.
-- [ ] Preserve current defaults byte-for-byte in the preservation fixture.
-- [ ] Keep feature-specific registration only where the feature owns a real
+- [x] Preserve current defaults byte-for-byte in the preservation fixture.
+- [x] Keep feature-specific registration only where the feature owns a real
   external capability or compatibility alias.
 
 Exit gate: a new manifest-backed plugin can be discovered and managed without
-editing unrelated Aurelia default lists or host registration branches.
+editing unrelated Aurelia default lists or host registration branches. PASS.
+
+Evidence:
+
+- Added \`aurelia-shell/config/bar-default.json\` as the canonical repository
+  default document and \`BarDefaultConfig.qml\` as its read-only, validated
+  loader with an embedded recovery value.
+- ShellConfig and the resident bar consume the loader; feature-specific
+  compatibility seams remain untouched.
+- Updated preservation and affected-plugin contracts to validate the canonical
+  document rather than duplicated QML literals.
+- Focused T23 and affected-plugin suites: 137 passed, 0 failed.
+- Full Aurelia suite: 428 passed, 0 failed.
+- Repository suite: 228 passed, 0 failed.
+- Repository-wide shell syntax: 229 scripts passed.
+- QuickShell fixture verified the loaded canonical identity, anchor, order, and
+  widget IDs in an isolated temporary XDG environment.
+- No live shell, installer, packages, systemd/greetd state, or user
+  configuration was touched.
+- Checkpoint: \`5dc6667\` (\`chore(checkpoint): freeze canonical bar defaults boundary\`).
 
 Dependencies: T05, T10, T21, T22.
 
