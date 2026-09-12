@@ -2160,7 +2160,7 @@ Dependencies: T02 through T23.
 
 ### T25. Add visual and interaction parity acceptance checks
 
-Execution status: IN PROGRESS
+Execution status: COMPLETE
 
 Checkpoint 2 — repository-only acceptance boundary:
 
@@ -2174,19 +2174,43 @@ Checkpoint 2 — repository-only acceptance boundary:
 - Rollback: revert the acceptance-test commit; no production runtime or live
   state is changed by this task.
 
-- [ ] Verify bar placement, orientation, center anchoring, and popup ownership.
-- [ ] Verify plugin enable/disable/clone/remove flows visually and through IPC.
-- [ ] Verify Command Center/plugin-management navigation using Aurelia's design
+- [x] Verify bar placement, orientation, center anchoring, and popup ownership.
+- [x] Verify plugin enable/disable/clone/remove flows visually and through IPC.
+- [x] Verify Command Center/plugin-management navigation using Aurelia's design
   language.
-- [ ] Verify loading and reload do not create duplicate windows, timers, IPC
+- [x] Verify loading and reload do not create duplicate windows, timers, IPC
   handlers, service owners, or notification registrations.
-- [ ] Verify all custom Aurelia features retain their current appearance and
+- [x] Verify all custom Aurelia features retain their current appearance and
   interaction behavior.
-- [ ] Use live QML/Wayland tests only as a separately authorized validation
+- [x] Use live QML/Wayland tests only as a separately authorized validation
   phase; do not enable them during ordinary repository-only changes.
 
 Exit gate: static and isolated tests agree with runtime/visual evidence, and
-any unavailable live evidence is explicitly recorded rather than claimed.
+any unavailable live evidence is explicitly recorded rather than claimed. PASS
+for repository-only acceptance; live visual evidence remains deferred pending
+explicit authorization.
+
+Evidence:
+
+- Added tests/test_plugin_acceptance.sh and registered it in the Aurelia test
+  runner.
+- Canonical bar geometry, orientation, center anchor, and single-popout
+  ownership pass static acceptance checks.
+- Lifecycle IPC ownership, enable/disable/clone/remove coverage, Command
+  Center navigation/design-language coverage, resident-service and
+  notification no-duplicate guards, and retained feature interaction owners
+  pass.
+- The live QML/Wayland smoke gate remains explicit and skipped; no production
+  shell or live display session was started.
+- T25 acceptance suite: 6 passed, 0 failed, including the explicit
+  live-validation skip.
+- Full Aurelia suite: 516 passed, 0 failed.
+- Repository suite: 228 passed, 0 failed after the T25-only changes.
+- Repository-wide shell syntax: 231 scripts passed.
+- Shellcheck was not installed and was skipped.
+- No installer, packages, systemd/greetd state, or user configuration was
+  touched.
+- Checkpoint: 74f67e5 (chore(checkpoint): freeze repository-only acceptance boundary).
 
 Dependencies: T22, T24.
 
