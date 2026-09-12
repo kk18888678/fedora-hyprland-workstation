@@ -1099,6 +1099,30 @@ Dependencies: T05, T06, T10.
 
 ### T12. Add bar placement and settings operations
 
+Status: `[-]` in progress — bar placement and settings operations task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: `aurelia-shell/services/ShellConfig.qml`, the
+  existing shell IPC boundary in `shell.qml`, the Aurelia plugin CLI command
+  boundary, and narrow bar/registry helpers required to resolve widget
+  placement and instance IDs.
+- Allowed test files: `aurelia-shell/tests/`, including isolated temporary
+  state/CLI/QuickShell fixtures for placement, movement, settings, disable,
+  and re-enable, and this tracker.
+- Compatibility boundary: existing shell IPC names, current default bar
+  layout/order, current widget settings, plugin IDs, visual geometry, and
+  feature-owned state must remain unchanged. Existing enable/disable behavior
+  must continue to work through the same canonical owner.
+- Runtime behavior impact: explicit user-state operations only through the
+  existing host/reconciler boundary; no automatic layout rewrite, live bar
+  restart, installer mutation, or live-session change.
+- Persisted user state impact: isolated fixtures only. Operations must preserve
+  unknown fields/settings, use the existing atomic mode-600 state writer, and
+  never interpret disable as remove or remove as purge.
+- Rollback: revert only T12 placement/CLI/test/tracker changes if a mandatory
+  gate fails; preserve completed T00–T11 history and user-owned changes.
+
 - [ ] Add equivalent operations for enable-and-place, put, move, and set.
 - [ ] Support section, index, before, and after placement.
 - [ ] Use `defaultSection` when no explicit placement is supplied.
