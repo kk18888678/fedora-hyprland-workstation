@@ -501,7 +501,7 @@ Dependencies: T02.
 
 ### T03. Implement one canonical manifest validator
 
-Status: `[-]` in progress — CP2 recorded; canonical manifest-validation task.
+Status: `[x]` complete — CP2 and CP3 passed; canonical manifest-validation task.
 
 CP2 pre-change boundary:
 
@@ -521,22 +521,51 @@ CP2 pre-change boundary:
   fails; preserve the completed T00/T01/T02/T02A history and user-owned
   changes.
 
-- [ ] Make runtime and CLI validation enforce the same manifest contract.
-- [ ] Validate schema version, ID, name, version, description, kinds, entry
+CP3 post-change evidence:
+
+- Focused validator gate: test_manifest_validator.sh — 27 assertions passed,
+  0 failed.
+- Matrix coverage: the CLI and real QML registry accepted/rejected the same 25
+  manifest cases, including canonical and legacy bar-widget keys, metadata
+  types, unsafe paths, unknown public fields, namespace capability rules,
+  compatibility metadata, clone paths, and all listed negative shapes.
+- Mutation proof: runtime validation left every input matrix object byte-stable.
+- Discovery proof: the real runtime registry scan invoked the canonical CLI
+  validator and discovered all 21 current Aurelia manifests.
+- Aurelia regression suite: ./aurelia-shell/tests/run.sh — 326 passed, 0
+  failed.
+- Repository regression suite: ./tests/run.sh — 228 passed, 0 failed.
+- Syntax: repository-wide bash -n — 205 shell scripts passed.
+- Diff validation: git diff --check passed.
+- Shellcheck: unavailable because it is not installed; no installation was
+  attempted.
+- Compatibility: no existing plugin manifest was rewritten; current legacy
+  entryPoints["bar-widget"] forms remain accepted, while canonical
+  entryPoints.barWidget forms are supported and validated strictly.
+- Runtime scope: only disposable offscreen QuickShell processes and temporary
+  XDG/runtime directories were used. ./install.sh was not run; no packages,
+  repositories, systemd/greetd state, live user configuration, or the VM were
+  modified, and no reboot occurred.
+- Files changed for T03: manifest.sh, PluginRegistry.qml,
+  test_aurelia_shell_plugins.sh, aurelia-shell/tests/run.sh,
+  test_manifest_validator.sh, and the isolated manifest-validator fixture.
+
+- [x] Make runtime and CLI validation enforce the same manifest contract.
+- [x] Validate schema version, ID, name, version, description, kinds, entry
   points, safe relative paths, regular-file entry points, and symlink policy.
-- [ ] Validate the exact kind-to-entry-point mapping.
-- [ ] Validate bar-widget metadata, including `displayName`, `description`,
+- [x] Validate the exact kind-to-entry-point mapping.
+- [x] Validate bar-widget metadata, including `displayName`, `description`,
   `category`, `allowMultiple`, `defaultSection`, `defaults`, `settingsForm`,
   and `schema` where the contract requires them.
-- [ ] Validate `keepLoaded` and all allowed metadata types.
-- [ ] Reject unknown or malformed public kinds fail-closed.
-- [ ] Preserve Aurelia-only metadata under an explicit Aurelia namespace rather
+- [x] Validate `keepLoaded` and all allowed metadata types.
+- [x] Reject unknown or malformed public kinds fail-closed.
+- [x] Preserve Aurelia-only metadata under an explicit Aurelia namespace rather
   than silently colliding with Omarchy fields.
-- [ ] Keep the validator mutation-free and ensure discovery never executes
+- [x] Keep the validator mutation-free and ensure discovery never executes
   plugin code.
-- [ ] Keep any host/API compatibility metadata explicit and fail closed; do not
+- [x] Keep any host/API compatibility metadata explicit and fail closed; do not
   use the plugin's display version as an implicit host compatibility check.
-- [ ] Add negative tests for every rejected shape.
+- [x] Add negative tests for every rejected shape.
 
 Exit gate: a manifest accepted by the author-facing validator is accepted by
 the runtime, and a manifest rejected by either boundary is not loadable.

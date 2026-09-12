@@ -92,7 +92,8 @@ else
     fail "shell IPC lifecycle or registry contract is incomplete"
 fi
 
-if grep -q 'icon: manifest.icon || ""' "$services_root/PluginRegistry.qml" &&
+if grep -q 'function iconForManifest' "$services_root/PluginRegistry.qml" &&
+   grep -q 'icon: iconForManifest(manifest)' "$services_root/PluginRegistry.qml" &&
    grep -q 'isValidIconName' "$services_root/PluginRegistry.qml" &&
    grep -q 'Manifest icon name is invalid' "$ROOT/bin/lib/aurelia-plugin/manifest.sh"; then
     pass "plugin summaries expose validated icon metadata without accepting filesystem paths"
