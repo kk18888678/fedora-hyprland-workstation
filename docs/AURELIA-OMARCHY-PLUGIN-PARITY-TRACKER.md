@@ -1921,6 +1921,35 @@ Dependencies: T03, T13, T14.
 
 ### T22. Migrate all existing Aurelia plugins to the canonical contract
 
+Status: `[-]` in progress — existing-plugin canonical manifest migration task.
+
+CP2 pre-change boundary:
+
+- Allowed production files: the existing first-party plugin manifests and
+  narrowly scoped generic manifest/catalog/test helpers required to consume
+  canonical metadata. Plugin QML/JS/Lua/backend implementation files are
+  read-only unless a focused runtime fixture proves a compatibility adapter is
+  required.
+- Allowed test files: `aurelia-shell/tests/`, including an all-plugin manifest
+  matrix, entry-point existence checks, canonical settings injection checks,
+  and the existing per-feature tests. No live plugin activation, installer,
+  package, systemd, greetd, or user configuration mutation is allowed.
+- Compatibility boundary: every existing plugin ID, entry-point path, bar
+  position/settings, backend owner, failure class, IPC alias, theme token, and
+  feature-specific behavior must remain unchanged. Legacy manifest reads stay
+  available for third-party compatibility, but shipped first-party manifests
+  become canonical.
+- Runtime behavior impact: metadata representation only, with the same generic
+  registry/host/bar loaders and the same default values made explicit in the
+  manifests.
+- Persisted user state impact: none. Existing state files and shell config are
+  read unchanged; no migration write is introduced.
+- Security boundary: canonical metadata remains validated before loading;
+  first-party-only capability ownership, structured backends, and scoped
+  third-party facades are unchanged.
+- Rollback: revert only first-party manifest canonicalization, focused matrix
+  updates, and this tracker if a preservation gate fails; preserve T00–T21.
+
 For each plugin below:
 
 - [ ] migrate its manifest without changing its user-visible behavior;
