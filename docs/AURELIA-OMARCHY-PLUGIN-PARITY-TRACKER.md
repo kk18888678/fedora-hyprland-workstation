@@ -1,7 +1,8 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity complete; live visual/integration
-validation deferred pending explicit authorization.
+Status: repository-only structural parity complete; T29 runtime-warning cleanup
+in progress; live visual/integration validation deferred pending explicit
+authorization.
 
 ## Objective
 
@@ -2397,6 +2398,44 @@ Evidence:
 - T28 audit checkpoint: b53229f (chore(checkpoint): freeze final plugin parity audit).
 
 Dependencies: T27 and every previous task.
+
+### T29. Eliminate observed startup warning contracts
+
+Execution status: IN PROGRESS
+
+Checkpoint 2 — warning-cleanup boundary:
+
+- Allowed production scope: the launcher panel property contract, display-panel
+  delayed-refresh boundary, bar-widget IPC ownership guard, and Bluetooth
+  object-manager probe.
+- Allowed test scope: isolated warning-stream fixtures, affected feature tests,
+  the Aurelia runner, and this tracker.
+- Compatibility boundary: preserve launcher IPC, network/Bluetooth feature
+  behavior, display refresh behavior, bar placement, and all existing design
+  language; only eliminate invalid construction, stale callback, duplicate
+  handler registration, and unsafe BlueZ construction.
+- Safety boundary: no live shell restart, live configuration mutation,
+  installer/package/systemd/greetd action, or reboot is allowed.
+- Rollback: revert the T29 production/test commit; prior feature behavior and
+  IPC owners remain recoverable.
+
+- [ ] Add a runtime test that loads the real Command Center plugin and catches
+  missing-property construction failures.
+- [ ] Add a runtime test for DisplayPanel destruction during delayed refresh.
+- [ ] Ensure each network/Bluetooth bar widget instance has one effective IPC
+  owner without duplicate-handler warnings.
+- [ ] Probe BlueZ's object-manager capability before constructing native
+  Quickshell Bluetooth objects.
+- [ ] Keep benign unavailable-hardware conditions classified without hiding
+  actionable QML warnings.
+- [ ] Run the affected and full Aurelia test suites and keep the root suite
+  green.
+
+Exit gate: the isolated warning fixture loads the affected components without
+the reported construction, duplicate-handler, stale-refresh, or unsafe-BlueZ
+warnings, while the existing feature and IPC contracts remain green.
+
+Dependencies: T24 through T28.
 
 ---
 
