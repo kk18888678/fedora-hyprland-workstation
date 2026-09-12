@@ -2275,7 +2275,7 @@ Dependencies: T03, T05, T14, T17, T18, T24.
 
 ### T27. Perform the compatibility cutover
 
-Execution status: IN PROGRESS
+Execution status: COMPLETE
 
 Checkpoint 2 — compatibility-cutover boundary:
 
@@ -2291,20 +2291,44 @@ Checkpoint 2 — compatibility-cutover boundary:
 - Rollback: revert the cutover-test commit; existing legacy-compatible runtime
   behavior remains unchanged.
 
-- [ ] Keep old Aurelia manifest/state reads enabled until all migration tests
+- [x] Keep old Aurelia manifest/state reads enabled until all migration tests
   pass.
-- [ ] Enable canonical parity writes only after T24 and T25 pass.
-- [ ] Run the migration against isolated copies of representative old states.
-- [ ] Verify a second run produces no additional changes or backups.
-- [ ] Verify a failed migration leaves the original state usable.
-- [ ] Verify all first-party plugins start through the canonical path.
-- [ ] Verify third-party plugins remain disabled until explicit enablement.
-- [ ] Verify the built-in bar remains the safe default.
-- [ ] Remove compatibility code only in a separately reviewed cleanup task after
+- [x] Enable canonical parity writes only after T24 and T25 pass.
+- [x] Run the migration against isolated copies of representative old states.
+- [x] Verify a second run produces no additional changes or backups.
+- [x] Verify a failed migration leaves the original state usable.
+- [x] Verify all first-party plugins start through the canonical path.
+- [x] Verify third-party plugins remain disabled until explicit enablement.
+- [x] Verify the built-in bar remains the safe default.
+- [x] Remove compatibility code only in a separately reviewed cleanup task after
   the migration window is complete.
 
 Exit gate: canonical parity is active, old valid state remains readable, and
-the default Aurelia session is behaviorally unchanged.
+the default Aurelia session is behaviorally unchanged. PASS.
+
+Evidence:
+
+- Added tests/test_plugin_cutover.sh and the isolated
+  tests/fixtures/plugin-cutover/shell.qml probe.
+- The probe verifies first-party default enablement, third-party default
+  disablement, explicit third-party enablement/disablement, canonical default
+  bar selection, and canonical serialization without live state.
+- Representative legacy plugin strings, nested settings, and legacy bar
+  entries migrate through the real ShellConfig loader into canonical inline
+  state; the pre-migration file is preserved byte-for-byte as a recoverable
+  backup.
+- The second isolated run is byte-stable with no backup pollution. Existing
+  malformed-source fixtures continue to verify original-state preservation.
+- All first-party manifests remain on the canonical validated path, and
+  compatibility reads/aliases remain present for the migration window.
+- T27 cutover suite: 6 passed, 0 failed.
+- Full Aurelia suite: 527 passed, 0 failed.
+- Repository suite: 228 passed, 0 failed after the T27-only changes.
+- Repository-wide shell syntax: 233 scripts passed.
+- Shellcheck was not installed and was skipped.
+- No installer, packages, systemd/greetd state, live user configuration, or
+  reboot was touched.
+- Checkpoint: 86011a9 (chore(checkpoint): freeze compatibility cutover boundary).
 
 Dependencies: T24, T25, T26.
 
