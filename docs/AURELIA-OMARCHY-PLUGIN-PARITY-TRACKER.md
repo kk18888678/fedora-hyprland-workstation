@@ -3853,7 +3853,51 @@ Dependencies: T39, T03, T10, T12, T18, T24, T27, T31.
 
 ### T41. Implement persistent bar hiding, shortcut, and Menu Bar parity
 
-Execution status: NOT STARTED — queued behind T40
+Execution status: IN PROGRESS — CP2 recorded before implementation; CP3
+pending
+
+Checkpoint 2 — T41 pre-change boundary:
+
+- Starting branch/SHA: `installer-resilience` /
+  `e07ae3d429c389e26f08bd5f9f5bf54ac76251d0`; `git status --short` is clean.
+- Reference contract frozen from `/tmp/omarchy-reference` at branch `quattro`,
+  SHA `31bd80daa4613ffdee995ac27467fce5a2990806`: the reference uses an
+  XDG state marker, a resident bar sync IPC, a parent-directory watcher,
+  mapped-but-offscreen hiding with `ExclusionMode.Ignore`, and the exact
+  `Super + Shift + Space` toggle. Its menu vocabulary is `Menu Bar` with
+  visible/hidden state plus position and transparency controls.
+- Current Aurelia boundary: `Bar.qml` has only in-memory `barHidden` state and
+  already exposes the safe off-screen/exclusion geometry; the menu currently
+  has a flat `toggle-bar` action; the plugin keybinding loader merges
+  plugin-owned `keybindings.lua` declarations into the authoritative manifest;
+  T40's resident `ShellConfig` bar mutation API is the only configuration
+  owner.
+- Focused baseline: the T40 bar control-plane checks and existing placement/
+  settings checks pass together — `12` passed, `0` failed. The direct test
+  files require the shared runner helper and were therefore run through that
+  helper, not as standalone production commands.
+- Planned owned files: `plugins/aurelia.bar/Bar.qml`, the Aurelia bar state
+  writer/CLI boundary and its bar module, `plugins/aurelia.bar/keybindings.lua`,
+  `plugins/aurelia.menu/MenuModel.qml`, shipped menu data/UI only where needed,
+  T41 fixtures/tests/runner registration, and this tracker. No Power,
+  Bluetooth, installer, package, live configuration, systemd/greetd, or reboot
+  work is in scope.
+- State/mutation ownership: the marker is under the Aurelia XDG state
+  namespace and is written atomically by one validated user-level writer;
+  `Bar.qml` only reads/synchronizes it. Missing or malformed state defaults to
+  visible and emits an observable diagnostic. IPC/read failures remain
+  observable without making the host or healthy plugins fail to load.
+- Compatibility/rollback: retain the current visible default, existing
+  `aurelia.bar` IPC aliases, menu provider validation, all T40 commands, and
+  all existing plugin/user state. Rollback removes only the T41 writer,
+  watcher, keybinding, menu additions, fixtures, and tracker evidence.
+- Live-impact decision: no live shell restart, compositor mutation, user
+  configuration write, package operation, systemd/greetd change, or reboot is
+  required for implementation or isolated validation.
+
+CP2 status: `[x]` the T41 contract, baseline, file boundary, ownership,
+survivability behavior, and rollback path are recorded before source/test
+implementation.
 
 Scope:
 
