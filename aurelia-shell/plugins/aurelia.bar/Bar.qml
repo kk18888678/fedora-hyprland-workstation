@@ -66,11 +66,11 @@ PanelWindow {
         : (stateHome !== "" ? stateHome + "/aurelia/toggles/bar-off" : "")
     readonly property string hiddenStateDirectory: hiddenStatePath === ""
         ? "" : hiddenStatePath.substring(0, hiddenStatePath.lastIndexOf("/"))
-    readonly property string hiddenStateWatchPath: hiddenStateDirectoryPresent && hiddenStateDirectory !== ""
-        ? hiddenStateDirectory : stateHome
     readonly property string hiddenStateToolPath: aureliaPath !== "" && aureliaPath.charAt(0) === "/"
         ? aureliaPath + "/bin/aurelia-bar-hidden" : ""
     property bool hiddenStateDirectoryPresent: false
+    readonly property bool hiddenStateWatcherUnavailable: !!hiddenStateWatcher &&
+        hiddenStateWatcher.unavailable === true
     property bool hiddenStateSyncPending: false
     property string hiddenStateReadState: "uninitialized"
     property string hiddenStateReadError: ""
@@ -256,6 +256,12 @@ PanelWindow {
         hiddenStateDirectoryProbe.running = true
     }
 
+    function startHiddenStateWatcher() {
+        if (!hiddenStateDirectoryPresent || hiddenStateDirectory === "" ||
+            !hiddenStateWatcher) return
+        hiddenStateWatcher.start()
+    }
+
     function themeStatus() {
         return JSON.stringify({
             visible: barRoot.visible,
@@ -325,6 +331,8 @@ PanelWindow {
             var present = code === 0
             if (present !== barRoot.hiddenStateDirectoryPresent) {
                 barRoot.hiddenStateDirectoryPresent = present
+                if (present) barRoot.startHiddenStateWatcher()
+                else if (hiddenStateWatcher) hiddenStateWatcher.active = false
                 barRoot.syncHidden()
             }
         }
@@ -350,19 +358,11 @@ PanelWindow {
         }
     }
 
-    FileView {
-        id: hiddenStateDirectoryView
-        path: barRoot.hiddenStateWatchPath
-        watchChanges: true
-        blockWrites: true
-        // Missing state is represented by a valid visible default. The
-        // fallback path is the XDG state root; any watcher failure remains
-        // visible through FileView and the explicit diagnostic below.
-        printErrors: true
-        onFileChanged: barRoot.syncHidden()
-        onLoadFailed: {
-            if (barRoot.hiddenStateDirectoryPresent)
-                console.error("[BAR] hidden_state_watcher_failed path=" + barRoot.hiddenStateWatchPath)
+    property QtObject hiddenStateWatcher: BarHiddenWatcher {
+        directory: barRoot.hiddenStateDirectory
+        active: barRoot.hiddenStateDirectoryPresent
+        onSyncRequested: function(path) {
+            if (String(path || "") !== "") barRoot.syncHidden()
         }
     }
 
@@ -374,9 +374,22 @@ PanelWindow {
         onTriggered: barRoot.probeHiddenStateDirectory()
     }
 
+    Timer {
+        id: hiddenStateResyncTimer
+        interval: 1500
+        running: !barRoot.hiddenStateDirectoryPresent || barRoot.hiddenStateWatcherUnavailable
+        repeat: true
+        onTriggered: {
+            barRoot.syncHidden()
+            barRoot.probeHiddenStateDirectory()
+            if (barRoot.hiddenStateDirectoryPresent) barRoot.startHiddenStateWatcher()
+        }
+    }
+
     Component.onCompleted: {
         barRoot.syncHidden()
         barRoot.probeHiddenStateDirectory()
+        if (barRoot.hiddenStateDirectoryPresent) barRoot.startHiddenStateWatcher()
     }
 
     Rectangle {

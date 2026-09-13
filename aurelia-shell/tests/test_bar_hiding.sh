@@ -10,6 +10,7 @@ section "Aurelia Persistent Bar Hiding"
 
 bar_root="$ROOT/plugins/aurelia.bar"
 bar_file="$bar_root/Bar.qml"
+watcher_file="$bar_root/BarHiddenWatcher.qml"
 bar_module="$ROOT/bin/lib/aurelia-plugin/bar.sh"
 hidden_module="$ROOT/bin/lib/aurelia-plugin/hidden.sh"
 hidden_writer="$ROOT/bin/aurelia-bar-hidden"
@@ -29,14 +30,18 @@ else
     fail "[static] bar-hidden command boundary or on/off/toggle vocabulary is incomplete"
 fi
 
-if grep -Fq 'hiddenStatePath' "$bar_file" &&
+if [[ -f "$watcher_file" ]] &&
+   grep -Fq 'hiddenStatePath' "$bar_file" &&
    grep -Fq 'hiddenStateDirectory' "$bar_file" &&
-   grep -Fq 'watchChanges: true' "$bar_file" &&
+   grep -Fq 'hiddenStateWatcher' "$bar_file" &&
+   grep -Fq 'inotifywait' "$watcher_file" &&
+   grep -Fq 'SplitParser' "$watcher_file" &&
    grep -Fq 'syncHidden' "$bar_file" &&
+   grep -Fq 'hidden_state_watcher_failed' "$watcher_file" &&
    grep -Fq 'ExclusionMode.Ignore' "$bar_file" &&
    grep -Fq 'visible: true' "$bar_file" &&
-   ! grep -Eq 'printErrors:[[:space:]]*false' "$bar_file"; then
-    pass "[static] bar hiding keeps the resident surface mapped, watches its parent, and leaves diagnostics enabled"
+   ! grep -Fq 'FileView' "$bar_file"; then
+    pass "[static] bar hiding uses the runtime-supported parent watcher, keeps the surface mapped, and leaves diagnostics enabled"
 else
     fail "[static] resident bar hidden-state watcher or truthful diagnostic boundary is incomplete"
 fi
@@ -194,6 +199,57 @@ if [[ "$rapid_status" -eq 0 && "$(run_hidden read)" == "hidden" &&
     pass "[isolated-state] rapid sequential transitions converge with no atomic staging residue"
 else
     fail "[isolated-state] rapid transitions left incorrect state or staging residue"
+fi
+
+if [[ -x /usr/bin/inotifywait ]]; then
+    watch_root="$state_root/watch"
+    watch_log="$state_root/watch.log"
+    mkdir -p -- "$watch_root"
+    watch_status=0
+    /usr/bin/timeout --kill-after=1s 3s /usr/bin/inotifywait -m -q \
+        -e close_write,create,delete,move --format '%e %f' "$watch_root" \
+        >"$watch_log" 2>&1 &
+    watch_pid=$!
+    sleep 0.1
+    printf '%s\n' hidden >"$watch_root/bar-off"
+    rm -f -- "$watch_root/bar-off"
+    wait "$watch_pid" || watch_status=$?
+    if [[ "$watch_status" -eq 124 ]] &&
+       grep -Eq 'CREATE.*bar-off|CLOSE_WRITE.*bar-off|DELETE.*bar-off' "$watch_log"; then
+        pass "[isolated-state] parent-directory event stream observes first creation and removal of the hidden marker"
+    else
+        fail "[isolated-state] parent-directory watcher did not observe hidden-marker transitions"
+    fi
+else
+    skip "[isolated-state] parent-directory watcher event stream (inotifywait unavailable)"
+fi
+
+watcher_runtime_root="$state_root/watcher-runtime"
+mkdir -p -- "$watcher_runtime_root/runtime" "$watcher_runtime_root/state" \
+    "$watcher_runtime_root/config" "$watcher_runtime_root/cache" \
+    "$watcher_runtime_root/events"
+watcher_result="$watcher_runtime_root/result.json"
+watcher_log="$watcher_runtime_root/runtime.log"
+watcher_status=0
+AURELIA_BAR_WATCHER_SOURCE="file://$watcher_file" \
+AURELIA_BAR_WATCHER_DIRECTORY="$watcher_runtime_root/events" \
+AURELIA_BAR_WATCHER_RESULT="$watcher_result" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$watcher_runtime_root/runtime" \
+XDG_STATE_HOME="$watcher_runtime_root/state" \
+XDG_CONFIG_HOME="$watcher_runtime_root/config" \
+XDG_CACHE_HOME="$watcher_runtime_root/cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/bar-hiding/watcher.qml" >"$watcher_log" 2>&1 || watcher_status=$?
+if [[ "$watcher_status" -eq 0 ]] && [[ -s "$watcher_result" ]] &&
+   jq -e '.loaded == true and .watcherAvailable == true and .syncEvents >= 2' \
+       "$watcher_result" >/dev/null 2>&1 &&
+   runtime_log_is_environment_only "$watcher_log"; then
+    pass "[isolated-runtime] the real parent-directory watcher observes marker creation/removal without a PanelWindow"
+else
+    details="$(tail -n 40 "$watcher_log" 2>/dev/null || true)"
+    if [[ -s "$watcher_result" ]]; then details="$details result=$(tr '\n' ' ' <"$watcher_result")"; fi
+    fail "[isolated-runtime] parent-directory watcher fixture failed (status=$watcher_status): $details"
 fi
 
 sync_failure_status=0
