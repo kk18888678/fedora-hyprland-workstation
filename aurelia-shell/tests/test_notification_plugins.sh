@@ -130,6 +130,11 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'function dismissAll' "$plugin_root/Service.qml" &&
    grep -q 'function publishScreenshot' "$plugin_root/Service.qml" &&
    grep -q 'property var liveSnapshots' "$plugin_root/Service.qml" &&
+   grep -q 'function identityKey' "$plugin_root/Service.qml" &&
+   grep -q 'Logic.identityKey' "$plugin_root/Service.qml" &&
+   grep -q 'function liveKeyForOriginalId' "$plugin_root/Service.qml" &&
+   grep -q 'function removeLiveRowByKey' "$plugin_root/Service.qml" &&
+   ! grep -q 'liveSnapshots\[originalId\]' "$plugin_root/Service.qml" &&
    grep -q 'property alias popupModel' "$plugin_root/Service.qml" &&
    grep -q 'ListModel { id: popupNotificationsModel }' "$plugin_root/Service.qml" &&
    grep -q 'function removePopupByIdentity' "$plugin_root/Service.qml" &&
@@ -170,6 +175,9 @@ if grep -q 'property bool testMode' "$plugin_root/Service.qml" &&
    grep -q 'function emitCardDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'popupSourceMode' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'dismissPopupAt' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
+   [[ -f "$ROOT/tests/fixtures/notifications/identity-collision.qml" ]] &&
+   grep -q 'liveFirst' "$ROOT/tests/fixtures/notifications/identity-collision.qml" &&
+   grep -q 'popupMalformedCovered' "$ROOT/tests/fixtures/notifications/identity-collision.qml" &&
    grep -q 'function onDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'service.dismissAt' "$ROOT/tests/fixtures/notifications/dismissal.qml"; then
     pass "[static] notification dismissal has a production-Service fixture boundary without live bus or desktop ownership"
@@ -297,6 +305,13 @@ if (logic.parseSettings('{bad').ok) process.exit(1);
 if (logic.isRenderableHistoryEntry({ summary: "" })) process.exit(1);
 if (!logic.isRenderableHistoryEntry({ summary: "Agent complete" })) process.exit(1);
 if (logic.historyKey({ originalId: 2, timestamp: 10 }) !== "10|2") process.exit(1);
+if (logic.identityKey(1, 100) !== "100|1") process.exit(1);
+if (logic.identityKey("1", "100") !== logic.identityKey(1, 100)) process.exit(1);
+if (logic.identityKey(1, 0) !== "" || logic.identityKey(undefined, 100) !== "") process.exit(1);
+const repeatedIdentityA = logic.snapshotOf({ id: 1, appName: "ChatGPT", summary: "A" }, 100);
+const repeatedIdentityB = logic.snapshotOf({ id: 1, appName: "ChatGPT", summary: "B" }, 200);
+if (logic.identityKey(repeatedIdentityA.originalId, repeatedIdentityA.timestamp) ===
+    logic.identityKey(repeatedIdentityB.originalId, repeatedIdentityB.timestamp)) process.exit(1);
 if (logic.busOwnerPid("NAME=org.freedesktop.Notifications\nPID=1234\n") !== 1234) process.exit(1);
 if (logic.busOwnerPid("NAME=org.freedesktop.Notifications\nPID=0\n") !== 0) process.exit(1);
 if (logic.styledBody('<b>bold</b>\n<img src="https://example.invalid/x">second', 'Chromium', '') !== '<b>bold</b><br/>second') process.exit(1);
@@ -473,4 +488,49 @@ else
     details="$(tail -n 48 "$dismissal_log" 2>/dev/null || true)"
     if [[ -s "$dismissal_result" ]]; then details="$details result=$(tr '\n' ' ' <"$dismissal_result")"; fi
     fail "[isolated-runtime] notification cross-button dismissal fixture failed (status=$dismissal_status): $details"
+fi
+
+collision_root="$(mktemp -d)"
+trap 'rm -rf -- "$collision_root" 2>/dev/null || true' RETURN
+mkdir -p -- "$collision_root/runtime" "$collision_root/state" \
+    "$collision_root/config" "$collision_root/cache"
+collision_result="$collision_root/result.json"
+collision_log="$collision_root/runtime.log"
+collision_status=0
+AURELIA_NOTIFICATION_COLLISION_RESULT="$collision_result" \
+AURELIA_NOTIFICATION_COLLISION_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+AURELIA_NOTIFICATION_COLLISION_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$collision_root/runtime" \
+XDG_STATE_HOME="$collision_root/state" \
+XDG_CONFIG_HOME="$collision_root/config" \
+XDG_CACHE_HOME="$collision_root/cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/notifications/identity-collision.qml" --no-color \
+    >"$collision_log" 2>&1 || collision_status=$?
+
+collision_completed=0
+if [[ "$collision_status" -eq 0 ]]; then
+    collision_completed=1
+elif [[ "$collision_status" -eq 124 && -s "$collision_result" ]] &&
+     grep -Fq 'Signal QQmlEngine::quit() emitted' "$collision_log"; then
+    collision_completed=1
+fi
+if [[ "$collision_completed" -eq 1 ]] && [[ -s "$collision_result" ]] &&
+   runtime_log_is_environment_only "$collision_log" &&
+   ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$collision_log" &&
+   jq -e '.loaded == true and .phase == 4 and .activeCount == 0 and
+          .popupCount == 0 and .historyCount == 3 and .popupFiles == 0 and
+          .historyFiles == 3 and
+          .historySummaries == ["live-two", "restored-a", "restored-b"] and
+          .popupMalformedCovered == true and
+          .secondPopupMalformedCovered == true and
+          .replacementPreservedRestored == true and
+          .firstDismissCalls == 1 and .secondDismissCalls == 1' \
+       "$collision_result" >/dev/null; then
+    pass "[isolated-runtime] repeated numeric notification IDs retain composite identity across restored rows, replacement, and popup dismissal"
+else
+    details="$(tail -n 48 "$collision_log" 2>/dev/null || true)"
+    if [[ -s "$collision_result" ]]; then details="$details result=$(tr '\n' ' ' <"$collision_result")"; fi
+    fail "[isolated-runtime] repeated notification identity collision fixture failed (status=$collision_status): $details"
 fi

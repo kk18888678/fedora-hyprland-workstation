@@ -44,6 +44,13 @@ function finiteNumber(value, fallback) {
     return isFinite(number) ? number : fallback
 }
 
+function identityKey(originalId, timestamp) {
+    var id = Number(originalId)
+    var stamp = Number(timestamp)
+    if (!isFinite(id) || !isFinite(stamp) || stamp <= 0) return ""
+    return String(stamp) + "|" + String(id)
+}
+
 function isChromiumDerived(app, appIcon) {
     var source = (String(app || "") + "\n" + String(appIcon || "")).toLowerCase()
     return source.indexOf("chrom") >= 0 || source.indexOf("brave") >= 0 ||
@@ -605,6 +612,7 @@ if (typeof module !== "undefined") {
         parseExecArgv: parseExecArgv,
         shouldRenderCompactGlyph: shouldRenderCompactGlyph,
         snapshotOf: snapshotOf,
+        identityKey: identityKey,
         popupEntry: popupEntry,
         popupFileName: popupFileName,
         imageStem: imageStem,

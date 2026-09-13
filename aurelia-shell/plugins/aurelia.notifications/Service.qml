@@ -207,7 +207,8 @@ Item {
         if (!snapshot || popupStateDir === "") return
         var fileName = Logic.popupFileName(snapshot)
         if (fileName === "") {
-            console.error("[NOTIFICATIONS] popup.persist_skipped reason=invalid_identity")
+            console.error("[NOTIFICATIONS] popup.persist_skipped reason=invalid_identity id=" +
+                String(snapshot.originalId) + " timestamp=" + String(snapshot.timestamp))
             return
         }
         var persistable = Logic.persistablePopup(snapshot, imagesDir)
@@ -221,7 +222,8 @@ Item {
         if (!snapshot || historyDir === "") return
         var fileName = Logic.popupFileName(snapshot)
         if (fileName === "") {
-            console.error("[NOTIFICATIONS] popup.archive_skipped reason=invalid_identity")
+            console.error("[NOTIFICATIONS] popup.archive_skipped reason=invalid_identity id=" +
+                String(snapshot.originalId) + " timestamp=" + String(snapshot.timestamp))
             return
         }
         enqueuePopupFileJob(FileLogic.archivePopup(
@@ -233,7 +235,8 @@ Item {
         if (!snapshot || historyDir === "") return
         var fileName = Logic.popupFileName(snapshot)
         if (fileName === "") {
-            console.error("[NOTIFICATIONS] history.write_skipped reason=invalid_identity")
+            console.error("[NOTIFICATIONS] history.write_skipped reason=invalid_identity id=" +
+                String(snapshot.originalId) + " timestamp=" + String(snapshot.timestamp))
             return
         }
         var persistable = Logic.persistablePopup(snapshot, imagesDir)
@@ -438,12 +441,21 @@ Item {
         return -1
     }
 
+    function identityKey(originalId, timestamp) {
+        return Logic.identityKey(originalId, timestamp)
+    }
+
     function hasUsableIdentity(originalId, timestamp) {
-        if (originalId === undefined || originalId === null ||
-            timestamp === undefined || timestamp === null) return false
-        var id = Number(originalId)
-        var stamp = Number(timestamp)
-        return isFinite(id) && isFinite(stamp) && stamp > 0
+        return service.identityKey(originalId, timestamp) !== ""
+    }
+
+    function liveKeyForOriginalId(originalId) {
+        var wantedId = String(originalId)
+        for (var key in liveRefs) {
+            var snapshot = liveSnapshots[key]
+            if (snapshot && String(snapshot.originalId) === wantedId) return key
+        }
+        return ""
     }
 
     function removePopupByIdentity(originalId, timestamp) {
@@ -457,30 +469,20 @@ Item {
         return false
     }
 
-    function removePopupByOriginalId(originalId) {
-        var removed = false
-        for (var i = popupNotificationsModel.count - 1; i >= 0; i--) {
-            var row = popupNotificationsModel.get(i)
-            if (!row || row.originalId !== originalId) continue
-            popupNotificationsModel.remove(i)
-            removed = true
-        }
-        return removed
-    }
-
     function insertPopupSnapshot(snapshot) {
-        if (!snapshot || !Logic.hasPopupIdentity(snapshot)) return
+        if (!snapshot || !service.hasUsableIdentity(snapshot.originalId, snapshot.timestamp)) return
         if (modelIndexByIdentity(popupNotificationsModel, snapshot.originalId, snapshot.timestamp) >= 0) return
         popupNotificationsModel.insert(0, snapshot)
     }
 
-    function updateModelRows(model, updated, originalId) {
+    function updateModelRows(model, updated, originalId, timestamp) {
         if (!model || !updated) return 0
         var roles = ["app", "appIcon", "desktopEntry", "summary", "body", "image", "glyph", "execArgv", "actions", "defaultActionText", "urgency", "expireTimeout", "deadline", "transient"]
         var changed = 0
         for (var i = 0; i < model.count; i++) {
             var row = model.get(i)
-            if (!row || row.originalId !== originalId) continue
+            if (!row || String(row.originalId) !== String(originalId) ||
+                Number(row.timestamp) !== Number(timestamp)) continue
             updated.id = row.id
             updated.originalId = row.originalId
             updated.timestamp = row.timestamp
@@ -566,7 +568,7 @@ Item {
     function recordHistory(snapshot, persist) {
         var entry = Logic.historyEntry(snapshot)
         if (!Logic.isRenderableHistoryEntry(entry)) return
-        if (!Logic.hasPopupIdentity(entry)) {
+        if (!service.hasUsableIdentity(entry.originalId, entry.timestamp)) {
             console.error("[NOTIFICATIONS] history.record_skipped reason=invalid_identity")
             return false
         }
@@ -585,33 +587,43 @@ Item {
         return true
     }
 
-    function removeActiveById(originalId) {
+    function removeLiveRowByKey(liveKey, snapshot) {
+        if (liveKey === "" || !snapshot ||
+            !service.hasUsableIdentity(snapshot.originalId, snapshot.timestamp)) return
         for (var i = activeNotificationsModel.count - 1; i >= 0; i--) {
             var row = activeNotificationsModel.get(i)
-            if (row && row.originalId === originalId && !isRestoredPopup(row)) {
-                if (!removePopupByIdentity(row.originalId, row.timestamp)) removePopupByOriginalId(originalId)
+            if (row && String(row.originalId) === String(snapshot.originalId) &&
+                Number(row.timestamp) === Number(snapshot.timestamp) && !isRestoredPopup(row)) {
+                // Materialize the role object before removing it; ListModel
+                // invalidates its fields once the row leaves the model.
+                var rowSnapshot = Logic.popupEntry(row, 1)
+                removePopupByIdentity(rowSnapshot.originalId, rowSnapshot.timestamp)
                 activeNotificationsModel.remove(i)
-                deletePopupFileFor(row)
+                deletePopupFileFor(rowSnapshot)
             }
         }
+        delete liveRefs[liveKey]
+        delete liveSnapshots[liveKey]
     }
 
-    function updateActive(notification, originalId) {
-        if (!notification || liveRefs[originalId] !== notification) return
+    function updateActive(notification, liveKey) {
+        if (!notification || liveRefs[liveKey] !== notification) return
+        var current = liveSnapshots[liveKey]
+        if (!current || !service.hasUsableIdentity(current.originalId, current.timestamp)) return
         var updated
-        try { updated = Logic.snapshotOf(notification, Date.now()) }
+        try { updated = Logic.snapshotOf(notification, current.timestamp) }
         catch (error) { return }
-        var activeChanged = updateModelRows(activeNotificationsModel, updated, originalId)
-        var popupChanged = updateModelRows(popupNotificationsModel, updated, originalId)
+        var activeChanged = updateModelRows(activeNotificationsModel, updated, current.originalId, current.timestamp)
+        var popupChanged = updateModelRows(popupNotificationsModel, updated, current.originalId, current.timestamp)
         if (activeChanged > 0 || popupChanged > 0) {
-            liveSnapshots[originalId] = updated
+            liveSnapshots[liveKey] = updated
             persistPopupFile(updated)
         }
     }
 
-    function watchForUpdates(notification, originalId) {
+    function watchForUpdates(notification, liveKey) {
         var signals = ["summaryChanged", "bodyChanged", "appNameChanged", "appIconChanged", "imageChanged", "actionsChanged", "hintsChanged", "urgencyChanged", "expireTimeoutChanged"]
-        function refresh() { service.updateActive(notification, originalId) }
+        function refresh() { service.updateActive(notification, liveKey) }
         for (var i = 0; i < signals.length; i++) {
             var signal = notification[signals[i]]
             if (signal && typeof signal.connect === "function") signal.connect(refresh)
@@ -634,20 +646,32 @@ Item {
             return
         }
         var originalId = snapshot.originalId
-        var previous = liveRefs[originalId]
-        liveRefs[originalId] = notification
-        liveSnapshots[originalId] = snapshot
-        if (previous && previous !== notification) {
+        var liveKey = service.identityKey(originalId, snapshot.timestamp)
+        if (liveKey === "") {
+            try { notification.tracked = false } catch (releaseError) {}
+            console.error("[NOTIFICATIONS] notification.rejected reason=invalid_identity")
+            return
+        }
+        var previousKey = service.liveKeyForOriginalId(originalId)
+        var previous = previousKey !== "" ? liveRefs[previousKey] : null
+        var previousSnapshot = previousKey !== "" ? liveSnapshots[previousKey] : null
+        if (previousKey !== "" && previousKey !== liveKey) {
+            // A sender replacement may reuse its numeric id. Remove only the
+            // prior live composite row; restored rows from an earlier shell
+            // generation are independent notifications.
+            service.removeLiveRowByKey(previousKey, previousSnapshot)
             try {
-                if (typeof previous.dismiss === "function") previous.dismiss()
-                previous.tracked = false
+                if (previous && typeof previous.dismiss === "function") previous.dismiss()
+                if (previous) previous.tracked = false
             } catch (replaceError) {}
         }
+        liveRefs[liveKey] = notification
+        liveSnapshots[liveKey] = snapshot
 
         if (notification.closed && typeof notification.closed.connect === "function") {
             notification.closed.connect(function() {
-                if (service.liveRefs[originalId] !== notification) return
-                var closedSnapshot = service.liveSnapshots[originalId]
+                if (service.liveRefs[liveKey] !== notification) return
+                var closedSnapshot = service.liveSnapshots[liveKey]
                 if (closedSnapshot && service.isManualInboxEntry(closedSnapshot)) {
                     // Sender-side closure must not mark a normal Inbox row as
                     // read. It only removes the transient popup; the user can
@@ -658,7 +682,8 @@ Item {
                     var removed = false
                     for (var i = service.activeModel.count - 1; i >= 0; i--) {
                         var row = service.activeModel.get(i)
-                        if (row && row.originalId === originalId) {
+                        if (row && String(row.originalId) === String(originalId) &&
+                            Number(row.timestamp) === Number(closedSnapshot ? closedSnapshot.timestamp : 0)) {
                             removed = true
                             if (closedSnapshot) service.removeAt(i, "dismiss", originalId, closedSnapshot.timestamp)
                             else service.removeAt(i, "dismiss")
@@ -666,24 +691,24 @@ Item {
                     }
                     if (!removed && closedSnapshot) service.recordHistory(closedSnapshot)
                 }
-                delete service.liveRefs[originalId]
+                delete service.liveRefs[liveKey]
+                delete service.liveSnapshots[liveKey]
             })
         }
 
         if (doNotDisturb && !Logic.shouldBypassDnd(notification, 2)) {
             if (!Logic.isEphemeralApp(snapshot.app) && !isTransient(notification)) recordHistory(snapshot)
-            delete liveRefs[originalId]
-            delete liveSnapshots[originalId]
+            delete liveRefs[liveKey]
+            delete liveSnapshots[liveKey]
             try { notification.tracked = false } catch (releaseError) {}
             console.info("[NOTIFICATIONS] notification.silenced app=" + snapshot.app)
             return
         }
 
         persistPopupFile(snapshot)
-        removeActiveById(originalId)
         activeNotificationsModel.insert(0, snapshot)
         insertPopupSnapshot(snapshot)
-        watchForUpdates(notification, originalId)
+        watchForUpdates(notification, liveKey)
         console.info("[NOTIFICATIONS] notification.received app=" + snapshot.app + " actions=" + snapshot.actions.length)
     }
 
@@ -695,14 +720,26 @@ Item {
         var lookupId = hasExpectedIdentity
             ? expectedOriginalId
             : (entry && entry.originalId !== undefined ? entry.originalId : -1)
-        var liveSnapshot = liveSnapshots[lookupId]
-        var entryIdentity = entry && Logic.hasPopupIdentity(entry) ? entry : null
-        var liveIdentity = liveSnapshot && Logic.hasPopupIdentity(liveSnapshot) ? liveSnapshot : null
+        var lookupTimestamp = hasExpectedIdentity
+            ? expectedTimestamp
+            : (entry ? entry.timestamp : 0)
+        var liveKey = service.identityKey(lookupId, lookupTimestamp)
+        var liveSnapshot = liveKey !== "" ? liveSnapshots[liveKey] : null
+        var entryHasIdentity = entry && service.hasUsableIdentity(entry.originalId, entry.timestamp)
+        // ListModel.get() returns a live role object. Materialize it before
+        // removing the model row; otherwise its roles can become undefined
+        // before history/archive serialization runs.
+        var entryIdentity = entryHasIdentity ? Logic.popupEntry(entry, 1) : null
+        var liveIdentity = liveSnapshot && service.hasUsableIdentity(liveSnapshot.originalId, liveSnapshot.timestamp) ? liveSnapshot : null
         var historySnapshot = liveIdentity || entryIdentity
         var archiveSnapshot = historySnapshot
         var originalId = archiveSnapshot ? archiveSnapshot.originalId : lookupId
+        var archiveKey = archiveSnapshot
+            ? service.identityKey(archiveSnapshot.originalId, archiveSnapshot.timestamp)
+            : liveKey
         var restored = isRestoredPopup(archiveSnapshot)
-        var reference = restored ? null : liveRefs[originalId]
+        var reference = restored ? null : liveRefs[archiveKey]
+        var entryRenderable = entry && Logic.isRenderableHistoryEntry(entry)
         activeNotificationsModel.remove(index)
         if (archiveSnapshot) removePopupByIdentity(originalId, archiveSnapshot.timestamp)
         if (historySnapshot) {
@@ -711,7 +748,7 @@ Item {
             // file. This is the fallback when the original persistence job
             // failed or the popup was dismissed before it completed.
             writeHistoryFile(historySnapshot)
-        } else if (entry && Logic.isRenderableHistoryEntry(entry)) {
+        } else if (entryRenderable) {
             console.error("[NOTIFICATIONS] dismiss.persistence_skipped reason=invalid_identity")
         }
         if (archiveSnapshot) archivePopupFileFor(archiveSnapshot)
@@ -724,8 +761,8 @@ Item {
                 // A sender may have already closed the object.
             }
         }
-        if (liveRefs[originalId] === reference) delete liveRefs[originalId]
-        delete liveSnapshots[originalId]
+        if (liveRefs[archiveKey] === reference) delete liveRefs[archiveKey]
+        delete liveSnapshots[archiveKey]
     }
 
     function removeByIdentity(originalId, timestamp, reason, indexHint) {
@@ -764,7 +801,7 @@ Item {
         }
         if (index < 0 || index >= activeNotificationsModel.count) return "none"
         var row = activeNotificationsModel.get(index)
-        if (row && Logic.hasPopupIdentity(row)) {
+        if (row && service.hasUsableIdentity(row.originalId, row.timestamp)) {
             removeAt(index, "dismiss", row.originalId, row.timestamp)
             console.info("[NOTIFICATIONS] popup.identity_recovered index=" + index)
         } else {
@@ -785,7 +822,7 @@ Item {
         // resolving the corresponding active row. Never reinterpret a popup
         // index as an active-model index after delegate identity loss.
         var popupRow = popupNotificationsModel.get(index)
-        if (!popupRow || !Logic.hasPopupIdentity(popupRow)) {
+        if (!popupRow || !service.hasUsableIdentity(popupRow.originalId, popupRow.timestamp)) {
             console.error("[NOTIFICATIONS] popup.dismiss_skipped reason=invalid_identity")
             return "invalid"
         }
@@ -813,7 +850,8 @@ Item {
         var popupEntry = popupNotificationsModel.get(popupIndex)
         var popupId = identityProvided ? originalId : (popupEntry ? popupEntry.originalId : -1)
         var popupTimestamp = identityProvided ? timestamp : (popupEntry ? popupEntry.timestamp : 0)
-        var snapshot = liveSnapshots[popupId] || popupEntry
+        var popupKey = service.identityKey(popupId, popupTimestamp)
+        var snapshot = (popupKey !== "" ? liveSnapshots[popupKey] : null) || popupEntry
         if (isManualInboxEntry(snapshot)) {
             // Expiry is only for the passive toast. Inbox ownership remains
             // with the user until an explicit per-notification action.
@@ -869,8 +907,11 @@ Item {
         for (var i = activeNotificationsModel.count - 1; i >= 0; i--) {
             var row = activeNotificationsModel.get(i)
             if (row && row.originalId === originalId) {
-                var snapshot = liveSnapshots[originalId]
-                if (snapshot) removeAt(i, reason, originalId, snapshot.timestamp)
+                var rowKey = service.identityKey(row.originalId, row.timestamp)
+                var snapshot = rowKey !== "" ? liveSnapshots[rowKey] : null
+                if (snapshot) removeAt(i, reason, snapshot.originalId, snapshot.timestamp)
+                else if (service.hasUsableIdentity(row.originalId, row.timestamp))
+                    removeAt(i, reason, row.originalId, row.timestamp)
                 else removeAt(i, reason)
                 return true
             }
@@ -878,7 +919,7 @@ Item {
         return false
     }
 
-    function activeIndexForIdentity(originalId, timestamp, indexHint) {
+    function activeIndexForIdentity(originalId, timestamp) {
         if (!service.hasUsableIdentity(originalId, timestamp)) return -1
         var wantedId = String(originalId)
         var wantedTimestamp = Number(timestamp)
@@ -886,7 +927,6 @@ Item {
             var row = activeNotificationsModel.get(i)
             if (row && String(row.originalId) === wantedId && Number(row.timestamp) === wantedTimestamp) return i
         }
-        if (indexHint !== undefined && indexHint >= 0 && indexHint < activeNotificationsModel.count) return indexHint
         return -1
     }
 
@@ -1037,13 +1077,15 @@ Item {
 
     function invokeAction(index, identifier, originalId, timestamp) {
         if (arguments.length >= 4) {
-            index = activeIndexForIdentity(originalId, timestamp, index)
+            index = activeIndexForIdentity(originalId, timestamp)
             if (index < 0) return "none"
         }
         if (index < 0 || index >= activeNotificationsModel.count) return "none"
         var entry = activeNotificationsModel.get(index)
         var resolvedOriginalId = entry && entry.originalId !== undefined ? entry.originalId : originalId
-        var reference = liveRefs[resolvedOriginalId]
+        var resolvedTimestamp = entry && Number(entry.timestamp) > 0 ? entry.timestamp : timestamp
+        var actionKey = service.identityKey(resolvedOriginalId, resolvedTimestamp)
+        var reference = actionKey !== "" ? liveRefs[actionKey] : null
         if (!reference || !reference.actions) return "unavailable"
         for (var i = 0; i < reference.actions.length; i++) {
             var action = reference.actions[i]
@@ -1051,7 +1093,7 @@ Item {
                 var route = Logic.workspaceRouteData(reference, entry)
                 action.invoke()
                 service.startWorkspaceRoute(route)
-                removeByIdentity(resolvedOriginalId, entry && Number(entry.timestamp) > 0 ? entry.timestamp : timestamp, "action", index)
+                removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
                 return "ok"
             }
         }
@@ -1060,14 +1102,15 @@ Item {
 
     function invokeDefault(index, originalId, timestamp) {
         if (arguments.length >= 3) {
-            index = activeIndexForIdentity(originalId, timestamp, index)
+            index = activeIndexForIdentity(originalId, timestamp)
             if (index < 0) return "none"
         }
         if (index < 0 || index >= activeNotificationsModel.count) return "none"
         var entry = activeNotificationsModel.get(index)
         var resolvedOriginalId = entry && entry.originalId !== undefined ? entry.originalId : originalId
-        var fallbackEntry = service.liveSnapshots[resolvedOriginalId] || entry
         var resolvedTimestamp = entry && Number(entry.timestamp) > 0 ? entry.timestamp : timestamp
+        var actionKey = service.identityKey(resolvedOriginalId, resolvedTimestamp)
+        var fallbackEntry = (actionKey !== "" ? service.liveSnapshots[actionKey] : null) || entry
         var argv = Logic.parseExecArgv(fallbackEntry ? fallbackEntry.execArgv : "")
         if (argv) {
             var execRoute = Logic.workspaceRouteData(fallbackEntry, entry)
@@ -1076,7 +1119,7 @@ Item {
             removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
             return "ok"
         }
-        var reference = liveRefs[resolvedOriginalId]
+        var reference = actionKey !== "" ? liveRefs[actionKey] : null
         if (reference && reference.actions) {
             for (var i = 0; i < reference.actions.length; i++) {
                 var action = reference.actions[i]
@@ -1184,7 +1227,9 @@ Item {
     function publishScreenshot(path) {
         var snapshot = Logic.screenshotSnapshot(path, Date.now())
         if (!snapshot) return "invalid-path"
-        liveSnapshots[snapshot.originalId] = snapshot
+        var screenshotKey = service.identityKey(snapshot.originalId, snapshot.timestamp)
+        if (screenshotKey === "") return "invalid-identity"
+        liveSnapshots[screenshotKey] = snapshot
         persistPopupFile(snapshot)
         activeNotificationsModel.insert(0, snapshot)
         insertPopupSnapshot(snapshot)
