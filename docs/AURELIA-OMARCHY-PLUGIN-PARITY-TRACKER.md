@@ -2,11 +2,11 @@
 
 Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
-bar control-plane work, and T41 persistent bar hiding are complete only for
-their repository/static/isolated evidence; corrective runtime/test-truth
-tasks T43–T45 are now in progress before T42 final acceptance. T34 records
-the Bluetooth discovery-retention issue and remains not started, T30 remains
-queued as the separately requested plugin-local test-directory task, and live
+bar control-plane work, T41 persistent bar hiding, and corrective T43–T45
+runtime/test-truth work are complete for repository/static/headless evidence;
+T42 is next for final acceptance. T34 records the Bluetooth
+discovery-retention issue and remains not started, T30 remains queued as the
+separately requested plugin-local test-directory task, and live
 visual/integration validation remains deferred pending explicit authorization.
 
 ## Objective
@@ -4173,8 +4173,8 @@ Dependencies: T39, T43, T02A, T31, T33.
 
 ### T45. Correct the Aurelia bar hidden-state watcher contract
 
-Execution status: IN PROGRESS — CP2 recorded before implementation; CP3
-pending
+Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
+headless runtime evidence; live Wayland confirmation remains deferred
 
 Checkpoint 2 — T45 pre-change boundary:
 
@@ -4213,12 +4213,37 @@ Scope:
 
 Required tests:
 
-- [ ] Static/runtime checks prove no directory is passed to a file-only reader.
-- [ ] Missing parent, first creation, rapid update, malformed state, and
+- [x] Static/runtime checks prove no directory is passed to a file-only reader.
+- [x] Missing parent, first creation, rapid update, malformed state, and
   watcher failure cases are covered without warning suppression.
-- [ ] Real bar fixture passes when a PanelWindow backend is available; the
+- [x] Real bar fixture passes when a PanelWindow backend is available; the
   unavailable-backend path is an explicit skip subject to T43 log validation.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+- [x] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Checkpoint 3 — T45 post-change evidence:
+
+- T45 focused bar-hiding suite: `test_bar_hiding.sh` — `17` assertions
+  passed, `0` failed, and `1` explicit PanelWindow backend path was skipped.
+  The real `BarHiddenWatcher` QObject observed marker creation/removal in a
+  headless QuickShell fixture; the old directory `FileView` path is gone.
+- The skipped real bar fixture printed only the approved IPC/PanelWindow
+  environment diagnostics through T43's classifier. The live bar surface,
+  exclusion transition, and compositor geometry remain separately unverified.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — `605` passed, `10`
+  skipped, `0` failed.
+- Repository functional suite: `./tests/run.sh` — `228` passed, `0` failed.
+- Syntax: repository-wide `bash -n` — `245` shell scripts passed.
+- ShellCheck: T45-owned shell tests and the T43 framework files are clean;
+  unrelated older test/installer findings remain classified.
+- Implementation commit: `aa88ad41388b21a42b07c767f01a527f29d887b3`;
+  pre-change tracker checkpoint: `6a4b998`.
+- Preservation evidence: XDG state ownership, atomic writer behavior, exact
+  shortcut, Menu Bar controls, mapped bar surface, widget routing, Power,
+  Bluetooth, installer, package, systemd/greetd, user configuration, and
+  reboot boundaries remain unchanged.
+
+CP3 status: `[x]` the runtime-supported parent watcher and headless event
+contract are complete; live Wayland visual confirmation remains pending.
 
 Exit gate: the live `Bar.qml:353` watcher warning is eliminated without
 silencing diagnostics, and hidden-bar state remains recoverable and resident.
@@ -4229,7 +4254,7 @@ Dependencies: T41, T43, T02A, T31, T33.
 
 ### T42. Requested capability integration and final acceptance gate
 
-Execution status: NOT STARTED — blocked behind corrective T43 through T45
+Execution status: NOT STARTED — queued behind completed corrective T43 through T45
 
 Scope:
 
@@ -4366,7 +4391,7 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T43; live
+Repository-only plugin parity work is complete through T45; live
 visual/integration validation is deferred pending explicit authorization.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
@@ -4379,24 +4404,23 @@ T40 implementation branch/SHA: installer-resilience /
 T41 implementation branch/SHA: installer-resilience /
 e3253b0cbe9e3b886b67d7fae4e43932023e34e6
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T43; T30 plugin-local test
-directories, T34 Bluetooth retention, T44 Power construction, T45 bar watcher,
-T42 final acceptance, and authorized live Wayland/visual acceptance remain.
-Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 602 passed, 9 skipped, 0 failed
+Tasks completed: all tasks marked `[x]` through T45; T30 plugin-local test
+directories, T34 Bluetooth retention, T42 final acceptance, and authorized
+live Wayland/visual acceptance remain.
+Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 605 passed, 10 skipped, 0 failed
 Syntax checks: 245 shell scripts passed bash -n
-ShellCheck: T43 framework files introduced no findings; unrelated
-pre-existing findings remain in the repository inventory checks and installer
-sources.
+ShellCheck: T43 framework files and T45-owned watcher tests introduced no
+findings; pre-existing findings remain in older migrated test sources, the
+repository inventory checks, and installer sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 Wayland/visual smoke was not authorized and was skipped
-Files changed: T43 test helper/runner, explicit skip migration, warning gate,
-framework fixture, and this tracker; prior changes remain in Git history
+Files changed: T45 parent watcher/event fixture and tracker; T43/T44 changes
+remain in Git history
 Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
-T41 `e3253b0`, T43 `30f886d`
+T41 `e3253b0`, T43 `30f886d`, T44 `6c48237`, T45 `aa88ad4`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; live visual behavior remains
-unverified; the known Power construction and bar watcher warnings require
-T44/T45; T30/T34/T42 remain open and reference feature omissions remain
+unverified; T30/T34/T42 remain open and reference feature omissions remain
 the explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
