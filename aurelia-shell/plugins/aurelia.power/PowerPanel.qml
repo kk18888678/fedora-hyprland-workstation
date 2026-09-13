@@ -8,7 +8,7 @@ import "../../theme"
 import "Model.js" as Model
 
 // Omarchy-aligned Power panel. UPower owns battery truth; this panel owns
-// bounded snapshots, profile/action intent, and the Aurelia presentation.
+// bounded snapshots, profile intent, and the Aurelia presentation.
 AureliaKeyboardPanel {
     id: root
 
@@ -24,7 +24,6 @@ AureliaKeyboardPanel {
     property var displayDeviceOverride
     property var onBatteryOverride
     property var statesOverride
-    property var actionExecutor
     property QtObject runtime: PowerRuntime { owner: root }
 
     property var batteryInfo: ({})
@@ -33,7 +32,6 @@ AureliaKeyboardPanel {
     property string activeProfile: ""
     property int profileIndex: 0
     property bool cursorActive: false
-    property string confirmAction: ""
     property bool actionRunning: false
     property string actionError: ""
     property string profileError: ""
@@ -99,14 +97,6 @@ AureliaKeyboardPanel {
     readonly property string heroStatusText: root.activePhrases.length > 0
         ? root.activePhrases[root.phraseIndex % root.activePhrases.length]
         : root.statusText
-    readonly property var actionRows: [
-        {id: "lock", label: "Lock", detail: "Lock this session", glyph: "󰍁"},
-        {id: "logout", label: "Log out", detail: "End this session", glyph: "󰍃"},
-        {id: "suspend", label: "Suspend", detail: "Sleep until activity", glyph: "󰤄"},
-        {id: "reboot", label: "Restart", detail: "Reboot the workstation", glyph: "󰜉"},
-        {id: "shutdown", label: "Power off", detail: "Shut down the workstation", glyph: "󰐥"}
-    ]
-
     ownerId: "aurelia.power"
     popupWidth: 380
     popupHeight: 560
@@ -132,7 +122,6 @@ AureliaKeyboardPanel {
             root.shown = false
             return "unavailable"
         }
-        root.confirmAction = ""
         root.actionError = ""
         root.profileError = ""
         root.cursorActive = false
@@ -142,7 +131,6 @@ AureliaKeyboardPanel {
     }
 
     function close() {
-        root.confirmAction = ""
         root.cursorActive = false
         root.shown = false
         return "ok"
@@ -220,40 +208,6 @@ AureliaKeyboardPanel {
             root.moduleName, JSON.stringify(next), "{}") || "")
         if (result !== "ok") root.actionError = result || "Could not save Power setting."
         return result
-    }
-
-    function requestAction(action) {
-        var requested = String(action || "")
-        if (requested === "reboot" || requested === "shutdown") {
-            root.confirmAction = requested
-            return "confirm"
-        }
-        return root.runAction(requested)
-    }
-
-    function runAction(action) {
-        var commands = {
-            lock: ["/usr/bin/loginctl", "lock-session"],
-            logout: ["/usr/bin/hyprctl", "dispatch", "exit"],
-            suspend: ["/usr/bin/systemctl", "suspend"],
-            reboot: ["/usr/bin/systemctl", "reboot"],
-            shutdown: ["/usr/bin/systemctl", "poweroff"]
-        }
-        var requested = String(action || "")
-        if (!commands[requested]) return "invalid"
-        root.confirmAction = ""
-        root.close()
-        return root.runCommand(commands[requested], "action")
-    }
-
-    function confirmPendingAction() {
-        if (root.confirmAction === "") return "invalid"
-        return root.runAction(root.confirmAction)
-    }
-
-    function cancelPendingAction() {
-        root.confirmAction = ""
-        return "ok"
     }
 
     function handleKey(event) {
@@ -467,7 +421,8 @@ AureliaKeyboardPanel {
                                     root.cursorActive = true
                                     root.profileIndex = index
                                 }
-                                onClicked: {
+                                onClicked: function(mouse) {
+                                    mouse.accepted = true
                                     root.cursorActive = true
                                     root.profileIndex = index
                                     root.setProfile(String(modelData))
@@ -486,98 +441,6 @@ AureliaKeyboardPanel {
                     font.pixelSize: Theme.fontSizeXs
                     elide: Text.ElideRight
                 }
-            }
-
-            Rectangle {
-                width: parent.width
-                height: 1
-                color: Theme.border
-                opacity: 0.65
-            }
-
-            Column {
-                id: actionsSection
-                width: parent.width
-                spacing: Theme.spacingXs
-
-                Text {
-                    width: parent.width
-                    text: root.confirmAction === "" ? "POWER" :
-                        (root.confirmAction === "reboot" ? "RESTART COMPUTER?" : "POWER OFF COMPUTER?")
-                    color: Theme.textMuted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeXs
-                    font.weight: Theme.fontWeightBold
-                    font.letterSpacing: 1
-                }
-
-                Repeater {
-                    model: root.confirmAction === "" ? root.actionRows : [
-                        {id: "confirm", label: "Confirm", detail: "Continue with this action", glyph: "󰄬"},
-                        {id: "cancel", label: "Cancel", detail: "Keep the session running", glyph: "󰅖"}
-                    ]
-                    delegate: Rectangle {
-                        required property var modelData
-                        width: actionsSection.width
-                        height: 42
-                        radius: Theme.radiusSm
-                        color: actionHover.hovered ? Theme.selection : Theme.surface
-                        border.color: actionHover.hovered ? Theme.borderActive : Theme.border
-                        border.width: Theme.borderWidthDefault
-
-                        HoverHandler { id: actionHover }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.spacingSm
-                            anchors.rightMargin: Theme.spacingSm
-                            spacing: Theme.spacingSm
-
-                            AureliaIcon {
-                                Layout.preferredWidth: 20
-                                Layout.preferredHeight: 20
-                                iconSize: 18
-                                glyph: modelData.glyph
-                                tint: actionHover.hovered ? Theme.accent : Theme.textSecondary
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: modelData.label
-                                    color: Theme.text
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeSm
-                                    font.weight: Theme.fontWeightMedium
-                                    elide: Text.ElideRight
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: modelData.detail
-                                    color: Theme.textMuted
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeXs
-                                    elide: Text.ElideRight
-                                }
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                mouse.accepted = true
-                                if (root.confirmAction !== "") {
-                                    if (modelData.id === "confirm") root.confirmPendingAction()
-                                    else root.cancelPendingAction()
-                                } else {
-                                    root.requestAction(modelData.id)
-                                }
-                            }
-                        }
-                    }
-                }
 
                 Text {
                     width: parent.width
@@ -589,6 +452,7 @@ AureliaKeyboardPanel {
                     elide: Text.ElideRight
                 }
             }
+
         }
     }
 

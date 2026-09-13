@@ -206,21 +206,24 @@ XDG_CACHE_HOME="$session_runtime_root/cache-runtime" \
     /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
     --path "$fixture_root/runtime.qml" --no-color >"$runtime_log" 2>&1 || runtime_status=$?
 runtime_completed=0
-if [[ "$runtime_status" -eq 0 ]] ||
-   [[ "$runtime_status" -eq 124 && -f "$runtime_log" ]] &&
-   grep -Fq 'Signal QQmlEngine::quit() emitted' "$runtime_log"; then
+if [[ "$runtime_status" -eq 0 ]]; then
+    runtime_completed=1
+elif [[ "$runtime_status" -eq 124 && -f "$runtime_log" ]] &&
+     grep -Fq 'Signal QQmlEngine::quit() emitted' "$runtime_log"; then
     runtime_completed=1
 fi
 if [[ "$runtime_completed" -eq 1 ]] &&
    [[ -s "$runtime_result" ]] &&
-   runtime_log_is_environment_only "$runtime_log" '\[SESSION-ACTIONS\] action_failed kind=shutdown' &&
-   jq -e '.loaded == true and .success == "ok" and .failure == "error" and
-          .invalid == "invalid" and .actionError == "Session action failed." and
-          (.calls | length) == 2 and .calls[0].argv == ["/usr/bin/loginctl", "lock-session"] and
-          .calls[1].argv == ["/usr/bin/systemctl", "poweroff"] and
+   runtime_log_is_environment_only "$runtime_log" '\[SESSION-ACTIONS\] action_failed kind=shutdown code=1' &&
+   jq -e '.loaded == true and .success == "pending" and .failure == "pending" and
+          .invalid == "invalid" and .successExit == 0 and .failureExit == 1 and
+          .actionError == "Session action failed." and
+          (.calls | length) == 0 and
           .processRunning == false' "$runtime_result" >/dev/null &&
-   grep -Fq '[SESSION-ACTIONS] action_failed kind=shutdown' "$runtime_log"; then
-    pass "[isolated-runtime] session runtime records structured argv, contains executor failure, and launches no production command"
+   grep -Fq '[SESSION-ACTIONS] action_started kind=lock mode=process' "$runtime_log" &&
+   grep -Fq '[SESSION-ACTIONS] action_succeeded kind=lock mode=process' "$runtime_log" &&
+   grep -Fq '[SESSION-ACTIONS] action_failed kind=shutdown code=1' "$runtime_log"; then
+    pass "[isolated-runtime] real Session Actions Process success/failure is observable while production session commands remain unexecuted"
 else
     details="$(tail -n 32 "$runtime_log" 2>/dev/null || true)"
     if [[ -s "$runtime_result" ]]; then details="$details result=$(tr '\n' ' ' <"$runtime_result")"; fi

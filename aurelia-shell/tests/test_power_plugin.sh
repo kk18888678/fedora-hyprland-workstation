@@ -65,15 +65,13 @@ if grep -Fq 'showPercentage' "$panel_file" &&
    grep -Fq 'function togglePercentage' "$panel_file" &&
    grep -Fq 'function setProfile' "$panel_file" &&
    grep -Fq 'function selectProfileByDelta' "$panel_file" &&
-   grep -Fq 'function requestAction' "$panel_file" &&
-   grep -Fq 'function confirmPendingAction' "$panel_file" &&
-   grep -Fq 'function cancelPendingAction' "$panel_file" &&
-   grep -Fq 'loginctl' "$panel_file" &&
-   grep -Fq 'hyprctl' "$panel_file" &&
-   grep -Fq 'systemctl' "$panel_file"; then
-    pass "[static] Power preserves structured actions, confirmation, profile selection, and percentage ownership"
+   ! grep -Eq 'loginctl|hyprctl|systemctl|confirmAction|requestAction|confirmPendingAction|cancelPendingAction|actionsSection|actionRows' "$panel_file" &&
+   grep -Fq 'property QtObject runtime' "$panel_file" &&
+   grep -Fq 'profileError' "$panel_file" &&
+   grep -Fq 'actionError' "$panel_file"; then
+    pass "[static] Power owns only percentage/profile operations and exposes no duplicate session-action surface"
 else
-    fail "[static] Power action or setting ownership regressed"
+    fail "[static] Power still contains duplicate session-action ownership or lost a profile setting boundary"
 fi
 
 if grep -Fq 'batteryIcon' "$widget_file" &&

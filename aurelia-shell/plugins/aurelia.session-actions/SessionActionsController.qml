@@ -43,6 +43,7 @@ QtObject {
         }
         controller.owner.confirmAction = requested
         controller.resetSelection()
+        console.info("[SESSION-ACTIONS] action_requested kind=" + requested)
         return "confirm"
     }
 
@@ -62,10 +63,18 @@ QtObject {
             console.error("[SESSION-ACTIONS] action_blocked reason=confirmation_required kind=" + requested)
             return "confirmation-required"
         }
-        if (!controller.owner.runtime || typeof controller.owner.runtime.runCommand !== "function")
+        if (!controller.owner.runtime || typeof controller.owner.runtime.runCommand !== "function") {
+            console.error("[SESSION-ACTIONS] action_failed kind=" + requested +
+                " reason=runtime_unavailable")
             return "not-ready"
+        }
+        console.info("[SESSION-ACTIONS] action_confirmed kind=" + requested)
         var result = controller.owner.runtime.runCommand(command, requested)
-        if (result === "ok" || result === "pending") controller.close()
+        if (result === "ok" || result === "pending") {
+            console.info("[SESSION-ACTIONS] action_dispatched kind=" + requested +
+                " result=" + result)
+            controller.close()
+        }
         return result
     }
 

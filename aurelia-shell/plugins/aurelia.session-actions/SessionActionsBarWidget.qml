@@ -41,7 +41,9 @@ Item {
     function open(payloadJson) {
         if (!root.sessionPanel || typeof root.sessionPanel.open !== "function") return "not-ready"
         root.configurePanel(root.sessionPanel)
-        return String(root.sessionPanel.open(payloadJson || "{}") || "ok")
+        var result = String(root.sessionPanel.open(payloadJson || "{}") || "ok")
+        console.info("[SESSION-ACTIONS] panel_open result=" + result)
+        return result
     }
 
     function close() {
@@ -67,7 +69,10 @@ Item {
         id: panelLoader
         active: root.panelOverride === undefined
         source: Qt.resolvedUrl("SessionActionsPanel.qml")
-        onLoaded: root.configurePanel(item)
+        onLoaded: {
+            root.configurePanel(item)
+            console.info("[SESSION-ACTIONS] panel_ready")
+        }
         onStatusChanged: {
             if (status === Loader.Error) console.error("[SESSION-ACTIONS] panel_load_failed")
         }

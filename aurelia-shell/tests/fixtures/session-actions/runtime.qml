@@ -2,14 +2,20 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// T47 runtime fixture. The injected executor records argv and returns a
-// deterministic result; no session command is launched by this test.
+// T52 runtime fixture. It exercises the real Process lifecycle with harmless
+// true/false commands; no session command is launched by this test.
 ShellRoot {
     id: root
 
     readonly property string resultPath: Quickshell.env("AURELIA_SESSION_RUNTIME_RESULT") || ""
     readonly property string runtimeSource: Quickshell.env("AURELIA_SESSION_RUNTIME_SOURCE") || ""
     property bool finished: false
+    property int phase: 0
+    property string success: ""
+    property string failure: ""
+    property string invalid: ""
+    property int successExit: -1
+    property int failureExit: -1
 
     QtObject {
         id: fakeOwner
@@ -24,26 +30,11 @@ ShellRoot {
         onLoaded: {
             if (!item) return
             item.owner = fakeOwner
-            fakeOwner.actionExecutor = function(argv, actionId) {
-                fakeOwner.calls.push({argv: argv.slice(), actionId: String(actionId)})
-                return "ok"
-            }
-            var success = item.runCommand(["/usr/bin/loginctl", "lock-session"], "lock")
-            fakeOwner.actionExecutor = function(argv, actionId) {
-                fakeOwner.calls.push({argv: argv.slice(), actionId: String(actionId)})
-                return "error"
-            }
-            var failure = item.runCommand(["/usr/bin/systemctl", "poweroff"], "shutdown")
-            var invalid = item.runCommand([], "invalid")
-            root.writeResult({
-                loaded: true,
-                success: success,
-                failure: failure,
-                invalid: invalid,
-                actionError: fakeOwner.actionError,
-                calls: fakeOwner.calls,
-                processRunning: item.actionProcess.running === true
-            })
+            item.testMode = true
+            item.testCommand = ["/usr/bin/true"]
+            root.success = item.runCommand(["/usr/bin/loginctl", "lock-session"], "lock")
+            root.invalid = item.runCommand([], "invalid")
+            root.phase = 1
         }
 
         Component.onCompleted: if (root.runtimeSource !== "") runtimeLoader.source = root.runtimeSource
@@ -72,5 +63,32 @@ ShellRoot {
         running: true
         repeat: false
         onTriggered: if (!root.finished) root.writeResult({loaded: false})
+    }
+
+    Connections {
+        target: runtimeLoader.item ? runtimeLoader.item.actionProcess : null
+        function onExited(code) {
+            if (!runtimeLoader.item) return
+            if (root.phase === 1) {
+                root.successExit = code
+                runtimeLoader.item.testCommand = ["/usr/bin/false"]
+                root.failure = runtimeLoader.item.runCommand(
+                    ["/usr/bin/systemctl", "poweroff"], "shutdown")
+                root.phase = 2
+            } else if (root.phase === 2) {
+                root.failureExit = code
+                root.writeResult({
+                    loaded: true,
+                    success: root.success,
+                    failure: root.failure,
+                    invalid: root.invalid,
+                    successExit: root.successExit,
+                    failureExit: root.failureExit,
+                    actionError: fakeOwner.actionError,
+                    calls: fakeOwner.calls,
+                    processRunning: runtimeLoader.item.actionProcess.running === true
+                })
+            }
+        }
     }
 }

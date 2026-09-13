@@ -3,7 +3,7 @@ import Quickshell.Io
 
 // Non-visual Power work belongs here rather than in AureliaKeyboardPanel's
 // default contentItem list. The panel receives only QQuickItem content; this
-// QObject owns bounded reads, action execution, and refresh timers.
+// QObject owns bounded reads, profile operations, and refresh timers.
 QtObject {
     id: runtime
 

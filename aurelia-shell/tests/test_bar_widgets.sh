@@ -13,6 +13,7 @@ workspace_root="$ROOT/plugins/aurelia.workspaces"
 tray_root="$ROOT/plugins/aurelia.tray"
 tasklist_root="$ROOT/plugins/aurelia.tasklist"
 power_root="$ROOT/plugins/aurelia.power"
+session_actions_root="$ROOT/plugins/aurelia.session-actions"
 
 section "Clock and Weather Bar Widgets"
 
@@ -216,15 +217,15 @@ else
     fail "Tasklist plugin or window context menu is incomplete"
 fi
 
-if [[ -f "$power_root/manifest.json" && -f "$power_root/PowerBarWidget.qml" && -f "$power_root/PowerPanel.qml" ]] &&
+if [[ -f "$power_root/manifest.json" && -f "$power_root/PowerBarWidget.qml" && -f "$power_root/PowerPanel.qml" &&
+      -f "$session_actions_root/manifest.json" && -f "$session_actions_root/SessionActionsBarWidget.qml" ]] &&
    jq -e '.schemaVersion == 1 and .id == "aurelia.power" and (.kinds == ["bar-widget"])' "$power_root/manifest.json" >/dev/null &&
-   grep -q 'systemctl.*poweroff' "$power_root/PowerPanel.qml" &&
-   grep -q 'systemctl.*reboot' "$power_root/PowerPanel.qml" &&
+   jq -e '.schemaVersion == 1 and .id == "aurelia.session-actions" and (.kinds == ["bar-widget"])' "$session_actions_root/manifest.json" >/dev/null &&
+   ! grep -Eq 'loginctl|hyprctl|systemctl.*(poweroff|reboot|suspend)' "$power_root/PowerPanel.qml" &&
    grep -q 'AureliaIcon {' "$power_root/PowerBarWidget.qml" &&
    grep -q 'glyph: root.powerPanel' "$power_root/PowerBarWidget.qml" &&
    grep -q 'visible: root.batteryPresent' "$power_root/PowerBarWidget.qml" &&
    grep -q 'function batteryIcon()' "$power_root/PowerPanel.qml" &&
-   grep -q 'function confirmPendingAction' "$power_root/PowerPanel.qml" &&
    grep -q 'showPercentage' "$power_root/PowerPanel.qml" &&
    grep -q 'profilesSection' "$power_root/PowerPanel.qml" &&
    grep -q 'progressSection' "$power_root/PowerPanel.qml" &&
@@ -232,12 +233,12 @@ if [[ -f "$power_root/manifest.json" && -f "$power_root/PowerBarWidget.qml" && -
    grep -q 'font.family: Theme.fontFamily' "$power_root/PowerBarWidget.qml" "$power_root/PowerPanel.qml" &&
    grep -q 'AureliaToolTip' "$power_root/PowerBarWidget.qml" &&
    ! grep -q 'cardHeight' "$power_root/PowerPanel.qml" &&
-   grep -q '"suspend"' "$power_root/PowerPanel.qml" &&
-   grep -q '"reboot"' "$power_root/PowerPanel.qml" &&
-   grep -q '"shutdown"' "$power_root/PowerPanel.qml"; then
-    pass "Power bar widget and popup use battery-aware geometry while retaining the theme/action boundary"
+   grep -q 'property QtObject runtime' "$session_actions_root/SessionActionsPanel.qml" &&
+   grep -q 'function confirmPendingAction' "$session_actions_root/SessionActionsPanel.qml" &&
+   grep -q 'function actionRows' "$session_actions_root/Model.js"; then
+    pass "Power owns battery-aware geometry while Session Actions owns the separate session-action surface"
 else
-    fail "Power bar widget, battery popup, or preserved action contract is incomplete"
+    fail "Power/session-action ownership or battery-aware bar widget contract is incomplete"
 fi
 
 if grep -q 'AureliaIcon {' "$ROOT/plugins/aurelia.monitor/DisplayBarWidget.qml" &&
