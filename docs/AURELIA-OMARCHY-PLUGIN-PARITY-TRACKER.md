@@ -1,8 +1,8 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
 Status: repository-only structural parity complete; T30 per-plugin test-layout
-task queued and not started; live visual/integration validation deferred pending
-explicit authorization.
+and T31 warning-observability tasks queued and not started; live
+visual/integration validation deferred pending explicit authorization.
 
 ## Objective
 
@@ -2503,6 +2503,58 @@ Dependencies: T24 through T29.
 
 ---
 
+### T31. Preserve actionable warnings and errors (Never suppress warnings)
+
+Execution status: NOT STARTED (queued by explicit user request)
+
+Scope note: this task is an observability and failure-classification audit. It
+must not make the shell noisier by duplicating the same diagnostic, but it must
+never hide an actionable plugin, loader, callback, IPC, or host-boundary
+failure. A warning may be removed only by fixing the invalid state or by
+replacing it with an explicit, test-covered, non-error classification whose
+reason remains observable.
+
+Checkpoint requirement: create a CP2 tracker entry before editing any runtime,
+test, manifest, configuration, or logging implementation file.
+
+- [ ] Inventory every production `catch`, early-return failure gate,
+  `Loader.Error` handler, stderr redirection, `|| true`, and diagnostic filter
+  in the plugin/host boundary; classify each as preserve, repair, or narrowly
+  suppress only with a documented reason.
+- [ ] Remove empty catches and silent failure returns from production plugin
+  and host paths, or replace them with bounded structured diagnostics and an
+  explicit result/failure state.
+- [ ] Ensure unavailable optional hardware/services are represented as an
+  explicit non-error state with a reason and lifecycle evidence, rather than
+  hiding a failed construction or probe behind a generic early return.
+- [ ] Ensure `Loader.Error` and plugin callback failures remain observable with
+  plugin ID, kind, phase, source/entry point, and bounded detail while keeping
+  T02A host survivability and quarantine behavior intact.
+- [ ] Prohibit log filtering, blanket stderr suppression, and warning-string
+  deletion as a substitute for fixing the cause. Any intentional diagnostic
+  de-duplication must have a stable correlation key and its own test.
+- [ ] Add isolated negative tests that prove a deliberately failing plugin,
+  loader, callback, IPC method, and optional-service probe emit an actionable
+  diagnostic while the host and healthy plugins remain available.
+- [ ] Add static policy checks for silent catches, unclassified failure gates,
+  and production-wide suppression patterns; keep test-harness cleanup and
+  expected negative-test command handling explicitly exempt and documented.
+- [ ] Verify that T29 warning cleanup fixed root causes and did not merely
+  suppress their output; preserve the valid single-owner IPC and safe BlueZ
+  construction contracts.
+- [ ] Keep all validation isolated from the live workstation, installer,
+  packages, user configuration, systemd/greetd state, and reboot.
+
+Exit gate: every actionable warning/error path has either a root-cause fix or
+an explicit, bounded, test-covered classification; failing plugins remain
+contained, diagnostics remain visible, no duplicate-handler noise is
+reintroduced, and the Aurelia shell plus healthy plugins continue to load.
+
+Dependencies: T02A, T24, T29; T30 remains independent and may not be used as a
+reason to defer this observability task.
+
+---
+
 ## Gap-to-task closure matrix
 
 | Audit gap | Closing task(s) |
@@ -2537,6 +2589,7 @@ Dependencies: T24 through T29.
 | No plugin authoring documentation/template | T26 |
 | Observed startup warning-producing component graph lacked regression coverage | T29 |
 | No plugin-local test directory structure (new requested requirement) | T30 |
+| Actionable plugin/host warnings or errors may be hidden by silent catches or failure gates | T31 |
 
 ## Final preservation gate
 
@@ -2594,9 +2647,10 @@ Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403
 Final Aurelia branch/SHA: installer-resilience / f77c93d9b5ad2fac345f42b7ff4f043f45502270
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
 Tasks completed: T00 through T29 for the repository-only structural parity target
-Tasks outstanding: T30 plugin-local test directories (queued, not started);
-authorized live Wayland/visual acceptance; explicit feature scope differences
-are listed above and are not structural gaps
+Tasks outstanding: T30 plugin-local test directories and T31 warning
+observability (both queued, not started); authorized live Wayland/visual
+acceptance; explicit feature scope differences are listed above and are not
+structural gaps
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 527 passed, 0 failed
 Syntax checks: 233 shell scripts passed bash -n
 ShellCheck: unavailable; not installed and not added
