@@ -1,8 +1,9 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: requested reference refresh T35, Audio foundation T36, and T37 Audio
-panel/default-bar work are complete for repository/static/isolated evidence;
-T38 is next for the optional Microphone widget, T34 records the
+Status: requested reference refresh T35, Audio foundation T36, T37 Audio
+panel/default-bar work, and T38 optional Microphone work are complete for
+repository/static/isolated evidence; T39 is next for the Power redesign, T34
+records the
 Bluetooth discovery-retention issue and remains not started, T30 remains
 queued as the separately requested plugin-local test-directory task, and live
 visual/integration validation remains deferred pending explicit authorization.
@@ -3861,30 +3862,31 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only structural parity complete; live visual/integration validation
-is deferred pending explicit authorization.
-Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403dc136db7089e
-Final Aurelia branch/SHA: installer-resilience / e407b45a3e88c408c517b2f138ffbe3055983a60
+Repository-only plugin parity work is complete through T38; live
+visual/integration validation is deferred pending explicit authorization.
+Starting T38 branch/SHA: installer-resilience /
+b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
+T38 implementation branch/SHA: installer-resilience /
+638e9d459eeaac3de10b08caaee6c0c506cef423
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: T00 through T32 for the repository-only structural parity target
-Tasks outstanding: T30 plugin-local test directories (queued); authorized live
-Wayland/visual acceptance; explicit feature scope differences are listed above
-and are not structural gaps
-Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 544 passed, 0 failed
-Syntax checks: 236 shell scripts passed bash -n
-ShellCheck: changed Aurelia test scripts passed; unrelated pre-existing
-findings remain in modules/desktop.sh
+Tasks completed: all tasks marked `[x]` through T38; T30 plugin-local test
+directories, T34 Bluetooth retention, T39 Power, T40 bar CLI, T41 bar hiding,
+T42 final acceptance, and authorized live Wayland/visual acceptance remain.
+Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 575 passed, 0 failed
+Syntax checks: 240 shell scripts passed bash -n
+ShellCheck: new/changed T38 scripts introduced no findings; unrelated
+pre-existing findings remain in the repository inventory checks and installer
+sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 Wayland/visual smoke was not authorized and was skipped
-Files changed: canonical bar-default source/loader, generic contract and
-acceptance/cutover tests/fixtures, authoring guide/example, README links, and
-this tracker since the T22 baseline
-Commits: 5dc6667, ac8a332, c9fd0cd, d6c6fc6, 74f67e5, a17af1f, 8e418a1,
-003bccf, 86011a9, c498ee3, b53229f, a35da04, ee20444, f77c93d, e407b45
+Files changed: T38 optional Microphone manifest/widget, shared Audio model
+helpers, centralized inventory/test fixtures, runner registration, and this
+tracker; prior changes remain in Git history
+Recent T38 commits: 60049ac (pre-change checkpoint), 638e9d4 (implementation)
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; live visual behavior remains
-unverified; reference feature omissions remain the explicit product-scope
-differences documented above
+unverified; T30/T34/T39-T42 remain open and reference feature omissions remain
+the explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
 Live user configuration modified: no
