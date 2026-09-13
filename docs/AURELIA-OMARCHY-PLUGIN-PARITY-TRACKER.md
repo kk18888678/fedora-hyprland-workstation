@@ -3741,7 +3741,7 @@ Dependencies: T38, T02A, T24, T31, T33.
 
 ### T40. Complete the Aurelia bar configuration control plane
 
-Execution status: NOT STARTED — queued behind T39
+Execution status: IN PROGRESS — corrective file-size checkpoint recorded
 
 Scope:
 
@@ -3770,6 +3770,39 @@ Required tests:
   fallback, and existing put/move/set operations.
 - [ ] No-direct-file-edit and no-duplicate-mutation checks.
 - [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Corrective checkpoint 2 — T40 god-file boundary:
+
+- Discovery: after the first T40 implementation pass, the full Aurelia suite
+  reported one structural failure because `ShellConfig.qml` reached 1031 lines
+  and `PluginRegistry.qml` reached 1018 lines. The 1000-line guard is a
+  repository invariant and will not be weakened.
+- Repair boundary: move bar-specific persistence operations into a cohesive
+  `services/BarConfigOperations.qml` owned by `ShellConfig`, and move
+  bar-specific registry validation/routing into a cohesive
+  `services/BarControlRegistry.qml` owned by the resident shell. ShellConfig
+  remains the only object that prepares/persists state; the new registry
+  component remains the only IPC-facing bar-control router.
+- Current working-tree boundary: only T40 CLI, shell IPC, ShellConfig,
+  PluginRegistry, fixture, runner, and test changes are uncommitted; no
+  unrelated user change is present. Further source edits are restricted to
+  the two new services, `services/qmldir`, the narrow call-site rewiring, and
+  the corresponding T40 test fixture/assertions.
+- Required preservation: `use`, `reset`, `defaults`, `position`,
+  `transparent`, existing `put/move/set`, exact IPC arguments, atomic writes,
+  default-bar preservation, built-in-bar enablement, and invalid-input
+  fail-closed behavior must remain unchanged.
+- Baseline before T40 source work: `48ecb1b` was clean; Aurelia had 575
+  passing tests, the repository had 228 passing tests, and 241 shell scripts
+  passed `bash -n`. The first T40 pass still has 588 passing Aurelia tests,
+  1 file-size failure, and 228 passing repository tests.
+- No live impact: no user config, live shell, package, systemd/greetd state,
+  or reboot may be touched. Rollback removes only the two services and
+  rewiring while retaining the tested T40 behavior.
+
+Corrective CP2 status: `[x]` the no-god-file repair boundary, ownership model,
+preservation requirements, baseline, and rollback path are recorded before
+the corrective source refactor.
 
 Exit gate: Aurelia exposes the requested Omarchy bar command language through
 its existing safe resident control plane without changing existing feature
