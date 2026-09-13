@@ -2751,6 +2751,13 @@ focused fixture passed because it used a normal declarative `FocusScope`, not
 the actual Quickshell window-interface content object. The candidate is not a
 valid fix and has not been committed.
 
+Additional shared call sites found before correction: `AureliaKeyboardPanel`
+and `NotificationPopupSurface` also pass `anchorWindow.contentItem` into
+`Item.mapToItem`. They are part of the same native argument-boundary defect
+and must use the window-owned conversion as well. The unrelated
+`settingsFlickable.contentItem` call in Keybindings maps to a normal QtQuick
+item and remains outside this task.
+
 Non-negotiable identity and behavior invariant: T33 must not rename, move, or
 re-home the repository, `aurelia-shell`, either shared UI file, any plugin
 directory, any manifest ID, any entry point, or any existing feature. It may
@@ -2761,9 +2768,11 @@ existing plugin behavior must remain unchanged.
 
 Checkpoint 2 — T33 pre-change boundary:
 
-- Allowed production scope: `ui/AureliaToolTip.qml` and
-  `ui/AureliaPopupCard.qml`, limited to their anchored coordinate-conversion
-  logic and an explicit invalid-input diagnostic if required.
+- Allowed production scope: `ui/AureliaToolTip.qml`,
+  `ui/AureliaPopupCard.qml`, `ui/AureliaKeyboardPanel.qml`, and
+  `plugins/aurelia.notifications/ui/NotificationPopupSurface.qml`, limited to
+  their anchored coordinate-conversion logic and an explicit invalid-input
+  diagnostic if required.
 - Allowed test scope: the affected shared-surface tests, a disposable mapping
   fixture, the Aurelia runner if registration is needed, and this tracker.
 - Compatibility boundary: preserve every existing source path, component
@@ -2797,17 +2806,21 @@ Baseline evidence:
   `target.mapToItem(window.contentItem, ...)`; the user-provided runtime log
   rejected that candidate at the native argument boundary. The candidate
   remains uncommitted and is being replaced within this same T33 scope.
+- Correction boundary extension: the two additional production call sites
+  above were identified by read-only source inventory and are approved for
+  the same window-interface correction before their files are edited.
 
 Checkpoint requirement: satisfied; no implementation file was edited for T33
 before the tracker-only CP2 commit.
 
 - [x] Correlate the user-provided warnings to the invalid window-content
   receiver and record the root cause without suppressing its diagnostic.
-- [ ] Change both shared anchored surfaces to use the Quickshell window
+- [ ] Change all four shared anchored surfaces to use the Quickshell window
   interface's source-Item `mapFromItem(...)` conversion, retaining all four
   bar orientations and existing clamping.
-- [ ] Add a negative static assertion that rejects both invalid receivers and a
-  runtime fixture exercising the actual Quickshell window-interface mapping.
+- [ ] Add negative static assertions that reject both invalid mapping forms
+  across all four surfaces and a runtime fixture exercising the actual
+  Quickshell window-interface mapping.
 - [ ] Add a focused regression assertion that the warning is not removed by a
   filter, catch, stderr redirect, or blanket diagnostic policy.
 - [ ] Verify invalid anchor inputs remain bounded and observable while healthy
@@ -2822,11 +2835,15 @@ before the tracker-only CP2 commit.
 
 Superseded validation attempt — not completion evidence:
 
-- The first candidate changed both surfaces to source-Item `mapToItem` with
-  `contentItem` as its target. The focused suite reported 4 passed, and the
-  broader Aurelia suite reported 548 passed, but the user-provided live trace
-  demonstrated that the real Quickshell content object fails the C++ argument
-  conversion. No T33 implementation commit was created.
+- The first candidate changed the initial two surfaces to source-Item
+  `mapToItem` with `contentItem` as its target. The focused suite reported 4
+  passed, and the broader Aurelia suite reported 548 passed, but the
+  user-provided live trace demonstrated that the real Quickshell content
+  object fails the C++ argument conversion. No T33 implementation commit was
+  created.
+- The additional `AureliaKeyboardPanel` and notification call sites were then
+  found by static inventory before correction; they were not covered by the
+  initial candidate's focused fixture.
 - The candidate tests remain useful only as evidence that a generic
   declarative `FocusScope` is insufficient to model this runtime boundary.
 
