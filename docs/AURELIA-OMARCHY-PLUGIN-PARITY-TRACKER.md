@@ -4,10 +4,11 @@ Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, and corrective T43–T45
 runtime/test-truth work are complete for repository/static/headless evidence;
-T42 is next for final acceptance. T34 records the Bluetooth
-discovery-retention issue and remains not started, T30 remains queued as the
-separately requested plugin-local test-directory task, and live
-visual/integration validation remains deferred pending explicit authorization.
+T46 is the active strict-coverage correction before T42 final acceptance.
+T34 records the Bluetooth discovery-retention issue and remains not started,
+T30 remains queued as the separately requested plugin-local test-directory
+task, and live visual/integration validation remains deferred pending explicit
+authorization.
 
 ## Objective
 
@@ -4252,6 +4253,81 @@ Dependencies: T41, T43, T02A, T31, T33.
 
 ---
 
+### T46. Make the test command strict and close the suite-coverage gap
+
+Execution status: NOT STARTED — tracker checkpoint recorded before source/test edits
+
+Checkpoint 1 — T46 audit boundary:
+
+- Current default `./aurelia-shell/tests/run.sh` exits `0` with `605` passed,
+  `10` skipped, and `0` failed. The no-skip policy is opt-in through
+  `--strict`, which permits a normal green command to omit runtime coverage.
+- The current Aurelia runner registers `65` suite entry points, but five
+  runnable `test_*.sh` suite files are not registered:
+  `test_about_animation.sh`, `test_aurelia_hotkeys.sh`,
+  `test_aurelia_keybindings.sh`, `test_hotkeys.sh`, and
+  `test_quickshell_provenance.sh`. `test_helper.sh` is a helper, not a suite.
+  The runner has no invariant that detects future omissions.
+- Centralized root tests and static grep assertions do not constitute runtime
+  coverage for every plugin entry point. T30's requested plugin-local test
+  directories remain a separate structural task and must not be counted as
+  complete merely because centralized tests exist.
+- The refreshed Omarchy reference also separates shell tests from authorized
+  acceptance tests, but its compositor guard reports unavailable hardware as
+  `ok`/skip. Aurelia's user requirement is stricter: a skipped assertion must
+  be visible and must fail the strict command rather than inflate a pass count.
+- The current VM has no `/sys/class/power_supply` battery and UPower cannot be
+  contacted from the test sandbox. Omarchy explicitly hides the Power bar on
+  desktops/VMs without a battery. Aurelia's `aurelia.power` default layout
+  entry remains present and its widget is intentionally zero-width/hidden when
+  `batteryPresent` is false; the former `PowerPanel.qml` construction warning
+  is absent from the latest restart log. This is a capability condition, not
+  evidence that the widget failed to load.
+
+Scope and preservation boundary:
+
+- Make the public Aurelia test command fail closed on skipped assertions by
+  default; provide an explicit, clearly named diagnostic mode only when a
+  developer intentionally wants to inspect headless skips.
+- Make suite discovery/registration fail closed so no runnable suite can be
+  silently omitted. Repair only test-entry ownership/path issues needed to
+  execute existing suites; do not rename or relocate product files.
+- Add real coverage accounting (suite count, assertion count, pass/skip/fail
+  count, and omitted-suite detection) and a Power capability test that proves
+  both default placement and the reference no-battery visibility contract.
+- Do not fake battery hardware, force the Power widget visible on a desktop,
+  suppress QML warnings, weaken runtime diagnostic classification, or alter
+  UPower/systemd/package/live-shell state.
+- T30 plugin-local test directories, T34 Bluetooth retention, and T42 final
+  acceptance remain separate tasks. Existing Aurelia feature behavior, plugin
+  IDs, bar layout, user state, shortcuts, and live configuration are outside
+  this correction.
+
+Required tests:
+
+- [ ] Default Aurelia test invocation rejects any skip with a distinct non-zero
+  result; explicit diagnostic mode remains honest and visibly reports skips.
+- [ ] Every runnable Aurelia suite entry point is executed exactly once or is
+  explicitly classified with a checked-in reason; an unregistered suite fails
+  the test framework contract.
+- [ ] Summary reports suite and assertion coverage separately; a suite that
+  exits without an assertion is not silently accepted.
+- [ ] Power tests prove default placement, real bar entry loading, safe
+  no-battery hiding, and diagnostic capability evidence without fake live
+  hardware.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates pass with no suppressed
+  warnings. Live Wayland/UPower visual evidence remains separately labeled.
+
+Checkpoint 2 status: `[ ]` pending the tracker-only commit for this boundary.
+
+Exit gate: the ordinary test command cannot report a green result while
+coverage is skipped or a suite is omitted, and Power's no-battery behavior is
+proven as the same intentional contract used by Omarchy.
+
+Dependencies: T30, T39, T43, T44, T45, T02A, T31, T32, T33.
+
+---
+
 ### T42. Requested capability integration and final acceptance gate
 
 Execution status: NOT STARTED — queued behind completed corrective T43 through T45
@@ -4337,6 +4413,8 @@ Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T02A, T31, T32, T33.
 | Test summary collapses skipped runtime coverage into passed assertions | T43 |
 | Power panel places non-visual processes in the keyboard panel content list | T44 |
 | Bar hidden-state watcher passes a directory to Aurelia's file reader | T45 |
+| Default test command permits skipped coverage and omits runnable suite files | T46 |
+| Power no-battery capability is not clearly distinguished from widget failure | T46, T39, T44 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
