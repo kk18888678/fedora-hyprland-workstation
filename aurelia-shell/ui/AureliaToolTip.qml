@@ -96,7 +96,12 @@ PopupWindow {
                 localY = target.height / 2 - root.implicitHeight / 2
             }
 
-            var point = root.anchorWindow.contentItem.mapFromItem(target, localX, localY)
+            if (typeof root.anchorWindow.mapFromItem !== "function") {
+                console.error("[TOOLTIP] anchor_mapping_failed reason=invalid_trigger_item")
+                return
+            }
+
+            var point = root.anchorWindow.mapFromItem(target, localX, localY)
             if (position === "top" || position === "bottom") {
                 point.x = Math.max(root.margin, Math.min(point.x, root.anchorWindow.width - root.implicitWidth - root.margin))
             } else {

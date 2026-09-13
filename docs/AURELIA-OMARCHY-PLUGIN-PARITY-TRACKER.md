@@ -1,11 +1,9 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity is under active hardening; T33's
-coordinate-mapping correction remains open after runtime validation found a
-second API-boundary failure, T34 records the Bluetooth discovery-retention
-issue, and T30 remains queued as the separately requested plugin-local
-test-directory task; live visual/integration validation remains deferred
-pending explicit authorization.
+Status: repository-only structural parity is complete through T33; T34 records
+the Bluetooth discovery-retention issue and remains not started, T30 remains
+queued as the separately requested plugin-local test-directory task, and live
+visual/integration validation remains deferred pending explicit authorization.
 
 ## Objective
 
@@ -233,7 +231,7 @@ Before moving to the next phase:
 Before declaring parity complete:
 
 - [x] T28 is complete.
-- [ ] T33 is complete.
+- [x] T33 is complete.
 - [ ] All gap-to-task rows are closed with evidence.
 - [x] All preservation gates pass.
 - [x] Runtime/visual evidence is separated from static/isolated evidence.
@@ -2725,7 +2723,7 @@ Dependencies: T31, T03, T04, T06, T10, T14, T24.
 
 ### T33. Repair shared anchored-surface coordinate mapping (never suppress the warning)
 
-Execution status: IN PROGRESS — CP2 recorded; initial directional candidate rejected by runtime evidence
+Execution status: COMPLETE — CP2 and CP3 passed; initial directional candidate rejected and replaced
 
 Observed failure: `AureliaToolTip.qml` reports a `TypeError` at its anchor
 calculation because it calls `mapFromItem` on `anchorWindow.contentItem`.
@@ -2799,9 +2797,9 @@ Baseline evidence:
 - `git status --short --branch`: clean; branch is ahead of its configured
   remote by six commits.
 - Focused baseline: `bash -c 'source aurelia-shell/tests/test_helper.sh; run_suite aurelia-shell/tests/test_notification_plugins.sh; print_test_summary'` — 13 passed, 0 failed.
-- Current source audit: two production `mapFromItem` calls use the window
+- Pre-change source audit: two production `mapFromItem` calls used the window
   `contentItem` as receiver; no tooltip-specific runtime regression fixture
-  currently exists.
+  existed.
 - Correction state: the first uncommitted candidate used
   `target.mapToItem(window.contentItem, ...)`; the user-provided runtime log
   rejected that candidate at the native argument boundary. The candidate
@@ -2815,22 +2813,22 @@ before the tracker-only CP2 commit.
 
 - [x] Correlate the user-provided warnings to the invalid window-content
   receiver and record the root cause without suppressing its diagnostic.
-- [ ] Change all four shared anchored surfaces to use the Quickshell window
+- [x] Change all four shared anchored surfaces to use the Quickshell window
   interface's source-Item `mapFromItem(...)` conversion, retaining all four
   bar orientations and existing clamping.
-- [ ] Add negative static assertions that reject both invalid mapping forms
+- [x] Add negative static assertions that reject both invalid mapping forms
   across all four surfaces and a runtime fixture exercising the actual
   Quickshell window-interface mapping.
-- [ ] Add a focused regression assertion that the warning is not removed by a
+- [x] Add a focused regression assertion that the warning is not removed by a
   filter, catch, stderr redirect, or blanket diagnostic policy.
-- [ ] Verify invalid anchor inputs remain bounded and observable while healthy
+- [x] Verify invalid anchor inputs remain bounded and observable while healthy
   shell/plugin loading is unaffected.
-- [ ] Run the focused, affected, and full Aurelia tests plus the repository
+- [x] Run the focused, affected, and full Aurelia tests plus the repository
   suite; run repository-wide shell syntax checks and ShellCheck when already
   available.
-- [ ] Review the final diff for name/placement changes, design drift, source
+- [x] Review the final diff for name/placement changes, design drift, source
   path changes, user-state mutation, and warning suppression.
-- [ ] Record CP3 evidence, commit the coherent T33 change, and update the gap
+- [x] Record CP3 evidence, commit the coherent T33 change, and update the gap
   matrix only after every gate passes.
 
 Superseded validation attempt — not completion evidence:
@@ -2849,6 +2847,54 @@ Superseded validation attempt — not completion evidence:
 
 CP3 status: `[ ]` superseded; a new actual-window-interface fixture and
 window-owned mapping implementation are required.
+
+Checkpoint 3 — T33 post-change evidence:
+
+- Focused T33 suite: `test_tooltip_geometry.sh` — 4 passed, 0 failed. The
+  default offscreen run explicitly classified the unavailable `PanelWindow`
+  backend as skipped; it did not filter a QML warning.
+- Affected notification/tooltip suite: `test_notification_plugins.sh` — 13
+  passed, 0 failed.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 548 passed, 0 failed.
+- Repository suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Syntax: repository-wide `bash -n` — 237 shell scripts passed.
+- ShellCheck: all T33-owned shell scripts passed with zero findings. The
+  repository-wide run retains the previously recorded unrelated findings
+  outside T33; no unrelated source was changed.
+- Static source audit: all four affected production surfaces now use the
+  Quickshell window-owned `mapFromItem` boundary; none passes the window
+  `contentItem` into `Item.mapToItem`, and no old window-content receiver
+  remains.
+- Isolated runtime evidence: the fixture loaded both real shared popup QML
+  components and successfully mapped a source `Item` to a declarative
+  `QQuickFocusScope` with finite expected coordinates. Its actual
+  `PanelWindow` branch is ready for a real Wayland run but is skipped by the
+  repository's offscreen environment because no PanelWindow backend is loaded.
+  The optional real-Wayland smoke was not run because live visual validation
+  remains separately gated.
+- Survivability evidence: the full host-survivability fixture remained green;
+  invalid plugin/runtime failures remain contained and healthy host/plugin
+  loading remains available.
+- Files changed: `ui/AureliaToolTip.qml`, `ui/AureliaPopupCard.qml`,
+  `ui/AureliaKeyboardPanel.qml`,
+  `plugins/aurelia.notifications/ui/NotificationPopupSurface.qml`, the T33
+  geometry fixture/test, the affected notification contract assertion, the
+  Aurelia test runner, and this tracker.
+- User-visible behavior changed: yes; valid tooltip, popup, keyboard-panel,
+  and notification-overlay anchors no longer pass the incompatible window
+  content object through the JavaScript-to-C++ mapping boundary. Invalid
+  window interfaces remain explicitly observable and bounded.
+- Existing Aurelia feature impact: no names, placements, manifests, entry
+  points, dimensions, theme tokens, or feature behavior were changed; all
+  affected and full preservation suites passed.
+- Rollback/migration evidence: no persisted state or migration changed; the
+  task is limited to shared coordinate boundaries and isolated tests.
+- Live system scope: no installer, packages, live user configuration,
+  systemd/greetd state, live shell restart, or reboot was used.
+
+CP3 status: `[x]` completed for repository/static/isolated evidence; live
+Wayland visual confirmation remains explicitly unverified and separately
+authorized.
 
 Exit gate: the exact tooltip warning is eliminated by correcting the API
 receiver, the duplicate popup-card defect is corrected, no diagnostic is

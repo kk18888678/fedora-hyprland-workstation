@@ -110,7 +110,12 @@ PopupWindow {
                 localY = target.height / 2 - root.implicitHeight / 2
             }
 
-            var point = root.anchorWindow.contentItem.mapFromItem(target, localX, localY)
+            if (typeof root.anchorWindow.mapFromItem !== "function") {
+                console.error("[POPUP] anchor_mapping_failed owner=" + root.ownerId + " reason=invalid_anchor_item")
+                return
+            }
+
+            var point = root.anchorWindow.mapFromItem(target, localX, localY)
 
             if (root.centerOnBar) {
                 var centerX = 0

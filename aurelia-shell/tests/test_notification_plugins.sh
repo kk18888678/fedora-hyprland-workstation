@@ -225,6 +225,10 @@ if [[ -f "$tooltip_qml" ]] &&
    grep -q 'adjustment: PopupAdjustment.Slide' "$tooltip_qml" &&
    grep -q 'position === "bottom"' "$tooltip_qml" &&
    grep -q 'point.y = Math.max' "$tooltip_qml" &&
+   grep -q 'root.anchorWindow.mapFromItem(target, localX, localY)' "$tooltip_qml" &&
+   ! grep -q 'root.anchorWindow.contentItem.mapFromItem' "$tooltip_qml" &&
+   grep -q 'root.anchorWindow.mapFromItem(root.anchorSlot, 0, 0)' "$ROOT/plugins/aurelia.notifications/ui/NotificationPopupSurface.qml" &&
+   ! grep -q 'mapToItem(root.anchorWindow.contentItem' "$ROOT/plugins/aurelia.notifications/ui/NotificationPopupSurface.qml" &&
    grep -q 'AureliaToolTip 1.0 AureliaToolTip.qml' "$ROOT/ui/qmldir" &&
    grep -q 'AureliaToolTip {' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
    grep -q 'publishScreenshot' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&

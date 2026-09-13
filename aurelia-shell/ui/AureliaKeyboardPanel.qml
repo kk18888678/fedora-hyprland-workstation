@@ -72,7 +72,11 @@ PanelWindow {
         var geometryTick = root.surfaceReady
         var transform = anchorTransform
         if (!resolvedAnchorItem || !anchorWindow) return Qt.point(0, 0)
-        return resolvedAnchorItem.mapToItem(anchorWindow.contentItem, 0, 0)
+        if (typeof anchorWindow.mapFromItem !== "function") {
+            console.error("[POPUP] anchor_mapping_failed owner=" + root.ownerId + " reason=invalid_anchor_window")
+            return Qt.point(0, 0)
+        }
+        return anchorWindow.mapFromItem(resolvedAnchorItem, 0, 0)
     }
     readonly property point cardOrigin: {
         var transform = anchorTransform

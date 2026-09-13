@@ -31,7 +31,11 @@ PanelWindow {
         var slotWidth = root.anchorSlot ? root.anchorSlot.width : 0
         var slotHeight = root.anchorSlot ? root.anchorSlot.height : 0
         if (!root.anchorSlot || !root.anchorWindow || !root.anchorWindow.contentItem) return Qt.point(0, 0)
-        return root.anchorSlot.mapToItem(root.anchorWindow.contentItem, 0, 0)
+        if (typeof root.anchorWindow.mapFromItem !== "function") {
+            console.error("[NOTIFICATIONS] anchor_mapping_failed reason=invalid_anchor_window")
+            return Qt.point(0, 0)
+        }
+        return root.anchorWindow.mapFromItem(root.anchorSlot, 0, 0)
     }
     readonly property bool anchored: {
         // Read the declared model screen instead of the PanelWindow.screen
