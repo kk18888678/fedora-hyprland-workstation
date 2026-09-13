@@ -3594,7 +3594,53 @@ Dependencies: T37, T02A, T31.
 
 ### T39. Redesign existing Power popup to Omarchy battery/profile UX
 
-Execution status: NOT STARTED — queued behind T38
+Execution status: IN PROGRESS — CP2 recorded; implementation has not started
+
+Checkpoint 2 — T39 pre-change boundary:
+
+- Starting branch/HEAD: `installer-resilience`,
+  `dd3ec66bca9ebd912f88b1886409972f0d779acf` (`docs(tracker): record
+  microphone completion`); the working tree is clean and has no unrelated
+  user changes.
+- Reference contract frozen from `/tmp/omarchy-reference`: retain the
+  `bar-widget` role and `Power` identity, show the UPower-backed battery hero,
+  percentage, progress, status/statistics, and power-profile selector, and
+  keep `showPercentage` as an inline setting toggled by right-click. No
+  battery must produce a safe hidden/zero-width affordance.
+- Existing Aurelia invariants: preserve `aurelia.power`,
+  `PowerBarWidget.qml`, `PowerPanel.qml`, manifest placement, anchored popup
+  ownership, Aurelia theme/design tokens, and lock/logout/suspend/reboot/
+  shutdown confirmation/actions. No action may execute during tests.
+- Ownership boundary: UPower owns live battery truth; `powerprofilesctl`
+  remains a user-level structured-argv profile owner; the Power panel owns
+  only presentation, bounded snapshots, and action intent. System statistics
+  must use bounded user-level reads. QML must not gain shell strings,
+  privilege escalation, or a second power service.
+- Failure/survivability boundary: missing UPower/battery, malformed or empty
+  profile/stat output, a disappearing device, profile failure, or action
+  failure must affect only Power and leave the resident host, bar, Audio,
+  Microphone, Bluetooth, Command Center, and healthy plugins usable.
+- Allowed implementation scope: `plugins/aurelia.power/PowerPanel.qml`,
+  `PowerBarWidget.qml`, the new pure `Model.js`, Power-focused test/fixture
+  files, runner registration, the existing Power assertions, and this
+  tracker. Do not rename/move the plugin, change `config/bar-default.json`,
+  alter other plugin actions, or modify live/user state.
+- Baseline evidence: full Aurelia suite — 575 passed, 0 failed; repository
+  suite — 228 passed, 0 failed; repository-wide shell syntax — 240 scripts
+  passed; changed test scripts ShellCheck-clean; T30, T34, T40, T41, and T42
+  remain untouched.
+- Persisted/live-state impact: `showPercentage` may persist only through the
+  existing resident `ShellConfig` owner when explicitly used by a user; tests
+  must use isolated settings and action sinks. No power-profile change,
+  system action, package/installer operation, shell restart, systemd/greetd
+  change, or reboot is permitted during implementation validation.
+- Rollback: restore the previous Power QML and remove the new model/tests if
+  CP3 fails; preserve the T38 Microphone commit and all existing Power
+  identity/action files.
+
+CP2 status: `[x]` reference UX, identity/action preservation, ownership,
+survivability, baseline, exact scope, and rollback path recorded before source
+edits.
 
 Non-negotiable identity invariant: retain `aurelia.power`,
 `PowerBarWidget.qml`, `PowerPanel.qml`, manifest placement, existing lock,
