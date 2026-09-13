@@ -4,7 +4,8 @@ Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, and corrective T43–T46
 runtime/test-truth work are complete for repository/static/headless evidence;
-T47 is the active session-actions restoration before T42 final acceptance.
+T47 session-actions restoration and T48 notification-dismissal reliability are
+active before T42 final acceptance.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4443,6 +4444,85 @@ Dependencies: T39, T44, T46, T02A, T31, T33.
 
 ---
 
+### T48. Make notification dismissal identity-safe and runtime-tested
+
+Execution status: NOT STARTED — tracker checkpoint recorded before notification source/test edits
+
+Checkpoint 1 — T48 audit boundary:
+
+- The live cross-button dismissal path currently emits
+  `[NOTIFICATIONS] popup.dismiss index=0` followed by
+  `history.write_skipped reason=invalid_identity` and
+  `popup.archive_skipped reason=invalid_identity`. These are actionable
+  persistence failures, not acceptable environment diagnostics.
+- `NotificationToast` emits a parameterless `dismissed()` signal. Its
+  `NotificationCenterPanel` and `NotificationPopupSurface` handlers recover
+  identity from a dynamic delegate's `index`, `originalId`, and `timestamp`
+  and call `Service.dismissAt(...)`.
+- `Service.removeAt()` accepts the row/index and optional expected identity,
+  but `recordHistory()`, `writeHistoryFile()`, and `archivePopupFileFor()` only
+  operate when the resolved snapshot passes `Logic.popupFileName()`. There is
+  no dedicated tested boundary for delegate churn, sender `closed()`
+  re-entrancy, restored rows, or a missing/temporarily incomplete ListModel
+  identity.
+- Existing notification tests cover manifest/static structure, pure
+  `NotificationLogic.js`, and isolated file helper operations. They do not
+  instantiate the real Service with a fake notification, wire the real
+  `NotificationToast` close affordance, or assert history/archive outcomes;
+  this is why the observed runtime failure escaped the test phase.
+- The current notification `Service.qml` has concurrent/user history and
+  popup state behavior that must be preserved. The new fixture must isolate
+  XDG state and use fake notification signals; it must not take ownership of
+  the live notification bus or overwrite the user's notification state.
+
+Scope and preservation boundary:
+
+- Establish one canonical, finite notification identity/snapshot resolution
+  path at the Service boundary. A valid row/live snapshot must survive
+  delegate index changes and sender-close re-entrancy; an unresolvable event
+  must remain observable with a specific reason and must not manufacture an
+  invalid archive filename.
+- Make the cross-button dismissal path remove the passive popup, record one
+  valid history entry, and move/delete the matching popup file exactly once.
+  Preserve ChatGPT retention, transient/screenshot semantics, action
+  invocation, sender-side closure behavior, restored-popup handling, history
+  limits, and atomic/bounded file jobs.
+- Add a real isolated fixture using the production Service and
+  NotificationToast wiring with deterministic fake notification objects. Test
+  one and multiple notifications, index churn, sender `closed()` re-entry,
+  restored entries, malformed identity, and file-job failure without warning
+  suppression.
+- Do not silence `ERROR` output, broaden the runtime diagnostic allow-list,
+  alter the notification daemon ownership policy, modify live XDG state, or
+  touch unrelated concurrent notification behavior outside this identity path.
+
+Required tests:
+
+- [ ] Pure identity/snapshot tests cover valid numeric IDs/timestamps,
+  malformed values, restored entries, transient entries, and deterministic
+  popup/history filenames.
+- [ ] The production Service + real cross-button signal fixture proves
+  dismissal succeeds without `invalid_identity`, creates one history row,
+  archives/removes the matching popup state, and leaves other notifications
+  untouched.
+- [ ] Re-entrant sender `closed()` and dynamic index churn are covered without
+  duplicate history/archive jobs or duplicate removal.
+- [ ] File-job failure remains observable and bounded while the UI/service
+  state stays consistent; no warning/error is filtered to make the fixture
+  pass.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates pass; live notification
+  bus behavior remains separately labeled.
+
+Checkpoint 2 status: `[ ]` pending the tracker-only commit for this boundary.
+
+Exit gate: closing a notification through the visible cross icon is a stable,
+identity-safe operation with runtime evidence, and a notification defect
+cannot emit misleading persistence errors or destabilize the Aurelia shell.
+
+Dependencies: T31, T43, T46, T02A, T33.
+
+---
+
 ### T42. Requested capability integration and final acceptance gate
 
 Execution status: NOT STARTED — queued behind completed corrective T43 through T45
@@ -4531,6 +4611,7 @@ Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T02A, T31, T32, T33.
 | Default test command permits skipped coverage and omits runnable suite files | T46 |
 | Power no-battery capability is not clearly distinguished from widget failure | T46, T39, T44 |
 | Former Power action menu became unreachable after battery-gated redesign | T47 |
+| Notification cross-button dismissal emits invalid-identity persistence errors | T48 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
