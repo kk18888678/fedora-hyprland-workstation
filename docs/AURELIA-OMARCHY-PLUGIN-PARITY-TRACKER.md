@@ -4,11 +4,11 @@ Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, corrective T43–T46
 runtime/test-truth work, T47 session-actions restoration, T49 notification/
-session safety, T50 popup-model boundary correction, and T51 composite
-identity/lifetime correction are complete for repository/static/headless and
-notification-dismissal live evidence; T52 session-action execution and
-duplicate-Power-surface work is next, broader visual acceptance remains
-pending, and T42 remains the final acceptance gate.
+session safety, T50 popup-model boundary correction, T51 composite
+identity/lifetime correction, and T52 session-action execution/ownership work
+are complete for repository/static/headless evidence; live Lock/Confirm
+acceptance and broader visual acceptance remain pending, and T42 remains the
+final acceptance gate.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4878,7 +4878,7 @@ Dependencies: T48, T49, T50, T02A, T31, T33, T46.
 
 ### T52. Make session-action execution observable and remove duplicate Power actions
 
-Execution status: NOT STARTED — tracker-only checkpoint required before source/test edits
+Execution status: COMPLETE FOR REPOSITORY EVIDENCE — live Lock/Confirm acceptance remains pending
 
 Checkpoint 1 — T52 audit boundary:
 
@@ -4919,23 +4919,46 @@ Scope and preservation boundary:
 
 Required tests:
 
-- [ ] Session runtime logs and tests successful Process completion,
+- [x] Session runtime logs and tests successful Process completion,
   non-zero Process failure, readiness failure, and action identity without
   suppressing diagnostics.
-- [ ] Controller tests prove request/confirm/cancel behavior and that no
+- [x] Controller tests prove request/confirm/cancel behavior and that no
   action dispatch occurs before confirmation; the real Process fixture uses
   only safe test commands.
-- [ ] Power static/runtime tests prove battery/profile/statistics ownership
+- [x] Power static/runtime tests prove battery/profile/statistics ownership
   remains intact while no Lock/Log out/Suspend/Restart/Power off controls or
   commands remain in the Power panel.
-- [ ] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass; strict
+- [x] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass; strict
   mode continues to report unavailable backend paths explicitly.
 
-Checkpoint 2 status: `[ ]` pending the tracker-only pre-change commit for this boundary.
+Checkpoint 2 status: `[x]` tracker-only pre-change checkpoint committed as `015f54e`.
+
+Checkpoint 3 — T52 post-change evidence:
+
+- `test_session_actions_plugin.sh`: `8` passed, `1` explicit PanelWindow
+  backend skip, `0` failed. The production controller requires confirmation
+  for all five actions, while the real runtime fixture runs only `/usr/bin/true`
+  and `/usr/bin/false` and verifies success/failure logs.
+- `aurelia.power/PowerPanel.qml` no longer contains the former session-action
+  rows or Lock/Log out/Suspend/Restart/Power off commands; the separate
+  `aurelia.session-actions` plugin is the sole session-action owner.
+- Full diagnostic Aurelia suite: `67` suites, `638` assertions, `627` passed,
+  `11` skipped, `0` failed. Strict mode returns `2` for the same explicit
+  backend-gated paths.
+- Repository suite: `./tests/run.sh` — `228` passed, `0` failed. Repository-
+  wide shell syntax: `246` scripts passed `bash -n`. ShellCheck for changed
+  session/Power test files: clean. `git diff --check`: passed.
+- Implementation commit: `64ea0b86d8821df075f9894e825cd68f9421b835`;
+  pre-change tracker checkpoint: `015f54e0eda4a357e99839fee3c1fabee5f6ab83`.
+
+CP3 status: `[x]` session action execution is observable and single-owned in
+repository/headless evidence without suppressing warnings/errors; live
+Lock/Confirm acceptance remains unrun.
 
 Exit gate: clicking Lock/Confirm produces an observable production Process
 result, failures are surfaced, every session action has one confirmation-safe
 owner, and Power cannot expose a duplicate or divergent session-action path.
+Fresh live Lock/Confirm confirmation remains required.
 
 Dependencies: T47, T49, T51, T02A, T31, T33, T46.
 
@@ -4943,7 +4966,7 @@ Dependencies: T47, T49, T51, T02A, T31, T33, T46.
 
 ### T42. Requested capability integration and final acceptance gate
 
-Execution status: NOT STARTED — queued behind completed corrective T43 through T51
+Execution status: NOT STARTED — queued behind completed corrective T43 through T52
 
 Scope:
 
@@ -4976,7 +4999,7 @@ Exit gate: the requested capability set is structurally and behaviorally at
 Omarchy parity as far as Aurelia's preserved features and safety boundaries
 allow, every task has CP3 evidence, and no task leaves the shell unusable.
 
-Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T50, T51, T02A, T31, T32, T33.
+Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T02A, T31, T32, T33.
 
 ---
 
@@ -5033,6 +5056,7 @@ Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T
 | Live pointer dismissal still reaches a parameterless notification identity path; session actions can execute without confirmation | T49 |
 | Passive popup delegate index is resolved against the wrong notification model during identity loss | T50 |
 | Live snapshot ownership and ListModel row lifetime lose composite notification identity during dismissal | T51 |
+| Session-action confirmation has no observable production Process result and Power retains a duplicate action surface | T52 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
@@ -5086,9 +5110,10 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T51; notification
-dismissal has user-authorized live confirmation, while broader live visual/
-integration validation remains deferred pending explicit authorization.
+Repository-only plugin parity work is complete through T52; notification
+dismissal has user-authorized live confirmation, while live Lock/Confirm and
+broader visual/integration validation remain deferred pending explicit
+authorization.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
 T38 implementation branch/SHA: installer-resilience /
@@ -5107,8 +5132,10 @@ Starting T50 branch/SHA: installer-resilience /
 1b64bb7d0d16fcd46d23630ad21ea21363b55fb5
 Starting T51 branch/SHA: installer-resilience /
 57ff8248c39d6b952e5e5257f543adbd840b717c
+Starting T52 branch/SHA: installer-resilience /
+015f54e0eda4a357e99839fee3c1fabee5f6ab83
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T51; T30 plugin-local test
+Tasks completed: all tasks marked `[x]` through T52; T30 plugin-local test
 directories, T34 Bluetooth retention, T42 final acceptance, and authorized
 live Wayland/visual acceptance remain.
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh
@@ -5118,27 +5145,28 @@ paths
 Focused tests: session-actions 8 passed, 1 explicit PanelWindow backend skip,
 0 failed; notification dismissal 16 passed, 0 skipped, 0 failed
 Syntax checks: 246 shell scripts passed bash -n
-ShellCheck: all T51-changed shell files are clean; pre-existing findings
+ShellCheck: all T52-changed shell files are clean; pre-existing findings
 remain in older migrated test sources and installer sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
-notification dismissal passed on instance `8m4utt8blt`; broader live Wayland/
-visual smoke remains unrun
+notification dismissal passed on instance `8m4utt8blt`; live Lock/Confirm and
+broader live Wayland/visual smoke remain unrun
 Files changed: T47 session-actions plugin/default placement/UI, T48
 notification identity/persistence handling and production-path fixture, T49
 pointer-path and confirmation correction/controller fixtures, T50 popup-model
 source-aware dismissal and fixture correction, T51 composite identity and
-ListModel lifetime correction/fixture, test inventory cleanup, README, and
+ListModel lifetime correction/fixture, T52 observable session Process and
+single-owner Power correction/tests, test inventory cleanup, README, and
 tracker; T43–T46 changes remain in Git history
 Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
 T41 `e3253b0`, T43 `30f886d`, T44 `6c48237`, T45 `aa88ad4`, T46 `890ca7c`,
 T47 `4869919`, T48 `fb87e3c`, inventory cleanup `f5b09b8`, T49 `cd1e4bd`,
-T50 `a2496d0`, T51 `a92d380`
+T50 `a2496d0`, T51 `a92d380`, T52 `64ea0b8`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; 301 existing unlabelled assertions and
 four excluded legacy repository matrices remain outside the strict Aurelia
-coverage inventory; broader live visual/UPower/session-panel behavior remains
-unverified; T30/T34/T42 remain open; reference feature omissions remain the
-explicit product-scope differences documented above
+coverage inventory; live Lock/Confirm and broader visual/UPower/session-panel
+behavior remain unverified; T30/T34/T42 remain open; reference feature
+omissions remain the explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
 Live user configuration modified: no
