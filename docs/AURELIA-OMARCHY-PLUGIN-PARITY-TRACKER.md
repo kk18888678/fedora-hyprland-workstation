@@ -5,9 +5,9 @@ panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, corrective T43–T46
 runtime/test-truth work, T47 session-actions restoration, T49 notification/
 session safety, T50 popup-model boundary correction, and T51 composite
-identity/lifetime correction are complete for repository/static/headless
-evidence; live notification-bus revalidation remains pending, and T42 remains
-the final acceptance gate.
+identity/lifetime correction are complete for repository/static/headless and
+notification-dismissal live evidence; broader visual acceptance remains
+pending, and T42 remains the final acceptance gate.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4478,7 +4478,7 @@ Dependencies: T39, T44, T46, T02A, T31, T33.
 
 ### T48. Make notification dismissal identity-safe and runtime-tested
 
-Execution status: IMPLEMENTED — the isolated production fixture passes; live shell revalidation is pending after the T49/T50/T51 pointer-path corrections
+Execution status: COMPLETE — isolated production fixture and user-authorized live shell dismissal pass
 
 Checkpoint 1 — T48 audit boundary:
 
@@ -4584,7 +4584,7 @@ until a fresh user-authorized shell run confirms the resulting log.
 
 Exit gate: SOURCE FIX IMPLEMENTED — closing a notification through every
 tested pointer path is identity-safe in headless production-component
-evidence; live notification-bus acceptance remains pending.
+evidence; live notification-bus acceptance is recorded under T51 CP4.
 
 Dependencies: T31, T43, T46, T02A, T33.
 
@@ -4592,7 +4592,7 @@ Dependencies: T31, T43, T46, T02A, T33.
 
 ### T49. Close live notification and session-action safety regressions
 
-Execution status: IMPLEMENTED — live runs exposed a composite-identity regression; T51 corrected it and fresh live revalidation remains pending
+Execution status: COMPLETE — source correction and user-authorized live dismissal validation are recorded under T51 CP4
 
 Checkpoint 1 — T49 audit boundary:
 
@@ -4691,7 +4691,7 @@ Dependencies: T47, T48, T02A, T31, T33, T46.
 
 ### T50. Make popup-model dismissal indices source-aware
 
-Execution status: COMPLETE FOR REPOSITORY EVIDENCE — live notification-bus and visual acceptance remain separately pending
+Execution status: COMPLETE — popup-model correction and user-authorized live dismissal validation are recorded under T51 CP4
 
 Checkpoint 1 — T50 audit boundary:
 
@@ -4776,7 +4776,7 @@ Dependencies: T48, T49, T02A, T31, T33, T46.
 
 ### T51. Preserve composite notification identity across live snapshots
 
-Execution status: COMPLETE FOR REPOSITORY EVIDENCE — live notification-bus and visual acceptance remain separately pending
+Execution status: COMPLETE — composite identity correction and user-authorized live dismissal validation are recorded under CP4
 
 Checkpoint 1 — T51 audit boundary:
 
@@ -4854,7 +4854,22 @@ confirmation remains unrun.
 Exit gate: repeated sender IDs cannot overwrite dismissal identity, every live
 popup cross-button dismissal persists its exact row in tested production
 components, and the Aurelia shell remains usable when notification state or
-rendering is defective. Fresh live confirmation remains required.
+rendering is defective. User-authorized live confirmation is recorded below.
+
+Checkpoint 4 — T51 user-authorized live acceptance:
+
+- Shell instance `8m4utt8blt` loaded the current Aurelia source and reported
+  `server.loaded`, `server.bus_available`, and `server.registered`.
+- The user dismissed three notifications through the live popup surface. The
+  log recorded `history.recorded` keys
+  `1789298463105|1`, `1789301042661|1`, and `1789313451278|1` with no
+  `invalid_identity`, `history.write_skipped`, or
+  `popup.archive_skipped` diagnostics.
+- This confirms the production popup dismissal path after T51. Broader live
+  visual acceptance for the remaining shell capabilities is still separate.
+
+CP4 status: `[x]` live notification dismissal is confirmed on the user VM;
+the broader T42 visual/integration gate remains open.
 
 Dependencies: T48, T49, T50, T02A, T31, T33, T46.
 
@@ -4992,7 +5007,6 @@ architecture.
 | microphone | Aurelia provides optional `aurelia.microphone`; it remains absent from the shipped default bar like the reference. |
 | audio, media | Aurelia provides `aurelia.audio` and optional `aurelia.microphone`; host-global media tooling remains under its established ownership. |
 | clipboard, emojis, reminders, dev-gallery, agents | No current Aurelia feature owner; intentionally outside the preserved Aurelia feature inventory. |
-| lock, polkit, battery, idle, nightlight | `aurelia.session-actions` owns the user-visible Lock/Log out/Suspend/Restart/Power off affordance; the underlying login, authentication, battery, idle, and desktop primitives remain Fedora/Hyprland/session-owned, with no standalone lock/polkit/battery/idle/nightlight plugin. |
 | osd, disk-speedtest, dropbox, tailscale | No current Aurelia feature owner; intentionally not added as speculative parity work. |
 
 Omarchy's platform-level contract for all rows above is still represented by
@@ -5006,8 +5020,9 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T51; live
-visual/integration validation is deferred pending explicit authorization.
+Repository-only plugin parity work is complete through T51; notification
+dismissal has user-authorized live confirmation, while broader live visual/
+integration validation remains deferred pending explicit authorization.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
 T38 implementation branch/SHA: installer-resilience /
@@ -5031,7 +5046,7 @@ Tasks completed: all tasks marked `[x]` through T51; T30 plugin-local test
 directories, T34 Bluetooth retention, T42 final acceptance, and authorized
 live Wayland/visual acceptance remain.
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh
---allow-skips 626 passed, 11 skipped, 0 failed across 67 suites; the default
+--allow-skips 627 passed, 11 skipped, 0 failed across 67 suites; the default
 strict command returned 2 for the 11 explicitly reported environment-gated
 paths
 Focused tests: session-actions 8 passed, 1 explicit PanelWindow backend skip,
@@ -5040,7 +5055,8 @@ Syntax checks: 246 shell scripts passed bash -n
 ShellCheck: all T51-changed shell files are clean; pre-existing findings
 remain in older migrated test sources and installer sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
-Wayland/visual smoke was not authorized and was skipped
+notification dismissal passed on instance `8m4utt8blt`; broader live Wayland/
+visual smoke remains unrun
 Files changed: T47 session-actions plugin/default placement/UI, T48
 notification identity/persistence handling and production-path fixture, T49
 pointer-path and confirmation correction/controller fixtures, T50 popup-model
@@ -5054,10 +5070,9 @@ T50 `a2496d0`, T51 `a92d380`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; 301 existing unlabelled assertions and
 four excluded legacy repository matrices remain outside the strict Aurelia
-coverage inventory; live visual/UPower/notification-bus/session-panel
-behavior remains unverified; T30/T34/T42 remain open and T48/T50/T51 live
-revalidation remains pending; reference feature omissions remain the explicit
-product-scope differences documented above
+coverage inventory; broader live visual/UPower/session-panel behavior remains
+unverified; T30/T34/T42 remain open; reference feature omissions remain the
+explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
 Live user configuration modified: no
