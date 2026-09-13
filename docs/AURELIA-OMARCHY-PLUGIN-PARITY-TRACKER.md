@@ -3459,7 +3459,59 @@ Dependencies: T36, T02A, T24, T27, T31.
 
 ### T38. Add Microphone bar widget and input-control parity
 
-Execution status: NOT STARTED — queued behind T37
+Execution status: IN PROGRESS — CP2 recorded; implementation has not started
+
+Checkpoint 2 — T38 pre-change boundary:
+
+- Starting branch/HEAD: `installer-resilience`,
+  `b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9` (`fix(audio): close default
+  readiness and icon warning gaps`); the working tree is clean and contains
+  no unrelated user changes.
+- Reference contract frozen from `/tmp/omarchy-reference`: manifest id
+  `omarchy.microphone`, kind `bar-widget`, entry `Microphone.qml`, category
+  `Audio`, `allowMultiple=false`, and no shipped default-bar placement.
+  Aurelia will preserve its own `aurelia.microphone` identity and dynamic
+  source-root resolution without adding a default placement.
+- Interaction contract: read `Pipewire.defaultAudioSource`; missing source
+  means hidden/zero-width and muted-by-default state; source mute is the
+  primary/right action; middle-click summons `aurelia.audio` through the
+  resident host API; wheel input changes source volume by bounded `0.05`
+  steps; active non-sink capture streams determine `inUse` only while the
+  source is not muted.
+- Ownership boundary: PipeWire owns the live source/node objects; the
+  Microphone widget owns only its presentation and one source retention
+  boundary matching the reference. The existing Audio plugin remains the
+  canonical pure-model owner for shared microphone classification helpers;
+  no second audio service, competing IPC owner, backend, or shell command is
+  allowed.
+- Failure/survivability boundary: transiently absent or malformed source/node
+  lists must produce safe empty state and affect only Microphone. A manifest,
+  entry-point, PipeWire binding, tooltip, or middle-click failure must be
+  quarantinable without preventing the resident bar, Audio, Bluetooth, Power,
+  Command Center, or healthy plugins from loading.
+- Allowed implementation scope: new
+  `plugins/aurelia.microphone/manifest.json` and
+  `MicrophoneBarWidget.qml`; narrowly scoped pure helper additions to
+  `plugins/aurelia.audio/Model.js`; Microphone-focused tests/fixture and
+  runner registration; first-party inventory/preservation/count fixtures;
+  and this tracker. Do not change `config/bar-default.json`, existing plugin
+  ids/entry points, or live/user configuration.
+- Baseline evidence: full Aurelia suite — 565 passed, 0 failed; repository
+  suite — 228 passed, 0 failed; repository-wide shell syntax — 239 scripts
+  passed; changed test scripts ShellCheck-clean; T34 Bluetooth retention,
+  T39 Power, T40 bar CLI, T41 bar hiding, and T42 final acceptance remain
+  untouched.
+- Persisted/live-state impact: Microphone remains opt-in; tests use temporary
+  sandboxes and mocks only. No PipeWire mutation, shell restart, package or
+  installer operation, user-state write, systemd/greetd change, or reboot is
+  permitted during implementation validation.
+- Rollback: remove only the new Microphone source tree, pure helper additions,
+  focused tests/count fixtures, and tracker changes if CP3 fails; the default
+  bar and existing Audio implementation remain intact.
+
+CP2 status: `[x]` contract, exact scope, optional-default boundary,
+survivability boundary, baseline, and rollback path recorded before source
+edits.
 
 Scope:
 
