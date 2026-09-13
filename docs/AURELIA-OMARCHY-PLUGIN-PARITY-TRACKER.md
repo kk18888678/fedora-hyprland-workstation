@@ -4130,12 +4130,39 @@ Scope:
 
 Required tests:
 
-- [ ] Static ownership check rejects non-visual objects in the keyboard-panel
+- [x] Static ownership check rejects non-visual objects in the keyboard-panel
   content list.
-- [ ] Real Power panel construction/runtime fixture passes when its required
+- [x] Real Power panel construction/runtime fixture passes when its required
   backend is available and reports an explicit environment skip otherwise.
-- [ ] The skip branch rejects unrelated QML warnings through T43's log gate.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+- [x] The skip branch rejects unrelated QML warnings through T43's log gate.
+- [x] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Checkpoint 3 — T44 post-change evidence:
+
+- Power-focused suite: `test_power_plugin.sh` — `9` executed assertions
+  passed, `0` failed, and `1` explicit PowerPanel backend path was skipped.
+  The real `PowerRuntime.qml` QObject constructed independently, the static
+  content-list guard passed, and the real PowerPanel fixture could not create
+  a PanelWindow only in this offscreen environment. Its complete diagnostics
+  were printed and passed T43 classification; no `Process` contentItem warning
+  remained.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — `603` passed, `10`
+  skipped, `0` failed.
+- Repository functional suite: `./tests/run.sh` — `228` passed, `0` failed.
+- Syntax: repository-wide `bash -n` — `245` shell scripts passed.
+- ShellCheck: T44 introduced no shell scripts; T43 framework files remain
+  clean and existing unrelated test/installer findings remain classified.
+- Implementation commit: `6c48237` (`fix(power): isolate panel runtime
+  processes`); T44 checkpoint was recorded in the T43 tracker completion
+  checkpoint.
+- Preservation evidence: `aurelia.power`, its manifest/entry point, all
+  existing actions, default placement, UPower/profile ownership, popup
+  geometry, and host failure containment remain unchanged. No live power
+  command, package, installer, systemd/greetd change, shell restart, or reboot
+  occurred.
+
+CP3 status: `[x]` Power construction and isolated runtime-object acceptance
+are complete; live Wayland/UPower visual confirmation remains pending.
 
 Exit gate: the live `PowerPanel.qml:317` warning and resulting panel load
 failure are eliminated and covered by a real entry-point test.
@@ -4146,7 +4173,32 @@ Dependencies: T39, T43, T02A, T31, T33.
 
 ### T45. Correct the Aurelia bar hidden-state watcher contract
 
-Execution status: NOT STARTED — queued behind T43
+Execution status: IN PROGRESS — CP2 recorded before implementation; CP3
+pending
+
+Checkpoint 2 — T45 pre-change boundary:
+
+- Starting branch/SHA: `installer-resilience` /
+  `6c482379a4830319faf96e6df08d8c33c14aaf18`; the working tree is clean.
+- Confirmed production finding: `Bar.qml:353` passes the XDG state directory
+  fallback to `FileView`, and Aurelia reports “Read of .../.local/state
+  failed: Not a file.” This warning is emitted because Aurelia's FileView is
+  file-oriented; Omarchy's directory FileView usage cannot be copied blindly.
+- Existing T41 state reader/writer, mapped/off-screen geometry, queue,
+  structured `syncHidden` IPC, and XDG marker semantics are preserved. The
+  correction is limited to the parent-directory event source and its fixture.
+- Planned owned files: `plugins/aurelia.bar/Bar.qml`, a cohesive watcher
+  component or watcher-only wiring, T41 bar-hiding tests/fixtures, and this
+  tracker. No Power, Bluetooth, installer, package, live configuration,
+  systemd/greetd, or reboot work is in scope.
+- Host capability: `inotifywait` is already an Aurelia package/runtime
+  dependency used by the plugin watcher; no package change is needed.
+- Rollback: restore only the watcher source/test changes; T43 and T44 remain
+  independently reversible, and no persisted user state is migrated.
+
+CP2 status: `[x]` the exact directory/file API mismatch, reference caveat,
+preservation boundary, available host capability, and rollback path are
+recorded before T45 source/test edits.
 
 Scope:
 
