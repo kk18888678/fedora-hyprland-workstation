@@ -1,7 +1,8 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity complete; T31 warning observability
-and T32 source-boundary hardening are complete, while T30 remains queued;
+Status: repository-only structural parity is under active hardening; T31 warning
+observability and T32 source-boundary hardening are complete, T33 shared
+anchored-surface coordinate mapping is in progress, and T30 remains queued;
 live visual/integration validation remains deferred pending explicit
 authorization.
 
@@ -231,10 +232,11 @@ Before moving to the next phase:
 Before declaring parity complete:
 
 - [x] T28 is complete.
-- [x] All gap-to-task rows are closed with evidence.
+- [ ] T33 is complete.
+- [ ] All gap-to-task rows are closed with evidence.
 - [x] All preservation gates pass.
 - [x] Runtime/visual evidence is separated from static/isolated evidence.
-- [x] The final working-tree diff is reviewed file-by-file.
+- [ ] The final working-tree diff is reviewed file-by-file after T33.
 
 No task may skip a checkpoint because it is “small,” “only a refactor,” or
 “test-only.” Shared host and plugin code can change runtime behavior indirectly.
@@ -2720,6 +2722,96 @@ Dependencies: T31, T03, T04, T06, T10, T14, T24.
 
 ---
 
+### T33. Repair shared anchored-surface coordinate mapping (never suppress the warning)
+
+Execution status: IN PROGRESS — CP2 recorded; implementation not started
+
+Observed failure: `AureliaToolTip.qml` reports a `TypeError` at its anchor
+calculation because it calls `mapFromItem` on `anchorWindow.contentItem`.
+The live receiver is a `QQuickFocusScope` supplied by the window and does not
+expose that function. `AureliaPopupCard.qml` contains the same invalid mapping
+direction and would fail when that shared surface is anchored.
+
+Root-cause contract: coordinate conversion must be initiated by the actual
+source `Item` (`triggerItem`/`anchorItem`) with `mapToItem` targeting the
+window's `contentItem`. The implementation must not filter, redirect, or hide
+the QML warning stream. Invalid non-`Item` inputs, if reachable, must remain
+explicitly observable with a bounded diagnostic and must not take down the
+shell or healthy plugins.
+
+Non-negotiable identity and behavior invariant: T33 must not rename, move, or
+re-home the repository, `aurelia-shell`, either shared UI file, any plugin
+directory, any manifest ID, any entry point, or any existing feature. It may
+only correct the coordinate-conversion receiver/direction and add regression
+coverage. Tooltip/pop-up delay, visibility, clamping for top/bottom/left/right
+bars, popup ownership, dimensions, theme tokens, keyboard behavior, and all
+existing plugin behavior must remain unchanged.
+
+Checkpoint 2 — T33 pre-change boundary:
+
+- Allowed production scope: `ui/AureliaToolTip.qml` and
+  `ui/AureliaPopupCard.qml`, limited to their anchored coordinate-conversion
+  logic and an explicit invalid-input diagnostic if required.
+- Allowed test scope: the affected shared-surface tests, a disposable mapping
+  fixture, the Aurelia runner if registration is needed, and this tracker.
+- Compatibility boundary: preserve every existing source path, component
+  name, plugin manifest, bar/panel/overlay/menu/service lifecycle, and Aurelia
+  design-language token.
+- Warning boundary: fix the invalid API receiver; do not add log filters,
+  blanket catches, warning-string exclusions, or stderr suppression.
+- Survivability boundary: one invalid tooltip/pop-up anchor may not prevent
+  the resident host, the bar, or healthy plugins from loading.
+- Persisted/live-state impact: none; use only repository files and disposable
+  isolated fixtures. Do not restart the live shell or alter system state.
+- Rollback: revert only T33-owned shared-surface/test/tracker changes if CP3
+  fails; preserve T31/T32 commits and all unrelated user-owned work.
+
+CP2 status: `[x]` baseline, contract, test boundary, impact boundary, and
+rollback path recorded before implementation edits.
+
+Baseline evidence:
+
+- Starting branch/HEAD: `installer-resilience`,
+  `7bb8cd75f049b70c4491a12d58cacecfc79c0994`.
+- `git status --short --branch`: clean; branch is ahead of its configured
+  remote by six commits.
+- Focused baseline: `bash -c 'source aurelia-shell/tests/test_helper.sh; run_suite aurelia-shell/tests/test_notification_plugins.sh; print_test_summary'` — 13 passed, 0 failed.
+- Current source audit: two production `mapFromItem` calls use the window
+  `contentItem` as receiver; no tooltip-specific runtime regression fixture
+  currently exists.
+
+Checkpoint requirement: satisfied; no implementation file has been edited for
+T33 before this tracker checkpoint.
+
+- [ ] Reproduce the invalid receiver in a disposable QML mapping fixture and
+  record the failure without suppressing its diagnostic.
+- [ ] Change both shared anchored surfaces to use the source `Item`'s
+  `mapToItem(window.contentItem, ...)` conversion, retaining all four bar
+  orientations and existing clamping.
+- [ ] Add a negative static assertion that rejects the invalid receiver and a
+  runtime fixture proving a `QQuickFocusScope` content target accepts the valid
+  source-to-target mapping.
+- [ ] Add a focused regression assertion that the warning is not removed by a
+  filter, catch, stderr redirect, or blanket diagnostic policy.
+- [ ] Verify invalid anchor inputs remain bounded and observable while healthy
+  shell/plugin loading is unaffected.
+- [ ] Run the focused, affected, and full Aurelia tests plus the repository
+  suite; run repository-wide shell syntax checks and ShellCheck when already
+  available.
+- [ ] Review the final diff for name/placement changes, design drift, source
+  path changes, user-state mutation, and warning suppression.
+- [ ] Record CP3 evidence, commit the coherent T33 change, and update the gap
+  matrix only after every gate passes.
+
+Exit gate: the exact tooltip warning is eliminated by correcting the API
+receiver, the duplicate popup-card defect is corrected, no diagnostic is
+suppressed, all placement behavior remains intact, and isolated tests prove
+the shell plus healthy plugins remain usable when an anchor is invalid.
+
+Dependencies: T31, T32; T30 remains independent and must not defer this fix.
+
+---
+
 ## Gap-to-task closure matrix
 
 | Audit gap | Closing task(s) |
@@ -2756,6 +2848,7 @@ Dependencies: T31, T03, T04, T06, T10, T14, T24.
 | No plugin-local test directory structure (new requested requirement) | T30 |
 | Actionable plugin/host warnings or errors may be hidden by silent catches or failure gates | T31 |
 | Dynamic plugin/resource sources are built by scattered ad-hoc file-URL paths and are not relocation-tested | T32 |
+| Shared anchored surfaces call coordinate mapping on a window content receiver that lacks the API | T33 |
 
 ## Final preservation gate
 
