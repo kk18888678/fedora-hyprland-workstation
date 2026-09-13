@@ -1,9 +1,10 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity is complete through T33; T34 records
-the Bluetooth discovery-retention issue and remains not started, T30 remains
-queued as the separately requested plugin-local test-directory task, and live
-visual/integration validation remains deferred pending explicit authorization.
+Status: requested reference refresh T35 is complete; T36 is checkpoint-ready
+for Audio foundation work, T34 records the Bluetooth discovery-retention issue
+and remains not started, T30 remains queued as the separately requested
+plugin-local test-directory task, and live visual/integration validation
+remains deferred pending explicit authorization.
 
 ## Objective
 
@@ -2961,6 +2962,430 @@ investigation.
 
 ---
 
+## Requested follow-up execution order
+
+The requested Omarchy parity work is ordered below. Each task is additive or
+host-owned, has mandatory tests, and must preserve the shell-survivability gate.
+T34 is independent and remains tracked separately; it must not be silently
+closed or used to justify changing unrelated Bluetooth behavior.
+
+1. T35 — refresh the pinned Omarchy reference and freeze the exact requested
+   Audio, Microphone, Power, bar-control, and bar-visibility contracts.
+2. T36 — add the `aurelia.audio` plugin foundation and pure PipeWire/MPRIS data
+   model without changing the shipped bar until the model gate passes.
+3. T37 — implement the Audio panel and output bar interactions, then add Audio
+   to the Aurelia default layout at the reference location.
+4. T38 — add the optional Microphone bar widget with the exact mute,
+   middle-button, and input-scroll semantics.
+5. T39 — redesign the existing `aurelia.power` popup around the Omarchy battery,
+   power-profile, and confirmation UX while preserving Aurelia's identity and
+   action ownership.
+6. T40 — complete the Aurelia bar configuration control plane: `use`, `reset`,
+   `defaults`, `position`, `transparent`, and the already-supported placement
+   and setting commands.
+7. T41 — implement persistent bar hiding, `Super + Shift + Space`, and the
+   Menu Bar control without killing the resident shell or its hotkeys.
+8. T42 — run the combined contract, failure-isolation, migration, and optional
+   real-session acceptance gates; update documentation and parity evidence.
+
+No task in this sequence may rename or move the repository, `aurelia-shell`, an
+existing plugin, a manifest ID, an existing entry point, or a user-owned
+configuration path.
+
+---
+
+### T35. Refresh Omarchy reference and freeze the requested capability contracts
+
+Execution status: COMPLETE — read-only reference refresh and gap audit
+
+Reference checkpoint:
+
+- `/tmp/omarchy-reference` was freshly cloned from the requested upstream
+  repository on `2026-09-13`.
+- Reference checkout is clean on `quattro`, HEAD
+  `31bd80daa4613ffdee995ac27467fce5a2990806`.
+- Aurelia baseline is clean on `installer-resilience`, HEAD
+  `9737256a9ab383206ddd139be19e5d5422fc3352`.
+
+Frozen requested contracts:
+
+- **Audio:** Omarchy ships `omarchy.audio` as a `bar-widget` with a panel
+  entry point. The widget opens the Audio panel on middle-click, adjusts output
+  volume on scroll, and toggles the output/input master mute on its primary
+  action. The panel owns output sinks, input sources, per-application playback
+  streams, default sink/source selection, output/input sliders, mute state,
+  and bounded PipeWire snapshots.
+- **Microphone:** Omarchy ships `omarchy.microphone` as a separate
+  `bar-widget`. Primary action mutes the default source, middle-click opens
+  the Audio panel, and scroll adjusts input volume. The refreshed Omarchy
+  default shell layout includes Audio but does not include Microphone; Aurelia
+  must preserve that default distinction unless a later explicit product
+  decision changes it.
+- **Power:** Omarchy's `omarchy.power` bar widget owns a battery-aware panel
+  with UPower presence/state, battery progress, statistics, rotating status
+  text, power-profile selection, percentage display settings, right-click
+  percentage toggle, and safe confirmation for reboot/poweroff. Aurelia's
+  existing `aurelia.power` ID, `PowerBarWidget.qml` entry point, action set,
+  and file placement remain fixed while its popup is redesigned.
+- **Bar controls:** Omarchy's bar command supports `use`, `reset`, `defaults`,
+  `position top|bottom|left|right`, `transparent true|false|toggle`, and
+  placement/setting operations. `defaults` restores the shipped layout;
+  placement and widget settings are owned by the resident shell state rather
+  than a competing direct file editor.
+- **Bar hiding:** Omarchy keeps the shell alive, parks the bar off-screen,
+  removes its exclusion zone, watches an XDG-state toggle, and exposes a sync
+  operation for rapid flag changes. `Super + Shift + Space` toggles it, and
+  the Menu Bar control provides the same operation. Panels and hotkeys remain
+  usable while pixels are hidden.
+
+Aurelia gap findings:
+
+- No `aurelia.audio` manifest, Audio panel, output/source/stream model, or
+  Audio bar widget exists. Only a Bluetooth-owned audio-output helper exists.
+- No `aurelia.microphone` manifest or bar widget exists.
+- `aurelia.power` currently renders only five action rows and has no UPower
+  battery model, power-profile model, percentage setting, or reference panel
+  information architecture.
+- `aurelia-bar` currently exposes only `put`, `move`, and `set`; it lacks the
+  five requested bar-level commands.
+- Aurelia has an in-memory `barHidden` field and a menu item, but no persistent
+  toggle state, directory watcher/sync operation, or `Super + Shift + Space`
+  binding. Its current menu is a single flat Toggle Bar action rather than the
+  reference Menu Bar position/transparency structure.
+
+Evidence:
+
+- Reference source: `shell/plugins/panels/audio/Panel.qml`,
+  `shell/plugins/bar/widgets/Microphone.qml`,
+  `shell/plugins/panels/power/Panel.qml`, `bin/omarchy-bar`,
+  `bin/omarchy-toggle-bar`, `default/hypr/bindings/utilities.lua`, and
+  `default/omarchy/omarchy-menu.jsonc`.
+- Aurelia source: `plugins/aurelia.power/PowerPanel.qml`,
+  `plugins/aurelia.power/PowerBarWidget.qml`, `bin/lib/aurelia-plugin/bar.sh`,
+  `plugins/aurelia.menu/menu.json`, `plugins/aurelia.menu/MenuModel.qml`,
+  `plugins/aurelia.bar/Bar.qml`, and
+  `dotfiles/hypr/keybindings_manifest.lua`.
+- No production code, live configuration, packages, services, or user data
+  was changed for T35.
+
+Dependencies: T30, T34, T33; T36 may begin after its CP2 checkpoint below.
+
+---
+
+### T36. Add Audio plugin foundation and safe PipeWire data model
+
+Execution status: NOT STARTED — CP2 recorded; implementation not started
+
+Objective: introduce the new `aurelia.audio` `bar-widget` in the existing
+Aurelia plugin architecture without enabling it in the shipped layout until
+the model and host-survivability gates pass.
+
+Checkpoint 2 — T36 pre-change boundary:
+
+- Starting branch/HEAD: `installer-resilience`,
+  `9737256a9ab383206ddd139be19e5d5422fc3352`.
+- Working-tree baseline: clean after T33; no unrelated user-owned changes are
+  available to stage.
+- Baseline tests: `./aurelia-shell/tests/run.sh` — 548 passed, 0 failed;
+  `./tests/run.sh` — 228 passed, 0 failed; repository-wide shell syntax —
+  237 scripts passed; T33-owned ShellCheck checks passed.
+- Allowed production scope: new `plugins/aurelia.audio/` manifest, pure
+  `Model.js`, and the minimum new bar-widget/panel files required for the
+  plugin contract; existing host files only where the registry contract
+  requires an additive registration path.
+- Allowed test scope: centralized Audio contract/model tests, disposable
+  PipeWire/MPRIS fixtures, manifest matrix updates, host-survivability
+  fixtures, the Aurelia runner, and this tracker. T30's plugin-local test
+  directory work remains separate.
+- Identity boundary: use the new Aurelia namespace IDs without renaming or
+  moving any existing plugin, file, manifest, or entry point. The plugin must
+  remain opt-in until T37's default-layout cutover.
+- Ownership boundary: PipeWire/MPRIS own live state; the plugin owns only
+  detached snapshots and UI intent. Do not add a second audio daemon, mutate
+  live system services, or duplicate Bluetooth's existing audio-default
+  helper ownership.
+- Failure boundary: missing PipeWire/MPRIS objects, malformed node data,
+  disappearing nodes, and plugin loader failures must quarantine/disable only
+  the Audio surface and leave the resident host and healthy plugins available.
+- Persisted/live-state impact: no production state migration or default-bar
+  change in T36; tests use temporary sandboxes and mocked argv/data only.
+- Rollback: remove only T36-owned new plugin/test files and additive registry
+  wiring if CP3 fails; preserve existing bar, Bluetooth, power, and user state.
+
+CP2 status: `[x]` contract, test boundary, identity/ownership boundary,
+survivability boundary, baseline, and rollback path recorded before T36 code.
+
+- [ ] Add a canonical `aurelia.audio` manifest with a safe bar-widget entry
+  point and reference metadata, without placing it in the shipped bar yet.
+- [ ] Add a pure model for PipeWire sink/source/stream classification,
+  primitive snapshots, friendly labels, mute/volume bounds, and deterministic
+  device/stream filtering.
+- [ ] Add safe live-model ownership that tracks current default sink/source,
+  rejects invalid/disappearing nodes, and never feeds live QObject wrappers
+  directly into incubating list delegates.
+- [ ] Add deterministic negative tests for missing defaults, malformed nodes,
+  disappearing nodes, duplicate identities, invalid volumes, and failed
+  optional MPRIS/PipeWire availability.
+- [ ] Add host-survivability coverage proving Audio failure cannot prevent the
+  bar, resident host, Bluetooth, Power, or healthy plugins from loading.
+- [ ] Run focused Audio tests, full Aurelia tests, repository tests, syntax,
+  and available ShellCheck before moving to T37.
+
+Exit gate: `aurelia.audio` is a validated, opt-in, failure-contained plugin
+with a pure tested model and no live-system mutation or default-layout impact.
+
+Dependencies: T35, T02A, T31, T32.
+
+---
+
+### T37. Implement Audio panel and output interaction parity
+
+Execution status: NOT STARTED — queued behind T36
+
+Scope:
+
+- Build the panel with Omarchy's output, input, and per-application stream
+  sections using Aurelia's existing `AureliaKeyboardPanel`, `PanelSlider`,
+  `CursorSurface`, and theme tokens.
+- Audio bar behavior must match the frozen contract: middle-click opens the
+  panel, scroll changes output volume in bounded steps, and the primary mute
+  action changes the intended output/input mute state without optimistic state
+  lies.
+- Implement default sink/source selection, output/input sliders, stream mute
+  and stream volume, active-player labeling, and bounded PipeWire refreshes.
+- Preserve Aurelia's structured argv and privilege ownership. Reuse the
+  existing `aurelia-audio-output-set-default` ownership where applicable and
+  add only narrowly justified package-owned adapters.
+- Add `aurelia.audio` to the canonical Aurelia default bar in the reference
+  right-side position only after T36 passes. Do not add Microphone to the
+  shipped default unless explicitly approved; Omarchy's refreshed default
+  does not include it.
+
+Required tests:
+
+- [ ] Static manifest/default-layout/interaction assertions.
+- [ ] Pure model tests for output/input/stream classification and bounds.
+- [ ] Isolated QML tests for middle-click, scroll, mute, slider, selection,
+  empty-device, and disappearing-node behavior.
+- [ ] Default-layout migration/idempotency and host-survivability tests.
+- [ ] Full Aurelia/repository suites, shell syntax, and ShellCheck.
+
+Exit gate: Audio is present in the shipped Aurelia bar with Omarchy's control
+semantics, no feature regression, no shell-wide failure from unavailable audio,
+and mandatory isolated tests green.
+
+Dependencies: T36, T02A, T24, T27, T31.
+
+---
+
+### T38. Add Microphone bar widget and input-control parity
+
+Execution status: NOT STARTED — queued behind T37
+
+Scope:
+
+- Add a separate `aurelia.microphone` bar-widget manifest and unchanged,
+  dynamically resolved entry-point placement under the Aurelia plugin tree.
+- Read the default PipeWire source through the shared Audio contract; show
+  mute/live/in-use state, mute the microphone on the primary action, open
+  `aurelia.audio` on middle-click, and adjust input volume on scroll with the
+  same bounded step semantics as the reference.
+- Keep the widget optional in the default layout to match the refreshed
+  Omarchy default while making explicit enablement/configuration reliable.
+- Do not create a second competing PipeWire tracker, audio service, or IPC
+  owner. A missing source must hide/degrade only this widget and never break
+  the shell.
+
+Required tests:
+
+- [ ] Manifest/catalog/default-optional and bar-widget lifecycle assertions.
+- [ ] Pure input mute/volume/in-use model tests, including missing-source and
+  disappearing-source cases.
+- [ ] Isolated QML interaction tests for primary mute, middle Audio summon,
+  scroll bounds, tooltip/state text, and repeated refreshes.
+- [ ] Host-survivability and full Aurelia/repository/syntax/ShellCheck gates.
+
+Exit gate: Microphone has the exact reference interaction contract, shares one
+safe Audio state boundary, remains optional by default, and cannot make the
+bar or resident host unusable.
+
+Dependencies: T37, T02A, T31.
+
+---
+
+### T39. Redesign existing Power popup to Omarchy battery/profile UX
+
+Execution status: NOT STARTED — queued behind T38
+
+Non-negotiable identity invariant: retain `aurelia.power`,
+`PowerBarWidget.qml`, `PowerPanel.qml`, manifest placement, existing lock,
+logout, suspend, reboot, shutdown actions, and Aurelia theme/design-language
+ownership. This is a controlled internal UI/data redesign, not a rename or
+re-home.
+
+Scope:
+
+- Add a pure power model based on the refreshed Omarchy `Model.js` contract for
+  battery fraction, state, charging/threshold logic, profile parsing, profile
+  selection, icon selection, and bounded text labels.
+- Integrate Quickshell UPower presence/state safely. No battery must produce a
+  non-crashing unavailable/hidden widget; it must not prevent other bar
+  widgets or the shell from loading.
+- Redesign the popup around the reference information hierarchy: battery hero
+  and percentage, progress bar, status/statistics, power-profile selector,
+  compact rows, cursor/focus behavior, and dynamic content-fitted geometry.
+- Preserve Aurelia colors, typography, spacing, icon primitive, popup ownership,
+  confirmation semantics, bounded actions, and no live system mutation during
+  tests.
+- Add a `showPercentage` setting with safe persistence and right-click toggle
+  semantics matching the reference; route settings through the existing host
+  mutation owner.
+- Keep power actions structured and observable. Failed profile/action commands
+  must report bounded diagnostics and never crash or block the shell.
+
+Required tests:
+
+- [ ] Pure model matrix for absent battery, charging, discharging, full,
+  threshold, malformed profile output, and profile-index bounds.
+- [ ] Static geometry/design assertions proving the old five-row-only popup is
+  gone and the required hero/progress/stats/profile owners exist.
+- [ ] Isolated QML fixture for popup open/close, confirmation, profile
+  selection, percentage toggle, absent battery, and action-failure isolation.
+- [ ] Preservation tests for all existing power actions and default bar slot.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates; optional visual smoke
+  remains separately authorized.
+
+Exit gate: the Power popup has the requested reference-level information
+architecture and UX quality while every existing Aurelia power action and
+shell-safety invariant remains intact.
+
+Dependencies: T38, T02A, T24, T31, T33.
+
+---
+
+### T40. Complete the Aurelia bar configuration control plane
+
+Execution status: NOT STARTED — queued behind T39
+
+Scope:
+
+- Extend the existing `aurelia-bar` command surface with `use`, `reset`,
+  `defaults`, `position top|bottom|left|right`, and
+  `transparent true|false|toggle`.
+- Preserve existing `put`, `move`, and `set` behavior and support the exact
+  reference examples, including moving the clock to center index zero and
+  setting its format.
+- Route all mutations through resident shell IPC and `ShellConfig`'s single
+  mutation owner. Do not let the CLI edit `shell.json` behind the resident
+  process or create a second competing config format.
+- `defaults` must restore the canonical `aurelia-shell/config/bar-default.json`
+  layout idempotently while preserving unrelated user-owned configuration and
+  maintaining the active-bar fallback/selection contract.
+- Validate all values and selectors before mutation; invalid commands must
+  fail closed with no partial config changes. Existing widget IDs and settings
+  remain unchanged.
+
+Required tests:
+
+- [ ] CLI help and argument matrix for every new command and invalid value.
+- [ ] Isolated shell IPC/config fixture for use/reset/defaults/position/
+  transparency and exact idempotent reruns.
+- [ ] Preservation tests for user settings, plugin instances, active bar
+  fallback, and existing put/move/set operations.
+- [ ] No-direct-file-edit and no-duplicate-mutation checks.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Exit gate: Aurelia exposes the requested Omarchy bar command language through
+its existing safe resident control plane without changing existing feature
+names, user state semantics, or shell availability.
+
+Dependencies: T39, T03, T10, T12, T18, T24, T27, T31.
+
+---
+
+### T41. Implement persistent bar hiding, shortcut, and Menu Bar parity
+
+Execution status: NOT STARTED — queued behind T40
+
+Scope:
+
+- Add an XDG-state-owned, atomic, idempotent bar-hidden toggle state with
+  explicit `on|off|toggle` semantics and safe default-visible behavior.
+- Keep the resident bar and shell process alive while hidden: park only the
+  bar surface off-screen, remove its exclusion zone, preserve widget/plugin
+  state, and keep Command Center and all hotkeys available.
+- Add an explicit bar sync/read boundary so rapid state-file changes cannot
+  strand the bar; watch the parent directory because a first toggle creates a
+  previously absent state file.
+- Add `Super + Shift + Space` to the authoritative keybinding manifest through
+  an existing safe structured action path. It must toggle the Aurelia bar even
+  when the bar pixels are hidden.
+- Replace/extend the flat menu action with the reference Menu Bar semantics,
+  including a visible/hidden checked state and safe position/transparency
+  controls after T40 provides their mutation API. Preserve existing menu
+  provider validation and user extensions.
+- Invalid/missing toggle state, watcher failure, or bar IPC unavailability
+  must remain observable and must not kill the host or suppress warnings.
+
+Required tests:
+
+- [ ] Pure state parser and idempotent atomic-write tests for missing, valid,
+  malformed, symlinked, and rapidly changed toggle state.
+- [ ] Isolated bar fixture proving mapped-but-offscreen hidden behavior,
+  exclusion-mode transition, restore, and healthy widget/hotkey continuity.
+- [ ] Keybinding manifest/registration tests for exact
+  `Super + Shift + Space` semantics.
+- [ ] Menu model/action/checked-state tests for Menu Bar controls.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates; no live compositor
+  mutation in ordinary validation.
+
+Exit gate: bar hiding matches the reference interaction without terminating
+the resident shell, panels, plugins, or hotkeys, and every state transition is
+tested and observable.
+
+Dependencies: T40, T02A, T21, T23, T24, T31, T33.
+
+---
+
+### T42. Requested capability integration and final acceptance gate
+
+Execution status: NOT STARTED — queued behind T36 through T41
+
+Scope:
+
+- Re-run the complete Aurelia manifest/catalog/default-layout inventory and
+  compare Audio, Microphone, Power, bar commands, hiding, menu, and shortcut
+  contracts against the refreshed Omarchy checkout.
+- Add end-to-end isolated lifecycle coverage for default startup, plugin
+  failure/quarantine, Audio/Microphone/Power open-close, bar mutations,
+  defaults restoration, hidden-bar restoration, reload, and repeated execution.
+- Add/update authoring and user documentation for new plugin IDs, controls,
+  exact command language, shortcut, Menu Bar path, optional Microphone
+  enablement, and failure behavior.
+- Run optional real-Wayland visual/session acceptance only after explicit
+  authorization; separate those results from isolated tests and do not claim
+  visual parity from static checks.
+- Record exact test/syntax/ShellCheck counts, unchanged feature inventory,
+  rollback evidence, final commits, and all remaining intentional Omarchy
+  differences.
+
+Required tests:
+
+- [ ] Full Aurelia suite and repository suite are green.
+- [ ] All affected failure-isolation and preservation fixtures are green.
+- [ ] Repository-wide shell syntax passes; available ShellCheck findings are
+  classified without suppressing or deleting warnings.
+- [ ] Optional real-session evidence is either authorized and recorded or
+  explicitly marked unrun.
+
+Exit gate: the requested capability set is structurally and behaviorally at
+Omarchy parity as far as Aurelia's preserved features and safety boundaries
+allow, every task has CP3 evidence, and no task leaves the shell unusable.
+
+Dependencies: T36, T37, T38, T39, T40, T41, T02A, T31, T32, T33.
+
+---
+
 ## Gap-to-task closure matrix
 
 | Audit gap | Closing task(s) |
@@ -2999,6 +3424,12 @@ investigation.
 | Dynamic plugin/resource sources are built by scattered ad-hoc file-URL paths and are not relocation-tested | T32 |
 | Shared anchored surfaces call coordinate mapping on a window content receiver that lacks the API | T33 |
 | Bluetooth scan results disappear across discovery refresh/reopen despite device identity | T34 |
+| No Audio bar-widget plugin or Audio panel with output/input/stream controls | T36, T37 |
+| No separate Microphone bar widget with mute, Audio summon, and input-scroll controls | T38 |
+| Existing Power popup lacks Omarchy battery, statistics, profile, and percentage UX | T39 |
+| Aurelia bar CLI lacks use/reset/defaults/position/transparent controls | T40 |
+| Bar hiding lacks persistent state, exact shortcut, and full Menu Bar semantics | T41 |
+| Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
 
