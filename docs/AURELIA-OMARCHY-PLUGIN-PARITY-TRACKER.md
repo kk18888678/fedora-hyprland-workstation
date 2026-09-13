@@ -1,8 +1,9 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity complete; T30 per-plugin test-layout
-and T31 warning-observability tasks queued and not started; live
-visual/integration validation deferred pending explicit authorization.
+Status: repository-only structural parity complete; T30 remains queued, while
+T31 warning observability and T32 source-boundary hardening are in progress;
+live visual/integration validation remains deferred pending explicit
+authorization.
 
 ## Objective
 
@@ -2505,7 +2506,7 @@ Dependencies: T24 through T29.
 
 ### T31. Preserve actionable warnings and errors (Never suppress warnings)
 
-Execution status: NOT STARTED (queued by explicit user request)
+Execution status: IN PROGRESS — CP2 established; implementation not yet started
 
 Scope note: this task is an observability and failure-classification audit. It
 must not make the shell noisier by duplicating the same diagnostic, but it must
@@ -2525,6 +2526,24 @@ successful probe is classified as unavailable, the panel loader never runs,
 and the widget collapses to zero width. The corrective change must use the
 probe result/capability contract (with an actionable final diagnostic), not
 hide this false-negative behind the existing retry/early-return path.
+
+Checkpoint 2 — T31 pre-change boundary:
+
+- Allowed production scope: the Bluetooth probe/readiness boundary, host and
+  bar-widget failure-reporting paths, and any production catch/redirect/filter
+  that the inventory proves hides an actionable diagnostic.
+- Allowed test scope: isolated warning/probe fixtures, static suppression-policy
+  checks, affected plugin tests, the Aurelia runner, and this tracker.
+- Compatibility boundary: preserve healthy-plugin loading, T02A quarantine,
+  single-owner IPC, optional hardware classification, all Aurelia feature
+  behavior, and the existing design language.
+- Persisted/live-state impact: none; use only disposable XDG/runtime state and
+  do not restart or mutate the live shell during implementation verification.
+- Rollback: revert only T31-owned production/test/tracker changes if CP3 fails;
+  preserve the prior parity commits and user-owned worktree state.
+
+CP2 status: `[x]` contract, test boundary, impact boundary, and rollback path
+recorded before implementation edits.
 
 Checkpoint requirement: create a CP2 tracker entry before editing any runtime,
 test, manifest, configuration, or logging implementation file.
@@ -2567,6 +2586,81 @@ reason to defer this observability task.
 
 ---
 
+### T32. Establish one canonical, relocatable plugin source boundary
+
+Execution status: IN PROGRESS — CP2 established; implementation not yet started
+
+Scope note: an absolute `file:///home/...` URL is valid as an in-memory runtime
+URL when derived from the active shell root. It is not valid as a persisted,
+hard-coded, checkout-specific, or inconsistently encoded source contract. This
+task replaces the scattered URL construction paths with one canonical resolver
+for manifest entry points and local file-backed media/asset paths. Relative
+manifest entry points remain the source of truth; absolute URLs are generated
+only at the final Loader/Image/Media boundary.
+
+Checkpoint 2 — T32 pre-change boundary:
+
+- Allowed production scope: a shared source/path resolver, the manifest
+  registry's entry-point URL seam, existing repeated file-URL builders, and
+  narrow Loader/Image/Media call sites required to consume that resolver.
+- Allowed test scope: resolver unit tests, isolated QML loader fixtures,
+  manifest/catalog/path safety tests, affected plugin tests, the Aurelia
+  runner, and this tracker.
+- Compatibility boundary: preserve every manifest ID, relative entry point,
+  plugin source directory, bar/panel/overlay/menu/service lifecycle, local
+  image/video behavior, icon behavior, user configuration format, and all
+  Aurelia design language.
+- Source safety boundary: reject empty/non-absolute roots, unsafe relative
+  entry points, traversal, malformed file URLs, unsupported schemes, and paths
+  escaping the declared plugin root; do not trust a source string merely
+  because it begins with `file://`.
+- Relocation boundary: tests must use at least two distinct temporary roots,
+  including spaces and non-ASCII path segments, and prove no source or config
+  contains a developer-specific `/home/user/Projects/...` path.
+- Persisted/live-state impact: no production writes; tests use disposable
+  temporary trees only and must not restart the live shell or alter system
+  state.
+- Rollback: revert only T32-owned resolver/call-site/test/tracker changes if
+  CP3 fails; preserve T31's diagnostics and all prior parity work.
+
+CP2 status: `[x]` source contract, test boundary, relocation/safety boundary,
+compatibility boundary, and rollback path recorded before implementation edits.
+
+- [ ] Inventory every production source URL/path producer and classify it as
+  manifest entry point, repository-relative resource, user-selected local
+  file, icon URI, or external/unsupported scheme.
+- [ ] Add one canonical resolver with explicit path-to-file-URL and
+  file-URL-to-path behavior, correct percent encoding, absolute-root checks,
+  and safe descendant validation.
+- [ ] Route registry entry points and every repeated production file-URL
+  builder through the canonical resolver; keep `Qt.resolvedUrl()` for local
+  QML resources where it already provides the correct relative boundary.
+- [ ] Ensure manifests and persisted shell state store only relative entry
+  points or approved user paths, never a developer checkout URL.
+- [ ] Ensure third-party source paths remain detached/diagnostic-only and do
+  not become an authority escalation through the resolver.
+- [ ] Add negative tests for traversal, root escape, malformed encoding,
+  unsupported schemes, relative roots, symlinked/ambiguous source roots, and
+  missing entry points.
+- [ ] Add relocation tests for spaces, Unicode, `#`, `?`, `%`, and repeated
+  separators without changing the resolved filesystem path.
+- [ ] Add isolated runtime tests proving representative bar, panel, overlay,
+  menu, service, image, and media loaders still resolve and healthy plugins
+  remain available when one source is invalid.
+- [ ] Add a static check preventing hard-coded developer checkout paths and
+  ad-hoc production `"file://" + path` construction outside the resolver.
+- [ ] Keep all validation isolated from the live workstation, installer,
+  packages, user configuration, systemd/greetd state, and reboot.
+
+Exit gate: every production dynamic source path has one reviewed resolver or a
+documented native `Qt.resolvedUrl()` boundary; source URLs are relocatable and
+safe, persisted state remains path-neutral, invalid sources produce visible
+diagnostics, and the shell plus healthy plugins remain usable.
+
+Dependencies: T31, T03, T04, T06, T10, T14, T24.
+
+---
+
 ## Gap-to-task closure matrix
 
 | Audit gap | Closing task(s) |
@@ -2602,6 +2696,7 @@ reason to defer this observability task.
 | Observed startup warning-producing component graph lacked regression coverage | T29 |
 | No plugin-local test directory structure (new requested requirement) | T30 |
 | Actionable plugin/host warnings or errors may be hidden by silent catches or failure gates | T31 |
+| Dynamic plugin/resource sources are built by scattered ad-hoc file-URL paths and are not relocation-tested | T32 |
 
 ## Final preservation gate
 
@@ -2659,10 +2754,10 @@ Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403
 Final Aurelia branch/SHA: installer-resilience / f77c93d9b5ad2fac345f42b7ff4f043f45502270
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
 Tasks completed: T00 through T29 for the repository-only structural parity target
-Tasks outstanding: T30 plugin-local test directories and T31 warning
-observability (both queued, not started); authorized live Wayland/visual
-acceptance; explicit feature scope differences are listed above and are not
-structural gaps
+Tasks outstanding: T30 plugin-local test directories (queued); T31 warning
+observability and T32 source-boundary hardening (in progress); authorized live
+Wayland/visual acceptance; explicit feature scope differences are listed above
+and are not structural gaps
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 527 passed, 0 failed
 Syntax checks: 233 shell scripts passed bash -n
 ShellCheck: unavailable; not installed and not added
