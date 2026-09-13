@@ -2514,6 +2514,18 @@ failure. A warning may be removed only by fixing the invalid state or by
 replacing it with an explicit, test-covered, non-error classification whose
 reason remains observable.
 
+Pre-implementation finding (2026-09-13; not completion evidence): the live
+Bluetooth plugin is discovered, enabled, loaded, and present in the bar, but
+its public `ping` returns `false` and the catalog reports `visible:false`.
+BlueZ and `hci0` are healthy, and the exact probe command exits `0`; its normal
+human-readable `busctl introspect` output lists `.GetManagedObjects` and the
+interface signals without repeating the full interface name. Aurelia's
+`hasBluezService()` currently searches stdout for that full name, so the
+successful probe is classified as unavailable, the panel loader never runs,
+and the widget collapses to zero width. The corrective change must use the
+probe result/capability contract (with an actionable final diagnostic), not
+hide this false-negative behind the existing retry/early-return path.
+
 Checkpoint requirement: create a CP2 tracker entry before editing any runtime,
 test, manifest, configuration, or logging implementation file.
 
