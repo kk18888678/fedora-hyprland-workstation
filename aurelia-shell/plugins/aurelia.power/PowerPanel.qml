@@ -25,6 +25,7 @@ AureliaKeyboardPanel {
     property var onBatteryOverride
     property var statesOverride
     property var actionExecutor
+    property QtObject runtime: PowerRuntime { owner: root }
 
     property var batteryInfo: ({})
     property var systemInfo: ({})
@@ -157,9 +158,7 @@ AureliaKeyboardPanel {
         if (!root.batteryPresent) return
         var snapshot = root.displayBatterySnapshot()
         if (Object.keys(snapshot).length > 0) root.batteryInfo = snapshot
-        if (!profilesProcess.running) profilesProcess.running = true
-        if (!systemProcess.running) systemProcess.running = true
-        if (!memoryProcess.running) memoryProcess.running = true
+        root.runtime.refresh()
     }
 
     function updateProfiles(raw) {
@@ -186,30 +185,7 @@ AureliaKeyboardPanel {
     }
 
     function runCommand(argv, kind) {
-        if (!Array.isArray(argv) || argv.length === 0) return "invalid"
-        if (root.actionRunning) return "busy"
-        root.actionError = ""
-        if (typeof root.actionExecutor === "function") {
-            try {
-                var result = root.actionExecutor(argv, String(kind || "action"))
-                if (result === false || result === "error") {
-                    root.actionError = "Power action failed."
-                    console.error("[POWER] action_failed kind=" + String(kind || "action"))
-                    return "error"
-                }
-                return "ok"
-            } catch (error) {
-                root.actionError = "Power action failed."
-                console.error("[POWER] action_failed kind=" + String(kind || "action") +
-                    " detail=" + String(error))
-                return "error"
-            }
-        }
-        actionProcess.actionKind = String(kind || "action")
-        actionProcess.command = argv
-        root.actionRunning = true
-        actionProcess.running = true
-        return "pending"
+        return root.runtime.runCommand(argv, kind)
     }
 
     function setProfile(profile) {
@@ -313,77 +289,6 @@ AureliaKeyboardPanel {
         }
     }
     onBatteryPresentChanged: if (!root.batteryPresent && root.shown) root.close()
-
-    Process {
-        id: profilesProcess
-        command: ["/usr/bin/powerprofilesctl", "list"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: root.updateProfiles(text)
-        }
-        onExited: function(code) {
-            if (code !== 0) {
-                root.profileError = "Power profile query failed."
-                console.error("[POWER] profiles_query_failed code=" + code)
-            }
-        }
-    }
-
-    Process {
-        id: systemProcess
-        command: ["/usr/bin/uptime"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: root.updateSystemStats(text)
-        }
-        onExited: function(code) {
-            if (code !== 0) console.error("[POWER] system_stats_query_failed code=" + code)
-        }
-    }
-
-    Process {
-        id: memoryProcess
-        command: ["/usr/bin/free", "-h"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: root.updateSystemStats(text)
-        }
-        onExited: function(code) {
-            if (code !== 0) console.error("[POWER] memory_stats_query_failed code=" + code)
-        }
-    }
-
-    Process {
-        id: actionProcess
-        property string actionKind: "action"
-        command: []
-        onExited: function(code) {
-            root.actionRunning = false
-            if (code !== 0) {
-                root.actionError = "Power action failed."
-                console.error("[POWER] action_failed kind=" + actionKind + " code=" + code)
-            } else {
-                root.actionError = ""
-                root.refresh()
-            }
-        }
-    }
-
-    Timer {
-        id: refreshTimer
-        interval: 5000
-        repeat: true
-        running: root.shown
-        onTriggered: root.refresh()
-    }
-
-    Timer {
-        id: phraseTimer
-        interval: 2800
-        repeat: true
-        running: root.shown && root.activePhrases.length > 0
-        onTriggered: root.phraseIndex = (root.phraseIndex + 1) % root.activePhrases.length
-    }
 
     FocusScope {
         id: keyScope

@@ -13,8 +13,10 @@ manifest_file="$power_root/manifest.json"
 panel_file="$power_root/PowerPanel.qml"
 widget_file="$power_root/PowerBarWidget.qml"
 model_file="$power_root/Model.js"
+runtime_file="$power_root/PowerRuntime.qml"
 default_file="$ROOT/config/bar-default.json"
 fixture_root="$ROOT/tests/fixtures/power-foundation"
+panel_fixture_root="$ROOT/tests/fixtures/power-panel"
 
 if [[ -f "$manifest_file" && -f "$panel_file" && -f "$widget_file" && -f "$model_file" ]] &&
    jq -e '
@@ -48,6 +50,15 @@ if grep -Fq 'import Quickshell.Services.UPower' "$panel_file" &&
     pass "[static] Power replaces the fixed action-only popup with UPower hero, progress, stats, and profile sections"
 else
     fail "[static] Power reference information hierarchy or dynamic geometry is incomplete"
+fi
+
+if [[ -f "$runtime_file" ]] &&
+   grep -Fq 'property QtObject runtime' "$panel_file" &&
+   grep -Fq 'property var owner' "$runtime_file" &&
+   ! grep -Eq '^[[:space:]]+(Process|Timer)[[:space:]]*\{' "$panel_file"; then
+    pass "[static] Power keeps non-visual processes and timers outside AureliaKeyboardPanel contentItem"
+else
+    fail "[static] Power panel still risks inserting a non-visual child into contentItem"
 fi
 
 if grep -Fq 'showPercentage' "$panel_file" &&
@@ -196,4 +207,37 @@ else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$result_file" ]]; then details="$details result=$(tr '\n' ' ' <"$result_file")"; fi
     fail "[isolated-runtime] Power widget fixture failed (status=$runtime_status): $details"
+fi
+
+panel_runtime_root="$(mktemp -d)"
+trap 'rm -rf -- "$panel_runtime_root" 2>/dev/null || true' RETURN
+panel_result="$panel_runtime_root/result.json"
+panel_log="$panel_runtime_root/runtime.log"
+panel_status=0
+mkdir -p -- "$panel_runtime_root/runtime" "$panel_runtime_root/state" \
+    "$panel_runtime_root/config" "$panel_runtime_root/cache"
+AURELIA_POWER_PANEL_RESULT="$panel_result" \
+AURELIA_POWER_PANEL_SOURCE="file://$panel_file" \
+AURELIA_POWER_RUNTIME_SOURCE="file://$runtime_file" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$panel_runtime_root/runtime" \
+XDG_STATE_HOME="$panel_runtime_root/state" \
+XDG_CONFIG_HOME="$panel_runtime_root/config" \
+XDG_CACHE_HOME="$panel_runtime_root/cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$panel_fixture_root/shell.qml" --no-color >"$panel_log" 2>&1 || panel_status=$?
+
+if [[ "$panel_status" -eq 0 ]] && [[ -s "$panel_result" ]] &&
+   jq -e '.loaded == true and .runtimeAvailable == true and .entryPointConstructed == true' \
+       "$panel_result" >/dev/null; then
+    pass "[isolated-runtime] real PowerPanel entry point constructs without contentItem type errors"
+elif [[ -s "$panel_result" ]] &&
+     jq -e '.runtimeLoaded == true and .runtimeAvailable == true' "$panel_result" >/dev/null 2>&1 &&
+     grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$panel_log" &&
+     runtime_skip_if_environment_only "$panel_log" "[isolated-runtime] PowerPanel fixture cannot create a disposable window backend"; then
+    :
+else
+    details="$(tail -n 48 "$panel_log" 2>/dev/null || true)"
+    if [[ -s "$panel_result" ]]; then details="$details result=$(tr '\n' ' ' <"$panel_result")"; fi
+    fail "[isolated-runtime] PowerPanel entry-point fixture failed (status=$panel_status): $details"
 fi
