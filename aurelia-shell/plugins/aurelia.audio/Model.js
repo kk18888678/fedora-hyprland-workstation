@@ -22,6 +22,18 @@ function listSnapshot(list) {
   return list && list.slice ? list.slice() : []
 }
 
+function clampVolume(value, maximum) {
+  var limit = Number(maximum)
+  if (!isFinite(limit) || limit <= 0) limit = 1
+  var volume = Number(value)
+  if (!isFinite(volume)) volume = 0
+  return Math.max(0, Math.min(limit, volume))
+}
+
+function steppedVolume(value, delta, maximum) {
+  return clampVolume(Number(value) + (Number(delta) || 0), maximum)
+}
+
 function outputVolumeName(volume, muted) {
   if (muted) return "Muted"
   var p = Math.round(volume * 100)
@@ -238,6 +250,8 @@ if (typeof module !== "undefined") {
     isPlaybackStream: isPlaybackStream,
     isAudioSource: isAudioSource,
     listSnapshot: listSnapshot,
+    clampVolume: clampVolume,
+    steppedVolume: steppedVolume,
     outputVolumeName: outputVolumeName,
     parseSinkAvailability: parseSinkAvailability,
     friendlyDeviceLabel: friendlyDeviceLabel,

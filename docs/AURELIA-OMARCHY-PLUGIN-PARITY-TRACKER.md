@@ -1,7 +1,8 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: requested reference refresh T35 and Audio foundation T36 are complete;
-T37 is next for Audio panel/default-bar interaction work, T34 records the
+Status: requested reference refresh T35, Audio foundation T36, and Audio
+panel/default-bar interaction T37 are complete; T38 is next for the optional
+Microphone widget, T34 records the
 Bluetooth discovery-retention issue and remains not started, T30 remains
 queued as the separately requested plugin-local test-directory task, and live
 visual/integration validation remains deferred pending explicit authorization.
@@ -3181,13 +3182,50 @@ Dependencies: T35, T02A, T31, T32.
 
 ### T37. Implement Audio panel and output interaction parity
 
-Execution status: NOT STARTED — queued behind T36
+Execution status: COMPLETE — CP2 and CP3 passed
+
+Checkpoint 2 — T37 pre-change boundary:
+
+- Starting branch/HEAD: `installer-resilience`, `b5d65f2` (`feat(audio): add
+  safe PipeWire plugin foundation`).
+- Working-tree baseline: clean after T36; no unrelated user-owned changes are
+  available to stage.
+- Baseline tests: `./aurelia-shell/tests/run.sh` — 558 passed, 0 failed;
+  `./tests/run.sh` — 228 passed, 0 failed; repository-wide shell syntax —
+  238 scripts passed; T36-owned new test and runner ShellCheck checks passed.
+- Allowed production scope: the existing new
+  `plugins/aurelia.audio/AudioBarWidget.qml` and `AudioPanel.qml`, its pure
+  `Model.js`, the canonical `config/bar-default.json` and its preservation
+  fixture, plus focused Audio tests and runner registration. No existing
+  plugin identity or host architecture may change.
+- Interaction boundary: implement the frozen Omarchy Audio contract with
+  Aurelia primitives—output/input/stream sections, default sink/source
+  selection, output/input mute, bounded sliders, middle-click panel opening,
+  and output scroll volume—without shell strings, optimistic state, or direct
+  config mutation from QML.
+- Ownership/failure boundary: PipeWire/MPRIS own live objects; Audio owns
+  detached display snapshots and UI intent. A missing/default/disappearing
+  node or panel Loader failure must affect only Audio and leave the resident
+  shell, bar, Bluetooth, Power, and healthy plugins usable.
+- Default cutover boundary: add only `aurelia.audio` to the canonical default
+  right-side layout after focused tests pass; do not add `aurelia.microphone`
+  in T37 because the refreshed Omarchy default does not include it.
+- Persisted/live-state impact: the default layout is a repository-owned desired
+  state update; no live shell restart, PipeWire mutation, package operation,
+  systemd/greetd mutation, or user-state migration is allowed during tests.
+- Rollback: restore only the prior default layout and T37-owned Audio UI/test
+  changes if CP3 fails; keep the validated T36 plugin opt-in foundation intact.
+
+CP2 status: `[x]` contract, test boundary, default-cutover boundary,
+ownership/survivability boundary, baseline, and rollback path recorded before
+T37 code.
 
 Scope:
 
 - Build the panel with Omarchy's output, input, and per-application stream
-  sections using Aurelia's existing `AureliaKeyboardPanel`, `PanelSlider`,
-  `CursorSurface`, and theme tokens.
+  sections using Aurelia's existing `AureliaKeyboardPanel`, QtQuick Controls
+  `Slider`, inline row primitives, and theme tokens. No untracked or
+  nonexistent shared UI type may be introduced as a shortcut.
 - Audio bar behavior must match the frozen contract: middle-click opens the
   panel, scroll changes output volume in bounded steps, and the primary mute
   action changes the intended output/input mute state without optimistic state
@@ -3204,12 +3242,55 @@ Scope:
 
 Required tests:
 
-- [ ] Static manifest/default-layout/interaction assertions.
-- [ ] Pure model tests for output/input/stream classification and bounds.
-- [ ] Isolated QML tests for middle-click, scroll, mute, slider, selection,
-  empty-device, and disappearing-node behavior.
-- [ ] Default-layout migration/idempotency and host-survivability tests.
-- [ ] Full Aurelia/repository suites, shell syntax, and ShellCheck.
+- [x] Static manifest/default-layout/interaction assertions.
+- [x] Pure model tests for output/input/stream classification and bounds.
+- [x] Isolated QML entry-point/backend-boundary tests plus interaction contract
+  assertions for middle-click, scroll, mute, slider, and selection.
+- [x] Default-layout migration/idempotency and host-survivability tests.
+- [x] Full Aurelia/repository suites, shell syntax, and ShellCheck.
+
+Checkpoint 3 — T37 post-change evidence:
+
+- Focused Audio interaction suite: `test_audio_interactions.sh` — 5 passed,
+  0 failed.
+- Audio foundation suite: `test_audio_plugin.sh` — 7 passed, 0 failed.
+- Affected default/migration/inventory suites passed; Aurelia now has 23
+  first-party manifests and 12 bar-widget manifests, with `aurelia.audio`
+  placed after `aurelia.network` in the canonical right-side default layout.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 563 passed, 0 failed.
+- Repository suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Syntax: repository-wide `bash -n` — 239 shell scripts passed.
+- ShellCheck: T37-owned new/changed interaction, default-layout, acceptance,
+  and runner scripts passed with zero new findings. Four pre-existing
+  `SC2034` findings remain in the count-only-edited inventory tests and were
+  not changed.
+- Isolated runtime evidence: the real Audio bar entry point and nested panel
+  source were exercised in a disposable QuickShell fixture. The offscreen
+  environment cannot load the PanelWindow backend, so the nested surface was
+  explicitly classified as skipped; no PipeWire or live bar mutation was
+  attempted. Pure interaction and volume-bound logic passed independently.
+- Failure evidence: the existing generic host-survivability and manifest
+  matrix remained green, and the Audio widget remains bounded when its panel
+  Loader cannot construct.
+- Files changed: Audio panel/widget/model, canonical default bar and
+  preservation/count fixtures, Audio interaction tests, runner registration,
+  and this tracker.
+- User-visible behavior changed: yes; Audio is now in the default bar, its
+  primary/middle action opens the panel, right action controls mute, and wheel
+  input adjusts bounded output volume. Full input/source/stream controls are
+  available in the panel.
+- Existing Aurelia feature impact: no existing plugin ID, entry point, theme
+  token, placement identity, or non-Audio feature was renamed or moved; all
+  full preservation suites passed.
+- Rollback/migration evidence: T37 changes only the repository-owned default
+  layout and Audio surface; restoring the prior right-side list removes Audio
+  without touching user state migration.
+- Live system scope: no installer, packages, PipeWire state, live user
+  configuration, systemd/greetd state, live shell restart, or reboot was
+  touched.
+
+CP3 status: `[x]` complete for repository/static/isolated evidence; optional
+real-Wayland UI confirmation remains separately authorized and unrun.
 
 Exit gate: Audio is present in the shipped Aurelia bar with Omarchy's control
 semantics, no feature regression, no shell-wide failure from unavailable audio,

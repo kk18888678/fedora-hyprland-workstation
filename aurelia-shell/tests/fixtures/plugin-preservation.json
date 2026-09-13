@@ -29,7 +29,7 @@
     "layout": {
       "left": [{"id":"aurelia.workspaces"}],
       "center": [{"id":"aurelia.notifications"}, {"id":"aurelia.clock", "format":"MMM d, dddd HH:mm"}, {"id":"aurelia.weather", "location":"auto"}],
-      "right": [{"id":"aurelia.tray"}, {"id":"aurelia.network"}, {"id":"aurelia.bluetooth"}, {"id":"aurelia.monitor"}, {"id":"aurelia.screenshot"}, {"id":"aurelia.power"}]
+      "right": [{"id":"aurelia.tray"}, {"id":"aurelia.network"}, {"id":"aurelia.audio"}, {"id":"aurelia.bluetooth"}, {"id":"aurelia.monitor"}, {"id":"aurelia.screenshot"}, {"id":"aurelia.power"}]
     }
   },
   "requiredFiles": [

@@ -136,9 +136,8 @@ if grep -Fq 'property bool audioAvailable' "$widget_file" &&
    grep -Fq 'function close' "$widget_file" &&
    grep -Fq 'function toggle' "$widget_file" &&
    grep -Fq 'onStatusChanged' "$widget_file" &&
-   grep -Fq 'Loader.Error' "$widget_file" &&
-   ! grep -Fq 'aurelia.audio' "$ROOT/config/bar-default.json"; then
-    pass "[static] Audio remains opt-in with bounded loader failure reporting before default cutover"
+   grep -Fq 'Loader.Error' "$widget_file"; then
+    pass "[static] Audio has bounded loader failure reporting and a stable plugin lifecycle"
 else
     fail "[static] Audio opt-in/failure-containment boundary is incomplete"
 fi

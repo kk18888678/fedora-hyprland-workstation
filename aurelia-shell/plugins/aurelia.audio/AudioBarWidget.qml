@@ -64,12 +64,16 @@ Item {
     }
 
     function toggleMute() {
+        if (panelLoader.item && typeof panelLoader.item.toggleAllMuted === "function") {
+            panelLoader.item.toggleAllMuted()
+            return
+        }
         if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted
     }
 
     function adjustOutput(delta) {
         if (!root.sink || !root.sink.audio) return
-        root.sink.audio.volume = Math.max(0, Math.min(1, root.outputVolume + Number(delta || 0)))
+        root.sink.audio.volume = Model.steppedVolume(root.outputVolume, delta, 1)
     }
 
     Loader {
@@ -105,7 +109,8 @@ Item {
             onClicked: function(mouse) {
                 mouse.accepted = true
                 if (mouse.button === Qt.RightButton) root.toggleMute()
-                else root.open("{}")
+                else if (mouse.button === Qt.MiddleButton) root.open("{}")
+                else if (mouse.button === Qt.LeftButton) root.open("{}")
             }
             onWheel: function(wheel) {
                 wheel.accepted = true
