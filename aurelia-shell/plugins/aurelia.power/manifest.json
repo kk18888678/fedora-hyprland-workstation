@@ -4,7 +4,7 @@
   "name": "Power",
   "version": "1.0.0",
   "author": "Fedora Hyprland Workstation",
-  "description": "Lock, logout, suspend, reboot, and shutdown controls for the Aurelia bar.",
+  "description": "Battery, power profile, and system stats",
   "icon": "system-shutdown",
   "kinds": ["bar-widget"],
   "entryPoints": {
@@ -12,7 +12,7 @@
   },
   "barWidget": {
     "displayName": "Power",
-    "description": "Lock, logout, suspend, reboot, and shutdown controls for the Aurelia bar.",
+    "description": "Battery, power profile, and system stats",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "center"

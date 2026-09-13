@@ -19,6 +19,7 @@
       {"id": "aurelia.bluetooth"},
       {"id": "aurelia.monitor"},
       {"id": "aurelia.screenshot"},
+      {"id": "aurelia.session-actions"},
       {"id": "aurelia.power"}
     ]
   }

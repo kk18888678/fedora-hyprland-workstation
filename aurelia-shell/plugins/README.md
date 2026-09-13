@@ -141,8 +141,12 @@ an in-bar controls overlay.
   activates the selected workspace and Escape dismisses the overview.
 - aurelia.tray: StatusNotifier system-tray widget for applications such as
   ChatGPT; it is independent from the Noctalia tray.
-- aurelia.power: final right-side power widget with lock, logout, suspend,
-  reboot, and shutdown actions. Reboot and shutdown require confirmation.
+- aurelia.power: battery/profile/statistics bar widget and popup. It follows
+  the reference hardware contract and collapses when no battery is exposed by
+  UPower; it does not own session lifecycle actions.
+- aurelia.session-actions: compact battery-independent session-action widget
+  with Lock, Log out, Suspend, Restart, and Power off. Restart and Power off
+  require confirmation; all commands use the structured runtime argv boundary.
 - aurelia.bluetooth: BlueZ-backed bar widget with reboot-persistent rfkill
   power state, paired/available device sections, pair/connect/disconnect/forget
   actions, battery levels, and bounded discovery cleanup. The implementation is

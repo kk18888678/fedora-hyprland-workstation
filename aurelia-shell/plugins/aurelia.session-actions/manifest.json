@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.session-actions",
+  "name": "Session Actions",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Lock, log out, suspend, restart, and power off controls independent of battery hardware.",
+  "icon": "system-shutdown",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "SessionActionsBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Session Actions",
+    "description": "Lock, log out, suspend, restart, and power off controls independent of battery hardware.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

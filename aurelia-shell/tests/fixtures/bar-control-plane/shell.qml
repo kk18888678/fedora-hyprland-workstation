@@ -56,6 +56,7 @@ ShellRoot {
                     center: [{id: "aurelia.notifications"}, {id: "aurelia.clock"}, {id: "aurelia.weather"}],
                     right: [{id: "aurelia.tray"}, {id: "aurelia.network"}, {id: "aurelia.audio"},
                         {id: "aurelia.bluetooth"}, {id: "aurelia.monitor"}, {id: "aurelia.screenshot"},
+                        {id: "aurelia.session-actions"},
                         {id: "aurelia.power"}]
                 }
             }

@@ -154,7 +154,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
        .transparentFalseResult == "" and .transparentAfterFalse == false and
        .defaultsResult == "" and .defaultsAgainResult == "" and
        .defaultsByteStable == true and
-       .defaultRight == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.power"] and
+       .defaultRight == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.session-actions", "aurelia.power"] and
        .pluginPreserved == true and .defaultBarEnabled == true and
        .unknownStatePreserved == true and
        .invalidPositionStable == true and .invalidTransparentStable == true

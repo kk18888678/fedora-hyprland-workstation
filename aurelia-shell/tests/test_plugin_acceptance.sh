@@ -19,7 +19,7 @@ if jq -e '
         .centerAnchor == "aurelia.clock" and
         (.layout.left | length) == 1 and
         (.layout.center | length) == 3 and
-        (.layout.right | length) == 7
+        (.layout.right | length) == 8
     ' "$bar_config" >/dev/null &&
    grep -q 'readonly property bool vertical' "$bar_source" &&
    grep -q 'readonly property string centerAnchor' "$bar_source" &&

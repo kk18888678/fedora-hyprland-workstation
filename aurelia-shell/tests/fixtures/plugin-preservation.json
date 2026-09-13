@@ -14,8 +14,9 @@
     {"id":"aurelia.monitor","kinds":["bar-widget"],"entryPoints":{"barWidget":"DisplayBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Display","description":"Brightness, text-size, display scale, and monitor controls","category":"System","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.network","kinds":["bar-widget"],"entryPoints":{"barWidget":"NetworkBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Network","description":"Wi-Fi list and connection state","category":"Connectivity","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.notifications","kinds":["service","bar-widget"],"entryPoints":{"service":"Service.qml","barWidget":"BarWidget.qml"},"keepLoaded":true,"barWidget":{"displayName":"Notifications","description":"Notification popups, history, and Do Not Disturb","category":"System","allowMultiple":false,"defaultSection":"center"}},
-    {"id":"aurelia.power","kinds":["bar-widget"],"entryPoints":{"barWidget":"PowerBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Power","description":"Lock, logout, suspend, reboot, and shutdown controls for the Aurelia bar.","category":"System","allowMultiple":false,"defaultSection":"center"}},
+    {"id":"aurelia.power","kinds":["bar-widget"],"entryPoints":{"barWidget":"PowerBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Power","description":"Battery, power profile, and system stats","category":"System","allowMultiple":false,"defaultSection":"center"}},
     {"id":"aurelia.screenshot","kinds":["bar-widget"],"entryPoints":{"barWidget":"ui/ScreenshotBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Screenshots","description":"Minimal bar-owned screen and region capture with configurable delay, pointer, save, and clipboard behavior.","category":"System","allowMultiple":false,"defaultSection":"center"}},
+    {"id":"aurelia.session-actions","kinds":["bar-widget"],"entryPoints":{"barWidget":"SessionActionsBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Session Actions","description":"Lock, log out, suspend, restart, and power off controls independent of battery hardware.","category":"System","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.speedtest","kinds":["panel"],"entryPoints":{"panel":"SpeedtestPlugin.qml"},"keepLoaded":false,"barWidget":null},
     {"id":"aurelia.tasklist","kinds":["bar-widget"],"entryPoints":{"barWidget":"TasklistBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Task List","description":"Running Hyprland application icons with window actions.","category":"Windows","allowMultiple":false,"defaultSection":"center"}},
     {"id":"aurelia.theme","kinds":["panel"],"entryPoints":{"panel":"ThemePanel.qml"},"keepLoaded":false,"barWidget":null},
@@ -30,7 +31,7 @@
     "layout": {
       "left": [{"id":"aurelia.workspaces"}],
       "center": [{"id":"aurelia.notifications"}, {"id":"aurelia.clock", "format":"MMM d, dddd HH:mm"}, {"id":"aurelia.weather", "location":"auto"}],
-      "right": [{"id":"aurelia.tray"}, {"id":"aurelia.network"}, {"id":"aurelia.audio"}, {"id":"aurelia.bluetooth"}, {"id":"aurelia.monitor"}, {"id":"aurelia.screenshot"}, {"id":"aurelia.power"}]
+      "right": [{"id":"aurelia.tray"}, {"id":"aurelia.network"}, {"id":"aurelia.audio"}, {"id":"aurelia.bluetooth"}, {"id":"aurelia.monitor"}, {"id":"aurelia.screenshot"}, {"id":"aurelia.session-actions"}, {"id":"aurelia.power"}]
     }
   },
   "requiredFiles": [
@@ -47,6 +48,9 @@
     "plugins/aurelia.launcher/modules.json",
     "plugins/aurelia.notifications/Service.qml",
     "plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml",
+    "plugins/aurelia.session-actions/SessionActionsBarWidget.qml",
+    "plugins/aurelia.session-actions/SessionActionsPanel.qml",
+    "plugins/aurelia.session-actions/SessionActionsRuntime.qml",
     "ui/AureliaActionButton.qml",
     "ui/AureliaIcon.qml",
     "ui/AureliaKeyboardPanel.qml",
