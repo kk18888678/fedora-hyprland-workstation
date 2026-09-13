@@ -39,14 +39,12 @@ chmod 0755 "$catalog_root/aurelia-shell"
 catalog_json=""
 catalog_status=0
 catalog_json="$(
-    script_dir="$catalog_root"
-    AURELIA_DEVELOPMENT_MODE=1
-    AURELIA_PLUGIN_BIN_DIR="$catalog_root"
-    # shellcheck source=/dev/null
-    source "$ROOT/bin/lib/aurelia-plugin/common.sh"
-    # shellcheck source=/dev/null
-    source "$ROOT/bin/lib/aurelia-plugin/main.sh"
-    aurelia_plugin_main catalog --json
+    env script_dir="$catalog_root" AURELIA_DEVELOPMENT_MODE=1 \
+        AURELIA_PLUGIN_BIN_DIR="$catalog_root" /usr/bin/bash -c "
+        source \"\$ROOT/bin/lib/aurelia-plugin/common.sh\"
+        source \"\$ROOT/bin/lib/aurelia-plugin/main.sh\"
+        aurelia_plugin_main catalog --json
+    "
 )" || catalog_status=$?
 
 if [[ "$catalog_status" -eq 0 ]] &&
@@ -60,14 +58,12 @@ fi
 catalog_human=""
 catalog_status=0
 catalog_human="$(
-    script_dir="$catalog_root"
-    AURELIA_DEVELOPMENT_MODE=1
-    AURELIA_PLUGIN_BIN_DIR="$catalog_root"
-    # shellcheck source=/dev/null
-    source "$ROOT/bin/lib/aurelia-plugin/common.sh"
-    # shellcheck source=/dev/null
-    source "$ROOT/bin/lib/aurelia-plugin/main.sh"
-    aurelia_plugin_main catalog
+    env script_dir="$catalog_root" AURELIA_DEVELOPMENT_MODE=1 \
+        AURELIA_PLUGIN_BIN_DIR="$catalog_root" /usr/bin/bash -c "
+        source \"\$ROOT/bin/lib/aurelia-plugin/common.sh\"
+        source \"\$ROOT/bin/lib/aurelia-plugin/main.sh\"
+        aurelia_plugin_main catalog
+    "
 )" || catalog_status=$?
 
 if [[ "$catalog_status" -eq 0 ]] &&

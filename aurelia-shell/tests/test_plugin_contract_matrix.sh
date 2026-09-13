@@ -56,7 +56,7 @@ for manifest_path in "${matrix_manifests[@]}"; do
         matrix_entry_failures=$((matrix_entry_failures + 1))
     fi
 
-    while IFS=$'\t' read -r matrix_kind matrix_key matrix_entry; do
+    while IFS=$'\t' read -r matrix_kind _ matrix_entry; do
         [[ -n "$matrix_kind" ]] || continue
         matrix_seen_kinds["$matrix_kind"]=1
         entry_path="$plugin_dir/$matrix_entry"
