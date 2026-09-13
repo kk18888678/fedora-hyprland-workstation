@@ -2598,6 +2598,16 @@ for manifest entry points and local file-backed media/asset paths. Relative
 manifest entry points remain the source of truth; absolute URLs are generated
 only at the final Loader/Image/Media boundary.
 
+Non-negotiable identity and placement invariant: T32 must not rename, move, or
+re-home the repository, `aurelia-shell`, any plugin directory, any manifest ID,
+any manifest entry-point name, or any existing source file. Runtime resolution
+must derive the active shell root and each manifest-owned plugin root from the
+current execution context (`AURELIA_SHELL_ROOT`, `Qt.resolvedUrl()`, and the
+validated manifest source directory as applicable), never from a developer's
+checkout path or a fixed repository placement. A source-resolution failure may
+quarantine only the affected plugin entry point; it must never make the
+Aurelia shell, bar host, or healthy plugins unusable.
+
 Checkpoint 2 — T32 pre-change boundary:
 
 - Allowed production scope: a shared source/path resolver, the manifest
@@ -2637,6 +2647,9 @@ compatibility boundary, and rollback path recorded before implementation edits.
   QML resources where it already provides the correct relative boundary.
 - [ ] Ensure manifests and persisted shell state store only relative entry
   points or approved user paths, never a developer checkout URL.
+- [ ] Preserve all repository/plugin names and placements exactly; prove the
+  resolver works when the unchanged tree is executed from alternate temporary
+  roots and when the active shell root is supplied dynamically.
 - [ ] Ensure third-party source paths remain detached/diagnostic-only and do
   not become an authority escalation through the resolver.
 - [ ] Add negative tests for traversal, root escape, malformed encoding,
