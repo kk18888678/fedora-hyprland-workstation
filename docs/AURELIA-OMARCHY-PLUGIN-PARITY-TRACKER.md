@@ -3986,8 +3986,8 @@ Dependencies: T40, T02A, T21, T23, T24, T31, T33.
 
 ### T43. Make test outcomes truthful and warning-complete
 
-Execution status: IN PROGRESS — corrective CP2 recorded before test-framework
-implementation; CP3 pending
+Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
+isolated evidence; compositor-dependent coverage remains explicitly skipped
 
 Checkpoint 2 — T43 pre-change boundary:
 
@@ -4038,9 +4038,42 @@ Scope:
 
 Required tests:
 
-- [ ] Focused test-framework accounting and strict-mode tests.
-- [ ] Existing runtime skip branches migrated and warning-complete.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+- [x] Focused test-framework accounting and strict-mode tests.
+- [x] Existing runtime skip branches migrated and warning-complete.
+- [x] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Checkpoint 3 — T43 post-change evidence:
+
+- Focused framework contract: `test_test_framework.sh` — `7` assertions
+  passed, `0` failed. It proves independent skip accounting, strict-mode exit
+  `2`, warning-complete backend classification, child-suite isolation, and
+  removal of legacy pass/printf skip paths.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — `602` passed, `9`
+  skipped, `0` failed. The summary now distinguishes all three outcomes;
+  skipped paths include live Wayland/QML smoke that this environment cannot
+  provide.
+- Strict Aurelia gate: `./aurelia-shell/tests/run.sh --strict` reports the
+  same `602/9/0` result and returns `2`, so skipped runtime coverage cannot be
+  mistaken for a complete acceptance run.
+- Repository functional suite: `./tests/run.sh` — `228` passed, `0` failed.
+- Syntax: repository-wide `bash -n` — `245` shell scripts passed.
+- ShellCheck: T43-owned framework files (`test_helper.sh`, `run.sh`,
+  `test_test_framework.sh`, and plugin harness) are clean. Existing unrelated
+  findings remain in older test/installer sources; no warning filter was added
+  to make those findings disappear.
+- Implementation commit: `30f886d01eb364c4f5170bd23f35028d6432321f`;
+  pre-change tracker checkpoint: `f60b0c3`.
+- Architecture evidence: each suite now runs in a fresh child process and the
+  parent aggregates explicit output records; runtime skip helpers reject any
+  diagnostic outside the narrowly defined backend limitation and print the
+  accepted environment diagnostics for visibility.
+- Preservation evidence: no production plugin, installer, package, user
+  configuration, systemd/greetd state, live shell, or compositor state was
+  changed. T44/T45 remain the owners of the two known production warnings.
+
+CP3 status: `[x]` test-framework truthfulness and warning-complete skip
+classification are complete; the strict gate remains intentionally
+inconclusive until the compositor-dependent tests can run.
 
 Exit gate: the Aurelia test command cannot report skipped runtime coverage as
 ordinary passing assertions, and no backend limitation can hide an unrelated
@@ -4052,7 +4085,37 @@ Dependencies: T02, T02A, T31, T33, T39, T41.
 
 ### T44. Correct Power panel construction and add real entry-point coverage
 
-Execution status: NOT STARTED — queued behind T43
+Execution status: IN PROGRESS — CP2 recorded before implementation; CP3
+pending
+
+Checkpoint 2 — T44 pre-change boundary:
+
+- Starting branch/SHA: `installer-resilience` /
+  `30f886d01eb364c4f5170bd23f35028d6432321f`; the working tree is clean.
+- Confirmed production finding: `PowerPanel.qml:317` declares a non-visual
+  `Process` directly beneath `AureliaKeyboardPanel`, whose default
+  `contentItem` accepts only `QQuickItem` children. The live result is the
+  warning “Cannot assign object of type Process to list property contentItem”
+  followed by `[POWER] panel_load_failed`.
+- Existing coverage boundary: `test_power_plugin.sh` statically inspects the
+  panel but its runtime fixture loads `PowerBarWidget.qml` with a fake
+  `panelOverride`; it does not prove real Power panel construction. The
+  compositor-dependent branch is now a distinct skip and cannot mask an
+  unrelated warning after T43.
+- Planned owned files: `plugins/aurelia.power/PowerPanel.qml`, the Power
+  runtime fixture/test and preservation assertions, plus this tracker. No
+  bar hiding, Bluetooth, installer, package, live configuration, systemd,
+  greetd, or reboot work is in scope.
+- Required preservation: retain `aurelia.power`, its manifest and entry point,
+  all five existing actions, UPower/profile ownership, popup geometry,
+  settings semantics, and host failure quarantine.
+- Rollback: restore only the Power construction/test changes; T43 remains
+  independently reversible and the T41 bar-hiding implementation remains
+  untouched.
+
+CP2 status: `[x]` the exact construction failure, insufficient fixture
+boundary, ownership, preservation requirements, and rollback path are
+recorded before T44 source/test edits.
 
 Scope:
 
@@ -4251,7 +4314,7 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T41; live
+Repository-only plugin parity work is complete through T43; live
 visual/integration validation is deferred pending explicit authorization.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
@@ -4264,24 +4327,24 @@ T40 implementation branch/SHA: installer-resilience /
 T41 implementation branch/SHA: installer-resilience /
 e3253b0cbe9e3b886b67d7fae4e43932023e34e6
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T41; T30 plugin-local test
-directories, T34 Bluetooth retention, T42 final acceptance, and authorized
-live Wayland/visual acceptance remain.
-Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 605 passed, 0 failed
-Syntax checks: 244 shell scripts passed bash -n
-ShellCheck: new/changed T41 scripts introduced no findings; unrelated
+Tasks completed: all tasks marked `[x]` through T43; T30 plugin-local test
+directories, T34 Bluetooth retention, T44 Power construction, T45 bar watcher,
+T42 final acceptance, and authorized live Wayland/visual acceptance remain.
+Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 602 passed, 9 skipped, 0 failed
+Syntax checks: 245 shell scripts passed bash -n
+ShellCheck: T43 framework files introduced no findings; unrelated
 pre-existing findings remain in the repository inventory checks and installer
 sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 Wayland/visual smoke was not authorized and was skipped
-Files changed: T41 bar-hidden writer, resident bar watcher/sync, keybinding,
-Menu Bar provider, fixtures/tests, and this tracker; prior changes remain in
-Git history
+Files changed: T43 test helper/runner, explicit skip migration, warning gate,
+framework fixture, and this tracker; prior changes remain in Git history
 Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
-T41 `e3253b0`
+T41 `e3253b0`, T43 `30f886d`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; live visual behavior remains
-unverified; T30/T34/T42 remain open and reference feature omissions remain
+unverified; the known Power construction and bar watcher warnings require
+T44/T45; T30/T34/T42 remain open and reference feature omissions remain
 the explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
