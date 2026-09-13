@@ -314,7 +314,7 @@ NODE_LOGIC
         fail "Notification pure logic helpers returned an unexpected result"
     fi
 else
-    pass "SKIP notification logic runtime check (node unavailable)"
+    skip "notification logic runtime check (node unavailable)"
 fi
 
 if command -v node >/dev/null 2>&1; then
@@ -388,5 +388,5 @@ NODE_FILES
         fail "Notification state file operation contract failed"
     fi
 else
-    pass "SKIP notification file operation check (node unavailable)"
+    skip "notification file operation check (node unavailable)"
 fi

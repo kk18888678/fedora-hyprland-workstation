@@ -121,7 +121,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] bar control-plane ShellConfig fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] bar control-plane ShellConfig fixture (qs or timeout unavailable)"
     return 0
 fi
 
@@ -163,8 +163,9 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
 else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$runtime_result" ]]; then details="$details result=$(tr '\n' ' ' <"$runtime_result")"; fi
-    if grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|Operation not permitted' "$runtime_log"; then
-        pass "[skipped:isolated-runtime] bar control-plane fixture cannot create a disposable runtime backend"
+    if grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$runtime_log" &&
+       runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] bar control-plane fixture cannot create a disposable runtime backend"; then
+        :
     else
         fail "[isolated-runtime] bar control-plane fixture failed (status=$runtime_status): $details"
     fi

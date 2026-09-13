@@ -60,7 +60,7 @@ fi
 rm -rf -- "$list_root"
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] catalog projection and management model QuickShell fixtures (qs or timeout unavailable)"
+    skip "[isolated-runtime] catalog projection and management model QuickShell fixtures (qs or timeout unavailable)"
     return 0
 fi
 

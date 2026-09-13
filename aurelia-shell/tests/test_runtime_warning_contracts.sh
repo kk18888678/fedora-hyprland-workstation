@@ -48,7 +48,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] warning-stream QuickShell fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] warning-stream QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 
@@ -91,8 +91,9 @@ if [[ "$warning_status" -eq 0 ]] &&
    ' "$warning_result" >/dev/null 2>&1 &&
    ! grep -Eq 'Cannot assign to non-existent property "pluginManagement"|NetworkRow is not a type|Handler was registered but will not be used|TypeError: Property .refresh. of object|Internal error - attempted to evaluate a function in an invalid context|Failed to create DBusObjectManagerInterface for "org.bluez"' "$warning_log"; then
     pass "[isolated-runtime] affected components load without the reported construction, stale-refresh, duplicate-handler, or BlueZ object-manager warnings"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|Operation not permitted' "$warning_log"; then
-    pass "[skipped:isolated-runtime] warning-stream fixture could not create an additional QuickShell surface"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Failed to connect to system scope bus via local transport: Operation not permitted' "$warning_log" &&
+     runtime_skip_if_environment_only "$warning_log" "[isolated-runtime] warning-stream fixture could not create an additional QuickShell surface"; then
+    :
 else
     details="$(tail -n 48 "$warning_log" 2>/dev/null || true)"
     if [[ -s "$warning_result" ]]; then details="$details result=$(tr '\n' ' ' <"$warning_result")"; fi

@@ -148,11 +148,11 @@ NODE_POWER_MODEL
         fail "[isolated-runtime] Power model state/profile matrix failed"
     fi
 else
-    pass "[skipped:isolated-runtime] Power model matrix (node unavailable)"
+    skip "[isolated-runtime] Power model matrix (node unavailable)"
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] Power bar widget fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] Power bar widget fixture (qs or timeout unavailable)"
     return 0
 fi
 
@@ -189,8 +189,9 @@ if [[ ("$runtime_status" -eq 0 || ("$runtime_status" -eq 124 && "$backend_diagno
           .shownAfterClose == false and .hiddenWithoutBattery == true and
           .actionFailureDidNotEscape == true' "$result_file" >/dev/null; then
     pass "[isolated-runtime] real Power bar widget preserves open/close, percentage toggle, no-battery hiding, and failure isolation"
-elif [[ "$backend_diagnostic" -eq 1 ]]; then
-    pass "[skipped:isolated-runtime] Power fixture cannot create a disposable window or UPower backend"
+elif [[ "$backend_diagnostic" -eq 1 ]] &&
+     runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Power fixture cannot create a disposable window or UPower backend"; then
+    :
 else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$result_file" ]]; then details="$details result=$(tr '\n' ' ' <"$result_file")"; fi

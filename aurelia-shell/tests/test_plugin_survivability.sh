@@ -40,7 +40,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] disposable QuickShell survivability fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] disposable QuickShell survivability fixture (qs or timeout unavailable)"
     return 0
 fi
 
@@ -102,8 +102,9 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
         .failureCount >= 12
     ' "$runtime_result" >/dev/null; then
     pass "[isolated-runtime] faulty load/init/missing-entry-point/callback fixtures are quarantined while host and healthy plugins remain usable"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$runtime_output"; then
-    pass "[skipped:isolated-runtime] QuickShell could not create an additional disposable Wayland runtime"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$runtime_output" &&
+     runtime_skip_if_environment_only "$runtime_output" "[isolated-runtime] QuickShell could not create an additional disposable Wayland runtime"; then
+    :
 else
     details="$(tr '\n' ' ' <"$runtime_output")"
     if [[ -s "$runtime_result" ]]; then details="$details result=$(tr '\n' ' ' <"$runtime_result")"; fi

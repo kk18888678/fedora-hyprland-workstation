@@ -9,6 +9,26 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$ROOT/tests/test_helper.sh"
 
+case "${1:-}" in
+    "") ;;
+    --strict)
+        export AURELIA_TESTS_REQUIRE_NO_SKIPS=1
+        shift
+        ;;
+    --help|-h)
+        printf 'Usage: %s [--strict]\n' "${BASH_SOURCE[0]}"
+        printf '%s\n' '  --strict  return 2 when any runtime path is skipped'
+        exit 0
+        ;;
+    *)
+        printf 'Usage: %s [--strict]\n' "${BASH_SOURCE[0]}" >&2
+        exit 2
+        ;;
+esac
+
+(( $# == 0 )) || exit 2
+
+run_suite "$ROOT/tests/test_test_framework.sh"
 run_suite "$ROOT/tests/test_aurelia_shell_plugins.sh"
 run_suite "$ROOT/tests/test_plugin_harness.sh"
 run_suite "$ROOT/tests/test_manifest_validator.sh"

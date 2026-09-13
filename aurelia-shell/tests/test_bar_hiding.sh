@@ -83,7 +83,7 @@ LUA
         fail "[isolated-manifest] exact bar toggle binding failed manifest resolution: $binding_result"
     fi
 else
-    pass "[skipped:isolated-manifest] exact bar toggle manifest resolution (luajit unavailable)"
+    skip "[isolated-manifest] exact bar toggle manifest resolution (luajit unavailable)"
 fi
 
 if jq -e '
@@ -206,7 +206,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] bar-hidden QuickShell fixtures (qs or timeout unavailable)"
+    skip "[isolated-runtime] bar-hidden QuickShell fixtures (qs or timeout unavailable)"
     return 0
 fi
 
@@ -234,8 +234,9 @@ if [[ "$menu_status" -eq 0 ]] && jq -e '
        .lastAction == "bar-defaults"
    ' "$menu_result" >/dev/null 2>&1; then
     pass "[isolated-runtime] Menu Bar controls dispatch through safe shell APIs, expose checked state, and preserve user extensions"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|Operation not permitted' "$menu_log"; then
-    pass "[skipped:isolated-runtime] Menu Bar model fixture could not create a disposable QuickShell surface"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$menu_log" &&
+     runtime_skip_if_environment_only "$menu_log" "[isolated-runtime] Menu Bar model fixture could not create a disposable QuickShell surface"; then
+    :
 else
     details="$(tail -n 32 "$menu_log" 2>/dev/null || true)"
     if [[ -s "$menu_result" ]]; then details="$details result=$(tr '\n' ' ' <"$menu_result")"; fi
@@ -266,8 +267,9 @@ if [[ "$bar_status" -eq 0 ]] && jq -e '
        .widgetAfter == "healthy" and .writerFailureReported == false
    ' "$bar_result" >/dev/null 2>&1; then
     pass "[isolated-runtime] mapped bar hides off-screen, removes exclusion, restores in place, and keeps healthy widget routing alive"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Operation not permitted' "$bar_log"; then
-    pass "[skipped:isolated-runtime] bar-hidden surface fixture could not create a disposable window backend"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$bar_log" &&
+     runtime_skip_if_environment_only "$bar_log" "[isolated-runtime] bar-hidden surface fixture could not create a disposable window backend"; then
+    :
 else
     details="$(tail -n 48 "$bar_log" 2>/dev/null || true)"
     if [[ -s "$bar_result" ]]; then details="$details result=$(tr '\n' ' ' <"$bar_result")"; fi

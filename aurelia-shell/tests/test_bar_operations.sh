@@ -110,7 +110,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] catalog/config signal-cycle fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] catalog/config signal-cycle fixture (qs or timeout unavailable)"
 else
     cycle_root="$(mktemp -d)"
     trap 'rm -rf -- "$cycle_root" 2>/dev/null || true' RETURN
@@ -148,7 +148,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] bar operations QuickShell fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] bar operations QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 

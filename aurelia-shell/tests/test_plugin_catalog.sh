@@ -80,7 +80,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] source-aware catalog QuickShell fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] source-aware catalog QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 

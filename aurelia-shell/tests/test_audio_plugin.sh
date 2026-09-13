@@ -92,7 +92,7 @@ NODE_AUDIO_MODEL
         fail "[isolated-runtime] Audio model classification/label matrix failed"
     fi
 else
-    pass "[skipped:isolated-runtime] Audio model matrix (node unavailable)"
+    skip "[isolated-runtime] Audio model matrix (node unavailable)"
 fi
 
 if command -v node >/dev/null 2>&1; then
@@ -126,7 +126,7 @@ NODE_AUDIO_MPRIS
         fail "[isolated-runtime] Audio MPRIS stream-label matrix failed"
     fi
 else
-    pass "[skipped:isolated-runtime] Audio MPRIS matrix (node unavailable)"
+    skip "[isolated-runtime] Audio MPRIS matrix (node unavailable)"
 fi
 
 if grep -Fq 'property bool audioAvailable' "$widget_file" &&
@@ -143,7 +143,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] Audio entry-point QuickShell fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] Audio entry-point QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 
@@ -174,8 +174,9 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
           .exposesPanelVisibility == true and .panelVisible == false' \
        "$result_file" >/dev/null; then
     pass "[isolated-runtime] real Audio bar entry point loads safely without mutating audio state"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Operation not permitted' "$runtime_log"; then
-    pass "[skipped:isolated-runtime] Audio entry-point fixture cannot create a disposable window backend"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$runtime_log" &&
+     runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Audio entry-point fixture cannot create a disposable window backend"; then
+    :
 else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$result_file" ]]; then details="$details result=$(tr '\n' ' ' <"$result_file")"; fi

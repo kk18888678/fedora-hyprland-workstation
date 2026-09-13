@@ -142,7 +142,7 @@ NODE_PROBE
         fail "Bluetooth probe output contract is incorrect"
     fi
 else
-    pass "SKIP Bluetooth probe output contract (node unavailable)"
+    skip "Bluetooth probe output contract (node unavailable)"
 fi
 
 if grep -Fq 'aurelia.bluetooth' "$ROOT/config/bar-default.json" &&
@@ -228,7 +228,7 @@ NODE
         fail "Bluetooth model runtime checks failed"
     fi
 else
-    printf '  SKIP Bluetooth model runtime checks (node unavailable)\n'
+    skip "Bluetooth model runtime checks (node unavailable)"
 fi
 
 section "Bluetooth Helpers"

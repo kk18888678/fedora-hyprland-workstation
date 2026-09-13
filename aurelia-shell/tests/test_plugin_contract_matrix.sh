@@ -192,7 +192,7 @@ matrix_expect_reject "symlinked entry point" \
     "$validator" validate "$matrix_invalid_root/symlink/fixture.symlink"
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] generic plugin contract QuickShell fixtures (qs or timeout unavailable)"
+    skip "[isolated-runtime] generic plugin contract QuickShell fixtures (qs or timeout unavailable)"
     return 0
 fi
 

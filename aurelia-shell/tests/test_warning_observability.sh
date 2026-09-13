@@ -52,7 +52,7 @@ NODE_PROBE
         fail "[isolated-runtime] BlueZ probe classification contract failed"
     fi
 else
-    pass "[skipped:isolated-runtime] Bluetooth probe model checks (node unavailable)"
+    skip "[isolated-runtime] Bluetooth probe model checks (node unavailable)"
 fi
 
 if grep -Fq 'widget_failure' "$ROOT/tests/test_plugin_survivability.sh" &&

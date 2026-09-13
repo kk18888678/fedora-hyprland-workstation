@@ -105,7 +105,7 @@ NODE
         fail "Display model runtime checks failed"
     fi
 else
-    pass "SKIP Display model runtime checks (node unavailable)"
+    skip "Display model runtime checks (node unavailable)"
 fi
 
 for backend in \

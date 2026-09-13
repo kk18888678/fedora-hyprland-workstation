@@ -21,7 +21,7 @@ plugin_harness_fail() {
 plugin_harness_skip() {
     local class="$1"
     shift
-    pass "[skipped:$class] $*"
+    skip "[$class] $*"
 }
 
 plugin_harness_setup() {

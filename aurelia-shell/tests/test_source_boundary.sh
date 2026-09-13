@@ -69,11 +69,11 @@ NODE_SOURCE
         fail "[isolated-runtime] source path/URL contract failed"
     fi
 else
-    pass "[skipped:isolated-runtime] source URL model checks (node unavailable)"
+    skip "[isolated-runtime] source URL model checks (node unavailable)"
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] dynamic source loader fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] dynamic source loader fixture (qs or timeout unavailable)"
     return 0
 fi
 

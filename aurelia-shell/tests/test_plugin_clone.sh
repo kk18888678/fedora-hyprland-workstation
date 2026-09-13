@@ -216,8 +216,8 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] clone state and facade QuickShell fixtures (qs or timeout unavailable)"
-    pass "[skipped:isolated-runtime] clone source-ID facade alias fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] clone state and facade QuickShell fixtures (qs or timeout unavailable)"
+    skip "[isolated-runtime] clone source-ID facade alias fixture (qs or timeout unavailable)"
     return 0
 fi
 

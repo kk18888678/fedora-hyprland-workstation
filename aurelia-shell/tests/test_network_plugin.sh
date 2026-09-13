@@ -164,7 +164,7 @@ NODE
         fail "Network model runtime checks failed"
     fi
 else
-    pass "SKIP Network model runtime checks (node unavailable)"
+    skip "Network model runtime checks (node unavailable)"
 fi
 
 for backend in \
@@ -258,7 +258,7 @@ EOF_SYSTEMCTL_DNS
         pass "DNS helper applies Cloudflare through NetworkManager and an atomic resolved drop-in without overwriting base config"
     else
         if grep -Fq 'Creating new namespace failed' "$dns_fixture_output"; then
-            pass "SKIP DNS helper write fixture (user namespaces unavailable)"
+            skip "DNS helper write fixture (user namespaces unavailable)"
         else
             sed -n '1,80p' "$dns_fixture_output" >&2
             fail "DNS helper Cloudflare fixture did not converge the expected isolated state"
@@ -276,7 +276,7 @@ EOF_SYSTEMCTL_DNS
     rm -rf -- "$dns_fixture"
     trap - RETURN
 else
-    pass "SKIP DNS helper write fixture (bwrap unavailable)"
+    skip "DNS helper write fixture (bwrap unavailable)"
 fi
 
 if grep -Fq 'exec pkexec /bin/bash "$PACKAGED_PATH" "$@"' "$ROOT/bin/aurelia-network-dns" &&

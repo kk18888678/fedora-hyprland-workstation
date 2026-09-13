@@ -107,11 +107,11 @@ NODE_MICROPHONE_MODEL
         fail "[isolated-runtime] shared Audio microphone model matrix failed"
     fi
 else
-    pass "[skipped:isolated-runtime] shared Audio microphone model matrix (node unavailable)"
+    skip "[isolated-runtime] shared Audio microphone model matrix (node unavailable)"
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] Microphone entry-point QuickShell fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] Microphone entry-point QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 
@@ -150,8 +150,9 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
           .fake.summonedPlugin == "aurelia.audio" and
           .fake.upperVolume == 1 and .fake.lowerVolume == 0' "$result_file" >/dev/null; then
     pass "[isolated-runtime] real Microphone widget handlers load safely and cover mute, Audio summon, in-use text, and input bounds"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Failed to connect pipewire context|Operation not permitted' "$runtime_log"; then
-    pass "[skipped:isolated-runtime] Microphone entry-point fixture cannot create a disposable runtime backend"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Failed to connect pipewire context' "$runtime_log" &&
+     runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Microphone entry-point fixture cannot create a disposable runtime backend"; then
+    :
 else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$result_file" ]]; then details="$details result=$(tr '\n' ' ' <"$result_file")"; fi

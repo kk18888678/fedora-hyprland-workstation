@@ -85,9 +85,9 @@ else
 fi
 
 if grep -q 'AURELIA_QML_RUNTIME_SMOKE' "$ROOT/tests/test_qml_runtime.sh" &&
-   grep -q 'SKIP QML runtime smoke' "$ROOT/tests/test_qml_runtime.sh" &&
+   grep -q 'skip "QML runtime smoke' "$ROOT/tests/test_qml_runtime.sh" &&
    grep -q 'real Wayland session' "$ROOT/tests/test_qml_runtime.sh"; then
-    pass "[skipped:live-validation] live Wayland/visual acceptance remains explicitly gated and was not run"
+    skip "[live-validation] live Wayland/visual acceptance remains explicitly gated and was not run"
 else
     fail "[static] live-validation gate is missing or implicit"
 fi

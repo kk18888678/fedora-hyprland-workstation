@@ -55,7 +55,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] FocusScope coordinate mapping fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] FocusScope coordinate mapping fixture (qs or timeout unavailable)"
     return 0
 fi
 
@@ -111,8 +111,9 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
     ' "$result_file" >/dev/null; then
     pass "[isolated-runtime] source-owned mapping succeeds against a QQuickFocusScope target without warnings"
 elif [[ "$runtime_mode" == "offscreen" ]] &&
-     grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Operation not permitted' "$runtime_log"; then
-    pass "[skipped:isolated-runtime] QuickShell could not create an additional disposable runtime"
+     grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$runtime_log" &&
+     runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] QuickShell could not create an additional disposable runtime"; then
+    :
 else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$result_file" ]]; then details="$details result=$(tr '\n' ' ' <"$result_file")"; fi

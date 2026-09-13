@@ -9,12 +9,12 @@ set -Eeuo pipefail
 section "Network DNS Action Runtime"
 
 if [[ "${AURELIA_QML_RUNTIME_SMOKE:-0}" != "1" ]]; then
-    pass "SKIP Network DNS runtime test (set AURELIA_QML_RUNTIME_SMOKE=1 in a real Wayland session)"
+    skip "Network DNS runtime test (set AURELIA_QML_RUNTIME_SMOKE=1 in a real Wayland session)"
     return 0
 fi
 
 if [[ -z "${WAYLAND_DISPLAY:-}" || ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "SKIP Network DNS runtime test (Wayland, qs, or timeout unavailable)"
+    skip "Network DNS runtime test (Wayland, qs, or timeout unavailable)"
     return 0
 fi
 
@@ -101,8 +101,9 @@ if grep -Fq 'NETWORK_DNS_SMOKE closed=true surfaced=true' "$output_file" &&
    [[ "$runtime_exit" -eq 0 ]] &&
    ! grep -Eq 'ReferenceError|TypeError|Unable to assign| is not a type|QML Error|FATAL' "$output_file"; then
     pass "Real QML DNS timeout closes the card and surfaces authorization fallback"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|Operation not permitted' "$output_file"; then
-    pass "SKIP Network DNS runtime test (test runner cannot create an additional Wayland QuickShell surface)"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$output_file" &&
+     runtime_skip_if_environment_only "$output_file" "Network DNS runtime test (test runner cannot create an additional Wayland QuickShell surface)"; then
+    :
 else
     sed -n '1,180p' "$output_file" >&2
     fail "Network DNS QML runtime regression test failed (exit=$runtime_exit)"

@@ -121,5 +121,5 @@ NODE_AUDIO_CONTROLS
         fail "[isolated-runtime] Audio interaction model failed"
     fi
 else
-    pass "[skipped:isolated-runtime] Audio interaction model (node unavailable)"
+    skip "[isolated-runtime] Audio interaction model (node unavailable)"
 fi

@@ -36,7 +36,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] hook-free plugin lifecycle fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] hook-free plugin lifecycle fixture (qs or timeout unavailable)"
     return 0
 fi
 

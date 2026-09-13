@@ -9,12 +9,12 @@ set -Eeuo pipefail
 section "Network QML Runtime Smoke"
 
 if [[ "${AURELIA_QML_RUNTIME_SMOKE:-0}" != "1" ]]; then
-    pass "SKIP Network QML smoke (set AURELIA_QML_RUNTIME_SMOKE=1 in a real Wayland session)"
+    skip "Network QML smoke (set AURELIA_QML_RUNTIME_SMOKE=1 in a real Wayland session)"
     return 0
 fi
 
 if [[ -z "${WAYLAND_DISPLAY:-}" || ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "SKIP Network QML smoke (Wayland, qs, or timeout unavailable)"
+    skip "Network QML smoke (Wayland, qs, or timeout unavailable)"
     return 0
 fi
 
@@ -59,8 +59,9 @@ if grep -Fq 'NETWORK_SMOKE panelReady=true' "$smoke_output" &&
    [[ "$runtime_exit" -eq 0 ]] &&
    ! grep -Eq 'panel_load_failed|widget_load_failed|ReferenceError|TypeError|Unable to assign| is not a type|QML Error|FATAL' "$smoke_output"; then
     pass "Network bar widget and nested Network panel load in a real Quickshell session"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|Operation not permitted' "$smoke_output"; then
-    pass "SKIP Network QML smoke (test runner cannot create an additional Wayland QuickShell surface)"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$smoke_output" &&
+     runtime_skip_if_environment_only "$smoke_output" "Network QML smoke (test runner cannot create an additional Wayland QuickShell surface)"; then
+    :
 else
     sed -n '1,160p' "$smoke_output" >&2
     fail "Network QML runtime smoke failed (exit=$runtime_exit)"

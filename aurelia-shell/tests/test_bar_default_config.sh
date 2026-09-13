@@ -41,7 +41,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] canonical bar-default QuickShell fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] canonical bar-default QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 

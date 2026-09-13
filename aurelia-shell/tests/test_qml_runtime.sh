@@ -8,12 +8,12 @@ set -Eeuo pipefail
 section "QuickShell QML Runtime Smoke"
 
 if [[ "${AURELIA_QML_RUNTIME_SMOKE:-0}" != "1" ]]; then
-    pass "SKIP QML runtime smoke (set AURELIA_QML_RUNTIME_SMOKE=1 in a real Wayland session)"
+    skip "QML runtime smoke (set AURELIA_QML_RUNTIME_SMOKE=1 in a real Wayland session)"
     return 0
 fi
 
 if [[ -z "${WAYLAND_DISPLAY:-}" || ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "SKIP QML runtime smoke (Wayland, qs, or timeout unavailable)"
+    skip "QML runtime smoke (Wayland, qs, or timeout unavailable)"
     return 0
 fi
 
@@ -107,8 +107,9 @@ XDG_STATE_HOME="$smoke_dir/state" XDG_CONFIG_HOME="$smoke_dir/config" XDG_CACHE_
 if [[ "$runtime_status" -eq 0 ]] &&
    ! grep -Eq 'WARN|ERROR|FATAL|ReferenceError|TypeError|widget_load_failed|panel_load_failed' "$smoke_output"; then
     pass "Screenshot, weather, notification, workspace, workspace-overview, and image-picker surfaces instantiate in QuickShell without QML warnings or errors"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$smoke_output"; then
-    pass "SKIP QML runtime smoke (test runner cannot create an additional Wayland QuickShell surface)"
+elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$smoke_output" &&
+     runtime_skip_if_environment_only "$smoke_output" "QML runtime smoke (test runner cannot create an additional Wayland QuickShell surface)"; then
+    :
 else
     fail "Screenshot bar widget runtime smoke failed (status=$runtime_status): $(tr '\n' ' ' <"$smoke_output")"
 fi

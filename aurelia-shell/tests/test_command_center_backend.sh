@@ -176,5 +176,5 @@ NODE_LOGIC
         fail "Command Center pure logic helpers returned an unexpected result"
     fi
 else
-    pass "SKIP calculator/search logic runtime check (node unavailable)"
+    skip "calculator/search logic runtime check (node unavailable)"
 fi

@@ -27,7 +27,7 @@ else
 fi
 
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
-    pass "[skipped:isolated-runtime] active-bar QuickShell fixture (qs or timeout unavailable)"
+    skip "[isolated-runtime] active-bar QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 
