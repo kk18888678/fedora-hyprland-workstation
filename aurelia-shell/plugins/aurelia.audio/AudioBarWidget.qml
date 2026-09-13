@@ -1,0 +1,116 @@
+import QtQuick
+import Quickshell
+import Quickshell.Services.Pipewire
+import "../../theme"
+import "../../ui"
+import "Model.js" as Model
+
+// T36 Audio foundation. The plugin is intentionally opt-in until T37 adds it
+// to the shipped layout; its live objects remain owned by PipeWire and its
+// panel is loaded behind the normal host Loader boundary.
+Item {
+    id: root
+
+    property var bar: null
+    property var shell: null
+    property string moduleName: "aurelia.audio"
+    property var settings: ({})
+    property var manifest: ({})
+    property var pluginRegistry: null
+    property var barAnchorItem: null
+
+    readonly property var sink: Pipewire.defaultAudioSink
+    readonly property var source: Pipewire.defaultAudioSource
+    readonly property var nodes: Pipewire.nodes ? Pipewire.nodes.values : []
+    readonly property bool audioAvailable: !!(root.sink || root.source)
+    readonly property bool outputMuted: !!(root.sink && root.sink.audio && root.sink.audio.muted)
+    readonly property real outputVolume: root.sink && root.sink.audio ? Number(root.sink.audio.volume || 0) : 0
+    readonly property bool panelVisible: !!(panelLoader.item && panelLoader.item.shown === true)
+
+    implicitWidth: root.audioAvailable ? (root.bar ? root.bar.barSize : 32) : 0
+    implicitHeight: root.bar ? root.bar.barSize : 32
+    visible: root.audioAvailable
+
+    function outputGlyph() {
+        if (root.outputMuted) return "󰝟"
+        return Model.sinkGlyph(root.sink)
+    }
+
+    function configurePanel(target) {
+        if (!target) return
+        if ("audioWidget" in target) target.audioWidget = root
+        if ("bar" in target) target.bar = root.bar
+        if ("shell" in target) target.shell = root.shell
+        if ("anchorItem" in target) target.anchorItem = root.barAnchorItem || root
+    }
+
+    function open(payloadJson) {
+        if (!panelLoader.item || typeof panelLoader.item.open !== "function") return "not-ready"
+        root.configurePanel(panelLoader.item)
+        return panelLoader.item.open(payloadJson || "{}")
+    }
+
+    function close() {
+        if (!panelLoader.item || typeof panelLoader.item.close !== "function") return "not-ready"
+        return panelLoader.item.close()
+    }
+
+    function toggle(payloadJson) {
+        return root.panelVisible ? root.close() : root.open(payloadJson || "{}")
+    }
+
+    function isVisible() {
+        return root.panelVisible
+    }
+
+    function toggleMute() {
+        if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted
+    }
+
+    function adjustOutput(delta) {
+        if (!root.sink || !root.sink.audio) return
+        root.sink.audio.volume = Math.max(0, Math.min(1, root.outputVolume + Number(delta || 0)))
+    }
+
+    Loader {
+        id: panelLoader
+        active: true
+        source: Qt.resolvedUrl("AudioPanel.qml")
+        onLoaded: root.configurePanel(item)
+        onStatusChanged: {
+            if (status === Loader.Error) console.error("[AUDIO] panel_load_failed")
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.radiusSm
+        color: audioHover.hovered || root.panelVisible ? Theme.selection : "transparent"
+
+        HoverHandler { id: audioHover }
+
+        AureliaIcon {
+            anchors.centerIn: parent
+            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+            glyph: root.outputGlyph()
+            tint: root.panelVisible ? Theme.accent : Theme.textSecondary
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+            cursorShape: Qt.PointingHandCursor
+            onClicked: function(mouse) {
+                mouse.accepted = true
+                if (mouse.button === Qt.RightButton) root.toggleMute()
+                else root.open("{}")
+            }
+            onWheel: function(wheel) {
+                wheel.accepted = true
+                root.adjustOutput(wheel.angleDelta.y > 0 ? 0.05 : -0.05)
+            }
+        }
+    }
+}

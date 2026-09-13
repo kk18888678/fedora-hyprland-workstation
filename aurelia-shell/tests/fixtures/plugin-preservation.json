@@ -1,5 +1,6 @@
 {
   "plugins": [
+    {"id":"aurelia.audio","kinds":["bar-widget"],"entryPoints":{"barWidget":"AudioBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Audio","description":"Volume slider, output picker, and per-application mixer.","category":"Audio","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.background","kinds":["service"],"entryPoints":{"service":"Background.qml"},"keepLoaded":true,"barWidget":null},
     {"id":"aurelia.bar","kinds":["bar"],"entryPoints":{"bar":"Bar.qml"},"keepLoaded":true,"barWidget":null},
     {"id":"aurelia.bluetooth","kinds":["bar-widget"],"entryPoints":{"barWidget":"BluetoothBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Bluetooth","description":"Bluetooth device list with connect/disconnect","category":"Connectivity","allowMultiple":false,"defaultSection":"right"}},

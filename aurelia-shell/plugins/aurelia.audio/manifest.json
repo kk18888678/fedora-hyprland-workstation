@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.audio",
+  "name": "Audio",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Volume slider, output picker, and per-application mixer.",
+  "icon": "audio-volume-high",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "AudioBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Audio",
+    "description": "Volume slider, output picker, and per-application mixer.",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

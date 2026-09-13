@@ -1,10 +1,10 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: requested reference refresh T35 is complete; T36 is checkpoint-ready
-for Audio foundation work, T34 records the Bluetooth discovery-retention issue
-and remains not started, T30 remains queued as the separately requested
-plugin-local test-directory task, and live visual/integration validation
-remains deferred pending explicit authorization.
+Status: requested reference refresh T35 and Audio foundation T36 are complete;
+T37 is next for Audio panel/default-bar interaction work, T34 records the
+Bluetooth discovery-retention issue and remains not started, T30 remains
+queued as the separately requested plugin-local test-directory task, and live
+visual/integration validation remains deferred pending explicit authorization.
 
 ## Objective
 
@@ -3068,13 +3068,14 @@ Evidence:
 - No production code, live configuration, packages, services, or user data
   was changed for T35.
 
-Dependencies: T30, T34, T33; T36 may begin after its CP2 checkpoint below.
+Dependencies: T33; T30 and T34 remain independent and must not defer this
+read-only refresh.
 
 ---
 
 ### T36. Add Audio plugin foundation and safe PipeWire data model
 
-Execution status: NOT STARTED — CP2 recorded; implementation not started
+Execution status: COMPLETE — CP2 and CP3 passed
 
 Objective: introduce the new `aurelia.audio` `bar-widget` in the existing
 Aurelia plugin architecture without enabling it in the shipped layout until
@@ -3115,21 +3116,61 @@ Checkpoint 2 — T36 pre-change boundary:
 CP2 status: `[x]` contract, test boundary, identity/ownership boundary,
 survivability boundary, baseline, and rollback path recorded before T36 code.
 
-- [ ] Add a canonical `aurelia.audio` manifest with a safe bar-widget entry
+- [x] Add a canonical `aurelia.audio` manifest with a safe bar-widget entry
   point and reference metadata, without placing it in the shipped bar yet.
-- [ ] Add a pure model for PipeWire sink/source/stream classification,
+- [x] Add a pure model for PipeWire sink/source/stream classification,
   primitive snapshots, friendly labels, mute/volume bounds, and deterministic
   device/stream filtering.
-- [ ] Add safe live-model ownership that tracks current default sink/source,
+- [x] Add safe live-model ownership that tracks current default sink/source,
   rejects invalid/disappearing nodes, and never feeds live QObject wrappers
   directly into incubating list delegates.
-- [ ] Add deterministic negative tests for missing defaults, malformed nodes,
+- [x] Add deterministic negative tests for missing defaults, malformed nodes,
   disappearing nodes, duplicate identities, invalid volumes, and failed
   optional MPRIS/PipeWire availability.
-- [ ] Add host-survivability coverage proving Audio failure cannot prevent the
+- [x] Add host-survivability coverage proving Audio failure cannot prevent the
   bar, resident host, Bluetooth, Power, or healthy plugins from loading.
-- [ ] Run focused Audio tests, full Aurelia tests, repository tests, syntax,
+- [x] Run focused Audio tests, full Aurelia tests, repository tests, syntax,
   and available ShellCheck before moving to T37.
+
+Checkpoint 3 — T36 post-change evidence:
+
+- Focused Audio foundation suite: `test_audio_plugin.sh` — 7 passed, 0
+  failed, including the pure PipeWire/MPRIS model matrix and real entry-point
+  fixture.
+- Affected inventory suites: manifest, catalog, bar-registry, migration, and
+  preservation checks passed with 23 first-party manifests and 12 bar-widget
+  manifests; the shipped default bar remains unchanged and does not include
+  `aurelia.audio` until T37.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 558 passed, 0 failed.
+- Repository suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Syntax: repository-wide `bash -n` — 238 shell scripts passed.
+- ShellCheck: the new T36 test and runner passed with zero findings. The
+  count-only edits to existing inventory tests retain four pre-existing
+  `SC2034` findings in `test_plugin_contract_matrix.sh` and
+  `test_plugin_catalog.sh`; no T36-owned logic introduced a ShellCheck
+  finding.
+- Isolated runtime evidence: the real Audio bar entry point was exercised in
+  a disposable QuickShell fixture. The offscreen environment could not load
+  the nested PanelWindow backend, so that portion was explicitly classified
+  as skipped; no live PipeWire mutation was attempted.
+- Survivability evidence: existing host-survivability and generic manifest
+  matrix tests remained green; Audio is opt-in and unavailable audio state is
+  bounded to the plugin surface.
+- Files changed: the new `plugins/aurelia.audio/` manifest, pure model, safe
+  bar/panel foundation, Audio foundation fixture/test, Aurelia runner,
+  centralized inventory/count fixtures, and this tracker.
+- User-visible behavior changed: no default-bar behavior changed in T36;
+  Audio becomes a validated opt-in capability pending T37.
+- Existing Aurelia feature impact: existing plugin IDs, entry points, default
+  layout, theme, and action ownership remain unchanged.
+- Rollback/migration evidence: no persisted state migration; removing only
+  T36-owned new plugin/test files restores the pre-T36 inventory.
+- Live system scope: no installer, packages, PipeWire state, user
+  configuration, systemd/greetd state, live shell restart, or reboot was
+  touched.
+
+CP3 status: `[x]` complete; T36 is closed and T37 may begin after its own
+pre-change checkpoint.
 
 Exit gate: `aurelia.audio` is a validated, opt-in, failure-contained plugin
 with a pure tested model and no live-system mutation or default-layout impact.
