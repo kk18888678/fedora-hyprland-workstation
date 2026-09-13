@@ -9,6 +9,20 @@ case "$method" in
     listPlugins)
         printf '%s\n' '[{"id":"fixture.widget"}]'
         ;;
+    useBar)
+        jq -cn --arg method "$method" --arg id "${1:-}" \
+            '{method: $method, id: $id}' >>"$AURELIA_BAR_CLI_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    resetBar|restoreBarDefaults)
+        jq -cn --arg method "$method" '{method: $method}' >>"$AURELIA_BAR_CLI_CALLS"
+        printf '%s\n' 'ok'
+        ;;
+    setBarPosition|setBarTransparent)
+        jq -cn --arg method "$method" --arg value "${1:-}" \
+            '{method: $method, value: $value}' >>"$AURELIA_BAR_CLI_CALLS"
+        printf '%s\n' 'ok'
+        ;;
     enablePlugin)
         jq -cn --arg method "$method" --arg id "${1:-}" --arg placement "${2:-}" \
             '{method: $method, id: $id, placement: $placement}' >>"$AURELIA_BAR_CLI_CALLS"

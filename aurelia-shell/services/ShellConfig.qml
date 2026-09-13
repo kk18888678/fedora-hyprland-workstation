@@ -22,6 +22,7 @@ QtObject {
     property var config: ({ version: 1, plugins: [], disabledPlugins: [] })
     property var barWidgetRegistry: null
     property BarDefaultConfig barDefaults: BarDefaultConfig { }
+    property BarConfigOperations barOperations: BarConfigOperations { owner: configRoot }
     property PluginCloneState cloneState: PluginCloneState { owner: configRoot }
     property int revision: 0
     property string lastError: ""

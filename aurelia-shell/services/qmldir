@@ -14,3 +14,5 @@ PluginCatalogProjection 1.0 PluginCatalogProjection.qml
 PluginWatcherPolicy 1.0 PluginWatcherPolicy.qml
 BarDefaultConfig 1.0 BarDefaultConfig.qml
 PluginSourceResolver 1.0 PluginSourceResolver.qml
+BarConfigOperations 1.0 BarConfigOperations.qml
+BarControlRegistry 1.0 BarControlRegistry.qml

@@ -33,6 +33,11 @@ ShellRoot {
         pluginRegistry: pluginRegistry
     }
 
+    BarControlRegistry {
+        id: barControlRegistry
+        pluginRegistry: pluginRegistry
+    }
+
     AureliaAppLibrary {
         id: aureliaAppLibrary
     }
@@ -278,6 +283,31 @@ ShellRoot {
             } catch (error) {
                 return "invalid placement: " + error
             }
+        }
+
+        function useBar(pluginId: string): string {
+            var useError = barControlRegistry.useBar(pluginId)
+            return useError ? useError : "ok"
+        }
+
+        function resetBar(): string {
+            var resetError = barControlRegistry.resetBar()
+            return resetError ? resetError : "ok"
+        }
+
+        function restoreBarDefaults(): string {
+            var defaultsError = barControlRegistry.restoreBarDefaults()
+            return defaultsError ? defaultsError : "ok"
+        }
+
+        function setBarPosition(position: string): string {
+            var positionError = barControlRegistry.setBarPosition(position)
+            return positionError ? positionError : "ok"
+        }
+
+        function setBarTransparent(value: string): string {
+            var transparentError = barControlRegistry.setBarTransparent(value)
+            return transparentError ? transparentError : "ok"
         }
 
         function moveBarWidget(pluginId: string, placementJson: string): string {

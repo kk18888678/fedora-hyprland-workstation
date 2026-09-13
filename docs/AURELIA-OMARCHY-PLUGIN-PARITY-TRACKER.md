@@ -1,9 +1,9 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
 Status: requested reference refresh T35, Audio foundation T36, T37 Audio
-panel/default-bar work, T38 optional Microphone work, and T39 Power redesign
-are complete for repository/static/isolated evidence; T40 is next for the bar
-configuration control plane, T34 records the
+panel/default-bar work, T38 optional Microphone work, T39 Power redesign, and
+T40 bar control-plane work are complete for repository/static/isolated
+evidence; T41 is next for persistent bar hiding, T34 records the
 Bluetooth discovery-retention issue and remains not started, T30 remains
 queued as the separately requested plugin-local test-directory task, and live
 visual/integration validation remains deferred pending explicit authorization.
@@ -3741,7 +3741,8 @@ Dependencies: T38, T02A, T24, T31, T33.
 
 ### T40. Complete the Aurelia bar configuration control plane
 
-Execution status: IN PROGRESS — corrective file-size checkpoint recorded
+Execution status: COMPLETE — corrective CP2 and CP3 passed for repository,
+static, and isolated evidence; live Wayland confirmation remains deferred
 
 Scope:
 
@@ -3763,13 +3764,51 @@ Scope:
 
 Required tests:
 
-- [ ] CLI help and argument matrix for every new command and invalid value.
-- [ ] Isolated shell IPC/config fixture for use/reset/defaults/position/
+- [x] CLI help and argument matrix for every new command and invalid value.
+- [x] Isolated shell IPC/config fixture for use/reset/defaults/position/
   transparency and exact idempotent reruns.
-- [ ] Preservation tests for user settings, plugin instances, active bar
+- [x] Preservation tests for user settings, plugin instances, active bar
   fallback, and existing put/move/set operations.
-- [ ] No-direct-file-edit and no-duplicate-mutation checks.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+- [x] No-direct-file-edit and no-duplicate-mutation checks.
+- [x] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Checkpoint 3 — T40 post-change evidence:
+
+- New bar control-plane suite: `test_bar_control_plane.sh` — 6 passed, 0
+  failed. It covers `use`, `reset`, `defaults`, `position`, and
+  `transparent true|false|toggle`, exact IPC routing, invalid-input rejection,
+  idempotent canonical default restoration, built-in-bar re-enable, and
+  preservation of unrelated plugins/user state.
+- Existing placement/settings suite: `test_bar_operations.sh` — 9 passed,
+  0 failed; the catalog/config signal boundary and existing `put/move/set`
+  operations remain green.
+- Combined focused T40 checks: 12 passed, 0 failed.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 589 passed, 0 failed.
+- Repository functional suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Syntax: repository-wide `bash -n` — 242 shell scripts passed.
+- ShellCheck: the new/changed T40 CLI, fixture, runner, and control-plane test
+  scripts introduced no findings; pre-existing findings remain only in the
+  older placement-test fixture pattern and unrelated repository sources.
+- File-size guard: `ShellConfig.qml` is 986 lines and `PluginRegistry.qml` is
+  964 lines after responsibility extraction; the 1000-line god-file guard
+  passes without suppression or threshold changes.
+- Ownership evidence: the CLI is IPC-only; `BarControlRegistry` validates
+  manifest bar identity and routes to ShellConfig; `BarConfigOperations` owns
+  bar transitions while ShellConfig remains the sole atomic persistence owner.
+- Reference examples are supported through the existing executable:
+  `aurelia-bar position bottom`, `aurelia-bar transparent toggle`,
+  `aurelia-bar move aurelia.clock --section center --index 0`,
+  `aurelia-bar set aurelia.clock format 'HH:mm'`, and
+  `aurelia-bar defaults`.
+- Existing feature evidence: no plugin ID, entry point, default layout,
+  widget setting, active-bar fallback, or user-owned state was renamed,
+  moved, or overwritten; `config/bar-default.json` was not changed.
+- Live status: no live shell restart, configuration mutation, package or
+  installer operation, systemd/greetd change, or reboot occurred. Real
+  Wayland IPC/visual confirmation remains unrun and is not claimed.
+
+CP3 status: `[x]` repository/static/isolated acceptance complete; live
+Wayland confirmation remains pending and is not claimed.
 
 Corrective checkpoint 2 — T40 god-file boundary:
 
