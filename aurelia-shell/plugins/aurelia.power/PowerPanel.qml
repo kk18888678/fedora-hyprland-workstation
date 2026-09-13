@@ -1,160 +1,712 @@
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import Quickshell.Io
+import Quickshell.Services.UPower
 import "../../ui"
 import "../../theme"
+import "Model.js" as Model
 
+// Omarchy-aligned Power panel. UPower owns battery truth; this panel owns
+// bounded snapshots, profile/action intent, and the Aurelia presentation.
 AureliaKeyboardPanel {
-    id: panelRoot
+    id: root
 
+    property var shell: null
+    property string moduleName: "aurelia.power"
+    property var settings: ({})
+    property var manifest: ({})
+    property var pluginRegistry: null
+    property var barAnchorItem: null
+
+    // These overrides are unused in production. They provide deterministic
+    // isolated-QML inputs without replacing the live UPower owner.
+    property var displayDeviceOverride
+    property var onBatteryOverride
+    property var statesOverride
+    property var actionExecutor
+
+    property var batteryInfo: ({})
+    property var systemInfo: ({})
+    property var profiles: []
+    property string activeProfile: ""
+    property int profileIndex: 0
+    property bool cursorActive: false
     property string confirmAction: ""
+    property bool actionRunning: false
+    property string actionError: ""
+    property string profileError: ""
 
-    readonly property var iconGlyphs: ({
-        "lock": "󰍁",
-        "logout": "󰍃",
-        "suspend": "󰤄",
-        "reboot": "󰜉",
-        "power": "󰐥",
-        "confirm": "󰄬",
-        "cancel": "󰅖"
-    })
+    function readDisplayDevice() {
+        try { return UPower.displayDevice } catch (error) { return null }
+    }
+
+    function readOnBattery() {
+        try { return !!UPower.onBattery } catch (error) { return false }
+    }
+
+    function readPowerStates() {
+        return {
+            Charging: UPowerDeviceState.Charging,
+            Discharging: UPowerDeviceState.Discharging,
+            FullyCharged: UPowerDeviceState.FullyCharged,
+            PendingCharge: UPowerDeviceState.PendingCharge
+        }
+    }
+
+    readonly property var displayDevice: root.displayDeviceOverride !== undefined
+        ? root.displayDeviceOverride : root.readDisplayDevice()
+    readonly property bool onBattery: root.onBatteryOverride !== undefined
+        ? root.onBatteryOverride === true : root.readOnBattery()
+    readonly property var powerStates: root.statesOverride !== undefined
+        ? root.statesOverride : root.readPowerStates()
+    readonly property bool batteryPresent: !!(root.displayDevice &&
+        root.displayDevice.isPresent === true)
+    readonly property bool discharging: root.batteryPresent && root.onBattery
+    readonly property real batteryFraction: Model.batteryFraction(root.displayDevice)
+    readonly property bool chargeThresholdActive: Model.chargeThresholdActive(
+        root.displayDevice, root.onBattery, root.powerStates)
+    readonly property bool fullyCharged: root.batteryPresent &&
+        root.displayDevice.state === root.powerStates.FullyCharged &&
+        !root.chargeThresholdActive
+    readonly property bool batteryFull: root.fullyCharged ||
+        (!root.discharging && root.batteryFraction >= 1)
+    readonly property bool batteryFlowIdle: root.batteryFull || root.chargeThresholdActive
+    readonly property bool charging: root.batteryPresent && !root.onBattery &&
+        !root.batteryFlowIdle
+    readonly property bool showPercentage: !!(root.settings &&
+        root.settings.showPercentage === true)
+    readonly property string percentageText: Model.percentageText(root.displayDevice)
+    readonly property string modeText: Model.modeLabel(
+        root.displayDevice, root.onBattery, root.powerStates)
+    readonly property string statusText: root.fullyCharged
+        ? "Fully charged"
+        : (root.chargeThresholdActive ? "Threshold" : root.modeText)
+    readonly property color batteryFillColor: root.discharging ? Theme.warning : Theme.accent
+    readonly property var chargingPhrases: [
+        "Pumping power", "Injecting electrons", "Pouring juice", "Amassing watts",
+        "Hoarding joules", "Sucking volts", "Topping reserves", "Soaking amps"
+    ]
+    readonly property var onBatteryPhrases: [
+        "Slurping power", "Spending joules", "Draining watts", "Burning electrons",
+        "Sipping juice", "Spending coulombs", "Bleeding amps", "Guzzling volts"
+    ]
+    property int phraseIndex: 0
+    readonly property var activePhrases: root.fullyCharged ? []
+        : (root.charging ? root.chargingPhrases
+            : (root.discharging ? root.onBatteryPhrases : []))
+    readonly property string heroStatusText: root.activePhrases.length > 0
+        ? root.activePhrases[root.phraseIndex % root.activePhrases.length]
+        : root.statusText
+    readonly property var actionRows: [
+        {id: "lock", label: "Lock", detail: "Lock this session", glyph: "󰍁"},
+        {id: "logout", label: "Log out", detail: "End this session", glyph: "󰍃"},
+        {id: "suspend", label: "Suspend", detail: "Sleep until activity", glyph: "󰤄"},
+        {id: "reboot", label: "Restart", detail: "Reboot the workstation", glyph: "󰜉"},
+        {id: "shutdown", label: "Power off", detail: "Shut down the workstation", glyph: "󰐥"}
+    ]
 
     ownerId: "aurelia.power"
     popupWidth: 380
-    popupHeight: cardHeight
+    popupHeight: 560
     fitHeightToContent: true
-    minPopupHeight: 180
+    minPopupHeight: 220
     maxPopupHeight: 560
     contentSizingItem: contentColumn
+    focusTarget: keyScope
     shown: false
-    readonly property int cardHeight: confirmAction === ""
-        ? (Theme.spacingXl * 2 + 28 + Theme.spacingSm * 5 + 5 * 40)
-        : (Theme.spacingXl * 2 + 28 + Theme.spacingSm + 2 * 40)
 
-    function open() {
-        confirmAction = ""
-        shown = true
+    function batteryIcon() {
+        return Model.batteryIcon(root.displayDevice, root.discharging, root.powerStates)
+    }
+
+    function profileIcon(name) { return Model.profileIcon(name) }
+
+    function displayBatterySnapshot() {
+        return Model.batterySnapshot(root.displayDevice, root.onBattery, root.powerStates)
+    }
+
+    function open(payloadJson) {
+        if (!root.batteryPresent) {
+            root.shown = false
+            return "unavailable"
+        }
+        root.confirmAction = ""
+        root.actionError = ""
+        root.profileError = ""
+        root.cursorActive = false
+        root.shown = true
+        root.refresh()
+        return "ok"
     }
 
     function close() {
-        confirmAction = ""
-        shown = false
+        root.confirmAction = ""
+        root.cursorActive = false
+        root.shown = false
+        return "ok"
     }
 
-    function closeForPopoutSwitch() { close() }
+    function closeForPopoutSwitch() { return root.close() }
 
-    function iconGlyph(name) {
-        return panelRoot.iconGlyphs[name] || ""
+    function toggle(payloadJson) {
+        return root.shown ? root.close() : root.open(payloadJson || "{}")
+    }
+
+    function refresh() {
+        if (!root.batteryPresent) return
+        var snapshot = root.displayBatterySnapshot()
+        if (Object.keys(snapshot).length > 0) root.batteryInfo = snapshot
+        if (!profilesProcess.running) profilesProcess.running = true
+        if (!systemProcess.running) systemProcess.running = true
+        if (!memoryProcess.running) memoryProcess.running = true
+    }
+
+    function updateProfiles(raw) {
+        var parsed = Model.parseProfiles(raw, root.profileIndex)
+        if (parsed.profiles.length === 0) {
+            root.profileError = "No power profiles are currently available."
+            return
+        }
+        root.profiles = parsed.profiles
+        root.activeProfile = parsed.activeProfile
+        root.profileIndex = parsed.profileIndex
+        root.profileError = ""
+        if (root.shown && !root.cursorActive) {
+            var activeIndex = root.profiles.indexOf(root.activeProfile)
+            if (activeIndex >= 0) root.profileIndex = activeIndex
+        }
+    }
+
+    function updateSystemStats(raw) {
+        var parsed = Model.parseSystemStats(raw)
+        if (Object.keys(parsed).length === 0) return
+        var next = Object.assign({}, root.systemInfo, parsed)
+        root.systemInfo = next
+    }
+
+    function runCommand(argv, kind) {
+        if (!Array.isArray(argv) || argv.length === 0) return "invalid"
+        if (root.actionRunning) return "busy"
+        root.actionError = ""
+        if (typeof root.actionExecutor === "function") {
+            try {
+                var result = root.actionExecutor(argv, String(kind || "action"))
+                if (result === false || result === "error") {
+                    root.actionError = "Power action failed."
+                    console.error("[POWER] action_failed kind=" + String(kind || "action"))
+                    return "error"
+                }
+                return "ok"
+            } catch (error) {
+                root.actionError = "Power action failed."
+                console.error("[POWER] action_failed kind=" + String(kind || "action") +
+                    " detail=" + String(error))
+                return "error"
+            }
+        }
+        actionProcess.actionKind = String(kind || "action")
+        actionProcess.command = argv
+        root.actionRunning = true
+        actionProcess.running = true
+        return "pending"
+    }
+
+    function setProfile(profile) {
+        var requested = String(profile || "")
+        if (!requested || root.profiles.indexOf(requested) < 0) {
+            root.profileError = "Power profile is not available: " + requested
+            return "unavailable"
+        }
+        root.profileIndex = root.profiles.indexOf(requested)
+        var result = root.runCommand(["/usr/bin/powerprofilesctl", "set", requested], "profile")
+        if (result === "ok" || result === "pending") root.profileError = ""
+        return result
+    }
+
+    function selectProfileByDelta(delta) {
+        root.profileIndex = Model.selectProfileIndex(root.profileIndex, delta, root.profiles)
+        root.cursorActive = true
+    }
+
+    function activateSelectedProfile() {
+        if (root.profileIndex < 0 || root.profileIndex >= root.profiles.length) return "unavailable"
+        return root.setProfile(root.profiles[root.profileIndex])
+    }
+
+    function togglePercentage() {
+        var next = Object.assign({}, root.settings || {}, {
+            showPercentage: !root.showPercentage
+        })
+        root.settings = next
+        if (!root.shell || typeof root.shell.updateEntryInline !== "function") return "not-ready"
+        var result = String(root.shell.updateEntryInline(
+            root.moduleName, JSON.stringify(next), "{}") || "")
+        if (result !== "ok") root.actionError = result || "Could not save Power setting."
+        return result
     }
 
     function requestAction(action) {
-        if (action === "reboot" || action === "shutdown") {
-            confirmAction = action
-            return
+        var requested = String(action || "")
+        if (requested === "reboot" || requested === "shutdown") {
+            root.confirmAction = requested
+            return "confirm"
         }
-        runAction(action)
+        return root.runAction(requested)
     }
 
     function runAction(action) {
-        var command = []
-        if (action === "lock") command = ["loginctl", "lock-session"]
-        else if (action === "logout") command = ["hyprctl", "dispatch", "exit"]
-        else if (action === "suspend") command = ["systemctl", "suspend"]
-        else if (action === "reboot") command = ["systemctl", "reboot"]
-        else if (action === "shutdown") command = ["systemctl", "poweroff"]
-        else return
-        close()
-        actionProcess.command = command
-        actionProcess.running = true
+        var commands = {
+            lock: ["/usr/bin/loginctl", "lock-session"],
+            logout: ["/usr/bin/hyprctl", "dispatch", "exit"],
+            suspend: ["/usr/bin/systemctl", "suspend"],
+            reboot: ["/usr/bin/systemctl", "reboot"],
+            shutdown: ["/usr/bin/systemctl", "poweroff"]
+        }
+        var requested = String(action || "")
+        if (!commands[requested]) return "invalid"
+        root.confirmAction = ""
+        root.close()
+        return root.runCommand(commands[requested], "action")
     }
 
-    ColumnLayout {
-        id: contentColumn
-        anchors.fill: parent
-        spacing: Theme.spacingSm
-        focus: panelRoot.shown
+    function confirmPendingAction() {
+        if (root.confirmAction === "") return "invalid"
+        return root.runAction(root.confirmAction)
+    }
 
-            Text {
-                Layout.fillWidth: true
-                text: panelRoot.confirmAction === "" ? "Power" : (panelRoot.confirmAction === "reboot" ? "Restart computer?" : "Power off computer?")
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeLg
-                font.weight: Theme.fontWeightBold
+    function cancelPendingAction() {
+        root.confirmAction = ""
+        return "ok"
+    }
+
+    function handleKey(event) {
+        if (event.key === Qt.Key_Escape) {
+            root.close()
+            event.accepted = true
+            return
+        }
+        if (event.key === Qt.Key_Left || event.key === Qt.Key_Up || event.key === Qt.Key_K) {
+            root.selectProfileByDelta(-1)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down || event.key === Qt.Key_J) {
+            root.selectProfileByDelta(1)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+            root.activateSelectedProfile()
+            event.accepted = true
+        }
+    }
+
+    onShownChanged: {
+        if (root.shown) {
+            if (!root.batteryPresent) {
+                root.shown = false
+                return
+            }
+            root.cursorActive = false
+            root.refresh()
+            Qt.callLater(function() {
+                if (root.shown && keyScope && typeof keyScope.forceActiveFocus === "function")
+                    keyScope.forceActiveFocus()
+            })
+        }
+    }
+    onBatteryPresentChanged: if (!root.batteryPresent && root.shown) root.close()
+
+    Process {
+        id: profilesProcess
+        command: ["/usr/bin/powerprofilesctl", "list"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: root.updateProfiles(text)
+        }
+        onExited: function(code) {
+            if (code !== 0) {
+                root.profileError = "Power profile query failed."
+                console.error("[POWER] profiles_query_failed code=" + code)
+            }
+        }
+    }
+
+    Process {
+        id: systemProcess
+        command: ["/usr/bin/uptime"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: root.updateSystemStats(text)
+        }
+        onExited: function(code) {
+            if (code !== 0) console.error("[POWER] system_stats_query_failed code=" + code)
+        }
+    }
+
+    Process {
+        id: memoryProcess
+        command: ["/usr/bin/free", "-h"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: root.updateSystemStats(text)
+        }
+        onExited: function(code) {
+            if (code !== 0) console.error("[POWER] memory_stats_query_failed code=" + code)
+        }
+    }
+
+    Process {
+        id: actionProcess
+        property string actionKind: "action"
+        command: []
+        onExited: function(code) {
+            root.actionRunning = false
+            if (code !== 0) {
+                root.actionError = "Power action failed."
+                console.error("[POWER] action_failed kind=" + actionKind + " code=" + code)
+            } else {
+                root.actionError = ""
+                root.refresh()
+            }
+        }
+    }
+
+    Timer {
+        id: refreshTimer
+        interval: 5000
+        repeat: true
+        running: root.shown
+        onTriggered: root.refresh()
+    }
+
+    Timer {
+        id: phraseTimer
+        interval: 2800
+        repeat: true
+        running: root.shown && root.activePhrases.length > 0
+        onTriggered: root.phraseIndex = (root.phraseIndex + 1) % root.activePhrases.length
+    }
+
+    FocusScope {
+        id: keyScope
+        anchors.fill: parent
+        focus: root.shown
+        Keys.onPressed: function(event) { root.handleKey(event) }
+
+        Column {
+            id: contentColumn
+            anchors.fill: parent
+            spacing: Theme.spacingMd
+
+            Item {
+                id: heroSection
+                width: parent.width
+                height: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight, heroPercent.implicitHeight)
+                    + Theme.spacingSm
+
+                AureliaIcon {
+                    id: heroIcon
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 42
+                    height: 42
+                    iconSize: 38
+                    glyph: root.batteryIcon()
+                    tint: Theme.text
+                }
+
+                Column {
+                    id: heroLabels
+                    anchors.left: heroIcon.right
+                    anchors.leftMargin: Theme.spacingSm
+                    anchors.right: heroPercent.left
+                    anchors.rightMargin: Theme.spacingSm
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 1
+
+                    Text {
+                        width: parent.width
+                        text: "Battery"
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeLg
+                        font.weight: Theme.fontWeightBold
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        width: parent.width
+                        text: root.heroStatusText.toUpperCase()
+                        color: Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeXs
+                        font.weight: Theme.fontWeightBold
+                        font.letterSpacing: 1
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Text {
+                    id: heroPercent
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.percentageText
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeXl
+                    font.weight: Theme.fontWeightBold
+                }
             }
 
-            Repeater {
-                model: panelRoot.confirmAction === "" ? [
-                    { id: "lock", label: "Lock", icon: "lock" },
-                    { id: "logout", label: "Logout", icon: "logout" },
-                    { id: "suspend", label: "Suspend", icon: "suspend" },
-                    { id: "reboot", label: "Reboot", icon: "reboot" },
-                    { id: "shutdown", label: "Shutdown", icon: "power" }
-                ] : [
-                    { id: "confirm", label: "Confirm", icon: "confirm" },
-                    { id: "cancel", label: "Cancel", icon: "cancel" }
-                ]
+            Item {
+                id: progressSection
+                width: parent.width
+                height: 8
 
-                delegate: Rectangle {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 40
-                    radius: Theme.radiusSm
-                    color: powerActionHover.hovered ? Theme.selection : Theme.surface
-                    HoverHandler { id: powerActionHover }
+                Rectangle {
+                    id: progressTrack
+                    anchors.fill: parent
+                    radius: height / 2
+                    color: Theme.controls.normalFill
+                }
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.max(Theme.borderWidthDefault, parent.width * root.batteryFraction)
+                    height: parent.height
+                    radius: height / 2
+                    color: root.batteryFillColor
+                }
+            }
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingSm
-                        anchors.rightMargin: Theme.spacingSm
-                        spacing: Theme.spacingSm
+            GridLayout {
+                id: statsSection
+                width: parent.width
+                columns: 2
+                columnSpacing: Theme.spacingLg
+                rowSpacing: Theme.spacingXs
 
-                        Text {
-                            Layout.preferredWidth: 18
-                            Layout.preferredHeight: 18
-                            text: panelRoot.iconGlyph(modelData.icon)
-                            color: powerActionHover.hovered ? Theme.text : Theme.textSecondary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 18
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: modelData.label
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSm
-                        }
-                    }
+                InfoPair { label: "Battery size"; value: root.batteryInfo.size || "—" }
+                InfoPair { label: "Charge cycles"; value: root.batteryInfo.cycles || "—" }
+                InfoPair {
+                    label: root.chargeThresholdActive ? "Charge limit" :
+                        (root.discharging ? "Time left" : "Time to full")
+                    value: root.chargeThresholdActive
+                        ? (root.batteryInfo.threshold || "—")
+                        : (root.batteryInfo.time || "—")
+                }
+                InfoPair { label: "Power draw"; value: root.batteryInfo.rate || "—" }
+                InfoPair { label: "CPU load"; value: root.systemInfo.load || "—" }
+                InfoPair { label: "Memory"; value: root.systemInfo.memory || "—" }
+            }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: function(mouse) {
-                            mouse.accepted = true
-                            if (panelRoot.confirmAction !== "") {
-                                if (modelData.id === "confirm") panelRoot.runAction(panelRoot.confirmAction)
-                                else panelRoot.close()
-                            } else {
-                                panelRoot.requestAction(modelData.id)
+            Column {
+                id: profilesSection
+                width: parent.width
+                spacing: Theme.spacingXs
+                visible: root.profiles.length > 0 || root.profileError !== ""
+
+                Text {
+                    width: parent.width
+                    text: "POWER PROFILE"
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeXs
+                    font.weight: Theme.fontWeightBold
+                    font.letterSpacing: 1
+                }
+
+                Row {
+                    id: profileRow
+                    width: parent.width
+                    spacing: Theme.spacingXs
+
+                    Repeater {
+                        model: root.profiles
+                        delegate: Rectangle {
+                            required property var modelData
+                            required property int index
+                            width: root.profiles.length > 0
+                                ? (profileRow.width - profileRow.spacing * (root.profiles.length - 1)) /
+                                    root.profiles.length : 0
+                            height: 48
+                            radius: Theme.radiusSm
+                            color: root.profileIndex === index && root.cursorActive
+                                ? Theme.selectionActive
+                                : (root.activeProfile === modelData ? Theme.selection : Theme.surface)
+                            border.color: root.activeProfile === modelData
+                                ? Theme.borderActive : Theme.border
+                            border.width: Theme.borderWidthDefault
+
+                            Column {
+                                anchors.centerIn: parent
+                                spacing: 1
+                                AureliaIcon {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: 18
+                                    height: 18
+                                    iconSize: 16
+                                    glyph: root.profileIcon(String(modelData))
+                                    tint: root.activeProfile === modelData ? Theme.accent : Theme.textSecondary
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: String(modelData).replace(/^./, function(c) { return c.toUpperCase() })
+                                    color: Theme.text
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeXs
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onEntered: {
+                                    root.cursorActive = true
+                                    root.profileIndex = index
+                                }
+                                onClicked: {
+                                    root.cursorActive = true
+                                    root.profileIndex = index
+                                    root.setProfile(String(modelData))
+                                }
                             }
                         }
                     }
                 }
+
+                Text {
+                    width: parent.width
+                    visible: root.profileError !== ""
+                    text: root.profileError
+                    color: Theme.warning
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeXs
+                    elide: Text.ElideRight
+                }
             }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: Theme.border
+                opacity: 0.65
+            }
+
+            Column {
+                id: actionsSection
+                width: parent.width
+                spacing: Theme.spacingXs
+
+                Text {
+                    width: parent.width
+                    text: root.confirmAction === "" ? "POWER" :
+                        (root.confirmAction === "reboot" ? "RESTART COMPUTER?" : "POWER OFF COMPUTER?")
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeXs
+                    font.weight: Theme.fontWeightBold
+                    font.letterSpacing: 1
+                }
+
+                Repeater {
+                    model: root.confirmAction === "" ? root.actionRows : [
+                        {id: "confirm", label: "Confirm", detail: "Continue with this action", glyph: "󰄬"},
+                        {id: "cancel", label: "Cancel", detail: "Keep the session running", glyph: "󰅖"}
+                    ]
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: actionsSection.width
+                        height: 42
+                        radius: Theme.radiusSm
+                        color: actionHover.hovered ? Theme.selection : Theme.surface
+                        border.color: actionHover.hovered ? Theme.borderActive : Theme.border
+                        border.width: Theme.borderWidthDefault
+
+                        HoverHandler { id: actionHover }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.spacingSm
+                            anchors.rightMargin: Theme.spacingSm
+                            spacing: Theme.spacingSm
+
+                            AureliaIcon {
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                iconSize: 18
+                                glyph: modelData.glyph
+                                tint: actionHover.hovered ? Theme.accent : Theme.textSecondary
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    color: Theme.text
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                    font.weight: Theme.fontWeightMedium
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.detail
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeXs
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                mouse.accepted = true
+                                if (root.confirmAction !== "") {
+                                    if (modelData.id === "confirm") root.confirmPendingAction()
+                                    else root.cancelPendingAction()
+                                } else {
+                                    root.requestAction(modelData.id)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    visible: root.actionError !== ""
+                    text: root.actionError
+                    color: Theme.warning
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeXs
+                    elide: Text.ElideRight
+                }
+            }
+        }
     }
 
-    Item {
-        width: 0
-        height: 0
-        visible: false
+    component InfoPair: RowLayout {
+        required property string label
+        required property string value
+        Layout.fillWidth: true
+        spacing: Theme.spacingXs
 
-        Process {
-            id: actionProcess
-            command: []
-            onExited: function(code) {
-                if (code !== 0) console.error("[POWER] action_failed code=" + code)
-            }
+        Text {
+            Layout.fillWidth: true
+            text: parent.label
+            color: Theme.textMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeXs
+            elide: Text.ElideRight
+        }
+        Text {
+            text: parent.value
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeXs
+            horizontalAlignment: Text.AlignRight
         }
     }
 }

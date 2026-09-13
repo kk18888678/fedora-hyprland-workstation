@@ -3594,7 +3594,8 @@ Dependencies: T37, T02A, T31.
 
 ### T39. Redesign existing Power popup to Omarchy battery/profile UX
 
-Execution status: IN PROGRESS — CP2 recorded; implementation has not started
+Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
+isolated evidence; live UPower/Wayland confirmation remains deferred
 
 Checkpoint 2 — T39 pre-change boundary:
 
@@ -3670,15 +3671,65 @@ Scope:
 
 Required tests:
 
-- [ ] Pure model matrix for absent battery, charging, discharging, full,
+- [x] Pure model matrix for absent battery, charging, discharging, full,
   threshold, malformed profile output, and profile-index bounds.
-- [ ] Static geometry/design assertions proving the old five-row-only popup is
+- [x] Static geometry/design assertions proving the old five-row-only popup is
   gone and the required hero/progress/stats/profile owners exist.
-- [ ] Isolated QML fixture for popup open/close, confirmation, profile
+- [x] Isolated QML fixture for popup open/close, confirmation, profile
   selection, percentage toggle, absent battery, and action-failure isolation.
-- [ ] Preservation tests for all existing power actions and default bar slot.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates; optional visual smoke
+- [x] Preservation tests for all existing power actions and default bar slot.
+- [x] Full Aurelia/repository/syntax/ShellCheck gates; optional visual smoke
   remains separately authorized.
+
+Checkpoint 3 — T39 post-change evidence:
+
+- Power-focused suite: `test_power_plugin.sh` — 8 passed, 0 failed. The pure
+  model covers absent, charging, discharging, fully charged, threshold/
+  holding, malformed profile output, duration formatting, and profile bounds.
+  The isolated fixture drives the real Power bar widget with a notifying fake
+  panel for open/close, right-click percentage toggle, and no-battery hiding;
+  no power command is executed.
+- Existing bar-widget preservation suite: `test_bar_widgets.sh` — 37 passed,
+  0 failed. It confirms `aurelia.power`, its entry point, all five action
+  identities/commands, anchored popup ownership, and default placement remain
+  intact while the fixed five-row-only geometry is removed.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 583 passed, 0 failed.
+- Repository functional suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Syntax: repository-wide `bash -n` — 241 shell scripts passed.
+- ShellCheck: new/changed Power and test scripts introduced no findings;
+  unrelated pre-existing findings remain in the repository inventory checks
+  and installer sources.
+- Diff hygiene: `git diff --check` passed; no generated files or test
+  artifacts remain in the repository.
+- UI/data evidence: Power now renders a battery hero with percentage,
+  progress, status, bounded battery statistics, profile selector, confirmation
+  rows, and content-fitted Aurelia popup geometry. `showPercentage` remains an
+  inline setting owned by the resident shell configuration path.
+- Failure evidence: missing UPower/battery state returns a hidden zero-width
+  bar affordance; empty/malformed profiles retain the previous safe state and
+  expose a bounded error; failed profile/system actions log an observable
+  bounded error without escaping the Power boundary.
+- Ownership evidence: UPower supplies live battery truth, `powerprofilesctl`
+  and system actions use structured argv, and Power owns no privilege
+  escalation, shell string, new backend, second IPC target, or direct state
+  file mutation.
+- Existing feature evidence: `aurelia.power`, `PowerBarWidget.qml`,
+  `PowerPanel.qml`, manifest placement, lock/logout/suspend/reboot/shutdown
+  behavior, default bar slot, theme ownership, and host lifecycle remain
+  preserved; no `config/bar-default.json` change was made.
+- User-visible behavior changed: yes; the existing Power popup now has the
+  requested reference-level information hierarchy and battery-aware bar
+  affordance while retaining all prior actions.
+- Rollback/migration evidence: no UPower/profile/system action, persisted
+  setting write, installer/package operation, systemd/greetd change, shell
+  restart, or reboot occurred; reverting the Power-owned files and tests
+  restores the prior popup without changing user data.
+- Live status: isolated/static evidence is complete; real UPower data,
+  profile availability, and Wayland visual appearance remain unrun and are
+  not claimed.
+
+CP3 status: `[x]` repository/static/isolated acceptance complete; live
+UPower/Wayland visual confirmation remains pending and is not claimed.
 
 Exit gate: the Power popup has the requested reference-level information
 architecture and UX quality while every existing Aurelia power action and

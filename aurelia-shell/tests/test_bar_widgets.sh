@@ -221,19 +221,23 @@ if [[ -f "$power_root/manifest.json" && -f "$power_root/PowerBarWidget.qml" && -
    grep -q 'systemctl.*poweroff' "$power_root/PowerPanel.qml" &&
    grep -q 'systemctl.*reboot' "$power_root/PowerPanel.qml" &&
    grep -q 'AureliaIcon {' "$power_root/PowerBarWidget.qml" &&
-   grep -q 'name: "system-shutdown"' "$power_root/PowerBarWidget.qml" &&
-   grep -q 'fallbackName: "system-power-off"' "$power_root/PowerBarWidget.qml" &&
-   grep -q 'tint: powerHover.hovered ? Theme.text : Theme.textSecondary' "$power_root/PowerBarWidget.qml" &&
-   grep -q 'function iconGlyph(name)' "$power_root/PowerPanel.qml" &&
+   grep -q 'glyph: root.powerPanel' "$power_root/PowerBarWidget.qml" &&
+   grep -q 'visible: root.batteryPresent' "$power_root/PowerBarWidget.qml" &&
+   grep -q 'function batteryIcon()' "$power_root/PowerPanel.qml" &&
+   grep -q 'function confirmPendingAction' "$power_root/PowerPanel.qml" &&
+   grep -q 'showPercentage' "$power_root/PowerPanel.qml" &&
+   grep -q 'profilesSection' "$power_root/PowerPanel.qml" &&
+   grep -q 'progressSection' "$power_root/PowerPanel.qml" &&
+   grep -q 'statsSection' "$power_root/PowerPanel.qml" &&
    grep -q 'font.family: Theme.fontFamily' "$power_root/PowerBarWidget.qml" "$power_root/PowerPanel.qml" &&
-   ! grep -q 'AureliaGlyph' "$power_root/PowerBarWidget.qml" "$power_root/PowerPanel.qml" &&
-   ! grep -q 'text: "󰐥"' "$power_root/PowerBarWidget.qml" &&
+   grep -q 'AureliaToolTip' "$power_root/PowerBarWidget.qml" &&
+   ! grep -q 'cardHeight' "$power_root/PowerPanel.qml" &&
    grep -q '"suspend"' "$power_root/PowerPanel.qml" &&
    grep -q '"reboot"' "$power_root/PowerPanel.qml" &&
-   grep -q '"power"' "$power_root/PowerPanel.qml"; then
-    pass "Power bar widget uses one coherent theme-aware system icon without custom QML type loading"
+   grep -q '"shutdown"' "$power_root/PowerPanel.qml"; then
+    pass "Power bar widget and popup use battery-aware geometry while retaining the theme/action boundary"
 else
-    fail "Power bar widget actions or theme-aware icon contract is incomplete"
+    fail "Power bar widget, battery popup, or preserved action contract is incomplete"
 fi
 
 if grep -q 'AureliaIcon {' "$ROOT/plugins/aurelia.monitor/DisplayBarWidget.qml" &&
