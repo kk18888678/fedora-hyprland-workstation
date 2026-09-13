@@ -1,10 +1,11 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity is under active hardening; T31 warning
-observability and T32 source-boundary hardening are complete, T33 shared
-anchored-surface coordinate mapping is in progress, and T30 remains queued;
-live visual/integration validation remains deferred pending explicit
-authorization.
+Status: repository-only structural parity is under active hardening; T33's
+coordinate-mapping correction remains open after runtime validation found a
+second API-boundary failure, T34 records the Bluetooth discovery-retention
+issue, and T30 remains queued as the separately requested plugin-local
+test-directory task; live visual/integration validation remains deferred
+pending explicit authorization.
 
 ## Objective
 
@@ -2724,7 +2725,7 @@ Dependencies: T31, T03, T04, T06, T10, T14, T24.
 
 ### T33. Repair shared anchored-surface coordinate mapping (never suppress the warning)
 
-Execution status: IN PROGRESS — CP2 recorded; implementation not started
+Execution status: IN PROGRESS — CP2 recorded; initial directional candidate rejected by runtime evidence
 
 Observed failure: `AureliaToolTip.qml` reports a `TypeError` at its anchor
 calculation because it calls `mapFromItem` on `anchorWindow.contentItem`.
@@ -2733,11 +2734,22 @@ expose that function. `AureliaPopupCard.qml` contains the same invalid mapping
 direction and would fail when that shared surface is anchored.
 
 Root-cause contract: coordinate conversion must be initiated by the actual
-source `Item` (`triggerItem`/`anchorItem`) with `mapToItem` targeting the
-window's `contentItem`. The implementation must not filter, redirect, or hide
-the QML warning stream. Invalid non-`Item` inputs, if reachable, must remain
-explicitly observable with a bounded diagnostic and must not take down the
-shell or healthy plugins.
+Quickshell's window interface owns the conversion boundary: use the
+`anchorWindow.mapFromItem(sourceItem, x, y)` overload exposed by the
+`PanelWindow`/`PopupWindow` interface. Do not pass the window's
+`contentItem` through JavaScript into `Item.mapToItem`; the native
+`QQuickFocusScope` content object is not accepted by that C++ pointer
+conversion path in the live runtime. The implementation must not filter,
+redirect, or hide the QML warning stream. Invalid non-`Item` inputs, if
+reachable, must remain explicitly observable with a bounded diagnostic and
+must not take down the shell or healthy plugins.
+
+Validation finding after the initial candidate (2026-09-13): the user-provided
+runtime trace showed `Could not convert argument 0 ... to const QQuickItem*`
+at the candidate `target.mapToItem(anchorWindow.contentItem, ...)` call. The
+focused fixture passed because it used a normal declarative `FocusScope`, not
+the actual Quickshell window-interface content object. The candidate is not a
+valid fix and has not been committed.
 
 Non-negotiable identity and behavior invariant: T33 must not rename, move, or
 re-home the repository, `aurelia-shell`, either shared UI file, any plugin
@@ -2773,24 +2785,29 @@ Baseline evidence:
 
 - Starting branch/HEAD: `installer-resilience`,
   `7bb8cd75f049b70c4491a12d58cacecfc79c0994`.
+- Tracker-only CP2 checkpoint: `ae150fc` (`chore(checkpoint): prepare
+  anchored surface mapping fix`).
 - `git status --short --branch`: clean; branch is ahead of its configured
   remote by six commits.
 - Focused baseline: `bash -c 'source aurelia-shell/tests/test_helper.sh; run_suite aurelia-shell/tests/test_notification_plugins.sh; print_test_summary'` — 13 passed, 0 failed.
 - Current source audit: two production `mapFromItem` calls use the window
   `contentItem` as receiver; no tooltip-specific runtime regression fixture
   currently exists.
+- Correction state: the first uncommitted candidate used
+  `target.mapToItem(window.contentItem, ...)`; the user-provided runtime log
+  rejected that candidate at the native argument boundary. The candidate
+  remains uncommitted and is being replaced within this same T33 scope.
 
-Checkpoint requirement: satisfied; no implementation file has been edited for
-T33 before this tracker checkpoint.
+Checkpoint requirement: satisfied; no implementation file was edited for T33
+before the tracker-only CP2 commit.
 
-- [ ] Reproduce the invalid receiver in a disposable QML mapping fixture and
-  record the failure without suppressing its diagnostic.
-- [ ] Change both shared anchored surfaces to use the source `Item`'s
-  `mapToItem(window.contentItem, ...)` conversion, retaining all four bar
-  orientations and existing clamping.
-- [ ] Add a negative static assertion that rejects the invalid receiver and a
-  runtime fixture proving a `QQuickFocusScope` content target accepts the valid
-  source-to-target mapping.
+- [x] Correlate the user-provided warnings to the invalid window-content
+  receiver and record the root cause without suppressing its diagnostic.
+- [ ] Change both shared anchored surfaces to use the Quickshell window
+  interface's source-Item `mapFromItem(...)` conversion, retaining all four
+  bar orientations and existing clamping.
+- [ ] Add a negative static assertion that rejects both invalid receivers and a
+  runtime fixture exercising the actual Quickshell window-interface mapping.
 - [ ] Add a focused regression assertion that the warning is not removed by a
   filter, catch, stderr redirect, or blanket diagnostic policy.
 - [ ] Verify invalid anchor inputs remain bounded and observable while healthy
@@ -2803,12 +2820,81 @@ T33 before this tracker checkpoint.
 - [ ] Record CP3 evidence, commit the coherent T33 change, and update the gap
   matrix only after every gate passes.
 
+Superseded validation attempt — not completion evidence:
+
+- The first candidate changed both surfaces to source-Item `mapToItem` with
+  `contentItem` as its target. The focused suite reported 4 passed, and the
+  broader Aurelia suite reported 548 passed, but the user-provided live trace
+  demonstrated that the real Quickshell content object fails the C++ argument
+  conversion. No T33 implementation commit was created.
+- The candidate tests remain useful only as evidence that a generic
+  declarative `FocusScope` is insufficient to model this runtime boundary.
+
+CP3 status: `[ ]` superseded; a new actual-window-interface fixture and
+window-owned mapping implementation are required.
+
 Exit gate: the exact tooltip warning is eliminated by correcting the API
 receiver, the duplicate popup-card defect is corrected, no diagnostic is
 suppressed, all placement behavior remains intact, and isolated tests prove
 the shell plus healthy plugins remain usable when an anchor is invalid.
 
 Dependencies: T31, T32; T30 remains independent and must not defer this fix.
+
+---
+
+### T34. Preserve Bluetooth scan results through discovery refreshes
+
+Execution status: NOT STARTED — issue recorded; implementation and CP2 not started
+
+Observed behavior: after the Bluetooth bar widget discovers a device, the
+same device is not visible again in the list on a later refresh/reopen (exact
+timing—while the panel remains open versus after discovery stops—still needs
+to be pinned down).
+
+Read-only audit finding: Aurelia's Bluetooth `Model.js` is functionally the
+same as Omarchy's reference model. Both classify unpaired devices as
+`discovered`, expose that section only while `adapter.discovering` is true,
+and omit devices whose `deviceName`/`name` is empty, address-like, or UUID-like.
+Aurelia's `BluetoothPanel.qml` repeats the discovery-state visibility gate in
+`sectionVisible()` and `scrollRows`. BlueZ may also remove transient
+discovery objects when a discovery session ends. This task must first
+distinguish intentional Omarchy transient behavior from an Aurelia refresh or
+identity bug before changing the model.
+
+Parity/feature contract: retain Omarchy's connected/paired/discovered
+classification and primitives-only row snapshots, while ensuring a named
+device discovered during an active bar-widget session is not lost merely due
+to a model refresh. Any retained row must remain address-identified,
+de-duplicated when it becomes paired/connected, and must not invoke an action
+against a destroyed BlueZ object. No persistent device database or BlueZ
+system mutation may be introduced without a separately reviewed requirement.
+
+Checkpoint requirement: create a CP2 tracker entry before touching
+`plugins/aurelia.bluetooth/Model.js`, `BluetoothPanel.qml`,
+`BluetoothBarWidget.qml`, Bluetooth tests, or related production files.
+
+- [ ] Capture the exact disappearance sequence and determine whether the
+  device is removed by BlueZ, filtered by label, hidden by discovery state, or
+  lost through a non-reactive `values` binding.
+- [ ] Compare the observed sequence against the pinned Omarchy reference and
+  classify any intentional difference before implementation.
+- [ ] Add isolated model and panel fixtures for discovery refresh, name
+  arrival, address identity, paired/connected transition, removal, and
+  repeated scan/reopen behavior.
+- [ ] Implement the smallest host-owned/session-owned retention or refresh
+  correction that preserves existing actions and no stale-object use.
+- [ ] Add negative tests for duplicate rows, address-only/UUID-only labels,
+  destroyed objects, and a failed discovery session; no warning suppression.
+- [ ] Run Bluetooth-focused, full Aurelia, repository, syntax, and available
+  ShellCheck gates before marking T34 complete.
+
+Exit gate: the exact disappearance cause is proven, the behavior is either
+aligned with Omarchy or documented as a deliberate Aurelia enhancement, named
+scan results remain usable through the supported refresh boundary, and no
+Bluetooth or shell failure can make the Aurelia host unusable.
+
+Dependencies: T31, T32; T33 remains independent and must not defer this
+investigation.
 
 ---
 
@@ -2849,6 +2935,7 @@ Dependencies: T31, T32; T30 remains independent and must not defer this fix.
 | Actionable plugin/host warnings or errors may be hidden by silent catches or failure gates | T31 |
 | Dynamic plugin/resource sources are built by scattered ad-hoc file-URL paths and are not relocation-tested | T32 |
 | Shared anchored surfaces call coordinate mapping on a window content receiver that lacks the API | T33 |
+| Bluetooth scan results disappear across discovery refresh/reopen despite device identity | T34 |
 
 ## Final preservation gate
 
