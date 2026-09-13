@@ -3,10 +3,10 @@
 Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, corrective T43–T46
-runtime/test-truth work, T47 session-actions restoration, and the T49
-notification/session safety correction are complete for repository/static/
-headless evidence; T48 live revalidation remains pending, T50 is next for the
-popup-model boundary regression, and T42 remains the final acceptance gate.
+runtime/test-truth work, T47 session-actions restoration, T49 notification/
+session safety, and T50 popup-model boundary correction are complete for
+repository/static/headless evidence; T48 live revalidation remains pending,
+and T42 remains the final acceptance gate.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4684,13 +4684,13 @@ the production component and all session actions are confirmation-gated; the
 Aurelia shell remains usable if either feature fails. Fresh live shell
 confirmation is still required before T48 is fully closed.
 
-Dependencies: T47, T48, T02A, T31, T33, T46, T49.
+Dependencies: T47, T48, T02A, T31, T33, T46.
 
 ---
 
 ### T50. Make popup-model dismissal indices source-aware
 
-Execution status: NOT STARTED — tracker-only checkpoint required before source/test edits
+Execution status: COMPLETE FOR REPOSITORY EVIDENCE — live notification-bus and visual acceptance remain separately pending
 
 Checkpoint 1 — T50 audit boundary:
 
@@ -4727,22 +4727,47 @@ Scope and preservation boundary:
 
 Required tests:
 
-- [ ] Popup-source dismissal resolves the popup delegate index against
+- [x] Popup-source dismissal resolves the popup delegate index against
   `popupModel`, never blindly against `activeModel`, and persists exactly one
   matching history/archive entry.
-- [ ] Production Service/Toast fixture covers both popup and active model
+- [x] Production Service/Toast fixture covers both popup and active model
   source paths, malformed identity recovery, ordering differences, sender
   `closed()` re-entry, and valid-identity mismatch preservation.
-- [ ] No `invalid_identity`, TypeError, Loader.Error, or duplicate persistence
+- [x] No `invalid_identity`, TypeError, Loader.Error, or duplicate persistence
   diagnostics are suppressed in the focused runtime result.
-- [ ] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass; strict
+- [x] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass; strict
   mode continues to report unavailable backend paths explicitly.
 
-Checkpoint 2 status: `[ ]` pending the tracker-only pre-change commit for this boundary.
+Checkpoint 2 status: `[x]` tracker-only pre-change checkpoint committed as `1b64bb7`.
 
-Exit gate: passive popup dismissal uses its own authoritative model boundary,
-the live invalid-identity persistence errors are resolved by tested source
-code, and the Aurelia shell remains usable if notification rendering fails.
+Checkpoint 3 — T50 post-change evidence:
+
+- `test_notification_plugins.sh`: `15` passed, `0` skipped, `0` failed. The
+  production Service/Toast fixture now switches between the actual
+  `popupModel` and `activeModel` sources, exercises the card-level pointer
+  path, deliberately removes Toast identity, and verifies popup-index recovery
+  without `invalid_identity` diagnostics.
+- `NotificationPopupSurface.qml` now calls `dismissPopupAt()`. Valid identity
+  remains exact-match-only; malformed identity is recovered from the
+  authoritative popup row and then matched into the active Inbox by identity.
+  The center panel continues to use the active-model `dismissAt()` path.
+- Full diagnostic Aurelia suite: `67` suites, `637` assertions, `626` passed,
+  `11` skipped, `0` failed. Strict mode returns `2` for the same explicit
+  backend-gated paths.
+- Repository suite: `./tests/run.sh` — `228` passed, `0` failed. Repository-
+  wide shell syntax: `246` scripts passed `bash -n`. ShellCheck for the
+  changed notification test: clean. `git diff --check`: passed.
+- Implementation commit: `a2496d047f8370abbf0fa829e5c499cb28c9d361`;
+  pre-change tracker checkpoint: `1b64bb7`.
+
+CP3 status: `[x]` popup/active source separation and malformed-identity
+recovery are covered without suppressing warnings/errors; live notification-
+bus confirmation remains unrun.
+
+Exit gate: passive popup dismissal uses its own authoritative model boundary
+in tested production components, the live invalid-identity persistence errors
+have a source-level correction, and the Aurelia shell remains usable if
+notification rendering fails. Fresh live confirmation remains required.
 
 Dependencies: T48, T49, T02A, T31, T33, T46.
 
@@ -4750,7 +4775,7 @@ Dependencies: T48, T49, T02A, T31, T33, T46.
 
 ### T42. Requested capability integration and final acceptance gate
 
-Execution status: NOT STARTED — queued behind completed corrective T43 through T49
+Execution status: NOT STARTED — queued behind completed corrective T43 through T50
 
 Scope:
 
@@ -4783,7 +4808,7 @@ Exit gate: the requested capability set is structurally and behaviorally at
 Omarchy parity as far as Aurelia's preserved features and safety boundaries
 allow, every task has CP3 evidence, and no task leaves the shell unusable.
 
-Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T02A, T31, T32, T33.
+Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T50, T02A, T31, T32, T33.
 
 ---
 
@@ -4838,6 +4863,7 @@ Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T
 | Former Power action menu became unreachable after battery-gated redesign | T47 |
 | Notification cross-button dismissal emits invalid-identity persistence errors | T48 |
 | Live pointer dismissal still reaches a parameterless notification identity path; session actions can execute without confirmation | T49 |
+| Passive popup delegate index is resolved against the wrong notification model during identity loss | T50 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
@@ -4892,7 +4918,7 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T49; live
+Repository-only plugin parity work is complete through T50; live
 visual/integration validation is deferred pending explicit authorization.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
@@ -4908,8 +4934,10 @@ Starting T47/T48 branch/SHA: installer-resilience /
 a6eb963db62ecae6df18331026810654c55709bd
 Starting T49 branch/SHA: installer-resilience /
 a517f4cdfe84f73e3d61461b21a3c35c99172f4e
+Starting T50 branch/SHA: installer-resilience /
+1b64bb7d0d16fcd46d23630ad21ea21363b55fb5
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T49; T30 plugin-local test
+Tasks completed: all tasks marked `[x]` through T50; T30 plugin-local test
 directories, T34 Bluetooth retention, T42 final acceptance, and authorized
 live Wayland/visual acceptance remain.
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh
@@ -4919,24 +4947,26 @@ paths
 Focused tests: session-actions 8 passed, 1 explicit PanelWindow backend skip,
 0 failed; notification dismissal 15 passed, 0 skipped, 0 failed
 Syntax checks: 246 shell scripts passed bash -n
-ShellCheck: all T49-changed shell files are clean; pre-existing findings
+ShellCheck: all T50-changed shell files are clean; pre-existing findings
 remain in older migrated test sources and installer sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 Wayland/visual smoke was not authorized and was skipped
 Files changed: T47 session-actions plugin/default placement/UI, T48
 notification identity/persistence handling and production-path fixture, T49
-pointer-path and confirmation correction/controller fixtures, test inventory
-cleanup, README, and tracker; T43–T46 changes remain in Git history
+pointer-path and confirmation correction/controller fixtures, T50 popup-model
+source-aware dismissal and fixture correction, test inventory cleanup, README,
+and tracker; T43–T46 changes remain in Git history
 Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
 T41 `e3253b0`, T43 `30f886d`, T44 `6c48237`, T45 `aa88ad4`, T46 `890ca7c`,
-T47 `4869919`, T48 `fb87e3c`, inventory cleanup `f5b09b8`, T49 `cd1e4bd`
+T47 `4869919`, T48 `fb87e3c`, inventory cleanup `f5b09b8`, T49 `cd1e4bd`,
+T50 `a2496d0`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; 301 existing unlabelled assertions and
 four excluded legacy repository matrices remain outside the strict Aurelia
-coverage inventory; live visual/UPower/notification-bus/session-panel behavior
-remains unverified; T30/T34/T42 remain open and T48 live revalidation remains
-pending; reference feature omissions remain the explicit product-scope
-differences documented above
+coverage inventory; live visual/UPower/notification-bus/session-panel
+behavior remains unverified; T30/T34/T42 remain open and T48 live
+revalidation remains pending; reference feature omissions remain the explicit
+product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
 Live user configuration modified: no
