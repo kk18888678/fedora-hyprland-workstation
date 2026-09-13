@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import "../../theme"
+import "../../services"
 
 // A single bar module slot. Registered manifest widgets, reviewed user QML
 // modules, and argv-based command modules share one placement boundary so the
@@ -20,6 +21,7 @@ Item {
     property bool registered: false
     property bool reloading: false
     property string instanceId: pluginId
+    PluginSourceResolver { id: sourceResolver }
     readonly property string home: Quickshell.env("HOME") || ""
     readonly property string configHome: {
         var override = Quickshell.env("XDG_CONFIG_HOME") || ""
@@ -29,6 +31,7 @@ Item {
     readonly property string customType: root.resolveCustomType()
     readonly property bool customQml: root.customType === "qml"
     readonly property bool customCommand: root.customType === "command"
+    readonly property var pluginSource: root.sourceDescriptorForLoader()
 
     readonly property var pluginManifest: barWidgetRegistry && typeof barWidgetRegistry.manifestFor === "function"
         ? barWidgetRegistry.manifestFor(pluginId)
@@ -53,9 +56,43 @@ Item {
     readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
 
     function fileUrl(value) {
-        var parts = String(value || "").split("/")
-        for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
-        return "file://" + parts.join("/")
+        return sourceResolver.fileUrl(value)
+    }
+
+    function sourceDescriptorForLoader() {
+        var failureRevision = pluginRegistry ? pluginRegistry.runtimeFailureRevision : 0
+        var widgetRevision = barWidgetRegistry ? barWidgetRegistry.revision : 0
+        if (root.customQml) {
+            var customPath = root.safeCustomSource()
+            var customUrl = customPath !== "" ? sourceResolver.fileUrl(customPath) : ""
+            return {
+                valid: customUrl !== "",
+                id: root.pluginId,
+                kind: "bar-widget",
+                sourceRoot: root.customModulesRoot,
+                relativeEntryPoint: "",
+                sourcePath: customPath,
+                url: customUrl,
+                error: customUrl === "" ? "custom QML source is invalid" : ""
+            }
+        }
+        if (barWidgetRegistry && typeof barWidgetRegistry.sourceDescriptorFor === "function")
+            return barWidgetRegistry.sourceDescriptorFor(root.pluginId)
+        if (pluginRegistry && typeof pluginRegistry.sourceDescriptor === "function")
+            return pluginRegistry.sourceDescriptor(root.pluginId, "bar-widget")
+        var legacyUrl = pluginRegistry && typeof pluginRegistry.entryPointUrl === "function"
+            ? String(pluginRegistry.entryPointUrl(root.pluginId, "bar-widget") || "") : ""
+        return {
+            valid: legacyUrl !== "",
+            id: root.pluginId,
+            kind: "bar-widget",
+            sourceRoot: "",
+            relativeEntryPoint: "",
+            sourcePath: "",
+            url: legacyUrl,
+            manifestPath: "",
+            error: legacyUrl === "" ? "bar-widget source is unavailable" : ""
+        }
     }
 
     implicitWidth: visible && widgetItem
@@ -91,12 +128,9 @@ Item {
 
     function failureSource() {
         try {
-            if (root.customQml) return root.fileUrl(root.safeCustomSource())
+            if (root.pluginSource && root.pluginSource.sourcePath) return String(root.pluginSource.sourcePath)
             if (root.customCommand) return Qt.resolvedUrl("CustomCommandBarWidget.qml")
-            if (root.barWidgetRegistry && typeof root.barWidgetRegistry.entryPointUrl === "function")
-                return String(root.barWidgetRegistry.entryPointUrl(root.pluginId) || "")
-            if (root.pluginRegistry && typeof root.pluginRegistry.entryPointUrl === "function")
-                return String(root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget") || "")
+            if (root.pluginSource && root.pluginSource.url) return String(root.pluginSource.url)
         } catch (e) {
             return ""
         }
@@ -128,6 +162,16 @@ Item {
                 !root.pluginRegistry.hasActiveRuntimeFailure(root.pluginId, "bar-widget"))
                 root.reportFailure(phase, error)
         })
+    }
+
+    function loaderErrorDetail(loader, fallback) {
+        var detail = ""
+        try {
+            if (loader && typeof loader.errorString === "function") detail = String(loader.errorString() || "")
+        } catch (error) {
+            detail = ""
+        }
+        return detail !== "" ? detail : String(fallback || "Loader.Error")
     }
 
     function safeConfigure(target) {
@@ -249,15 +293,14 @@ Item {
         active: root.active && root.available && !root.reloading &&
             (root.pluginManifest === null || root.pluginManifest.__isFirstParty !== false || root.pluginHost !== null)
         source: active
-            ? (root.barWidgetRegistry && typeof root.barWidgetRegistry.entryPointUrl === "function"
-                ? root.barWidgetRegistry.entryPointUrl(root.pluginId)
-                : root.pluginRegistry.entryPointUrl(root.pluginId, "bar-widget"))
+            ? (root.pluginSource && root.pluginSource.valid === true
+                ? String(root.pluginSource.url || "") : "")
             : ""
 
         onLoaded: root.handleLoaded(item)
         onStatusChanged: {
-            if (status === Loader.Error && !root.available) return
-            if (status === Loader.Error) root.scheduleFailure("load", "registered widget Loader.Error")
+            if (status === Loader.Error)
+                root.scheduleFailure("load", root.loaderErrorDetail(widgetLoader, "registered widget Loader.Error"))
         }
     }
 
@@ -268,8 +311,8 @@ Item {
         source: root.customQml ? root.fileUrl(root.safeCustomSource()) : ""
         onLoaded: root.handleLoaded(item)
         onStatusChanged: {
-            if (status === Loader.Error && !root.available) return
-            if (status === Loader.Error) root.scheduleFailure("load", "custom QML Loader.Error")
+            if (status === Loader.Error)
+                root.scheduleFailure("load", root.loaderErrorDetail(qmlLoader, "custom QML Loader.Error"))
         }
     }
 
@@ -280,8 +323,8 @@ Item {
         source: active ? Qt.resolvedUrl("CustomCommandBarWidget.qml") : ""
         onLoaded: root.handleLoaded(item)
         onStatusChanged: {
-            if (status === Loader.Error && !root.available) return
-            if (status === Loader.Error) root.scheduleFailure("load", "custom command Loader.Error")
+            if (status === Loader.Error)
+                root.scheduleFailure("load", root.loaderErrorDetail(commandLoader, "custom command Loader.Error"))
         }
     }
 

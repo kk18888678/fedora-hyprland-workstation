@@ -21,7 +21,7 @@ fi
 if grep -q 'barWidgetRegistry: root.barWidgetRegistry' "$bar_root/BarWidgetRow.qml" &&
    grep -q 'barWidgetRegistry: root.barWidgetRegistry' "$bar_root/BarCenter.qml" &&
    grep -q 'property var barWidgetRegistry' "$bar_root/BarWidgetSlot.qml" &&
-   grep -q 'entryPointUrl(root.pluginId)' "$bar_root/BarWidgetSlot.qml" &&
+   grep -q 'sourceDescriptorForLoader' "$bar_root/BarWidgetSlot.qml" &&
    grep -q 'if ("barWidgetRegistry" in target)' "$ROOT/services/PluginHost.qml"; then
     pass "[static] bar layout rows and slots consume the dedicated registry"
 else

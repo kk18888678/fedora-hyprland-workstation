@@ -7,6 +7,29 @@ var MAX_TEXT_LENGTH = 4096
 var MAX_IMAGE_LENGTH = 2048
 var MAX_ACTIONS = 8
 var MAX_HISTORY = 100
+var sharedSourceUrl = null
+
+function loadSourceUrl() {
+    if (sharedSourceUrl) return sharedSourceUrl
+    try {
+        if (typeof require === "function") {
+            sharedSourceUrl = require("../../services/SourceUrl.js")
+        } else if (typeof Qt !== "undefined" && typeof Qt.include === "function") {
+            var includeResult = Qt.include("../../services/SourceUrl.js")
+            if (includeResult && includeResult.status === 0 && typeof AureliaSourceUrl !== "undefined")
+                sharedSourceUrl = AureliaSourceUrl
+        }
+    } catch (error) {
+        console.error("[NOTIFICATIONS] source_url_load_failed detail=" + String(error || "unknown error"))
+    }
+    if (!sharedSourceUrl) console.error("[NOTIFICATIONS] source_url_unavailable")
+    return sharedSourceUrl
+}
+
+function localFileUrl(value) {
+    var sourceUrl = loadSourceUrl()
+    return sourceUrl && typeof sourceUrl.fileUrl === "function" ? sourceUrl.fileUrl(value) : ""
+}
 
 function boundedText(value, limit) {
     var text = String(value === undefined || value === null ? "" : value)
@@ -433,7 +456,7 @@ function screenshotSnapshot(path, timestamp) {
         desktopEntry: "",
         summary: "Screenshot saved",
         body: "The capture is available in Pictures and on the clipboard.",
-        image: "file://" + source,
+        image: localFileUrl(source),
         glyph: "",
         execArgv: "",
         actions: [],
@@ -471,10 +494,9 @@ function popupFileName(entry) {
 
 function localImageFile(value) {
     var source = String(value || "")
-    if (source.indexOf("file://") === 0) {
-        source = source.slice(7)
-        try { source = decodeURIComponent(source) } catch (error) { return "" }
-    }
+    var sourceUrl = loadSourceUrl()
+    if (!sourceUrl || typeof sourceUrl.pathFromUrl !== "function") return ""
+    source = sourceUrl.pathFromUrl(source)
     return source.charAt(0) === "/" ? source : ""
 }
 
@@ -492,7 +514,7 @@ function persistablePopup(entry, imagesDir) {
         if (localPath !== "") {
             var copyPath = String(imagesDir || "") + imageStem(source) + "-" + role
             if (localPath !== copyPath) copies.push({ from: localPath, to: copyPath })
-            output[role] = "file://" + copyPath
+            output[role] = localFileUrl(copyPath)
         } else if (value.indexOf("image://") === 0) {
             output[role] = ""
         }

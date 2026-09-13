@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "../../../services/SourceUrl.js" as SourceUrl
 
 // Declarative Command Center module catalog.
 //
@@ -40,8 +41,7 @@ QtObject {
         "package-manager", "updates", "aurelia-shell", "about", "plugins"]
 
     function pathFromUrl(value) {
-        var text = String(value || "")
-        return text.indexOf("file://") === 0 ? decodeURIComponent(text.substring(7)) : text
+        return SourceUrl.pathFromUrl(value)
     }
 
     function parseModules(raw) {

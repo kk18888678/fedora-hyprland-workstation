@@ -1,4 +1,5 @@
 import QtQuick
+import "../../services/SourceUrl.js" as SourceUrl
 
 // Shared image/video surface for the Aurelia background service. Video support
 // is loaded only when the selected path is a video, keeping still-only sessions
@@ -27,9 +28,7 @@ Item {
     }
 
     function fileUrl(value) {
-        var parts = String(value || "").split("/")
-        for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
-        return "file://" + parts.join("/")
+        return SourceUrl.fileUrl(value)
     }
 
     Loader {

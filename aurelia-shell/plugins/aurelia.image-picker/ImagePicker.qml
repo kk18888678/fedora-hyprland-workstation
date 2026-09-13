@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import "../../theme"
 import "../../ui"
 import "ImagePickerModel.js" as ImagePickerModel
+import "../../services/SourceUrl.js" as SourceUrl
 
 // Resident Omarchy-style image selector. Theme/background policy stays in the
 // aurelia-theme* commands; this overlay owns only discovery, preview, focus,
@@ -49,9 +50,7 @@ Item {
         : ""
 
     function fileUrl(value) {
-        var parts = String(value || "").split("/")
-        for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
-        return "file://" + parts.join("/")
+        return SourceUrl.fileUrl(value)
     }
 
     function isVideo(value) {

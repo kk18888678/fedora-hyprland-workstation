@@ -4,6 +4,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import "../../theme"
+import "../../services/SourceUrl.js" as SourceUrl
 
 // Resident Aurelia wallpaper service. It owns one background layer per screen
 // so wallpaper presence is independent of the focused workspace and survives
@@ -42,9 +43,7 @@ Item {
     }
 
     function fileUrl(value) {
-        var parts = String(value || "").split("/")
-        for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
-        return "file://" + parts.join("/")
+        return SourceUrl.fileUrl(value)
     }
 
     function normalizePath(value) {

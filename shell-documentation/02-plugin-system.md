@@ -223,7 +223,9 @@ custom Loader is disabled while a plugin reload is in progress.
 
 For every enabled manifest containing `bar-widget`, the host:
 
-1. resolves `entryPoints.barWidget` to a `file://` URL;
+1. asks the host-owned source resolver for a validated descriptor for
+   `entryPoints.barWidget` and creates the local file URL only at the final
+   loader boundary;
 2. normalizes metadata;
 3. records an in-flight claim keyed by plugin id before asynchronous creation;
 4. creates a QML `Component` asynchronously;

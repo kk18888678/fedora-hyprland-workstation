@@ -18,9 +18,14 @@ ShellRoot {
         barWidgetRegistry: barWidgetRegistry
     }
 
+    PluginSourceResolver {
+        id: pluginSourceResolver
+    }
+
     PluginRegistry {
         id: pluginRegistry
         shellConfig: shellConfig
+        sourceResolver: pluginSourceResolver
     }
 
     BarWidgetRegistry {

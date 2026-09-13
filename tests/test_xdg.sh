@@ -326,6 +326,8 @@ fi
 
 section "GTK / Thunar Places Bookmarks"
 
+custom_bookmark_path="/home/user/CustomProjects"
+custom_bookmark_uri="file://${custom_bookmark_path}"
 gtk_bookmarks_test_output="$(
     bash -s <<'EOS'
 set -Eeuo pipefail
@@ -388,8 +390,10 @@ total_lines_after_rerun=$(wc -l < "$bookmarks_file" | tr -d ' ')
 echo "rerun-total-lines=$total_lines_after_rerun"
 
 # Test 3: Existing user with custom bookmark and one existing standard bookmark (e.g. Pictures)
+custom_bookmark_path="/home/user/CustomProjects"
+custom_bookmark_uri="file://${custom_bookmark_path}"
 cat > "$bookmarks_file" <<BM
-file:///home/user/CustomProjects My Work
+$custom_bookmark_uri My Work
 file://$TARGET_HOME/Pictures
 BM
 
@@ -450,7 +454,7 @@ else
     fail "bookmark configuration is not idempotent: $gtk_bookmarks_test_output"
 fi
 
-if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'first-line=file:///home/user/CustomProjects My Work' &&
+if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q "first-line=${custom_bookmark_uri} My Work" &&
    printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'pictures-count=1' &&
    printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'custom-dl-count=1' &&
    printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'merged-total-lines=6'; then

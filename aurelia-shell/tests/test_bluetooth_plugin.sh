@@ -8,6 +8,7 @@ set -Eeuo pipefail
 
 plugin_root="$ROOT/plugins/aurelia.bluetooth"
 model_file="$plugin_root/Model.js"
+probe_model_file="$plugin_root/ProbeModel.js"
 panel_file="$plugin_root/BluetoothPanel.qml"
 bar_file="$plugin_root/BluetoothBarWidget.qml"
 power_bin="$ROOT/bin/aurelia-bluetooth-power"
@@ -20,7 +21,8 @@ if [[ -f "$plugin_root/manifest.json" &&
       -f "$bar_file" &&
       -f "$panel_file" &&
       -f "$plugin_root/BluetoothDeviceRow.qml" &&
-      -f "$model_file" ]] &&
+      -f "$model_file" &&
+      -f "$probe_model_file" ]] &&
    jq -e '.schemaVersion == 1 and
           .id == "aurelia.bluetooth" and
           .name == "Bluetooth" and
@@ -110,14 +112,37 @@ else
 fi
 
 if grep -Fq 'id: bluezProbe' "$bar_file" &&
+   grep -Fq 'import "ProbeModel.js" as ProbeModel' "$bar_file" &&
    grep -Fq '"/usr/bin/busctl"' "$bar_file" &&
    grep -Fq '"introspect"' "$bar_file" &&
    grep -Fq '"org.freedesktop.DBus.ObjectManager"' "$bar_file" &&
    grep -Fq 'active: root.bluezServiceAvailable' "$bar_file" &&
-   grep -Fq 'function hasBluezService(output)' "$bar_file"; then
+   grep -Fq 'function hasBluezService(output)' "$bar_file" &&
+   grep -Fq 'ProbeModel.succeeded' "$bar_file"; then
     pass "Bluetooth probes for BlueZ before constructing the native QML model"
 else
     fail "Bluetooth does not gate its native QML model on bounded BlueZ availability"
+fi
+
+if command -v node >/dev/null 2>&1; then
+    if node - "$probe_model_file" <<'NODE_PROBE'
+const probe = require(process.argv[2]);
+const actualOutput = [
+  'NAME               TYPE   SIGNATURE  RESULT/VALUE  FLAGS',
+  '.GetManagedObjects method -          a{oa{sa{sv}}} -',
+  '.InterfacesAdded   signal oa{sa{sv}} -             -'
+].join('\n');
+if (!probe.succeeded(0, actualOutput)) process.exit(1);
+if (probe.succeeded(1, actualOutput)) process.exit(1);
+if (probe.succeeded(0, 'NAME TYPE SIGNATURE RESULT/VALUE FLAGS')) process.exit(1);
+NODE_PROBE
+    then
+        pass "Bluetooth probe accepts the real busctl output contract"
+    else
+        fail "Bluetooth probe output contract is incorrect"
+    fi
+else
+    pass "SKIP Bluetooth probe output contract (node unavailable)"
 fi
 
 if grep -Fq 'aurelia.bluetooth' "$ROOT/config/bar-default.json" &&

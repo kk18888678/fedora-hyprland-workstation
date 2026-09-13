@@ -159,11 +159,28 @@ QtObject {
             /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(configured) ? configured : String(id || "")
     }
 
-    function entryPointUrl(id) {
+    function sourceDescriptorFor(id) {
         var currentRevision = root.revision
-        return root.pluginRegistry && typeof root.pluginRegistry.entryPointUrl === "function"
-            ? root.pluginRegistry.entryPointUrl(String(id || ""), "bar-widget")
-            : ""
+        if (root.pluginRegistry && typeof root.pluginRegistry.sourceDescriptor === "function")
+            return root.pluginRegistry.sourceDescriptor(String(id || ""), "bar-widget")
+        var legacyUrl = root.pluginRegistry && typeof root.pluginRegistry.entryPointUrl === "function"
+            ? String(root.pluginRegistry.entryPointUrl(String(id || ""), "bar-widget") || "") : ""
+        return {
+            valid: legacyUrl !== "",
+            id: String(id || ""),
+            kind: "bar-widget",
+            sourceRoot: "",
+            relativeEntryPoint: "",
+            sourcePath: "",
+            url: legacyUrl,
+            manifestPath: "",
+            error: legacyUrl === "" ? "bar-widget source is unavailable" : ""
+        }
+    }
+
+    function entryPointUrl(id) {
+        var descriptor = root.sourceDescriptorFor(id)
+        return descriptor && descriptor.valid === true ? String(descriptor.url || "") : ""
     }
 
     function isEnabled(id) {

@@ -28,7 +28,7 @@ else
     fail "Notifications manifest is missing or does not declare both entry points"
 fi
 
-validation_output="$($ROOT/bin/aurelia-plugin validate --first-party "$plugin_root" 2>&1)"
+validation_output="$("$ROOT"/bin/aurelia-plugin validate --first-party "$plugin_root" 2>&1)"
 if [[ "$validation_output" == *"Valid Aurelia plugin: aurelia.notifications"* ]]; then
     pass "Notifications passes the shared first-party manifest validator"
 else
@@ -209,7 +209,8 @@ if [[ -f "$ROOT/ui/AureliaIconButton.qml" ]] &&
    grep -q 'AureliaIconButton' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'currentViewEmpty' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'Layout.maximumHeight: 26' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'You’re all caught up' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   caught_up_text=$'You\u2019re all caught up' &&
+   grep -q "$caught_up_text" "$plugin_root/ui/NotificationCenterPanel.qml" &&
    ! grep -q 'AureliaActionButton {' "$plugin_root/ui/NotificationCenterPanel.qml"; then
     pass "Notification center uses compact icon actions, a lighter segmented layout, and a dynamic bar anchor"
 else
@@ -242,8 +243,9 @@ else
 fi
 
 if command -v node >/dev/null 2>&1; then
-    if node - "$plugin_root/NotificationLogic.js" <<'NODE_LOGIC'
+    if node - "$plugin_root/NotificationLogic.js" "$ROOT/services/SourceUrl.js" <<'NODE_LOGIC'
 const logic = require(process.argv[2]);
+const sourceUrl = require(process.argv[3]);
 
 if (!logic.shouldBypassDnd({ appName: "aurelia-action", urgency: 1 }, 2)) process.exit(1);
 if (!logic.shouldBypassDnd({ appName: "notify-send", urgency: 2 }, 2)) process.exit(1);
@@ -255,7 +257,7 @@ if (logic.durationFor(1, 0, "ChatGPT", "chatgpt", "chatgpt") !== 0) process.exit
 if (logic.durationFor(1, 0, "Other", "other", "other") !== 8000) process.exit(1);
 if (!logic.hasBusName("org.freedesktop.Notifications 123 quickshell\n", "org.freedesktop.Notifications")) process.exit(1);
 if (logic.hasBusName("org.freedesktop.DBus 1 dbus\n", "org.freedesktop.Notifications")) process.exit(1);
-if (!logic.screenshotSnapshot("/tmp/capture.png", 123).image.startsWith("file:///tmp/")) process.exit(1);
+if (logic.screenshotSnapshot("/tmp/capture.png", 123).image !== sourceUrl.fileUrl("/tmp/capture.png")) process.exit(1);
 if (logic.screenshotSnapshot("relative.png", 123) !== null) process.exit(1);
 if (logic.parseSettings('{"dnd":true}').dnd !== true) process.exit(1);
 if (logic.parseSettings('{bad').ok) process.exit(1);
@@ -267,12 +269,12 @@ if (logic.busOwnerPid("NAME=org.freedesktop.Notifications\nPID=0\n") !== 0) proc
 if (logic.styledBody('<b>bold</b>\n<img src="https://example.invalid/x">second', 'Chromium', '') !== '<b>bold</b><br/>second') process.exit(1);
 if (JSON.stringify(logic.parseExecArgv('["xdg-open","/tmp/a b"]')) !== '["xdg-open","/tmp/a b"]') process.exit(1);
 if (logic.parseExecArgv('["--bad"]') !== null) process.exit(1);
-const popup = { id: 7, originalId: 7, timestamp: 100, appIcon: 'file:///tmp/avatar.png', summary: 'Saved' };
+const popup = { id: 7, originalId: 7, timestamp: 100, appIcon: sourceUrl.fileUrl('/tmp/avatar.png'), summary: 'Saved' };
 if (logic.popupFileName(popup) !== '100-7.json') process.exit(1);
 if (logic.popupFileName({ summary: 'missing identity' }) !== '') process.exit(1);
 if (!logic.hasPopupIdentity(popup) || logic.hasPopupIdentity({ summary: 'missing identity' })) process.exit(1);
 const persistable = logic.persistablePopup(popup, '/tmp/state/images/');
-if (persistable.copies.length !== 1 || persistable.entry.appIcon !== 'file:///tmp/state/images/100-7-appIcon') process.exit(1);
+if (persistable.copies.length !== 1 || persistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/100-7-appIcon')) process.exit(1);
 if (logic.popupExpired({ timestamp: 100 }, 8000, 9000) !== true) process.exit(1);
 if (logic.popupPlacement('top', 32, 6).margins.top !== 32) process.exit(1);
 const snapshot = logic.snapshotOf({ id: 4, appName: "demo", summary: "Hello", body: "World", urgency: 1 }, 123);

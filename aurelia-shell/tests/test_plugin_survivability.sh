@@ -65,6 +65,7 @@ XDG_RUNTIME_DIR="$runtime_dir/runtime" \
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
    ! grep -Eq 'FATAL|Binding loop detected|TypeError|ReferenceError|Segmentation fault' "$runtime_output" &&
+   grep -Eq '(\[PLUGIN\] aurelia\.plugin\.failure id=|\[BAR\] aurelia\.bar\.widget_failure id=)' "$runtime_output" &&
    jq -e '
         .hostAlive == true and
         .pingResponded == true and

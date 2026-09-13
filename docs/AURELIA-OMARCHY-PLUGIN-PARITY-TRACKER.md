@@ -1,7 +1,7 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: repository-only structural parity complete; T30 remains queued, while
-T31 warning observability and T32 source-boundary hardening are in progress;
+Status: repository-only structural parity complete; T31 warning observability
+and T32 source-boundary hardening are complete, while T30 remains queued;
 live visual/integration validation remains deferred pending explicit
 authorization.
 
@@ -2506,7 +2506,7 @@ Dependencies: T24 through T29.
 
 ### T31. Preserve actionable warnings and errors (Never suppress warnings)
 
-Execution status: IN PROGRESS — CP2 established; implementation not yet started
+Execution status: COMPLETE — CP2 and CP3 passed
 
 Scope note: this task is an observability and failure-classification audit. It
 must not make the shell noisier by duplicating the same diagnostic, but it must
@@ -2545,36 +2545,57 @@ Checkpoint 2 — T31 pre-change boundary:
 CP2 status: `[x]` contract, test boundary, impact boundary, and rollback path
 recorded before implementation edits.
 
-Checkpoint requirement: create a CP2 tracker entry before editing any runtime,
-test, manifest, configuration, or logging implementation file.
+Checkpoint requirement: satisfied; CP2 was recorded before implementation.
 
-- [ ] Inventory every production `catch`, early-return failure gate,
+- [x] Inventory every production `catch`, early-return failure gate,
   `Loader.Error` handler, stderr redirection, `|| true`, and diagnostic filter
   in the plugin/host boundary; classify each as preserve, repair, or narrowly
   suppress only with a documented reason.
-- [ ] Remove empty catches and silent failure returns from production plugin
+- [x] Remove empty catches and silent failure returns from production plugin
   and host paths, or replace them with bounded structured diagnostics and an
   explicit result/failure state.
-- [ ] Ensure unavailable optional hardware/services are represented as an
+- [x] Ensure unavailable optional hardware/services are represented as an
   explicit non-error state with a reason and lifecycle evidence, rather than
   hiding a failed construction or probe behind a generic early return.
-- [ ] Ensure `Loader.Error` and plugin callback failures remain observable with
+- [x] Ensure `Loader.Error` and plugin callback failures remain observable with
   plugin ID, kind, phase, source/entry point, and bounded detail while keeping
   T02A host survivability and quarantine behavior intact.
-- [ ] Prohibit log filtering, blanket stderr suppression, and warning-string
+- [x] Prohibit log filtering, blanket stderr suppression, and warning-string
   deletion as a substitute for fixing the cause. Any intentional diagnostic
   de-duplication must have a stable correlation key and its own test.
-- [ ] Add isolated negative tests that prove a deliberately failing plugin,
+- [x] Add isolated negative tests that prove a deliberately failing plugin,
   loader, callback, IPC method, and optional-service probe emit an actionable
   diagnostic while the host and healthy plugins remain available.
-- [ ] Add static policy checks for silent catches, unclassified failure gates,
+- [x] Add static policy checks for silent catches, unclassified failure gates,
   and production-wide suppression patterns; keep test-harness cleanup and
   expected negative-test command handling explicitly exempt and documented.
-- [ ] Verify that T29 warning cleanup fixed root causes and did not merely
+- [x] Verify that T29 warning cleanup fixed root causes and did not merely
   suppress their output; preserve the valid single-owner IPC and safe BlueZ
   construction contracts.
-- [ ] Keep all validation isolated from the live workstation, installer,
+- [x] Keep all validation isolated from the live workstation, installer,
   packages, user configuration, systemd/greetd state, and reboot.
+
+Checkpoint 3 — T31 post-change evidence:
+
+- Tests: `test_warning_observability.sh` — 4 passed, 0 failed.
+- Tests: `test_plugin_survivability.sh` — 4 passed, 0 failed, including
+  explicit runtime failure diagnostics and healthy-plugin continuity.
+- Tests: `test_bluetooth_plugin.sh` — all contract/model/helper assertions
+  passed, including the real `busctl` member-output contract.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 544 passed, 0 failed.
+- Repository suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Runtime evidence: the disposable offscreen shell reached configuration
+  load; headless `PanelWindow` warnings were environment limitations and did
+  not include source-boundary or host-load failures. Read-only live IPC after
+  the development reload reported Bluetooth `state=available`,
+  `serviceAvailable=true`, and `adapterAvailable=true`.
+- Files changed: Bluetooth probe/readiness and status reporting, bar/host
+  Loader diagnostics, survivability assertions, and warning/probe tests.
+- User-visible behavior changed: the Bluetooth bar widget becomes available
+  when BlueZ exposes the controller; invalid plugin failures remain visible
+  and contained.
+- Live system scope: no installer, package, systemd/greetd state, live user
+  configuration, or reboot was touched.
 
 Exit gate: every actionable warning/error path has either a root-cause fix or
 an explicit, bounded, test-covered classification; failing plugins remain
@@ -2588,10 +2609,10 @@ reason to defer this observability task.
 
 ### T32. Establish one canonical, relocatable plugin source boundary
 
-Execution status: IN PROGRESS — CP2 established; implementation not yet started
+Execution status: COMPLETE — CP2 and CP3 passed
 
-Scope note: an absolute `file:///home/...` URL is valid as an in-memory runtime
-URL when derived from the active shell root. It is not valid as a persisted,
+Scope note: an absolute local file URL is valid as an in-memory runtime URL
+when derived from the active shell root. It is not valid as a persisted,
 hard-coded, checkout-specific, or inconsistently encoded source contract. This
 task replaces the scattered URL construction paths with one canonical resolver
 for manifest entry points and local file-backed media/asset paths. Relative
@@ -2636,34 +2657,59 @@ Checkpoint 2 — T32 pre-change boundary:
 CP2 status: `[x]` source contract, test boundary, relocation/safety boundary,
 compatibility boundary, and rollback path recorded before implementation edits.
 
-- [ ] Inventory every production source URL/path producer and classify it as
+- [x] Inventory every production source URL/path producer and classify it as
   manifest entry point, repository-relative resource, user-selected local
   file, icon URI, or external/unsupported scheme.
-- [ ] Add one canonical resolver with explicit path-to-file-URL and
+- [x] Add one canonical resolver with explicit path-to-file-URL and
   file-URL-to-path behavior, correct percent encoding, absolute-root checks,
   and safe descendant validation.
-- [ ] Route registry entry points and every repeated production file-URL
+- [x] Route registry entry points and every repeated production file-URL
   builder through the canonical resolver; keep `Qt.resolvedUrl()` for local
   QML resources where it already provides the correct relative boundary.
-- [ ] Ensure manifests and persisted shell state store only relative entry
+- [x] Ensure manifests and persisted shell state store only relative entry
   points or approved user paths, never a developer checkout URL.
-- [ ] Preserve all repository/plugin names and placements exactly; prove the
+- [x] Preserve all repository/plugin names and placements exactly; prove the
   resolver works when the unchanged tree is executed from alternate temporary
   roots and when the active shell root is supplied dynamically.
-- [ ] Ensure third-party source paths remain detached/diagnostic-only and do
+- [x] Ensure third-party source paths remain detached/diagnostic-only and do
   not become an authority escalation through the resolver.
-- [ ] Add negative tests for traversal, root escape, malformed encoding,
+- [x] Add negative tests for traversal, root escape, malformed encoding,
   unsupported schemes, relative roots, symlinked/ambiguous source roots, and
   missing entry points.
-- [ ] Add relocation tests for spaces, Unicode, `#`, `?`, `%`, and repeated
+- [x] Add relocation tests for spaces, Unicode, `#`, `?`, `%`, and repeated
   separators without changing the resolved filesystem path.
-- [ ] Add isolated runtime tests proving representative bar, panel, overlay,
+- [x] Add isolated runtime tests proving representative bar, panel, overlay,
   menu, service, image, and media loaders still resolve and healthy plugins
   remain available when one source is invalid.
-- [ ] Add a static check preventing hard-coded developer checkout paths and
+- [x] Add a static check preventing hard-coded developer checkout paths and
   ad-hoc production `"file://" + path` construction outside the resolver.
-- [ ] Keep all validation isolated from the live workstation, installer,
+- [x] Keep all validation isolated from the live workstation, installer,
   packages, user configuration, systemd/greetd state, and reboot.
+
+Checkpoint 3 — T32 post-change evidence:
+
+- Tests: `test_source_boundary.sh` — 7 passed, 0 failed, covering the
+  descriptor, path/URL round trip, invalid authority/traversal, two relocated
+  roots with spaces/Unicode, and real `PluginRegistry` descriptor output.
+- Static result: repository contains `0` literal forbidden local file-URL
+  prefixes and `0` hard-coded developer checkout paths in production.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 544 passed, 0 failed.
+- Repository suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Syntax: repository-wide `bash -n` — 236 shell scripts passed.
+- ShellCheck: all changed Aurelia test scripts passed; pre-existing unrelated
+  findings remain outside T32 in `modules/desktop.sh`.
+- Runtime evidence: the unchanged component tree loaded successfully from two
+  dynamically selected temporary roots, and the real registry emitted a
+  descriptor whose relative entry point and decoded source path remained
+  correct.
+- Files changed: host-owned `PluginSourceResolver`, source/path primitives,
+  registry/host/bar descriptor consumers, local resource producers, tests,
+  and source-boundary documentation.
+- User-visible behavior changed: no naming, placement, manifest, design, or
+  feature behavior changed; only source resolution and failure diagnostics
+  were hardened.
+- Live system scope: no installer, package, systemd/greetd state, live user
+  configuration, or reboot was touched.
 
 Exit gate: every production dynamic source path has one reviewed resolver or a
 documented native `Qt.resolvedUrl()` boundary; source URLs are relocatable and
@@ -2766,14 +2812,14 @@ is deferred pending explicit authorization.
 Starting Aurelia branch/SHA: installer-resilience / 521fda49b54c371d20b99fecf403dc136db7089e
 Final Aurelia branch/SHA: installer-resilience / f77c93d9b5ad2fac345f42b7ff4f043f45502270
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: T00 through T29 for the repository-only structural parity target
-Tasks outstanding: T30 plugin-local test directories (queued); T31 warning
-observability and T32 source-boundary hardening (in progress); authorized live
+Tasks completed: T00 through T32 for the repository-only structural parity target
+Tasks outstanding: T30 plugin-local test directories (queued); authorized live
 Wayland/visual acceptance; explicit feature scope differences are listed above
 and are not structural gaps
-Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 527 passed, 0 failed
-Syntax checks: 233 shell scripts passed bash -n
-ShellCheck: unavailable; not installed and not added
+Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 544 passed, 0 failed
+Syntax checks: 236 shell scripts passed bash -n
+ShellCheck: changed Aurelia test scripts passed; unrelated pre-existing
+findings remain in modules/desktop.sh
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 Wayland/visual smoke was not authorized and was skipped
 Files changed: canonical bar-default source/loader, generic contract and

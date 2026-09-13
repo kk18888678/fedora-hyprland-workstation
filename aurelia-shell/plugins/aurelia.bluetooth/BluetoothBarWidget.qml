@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "../../theme"
 import "../../ui"
+import "ProbeModel.js" as ProbeModel
 
 // This is the plugin's only manifest entry point and is a bar-widget. It owns
 // the Bluetooth trigger and its internal popup lifecycle. Bluetooth state and
@@ -22,6 +23,9 @@ Item {
     property bool bluezServiceAvailable: false
     property int bluezProbeAttempts: 0
     property bool ipcReady: false
+    property string bluezProbeState: "pending"
+    property string bluezProbeDetail: ""
+    property bool bluezProbeFailureReported: false
 
     readonly property bool ipcOwner: {
         var revision = root.bar && root.bar.widgetRevision !== undefined
@@ -100,12 +104,17 @@ Item {
     }
 
     function hasBluezService(output) {
-        return String(output || "").indexOf("org.freedesktop.DBus.ObjectManager") !== -1
+        return ProbeModel.hasObjectManagerMember(output)
+    }
+
+    function bluezProbeSucceeded(code, output) {
+        return ProbeModel.succeeded(code, output)
     }
 
     function probeBluez() {
         if (root.bluezServiceAvailable || bluezProbe.running || root.bluezProbeAttempts >= 3) return
         root.bluezProbeAttempts++
+        root.bluezProbeState = "probing"
         bluezProbe.running = true
     }
 
@@ -121,6 +130,15 @@ Item {
             target: "aurelia.bluetooth"
 
             function ping(): bool { return root.adapterAvailable }
+            function status(): string {
+                return JSON.stringify({
+                    state: root.bluezProbeState,
+                    attempts: root.bluezProbeAttempts,
+                    serviceAvailable: root.bluezServiceAvailable,
+                    adapterAvailable: root.adapterAvailable,
+                    detail: root.bluezProbeDetail
+                })
+            }
             function open(): void { root.open("{}") }
             function close(): void { root.close() }
             function show(): void { root.open("{}") }
@@ -162,14 +180,35 @@ Item {
             id: bluezProbeStdout
             waitForEnd: true
         }
-        stderr: StdioCollector { waitForEnd: true }
+        stderr: StdioCollector {
+            id: bluezProbeStderr
+            waitForEnd: true
+        }
 
         onExited: function(code) {
-            if (code === 0 && root.hasBluezService(bluezProbeStdout.text)) {
+            var output = String(bluezProbeStdout.text || "")
+            var error = String(bluezProbeStderr.text || "")
+            root.bluezProbeDetail = ProbeModel.failureDetail(code, output, error)
+            if (root.bluezProbeSucceeded(code, output)) {
                 root.bluezServiceAvailable = true
+                root.bluezProbeState = "available"
+                root.bluezProbeDetail = ""
+                root.bluezProbeFailureReported = false
+                console.info("[BLUETOOTH] bluez_probe_available attempts=" + root.bluezProbeAttempts)
                 return
             }
-            if (root.bluezProbeAttempts < 3) bluezProbeRetry.restart()
+            if (root.bluezProbeAttempts < 3) {
+                root.bluezProbeState = "retrying"
+                bluezProbeRetry.restart()
+                return
+            }
+            root.bluezProbeState = "unavailable"
+            if (!root.bluezProbeFailureReported) {
+                root.bluezProbeFailureReported = true
+                console.warn("[BLUETOOTH] bluez_probe_unavailable attempts=" +
+                    root.bluezProbeAttempts + " " + root.bluezProbeDetail)
+            }
+            bluezProbeRecovery.restart()
         }
     }
 
@@ -178,6 +217,17 @@ Item {
         interval: 500
         repeat: false
         onTriggered: root.probeBluez()
+    }
+
+    Timer {
+        id: bluezProbeRecovery
+        interval: 5000
+        repeat: false
+        onTriggered: {
+            if (root.bluezServiceAvailable) return
+            root.bluezProbeAttempts = 0
+            root.probeBluez()
+        }
     }
 
     onBarChanged: root.configurePanel(panelLoader.item)

@@ -41,6 +41,13 @@ The user-owned third-party source root is:
 $XDG_CONFIG_HOME/aurelia/plugins/<plugin-id>/
 ~~~
 
+Manifest entry points remain relative to their plugin directory. The host
+validates the source root and relative member, then creates the final local
+loader URL in memory. Do not place checkout-specific absolute source URLs in a
+manifest, shell state file, or plugin-owned configuration. Repository and
+plugin names/placements remain unchanged; the active shell root is discovered
+from the current execution context.
+
 When XDG_CONFIG_HOME is unset, the user root is
 $HOME/.config/aurelia/plugins. The aurelia. namespace is reserved for
 first-party plugins. A user plugin must use another namespace and may not

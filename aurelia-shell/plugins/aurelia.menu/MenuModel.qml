@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "../../services/SourceUrl.js" as SourceUrl
 
 // Manifest-backed menu data and its bounded provider/action contract. Menu
 // data can select an approved Aurelia action, but cannot provide an executable
@@ -31,8 +32,7 @@ QtObject {
     signal menuChanged()
 
     function pathFromUrl(value) {
-        var text = String(value || "")
-        return text.indexOf("file://") === 0 ? decodeURIComponent(text.substring(7)) : text
+        return SourceUrl.pathFromUrl(value)
     }
 
     function cloneJson(value) {

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "SourceUrl.js" as SourceUrl
 
 // One repository-owned default bar document with a small in-memory recovery
 // fallback. Runtime user state still wins; this object only supplies defaults.
@@ -34,8 +35,7 @@ QtObject {
     property bool loaded: false
 
     function pathFromUrl(value) {
-        var text = String(value || "")
-        return text.indexOf("file://") === 0 ? decodeURIComponent(text.substring(7)) : text
+        return SourceUrl.pathFromUrl(value)
     }
 
     function cloneJson(candidate) {

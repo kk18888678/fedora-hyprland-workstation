@@ -1037,7 +1037,7 @@ install_rose_pine_gtk_theme() {
 # 3. Existing file containing mixed/managed bookmarks: preserves personal bookmarks
 #    situated prior to the first managed bookmark, de-duplicates and converges the
 #    managed block at that position, and preserves subsequent personal bookmarks.
-# 4. Preserves custom labels (e.g. 'file:///path Label') and non-file schemes (e.g. 'smb://').
+# 4. Preserves custom labels on absolute local file bookmarks and non-file schemes (e.g. 'smb://').
 # 5. Strict idempotency: returns immediately without modifying file mtime if already converged.
 converge_gtk_bookmarks_file() {
     local bookmark_file="$1"

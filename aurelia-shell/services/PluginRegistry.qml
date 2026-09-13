@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "SourceUrl.js" as SourceUrl
 
 // Aurelia's manifest registry follows the Omarchy contract while keeping the
 // discovery surface deliberately small. It scans only plugin directories,
@@ -29,6 +30,7 @@ QtObject {
     readonly property string userPluginsDir: configHome + "/aurelia/plugins"
 
     property var shellConfig: null
+    property PluginSourceResolver sourceResolver: PluginSourceResolver { }
     property var installedPlugins: ({})
     property PluginProvenance cloneProvenance: PluginProvenance { registry: registry }
     property PluginCatalogProjection catalogProjection: PluginCatalogProjection { registry: registry }
@@ -46,6 +48,7 @@ QtObject {
     // enabled state, or any user-owned data.
     property var runtimeFailures: ({})
     property int runtimeFailureRevision: 0
+    property var sourceDiagnosticKeys: ({})
     property bool localPluginWatcherUnavailable: false
     property string localPluginWatcherFailureClass: ""
     readonly property bool hotReloadEnabled: Quickshell.env("AURELIA_HOT_RELOAD") === "1"
@@ -70,17 +73,11 @@ QtObject {
     readonly property var loadKindOrder: ["panel", "overlay", "menu", "bar", "bar-widget", "service"]
 
     function pathFromUrl(value) {
-        var text = String(value || "")
-        if (text.indexOf("file://") === 0) {
-            return decodeURIComponent(text.substring(7))
-        }
-        return text
+        return SourceUrl.pathFromUrl(value)
     }
 
     function fileUrl(value) {
-        var parts = String(value || "").split("/")
-        for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
-        return "file://" + parts.join("/")
+        return SourceUrl.fileUrl(value)
     }
 
     function isPlainObject(value) {
@@ -435,14 +432,36 @@ QtObject {
         return ""
     }
 
-    function entryPointUrl(id, kind) {
+    function sourceDescriptor(id, kind) {
         var resolvedId = registry.resolveEnabledId(id)
         var manifest = installedPlugins[resolvedId]
         var entryPoint = entryPointForKind(manifest, kind)
-        if (!manifest || !isSafeEntryPoint(entryPoint)) return ""
-        var sourceDir = String(manifest.__sourceDir || "")
-        if (sourceDir === "" || sourceDir.charAt(0) !== "/") return ""
-        return fileUrl(sourceDir.replace(/\/$/, "") + "/" + entryPoint)
+        if (!manifest || !isSafeEntryPoint(entryPoint))
+            return sourceResolver.invalidDescriptor(resolvedId, kind,
+                manifest ? String(manifest.__sourceDir || "") : "", entryPoint,
+                "manifest or entry point is unavailable")
+
+        var descriptor = sourceResolver.descriptor(resolvedId, kind,
+            String(manifest.__sourceDir || ""), entryPoint, manifest.__manifestPath || "")
+        if (!descriptor.valid) {
+            var diagnosticKey = registry.registryRevision + "::" + resolvedId + "::" +
+                String(kind || "") + "::" + descriptor.error
+            if (!registry.sourceDiagnosticKeys[diagnosticKey]) {
+                var next = {}
+                for (var key in registry.sourceDiagnosticKeys) next[key] = registry.sourceDiagnosticKeys[key]
+                next[diagnosticKey] = true
+                registry.sourceDiagnosticKeys = next
+                console.warn("[PLUGIN] aurelia.plugin.source_invalid id=" + resolvedId +
+                    " kind=" + String(kind || "") + " detail=" + descriptor.error +
+                    " source=" + registry.boundedDiagnosticPath(descriptor.sourceRoot))
+            }
+        }
+        return descriptor
+    }
+
+    function entryPointUrl(id, kind) {
+        var descriptor = registry.sourceDescriptor(id, kind)
+        return descriptor && descriptor.valid === true ? String(descriptor.url || "") : ""
     }
 
     function isKnown(id) {

@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "AureliaAppSearch.js" as AppSearch
+import "SourceUrl.js" as SourceUrl
 
 // Shared native application library for Aurelia command surfaces.
 //
@@ -28,8 +29,7 @@ Item {
     signal appsChanged()
 
     function pathFromUrl(value) {
-        var text = String(value || "")
-        return text.indexOf("file://") === 0 ? decodeURIComponent(text.substring(7)) : text
+        return SourceUrl.pathFromUrl(value)
     }
 
     function normalizeDesktopId(value) {
@@ -99,7 +99,7 @@ Item {
         var value = String(iconName || "")
         if (value === "") return Quickshell.iconPath("application-x-executable", "application-x-executable")
         if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
-        if (value.charAt(0) === "/") return "file://" + value.split("/").map(encodeURIComponent).join("/")
+        if (value.charAt(0) === "/") return SourceUrl.fileUrl(value)
         return Quickshell.iconPath(value, "application-x-executable")
     }
 

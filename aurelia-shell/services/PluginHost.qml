@@ -468,14 +468,43 @@ Item {
             registry.hasActiveRuntimeFailure(resolvedId, kind))
     }
 
-    function sourceFor(id, kind) {
+    function sourceDescriptor(id, kind) {
         try {
-            return registry && typeof registry.entryPointUrl === "function"
-                ? String(registry.entryPointUrl(id, kind) || "")
-                : ""
-        } catch (e) {
-            return ""
+            if (registry && typeof registry.sourceDescriptor === "function")
+                return registry.sourceDescriptor(id, kind)
+            var legacyUrl = registry && typeof registry.entryPointUrl === "function"
+                ? String(registry.entryPointUrl(id, kind) || "") : ""
+            return {
+                valid: legacyUrl !== "",
+                id: String(id || ""),
+                kind: String(kind || ""),
+                sourceRoot: "",
+                relativeEntryPoint: "",
+                sourcePath: "",
+                url: legacyUrl,
+                manifestPath: "",
+                error: legacyUrl === "" ? "plugin source is unavailable" : ""
+            }
+        } catch (error) {
+            console.warn("[PLUGIN] aurelia.plugin.source_descriptor_failed id=" + String(id || "") +
+                " kind=" + String(kind || "") + " detail=" + host.failureDetail(error))
+            return {
+                valid: false,
+                id: String(id || ""),
+                kind: String(kind || ""),
+                sourceRoot: "",
+                relativeEntryPoint: "",
+                sourcePath: "",
+                url: "",
+                manifestPath: "",
+                error: "source descriptor resolution failed"
+            }
         }
+    }
+
+    function sourceFor(id, kind) {
+        var descriptor = host.sourceDescriptor(id, kind)
+        return descriptor && descriptor.valid === true ? String(descriptor.url || "") : ""
     }
 
     function resolvePluginId(id) {
@@ -485,7 +514,10 @@ Item {
                 var resolved = String(registry.resolveEnabledId(requested) || "")
                 if (resolved !== "") return resolved
             }
-        } catch (e) {}
+        } catch (error) {
+            console.warn("[PLUGIN] aurelia.plugin.resolve_id_failed id=" + requested +
+                " detail=" + host.failureDetail(error))
+        }
         return requested
     }
 
@@ -885,9 +917,13 @@ Item {
 
         delegate: Loader {
             property string pluginId: modelData
+            readonly property string pluginKind: host.registry.primaryKind(pluginId)
             active: host.shouldLoad(pluginId)
             asynchronous: false
-            source: active ? host.registry.entryPointUrl(pluginId, host.registry.primaryKind(pluginId)) : ""
+            readonly property var pluginSource: active
+                ? host.sourceDescriptor(pluginId, pluginKind) : null
+            source: active && pluginSource && pluginSource.valid === true
+                ? String(pluginSource.url || "") : ""
 
             onLoaded: {
                 var pluginKind = host.registry.primaryKind(pluginId)
@@ -910,9 +946,9 @@ Item {
             }
 
             onStatusChanged: {
-                if (status === Loader.Error && !host.hasActiveFailure(pluginId, host.registry.primaryKind(pluginId)))
-                    host.scheduleFailure(pluginId, host.registry.primaryKind(pluginId), "load",
-                        "Loader.Error", source, host.registry.primaryKind(pluginId))
+                if (status === Loader.Error && !host.hasActiveFailure(pluginId, pluginKind))
+                    host.scheduleFailure(pluginId, pluginKind, "load",
+                        "Loader.Error", source, pluginKind)
             }
 
             onActiveChanged: {

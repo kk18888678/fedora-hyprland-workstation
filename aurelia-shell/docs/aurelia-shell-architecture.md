@@ -83,12 +83,15 @@ Aurelia Shell plugins are heterogeneous in structure. Plugins may be floating pa
 
 ### 4.1 Lifecycle & Readiness
 1. **Conditional Activation**:
-   - Every plugin is declared by a validated `manifest.json` and loaded by the resident `PluginHost` with a conditional `Loader`:
+   - Every plugin is declared by a validated `manifest.json`; the resident `PluginHost` obtains a validated source descriptor before the conditional `Loader` receives its final local URL:
      ```qml
      Loader {
          id: pluginLoader
          active: pluginHost.shouldLoad(pluginId)
-         source: pluginRegistry.entryPointUrl(pluginId, pluginKind)
+         property var sourceDescriptor: active
+             ? pluginHost.sourceDescriptor(pluginId, pluginKind) : null
+         source: sourceDescriptor && sourceDescriptor.valid === true
+             ? sourceDescriptor.url : ""
      }
      ```
    - When disabled, the component consumes 0 MB of RAM and 0% CPU.

@@ -25,6 +25,12 @@ ShellRoot {
     property var target: null
     property bool evaluated: false
 
+    function testFileUrl(value) {
+        var parts = String(value || "").split("/")
+        for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
+        return "file://" + parts.join("/")
+    }
+
     QtObject {
         id: fakeShellConfig
 
@@ -98,7 +104,7 @@ ShellRoot {
 
         function entryPointUrl(id, kind) {
             return id === "third.widget"
-                ? (kind === "bar-widget" ? root.widgetSource : "file:///private/third.widget/Menu.qml")
+                ? (kind === "bar-widget" ? root.widgetSource : root.testFileUrl("/private/third.widget/Menu.qml"))
                 : ""
         }
 
@@ -143,7 +149,7 @@ ShellRoot {
         }
 
         function iconSource(icon) {
-            return "file:///icons/" + icon + ".png"
+            return root.testFileUrl("/icons/" + icon + ".png")
         }
     }
 
