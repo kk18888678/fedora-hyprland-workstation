@@ -6,7 +6,8 @@ bar control-plane work, T41 persistent bar hiding, corrective T43–T46
 runtime/test-truth work, T47 session-actions restoration, T49 notification/
 session safety, T50 popup-model boundary correction, and T51 composite
 identity/lifetime correction are complete for repository/static/headless and
-notification-dismissal live evidence; broader visual acceptance remains
+notification-dismissal live evidence; T52 session-action execution and
+duplicate-Power-surface work is next, broader visual acceptance remains
 pending, and T42 remains the final acceptance gate.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
@@ -4872,6 +4873,71 @@ CP4 status: `[x]` live notification dismissal is confirmed on the user VM;
 the broader T42 visual/integration gate remains open.
 
 Dependencies: T48, T49, T50, T02A, T31, T33, T46.
+
+---
+
+### T52. Make session-action execution observable and remove duplicate Power actions
+
+Execution status: NOT STARTED — tracker-only checkpoint required before source/test edits
+
+Checkpoint 1 — T52 audit boundary:
+
+- The user clicked Lock and Confirm, but the live shell emitted no
+  `[SESSION-ACTIONS]` start, success, or failure diagnostic. The current
+  `SessionActionsRuntime` logs only failures and the focused tests inject a
+  fake executor, so a production `Process` no-op or unobserved success can
+  pass unnoticed.
+- `aurelia.power/PowerPanel.qml` still declares and renders the former five
+  session actions and directly routes their commands, despite T47 defining
+  `aurelia.session-actions` as their separate owner. This leaves two action
+  surfaces with different confirmation and execution behavior.
+- The live shell's Power widget is correctly hidden on this VM because there
+  is no battery, but the duplicate Power action code remains loadable through
+  its panel entry point and must not remain as an alternate session-action
+  owner.
+
+Scope and preservation boundary:
+
+- Make the session controller/runtime emit observable requested, confirmed,
+  started, succeeded, and failed events with the action ID and process result.
+  Missing runtime/process readiness must be an explicit failure, never a
+  silent return.
+- Add a narrow test-only process command seam used only by isolated fixtures;
+  production always executes the fixed structured argv from `Model.js`.
+  Exercise real QuickShell `Process` success and failure paths without
+  executing Lock, Log out, Suspend, Restart, or Power off.
+- Remove the old session-action rows, commands, confirmation state, and UI
+  section from `aurelia.power/PowerPanel.qml`. Keep Power responsible only for
+  battery/profile/statistics presentation and the profile operation owned by
+  `PowerRuntime`.
+- Add static and runtime tests proving the only session-action owner is
+  `aurelia.session-actions`, all five actions remain confirmation-gated, and
+  the Power panel contains no session lifecycle command.
+- Do not execute any real session command, restart the shell, modify live
+  notification or power state, install packages, alter systemd/greetd/PAM/
+  Hyprland configuration, or reboot.
+
+Required tests:
+
+- [ ] Session runtime logs and tests successful Process completion,
+  non-zero Process failure, readiness failure, and action identity without
+  suppressing diagnostics.
+- [ ] Controller tests prove request/confirm/cancel behavior and that no
+  action dispatch occurs before confirmation; the real Process fixture uses
+  only safe test commands.
+- [ ] Power static/runtime tests prove battery/profile/statistics ownership
+  remains intact while no Lock/Log out/Suspend/Restart/Power off controls or
+  commands remain in the Power panel.
+- [ ] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass; strict
+  mode continues to report unavailable backend paths explicitly.
+
+Checkpoint 2 status: `[ ]` pending the tracker-only pre-change commit for this boundary.
+
+Exit gate: clicking Lock/Confirm produces an observable production Process
+result, failures are surfaced, every session action has one confirmation-safe
+owner, and Power cannot expose a duplicate or divergent session-action path.
+
+Dependencies: T47, T49, T51, T02A, T31, T33, T46.
 
 ---
 
