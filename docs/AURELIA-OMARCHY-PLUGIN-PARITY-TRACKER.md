@@ -5,8 +5,9 @@ panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, corrective T43–T46
 runtime/test-truth work, T47 session-actions restoration, T49 notification/
 session safety, and T50 popup-model boundary correction are complete for
-repository/static/headless evidence; T48 live revalidation remains pending,
-and T42 remains the final acceptance gate.
+repository/static/headless evidence; T48/T50 live revalidation has exposed a
+composite-identity regression, T51 is next, and T42 remains the final
+acceptance gate.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4591,7 +4592,7 @@ Dependencies: T31, T43, T46, T02A, T33.
 
 ### T49. Close live notification and session-action safety regressions
 
-Execution status: COMPLETE FOR REPOSITORY EVIDENCE — live notification-bus and visual acceptance remain separately pending
+Execution status: IMPLEMENTED — live runs still expose a composite-identity regression tracked by T51
 
 Checkpoint 1 — T49 audit boundary:
 
@@ -4770,6 +4771,67 @@ have a source-level correction, and the Aurelia shell remains usable if
 notification rendering fails. Fresh live confirmation remains required.
 
 Dependencies: T48, T49, T02A, T31, T33, T46.
+
+---
+
+### T51. Preserve composite notification identity across live snapshots
+
+Execution status: NOT STARTED — tracker-only checkpoint required before source/test edits
+
+Checkpoint 1 — T51 audit boundary:
+
+- The latest authorized live shell run produced `popup.dismiss index=2`,
+  `popup.dismiss index=1`, and `popup.dismiss index=0`; persistence errors
+  still occurred for the first dismissal despite T50's popup-model resolver.
+- Live popup files and restored rows use a composite identity of
+  `(originalId, timestamp)`, for example several ChatGPT rows with
+  `originalId=1` and different timestamps. `Service.qml` currently keys
+  `liveRefs` and `liveSnapshots` by `originalId` alone and
+  `removeActiveById()` removes every active row sharing that ID. A sender
+  update or restart can therefore overwrite/delete the snapshot needed by a
+  different popup row before its cross-button dismissal persists it.
+- The focused fixture used distinct IDs for its notifications and therefore
+  did not exercise this live collision. T50 corrected the popup-versus-active
+  index source but did not make the service's in-memory ownership key match
+  the persisted/UI identity.
+
+Scope and preservation boundary:
+
+- Define one canonical composite identity key for live references, snapshots,
+  updates, sender-close callbacks, popup dismissal, expiry, action routing,
+  and restored/live reconciliation. Never use `originalId` alone where a
+  timestamp-qualified row is available.
+- Preserve replacement semantics for a sender's current live notification,
+  but do not remove unrelated restored/history rows that happen to reuse a
+  numeric ID after a shell restart. Persist and archive the exact dismissed
+  `(originalId, timestamp)` row once.
+- Add collision fixtures with several rows sharing `originalId=1` but having
+  distinct timestamps, including restored rows, live updates, sender-close
+  re-entry, popup-model index churn, malformed identity fallback, and valid
+  mismatch fail-closed behavior. Keep the live bus and user state untouched.
+- Do not suppress `invalid_identity` or any QML warning/error, delete live
+  notification state, restart the shell, install packages, alter
+  systemd/greetd/PAM/Hyprland configuration, or reboot.
+
+Required tests:
+
+- [ ] Pure identity tests prove the composite key is deterministic and is used
+  consistently for lookup, update, removal, expiry, and action routing.
+- [ ] Production Service/Toast popup and active fixtures use repeated numeric
+  IDs with distinct timestamps and prove exact history/archive persistence
+  without `invalid_identity` diagnostics or cross-row deletion.
+- [ ] Sender replacement/closed callbacks affect only their composite row;
+  restored rows with reused IDs remain independently dismissible.
+- [ ] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass; strict
+  mode continues to report unavailable backend paths explicitly.
+
+Checkpoint 2 status: `[ ]` pending the tracker-only pre-change commit for this boundary.
+
+Exit gate: repeated sender IDs cannot overwrite dismissal identity, every live
+popup cross-button dismissal persists its exact row, and the Aurelia shell
+remains usable when notification state or rendering is defective.
+
+Dependencies: T48, T49, T50, T02A, T31, T33, T46.
 
 ---
 
