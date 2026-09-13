@@ -1,12 +1,13 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
 Status: requested reference refresh T35, Audio foundation T36, T37 Audio
-panel/default-bar work, T38 optional Microphone work, T39 Power redesign, and
-T40 bar control-plane work are complete for repository/static/isolated
-evidence; T41 is next for persistent bar hiding, T34 records the
-Bluetooth discovery-retention issue and remains not started, T30 remains
-queued as the separately requested plugin-local test-directory task, and live
-visual/integration validation remains deferred pending explicit authorization.
+panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
+bar control-plane work, and T41 persistent bar hiding are complete for
+repository/static/isolated evidence; T42 is next for final acceptance, T34
+records the Bluetooth discovery-retention issue and remains not started, T30
+remains queued as the separately requested plugin-local test-directory task,
+and live visual/integration validation remains deferred pending explicit
+authorization.
 
 ## Objective
 
@@ -3853,8 +3854,8 @@ Dependencies: T39, T03, T10, T12, T18, T24, T27, T31.
 
 ### T41. Implement persistent bar hiding, shortcut, and Menu Bar parity
 
-Execution status: IN PROGRESS — CP2 recorded before implementation; CP3
-pending
+Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
+isolated evidence; live Wayland confirmation remains deferred
 
 Checkpoint 2 — T41 pre-change boundary:
 
@@ -3921,15 +3922,51 @@ Scope:
 
 Required tests:
 
-- [ ] Pure state parser and idempotent atomic-write tests for missing, valid,
+- [x] Pure state parser and idempotent atomic-write tests for missing, valid,
   malformed, symlinked, and rapidly changed toggle state.
-- [ ] Isolated bar fixture proving mapped-but-offscreen hidden behavior,
+- [x] Isolated bar fixture proving mapped-but-offscreen hidden behavior,
   exclusion-mode transition, restore, and healthy widget/hotkey continuity.
-- [ ] Keybinding manifest/registration tests for exact
+- [x] Keybinding manifest/registration tests for exact
   `Super + Shift + Space` semantics.
-- [ ] Menu model/action/checked-state tests for Menu Bar controls.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates; no live compositor
+- [x] Menu model/action/checked-state tests for Menu Bar controls.
+- [x] Full Aurelia/repository/syntax/ShellCheck gates; no live compositor
   mutation in ordinary validation.
+
+Checkpoint 3 — T41 post-change evidence:
+
+- T41 focused suite: `test_bar_hiding.sh` — `16` passed, `0` failed. It
+  covers the XDG marker's visible default, valid hidden state, malformed and
+  symlink rejection, idempotent atomic publication, rapid transitions,
+  observable resident-sync failure, exact manifest registration, Menu Bar
+  provider actions/checked state, and user-menu preservation.
+- The Menu Bar QuickShell model fixture passed with the safe shell facade. The
+  real `PanelWindow` bar fixture was attempted but explicitly skipped because
+  this offscreen environment reports `No PanelWindow backend loaded`; mapped
+  surface geometry and live compositor behavior are not claimed as verified.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — `605` passed, `0`
+  failed.
+- Repository functional suite: `./tests/run.sh` — `228` passed, `0` failed.
+- Syntax: repository-wide `bash -n` — `244` shell scripts passed.
+- ShellCheck: all changed T41 shell scripts and fixtures are clean. The
+  repository-wide command still reports pre-existing findings in unrelated
+  installer/test sources; no warning was suppressed or deleted for T41.
+- Implementation commit: `e3253b0cbe9e3b886b67d7fae4e43932023e34e6`;
+  pre-change tracker checkpoint: `f0d4bf1`.
+- Ownership evidence: `aurelia-bar-hidden` is the single validated state
+  writer; the resident bar only reads/synchronizes the marker, queues writes
+  through that writer, stays mapped, parks off-screen, and changes exclusion
+  mode. The plugin-owned binding is merged by the existing authoritative
+  manifest loader, and Menu Bar mutations call the existing T40 resident
+  control-plane APIs.
+- Preservation evidence: no plugin ID, entry point, Power/Bluetooth behavior,
+  default bar layout, user-menu extension, configuration ownership, package,
+  installer, systemd/greetd state, or live user state was changed.
+- Live status: no shell restart, compositor mutation, package or installer
+  operation, systemd/greetd change, or reboot occurred. Real Wayland visual
+  acceptance remains unrun and is not claimed.
+
+CP3 status: `[x]` repository/static/isolated acceptance complete; live
+Wayland confirmation remains pending and is not claimed.
 
 Exit gate: bar hiding matches the reference interaction without terminating
 the resident shell, panels, plugins, or hotkeys, and every state transition is
@@ -4075,7 +4112,7 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T40; live
+Repository-only plugin parity work is complete through T41; live
 visual/integration validation is deferred pending explicit authorization.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
@@ -4085,23 +4122,27 @@ T39 implementation branch/SHA: installer-resilience /
 105f95a0cca2b5a1aedbc75a04b2b7cc5e8efb05
 T40 implementation branch/SHA: installer-resilience /
 7bf8e959410d0435eeb83e05803512910b53485e
+T41 implementation branch/SHA: installer-resilience /
+e3253b0cbe9e3b886b67d7fae4e43932023e34e6
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T40; T30 plugin-local test
-directories, T34 Bluetooth retention, T41 bar hiding, T42 final acceptance,
-and authorized live Wayland/visual acceptance remain.
-Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 589 passed, 0 failed
-Syntax checks: 242 shell scripts passed bash -n
-ShellCheck: new/changed T40 scripts introduced no findings; unrelated
+Tasks completed: all tasks marked `[x]` through T41; T30 plugin-local test
+directories, T34 Bluetooth retention, T42 final acceptance, and authorized
+live Wayland/visual acceptance remain.
+Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh 605 passed, 0 failed
+Syntax checks: 244 shell scripts passed bash -n
+ShellCheck: new/changed T41 scripts introduced no findings; unrelated
 pre-existing findings remain in the repository inventory checks and installer
 sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 Wayland/visual smoke was not authorized and was skipped
-Files changed: T40 bar CLI/control services, resident shell wiring, control
-fixtures/tests, and this tracker; prior changes remain in Git history
-Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`
+Files changed: T41 bar-hidden writer, resident bar watcher/sync, keybinding,
+Menu Bar provider, fixtures/tests, and this tracker; prior changes remain in
+Git history
+Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
+T41 `e3253b0`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; live visual behavior remains
-unverified; T30/T34/T41-T42 remain open and reference feature omissions remain
+unverified; T30/T34/T42 remain open and reference feature omissions remain
 the explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
