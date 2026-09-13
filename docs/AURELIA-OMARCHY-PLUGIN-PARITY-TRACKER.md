@@ -2,10 +2,10 @@
 
 Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
-bar control-plane work, T41 persistent bar hiding, and corrective T43–T46
-runtime/test-truth work are complete for repository/static/headless evidence;
-T47 session-actions restoration and T48 notification-dismissal reliability are
-active before T42 final acceptance.
+bar control-plane work, T41 persistent bar hiding, corrective T43–T46
+runtime/test-truth work, T47 session-actions restoration, and T48
+notification-dismissal reliability are complete for repository/static/headless
+evidence; T42 is next for final acceptance.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4378,7 +4378,7 @@ Dependencies: T30, T39, T43, T44, T45, T02A, T31, T32, T33.
 
 ### T47. Restore the former session-action surface as a separate plugin
 
-Execution status: NOT STARTED — tracker checkpoint recorded before source/test edits
+Execution status: COMPLETE — battery-independent session-actions plugin implemented and visually reduced to a compact modern surface
 
 Checkpoint 1 — T47 audit boundary:
 
@@ -4421,20 +4421,50 @@ Scope and preservation boundary:
 
 Required tests:
 
-- [ ] Manifest validation, registry discovery, default layout placement, and
+- [x] Manifest validation, registry discovery, default layout placement, and
   host failure containment cover the new plugin ID and entry point.
-- [ ] Pure model tests cover all five action rows, exact argv, destructive
+- [x] Pure model tests cover all five action rows, exact argv, destructive
   confirmation, invalid-action rejection, and deterministic labels/glyphs.
-- [ ] Isolated QML tests load the real bar widget/panel, exercise open/close,
+- [x] Isolated QML tests load the real bar widget/panel, exercise open/close,
   confirmation/cancellation, fake-executor success/failure, and prove no
   production command is executed by the fixture.
-- [ ] Existing `aurelia.power` no-battery hiding and all existing default bar
+- [x] Existing `aurelia.power` no-battery hiding and all existing default bar
   entries remain covered; the new session widget remains visible without a
   battery backend.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates pass with no suppressed
-  warnings; live destructive action execution remains unrun.
+- [x] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass with no
+  suppressed warnings; live destructive action execution remains unrun.
 
-Checkpoint 2 status: `[ ]` pending the tracker-only commit for this boundary.
+Checkpoint 2 status: `[x]` tracker-only pre-change checkpoint committed as `1067836`.
+
+Checkpoint 3 — T47 post-change evidence:
+
+- `test_session_actions_plugin.sh`: `7` passed, `1` explicit PanelWindow
+  backend skip, `0` failed. The pure model verifies Lock, Log out, Suspend,
+  Restart, and Power off with exact structured argv; the real bar widget
+  verifies visibility and open/close without battery hardware; the runtime
+  fixture verifies fake-executor success/failure without launching a session
+  command.
+- The production panel owns no direct `Process` or `Timer` child in
+  `AureliaKeyboardPanel.contentItem`; `SessionActionsRuntime.qml` owns the
+  typed action process. The compact UI is a 300px two-column icon/label grid,
+  not the former heavy five-card layout.
+- Full Aurelia diagnostic suite: `67` suites, `636` assertions, `625` passed,
+  `11` skipped, `0` failed. The strict command returns `2` for the same
+  explicitly reported backend-gated paths.
+- Repository suite: `./tests/run.sh` — `228` passed, `0` failed. Repository-
+  wide shell syntax: `246` scripts passed `bash -n`. ShellCheck across all
+  T47/T48-changed shell files: clean. `git diff --check`: passed.
+- `aurelia.power` remains battery/profile/statistics-only and keeps its
+  `no_battery` zero-width behavior. `aurelia.session-actions` is appended to
+  the canonical default bar, so Lock/Log out/Suspend/Restart/Power off remain
+  available on this VM.
+- Implementation commit: `4869919c1a0feca0764398f727a5d2db2d96897e`;
+  inventory-test cleanup: `f5b09b8a722dc222b3afff8b02567f96d4190a83`;
+  pre-change tracker checkpoint: `1067836`.
+
+CP3 status: `[x]` the former session actions are restored through a distinct,
+battery-independent plugin with compact presentation and isolated command
+ownership; live visual/destructive-action acceptance remains unrun.
 
 Exit gate: the former Aurelia session actions are available through a distinct
 plugin without restoring them to `aurelia.power`, without requiring battery
@@ -4446,7 +4476,7 @@ Dependencies: T39, T44, T46, T02A, T31, T33.
 
 ### T48. Make notification dismissal identity-safe and runtime-tested
 
-Execution status: NOT STARTED — tracker checkpoint recorded before notification source/test edits
+Execution status: COMPLETE — Toast identity capture, service fallback/rejection rules, malformed-state filtering, and production runtime coverage implemented
 
 Checkpoint 1 — T48 audit boundary:
 
@@ -4498,22 +4528,51 @@ Scope and preservation boundary:
 
 Required tests:
 
-- [ ] Pure identity/snapshot tests cover valid numeric IDs/timestamps,
+- [x] Pure identity/snapshot tests cover valid numeric IDs/timestamps,
   malformed values, restored entries, transient entries, and deterministic
   popup/history filenames.
-- [ ] The production Service + real cross-button signal fixture proves
+- [x] The production Service + real cross-button signal fixture proves
   dismissal succeeds without `invalid_identity`, creates one history row,
   archives/removes the matching popup state, and leaves other notifications
   untouched.
-- [ ] Re-entrant sender `closed()` and dynamic index churn are covered without
+- [x] Re-entrant sender `closed()` and dynamic index churn are covered without
   duplicate history/archive jobs or duplicate removal.
-- [ ] File-job failure remains observable and bounded while the UI/service
+- [x] File-job failure remains observable and bounded while the UI/service
   state stays consistent; no warning/error is filtered to make the fixture
   pass.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates pass; live notification
+- [x] Full Aurelia/repository/syntax/ShellCheck gates pass; live notification
   bus behavior remains separately labeled.
 
-Checkpoint 2 status: `[ ]` pending the tracker-only commit for this boundary.
+Checkpoint 2 status: `[x]` tracker-only pre-change checkpoint committed as `32dde55`.
+
+Checkpoint 3 — T48 post-change evidence:
+
+- `test_notification_plugins.sh`: `15` passed, `0` skipped, `0` failed. Its
+  isolated fixture constructs the production `Service.qml`, loads the real
+  `NotificationToast.qml`, drives the close path, and verifies three
+  identity-specific dismissals across delegate index churn and re-entrant
+  sender `closed()` callbacks.
+- The fixture result proves `activeCount=0`, `popupCount=0`,
+  `historyCount=3`, `popupFiles=0`, `historyFiles=3`, one dismiss call per
+  sender, and preservation of a current row when a valid-but-mismatched
+  identity is supplied. Its log contains no `invalid_identity`, `TypeError`,
+  `ReferenceError`, `Binding loop`, `Cannot assign`, `Loader.Error`, or
+  `file_job_retry/file_job_failed` diagnostics.
+- `NotificationToast` now captures its identity in the dismissal signal;
+  Service fallback is permitted only for genuinely absent/invalid identity,
+  while a valid mismatch fails closed instead of using a stale index. Invalid
+  persisted rows are rejected before filename generation. Notification popup
+  surfaces are Loader-owned so an unavailable popup backend cannot make the
+  resident service fail during construction.
+- Full Aurelia diagnostic suite: `67` suites, `636` assertions, `625` passed,
+  `11` skipped, `0` failed. The strict command returns `2` for the same
+  explicitly reported backend-gated paths.
+- Implementation commit: `fb87e3c343516bafbe5253b2353e85f855c6b3d9`;
+  pre-change tracker checkpoint: `32dde55`.
+
+CP3 status: `[x]` cross-button dismissal and persistence identity are covered
+by the production Service/Toast fixture without suppressing actionable logs;
+live notification-bus acceptance remains unrun.
 
 Exit gate: closing a notification through the visible cross icon is a stable,
 identity-safe operation with runtime evidence, and a notification defect
@@ -4525,7 +4584,7 @@ Dependencies: T31, T43, T46, T02A, T33.
 
 ### T42. Requested capability integration and final acceptance gate
 
-Execution status: NOT STARTED — queued behind completed corrective T43 through T45
+Execution status: NOT STARTED — queued behind completed corrective T43 through T48
 
 Scope:
 
@@ -4558,7 +4617,7 @@ Exit gate: the requested capability set is structurally and behaviorally at
 Omarchy parity as far as Aurelia's preserved features and safety boundaries
 allow, every task has CP3 evidence, and no task leaves the shell unusable.
 
-Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T02A, T31, T32, T33.
+Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T02A, T31, T32, T33.
 
 ---
 
@@ -4637,7 +4696,7 @@ Before declaring parity complete:
 ## Reference feature inventory differences
 
 The structural parity work is tracked task-by-task above. Omarchy currently
-ships 37 plugin manifest entries while Aurelia ships 24 first-party feature
+ships 37 plugin manifest entries while Aurelia ships 25 first-party feature
 plugins. The following differences are explicit product-scope decisions, not
 missing manifest, registry, lifecycle, API-boundary, safety, or test
 architecture.
@@ -4652,7 +4711,7 @@ architecture.
 | microphone | Aurelia provides optional `aurelia.microphone`; it remains absent from the shipped default bar like the reference. |
 | audio, media | Aurelia provides `aurelia.audio` and optional `aurelia.microphone`; host-global media tooling remains under its established ownership. |
 | clipboard, emojis, reminders, dev-gallery, agents | No current Aurelia feature owner; intentionally outside the preserved Aurelia feature inventory. |
-| lock, polkit, battery, idle, nightlight | No current Aurelia plugin owner; login, authentication, power, and desktop ownership remain with the existing Fedora/Hyprland/session architecture. |
+| lock, polkit, battery, idle, nightlight | `aurelia.session-actions` owns the user-visible Lock/Log out/Suspend/Restart/Power off affordance; the underlying login, authentication, battery, idle, and desktop primitives remain Fedora/Hyprland/session-owned, with no standalone lock/polkit/battery/idle/nightlight plugin. |
 | osd, disk-speedtest, dropbox, tailscale | No current Aurelia feature owner; intentionally not added as speculative parity work. |
 
 Omarchy's platform-level contract for all rows above is still represented by
@@ -4666,7 +4725,7 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T46; live
+Repository-only plugin parity work is complete through T48; live
 visual/integration validation is deferred pending explicit authorization.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
@@ -4678,30 +4737,35 @@ T40 implementation branch/SHA: installer-resilience /
 7bf8e959410d0435eeb83e05803512910b53485e
 T41 implementation branch/SHA: installer-resilience /
 e3253b0cbe9e3b886b67d7fae4e43932023e34e6
+Starting T47/T48 branch/SHA: installer-resilience /
+a6eb963db62ecae6df18331026810654c55709bd
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T46; T30 plugin-local test
+Tasks completed: all tasks marked `[x]` through T48; T30 plugin-local test
 directories, T34 Bluetooth retention, T42 final acceptance, and authorized
 live Wayland/visual acceptance remain.
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh
---allow-skips 613 passed, 10 skipped, 0 failed across 66 suites; the default
-strict command returned 2 for the 10 skips
-Syntax checks: 245 shell scripts passed bash -n
-ShellCheck: all T46-changed shell files are clean; pre-existing findings remain
-in older migrated test sources, the repository inventory checks, and installer
-sources.
+--allow-skips 625 passed, 11 skipped, 0 failed across 67 suites; the default
+strict command returned 2 for the 11 explicitly reported environment-gated
+paths
+Focused tests: session-actions 7 passed, 1 explicit PanelWindow backend skip,
+0 failed; notification dismissal 15 passed, 0 skipped, 0 failed
+Syntax checks: 246 shell scripts passed bash -n
+ShellCheck: all T47/T48-changed shell files are clean; pre-existing findings
+remain in older migrated test sources and installer sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 Wayland/visual smoke was not authorized and was skipped
-Files changed: T46 strict runner, suite inventory, evidence accounting, Power
-availability diagnostic, focused fixture/assertions, README, and tracker;
-T43–T45 changes remain in Git history
+Files changed: T47 session-actions plugin/default placement/UI, T48
+notification identity/persistence handling and production-path fixture, test
+inventory cleanup, README, and tracker; T43–T46 changes remain in Git history
 Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
-T41 `e3253b0`, T43 `30f886d`, T44 `6c48237`, T45 `aa88ad4`, T46 `890ca7c`
+T41 `e3253b0`, T43 `30f886d`, T44 `6c48237`, T45 `aa88ad4`, T46 `890ca7c`,
+T47 `4869919`, T48 `fb87e3c`, inventory cleanup `f5b09b8`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; 301 existing unlabelled assertions and
 four excluded legacy repository matrices remain outside the strict Aurelia
-coverage inventory; live visual/UPower behavior remains unverified; T30/T34/
-T42 remain open and reference feature omissions remain the explicit
-product-scope differences documented above
+coverage inventory; live visual/UPower/notification-bus behavior remains
+unverified; T30/T34/T42 remain open and reference feature omissions remain the
+explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
 Live user configuration modified: no
