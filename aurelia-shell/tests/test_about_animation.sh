@@ -19,7 +19,14 @@ SHEEN_COLOR_3=$'\e[1m\e[38;2;246;193;119m'
 SHEEN_COLOR_4=$'\e[1m\e[38;2;224;222;244m'
 SHEEN_DEFAULT_COLOR="$SHEEN_COLOR_1"
 
-printf '%s\n' '$1████$2██' '  $3██$4  ' >"$logo"
+if [[ -n "$SHEEN_COLOR_2$SHEEN_COLOR_3$SHEEN_COLOR_4" ]] &&
+   [[ "$SHEEN_DEFAULT_COLOR" == "$SHEEN_COLOR_1" ]]; then
+    pass "all configured sheen palette slots are available to the sourced renderer"
+else
+    fail "the sheen renderer palette is incomplete"
+fi
+
+printf '%s\n' "\$1████\$2██" "  \$3██\$4  " >"$logo"
 if sheen_build "$logo" 3 3 $'\e[0m\e[1m\e[38;2;156;207;216m' 120; then
     pass "coloured Aurelia terminal art produces animation frames"
 else
@@ -43,7 +50,7 @@ else
     pass "double-width logo characters leave the logo still"
 fi
 
-printf '%s\n' '$8AAA' >"$logo"
+printf '%s\n' "\$8AAA" >"$logo"
 if sheen_build "$logo" 3 3 "$SHEEN_COLOR_1" 120; then
     fail "unconfigured colour placeholders were accepted"
 else

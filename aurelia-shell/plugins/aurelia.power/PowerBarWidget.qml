@@ -20,10 +20,12 @@ Item {
     readonly property var powerPanel: root.panelOverride !== undefined
         ? root.panelOverride : panelLoader.item
     readonly property bool batteryPresent: !!(root.powerPanel && root.powerPanel.batteryPresent)
+    readonly property string availabilityReason: root.batteryPresent ? "" : "no_battery"
     readonly property bool showPercentage: !!(root.powerPanel && root.powerPanel.showPercentage)
     readonly property bool vertical: !!(root.bar && root.bar.vertical)
     readonly property string statusText: root.powerPanel && root.powerPanel.statusText
         ? String(root.powerPanel.statusText) : "Power unavailable"
+    property bool availabilityReported: false
 
     implicitWidth: root.batteryPresent
         ? (root.showPercentage && !root.vertical
@@ -42,6 +44,17 @@ Item {
         if ("pluginRegistry" in target) target.pluginRegistry = root.pluginRegistry
         if ("barAnchorItem" in target) target.barAnchorItem = root.barAnchorItem || root
         if ("anchorItem" in target) target.anchorItem = root.barAnchorItem || root
+    }
+
+    function reportAvailability() {
+        if (!root.powerPanel) return
+        if (root.batteryPresent) {
+            root.availabilityReported = false
+            return
+        }
+        if (root.availabilityReported) return
+        root.availabilityReported = true
+        console.info("[POWER] bar_hidden reason=no_battery")
     }
 
     function open(payloadJson) {
@@ -83,6 +96,7 @@ Item {
         onLoaded: root.configurePanel(item)
         onStatusChanged: {
             if (status === Loader.Error) console.error("[POWER] panel_load_failed")
+            if (status === Loader.Ready) root.reportAvailability()
         }
     }
 
@@ -90,6 +104,8 @@ Item {
     onShellChanged: root.configurePanel(root.powerPanel)
     onSettingsChanged: root.configurePanel(root.powerPanel)
     onBarAnchorItemChanged: root.configurePanel(root.powerPanel)
+    onPowerPanelChanged: root.reportAvailability()
+    onBatteryPresentChanged: root.reportAvailability()
 
     Rectangle {
         anchors.fill: parent

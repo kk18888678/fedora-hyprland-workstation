@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# T43 test-framework contract. This suite proves that skipped coverage is not
-# counted as a pass and that backend-only limitations cannot mask QML errors.
+# Test-framework contract. This suite proves that skipped coverage is not
+# counted as a pass, the default runner is strict, and no suite is omitted.
 
 set -Eeuo pipefail
 
@@ -27,8 +27,8 @@ AURELIA_TESTS_REQUIRE_NO_SKIPS=1 bash -c 'set -Eeuo pipefail; source "$1"; skip 
     "$ROOT/tests/test_helper.sh" \
     >"$strict_root/strict.out" 2>"$strict_root/strict.err" || strict_status=$?
 if [[ "$strict_status" -eq 2 ]] &&
-   grep -Fq 'Passed: 0  Skipped: 1  Failed: 0' "$strict_root/strict.out" &&
-   grep -Fq 'Strict test mode rejected 1 skipped test path(s).' "$strict_root/strict.err"; then
+   grep -Fq 'Assertions: 1  Passed: 0  Skipped: 1  Failed: 0' "$strict_root/strict.out" &&
+   grep -Fq 'Strict test mode rejected 1 skipped assertion path(s).' "$strict_root/strict.err"; then
     pass "[isolated-framework] strict mode returns a distinct non-zero result for skipped coverage"
 else
     fail "[isolated-framework] strict no-skip gate is incomplete (status=$strict_status)"
@@ -70,6 +70,26 @@ else
     fail "[isolated-framework] suite isolation or parent aggregation is incomplete"
 fi
 
+tier_suite="$strict_root/tier-suite.sh"
+printf '%s\n' \
+    'pass "[static] static evidence"' \
+    'pass "[isolated-runtime] isolated evidence"' \
+    'skip "[live-session] live evidence"' \
+    'pass "unlabelled evidence"' >"$tier_suite"
+before_static="$STATIC_ASSERTIONS"
+before_isolated="$ISOLATED_ASSERTIONS"
+before_live="$LIVE_ASSERTIONS"
+before_unlabelled="$UNLABELLED_ASSERTIONS"
+run_suite "$tier_suite" >/dev/null
+if [[ "$STATIC_ASSERTIONS" -eq $((before_static + 1)) ]] &&
+   [[ "$ISOLATED_ASSERTIONS" -eq $((before_isolated + 1)) ]] &&
+   [[ "$LIVE_ASSERTIONS" -eq $((before_live + 1)) ]] &&
+   [[ "$UNLABELLED_ASSERTIONS" -eq $((before_unlabelled + 1)) ]]; then
+    pass "[isolated-framework] summary evidence tiers distinguish static, isolated, live, and unlabelled outcomes"
+else
+    fail "[isolated-framework] evidence-tier accounting is incomplete"
+fi
+
 legacy_skip_paths=0
 while IFS= read -r test_path; do
     case "$test_path" in
@@ -88,9 +108,36 @@ else
     fail "[static] legacy pass/printf skip paths remain in the Aurelia test suites"
 fi
 
-if grep -Fq -- '--strict' "$ROOT/tests/run.sh" &&
-   grep -Fq 'AURELIA_TESTS_REQUIRE_NO_SKIPS=1' "$ROOT/tests/run.sh"; then
-    pass "[static] the public Aurelia test runner exposes an explicit strict no-skip gate"
+empty_suite="$(mktemp)"
+printf '%s\n' 'section empty-suite' >"$empty_suite"
+before_failures="$FAILS"
+run_suite "$empty_suite" >/dev/null 2>&1 || true
+rm -f -- "$empty_suite"
+if [[ "$FAILS" -eq $((before_failures + 1)) ]]; then
+    pass "[isolated-framework] a suite with no explicit outcome fails closed"
 else
-    fail "[static] strict no-skip runner mode is not exposed"
+    fail "[isolated-framework] a suite with no explicit outcome was accepted"
+fi
+
+registered_suite_count="$(rg -c '^run_suite ' "$ROOT/tests/run.sh" || true)"
+discovered_suite_count="$(find "$ROOT/tests" -maxdepth 1 -type f -name 'test_*.sh' ! -name 'test_helper.sh' -printf '%f\n' |
+    grep -Evc '^(test_aurelia_hotkeys|test_aurelia_keybindings|test_hotkeys|test_quickshell_provenance)\.sh$' || true)"
+runner_discovery_marker="find \"\$ROOT/tests\" -maxdepth 1 -type f -name 'test_*.sh'"
+if [[ "$registered_suite_count" -eq 1 ]] &&
+   grep -Fq "$runner_discovery_marker" "$ROOT/tests/run.sh" &&
+   grep -Fq 'test_aurelia_hotkeys.sh' "$ROOT/tests/run.sh" &&
+   grep -Fq 'test_quickshell_provenance.sh' "$ROOT/tests/run.sh" &&
+   [[ "$discovered_suite_count" -gt 1 ]]; then
+    pass "[static] the public Aurelia runner discovers all owned suites and explicitly classifies legacy entries"
+else
+    fail "[static] Aurelia suite discovery or legacy classification is incomplete"
+fi
+
+if grep -Fq -- '--strict' "$ROOT/tests/run.sh" &&
+   grep -Fq -- '--allow-skips' "$ROOT/tests/run.sh" &&
+   grep -Fq 'test_mode="strict"' "$ROOT/tests/run.sh" &&
+   grep -Fq 'AURELIA_TESTS_REQUIRE_NO_SKIPS=1' "$ROOT/tests/run.sh"; then
+    pass "[static] the public Aurelia runner is strict by default with explicit diagnostic opt-out"
+else
+    fail "[static] default strict runner or explicit diagnostic mode is incomplete"
 fi

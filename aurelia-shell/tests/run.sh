@@ -9,89 +9,80 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$ROOT/tests/test_helper.sh"
 
+test_mode="strict"
 case "${1:-}" in
     "") ;;
     --strict)
-        export AURELIA_TESTS_REQUIRE_NO_SKIPS=1
+        test_mode="strict"
+        shift
+        ;;
+    --allow-skips)
+        test_mode="allow-skips"
         shift
         ;;
     --help|-h)
-        printf 'Usage: %s [--strict]\n' "${BASH_SOURCE[0]}"
-        printf '%s\n' '  --strict  return 2 when any runtime path is skipped'
+        printf 'Usage: %s [--strict|--allow-skips]\n' "${BASH_SOURCE[0]}"
+        printf '%s\n' '  --strict        default; return 2 when any assertion path is skipped'
+        printf '%s\n' '  --allow-skips   diagnostic mode; report, but do not reject, environment skips'
         exit 0
         ;;
     *)
-        printf 'Usage: %s [--strict]\n' "${BASH_SOURCE[0]}" >&2
+        printf 'Usage: %s [--strict|--allow-skips]\n' "${BASH_SOURCE[0]}" >&2
         exit 2
         ;;
 esac
 
 (( $# == 0 )) || exit 2
 
+# The normal command is deliberately strict. The opt-in diagnostic mode is
+# only for inspecting a headless workstation where an acceptance backend is
+# unavailable; it never turns a skipped assertion into a pass.
+if [[ "$test_mode" == "strict" ]]; then
+    export AURELIA_TESTS_REQUIRE_NO_SKIPS=1
+else
+    export AURELIA_TESTS_REQUIRE_NO_SKIPS=0
+fi
+
 run_suite "$ROOT/tests/test_test_framework.sh"
-run_suite "$ROOT/tests/test_aurelia_shell_plugins.sh"
-run_suite "$ROOT/tests/test_plugin_harness.sh"
-run_suite "$ROOT/tests/test_manifest_validator.sh"
-run_suite "$ROOT/tests/test_plugin_discovery.sh"
-run_suite "$ROOT/tests/test_plugin_catalog.sh"
-run_suite "$ROOT/tests/test_bar_widget_registry.sh"
-run_suite "$ROOT/tests/test_plugin_lifecycle.sh"
-run_suite "$ROOT/tests/test_active_bar.sh"
-run_suite "$ROOT/tests/test_generic_routing.sh"
-run_suite "$ROOT/tests/test_shell_state_migration.sh"
-run_suite "$ROOT/tests/test_bar_widget_metadata.sh"
-run_suite "$ROOT/tests/test_bar_operations.sh"
-run_suite "$ROOT/tests/test_plugin_settings.sh"
-run_suite "$ROOT/tests/test_plugin_facades.sh"
-run_suite "$ROOT/tests/test_sensitive_service_boundary.sh"
-run_suite "$ROOT/tests/test_command_privilege_boundary.sh"
-run_suite "$ROOT/tests/test_plugin_clone.sh"
-run_suite "$ROOT/tests/test_plugin_lifecycle_management.sh"
-run_suite "$ROOT/tests/test_plugin_management.sh"
-run_suite "$ROOT/tests/test_plugin_watcher.sh"
-run_suite "$ROOT/tests/test_aurelia_menu.sh"
-run_suite "$ROOT/tests/test_plugin_migration.sh"
-run_suite "$ROOT/tests/test_bar_default_config.sh"
-run_suite "$ROOT/tests/test_plugin_contract_matrix.sh"
-run_suite "$ROOT/tests/test_plugin_acceptance.sh"
-run_suite "$ROOT/tests/test_plugin_documentation.sh"
-run_suite "$ROOT/tests/test_plugin_cutover.sh"
-run_suite "$ROOT/tests/test_runtime_warning_contracts.sh"
-run_suite "$ROOT/tests/test_warning_observability.sh"
-run_suite "$ROOT/tests/test_plugin_survivability.sh"
-run_suite "$ROOT/tests/test_source_boundary.sh"
-run_suite "$ROOT/tests/test_tooltip_geometry.sh"
-run_suite "$ROOT/tests/test_audio_plugin.sh"
-run_suite "$ROOT/tests/test_audio_interactions.sh"
-run_suite "$ROOT/tests/test_microphone_plugin.sh"
-run_suite "$ROOT/tests/test_power_plugin.sh"
-run_suite "$ROOT/tests/test_bar_control_plane.sh"
-run_suite "$ROOT/tests/test_bar_hiding.sh"
-run_suite "$ROOT/tests/test_shell_reload.sh"
-run_suite "$ROOT/tests/test_dev_session.sh"
-run_suite "$ROOT/tests/test_keybindings_interaction.sh"
-run_suite "$ROOT/tests/test_screenshot_plugins.sh"
-run_suite "$ROOT/tests/test_notification_plugins.sh"
-run_suite "$ROOT/tests/test_qml_runtime.sh"
-run_suite "$ROOT/tests/test_theme_background.sh"
-run_suite "$ROOT/tests/test_omarchy_themes.sh"
-run_suite "$ROOT/tests/test_image_picker.sh"
-run_suite "$ROOT/tests/test_bar_widgets.sh"
-run_suite "$ROOT/tests/test_workspace_switcher.sh"
-run_suite "$ROOT/tests/test_bluetooth_plugin.sh"
-run_suite "$ROOT/tests/test_calendar_surface.sh"
-run_suite "$ROOT/tests/test_display_plugin.sh"
-run_suite "$ROOT/tests/test_network_plugin.sh"
-run_suite "$ROOT/tests/test_network_qml_runtime.sh"
-run_suite "$ROOT/tests/test_network_dns_runtime.sh"
-run_suite "$ROOT/tests/test_launcher_plugin.sh"
-run_suite "$ROOT/tests/test_command_center_backend.sh"
-run_suite "$ROOT/tests/test_package_manager_backend.sh"
-run_suite "$ROOT/tests/test_aurelia_provider.sh"
-run_suite "$ROOT/tests/test_updates_backend.sh"
-run_suite "$ROOT/tests/test_about_backend.sh"
-run_suite "$ROOT/tests/test_about_branding.sh"
-run_suite "$ROOT/tests/test_transcode_ascii.sh"
-run_suite "$ROOT/tests/test_hyprland_provider.sh"
+
+# Every current Aurelia-owned test_*.sh file in this directory is a suite
+# entry point except the shared helper and the framework contract suite above.
+# These four legacy repository matrices are retained at their existing paths
+# for historical reference, but are not Aurelia suites: their contracts point
+# at removed installer paths and their execution is tracked separately instead
+# of being presented as shell coverage.
+excluded_legacy_suites=(
+    test_aurelia_hotkeys.sh
+    test_aurelia_keybindings.sh
+    test_hotkeys.sh
+    test_quickshell_provenance.sh
+)
+EXCLUDED_SUITES=0
+EXCLUDED_SUITE_NAMES=""
+candidate_suite_count=0
+while IFS= read -r -d '' suite_file; do
+    candidate_suite_count=$((candidate_suite_count + 1))
+    [[ "$suite_file" == "$ROOT/tests/test_test_framework.sh" ]] && continue
+    suite_name="${suite_file##*/}"
+    excluded=0
+    for excluded_suite in "${excluded_legacy_suites[@]}"; do
+        if [[ "$suite_name" == "$excluded_suite" ]]; then
+            excluded=1
+            break
+        fi
+    done
+    if (( excluded )); then
+        EXCLUDED_SUITES=$((EXCLUDED_SUITES + 1))
+        EXCLUDED_SUITE_NAMES="${EXCLUDED_SUITE_NAMES:+$EXCLUDED_SUITE_NAMES,}$suite_name"
+        continue
+    fi
+    run_suite "$suite_file"
+done < <(find "$ROOT/tests" -maxdepth 1 -type f -name 'test_*.sh' \
+    ! -name 'test_helper.sh' -print0 | sort -z)
+
+expected_suite_count=$((candidate_suite_count - EXCLUDED_SUITES))
+if [[ "$SUITES" -ne "$expected_suite_count" ]]; then
+    fail "Suite discovery executed $SUITES of $expected_suite_count owned suite entry points"
+fi
 
 print_test_summary

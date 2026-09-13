@@ -27,9 +27,11 @@ else
     fail "[static] compatibility aliases or generic kind routing are not cleanly separated"
 fi
 
+runner_discovery_marker="find \"\$ROOT/tests\" -maxdepth 1 -type f -name 'test_*.sh'"
 if grep -q 'fixture.menu-widget' "$ROOT/tests/fixtures/plugin-lifecycle/shell.qml" &&
    grep -q 'fixture.multi' "$ROOT/tests/fixtures/plugin-lifecycle/shell.qml" &&
-   grep -q 'test_plugin_lifecycle.sh' "$ROOT/tests/run.sh"; then
+   [[ -f "$ROOT/tests/test_plugin_lifecycle.sh" ]] &&
+   grep -Fq "$runner_discovery_marker" "$ROOT/tests/run.sh"; then
     pass "[static] the generic lifecycle fixture provides panel/service/menu/widget coverage without host feature branches"
 else
     fail "[static] generic lifecycle fixture coverage is incomplete"

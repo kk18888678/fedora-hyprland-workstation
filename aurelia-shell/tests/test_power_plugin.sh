@@ -78,6 +78,8 @@ fi
 
 if grep -Fq 'batteryIcon' "$widget_file" &&
    grep -Fq 'batteryPresent' "$widget_file" &&
+   grep -Fq 'availabilityReason' "$widget_file" &&
+   grep -Fq 'bar_hidden reason=no_battery' "$widget_file" &&
    grep -Fq 'showPercentage' "$widget_file" &&
    grep -Fq 'Qt.RightButton' "$widget_file" &&
    grep -Fq 'function handleClick' "$widget_file" &&
@@ -198,6 +200,7 @@ if [[ ("$runtime_status" -eq 0 || ("$runtime_status" -eq 124 && "$backend_diagno
    jq -e '.widgetLoaded == true and .initialVisible == true and
           .shownAfterOpen == true and .percentageAfterRight == true and
           .shownAfterClose == false and .hiddenWithoutBattery == true and
+          .noBatteryReason == true and
           .actionFailureDidNotEscape == true' "$result_file" >/dev/null; then
     pass "[isolated-runtime] real Power bar widget preserves open/close, percentage toggle, no-battery hiding, and failure isolation"
 elif [[ "$backend_diagnostic" -eq 1 ]] &&

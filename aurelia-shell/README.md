@@ -46,6 +46,21 @@ Run the shell-owned contract suite from the repository root with:
 ./aurelia-shell/tests/run.sh
 ```
 
+The normal command is strict: it returns non-zero when any assertion path is
+skipped, so a green result cannot hide missing runtime coverage. When a
+headless development environment intentionally lacks a Wayland/desktop
+backend, use the explicit diagnostic form to inspect the remaining paths:
+
+```bash
+./aurelia-shell/tests/run.sh --allow-skips
+```
+
+Diagnostic mode reports every skip separately and never counts it as a pass.
+The Power bar follows the reference hardware contract: its default layout
+entry remains loaded, but the affordance is zero-width when no battery is
+present. The shell records `[POWER] bar_hidden reason=no_battery` for that
+capability state; it does not fabricate desktop battery hardware.
+
 For source-checkout development, start the resident host and its IPC console
 in one reusable tmux session:
 

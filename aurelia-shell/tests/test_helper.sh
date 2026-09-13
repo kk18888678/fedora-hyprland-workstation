@@ -12,6 +12,14 @@ export WORKSTATION_TEST_MODE=1
 FAILS=0
 PASSES=0
 SKIPS=0
+SUITES=0
+SUITE_FAILURES=0
+EXCLUDED_SUITES=0
+EXCLUDED_SUITE_NAMES=""
+STATIC_ASSERTIONS=0
+ISOLATED_ASSERTIONS=0
+LIVE_ASSERTIONS=0
+UNLABELLED_ASSERTIONS=0
 
 pass() {
     PASSES=$((PASSES + 1))
@@ -79,8 +87,10 @@ runtime_skip_if_environment_only() {
 
 run_suite() {
     local suite_file="$1"
+    SUITES=$((SUITES + 1))
     if [[ ! -f "$suite_file" ]]; then
         fail "Test suite not found: $suite_file"
+        SUITE_FAILURES=$((SUITE_FAILURES + 1))
         return 0
     fi
 
@@ -93,16 +103,35 @@ run_suite() {
     local pass_count=0
     local skip_count=0
     local fail_count=0
+    local outcome_count=0
+    local static_count=0
+    local isolated_count=0
+    local live_count=0
+    local unlabelled_count=0
     output="$(bash -c 'set -Eeuo pipefail; source "$1"; source "$2"' _ \
         "$ROOT/tests/test_helper.sh" "$suite_file" 2>&1)" || status=$?
     if [[ -n "$output" ]]; then printf '%s\n' "$output"; fi
     pass_count="$(grep -c '^  PASS ' <<<"$output" || true)"
     skip_count="$(grep -c '^  SKIP ' <<<"$output" || true)"
     fail_count="$(grep -c '^  FAIL ' <<<"$output" || true)"
+    outcome_count=$((pass_count + skip_count + fail_count))
+    static_count="$(grep -Ec '^  (PASS|SKIP|FAIL) \[static\]' <<<"$output" || true)"
+    isolated_count="$(grep -Ec '^  (PASS|SKIP|FAIL) \[isolated-' <<<"$output" || true)"
+    live_count="$(grep -Ec '^  (PASS|SKIP|FAIL) \[live-' <<<"$output" || true)"
+    unlabelled_count=$((outcome_count - static_count - isolated_count - live_count))
     PASSES=$((PASSES + pass_count))
     SKIPS=$((SKIPS + skip_count))
     FAILS=$((FAILS + fail_count))
+    STATIC_ASSERTIONS=$((STATIC_ASSERTIONS + static_count))
+    ISOLATED_ASSERTIONS=$((ISOLATED_ASSERTIONS + isolated_count))
+    LIVE_ASSERTIONS=$((LIVE_ASSERTIONS + live_count))
+    UNLABELLED_ASSERTIONS=$((UNLABELLED_ASSERTIONS + unlabelled_count))
+    if (( outcome_count == 0 )); then
+        fail "Suite produced no PASS, SKIP, or FAIL outcome: $suite_file"
+        SUITE_FAILURES=$((SUITE_FAILURES + 1))
+    fi
     if (( status != 0 )); then
+        SUITE_FAILURES=$((SUITE_FAILURES + 1))
         if (( fail_count == 0 )); then
             fail "Suite exited unexpectedly: $suite_file (status=$status)"
         else
@@ -113,14 +142,25 @@ run_suite() {
 
 print_test_summary() {
     printf '\n%s\n' "------------------------------------------------------------"
-    printf 'Passed: %s  Skipped: %s  Failed: %s\n' "$PASSES" "$SKIPS" "$FAILS"
+    printf 'Suites: %s  Suite failures: %s\n' "$SUITES" "$SUITE_FAILURES"
+    printf 'Excluded suite entry points: %s\n' "$EXCLUDED_SUITES"
+    if [[ -n "$EXCLUDED_SUITE_NAMES" ]]; then
+        printf 'Excluded (explicit legacy classification): %s\n' "$EXCLUDED_SUITE_NAMES"
+    fi
+    printf 'Assertions: %s  Passed: %s  Skipped: %s  Failed: %s\n' \
+        "$((PASSES + SKIPS + FAILS))" "$PASSES" "$SKIPS" "$FAILS"
+    printf 'Evidence tiers: static=%s  isolated=%s  live=%s  unlabelled=%s\n' \
+        "$STATIC_ASSERTIONS" "$ISOLATED_ASSERTIONS" "$LIVE_ASSERTIONS" "$UNLABELLED_ASSERTIONS"
 
-    if (( FAILS > 0 )); then
+    if (( FAILS > 0 || SUITE_FAILURES > 0 )); then
         exit 1
     fi
     if (( SKIPS > 0 )) && [[ "${AURELIA_TESTS_REQUIRE_NO_SKIPS:-0}" == "1" ]]; then
-        printf 'Strict test mode rejected %s skipped test path(s).\n' "$SKIPS" >&2
+        printf 'Strict test mode rejected %s skipped assertion path(s).\n' "$SKIPS" >&2
         exit 2
+    fi
+    if (( SKIPS > 0 )); then
+        printf 'Diagnostic mode accepted %s explicitly reported skipped assertion path(s).\n' "$SKIPS"
     fi
     exit 0
 }

@@ -45,6 +45,7 @@ ShellRoot {
             var shownAfterClose = fakePanel.shown
             fakePanel.batteryPresent = false
             var hiddenWithoutBattery = item.visible === false
+            var noBatteryReason = item.availabilityReason === "no_battery"
             root.writeResult({
                 widgetLoaded: root.widgetLoaded,
                 initialVisible: initialVisible,
@@ -52,6 +53,7 @@ ShellRoot {
                 percentageAfterRight: percentageAfterRight,
                 shownAfterClose: shownAfterClose,
                 hiddenWithoutBattery: hiddenWithoutBattery,
+                noBatteryReason: noBatteryReason,
                 actionFailureDidNotEscape: fakePanel.actionFailureDidNotEscape
             })
         }
