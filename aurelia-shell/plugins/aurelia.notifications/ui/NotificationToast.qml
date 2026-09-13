@@ -85,8 +85,26 @@ Item {
         return source
     }
 
+    function emitDismissed() {
+        var originalId = root.identityOriginalId
+        var timestamp = Number(root.identityTimestamp)
+        var index = Number(root.identityIndex)
+        if (!isFinite(timestamp)) timestamp = 0
+        if (!isFinite(index)) index = -1
+        root.dismissed(originalId, timestamp, index)
+    }
+
     function dismissFromClose() {
-        root.dismissed(root.identityOriginalId, root.identityTimestamp, root.identityIndex)
+        root.emitDismissed()
+    }
+
+    function dismissFromPointer(button) {
+        if (button === Qt.RightButton) {
+            root.emitDismissed()
+            return "dismiss"
+        }
+        root.activated()
+        return "activate"
     }
 
     HoverHandler { id: toastHover }
@@ -109,8 +127,7 @@ Item {
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onClicked: function(mouse) {
                 mouse.accepted = true
-                if (mouse.button === Qt.RightButton) root.dismissed()
-                else root.activated()
+                root.dismissFromPointer(mouse.button)
             }
         }
 

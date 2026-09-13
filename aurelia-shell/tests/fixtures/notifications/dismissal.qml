@@ -20,6 +20,7 @@ ShellRoot {
     property var dismissedIds: []
     property bool malformedFallback: false
     property bool mismatchedIdentityPreserved: false
+    property bool pointerPathCovered: false
     property int dismissPass: 0
     property bool dismissalComplete: false
     property bool stateCountRequested: false
@@ -128,10 +129,18 @@ ShellRoot {
                 required property var defaultActionText
                 required property int urgency
 
-            function emitDismissed() {
-                if (toastLoader.item)
+                function emitDismissed() {
+                    if (!toastLoader.item) return false
                     toastLoader.item.dismissFromClose()
-            }
+                    return true
+                }
+
+                function emitCardDismissed() {
+                    if (!toastLoader.item) return false
+                    root.pointerPathCovered = true
+                    toastLoader.item.dismissFromPointer(Qt.RightButton)
+                    return true
+                }
 
                 Loader {
                     id: toastLoader
@@ -266,7 +275,12 @@ ShellRoot {
                 return
             }
             root.dismissedIds = root.dismissedIds.concat([Number(delegate.originalId)])
-            delegate.emitDismissed()
+            var emitted = root.dismissPass === 0
+                ? delegate.emitCardDismissed() : delegate.emitDismissed()
+            if (!emitted) {
+                dismissRetryTimer.restart()
+                return
+            }
             root.dismissPass++
             Qt.callLater(root.dismissThroughToast)
             return
@@ -321,6 +335,7 @@ ShellRoot {
             dismissedIds: root.dismissedIds,
             malformedFallback: root.malformedFallback,
             mismatchedIdentityPreserved: root.mismatchedIdentityPreserved,
+            pointerPathCovered: root.pointerPathCovered,
             firstDismissCalls: first.dismissCalls,
             secondDismissCalls: second.dismissCalls,
             thirdDismissCalls: third.dismissCalls,

@@ -18,6 +18,7 @@ AureliaKeyboardPanel {
     property var barAnchorItem: null
     property var actionExecutor
     property QtObject runtime: SessionActionsRuntime { owner: root }
+    property QtObject controller: SessionActionsController { owner: root }
 
     property string confirmAction: ""
     property bool actionRunning: false
@@ -41,71 +42,37 @@ AureliaKeyboardPanel {
     shown: false
 
     function open(payloadJson) {
-        root.confirmAction = ""
-        root.actionError = ""
-        root.actionIndex = 0
-        root.cursorActive = false
-        root.shown = true
-        return "ok"
+        return root.controller.open(payloadJson)
     }
 
     function close() {
-        root.confirmAction = ""
-        root.actionIndex = 0
-        root.cursorActive = false
-        root.shown = false
-        return "ok"
+        return root.controller.close()
     }
 
     function closeForPopoutSwitch() { return root.close() }
 
     function requestAction(action) {
-        var requested = String(action || "")
-        if (!Model.isKnownAction(requested)) return "invalid"
-        if (Model.requiresConfirmation(requested)) {
-            root.confirmAction = requested
-            root.actionIndex = 0
-            root.cursorActive = false
-            return "confirm"
-        }
-        return root.runAction(requested)
+        return root.controller.requestAction(action)
     }
 
     function runAction(action) {
-        var requested = String(action || "")
-        var command = Model.commandFor(requested)
-        if (command.length === 0) return "invalid"
-        var result = root.runtime.runCommand(command, requested)
-        if (result === "ok" || result === "pending") root.close()
-        return result
+        return root.controller.runAction(action)
     }
 
     function confirmPendingAction() {
-        if (!Model.requiresConfirmation(root.confirmAction)) return "invalid"
-        return root.runAction(root.confirmAction)
+        return root.controller.confirmPendingAction()
     }
 
     function cancelPendingAction() {
-        root.confirmAction = ""
-        root.actionIndex = 0
-        root.cursorActive = false
-        return "ok"
+        return root.controller.cancelPendingAction()
     }
 
     function moveSelection(delta) {
-        var rows = root.visibleActionRows
-        if (!Array.isArray(rows) || rows.length === 0) return
-        root.actionIndex = Math.max(0, Math.min(rows.length - 1, root.actionIndex + delta))
-        root.cursorActive = true
+        return root.controller.moveSelection(delta)
     }
 
     function activateSelection() {
-        var rows = root.visibleActionRows
-        if (!Array.isArray(rows) || root.actionIndex < 0 || root.actionIndex >= rows.length) return "invalid"
-        var selected = rows[root.actionIndex]
-        if (root.confirmAction !== "")
-            return selected.id === "confirm" ? root.confirmPendingAction() : root.cancelPendingAction()
-        return root.requestAction(selected.id)
+        return root.controller.activateSelection()
     }
 
     function handleKey(event) {
@@ -162,7 +129,7 @@ AureliaKeyboardPanel {
                 Text {
                     Layout.fillWidth: true
                     text: root.confirmAction === "" ? "Session actions" :
-                        (root.confirmAction === "reboot" ? "Restart computer?" : "Power off computer?")
+                        Model.confirmationTitle(root.confirmAction)
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeMd
@@ -173,7 +140,7 @@ AureliaKeyboardPanel {
 
             Text {
                 Layout.fillWidth: true
-                text: root.confirmAction === "" ? "" : "This action changes the current session."
+                text: root.confirmAction === "" ? "" : Model.confirmationDetail(root.confirmAction)
                 color: Theme.textMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeXs
@@ -241,7 +208,7 @@ AureliaKeyboardPanel {
                                 root.cursorActive = true
                                 root.actionIndex = index
                             }
-                            onClicked: {
+                            onClicked: function(mouse) {
                                 mouse.accepted = true
                                 if (root.confirmAction !== "") {
                                     if (modelData.id === "confirm") root.confirmPendingAction()

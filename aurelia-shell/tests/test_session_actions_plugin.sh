@@ -14,10 +14,11 @@ model_file="$session_root/Model.js"
 widget_file="$session_root/SessionActionsBarWidget.qml"
 panel_file="$session_root/SessionActionsPanel.qml"
 runtime_file="$session_root/SessionActionsRuntime.qml"
+controller_file="$session_root/SessionActionsController.qml"
 default_file="$ROOT/config/bar-default.json"
 fixture_root="$ROOT/tests/fixtures/session-actions"
 
-if [[ -f "$manifest_file" && -f "$widget_file" && -f "$panel_file" && -f "$runtime_file" ]] &&
+if [[ -f "$manifest_file" && -f "$widget_file" && -f "$panel_file" && -f "$runtime_file" && -f "$controller_file" ]] &&
    jq -e '
        .schemaVersion == 1 and
        .id == "aurelia.session-actions" and
@@ -35,13 +36,16 @@ else
 fi
 
 if grep -Fq 'property QtObject runtime' "$panel_file" &&
+   grep -Fq 'property QtObject controller' "$panel_file" &&
    grep -Fq 'property var owner' "$runtime_file" &&
    ! grep -Eq '^[[:space:]]+(Process|Timer)[[:space:]]*\{' "$panel_file" &&
    ! grep -Fq 'Quickshell.Services.UPower' "$panel_file" &&
    grep -Fq 'Model.actionRows()' "$panel_file" &&
    grep -Fq 'GridLayout' "$panel_file" &&
-   grep -Fq 'Layout.preferredHeight: 40' "$panel_file"; then
-    pass "[static] Session Actions owns the former five rows without battery coupling or contentItem Process children in a compact grid"
+   grep -Fq 'Layout.preferredHeight: 40' "$panel_file" &&
+   grep -Fq 'onClicked: function(mouse)' "$panel_file" &&
+   ! grep -Eq '^[[:space:]]+onClicked:[[:space:]]*\\{' "$panel_file"; then
+    pass "[static] Session Actions owns the former five rows without battery coupling or contentItem Process children in a compact grid and uses explicit click parameters"
 else
     fail "[static] Session Actions panel structure or isolation boundary is incomplete"
 fi
@@ -71,15 +75,15 @@ equal(model.commandFor('logout'), ['/usr/bin/hyprctl', 'dispatch', 'exit'], 'log
 equal(model.commandFor('suspend'), ['/usr/bin/systemctl', 'suspend'], 'suspend argv')
 equal(model.commandFor('reboot'), ['/usr/bin/systemctl', 'reboot'], 'reboot argv')
 equal(model.commandFor('shutdown'), ['/usr/bin/systemctl', 'poweroff'], 'shutdown argv')
-assert(!model.requiresConfirmation('lock'), 'lock is not destructive confirmation')
-assert(!model.requiresConfirmation('logout'), 'logout is not destructive confirmation')
-assert(!model.requiresConfirmation('suspend'), 'suspend is not destructive confirmation')
-assert(model.requiresConfirmation('reboot'), 'reboot requires confirmation')
-assert(model.requiresConfirmation('shutdown'), 'shutdown requires confirmation')
+for (const id of ['lock', 'logout', 'suspend', 'reboot', 'shutdown']) {
+  assert(model.requiresConfirmation(id), `${id} requires confirmation`)
+  equal(model.confirmationRows(id).map(row => row.id), ['confirm', 'cancel'], `${id} confirmation rows`)
+  assert(model.confirmationTitle(id).length > 0, `${id} confirmation title`)
+  assert(model.confirmationDetail(id).length > 0, `${id} confirmation detail`)
+}
 assert(!model.isKnownAction('unknown'), 'unknown action rejected')
 equal(model.commandFor('unknown'), [], 'unknown action has no command')
-equal(model.confirmationRows('shutdown').map(row => row.id), ['confirm', 'cancel'], 'shutdown confirmation rows')
-equal(model.confirmationRows('lock'), [], 'non-destructive action has no confirmation rows')
+equal(model.confirmationRows('unknown'), [], 'unknown action has no confirmation rows')
 NODE_SESSION_MODEL
     then
         pass "[isolated-runtime] pure model covers all five session actions, exact argv, confirmation, and invalid input"
@@ -111,6 +115,51 @@ session_runtime_root="$(mktemp -d)"
 trap 'rm -rf -- "$session_runtime_root" 2>/dev/null || true' RETURN
 mkdir -p -- "$session_runtime_root/runtime" "$session_runtime_root/state" \
     "$session_runtime_root/config" "$session_runtime_root/cache"
+
+controller_result="$session_runtime_root/controller-result.json"
+controller_log="$session_runtime_root/controller.log"
+controller_status=0
+AURELIA_SESSION_CONTROLLER_RESULT="$controller_result" \
+AURELIA_SESSION_CONTROLLER_SOURCE="file://$controller_file" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$session_runtime_root/controller-runtime" \
+XDG_STATE_HOME="$session_runtime_root/controller-state" \
+XDG_CONFIG_HOME="$session_runtime_root/controller-config" \
+XDG_CACHE_HOME="$session_runtime_root/controller-cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$fixture_root/controller.qml" --no-color >"$controller_log" 2>&1 || controller_status=$?
+controller_completed=0
+if [[ "$controller_status" -eq 0 ]] ||
+   [[ "$controller_status" -eq 124 && -f "$controller_log" ]] &&
+   grep -Fq 'Signal QQmlEngine::quit() emitted' "$controller_log"; then
+    controller_completed=1
+fi
+if [[ "$controller_completed" -eq 1 ]] && [[ -s "$controller_result" ]] &&
+   runtime_log_is_environment_only "$controller_log" &&
+   jq -e '.loaded == true and .directRun == "confirm" and
+          .directRunPending == "lock" and
+          .directRunCallsBefore == .directRunCallsAfter and
+          (.checks | length) == 5 and
+          (.checks | all(
+            .request == "confirm" and .pending == .id and
+            .callsBeforeCancel == .callsAfterCancel and .cancel == "ok" and
+            .requestAgain == "confirm" and .confirm == "ok" and
+            .callsAfterConfirm == (.callsBeforeCancel + 1)
+          )) and
+          (.calls | length) == 5 and
+          (.calls | map(.argv)) == [
+            ["/usr/bin/loginctl", "lock-session"],
+            ["/usr/bin/hyprctl", "dispatch", "exit"],
+            ["/usr/bin/systemctl", "suspend"],
+            ["/usr/bin/systemctl", "reboot"],
+            ["/usr/bin/systemctl", "poweroff"]
+          ]' "$controller_result" >/dev/null; then
+    pass "[isolated-runtime] production Session Actions controller requires confirmation before every structured command"
+else
+    details="$(tail -n 40 "$controller_log" 2>/dev/null || true)"
+    if [[ -s "$controller_result" ]]; then details="$details result=$(tr '\n' ' ' <"$controller_result")"; fi
+    fail "[isolated-runtime] Session Actions controller fixture failed (status=$controller_status): $details"
+fi
 
 widget_result="$session_runtime_root/widget-result.json"
 widget_log="$session_runtime_root/widget.log"
@@ -196,9 +245,28 @@ if [[ "$panel_status" -eq 0 ]] && [[ -s "$panel_result" ]] &&
    runtime_log_is_environment_only "$panel_log" &&
    jq -e '.loaded == true and .openResult == "ok" and
           .confirmationResult == "confirm" and .pendingAction == "shutdown" and
-          .cancelResult == "ok" and .lockResult == "ok" and
-          .invalidResult == "invalid" and (.calls | length) == 1 and
-          .calls[0].argv == ["/usr/bin/loginctl", "lock-session"] and
+          .cancelResult == "ok" and .lockResult == "confirm" and
+          .lockPendingAction == "lock" and .preConfirmationCalls == 0 and
+          .directRunResult == "confirm" and .directRunPendingAction == "lock" and
+          .directRunCalls == 0 and
+          .invalidResult == "invalid" and (.calls | length) == 5 and
+          .actionExecutions == 5 and
+          (.confirmedActions | map(.id)) == ["lock", "logout", "suspend", "reboot", "shutdown"] and
+          (.confirmationChecks | length) == 5 and
+          (.confirmationChecks | all(
+            .request == "confirm" and .pending == .id and
+            .callsBeforeConfirm == .callsAfterCancel and
+            .cancel == "ok" and .requestAgain == "confirm" and
+            .confirm == "ok" and
+            .callsAfterConfirm == (.callsBeforeConfirm + 1)
+          )) and
+          (.calls | map(.argv)) == [
+            ["/usr/bin/loginctl", "lock-session"],
+            ["/usr/bin/hyprctl", "dispatch", "exit"],
+            ["/usr/bin/systemctl", "suspend"],
+            ["/usr/bin/systemctl", "reboot"],
+            ["/usr/bin/systemctl", "poweroff"]
+          ] and
           .actionRunning == false' "$panel_result" >/dev/null; then
     pass "[isolated-runtime] real Session Actions panel covers open, confirmation, cancellation, action routing, and invalid input"
 elif [[ -s "$panel_result" ]] &&

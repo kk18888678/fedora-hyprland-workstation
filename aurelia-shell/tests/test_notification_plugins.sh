@@ -52,8 +52,12 @@ if [[ -f "$plugin_root/Service.qml" && -f "$plugin_root/BarWidget.qml" && -f "$p
    grep -q 'property var liveRefs' "$plugin_root/Service.qml" &&
    grep -q 'property var identityOriginalId' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'signal dismissed(var originalId, real timestamp, int index)' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'function emitDismissed' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'function dismissFromClose' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'function dismissFromPointer' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'root.dismissFromClose()' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'root.dismissFromPointer(mouse.button)' "$plugin_root/ui/NotificationToast.qml" &&
+   ! grep -Eq 'root\.dismissed\([[:space:]]*\)' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'ListModel' "$plugin_root/Service.qml" &&
    grep -q 'onNotification:' "$plugin_root/NotificationServerHost.qml" &&
    grep -q 'NotificationToast 1.0 NotificationToast.qml' "$plugin_root/ui/qmldir" &&
@@ -160,6 +164,7 @@ if grep -q 'property bool testMode' "$plugin_root/Service.qml" &&
    grep -q 'active: service.centerOpen && !service.testMode' "$plugin_root/Service.qml" &&
    grep -q 'toastSource' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'function emitDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
+   grep -q 'function emitCardDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'function onDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'service.dismissAt' "$ROOT/tests/fixtures/notifications/dismissal.qml"; then
     pass "[static] notification dismissal has a production-Service fixture boundary without live bus or desktop ownership"
@@ -454,6 +459,7 @@ if [[ "$dismissal_completed" -eq 1 ]] && [[ -s "$dismissal_result" ]] &&
           .historyCount == 3 and .popupFiles == 0 and .historyFiles == 3 and
           .dismissedIds == [42, 41, 43] and
           .malformedFallback == true and .mismatchedIdentityPreserved == true and
+          .pointerPathCovered == true and
           .firstDismissCalls == 1 and
           .secondDismissCalls == 1 and .thirdDismissCalls == 1' \
        "$dismissal_result" >/dev/null; then

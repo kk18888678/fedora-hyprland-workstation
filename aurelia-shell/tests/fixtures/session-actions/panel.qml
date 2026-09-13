@@ -48,6 +48,46 @@ ShellRoot {
             var pendingAction = item.confirmAction
             var cancelResult = item.cancelPendingAction()
             var lockResult = item.requestAction("lock")
+            var lockPendingAction = item.confirmAction
+            var preConfirmationCalls = calls.length
+            item.cancelPendingAction()
+            var directRunResult = item.runAction("lock")
+            var directRunPendingAction = item.confirmAction
+            var directRunCalls = calls.length
+            item.cancelPendingAction()
+
+            var actionIds = ["lock", "logout", "suspend", "reboot", "shutdown"]
+            var confirmationChecks = []
+            var confirmedActions = []
+            var actionExecutions = 0
+            for (var i = 0; i < actionIds.length; i++) {
+                var actionId = actionIds[i]
+                item.open("{}")
+                var callsBeforeConfirm = calls.length
+                var requested = item.requestAction(actionId)
+                var pending = item.confirmAction
+                var canceled = item.cancelPendingAction()
+                var callsAfterCancel = calls.length
+                item.open("{}")
+                var requestedAgain = item.requestAction(actionId)
+                var confirmed = item.activateSelection()
+                var callsAfterConfirm = calls.length
+                if (confirmed === "ok") {
+                    actionExecutions++
+                    confirmedActions.push({id: actionId, requested: requestedAgain, result: confirmed})
+                }
+                confirmationChecks.push({
+                    id: actionId,
+                    request: requested,
+                    pending: pending,
+                    callsBeforeConfirm: callsBeforeConfirm,
+                    cancel: canceled,
+                    callsAfterCancel: callsAfterCancel,
+                    requestAgain: requestedAgain,
+                    confirm: confirmed,
+                    callsAfterConfirm: callsAfterConfirm
+                })
+            }
             var invalidResult = item.requestAction("not-an-action")
             root.writeResult({
                 loaded: true,
@@ -56,8 +96,16 @@ ShellRoot {
                 pendingAction: pendingAction,
                 cancelResult: cancelResult,
                 lockResult: lockResult,
+                lockPendingAction: lockPendingAction,
+                directRunResult: directRunResult,
+                directRunPendingAction: directRunPendingAction,
+                directRunCalls: directRunCalls,
                 invalidResult: invalidResult,
                 calls: calls,
+                preConfirmationCalls: preConfirmationCalls,
+                confirmationChecks: confirmationChecks,
+                confirmedActions: confirmedActions,
+                actionExecutions: actionExecutions,
                 actionRunning: item.actionRunning === true
             })
         }
