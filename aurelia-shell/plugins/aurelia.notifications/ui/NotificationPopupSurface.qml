@@ -180,7 +180,7 @@ PanelWindow {
                     identityIndex: popupSlot.index
                     showArchive: false
                     onDismissed: function(originalId, timestamp, index) {
-                        root.notificationService.dismissAt(index, originalId, timestamp)
+                        root.notificationService.dismissPopupAt(index, originalId, timestamp)
                     }
                     onActivated: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onDefaultActionInvoked: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)

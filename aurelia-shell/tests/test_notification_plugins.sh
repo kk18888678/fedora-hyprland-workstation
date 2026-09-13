@@ -48,6 +48,9 @@ if [[ -f "$plugin_root/Service.qml" && -f "$plugin_root/BarWidget.qml" && -f "$p
    grep -q 'function deliver' "$plugin_root/NotificationServerHost.qml" &&
    grep -q 'NotificationFileLogic' "$plugin_root/Service.qml" &&
    grep -q 'NotificationPopupSurface' "$plugin_root/Service.qml" &&
+   grep -q 'dismissPopupAt' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'dismissAt(index, originalId, timestamp)' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'dismissAt(index, originalId, timestamp)' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'notification.tracked = true' "$plugin_root/Service.qml" &&
    grep -q 'property var liveRefs' "$plugin_root/Service.qml" &&
    grep -q 'property var identityOriginalId' "$plugin_root/ui/NotificationToast.qml" &&
@@ -165,6 +168,8 @@ if grep -q 'property bool testMode' "$plugin_root/Service.qml" &&
    grep -q 'toastSource' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'function emitDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'function emitCardDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
+   grep -q 'popupSourceMode' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
+   grep -q 'dismissPopupAt' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'function onDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
    grep -q 'service.dismissAt' "$ROOT/tests/fixtures/notifications/dismissal.qml"; then
     pass "[static] notification dismissal has a production-Service fixture boundary without live bus or desktop ownership"
@@ -459,7 +464,7 @@ if [[ "$dismissal_completed" -eq 1 ]] && [[ -s "$dismissal_result" ]] &&
           .historyCount == 3 and .popupFiles == 0 and .historyFiles == 3 and
           .dismissedIds == [42, 41, 43] and
           .malformedFallback == true and .mismatchedIdentityPreserved == true and
-          .pointerPathCovered == true and
+          .pointerPathCovered == true and .popupMalformedIdentityCovered == true and
           .firstDismissCalls == 1 and
           .secondDismissCalls == 1 and .thirdDismissCalls == 1' \
        "$dismissal_result" >/dev/null; then

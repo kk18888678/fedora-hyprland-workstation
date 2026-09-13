@@ -21,6 +21,8 @@ ShellRoot {
     property bool malformedFallback: false
     property bool mismatchedIdentityPreserved: false
     property bool pointerPathCovered: false
+    property bool popupMalformedIdentityCovered: false
+    property bool popupSourceMode: true
     property int dismissPass: 0
     property bool dismissalComplete: false
     property bool stateCountRequested: false
@@ -110,7 +112,9 @@ ShellRoot {
 
         Repeater {
             id: notificationRepeater
-            model: root.service ? root.service.activeModel : null
+            model: root.service
+                ? (root.popupSourceMode ? root.service.popupModel : root.service.activeModel)
+                : null
 
             delegate: Item {
                 id: notificationDelegate
@@ -131,6 +135,15 @@ ShellRoot {
 
                 function emitDismissed() {
                     if (!toastLoader.item) return false
+                    if (root.popupSourceMode && root.dismissPass === 1) {
+                        // Model a real delegate identity race: the popup row
+                        // remains authoritative while the Toast signal loses
+                        // its optional identity fields.
+                        toastLoader.item.identityOriginalId = undefined
+                        toastLoader.item.identityTimestamp = 0
+                        toastLoader.item.identityIndex = notificationDelegate.index
+                        root.popupMalformedIdentityCovered = true
+                    }
                     toastLoader.item.dismissFromClose()
                     return true
                 }
@@ -167,9 +180,12 @@ ShellRoot {
 
                 Connections {
                     target: toastLoader.item
-                function onDismissed(originalId, timestamp, index) {
-                    root.service.dismissAt(index, originalId, timestamp)
-                }
+                    function onDismissed(originalId, timestamp, index) {
+                        if (root.popupSourceMode)
+                            root.service.dismissPopupAt(index, originalId, timestamp)
+                        else
+                            root.service.dismissAt(index, originalId, timestamp)
+                    }
                 }
             }
         }
@@ -266,9 +282,11 @@ ShellRoot {
                 dismissRetryTimer.restart()
                 return
             }
-            var activeRow = root.service.activeModel.get(0)
-            if (!activeRow || String(delegate.originalId) !== String(activeRow.originalId) ||
-                Number(delegate.timestamp) !== Number(activeRow.timestamp)) {
+            var sourceModel = root.popupSourceMode
+                ? root.service.popupModel : root.service.activeModel
+            var sourceRow = sourceModel.get(0)
+            if (!sourceRow || String(delegate.originalId) !== String(sourceRow.originalId) ||
+                Number(delegate.timestamp) !== Number(sourceRow.timestamp)) {
                 // A Repeater can retain the removed delegate for one event-loop
                 // turn. Never simulate a close from that stale identity.
                 dismissRetryTimer.restart()
@@ -282,6 +300,7 @@ ShellRoot {
                 return
             }
             root.dismissPass++
+            if (root.dismissPass >= 2) root.popupSourceMode = false
             Qt.callLater(root.dismissThroughToast)
             return
         }
@@ -336,6 +355,7 @@ ShellRoot {
             malformedFallback: root.malformedFallback,
             mismatchedIdentityPreserved: root.mismatchedIdentityPreserved,
             pointerPathCovered: root.pointerPathCovered,
+            popupMalformedIdentityCovered: root.popupMalformedIdentityCovered,
             firstDismissCalls: first.dismissCalls,
             secondDismissCalls: second.dismissCalls,
             thirdDismissCalls: third.dismissCalls,

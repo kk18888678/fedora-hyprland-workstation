@@ -772,6 +772,34 @@ Item {
         }
         return "ok"
     }
+
+    function dismissPopupAt(index, originalId, timestamp) {
+        console.info("[NOTIFICATIONS] popup.dismiss index=" + index)
+        if (arguments.length >= 3 && service.hasUsableIdentity(originalId, timestamp)) {
+            return removeByIdentity(originalId, timestamp, "dismiss", index) ? "ok" : "none"
+        }
+        if (index < 0 || index >= popupNotificationsModel.count) return "none"
+
+        // The index belongs to popupNotificationsModel, not the active Inbox.
+        // Recover the authoritative identity from that exact popup row before
+        // resolving the corresponding active row. Never reinterpret a popup
+        // index as an active-model index after delegate identity loss.
+        var popupRow = popupNotificationsModel.get(index)
+        if (!popupRow || !Logic.hasPopupIdentity(popupRow)) {
+            console.error("[NOTIFICATIONS] popup.dismiss_skipped reason=invalid_identity")
+            return "invalid"
+        }
+        var activeIndex = activeIndexForIdentity(popupRow.originalId, popupRow.timestamp)
+        if (activeIndex < 0) {
+            popupNotificationsModel.remove(index)
+            console.info("[NOTIFICATIONS] popup.dismissed_only reason=active_row_unavailable")
+            return "ok"
+        }
+        removeAt(activeIndex, "dismiss", popupRow.originalId, popupRow.timestamp)
+        console.info("[NOTIFICATIONS] popup.identity_recovered source=popup index=" + index)
+        return "ok"
+    }
+
     function expireAt(index, originalId, timestamp) {
         console.info("[NOTIFICATIONS] popup.expire index=" + index)
         var identityProvided = arguments.length >= 3 &&
