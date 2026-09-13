@@ -6,9 +6,18 @@ ShellRoot {
     id: root
 
     readonly property string sourcePath: Quickshell.env("AURELIA_BAR_DEFAULT_SOURCE") || ""
+    readonly property string configSource: Quickshell.env("AURELIA_BAR_STATE_CONFIG_SOURCE") || ""
     readonly property string resultPath: Quickshell.env("AURELIA_BAR_DEFAULT_RESULT") || ""
     property var defaults: null
+    property var stateConfig: null
     property bool evaluated: false
+
+    Loader {
+        id: stateConfigLoader
+        active: root.configSource !== ""
+        source: root.configSource
+        onLoaded: root.stateConfig = item
+    }
 
     Loader {
         id: defaultsLoader
@@ -37,8 +46,35 @@ ShellRoot {
         repeat: false
         onTriggered: {
             if (root.evaluated || !root.defaults || root.resultPath === "") return
+            if (!root.stateConfig || !root.stateConfig.barDefaults.loaded) {
+                evaluateTimer.restart()
+                return
+            }
             root.evaluated = true
             var value = root.defaults.copy()
+            var stateBar = root.stateConfig.config && root.stateConfig.config.bar ? root.stateConfig.config.bar : ({})
+            var stateLayout = stateBar.layout || ({})
+            var explicit = {
+                version: 1,
+                plugins: [],
+                disabledPlugins: [],
+                bar: {
+                    id: "aurelia.bar",
+                    position: "top",
+                    transparent: false,
+                    centerAnchor: "aurelia.clock",
+                    layout: {
+                        left: [],
+                        center: [],
+                        right: [{id: "aurelia.user-widget"}]
+                    }
+                }
+            }
+            var explicitNormalized = root.stateConfig.normalize(explicit)
+            root.stateConfig.configUsesDefaultBar = false
+            root.stateConfig.config = explicitNormalized
+            root.stateConfig.syncDefaultBar()
+            var explicitAfterSync = root.stateConfig.config.bar.layout.right
             resultFile.setText(JSON.stringify({
                 loaded: root.defaults.loaded,
                 id: value.id,
@@ -46,7 +82,9 @@ ShellRoot {
                 centerAnchor: value.centerAnchor,
                 left: value.layout.left.map(function(entry) { return entry.id }),
                 center: value.layout.center.map(function(entry) { return entry.id }),
-                right: value.layout.right.map(function(entry) { return entry.id })
+                right: value.layout.right.map(function(entry) { return entry.id }),
+                stateRight: (stateLayout.right || []).map(function(entry) { return entry.id }),
+                explicitRight: explicitAfterSync.map(function(entry) { return entry.id })
             }) + "\n")
         }
     }

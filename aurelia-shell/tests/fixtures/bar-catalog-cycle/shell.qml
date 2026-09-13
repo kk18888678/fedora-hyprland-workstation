@@ -104,6 +104,11 @@ ShellRoot {
     function tryConfigure() {
         if (root.triggered || !root.barRegistry || !root.stateConfig) return
         root.stateConfig.barWidgetRegistry = root.barRegistry
+        // This fixture injects an explicit user layout directly instead of
+        // loading shell.json through ShellConfig.reload(). Mark it explicit
+        // so the default-file readiness path does not replace the fixture's
+        // deliberate center entries.
+        root.stateConfig.configUsesDefaultBar = false
         root.stateConfig.config = {
             version: 1,
             plugins: [],

@@ -24,6 +24,7 @@ QtObject {
             right: [
                 {id: "aurelia.tray"},
                 {id: "aurelia.network"},
+                {id: "aurelia.audio"},
                 {id: "aurelia.bluetooth"},
                 {id: "aurelia.monitor"},
                 {id: "aurelia.screenshot"},

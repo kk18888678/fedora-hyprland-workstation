@@ -31,6 +31,14 @@ else
     fail "[static] Audio panel is missing the reference output/input/stream structure"
 fi
 
+if grep -Fq 'function safeListLength' "$panel_file" &&
+   grep -Fq 'function visibleSectionList' "$panel_file" &&
+   grep -Fq 'var sections = root.visibleSectionList()' "$panel_file"; then
+    pass "[static] Audio cursor clamping tolerates transiently unavailable section state"
+else
+    fail "[static] Audio cursor clamping can dereference transient undefined section state"
+fi
+
 if grep -Fq 'function setOutputVolume' "$panel_file" &&
    grep -Fq 'function setInputVolume' "$panel_file" &&
    grep -Fq 'function toggleOutputMute' "$panel_file" &&
@@ -55,6 +63,14 @@ if grep -Fq 'mouse.button === Qt.MiddleButton' "$widget_file" &&
     pass "[static] Audio bar maps primary/middle panel, right mute, and scroll output volume"
 else
     fail "[static] Audio bar interaction semantics are incomplete"
+fi
+
+if grep -Fq 'function outputBarGlyph' "$audio_root/Model.js" &&
+   grep -Fq 'Model.outputBarGlyph' "$widget_file" &&
+   grep -Fq 'Model.outputBarGlyph' "$panel_file"; then
+    pass "[static] Audio bar and hero consume one canonical volume-sensitive output glyph"
+else
+    fail "[static] Audio output glyph ownership or bar/hero integration is incomplete"
 fi
 
 if jq -e '
@@ -89,6 +105,13 @@ assert(audio.clampVolume(2, 1) === 1, 'output/input volume clamps at one')
 assert(audio.clampVolume(2, 1.5) === 1.5, 'stream volume clamps at stream maximum')
 assert(audio.steppedVolume(0.95, 0.1, 1) === 1, 'output wheel step clamps at one')
 assert(audio.steppedVolume(0.05, -0.1, 1) === 0, 'input wheel step clamps at zero')
+assert(audio.outputBarGlyph(null, 0, false) === '', 'missing output uses muted glyph')
+const speakers = { description: 'Built-in Speakers', audio: {} }
+assert(audio.outputBarGlyph(speakers, 0.2, false) === '', 'low output glyph')
+assert(audio.outputBarGlyph(speakers, 0.5, false) === '', 'medium output glyph')
+assert(audio.outputBarGlyph(speakers, 0.8, false) === '', 'high output glyph')
+assert(audio.outputBarGlyph(speakers, 0.8, true) === '', 'muted output glyph')
+assert(audio.outputBarGlyph({ description: 'Bluetooth Headphones', audio: {} }, 0.8, true) === '󰋋', 'headphone glyph takes precedence')
 assert(audio.outputVolumeName(0, false) === 'Silenced', 'zero output remains bounded')
 assert(audio.outputVolumeName(1.5, false) === 'Concert hall', 'loud output label remains deterministic')
 NODE_AUDIO_CONTROLS

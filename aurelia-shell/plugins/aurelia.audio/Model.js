@@ -112,6 +112,20 @@ function sinkGlyph(node) {
   return "󰓃"
 }
 
+// The bar affordance uses the reference's volume-sensitive glyph set. Keep
+// this separate from sinkGlyph(), which describes a device row in the panel.
+function outputBarGlyph(node, volume, muted) {
+  if (!node || !node.audio) return ""
+  if (isHeadphones(node)) return "󰋋"
+  if (muted) return ""
+  var level = Number(volume)
+  if (!isFinite(level)) level = 0
+  if (level >= 0.67) return ""
+  if (level >= 0.34) return ""
+  if (level > 0) return ""
+  return ""
+}
+
 function sourceGlyph(node) {
   if (!node) return "󰍬"
   var p = nodeProps(node)
@@ -259,6 +273,7 @@ if (typeof module !== "undefined") {
     nodeLabel: nodeLabel,
     isHeadphones: isHeadphones,
     sinkGlyph: sinkGlyph,
+    outputBarGlyph: outputBarGlyph,
     sourceGlyph: sourceGlyph,
     friendlyStreamLabel: friendlyStreamLabel,
     streamLabelKey: streamLabelKey,

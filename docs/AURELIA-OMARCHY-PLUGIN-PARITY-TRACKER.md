@@ -1,8 +1,8 @@
 # Aurelia–Omarchy Plugin Parity Tracker
 
-Status: requested reference refresh T35, Audio foundation T36, and Audio
-panel/default-bar interaction T37 are complete; T38 is next for the optional
-Microphone widget, T34 records the
+Status: requested reference refresh T35, Audio foundation T36, and T37 Audio
+panel/default-bar work are complete for repository/static/isolated evidence;
+T38 is next for the optional Microphone widget, T34 records the
 Bluetooth discovery-retention issue and remains not started, T30 remains
 queued as the separately requested plugin-local test-directory task, and live
 visual/integration validation remains deferred pending explicit authorization.
@@ -3182,7 +3182,9 @@ Dependencies: T35, T02A, T31, T32.
 
 ### T37. Implement Audio panel and output interaction parity
 
-Execution status: COMPLETE — CP2 and CP3 passed
+Execution status: COMPLETE — corrective CP2/CP3 passed for repository,
+static, and isolated evidence; post-fix real-Wayland confirmation remains
+deferred
 
 Checkpoint 2 — T37 pre-change boundary:
 
@@ -3289,8 +3291,163 @@ Checkpoint 3 — T37 post-change evidence:
   configuration, systemd/greetd state, live shell restart, or reboot was
   touched.
 
-CP3 status: `[x]` complete for repository/static/isolated evidence; optional
-real-Wayland UI confirmation remains separately authorized and unrun.
+CP3 status: `[x]` original repository/static/isolated gates passed; the live
+catalog, warning, and icon reports were converted into corrective checkpoints
+and are covered below.
+
+Corrective checkpoint 2 — default-bar readiness:
+
+- Starting branch/HEAD: `installer-resilience`,
+  `5958e5e1e333605e2d62be63acc6c749a677afd1` (`feat(audio): add panel
+  controls and default bar widget`); working tree was clean before this
+  tracker-only checkpoint.
+- Read-only live catalog evidence: `aurelia.audio` was discovered and enabled
+  but reported `loaded=false`, `visible=false`, and `inBar=false`; the active
+  bar reported ten widget slots while the repository-owned
+  `config/bar-default.json` contains Audio after Network.
+- Root-cause boundary: `BarDefaultConfig.qml` still had the pre-T37 in-memory
+  fallback and `ShellConfig` did not resynchronize an implicit default bar
+  after the asynchronous default `FileView` completed. This affects a missing
+  user `bar` document only; an explicit user-owned bar must remain untouched.
+- Allowed files: `services/BarDefaultConfig.qml`, the narrowly scoped
+  default-readiness connection in `services/ShellConfig.qml`, the existing
+  bar-default fixture, its focused test, and this tracker. No plugin identity,
+  Audio controls, user state, or host lifecycle may change.
+- Required regression: exercise `ShellConfig` with a missing explicit bar,
+  wait for the canonical default document to become ready, and assert the
+  active in-memory right layout contains Audio; also assert an explicit
+  user-owned bar is not overwritten.
+- Persisted/live-state impact: no user-state write, PipeWire mutation,
+  package operation, live shell restart, systemd/greetd change, or reboot is
+  allowed. The fix must only repair in-memory default readiness.
+- Rollback: revert only the fallback, readiness connection, fixture/test, and
+  tracker changes if the regression test or full gates fail; retain T36 and
+  the Audio panel implementation.
+
+Corrective CP2 status: `[x]` baseline and exact ownership/rollback boundary
+recorded before source edits.
+
+Corrective checkpoint 2b — Audio panel transient cursor state:
+
+- Runtime evidence: a real source-checkout restart emitted two unsuppressed
+  warnings from `AudioPanel.qml:298`: `visibleSections` was transiently
+  undefined while PipeWire-backed panel properties were settling, and
+  `clampCursor()` dereferenced `.length` during that signal path.
+- Working-tree boundary: only the T37 default-readiness correction, its
+  fixtures/tests, and this tracker are currently uncommitted; no unrelated
+  user change is available to stage.
+- Allowed files: `plugins/aurelia.audio/AudioPanel.qml`, the existing Audio
+  interaction test, and this tracker. The fix must be a bounded defensive
+  handling of the transient section list, not warning suppression or a change
+  to PipeWire ownership.
+- Required regression: the Audio interaction contract must assert the
+  cursor-clamp path handles an unavailable section list without dereferencing
+  undefined state; the live warning must disappear after a controlled shell
+  restart authorized by the user.
+- Persisted/live-state impact: no PipeWire state, user configuration,
+  package, systemd/greetd state, or reboot change is permitted. A shell
+  restart is validation only and must not be performed by repository tests.
+- Rollback: revert only the Audio cursor guard and its focused assertion if
+  the warning contract or full gates fail; retain the default-readiness repair.
+
+Corrective CP2b status: `[x]` warning evidence, ownership boundary, test
+contract, and rollback path recorded before the Audio panel edit.
+
+Corrective checkpoint 2b follow-up — first guard insufficient:
+
+- Post-edit hot-reload evidence: the live shell still emitted
+  `AudioPanel.qml:298: TypeError: Value is undefined and could not be
+  converted to an object` after the initial `visibleSections || []` guard.
+  The first guard is therefore not accepted as the final fix.
+- Required correction: avoid dereferencing the reactive section property in
+  the transient callback path; compute a fresh, always-array section list from
+  individually validated display lists and use a bounded list-length helper
+  for every cursor section decision.
+- Allowed files remain `plugins/aurelia.audio/AudioPanel.qml`, the focused
+  Audio interaction test, and this tracker. No warning suppression, PipeWire
+  ownership change, or unrelated plugin edit is allowed.
+- Required regression: static and isolated contract checks must prove the
+  safe list-length/section-list boundary is present; a subsequent user
+  restart/hot-reload must show no AudioPanel warning.
+
+Corrective CP2b follow-up status: `[x]` the initial defensive patch was
+rejected by live evidence; the stronger list-boundary correction passes the
+focused Audio suite and full repository gates. Post-fix real-Wayland restart
+remains pending.
+
+Corrective checkpoint 2c — Audio bar icon parity:
+
+- Runtime/user evidence: after the default-bar readiness repair, the Audio
+  widget is present but its bar icon is visually wrong. Source comparison
+  shows Omarchy's bar uses a volume-sensitive `outputIcon()` contract
+  (mute/low/medium/high/headphones), while Aurelia currently routes the
+  static device `sinkGlyph()` to the bar affordance.
+- Working-tree boundary: only T37 corrective changes and this tracker are
+  currently uncommitted; no unrelated user change is available to stage.
+- Allowed files: the Audio pure model, Audio bar/panel consumers, the focused
+  Audio interaction test, and this tracker. Existing Aurelia icon rendering,
+  font/theme ownership, plugin identity, and PipeWire ownership must remain
+  unchanged.
+- Required regression: pure model assertions must cover every output-icon
+  band and headphone/mute precedence; the bar and Audio hero must consume the
+  canonical model result rather than a duplicated glyph ladder.
+- Persisted/live-state impact: no PipeWire mutation, user configuration,
+  package, systemd/greetd state, or reboot change is permitted. Visual
+  confirmation remains a separate real-Wayland validation step.
+- Rollback: revert only the canonical output-icon model/consumers and their
+  focused assertions if the icon contract or full gates fail; retain the
+  default-readiness and cursor-warning corrections.
+
+Corrective CP2c status: `[x]` reference contract, exact scope, test boundary,
+and rollback path recorded before icon edits.
+
+Corrective checkpoint 3 — final T37 evidence:
+
+- Default-readiness regression: `test_bar_default_config.sh` — 3 passed,
+  0 failed. This includes the asynchronous missing-bar path that previously
+  omitted Audio and the explicit user-layout preservation guard.
+- Existing bar-operation regression: `test_bar_operations.sh` — 9 passed,
+  0 failed; the catalog/config signal boundary remains convergent.
+- Audio interaction suite: `test_audio_interactions.sh` — 7 passed, 0
+  failed. It covers the transient cursor guard and the canonical low,
+  medium, high, muted, missing-output, and headphone glyph results.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 565 passed, 0 failed.
+- Repository functional suite: `./tests/run.sh` — 228 passed, 0 failed.
+  The repository ShellCheck stage still reports pre-existing findings in
+  unrelated installer/test files; the two changed shell test files pass
+  ShellCheck with zero findings.
+- Syntax: repository-wide `bash -n` — 239 shell scripts passed.
+- Diff hygiene: `git diff --check` passed; no generated files or test
+  artifacts remain in the repository.
+- Default state fix: the in-memory fallback now matches the canonical JSON,
+  and `ShellConfig` refreshes only default-backed state after asynchronous
+  readiness; explicit user-owned bar layouts are not replaced.
+- Warning fix: cursor navigation now computes an always-array
+  `visibleSectionList()` through `safeListLength()` before any length/index
+  operation, covering transient QML initialization state. No warning filter,
+  `|| true` diagnostic suppression, or log downgrade was added.
+- Icon fix: the pure model now owns the exact Omarchy volume-sensitive output
+  glyph ladder; both the bar affordance and Audio hero consume it while
+  device-row glyphs remain separate.
+- Last live evidence: the user-provided restart before these final edits
+  emitted the AudioPanel warning and showed the old icon. A post-fix
+  source-checkout restart has not been performed by the agent; visual
+  confirmation remains explicitly separate from these passing tests.
+- Files changed: Audio model/bar/panel, default state services, focused Audio
+  and bar fixtures/tests, the catalog-cycle fixture, and this tracker.
+- User-visible behavior changed: yes; Audio is available through the shipped
+  default bar with a dynamic reference-matched icon and the previous default
+  readiness/cursor warning paths are repaired.
+- Existing Aurelia feature impact: no plugin IDs, entry points, user-owned
+  layout, theme ownership, or non-Audio feature was renamed, moved, or
+  overwritten; full preservation gates passed.
+- Rollback/migration evidence: no persisted user-state migration or PipeWire
+  mutation was performed; reverting this T37 repair restores the prior
+  default-readiness behavior without touching user data.
+
+Corrective CP3 status: `[x]` repository/static/isolated acceptance complete;
+real-Wayland visual confirmation remains pending and is not claimed.
+
 
 Exit gate: Audio is present in the shipped Aurelia bar with Omarchy's control
 semantics, no feature regression, no shell-wide failure from unavailable audio,

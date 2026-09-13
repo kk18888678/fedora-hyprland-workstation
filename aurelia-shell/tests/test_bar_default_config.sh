@@ -15,6 +15,9 @@ if [[ -f "$default_file" && -f "$default_service" ]] &&
    grep -q 'BarDefaultConfig 1.0 BarDefaultConfig.qml' "$ROOT/services/qmldir" &&
    grep -q 'property BarDefaultConfig barDefaults' "$shell_config" &&
    grep -q 'barDefaults.copy' "$shell_config" &&
+   grep -q 'barDefaultsConnection' "$shell_config" &&
+   grep -q 'onValueChanged' "$shell_config" &&
+   grep -q 'aurelia.audio' "$default_service" &&
    grep -q 'shellConfig.defaultBarConfig' "$bar_root" &&
    jq -e '.id == "aurelia.bar" and .position == "top" and .centerAnchor == "aurelia.clock" and
           (.layout.left[0].id == "aurelia.workspaces") and
@@ -48,6 +51,7 @@ mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config"
 result_path="$runtime_root/result.json"
 runtime_status=0
 AURELIA_BAR_DEFAULT_SOURCE="$default_service" \
+AURELIA_BAR_STATE_CONFIG_SOURCE="$shell_config" \
 AURELIA_BAR_DEFAULT_RESULT="$result_path" \
 QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
 XDG_RUNTIME_DIR="$runtime_root/runtime" XDG_STATE_HOME="$runtime_root/state" \
@@ -60,7 +64,8 @@ if [[ "$runtime_status" -eq 0 ]] && jq -e '
     .centerAnchor == "aurelia.clock" and
     .left == ["aurelia.workspaces"] and
     .center == ["aurelia.notifications", "aurelia.clock", "aurelia.weather"] and
-    .right == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.power"]
+    .right == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.power"] and
+    .stateRight == .right and .explicitRight == ["aurelia.user-widget"]
   ' "$result_path" >/dev/null; then
     pass "[isolated-runtime] canonical bar-default loader returns the preserved default layout"
 else

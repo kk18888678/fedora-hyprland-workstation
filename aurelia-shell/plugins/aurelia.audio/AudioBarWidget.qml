@@ -5,9 +5,8 @@ import "../../theme"
 import "../../ui"
 import "Model.js" as Model
 
-// T36 Audio foundation. The plugin is intentionally opt-in until T37 adds it
-// to the shipped layout; its live objects remain owned by PipeWire and its
-// panel is loaded behind the normal host Loader boundary.
+// Omarchy-aligned Audio bar affordance. PipeWire owns live objects and the
+// panel remains behind the normal host Loader boundary.
 Item {
     id: root
 
@@ -32,8 +31,7 @@ Item {
     visible: root.audioAvailable
 
     function outputGlyph() {
-        if (root.outputMuted) return "󰝟"
-        return Model.sinkGlyph(root.sink)
+        return Model.outputBarGlyph(root.sink, root.outputVolume, root.outputMuted)
     }
 
     function configurePanel(target) {

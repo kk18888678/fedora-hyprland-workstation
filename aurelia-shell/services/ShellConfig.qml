@@ -31,6 +31,11 @@ QtObject {
     property bool migrationInProgress: false
     property string migrationResult: ""
     property string migrationText: ""
+    // A missing `bar` field uses the repository-owned default in memory until
+    // the user explicitly persists a layout. This lets an asynchronous
+    // BarDefaultConfig FileView become authoritative without overwriting an
+    // explicit user-owned bar document.
+    property bool configUsesDefaultBar: true
     readonly property int settingsMaxBytes: 65536
     readonly property int settingsMaxDepth: 8
     readonly property int settingsMaxNodes: 512
@@ -152,6 +157,7 @@ QtObject {
         } catch (e) {}
         if (current === serialized) {
             configRoot.config = next
+            configRoot.configUsesDefaultBar = false
             configRoot.lastSaveOk = true
             configRoot.lastMutationChanged = false
             configRoot.lastError = ""
@@ -167,6 +173,7 @@ QtObject {
             configRoot.lastError = "Could not persist Aurelia shell config."
             return false
         }
+        configRoot.configUsesDefaultBar = false
         configRoot.lastError = ""
         configRoot.revision++
         return true
@@ -396,6 +403,7 @@ QtObject {
             return
         }
         configRoot.migrationNeeded = false
+        configRoot.configUsesDefaultBar = false
         configRoot.migrationResult = "migrated"
         configRoot.migrationText = ""
         configRoot.lastError = ""
@@ -454,6 +462,7 @@ QtObject {
                 loaded = {}
             }
         }
+        configRoot.configUsesDefaultBar = !objectHas(loaded, "bar")
         configRoot.config = normalize(loaded)
         configRoot.migrationNeeded = sourceWasCanonicalVersion &&
             raw !== configRoot.serializeConfig(configRoot.config)
@@ -461,6 +470,25 @@ QtObject {
             configRoot.migrationResult !== "migrated")
             configRoot.migrationResult = "not-needed"
         configRoot.revision++
+    }
+
+    function syncDefaultBar() {
+        if (!configRoot.configUsesDefaultBar || configRoot.migrationInProgress) return
+        var current = configRoot.config
+        if (!configRoot.isPlainObject(current)) return
+        var next = configRoot.cloneJson(current)
+        if (!configRoot.isPlainObject(next)) return
+        next.bar = configRoot.defaultBarConfig()
+        var normalized = configRoot.normalize(next)
+        if (configRoot.serializeConfig(normalized) === configRoot.serializeConfig(current)) return
+        configRoot.config = normalized
+        configRoot.revision++
+    }
+
+    property Connections barDefaultsConnection: Connections {
+        target: configRoot.barDefaults
+        function onValueChanged() { configRoot.syncDefaultBar() }
+        function onLoadedChanged() { configRoot.syncDefaultBar() }
     }
 
     function contains(list, value) {

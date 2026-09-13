@@ -146,10 +146,15 @@ AureliaKeyboardPanel {
         root.displayAudioStreams = []
     }
 
+    function safeListLength(value) {
+        if (!value || typeof value.length !== "number" || !isFinite(value.length)) return 0
+        return Math.max(0, Math.floor(value.length))
+    }
+
     function sectionCount(section) {
-        if (section === "output") return root.displayAudioSinks.length
-        if (section === "input") return root.displayAudioSources.length
-        if (section === "streams") return root.displayAudioStreams.length
+        if (section === "output") return root.safeListLength(root.displayAudioSinks)
+        if (section === "input") return root.safeListLength(root.displayAudioSources)
+        if (section === "streams") return root.safeListLength(root.displayAudioStreams)
         return 0
     }
 
@@ -161,12 +166,12 @@ AureliaKeyboardPanel {
 
     function sectionVisible(section) {
         if (section === "output") return true
-        if (section === "input") return root.displayAudioSources.length > 0 || root.hasInput
-        if (section === "streams") return root.displayAudioStreams.length > 0
+        if (section === "input") return root.safeListLength(root.displayAudioSources) > 0 || root.hasInput
+        if (section === "streams") return root.safeListLength(root.displayAudioStreams) > 0
         return false
     }
 
-    readonly property var visibleSections: {
+    function visibleSectionList() {
         var sections = []
         if (root.sectionVisible("output")) sections.push("output")
         if (root.sectionVisible("input")) sections.push("input")
@@ -174,8 +179,10 @@ AureliaKeyboardPanel {
         return sections
     }
 
+    readonly property var visibleSections: root.visibleSectionList()
+
     function moveCursor(delta) {
-        var sections = root.visibleSections
+        var sections = root.visibleSectionList()
         if (sections.length === 0) return
         if (root.focusSection === "header") {
             if (delta > 0) {
@@ -221,7 +228,7 @@ AureliaKeyboardPanel {
     }
 
     function moveSection(delta) {
-        var sections = root.visibleSections
+        var sections = root.visibleSectionList()
         if (sections.length === 0) return
         var index = sections.indexOf(root.focusSection)
         if (index < 0) index = delta > 0 ? -1 : 0
@@ -241,7 +248,7 @@ AureliaKeyboardPanel {
             return
         }
         if (root.focusSection === "streams" && root.selectedIndex >= 0 &&
-            root.selectedIndex < root.displayAudioStreams.length) {
+            root.selectedIndex < root.safeListLength(root.displayAudioStreams)) {
             var stream = root.displayAudioStreams[root.selectedIndex]
             if (stream && stream.audio)
                 stream.audio.volume = Model.steppedVolume(stream.audio.volume, delta, 1.5)
@@ -294,7 +301,7 @@ AureliaKeyboardPanel {
 
     function clampCursor() {
         if (root.focusSection === "header") return
-        var sections = root.visibleSections
+        var sections = root.visibleSectionList()
         if (sections.length === 0) {
             root.focusSection = "header"
             root.selectedIndex = -1
@@ -391,11 +398,11 @@ AureliaKeyboardPanel {
         }
     }
     onRawAudioSinksChanged: {
-        if (root.rawAudioSinks.length > 0) root.cachedAudioSinks = root.rawAudioSinks
+        if (root.safeListLength(root.rawAudioSinks) > 0) root.cachedAudioSinks = root.rawAudioSinks
         root.scheduleDisplayAudioModelRefresh()
     }
     onRawAudioSourcesChanged: {
-        if (root.rawAudioSources.length > 0) root.cachedAudioSources = root.rawAudioSources
+        if (root.safeListLength(root.rawAudioSources) > 0) root.cachedAudioSources = root.rawAudioSources
         root.scheduleDisplayAudioModelRefresh()
     }
     onCandidateStreamsChanged: root.scheduleDisplayAudioModelRefresh()
@@ -451,7 +458,7 @@ AureliaKeyboardPanel {
                         width: 34
                         height: 34
                         iconSize: 34
-                        glyph: root.outputMuted ? "󰝟" : Model.sinkGlyph(root.sink)
+                        glyph: Model.outputBarGlyph(root.sink, root.outputVolume, root.outputMuted)
                         tint: Theme.text
                     }
 
