@@ -4,7 +4,8 @@ Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, and corrective T43–T46
 runtime/test-truth work are complete for repository/static/headless evidence;
-T42 is next for final acceptance. T34 records the Bluetooth
+T47 is the active session-actions restoration before T42 final acceptance.
+T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
 integration validation remains deferred pending explicit authorization.
@@ -4374,6 +4375,74 @@ Dependencies: T30, T39, T43, T44, T45, T02A, T31, T32, T33.
 
 ---
 
+### T47. Restore the former session-action surface as a separate plugin
+
+Execution status: NOT STARTED — tracker checkpoint recorded before source/test edits
+
+Checkpoint 1 — T47 audit boundary:
+
+- The pre-T39 `aurelia.power/PowerPanel.qml` was an action-only popup with
+  `Lock`, `Logout`, `Suspend`, `Reboot`, and `Shutdown` rows. Its structured
+  commands were `loginctl lock-session`, `hyprctl dispatch exit`,
+  `systemctl suspend`, `systemctl reboot`, and `systemctl poweroff`; reboot and
+  shutdown required confirmation.
+- T39 replaced that root surface with Omarchy-aligned UPower battery/profile/
+  statistics UX. The five action rows remain inside the new battery-gated
+  panel, so `batteryPresent == false` makes the former session controls
+  unreachable even though the shell is healthy.
+- The refreshed Omarchy Power panel is battery/profile focused and its
+  acceptance test intentionally hides it without battery hardware. Therefore
+  restoring these Aurelia-owned session actions inside `aurelia.power` would
+  re-couple unrelated responsibilities and would diverge from the reference.
+- The new plugin will use the distinct ID `aurelia.session-actions`, with a
+  bar widget and keyboard-capable popup. It will preserve all five former
+  actions, structured argv, confirmation for destructive actions, and the
+  existing Aurelia theme/popup language without changing `aurelia.power`'s
+  battery visibility contract.
+
+Scope and preservation boundary:
+
+- Add one first-party `aurelia.session-actions` bar-widget plugin with its own
+  manifest, entry point, pure action model, runtime process owner, popup, and
+  focused tests.
+- Add it to the canonical default bar alongside `aurelia.power`, so the
+  session actions are available with or without battery hardware. Keep every
+  existing bar entry, order, user state, and plugin ID valid; only append the
+  new user-requested affordance at the former action surface's location.
+- Keep `aurelia.power` battery/profile/statistics behavior and its
+  `no_battery` hidden contract unchanged. The new plugin must not import UPower
+  or depend on battery availability.
+- Route actions through a typed non-visual runtime object so no `Process` is
+  inserted into `AureliaKeyboardPanel.contentItem`. Test executors are injected
+  only in disposable fixtures; production actions remain structured argv.
+- Do not execute lock/logout/suspend/reboot/shutdown, modify live bar state,
+  systemd/greetd/PAM/Hyprland configuration, install packages, or reboot.
+
+Required tests:
+
+- [ ] Manifest validation, registry discovery, default layout placement, and
+  host failure containment cover the new plugin ID and entry point.
+- [ ] Pure model tests cover all five action rows, exact argv, destructive
+  confirmation, invalid-action rejection, and deterministic labels/glyphs.
+- [ ] Isolated QML tests load the real bar widget/panel, exercise open/close,
+  confirmation/cancellation, fake-executor success/failure, and prove no
+  production command is executed by the fixture.
+- [ ] Existing `aurelia.power` no-battery hiding and all existing default bar
+  entries remain covered; the new session widget remains visible without a
+  battery backend.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates pass with no suppressed
+  warnings; live destructive action execution remains unrun.
+
+Checkpoint 2 status: `[ ]` pending the tracker-only commit for this boundary.
+
+Exit gate: the former Aurelia session actions are available through a distinct
+plugin without restoring them to `aurelia.power`, without requiring battery
+hardware, and without making the shell or its battery widget fragile.
+
+Dependencies: T39, T44, T46, T02A, T31, T33.
+
+---
+
 ### T42. Requested capability integration and final acceptance gate
 
 Execution status: NOT STARTED — queued behind completed corrective T43 through T45
@@ -4461,6 +4530,7 @@ Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T02A, T31, T32, T33.
 | Bar hidden-state watcher passes a directory to Aurelia's file reader | T45 |
 | Default test command permits skipped coverage and omits runnable suite files | T46 |
 | Power no-battery capability is not clearly distinguished from widget failure | T46, T39, T44 |
+| Former Power action menu became unreachable after battery-gated redesign | T47 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
