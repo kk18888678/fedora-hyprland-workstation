@@ -50,6 +50,10 @@ if [[ -f "$plugin_root/Service.qml" && -f "$plugin_root/BarWidget.qml" && -f "$p
    grep -q 'NotificationPopupSurface' "$plugin_root/Service.qml" &&
    grep -q 'notification.tracked = true' "$plugin_root/Service.qml" &&
    grep -q 'property var liveRefs' "$plugin_root/Service.qml" &&
+   grep -q 'property var identityOriginalId' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'signal dismissed(var originalId, real timestamp, int index)' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'function dismissFromClose' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'root.dismissFromClose()' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'ListModel' "$plugin_root/Service.qml" &&
    grep -q 'onNotification:' "$plugin_root/NotificationServerHost.qml" &&
    grep -q 'NotificationToast 1.0 NotificationToast.qml' "$plugin_root/ui/qmldir" &&
@@ -132,12 +136,15 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'function removeByIdentity' "$plugin_root/Service.qml" &&
    grep -q 'function activeIndexForIdentity' "$plugin_root/Service.qml" &&
    grep -q 'popup.archive_skipped' "$plugin_root/Service.qml" &&
+   grep -q 'function hasUsableIdentity' "$plugin_root/Service.qml" &&
+   grep -q 'popup.identity_recovered' "$plugin_root/Service.qml" &&
+   ! grep -q 'removeAt(indexHint, reason, originalId, timestamp)' "$plugin_root/Service.qml" &&
    ! grep -q 'property Timer stateSaveTimer' "$plugin_root/Service.qml" &&
    grep -q 'notificationBusProbe' "$plugin_root/Service.qml" &&
    grep -q 'busctl' "$plugin_root/Service.qml" &&
    grep -q 'busOwnerPid' "$plugin_root/Service.qml" &&
    grep -q 'notificationBusHealthTimer' "$plugin_root/Service.qml" &&
-   grep -q 'active: true' "$plugin_root/Service.qml" &&
+   grep -q 'active: !service.testMode' "$plugin_root/Service.qml" &&
    grep -q 'file_job_retry' "$plugin_root/Service.qml" &&
    grep -q 'file_job_failed' "$plugin_root/Service.qml" &&
    grep -q 'server.bus_available' "$plugin_root/Service.qml" &&
@@ -146,6 +153,18 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
     pass "DND and bounded history have an XDG-state-backed service API with center actions"
 else
     fail "Notification DND/history persistence or IPC contract is incomplete"
+fi
+
+if grep -q 'property bool testMode' "$plugin_root/Service.qml" &&
+   grep -q 'model: service.testMode ? \[\] : Quickshell.screens' "$plugin_root/Service.qml" &&
+   grep -q 'active: service.centerOpen && !service.testMode' "$plugin_root/Service.qml" &&
+   grep -q 'toastSource' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
+   grep -q 'function emitDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
+   grep -q 'function onDismissed' "$ROOT/tests/fixtures/notifications/dismissal.qml" &&
+   grep -q 'service.dismissAt' "$ROOT/tests/fixtures/notifications/dismissal.qml"; then
+    pass "[static] notification dismissal has a production-Service fixture boundary without live bus or desktop ownership"
+else
+    fail "[static] notification dismissal fixture boundary is incomplete"
 fi
 
 if grep -q 'aurelia-action' "$plugin_root/NotificationLogic.js" &&
@@ -277,6 +296,9 @@ const popup = { id: 7, originalId: 7, timestamp: 100, appIcon: sourceUrl.fileUrl
 if (logic.popupFileName(popup) !== '100-7.json') process.exit(1);
 if (logic.popupFileName({ summary: 'missing identity' }) !== '') process.exit(1);
 if (!logic.hasPopupIdentity(popup) || logic.hasPopupIdentity({ summary: 'missing identity' })) process.exit(1);
+if (logic.popupFileName({ id: 7, originalId: 7, timestamp: 0, summary: 'zero timestamp' }) !== '') process.exit(1);
+if (logic.parseHistory(JSON.stringify([{ id: 7, originalId: 7, timestamp: 0, summary: 'invalid' }]), 50).length !== 0) process.exit(1);
+if (logic.parsePopupFiles(JSON.stringify({ id: 7, originalId: 7, timestamp: 0, summary: 'invalid' }), 1).length !== 0) process.exit(1);
 const persistable = logic.persistablePopup(popup, '/tmp/state/images/');
 if (persistable.copies.length !== 1 || persistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/100-7-appIcon')) process.exit(1);
 if (logic.popupExpired({ timestamp: 100 }, 8000, 9000) !== true) process.exit(1);
@@ -291,6 +313,9 @@ if (!logic.screenshotSnapshot("/tmp/capture.png", 789).transient) process.exit(1
 const actionSnapshot = logic.snapshotOf({ id: 5, actions: [{ identifier: "default", text: "" }] }, 456);
 if (actionSnapshot.actions.length !== 0 || actionSnapshot.defaultActionText !== "Open") process.exit(1);
 const historySnapshot = logic.historyEntry({
+    id: 8,
+    originalId: 8,
+    timestamp: 777,
     summary: "Saved",
     body: "A historical notification",
     actions: [{ identifier: "default", text: "Open" }, { identifier: "reply", text: "Reply" }],
@@ -389,4 +414,52 @@ NODE_FILES
     fi
 else
     skip "notification file operation check (node unavailable)"
+fi
+
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] production notification dismissal fixture (qs or timeout unavailable)"
+    return 0
+fi
+
+dismissal_root="$(mktemp -d)"
+trap 'rm -rf -- "$dismissal_root" 2>/dev/null || true' RETURN
+mkdir -p -- "$dismissal_root/runtime" "$dismissal_root/state" \
+    "$dismissal_root/config" "$dismissal_root/cache"
+dismissal_result="$dismissal_root/result.json"
+dismissal_log="$dismissal_root/runtime.log"
+dismissal_status=0
+AURELIA_NOTIFICATION_DISMISSAL_RESULT="$dismissal_result" \
+AURELIA_NOTIFICATION_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+AURELIA_NOTIFICATION_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$dismissal_root/runtime" \
+XDG_STATE_HOME="$dismissal_root/state" \
+XDG_CONFIG_HOME="$dismissal_root/config" \
+XDG_CACHE_HOME="$dismissal_root/cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/notifications/dismissal.qml" --no-color \
+    >"$dismissal_log" 2>&1 || dismissal_status=$?
+
+dismissal_completed=0
+if [[ "$dismissal_status" -eq 0 ]]; then
+    dismissal_completed=1
+elif [[ "$dismissal_status" -eq 124 && -s "$dismissal_result" ]] &&
+     grep -Fq 'Signal QQmlEngine::quit() emitted' "$dismissal_log"; then
+    dismissal_completed=1
+fi
+if [[ "$dismissal_completed" -eq 1 ]] && [[ -s "$dismissal_result" ]] &&
+   runtime_log_is_environment_only "$dismissal_log" &&
+   ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$dismissal_log" &&
+   jq -e '.serviceLoaded == true and .activeCount == 0 and .popupCount == 0 and
+          .historyCount == 3 and .popupFiles == 0 and .historyFiles == 3 and
+          .dismissedIds == [42, 41, 43] and
+          .malformedFallback == true and .mismatchedIdentityPreserved == true and
+          .firstDismissCalls == 1 and
+          .secondDismissCalls == 1 and .thirdDismissCalls == 1' \
+       "$dismissal_result" >/dev/null; then
+    pass "[isolated-runtime] production Service and real Toast dismissal wiring preserve identity across index churn and re-entrant sender close"
+else
+    details="$(tail -n 48 "$dismissal_log" 2>/dev/null || true)"
+    if [[ -s "$dismissal_result" ]]; then details="$details result=$(tr '\n' ' ' <"$dismissal_result")"; fi
+    fail "[isolated-runtime] notification cross-button dismissal fixture failed (status=$dismissal_status): $details"
 fi

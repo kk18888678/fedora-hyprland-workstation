@@ -20,6 +20,9 @@ Item {
     property var aureliaPath: ""
     property var manifest: ({})
     property var pluginRegistry: null
+    // Constructor-injected only by isolated fixtures. Production keeps the
+    // normal notification bus and desktop surfaces fully enabled.
+    property bool testMode: false
 
     readonly property string home: Quickshell.env("HOME") || ""
     readonly property string stateHomeOverride: Quickshell.env("XDG_STATE_HOME") || ""
@@ -122,9 +125,11 @@ Item {
                 return
             }
             service.stateDirectoryReady = true
-            service.readHistoryDirectory()
-            service.readPopupDirectory()
-            service.sweepOrphanImages()
+            if (!service.testMode) {
+                service.readHistoryDirectory()
+                service.readPopupDirectory()
+                service.sweepOrphanImages()
+            }
             if (service.stateSaveQueued) service.flushState()
         }
     }
@@ -422,6 +427,7 @@ Item {
 
     function modelIndexByIdentity(model, originalId, timestamp) {
         if (!model) return -1
+        if (!service.hasUsableIdentity(originalId, timestamp)) return -1
         var wantedId = String(originalId)
         var wantedTimestamp = Number(timestamp)
         if (!isFinite(wantedTimestamp)) return -1
@@ -430,6 +436,14 @@ Item {
             if (row && String(row.originalId) === wantedId && Number(row.timestamp) === wantedTimestamp) return i
         }
         return -1
+    }
+
+    function hasUsableIdentity(originalId, timestamp) {
+        if (originalId === undefined || originalId === null ||
+            timestamp === undefined || timestamp === null) return false
+        var id = Number(originalId)
+        var stamp = Number(timestamp)
+        return isFinite(id) && isFinite(stamp) && stamp > 0
     }
 
     function removePopupByIdentity(originalId, timestamp) {
@@ -552,9 +566,13 @@ Item {
     function recordHistory(snapshot, persist) {
         var entry = Logic.historyEntry(snapshot)
         if (!Logic.isRenderableHistoryEntry(entry)) return
+        if (!Logic.hasPopupIdentity(entry)) {
+            console.error("[NOTIFICATIONS] history.record_skipped reason=invalid_identity")
+            return false
+        }
         var key = Logic.historyKey(entry)
         for (var i = 0; i < historyEntries.length; i++) {
-            if (Logic.historyKey(historyEntries[i]) === key) return
+            if (Logic.historyKey(historyEntries[i]) === key) return false
         }
         var next = historyEntries.slice()
         next.unshift(entry)
@@ -564,6 +582,7 @@ Item {
         if (persist !== false) writeHistoryFile(entry)
         queueStateSave()
         console.info("[NOTIFICATIONS] history.recorded key=" + key + " count=" + historyEntries.length)
+        return true
     }
 
     function removeActiveById(originalId) {
@@ -671,18 +690,16 @@ Item {
     function removeAt(index, reason, expectedOriginalId, expectedTimestamp) {
         if (index < 0 || index >= activeNotificationsModel.count) return
         var entry = activeNotificationsModel.get(index)
-        var hasExpectedIdentity = arguments.length >= 4 && expectedOriginalId !== undefined && expectedTimestamp !== undefined
+        var hasExpectedIdentity = arguments.length >= 4 &&
+            service.hasUsableIdentity(expectedOriginalId, expectedTimestamp)
         var lookupId = hasExpectedIdentity
             ? expectedOriginalId
             : (entry && entry.originalId !== undefined ? entry.originalId : -1)
         var liveSnapshot = liveSnapshots[lookupId]
         var entryIdentity = entry && Logic.hasPopupIdentity(entry) ? entry : null
-        var historySnapshot = liveSnapshot || (entry && Logic.isRenderableHistoryEntry(entry)
-            ? entry
-            : liveSnapshots[lookupId])
-        var archiveSnapshot = liveSnapshot || entryIdentity || (historySnapshot && Logic.hasPopupIdentity(historySnapshot)
-            ? historySnapshot
-            : null)
+        var liveIdentity = liveSnapshot && Logic.hasPopupIdentity(liveSnapshot) ? liveSnapshot : null
+        var historySnapshot = liveIdentity || entryIdentity
+        var archiveSnapshot = historySnapshot
         var originalId = archiveSnapshot ? archiveSnapshot.originalId : lookupId
         var restored = isRestoredPopup(archiveSnapshot)
         var reference = restored ? null : liveRefs[originalId]
@@ -694,6 +711,8 @@ Item {
             // file. This is the fallback when the original persistence job
             // failed or the popup was dismissed before it completed.
             writeHistoryFile(historySnapshot)
+        } else if (entry && Logic.isRenderableHistoryEntry(entry)) {
+            console.error("[NOTIFICATIONS] dismiss.persistence_skipped reason=invalid_identity")
         }
         if (archiveSnapshot) archivePopupFileFor(archiveSnapshot)
         if (restored) delete restoredPopups[Logic.popupFileName(archiveSnapshot)]
@@ -710,9 +729,9 @@ Item {
     }
 
     function removeByIdentity(originalId, timestamp, reason, indexHint) {
+        if (!service.hasUsableIdentity(originalId, timestamp)) return false
         var wantedId = String(originalId)
         var wantedTimestamp = Number(timestamp)
-        if (!isFinite(wantedTimestamp)) return false
         for (var i = activeNotificationsModel.count - 1; i >= 0; i--) {
             var row = activeNotificationsModel.get(i)
             if (row && String(row.originalId) === wantedId && Number(row.timestamp) === wantedTimestamp) {
@@ -720,18 +739,17 @@ Item {
                 return true
             }
         }
-        // A delegate can still hold the authoritative identity while a
-        // dynamic ListModel role update is in flight. Trust that identity at
-        // its current index and use liveSnapshots for persistence, rather than
-        // manufacturing an invalid 0-0 archive key from an incomplete row.
-        if (indexHint !== undefined && indexHint >= 0 && indexHint < activeNotificationsModel.count) {
-            removeAt(indexHint, reason, originalId, timestamp)
-            return true
-        }
+        // Never use a stale delegate index when a valid identity no longer
+        // matches. Another notification may now occupy that index; failing
+        // closed preserves it for the correct delegate event.
         return false
     }
 
     function archiveByIdentity(originalId, timestamp) {
+        if (!service.hasUsableIdentity(originalId, timestamp)) {
+            console.error("[NOTIFICATIONS] inbox.archive_skipped reason=invalid_identity")
+            return "invalid"
+        }
         var index = activeIndexForIdentity(originalId, timestamp)
         if (index < 0) return "none"
         removeAt(index, "archive", originalId, timestamp)
@@ -741,22 +759,32 @@ Item {
 
     function dismissAt(index, originalId, timestamp) {
         console.info("[NOTIFICATIONS] popup.dismiss index=" + index)
-        if (arguments.length >= 3) {
-            removeByIdentity(originalId, timestamp, "dismiss", index)
-            return
+        if (arguments.length >= 3 && service.hasUsableIdentity(originalId, timestamp)) {
+            return removeByIdentity(originalId, timestamp, "dismiss", index) ? "ok" : "none"
         }
-        removeAt(index, "dismiss")
+        if (index < 0 || index >= activeNotificationsModel.count) return "none"
+        var row = activeNotificationsModel.get(index)
+        if (row && Logic.hasPopupIdentity(row)) {
+            removeAt(index, "dismiss", row.originalId, row.timestamp)
+            console.info("[NOTIFICATIONS] popup.identity_recovered index=" + index)
+        } else {
+            removeAt(index, "dismiss")
+        }
+        return "ok"
     }
     function expireAt(index, originalId, timestamp) {
         console.info("[NOTIFICATIONS] popup.expire index=" + index)
-        var popupIndex = arguments.length >= 3
+        var identityProvided = arguments.length >= 3 &&
+            service.hasUsableIdentity(originalId, timestamp)
+        var popupIndex = identityProvided
             ? modelIndexByIdentity(popupNotificationsModel, originalId, timestamp)
             : index
-        if (popupIndex < 0 && arguments.length >= 3 && index >= 0 && index < popupNotificationsModel.count) popupIndex = index
+        if (popupIndex < 0 && !identityProvided && index >= 0 && index < popupNotificationsModel.count)
+            popupIndex = index
         if (popupIndex < 0 || popupIndex >= popupNotificationsModel.count) return
         var popupEntry = popupNotificationsModel.get(popupIndex)
-        var popupId = arguments.length >= 3 ? originalId : (popupEntry ? popupEntry.originalId : -1)
-        var popupTimestamp = arguments.length >= 3 ? timestamp : (popupEntry ? popupEntry.timestamp : 0)
+        var popupId = identityProvided ? originalId : (popupEntry ? popupEntry.originalId : -1)
+        var popupTimestamp = identityProvided ? timestamp : (popupEntry ? popupEntry.timestamp : 0)
         var snapshot = liveSnapshots[popupId] || popupEntry
         if (isManualInboxEntry(snapshot)) {
             // Expiry is only for the passive toast. Inbox ownership remains
@@ -823,9 +851,9 @@ Item {
     }
 
     function activeIndexForIdentity(originalId, timestamp, indexHint) {
+        if (!service.hasUsableIdentity(originalId, timestamp)) return -1
         var wantedId = String(originalId)
         var wantedTimestamp = Number(timestamp)
-        if (!isFinite(wantedTimestamp)) return -1
         for (var i = 0; i < activeNotificationsModel.count; i++) {
             var row = activeNotificationsModel.get(i)
             if (row && String(row.originalId) === wantedId && Number(row.timestamp) === wantedTimestamp) return i
@@ -1166,7 +1194,7 @@ Item {
         id: notificationServerLoader
         // Register immediately. A readiness probe must describe/recover the
         // server, never create a startup window in which Notify has no owner.
-        active: true
+        active: !service.testMode
         asynchronous: false
         source: Qt.resolvedUrl("NotificationServerHost.qml")
 
@@ -1188,8 +1216,10 @@ Item {
     Component.onCompleted: {
         if (_startupStarted) return
         _startupStarted = true
-        probeNotificationBus()
-        notificationBusHealthTimer.start()
+        if (!service.testMode) {
+            probeNotificationBus()
+            notificationBusHealthTimer.start()
+        }
         if (stateDir === "") {
             console.error("[NOTIFICATIONS] state_directory_unavailable")
             return
@@ -1223,18 +1253,27 @@ Item {
     }
 
     Variants {
-        model: Quickshell.screens
+        model: service.testMode ? [] : Quickshell.screens
 
-        NotificationPopupSurface {
+        Loader {
             required property var modelData
-            notificationService: service
-            screenModel: modelData
+            active: !service.testMode
+            source: active ? Qt.resolvedUrl("ui/NotificationPopupSurface.qml") : ""
+            onLoaded: {
+                if (!item) return
+                if ("notificationService" in item) item.notificationService = service
+                if ("screenModel" in item) item.screenModel = modelData
+            }
+            onStatusChanged: {
+                if (status === Loader.Error)
+                    console.error("[NOTIFICATIONS] popup_surface.load_failed")
+            }
         }
     }
 
     Loader {
         id: centerPanel
-        active: service.centerOpen
+        active: service.centerOpen && !service.testMode
         asynchronous: false
         source: Qt.resolvedUrl("ui/NotificationCenterPanel.qml")
 

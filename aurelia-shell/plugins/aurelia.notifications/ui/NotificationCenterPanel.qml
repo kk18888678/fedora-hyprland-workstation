@@ -260,11 +260,16 @@ AureliaKeyboardPanel {
                                 actions: activeDelegate.actions || []
                                 defaultActionText: String(activeDelegate.defaultActionText || "")
                                 urgency: activeDelegate.urgency
+                                identityOriginalId: activeDelegate.originalId
+                                identityTimestamp: activeDelegate.timestamp
+                                identityIndex: activeDelegate.index
                                 timestampLabel: activeDelegate.timestamp > 0
                                     ? Qt.formatTime(new Date(activeDelegate.timestamp), "HH:mm")
                                     : ""
                                 showArchive: false
-                                onDismissed: root.service.dismissAt(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
+                                onDismissed: function(originalId, timestamp, index) {
+                                    root.service.dismissAt(index, originalId, timestamp)
+                                }
                                 onActivated: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                                 onDefaultActionInvoked: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                                 onActionInvoked: function(identifier) { root.service.invokeAction(activeDelegate.index, identifier, activeDelegate.originalId, activeDelegate.timestamp) }

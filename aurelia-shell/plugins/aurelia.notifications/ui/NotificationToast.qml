@@ -29,6 +29,11 @@ Item {
     property bool defaultActionEnabled: true
     property bool actionButtonsEnabled: true
     property string timestampLabel: ""
+    // Capture the model identity at construction time so a close click cannot
+    // lose it while a ListView/Repeater is updating its delegate index.
+    property var identityOriginalId
+    property real identityTimestamp: 0
+    property int identityIndex: -1
 
     readonly property bool hovered: toastHover.hovered
     readonly property int actionCount: (root.defaultActionText !== "" ? 1 : 0)
@@ -54,7 +59,7 @@ Item {
     readonly property color bodyColor: Qt.darker(Theme.notifications.text, 1.15)
     readonly property color dimColor: Qt.darker(Theme.notifications.text, 1.4)
 
-    signal dismissed()
+    signal dismissed(var originalId, real timestamp, int index)
     signal activated()
     signal defaultActionInvoked()
     signal actionInvoked(string identifier)
@@ -78,6 +83,10 @@ Item {
             return "application-x-executable"
         }
         return source
+    }
+
+    function dismissFromClose() {
+        root.dismissed(root.identityOriginalId, root.identityTimestamp, root.identityIndex)
     }
 
     HoverHandler { id: toastHover }
@@ -326,7 +335,7 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: function(mouse) {
                     mouse.accepted = true
-                    root.dismissed()
+                    root.dismissFromClose()
                 }
             }
         }

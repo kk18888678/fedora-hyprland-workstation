@@ -175,8 +175,13 @@ PanelWindow {
                     actions: popupSlot.actions
                     defaultActionText: String(popupSlot.defaultActionText || "")
                     urgency: popupSlot.urgency
+                    identityOriginalId: popupSlot.originalId
+                    identityTimestamp: popupSlot.timestamp
+                    identityIndex: popupSlot.index
                     showArchive: false
-                    onDismissed: root.notificationService.dismissAt(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
+                    onDismissed: function(originalId, timestamp, index) {
+                        root.notificationService.dismissAt(index, originalId, timestamp)
+                    }
                     onActivated: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onDefaultActionInvoked: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onActionInvoked: function(identifier) { root.notificationService.invokeAction(popupSlot.index, identifier, popupSlot.originalId, popupSlot.timestamp) }

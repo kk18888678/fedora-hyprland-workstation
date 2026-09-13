@@ -395,7 +395,7 @@ function parseHistory(raw, limit) {
     var rows = []
     for (var i = 0; i < source.length && rows.length < MAX_HISTORY; i++) {
         var row = normalizeHistoryEntry(source[i])
-        if (isRenderableHistoryEntry(row)) rows.push(row)
+        if (isRenderableHistoryEntry(row) && hasPopupIdentity(row)) rows.push(row)
     }
     rows.sort(function(left, right) { return right.timestamp - left.timestamp })
     var max = Math.max(0, Math.min(MAX_HISTORY, Math.floor(finiteNumber(limit, 50))))
@@ -534,7 +534,8 @@ function parsePopupFiles(raw, normalUrgency) {
         if (line === "") continue
         try {
             var value = JSON.parse(line)
-            if (value && typeof value === "object") entries.push(popupEntry(value, normalUrgency))
+            var entry = value && typeof value === "object" ? popupEntry(value, normalUrgency) : null
+            if (entry && hasPopupIdentity(entry)) entries.push(entry)
         } catch (error) {}
     }
     entries.sort(function(left, right) { return Number(right.timestamp || 0) - Number(left.timestamp || 0) })
@@ -573,6 +574,7 @@ function historyRows(raw, liveRows, normalUrgency, limit) {
             var row = rows[i]
             if (!row) continue
             var key = popupFileName(row)
+            if (key === "") continue
             if (seen[key]) continue
             seen[key] = true
             result.push(normalizeHistoryEntry(row))
