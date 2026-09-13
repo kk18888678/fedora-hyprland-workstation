@@ -53,6 +53,29 @@ PanelWindow {
     readonly property int barCaptionSize: Theme.bar.caption
     property bool barHidden: false
     readonly property bool barVisible: !barHidden
+    readonly property string home: Quickshell.env("HOME") || ""
+    readonly property string stateHomeOverride: Quickshell.env("XDG_STATE_HOME") || ""
+    readonly property string stateHome: stateHomeOverride.charAt(0) === "/" && stateHomeOverride !== "/"
+        ? stateHomeOverride
+        : (home.charAt(0) === "/" && home !== "/" ? home + "/.local/state" : "")
+    // This override is test-only in the fixture; production always uses the
+    // XDG state namespace so bar hiding follows the user's state home.
+    property string hiddenStatePathOverride: ""
+    readonly property string hiddenStatePath: hiddenStatePathOverride.charAt(0) === "/" && hiddenStatePathOverride !== "/"
+        ? hiddenStatePathOverride
+        : (stateHome !== "" ? stateHome + "/aurelia/toggles/bar-off" : "")
+    readonly property string hiddenStateDirectory: hiddenStatePath === ""
+        ? "" : hiddenStatePath.substring(0, hiddenStatePath.lastIndexOf("/"))
+    readonly property string hiddenStateWatchPath: hiddenStateDirectoryPresent && hiddenStateDirectory !== ""
+        ? hiddenStateDirectory : stateHome
+    readonly property string hiddenStateToolPath: aureliaPath !== "" && aureliaPath.charAt(0) === "/"
+        ? aureliaPath + "/bin/aurelia-bar-hidden" : ""
+    property bool hiddenStateDirectoryPresent: false
+    property bool hiddenStateSyncPending: false
+    property string hiddenStateReadState: "uninitialized"
+    property string hiddenStateReadError: ""
+    property var hiddenStateWriteQueue: []
+    property string hiddenStateWriteOperation: ""
     property var activePopout: null
     property string activePopoutId: ""
 
@@ -141,7 +164,7 @@ PanelWindow {
     }
 
     function open(payloadJson) {
-        barHidden = false
+        queueHiddenState("off")
         return "ok"
     }
 
@@ -172,23 +195,73 @@ PanelWindow {
         else if (activePopout && typeof activePopout.requestClose === "function") activePopout.requestClose("bar-close")
         activePopout = null
         activePopoutId = ""
-        barHidden = true
+        queueHiddenState("on")
         return "ok"
     }
 
     function toggle(payloadJson) {
-        barHidden = !barHidden
-        return barHidden ? "closed" : "ok"
+        var wasHidden = barHidden
+        queueHiddenState("toggle")
+        return wasHidden ? "ok" : "closed"
     }
 
     function isVisible() {
         return !barHidden
     }
 
+    function queueHiddenState(operation) {
+        var value = String(operation || "")
+        if (["on", "off", "toggle"].indexOf(value) === -1) {
+            console.error("[BAR] hidden_state_invalid_operation operation=" + value)
+            return "error"
+        }
+        var next = hiddenStateWriteQueue.slice()
+        next.push(value)
+        hiddenStateWriteQueue = next
+        pumpHiddenStateWrites()
+        return "pending"
+    }
+
+    function pumpHiddenStateWrites() {
+        if (hiddenStateWriteProcess.running || hiddenStateWriteQueue.length === 0) return
+        if (hiddenStateToolPath === "") {
+            console.error("[BAR] hidden_state_writer_unavailable path=" + hiddenStateToolPath)
+            hiddenStateWriteQueue = []
+            return
+        }
+        var next = hiddenStateWriteQueue.slice()
+        hiddenStateWriteOperation = String(next.shift())
+        hiddenStateWriteQueue = next
+        hiddenStateWriteProcess.command = [hiddenStateToolPath, hiddenStateWriteOperation]
+        hiddenStateWriteProcess.running = true
+    }
+
+    function syncHidden() {
+        if (hiddenStatePath === "" || hiddenStateToolPath === "") {
+            barHidden = false
+            hiddenStateReadState = "invalid-path"
+            hiddenStateReadError = "Aurelia bar-hidden state path is unavailable."
+            console.error("[BAR] hidden_state_read_failed reason=invalid-path")
+            return
+        }
+        if (hiddenStateProbe.running) {
+            hiddenStateSyncPending = true
+            return
+        }
+        hiddenStateProbe.running = true
+    }
+
+    function probeHiddenStateDirectory() {
+        if (hiddenStateDirectory === "" || hiddenStateDirectoryProbe.running) return
+        hiddenStateDirectoryProbe.running = true
+    }
+
     function themeStatus() {
         return JSON.stringify({
             visible: barRoot.visible,
             hidden: barRoot.barHidden,
+            hiddenState: barRoot.hiddenStateReadState,
+            hiddenStateError: barRoot.hiddenStateReadError,
             transparent: barRoot.transparent,
             surface: String(barSurface.color),
             border: String(barSurface.border.color),
@@ -209,7 +282,101 @@ PanelWindow {
         function close(): void { barRoot.close() }
         function toggle(): void { barRoot.toggle("{}") }
         function isVisible(): bool { return barRoot.isVisible() }
+        function syncHidden(): void { barRoot.syncHidden() }
         function themeStatus(): string { return barRoot.themeStatus() }
+    }
+
+    Process {
+        id: hiddenStateProbe
+        command: barRoot.hiddenStateToolPath === "" ? [] : [barRoot.hiddenStateToolPath, "read"]
+        running: false
+        stdout: StdioCollector { id: hiddenStateProbeOutput; waitForEnd: true }
+        stderr: StdioCollector { id: hiddenStateProbeError; waitForEnd: true }
+        onExited: function(code) {
+            var state = String(hiddenStateProbeOutput.text || "").trim()
+            var detail = String(hiddenStateProbeError.text || "").trim()
+            if (code === 0 && (state === "hidden" || state === "visible")) {
+                barRoot.barHidden = state === "hidden"
+                barRoot.hiddenStateReadState = state
+                barRoot.hiddenStateReadError = ""
+            } else {
+                barRoot.barHidden = false
+                barRoot.hiddenStateReadState = "error"
+                barRoot.hiddenStateReadError = detail || ("bar-hidden reader exited with code " + code)
+                console.error("[BAR] hidden_state_read_failed code=" + code +
+                    " detail=" + barRoot.hiddenStateReadError)
+            }
+            if (barRoot.hiddenStateSyncPending) {
+                barRoot.hiddenStateSyncPending = false
+                Qt.callLater(barRoot.syncHidden)
+            }
+        }
+    }
+
+    Process {
+        id: hiddenStateDirectoryProbe
+        command: barRoot.hiddenStateDirectory === "" ? [] : ["/usr/bin/test", "-d", barRoot.hiddenStateDirectory]
+        running: false
+        onExited: function(code) {
+            if (code !== 0 && code !== 1) {
+                console.error("[BAR] hidden_state_directory_probe_failed code=" + code)
+                return
+            }
+            var present = code === 0
+            if (present !== barRoot.hiddenStateDirectoryPresent) {
+                barRoot.hiddenStateDirectoryPresent = present
+                barRoot.syncHidden()
+            }
+        }
+    }
+
+    Process {
+        id: hiddenStateWriteProcess
+        command: barRoot.hiddenStateToolPath === "" || barRoot.hiddenStateWriteOperation === ""
+            ? [] : [barRoot.hiddenStateToolPath, barRoot.hiddenStateWriteOperation]
+        running: false
+        stdout: StdioCollector { id: hiddenStateWriteOutput; waitForEnd: true }
+        stderr: StdioCollector { id: hiddenStateWriteError; waitForEnd: true }
+        onExited: function(code) {
+            var detail = String(hiddenStateWriteError.text || hiddenStateWriteOutput.text || "").trim()
+            if (code !== 0) {
+                console.error("[BAR] hidden_state_write_failed operation=" +
+                    barRoot.hiddenStateWriteOperation + " code=" + code +
+                    (detail === "" ? "" : " detail=" + detail))
+            }
+            barRoot.hiddenStateWriteOperation = ""
+            barRoot.syncHidden()
+            barRoot.pumpHiddenStateWrites()
+        }
+    }
+
+    FileView {
+        id: hiddenStateDirectoryView
+        path: barRoot.hiddenStateWatchPath
+        watchChanges: true
+        blockWrites: true
+        // Missing state is represented by a valid visible default. The
+        // fallback path is the XDG state root; any watcher failure remains
+        // visible through FileView and the explicit diagnostic below.
+        printErrors: true
+        onFileChanged: barRoot.syncHidden()
+        onLoadFailed: {
+            if (barRoot.hiddenStateDirectoryPresent)
+                console.error("[BAR] hidden_state_watcher_failed path=" + barRoot.hiddenStateWatchPath)
+        }
+    }
+
+    Timer {
+        id: hiddenStateDirectoryTimer
+        interval: 500
+        running: true
+        repeat: true
+        onTriggered: barRoot.probeHiddenStateDirectory()
+    }
+
+    Component.onCompleted: {
+        barRoot.syncHidden()
+        barRoot.probeHiddenStateDirectory()
     }
 
     Rectangle {

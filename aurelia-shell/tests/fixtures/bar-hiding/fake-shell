@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '%s\n' "$*" >>"${AURELIA_BAR_HIDDEN_SYNC_LOG:?}"
+exit "${AURELIA_BAR_HIDDEN_SYNC_STATUS:-0}"

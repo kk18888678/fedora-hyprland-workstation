@@ -11,7 +11,7 @@ if [[ ! -d "$lib_dir" && -d "$script_dir/../lib/aurelia-plugin" ]]; then
     lib_dir="$script_dir/../lib/aurelia-plugin"
 fi
 
-for module in common placement bar; do
+for module in common placement bar hidden; do
     module_path="$lib_dir/$module.sh"
     if [[ ! -f "$module_path" ]]; then
         printf 'Error: Missing Aurelia bar module: %s\n' "$module_path" >&2

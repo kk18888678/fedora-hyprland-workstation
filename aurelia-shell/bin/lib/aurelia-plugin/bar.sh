@@ -11,6 +11,7 @@ Commands:
   defaults                                 Restore the shipped bar defaults
   position <top|bottom|left|right>         Set bar position
   transparent <true|false|toggle>          Set/toggle bar transparency
+  hidden <on|off|toggle>                   Persistently hide/show the bar
   put <plugin-id> [placement]             Put a widget on the bar if absent
   move <plugin-id> [placement]            Move a configured widget
   set <plugin-id> <key> <value> [--json] [placement]
@@ -179,6 +180,9 @@ aurelia_bar_main() {
             ;;
         transparent)
             aurelia_bar_transparent "$@"
+            ;;
+        hidden)
+            aurelia_bar_hidden "$@"
             ;;
         put)
             aurelia_bar_put "$@"

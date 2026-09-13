@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# Persistent Aurelia bar visibility state.
+#
+# The marker is deliberately separate from shell.json: hiding is a session
+# surface state, not bar-layout configuration. The resident bar reads this
+# state and remains alive while its layer surface is parked off-screen.
+
+set -Eeuo pipefail
+
+usage() {
+    cat <<'USAGE'
+Usage: aurelia-bar-hidden <on|off|toggle|read>
+
+Commands:
+  on       Persist the hidden state
+  off      Persist the visible state
+  toggle   Atomically toggle the persisted state
+  read     Print hidden or visible without changing state
+USAGE
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    return 1
+}
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+
+test_or_development_mode() {
+    [[ "${WORKSTATION_TEST_MODE:-0}" == "1" || "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" ]]
+}
+
+state_path() {
+    local override="${AURELIA_BAR_HIDDEN_STATE_PATH:-}"
+    local home="${HOME:-}"
+    local state_home
+
+    if [[ -n "$override" ]]; then
+        test_or_development_mode || { fail "AURELIA_BAR_HIDDEN_STATE_PATH is test/development-only"; return 1; }
+        [[ "$override" == /* && "$override" != "/" ]] || {
+            fail "AURELIA_BAR_HIDDEN_STATE_PATH must be an absolute non-root path"
+            return 1
+        }
+        printf '%s\n' "$override"
+        return 0
+    fi
+
+    [[ "$home" == /* && "$home" != "/" ]] || {
+        fail "HOME must be an absolute non-root path"
+        return 1
+    }
+    state_home="${XDG_STATE_HOME:-$home/.local/state}"
+    [[ "$state_home" == /* && "$state_home" != "/" ]] || {
+        fail "XDG_STATE_HOME must be an absolute non-root path"
+        return 1
+    }
+    printf '%s/aurelia/toggles/bar-off\n' "${state_home%/}"
+}
+
+validate_state_path() {
+    local path="$1"
+    local state_dir
+    local aurelia_dir
+    local state_home
+    state_dir="$(dirname -- "$path")"
+    aurelia_dir="$(dirname -- "$state_dir")"
+    state_home="$(dirname -- "$aurelia_dir")"
+
+    [[ "$path" == /* && "$path" != "/" ]] || { fail "bar-hidden state path is unsafe"; return 1; }
+    [[ "$state_home" == /* && "$state_home" != "/" ]] || { fail "bar-hidden state root is unsafe"; return 1; }
+    if [[ -L "$aurelia_dir" ]]; then
+        fail "refusing symlinked Aurelia state directory: $aurelia_dir"
+        return 1
+    fi
+    if [[ -L "$state_dir" ]]; then
+        fail "refusing symlinked Aurelia toggle directory: $state_dir"
+        return 1
+    fi
+    if [[ -e "$state_dir" && ! -d "$state_dir" ]]; then
+        fail "Aurelia toggle state parent is not a directory: $state_dir"
+        return 1
+    fi
+    if [[ -e "$aurelia_dir" && ! -d "$aurelia_dir" ]]; then
+        fail "Aurelia state parent is not a directory: $aurelia_dir"
+        return 1
+    fi
+}
+
+state_content() {
+    local path="$1"
+    if [[ -L "$path" ]]; then
+        printf 'visible\n'
+        printf 'bar-hidden state is symlinked: %s\n' "$path" >&2
+        return 3
+    fi
+    if [[ ! -e "$path" ]]; then
+        printf 'visible\n'
+        return 0
+    fi
+    if [[ ! -f "$path" ]]; then
+        printf 'visible\n'
+        printf 'bar-hidden state is not a regular file: %s\n' "$path" >&2
+        return 4
+    fi
+
+    local content
+    content="$(<"$path")"
+    if [[ "$content" == "hidden" ]]; then
+        printf 'hidden\n'
+        return 0
+    fi
+    printf 'visible\n'
+    printf 'bar-hidden state is malformed: %s\n' "$path" >&2
+    return 4
+}
+
+write_cleanup_path=""
+cleanup_write_path() {
+    local cleanup_status=0
+    if [[ -n "$write_cleanup_path" && -e "$write_cleanup_path" ]]; then
+        rm -f -- "$write_cleanup_path" || cleanup_status=$?
+    fi
+    if (( cleanup_status != 0 )); then
+        printf 'Error: could not clean temporary bar-hidden state file: %s\n' "$write_cleanup_path" >&2
+    fi
+    write_cleanup_path=""
+}
+trap cleanup_write_path EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+write_hidden_marker() {
+    local path="$1"
+    local state_dir
+    state_dir="$(dirname -- "$path")"
+    validate_state_path "$path" || return 1
+    if [[ -L "$path" ]]; then
+        fail "refusing symlinked bar-hidden state: $path"
+        return 1
+    fi
+    if [[ -e "$path" && ! -f "$path" ]]; then
+        fail "bar-hidden state is not a regular file: $path"
+        return 1
+    fi
+    if [[ -f "$path" ]] && [[ "$(<"$path")" == "hidden" ]]; then
+        return 0
+    fi
+    mkdir -p -- "$state_dir" || { fail "could not create bar-hidden state directory: $state_dir"; return 1; }
+    [[ ! -L "$state_dir" ]] || { fail "refusing symlinked bar-hidden state directory: $state_dir"; return 1; }
+
+    local temporary
+    temporary="$(mktemp -- "$state_dir/.bar-off.XXXXXX")" || {
+        fail "could not create atomic bar-hidden staging file"
+        return 1
+    }
+    write_cleanup_path="$temporary"
+    chmod 0600 -- "$temporary" || { fail "could not secure bar-hidden staging file"; return 1; }
+    printf '%s\n' hidden >"$temporary" || { fail "could not write bar-hidden state"; return 1; }
+    if [[ -L "$path" ]]; then
+        fail "bar-hidden state became symlinked before publication: $path"
+        return 1
+    fi
+    mv -f -- "$temporary" "$path" || { fail "could not publish bar-hidden state atomically"; return 1; }
+    write_cleanup_path=""
+}
+
+remove_hidden_marker() {
+    local path="$1"
+    validate_state_path "$path" || return 1
+    if [[ ! -e "$path" && ! -L "$path" ]]; then return 0; fi
+    if [[ -L "$path" ]]; then
+        fail "refusing symlinked bar-hidden state: $path"
+        return 1
+    fi
+    [[ -f "$path" ]] || { fail "bar-hidden state is not a regular file: $path"; return 1; }
+    rm -f -- "$path" || { fail "could not remove bar-hidden state: $path"; return 1; }
+}
+
+resident_sync() {
+    local client="${AURELIA_BAR_HIDDEN_SYNC_CLIENT:-}"
+    local output
+    local status
+
+    if [[ -n "$client" ]]; then
+        test_or_development_mode || { fail "AURELIA_BAR_HIDDEN_SYNC_CLIENT is test/development-only"; return 2; }
+    else
+        if [[ -x "$script_dir/aurelia-shell" ]]; then
+            client="$script_dir/aurelia-shell"
+        elif [[ -x "/usr/local/bin/aurelia-shell" ]]; then
+            client="/usr/local/bin/aurelia-shell"
+        else
+            printf 'Error: bar-hidden state committed but the resident Aurelia Shell IPC client is unavailable\n' >&2
+            return 2
+        fi
+    fi
+    [[ "$client" == /* && -x "$client" ]] || {
+        printf 'Error: bar-hidden state committed but sync client is not executable: %s\n' "$client" >&2
+        return 2
+    }
+
+    if output="$("$client" aurelia.bar syncHidden 2>&1)"; then
+        return 0
+    else
+        status=$?
+    fi
+    if [[ -n "$output" ]]; then printf '%s\n' "$output" >&2; fi
+    printf 'Error: bar-hidden state committed but resident bar sync failed (status=%s)\n' "$status" >&2
+    return 2
+}
+
+main() {
+    local operation="${1:-toggle}"
+    local path
+    local state
+    local sync_status=0
+
+    (( $# == 1 )) || { usage >&2; return 1; }
+    case "$operation" in
+        read)
+            path="$(state_path)" || return 1
+            validate_state_path "$path" || return 1
+            state_content "$path"
+            return $?
+            ;;
+        on)
+            path="$(state_path)" || return 1
+            write_hidden_marker "$path" || return 1
+            state="hidden"
+            ;;
+        off)
+            path="$(state_path)" || return 1
+            remove_hidden_marker "$path" || return 1
+            state="visible"
+            ;;
+        toggle)
+            path="$(state_path)" || return 1
+            state="$(state_content "$path")" || return $?
+            if [[ "$state" == "hidden" ]]; then
+                remove_hidden_marker "$path" || return 1
+                state="visible"
+            else
+                write_hidden_marker "$path" || return 1
+                state="hidden"
+            fi
+            ;;
+        help|-h|--help)
+            usage
+            return 0
+            ;;
+        *)
+            usage >&2
+            fail "operation must be on, off, toggle, or read"
+            return 1
+            ;;
+    esac
+
+    printf '%s\n' "$state"
+    resident_sync || sync_status=$?
+    return "$sync_status"
+}
+
+main "$@"

@@ -19,8 +19,12 @@ QtObject {
         ? configHomeOverride : (home + "/.config")
     readonly property string shippedMenuPath: pathFromUrl(Qt.resolvedUrl("menu.json"))
     readonly property string userMenuPath: configHome + "/aurelia/menu.json"
-    readonly property var allowedActions: ["open-command-center", "reload-plugins", "toggle-bar"]
-    readonly property var allowedProviders: ["plugins"]
+    readonly property var allowedActions: [
+        "open-command-center", "reload-plugins", "toggle-bar", "bar-defaults",
+        "bar-position-top", "bar-position-bottom", "bar-position-left",
+        "bar-position-right", "bar-transparent-toggle"
+    ]
+    readonly property var allowedProviders: ["plugins", "bar"]
     readonly property var allowedWhen: ["always", "bar-visible", "plugins-present"]
     readonly property var allowedChecked: ["bar-visible", "bar-hidden"]
     property var shippedItems: []
@@ -147,6 +151,27 @@ QtObject {
         }
     }
 
+    function activeBar() {
+        try {
+            return root.pluginHost && typeof root.pluginHost.activeBar === "function"
+                ? root.pluginHost.activeBar() : null
+        } catch (error) {
+            root.lastError = "Bar menu provider failed safely."
+            return null
+        }
+    }
+
+    function barPosition() {
+        var bar = root.activeBar()
+        return bar && ["top", "bottom", "left", "right"].indexOf(String(bar.position || "")) !== -1
+            ? String(bar.position) : "top"
+    }
+
+    function barTransparent() {
+        var bar = root.activeBar()
+        return !!(bar && bar.transparent === true)
+    }
+
     function visible(item) {
         if (item.when === "always") return true
         if (item.when === "bar-visible") return root.isBarVisible()
@@ -177,12 +202,54 @@ QtObject {
         }
     }
 
+    function barProviderRow(item, rowId, action, label, icon, subtitle, checked, orderOffset) {
+        return {
+            id: "menu:" + item.id + ":" + rowId,
+            kind: "menu-provider",
+            menuId: item.id,
+            menuAction: action,
+            pluginId: "",
+            label: label,
+            subtitle: subtitle,
+            detail: "",
+            icon: icon,
+            checked: checked === true,
+            order: Number(item.order || 0) + Number(orderOffset || 0),
+            keywords: [item.id, rowId, label, subtitle].join(" ")
+        }
+    }
+
+    function barProviderRows(item) {
+        var position = root.barPosition()
+        var transparency = root.barTransparent()
+        return [
+            root.barProviderRow(item, "toggle", "toggle-bar", "Menu Bar", "󰍜",
+                (root.isBarVisible() ? "Visible" : "Hidden") + " · Super + Shift + Space",
+                root.isBarVisible(), 0),
+            root.barProviderRow(item, "position-top", "bar-position-top", "Top", "󰁝",
+                position === "top" ? "Current position" : "Move bar to top", false, 1),
+            root.barProviderRow(item, "position-bottom", "bar-position-bottom", "Bottom", "󰁅",
+                position === "bottom" ? "Current position" : "Move bar to bottom", false, 2),
+            root.barProviderRow(item, "position-left", "bar-position-left", "Left", "󰁍",
+                position === "left" ? "Current position" : "Move bar to left", false, 3),
+            root.barProviderRow(item, "position-right", "bar-position-right", "Right", "󰁔",
+                position === "right" ? "Current position" : "Move bar to right", false, 4),
+            root.barProviderRow(item, "transparency", "bar-transparent-toggle", "Transparency", "󰂵",
+                transparency ? "On" : "Off", false, 5),
+            root.barProviderRow(item, "defaults", "bar-defaults", "Defaults", "",
+                "Restore the shipped bar layout and settings", false, 6)
+        ]
+    }
+
     function rebuildRows() {
         var next = []
         for (var i = 0; i < root.items.length; i++) {
             var item = root.items[i]
             if (!root.visible(item)) continue
-            if (item.provider === "plugins") {
+            if (item.provider === "bar") {
+                var barRows = root.barProviderRows(item)
+                for (var barIndex = 0; barIndex < barRows.length; barIndex++) next.push(barRows[barIndex])
+            } else if (item.provider === "plugins") {
                 var plugins = root.pluginCatalog()
                 for (var pluginIndex = 0; pluginIndex < plugins.length; pluginIndex++) {
                     var plugin = plugins[pluginIndex]
@@ -226,11 +293,23 @@ QtObject {
                 result = root.shell.rescanPlugins()
             else if (action === "toggle-bar" && typeof root.shell.toggle === "function")
                 result = root.shell.toggle("aurelia.bar", "{}")
+            else if (action === "bar-position-top" && typeof root.shell.setBarPosition === "function")
+                result = root.shell.setBarPosition("top")
+            else if (action === "bar-position-bottom" && typeof root.shell.setBarPosition === "function")
+                result = root.shell.setBarPosition("bottom")
+            else if (action === "bar-position-left" && typeof root.shell.setBarPosition === "function")
+                result = root.shell.setBarPosition("left")
+            else if (action === "bar-position-right" && typeof root.shell.setBarPosition === "function")
+                result = root.shell.setBarPosition("right")
+            else if (action === "bar-transparent-toggle" && typeof root.shell.setBarTransparent === "function")
+                result = root.shell.setBarTransparent("toggle")
+            else if (action === "bar-defaults" && typeof root.shell.restoreBarDefaults === "function")
+                result = root.shell.restoreBarDefaults()
         } catch (error) {
             root.lastError = "Aurelia menu action failed safely."
             return false
         }
-        if (action === "toggle-bar") return result === "ok" || result === "closed"
+        if (action === "toggle-bar") return result === "ok" || result === "closed" || result === "pending"
         return result === "ok" || result === "pending"
     }
 

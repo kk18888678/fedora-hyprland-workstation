@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Aurelia equivalent of Omarchy's dedicated bar-visibility command.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+if (( $# == 0 )); then
+    exec "$script_dir/aurelia-bar-hidden" toggle
+fi
+exec "$script_dir/aurelia-bar-hidden" "$@"

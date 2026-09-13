@@ -28,12 +28,10 @@
       "order": 30
     },
     {
-      "id": "toggle-bar",
-      "label": "Toggle Bar",
-      "icon": "view-list",
-      "description": "Show or hide the active Aurelia bar.",
-      "action": "toggle-bar",
-      "checked": "bar-visible",
+      "id": "style.bar",
+      "label": "Menu Bar",
+      "icon": "󰍜",
+      "provider": "bar",
       "order": 40
     }
   ]
