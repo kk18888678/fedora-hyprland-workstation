@@ -3459,7 +3459,8 @@ Dependencies: T36, T02A, T24, T27, T31.
 
 ### T38. Add Microphone bar widget and input-control parity
 
-Execution status: IN PROGRESS — CP2 recorded; implementation has not started
+Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
+isolated evidence; live PipeWire/Wayland confirmation remains deferred
 
 Checkpoint 2 — T38 pre-change boundary:
 
@@ -3529,12 +3530,58 @@ Scope:
 
 Required tests:
 
-- [ ] Manifest/catalog/default-optional and bar-widget lifecycle assertions.
-- [ ] Pure input mute/volume/in-use model tests, including missing-source and
+- [x] Manifest/catalog/default-optional and bar-widget lifecycle assertions.
+- [x] Pure input mute/volume/in-use model tests, including missing-source and
   disappearing-source cases.
-- [ ] Isolated QML interaction tests for primary mute, middle Audio summon,
+- [x] Isolated QML interaction tests for primary mute, middle Audio summon,
   scroll bounds, tooltip/state text, and repeated refreshes.
-- [ ] Host-survivability and full Aurelia/repository/syntax/ShellCheck gates.
+- [x] Host-survivability and full Aurelia/repository/syntax/ShellCheck gates.
+
+Checkpoint 3 — T38 post-change evidence:
+
+- Microphone-focused suite: `test_microphone_plugin.sh` — 7 passed, 0
+  failed. The isolated QML fixture loaded the production widget twice, tested
+  missing-source degradation, then injected notifying fake QML source/nodes
+  and drove the production click/wheel handlers for mute, Audio summon,
+  in-use state/text, and input bounds. The sandbox PipeWire context was
+  unavailable and was explicitly classified as an environment condition; no
+  live audio state was changed.
+- Inventory/preservation/registry/catalog/migration/manifest affected suites:
+  146 passed, 0 failed.
+- Full Aurelia suite: `./aurelia-shell/tests/run.sh` — 575 passed, 0 failed.
+- Repository functional suite: `./tests/run.sh` — 228 passed, 0 failed.
+- Syntax: repository-wide `bash -n` — 240 shell scripts passed.
+- ShellCheck: new/changed Microphone, runner, and inventory test scripts
+  introduced no new findings. Four pre-existing `SC2034` findings remain in
+  `test_plugin_contract_matrix.sh` and `test_plugin_catalog.sh`.
+- Diff hygiene: `git diff --check` passed; no generated files or test
+  artifacts remain in the repository.
+- Optional-default evidence: `aurelia.microphone` is discoverable, enabled
+  by the first-party policy, and absent from `config/bar-default.json`; the
+  canonical Audio placement is unchanged.
+- Failure evidence: the generic host-survivability matrix remains green; a
+  missing source/list, unavailable PipeWire context, or Microphone entry-point
+  failure cannot prevent the resident host or existing bar widgets from
+  loading.
+- Architecture evidence: the widget uses the resident host `summon` API for
+  middle-click, shares pure capture helpers from Audio, retains only its live
+  source boundary, and owns no shell command, backend, or second IPC target.
+- Files changed: the new Microphone manifest/widget/fixture/test, shared Audio
+  pure helpers, centralized inventory/count/preservation fixtures, runner
+  registration, and this tracker. `config/bar-default.json` was not changed.
+- User-visible behavior changed: only when explicitly enabled/configured;
+  Microphone remains optional by default and follows the reference mute/live/
+  in-use, Audio-summon, and input-scroll interactions.
+- Existing Aurelia feature impact: no existing plugin ID, entry point, default
+  placement, theme ownership, user configuration, or live state was renamed,
+  moved, or overwritten; preservation gates passed.
+- Rollback/migration evidence: no persisted state migration, PipeWire
+  mutation, package operation, systemd/greetd change, shell restart, or reboot
+  occurred; removing the new optional source tree and inventory additions
+  restores the T37 behavior.
+
+CP3 status: `[x]` repository/static/isolated acceptance complete; real
+PipeWire/Wayland visual confirmation remains pending and is not claimed.
 
 Exit gate: Microphone has the exact reference interaction contract, shares one
 safe Audio state boundary, remains optional by default, and cannot make the
@@ -3784,10 +3831,11 @@ Before declaring parity complete:
 
 ## Reference feature inventory differences
 
-The structural parity target is complete. Omarchy currently ships 37 plugin
-manifest entries while Aurelia ships 22 first-party feature plugins. The
-following differences are explicit product-scope decisions, not missing
-manifest, registry, lifecycle, API-boundary, safety, or test architecture.
+The structural parity work is tracked task-by-task above. Omarchy currently
+ships 37 plugin manifest entries while Aurelia ships 24 first-party feature
+plugins. The following differences are explicit product-scope decisions, not
+missing manifest, registry, lifecycle, API-boundary, safety, or test
+architecture.
 
 | Reference capability | Aurelia owner or approved difference |
 |---|---|
@@ -3795,8 +3843,9 @@ manifest, registry, lifecycle, API-boundary, safety, or test architecture.
 | clock, calendar, weather, network, monitor, power | Aurelia clock/calendar, weather, network, monitor, and power plugins. |
 | bluetooth, wifiqr, speedtest, tray, workspaces | Aurelia Bluetooth, Wi-Fi QR, speed-test, tray, and workspace plugins. |
 | system-update | Aurelia launcher Updates provider and package/update backends. |
-| active-window, indicators, keyboard-layout, microphone, spacer | No standalone Aurelia equivalents; the current bar composition and retained feature inventory intentionally omit these reference-only widgets. |
-| audio, media | No standalone Aurelia audio/media plugin; Bluetooth owns its existing PipeWire sink controls and host-global media tooling remains under its established ownership. |
+| active-window, indicators, keyboard-layout, spacer | No standalone Aurelia equivalents; the current bar composition intentionally omits these reference-only widgets. |
+| microphone | Aurelia provides optional `aurelia.microphone`; it remains absent from the shipped default bar like the reference. |
+| audio, media | Aurelia provides `aurelia.audio` and optional `aurelia.microphone`; host-global media tooling remains under its established ownership. |
 | clipboard, emojis, reminders, dev-gallery, agents | No current Aurelia feature owner; intentionally outside the preserved Aurelia feature inventory. |
 | lock, polkit, battery, idle, nightlight | No current Aurelia plugin owner; login, authentication, power, and desktop ownership remain with the existing Fedora/Hyprland/session architecture. |
 | osd, disk-speedtest, dropbox, tailscale | No current Aurelia feature owner; intentionally not added as speculative parity work. |

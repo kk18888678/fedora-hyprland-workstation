@@ -34,6 +34,40 @@ function steppedVolume(value, delta, maximum) {
   return clampVolume(Number(value) + (Number(delta) || 0), maximum)
 }
 
+function isCaptureStream(node) {
+  return !!(node && node.isStream && node.isSink === false)
+}
+
+function activeCaptureStreamCount(nodes) {
+  var values = Array.isArray(nodes) ? nodes : []
+  var count = 0
+  for (var i = 0; i < values.length; i++) {
+    var node = values[i]
+    if (isCaptureStream(node) && !(node.audio && node.audio.muted)) count++
+  }
+  return count
+}
+
+function microphoneMuted(source) {
+  return !(source && source.audio) || source.audio.muted === true
+}
+
+function microphoneVolume(source) {
+  return source && source.audio ? clampVolume(source.audio.volume, 1) : 0
+}
+
+function microphoneInUse(source, nodes) {
+  return !microphoneMuted(source) && activeCaptureStreamCount(nodes) > 0
+}
+
+function stepInputVolume(value, delta) {
+  return steppedVolume(value, delta, 1)
+}
+
+function microphoneGlyph(muted) {
+  return muted ? "󰍭" : "󰍬"
+}
+
 function outputVolumeName(volume, muted) {
   if (muted) return "Muted"
   var p = Math.round(volume * 100)
@@ -266,6 +300,13 @@ if (typeof module !== "undefined") {
     listSnapshot: listSnapshot,
     clampVolume: clampVolume,
     steppedVolume: steppedVolume,
+    isCaptureStream: isCaptureStream,
+    activeCaptureStreamCount: activeCaptureStreamCount,
+    microphoneMuted: microphoneMuted,
+    microphoneVolume: microphoneVolume,
+    microphoneInUse: microphoneInUse,
+    stepInputVolume: stepInputVolume,
+    microphoneGlyph: microphoneGlyph,
     outputVolumeName: outputVolumeName,
     parseSinkAvailability: parseSinkAvailability,
     friendlyDeviceLabel: friendlyDeviceLabel,

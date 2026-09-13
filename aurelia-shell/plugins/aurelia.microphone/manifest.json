@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.microphone",
+  "name": "Microphone",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Microphone input state and mute toggle.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "MicrophoneBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Microphone",
+    "description": "Microphone input state and mute toggle.",
+    "category": "Audio",
+    "allowMultiple": false
+  }
+}

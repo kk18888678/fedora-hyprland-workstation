@@ -36,7 +36,7 @@ while IFS= read -r manifest; do
     done < <(jq -r '.kinds[]' "$manifest")
 done < <(find -P "$plugin_root" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print | LC_ALL=C sort)
 
-if [[ "$manifest_count" -eq 23 && "$matrix_failures" -eq 0 ]]; then
+if [[ "$manifest_count" -eq 24 && "$matrix_failures" -eq 0 ]]; then
     pass "[static] every shipped first-party plugin has a canonical validated manifest and safe declared entry points"
 else
     fail "[static] first-party canonical migration matrix failed (manifests=$manifest_count failures=$matrix_failures)"
@@ -52,8 +52,8 @@ else
     fail "[static] generic migrated-plugin host boundary is incomplete"
 fi
 
-if [[ "$manifest_count" -eq 23 ]] &&
-   jq -e '[.plugins[] | select(.kinds | index("bar-widget"))] | length == 12' \
+if [[ "$manifest_count" -eq 24 ]] &&
+   jq -e '[.plugins[] | select(.kinds | index("bar-widget"))] | length == 13' \
        "$ROOT/tests/fixtures/plugin-preservation.json" >/dev/null &&
    grep -q 'defaultBar' "$ROOT/tests/fixtures/plugin-preservation.json" &&
    grep -q 'Theme' "$ROOT/plugins/aurelia.bar/Bar.qml"; then
