@@ -3,9 +3,10 @@
 Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, corrective T43–T46
-runtime/test-truth work, T47 session-actions restoration, and T48
-notification-dismissal reliability are complete for repository/static/headless
-evidence; T42 is next for final acceptance.
+runtime/test-truth work, and T47 session-actions restoration are complete for
+repository/static/headless evidence; T48 notification-dismissal reliability
+has been reopened by a live-path regression, T49 is next, and T42 remains the
+final acceptance gate.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4476,7 +4477,7 @@ Dependencies: T39, T44, T46, T02A, T31, T33.
 
 ### T48. Make notification dismissal identity-safe and runtime-tested
 
-Execution status: COMPLETE — Toast identity capture, service fallback/rejection rules, malformed-state filtering, and production runtime coverage implemented
+Execution status: REOPENED — isolated production fixture passes, but live shell output still reports invalid-identity persistence after dismissal
 
 Checkpoint 1 — T48 audit boundary:
 
@@ -4572,13 +4573,89 @@ Checkpoint 3 — T48 post-change evidence:
 
 CP3 status: `[x]` cross-button dismissal and persistence identity are covered
 by the production Service/Toast fixture without suppressing actionable logs;
-live notification-bus acceptance remains unrun.
+live notification-bus acceptance remains unrun. A subsequent live shell run
+still reproduced `history.write_skipped reason=invalid_identity` and
+`popup.archive_skipped reason=invalid_identity`; this is a post-CP3 regression
+against the real hit-tested surface, not an acceptable environment skip.
 
-Exit gate: closing a notification through the visible cross icon is a stable,
-identity-safe operation with runtime evidence, and a notification defect
-cannot emit misleading persistence errors or destabilize the Aurelia shell.
+Exit gate: NOT MET — closing a notification through every real pointer path
+must be a stable, identity-safe operation with runtime evidence, and a
+notification defect cannot emit misleading persistence errors or destabilize
+the Aurelia shell.
 
 Dependencies: T31, T43, T46, T02A, T33.
+
+---
+
+### T49. Close live notification and session-action safety regressions
+
+Execution status: NOT STARTED — tracker-only checkpoint required before source/test edits
+
+Checkpoint 1 — T49 audit boundary:
+
+- The live shell still emits `popup.dismiss index=1` followed by
+  `history.write_skipped reason=invalid_identity` and
+  `popup.archive_skipped reason=invalid_identity`. The existing isolated
+  fixture calls the production `dismissFromClose()` helper directly, but does
+  not exercise every production pointer branch and therefore did not detect
+  this live failure.
+- `NotificationToast.qml` still has a parameterless `root.dismissed()` call
+  on the card-level right-click path. A parameterless signal cannot carry the
+  stable identity required by Service persistence and is an actionable source
+  of the reported error. All dismissal branches must use one identity-bearing
+  emitter, and tests must fail if a parameterless dismissal is reintroduced.
+- `aurelia.session-actions/Model.js` currently marks Lock, Log out, and Suspend
+  as `confirm: false`; only Restart and Power off require confirmation. The
+  panel therefore executes those three session-changing commands on the first
+  activation. The panel also uses an implicit `onClicked` parameter, producing
+  the deprecated signal-handler injection warning.
+
+Scope and preservation boundary:
+
+- Route every notification dismissal branch—including card-level pointer
+  dismissal—through the same identity-bearing production helper. Preserve
+  sender-close re-entrancy, delegate churn protection, exact-identity
+  fail-closed behavior, persistence ordering, and observable file-job errors.
+- Extend the production Service/Toast fixture and static contracts to cover
+  each dismissal entry path and reject parameterless identity emission. The
+  fixture remains isolated from the live notification bus and user state, but
+  must exercise production components and assert the exact persistence result.
+- Make every session action confirmation-gated: Lock, Log out, Suspend,
+  Restart, and Power off must all show an explicit confirmation state before
+  any executor/process call. Cancellation and Escape must execute nothing;
+  only an explicit confirmation may dispatch the structured command.
+- Replace deprecated implicit QML signal-handler parameter injection with
+  formal JavaScript handler parameters and add a test that rejects the warning
+  pattern. Do not suppress the warning or broaden runtime allow-lists.
+- Do not execute any real session command, modify live notification state,
+  restart the shell, install packages, alter systemd/greetd/PAM/Hyprland
+  configuration, or reboot.
+
+Required tests:
+
+- [ ] Production NotificationToast pointer dismissal branches emit one
+  identity-bearing signal; Service records/archives the matching row exactly
+  once and never logs `invalid_identity`.
+- [ ] Notification runtime coverage includes the real close helper, the
+  card-level secondary dismissal path, index churn, sender `closed()`
+  re-entry, malformed identity recovery, and valid-identity mismatch
+  preservation without warning suppression.
+- [ ] Pure and panel tests prove all five session actions enter confirmation,
+  make zero executor calls before explicit confirmation, cancel safely, and
+  dispatch only the selected structured argv after confirmation.
+- [ ] QML/static checks prove no session-action handler relies on deprecated
+  implicit parameters and no relevant warning/error is filtered.
+- [ ] Full strict Aurelia/repository/syntax/ShellCheck gates pass; any
+  environment-gated path remains explicitly reported and does not count as a
+  passing strict result.
+
+Checkpoint 2 status: `[ ]` pending the tracker-only pre-change commit for this boundary.
+
+Exit gate: the live notification dismissal errors are eliminated by a tested
+production path, and no session action can execute without an explicit user
+confirmation; the Aurelia shell remains usable if either feature fails.
+
+Dependencies: T47, T48, T02A, T31, T33, T46.
 
 ---
 
