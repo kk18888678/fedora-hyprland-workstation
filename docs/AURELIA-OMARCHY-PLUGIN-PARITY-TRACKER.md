@@ -5,8 +5,8 @@ panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
 bar control-plane work, T41 persistent bar hiding, corrective T43–T46
 runtime/test-truth work, T47 session-actions restoration, and the T49
 notification/session safety correction are complete for repository/static/
-headless evidence; T48 live revalidation remains pending, and T42 remains the
-final acceptance gate.
+headless evidence; T48 live revalidation remains pending, T50 is next for the
+popup-model boundary regression, and T42 remains the final acceptance gate.
 T34 records the Bluetooth
 discovery-retention issue and remains not started, T30 remains queued as the
 separately requested plugin-local test-directory task, and live visual/
@@ -4477,7 +4477,7 @@ Dependencies: T39, T44, T46, T02A, T31, T33.
 
 ### T48. Make notification dismissal identity-safe and runtime-tested
 
-Execution status: IMPLEMENTED — the isolated production fixture passes; live shell revalidation is pending after the T49 pointer-path correction
+Execution status: IMPLEMENTED — the isolated production fixture passes; live shell revalidation is pending after the T49/T50 pointer-path corrections
 
 Checkpoint 1 — T48 audit boundary:
 
@@ -4685,6 +4685,66 @@ Aurelia shell remains usable if either feature fails. Fresh live shell
 confirmation is still required before T48 is fully closed.
 
 Dependencies: T47, T48, T02A, T31, T33, T46, T49.
+
+---
+
+### T50. Make popup-model dismissal indices source-aware
+
+Execution status: NOT STARTED — tracker-only checkpoint required before source/test edits
+
+Checkpoint 1 — T50 audit boundary:
+
+- The live shell still reports `popup.dismiss index=1` followed by
+  `history.write_skipped reason=invalid_identity` and
+  `popup.archive_skipped reason=invalid_identity` after the T49 correction.
+- `NotificationPopupSurface.qml` owns a `Repeater` over `popupModel`, but its
+  dismissal handler calls the generic `Service.dismissAt()` path. That method
+  treats an identity-less fallback index as an `activeModel` index. Popup and
+  active rows can have different ordering, and a malformed/temporarily absent
+  signal identity can therefore resolve the wrong row or an incomplete row.
+- The T48/T49 fixture used an `activeModel` Repeater for the production Toast
+  wiring and did not exercise the real popup-model index boundary. Its passing
+  result was therefore insufficient to prove the passive popup path.
+
+Scope and preservation boundary:
+
+- Add an explicit popup-source dismissal API in the resident Service. When
+  identity is valid, require an exact identity match; when identity is absent
+  or malformed, recover only from the authoritative `popupModel` row at the
+  popup delegate index, then resolve its matching active row by identity.
+  Valid-but-mismatched identities must continue to fail closed.
+- Route `NotificationPopupSurface` through the popup-source API while keeping
+  `NotificationCenterPanel` on the active-source API. Preserve sender-close
+  re-entry, restored/manual Inbox retention, persistence ordering, atomic file
+  jobs, and explicit diagnostics for genuinely unresolvable state.
+- Change the isolated fixture to model the production popup Repeater as well
+  as the active center path. Cover valid close, card-level secondary
+  dismissal, malformed identity fallback, popup/active ordering differences,
+  sender re-entry, and mismatch preservation without warning suppression.
+- Do not delete live notification state, execute notification actions,
+  restart the shell, install packages, alter systemd/greetd/PAM/Hyprland
+  configuration, or reboot.
+
+Required tests:
+
+- [ ] Popup-source dismissal resolves the popup delegate index against
+  `popupModel`, never blindly against `activeModel`, and persists exactly one
+  matching history/archive entry.
+- [ ] Production Service/Toast fixture covers both popup and active model
+  source paths, malformed identity recovery, ordering differences, sender
+  `closed()` re-entry, and valid-identity mismatch preservation.
+- [ ] No `invalid_identity`, TypeError, Loader.Error, or duplicate persistence
+  diagnostics are suppressed in the focused runtime result.
+- [ ] Full diagnostic Aurelia/repository/syntax/ShellCheck gates pass; strict
+  mode continues to report unavailable backend paths explicitly.
+
+Checkpoint 2 status: `[ ]` pending the tracker-only pre-change commit for this boundary.
+
+Exit gate: passive popup dismissal uses its own authoritative model boundary,
+the live invalid-identity persistence errors are resolved by tested source
+code, and the Aurelia shell remains usable if notification rendering fails.
+
+Dependencies: T48, T49, T02A, T31, T33, T46.
 
 ---
 
