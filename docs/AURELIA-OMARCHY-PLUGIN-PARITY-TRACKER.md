@@ -2,12 +2,12 @@
 
 Status: requested reference refresh T35, Audio foundation T36, T37 Audio
 panel/default-bar work, T38 optional Microphone work, T39 Power redesign, T40
-bar control-plane work, and T41 persistent bar hiding are complete for
-repository/static/isolated evidence; T42 is next for final acceptance, T34
-records the Bluetooth discovery-retention issue and remains not started, T30
-remains queued as the separately requested plugin-local test-directory task,
-and live visual/integration validation remains deferred pending explicit
-authorization.
+bar control-plane work, and T41 persistent bar hiding are complete only for
+their repository/static/isolated evidence; corrective runtime/test-truth
+tasks T43–T45 are now in progress before T42 final acceptance. T34 records
+the Bluetooth discovery-retention issue and remains not started, T30 remains
+queued as the separately requested plugin-local test-directory task, and live
+visual/integration validation remains deferred pending explicit authorization.
 
 ## Objective
 
@@ -2988,8 +2988,16 @@ closed or used to justify changing unrelated Bluetooth behavior.
    and setting commands.
 7. T41 — implement persistent bar hiding, `Super + Shift + Space`, and the
    Menu Bar control without killing the resident shell or its hotkeys.
-8. T42 — run the combined contract, failure-isolation, migration, and optional
-   real-session acceptance gates; update documentation and parity evidence.
+8. T43 — make test outcomes truthful: count skips separately, never let a
+   backend limitation mask an unrelated warning, and provide a strict no-skip
+   gate.
+9. T44 — correct Power panel non-visual child construction and add a real
+   panel entry-point contract fixture.
+10. T45 — correct the Aurelia bar hidden-state watcher for the actual
+    FileView/runtime contract without suppressing diagnostics.
+11. T42 — run the combined contract, failure-isolation, migration, and
+    optional real-session acceptance gates; update documentation and parity
+    evidence.
 
 No task in this sequence may rename or move the repository, `aurelia-shell`, an
 existing plugin, a manifest ID, an existing entry point, or a user-owned
@@ -3976,9 +3984,137 @@ Dependencies: T40, T02A, T21, T23, T24, T31, T33.
 
 ---
 
+### T43. Make test outcomes truthful and warning-complete
+
+Execution status: IN PROGRESS — corrective CP2 recorded before test-framework
+implementation; CP3 pending
+
+Checkpoint 2 — T43 pre-change boundary:
+
+- Starting branch/SHA: `installer-resilience` /
+  `410d644a757b64cdbcee86c49cf8a32f4974fc3c`; the working tree is clean.
+- The current Aurelia runner reports `605` passed and `0` failed, but
+  `test_helper.sh` increments only `PASSES`/`FAILS`; skip paths call `pass()`
+  and no skip total exists. Current runtime evidence is therefore not a full
+  coverage claim.
+- The current runtime tests can accept a compositor/backend diagnostic by
+  entering a skip branch without first asserting that the remaining log is
+  free of QML warnings/errors. This allowed the Power construction warning
+  and the T41 FileView warning to pass unnoticed.
+- Reference contract frozen from Omarchy at `/tmp/omarchy-reference`, branch
+  `quattro`, SHA `31bd80daa4613ffdee995ac27467fce5a2990806`: its shell tests
+  deliberately separate pure/headless tests from compositor/VM acceptance,
+  probe compositor reachability rather than trusting an environment variable,
+  continue after failed test files, and document skips explicitly. Aurelia
+  will retain its centralized runner but must not collapse skip into pass or
+  allow a backend skip to mask an unrelated diagnostic.
+- Planned owned files: Aurelia test helper/runner, existing Aurelia test skip
+  branches and runtime log gates, a focused test-framework contract fixture,
+  and this tracker. No production plugin, installer, package, live user
+  configuration, systemd/greetd state, or reboot is in scope for T43.
+- Required semantics: `skip()` increments a separate counter and is printed
+  distinctly; ordinary pass counts include only executed assertions; runtime
+  skip classification accepts only known environment limitations after all
+  unexpected warnings/errors are rejected; a strict no-skip mode returns a
+  distinct non-zero status for CI/integration gates.
+- Rollback: revert only test-helper/runner/skip-gate and T43 fixture changes;
+  no runtime or persisted state is changed.
+
+CP2 status: `[x]` the T43 test contract, reference comparison, baseline
+limitation, ownership boundary, strict-mode semantics, and rollback path are
+recorded before test-framework edits.
+
+Scope:
+
+- Separate pass, skip, and failure accounting throughout the Aurelia test
+  runner and migrate existing skip branches to the explicit skip primitive.
+- Add a warning-complete runtime-log classifier so backend skips are accepted
+  only when the log contains an approved environment limitation and no other
+  warning/error/loader failure.
+- Add a strict no-skip gate for final/CI acceptance without making headless
+  test limitations invisible or pretending they are runtime coverage.
+- Add focused tests that prove skip accounting, strict-mode exit behavior, and
+  rejection of a backend diagnostic combined with an unrelated QML warning.
+
+Required tests:
+
+- [ ] Focused test-framework accounting and strict-mode tests.
+- [ ] Existing runtime skip branches migrated and warning-complete.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Exit gate: the Aurelia test command cannot report skipped runtime coverage as
+ordinary passing assertions, and no backend limitation can hide an unrelated
+warning or error.
+
+Dependencies: T02, T02A, T31, T33, T39, T41.
+
+---
+
+### T44. Correct Power panel construction and add real entry-point coverage
+
+Execution status: NOT STARTED — queued behind T43
+
+Scope:
+
+- Move non-visual Power processes out of `AureliaKeyboardPanel`'s default
+  `contentItem` list without changing the panel's identity, actions, layout,
+  UPower ownership, or popup behavior.
+- Add an entry-point fixture that loads the real `PowerPanel.qml` rather than
+  only injecting a fake `panelOverride` into `PowerBarWidget.qml`.
+- Preserve failure isolation: a Power construction failure must be reported
+  and quarantined without preventing the resident shell, bar, or healthy
+  plugins from loading.
+
+Required tests:
+
+- [ ] Static ownership check rejects non-visual objects in the keyboard-panel
+  content list.
+- [ ] Real Power panel construction/runtime fixture passes when its required
+  backend is available and reports an explicit environment skip otherwise.
+- [ ] The skip branch rejects unrelated QML warnings through T43's log gate.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Exit gate: the live `PowerPanel.qml:317` warning and resulting panel load
+failure are eliminated and covered by a real entry-point test.
+
+Dependencies: T39, T43, T02A, T31, T33.
+
+---
+
+### T45. Correct the Aurelia bar hidden-state watcher contract
+
+Execution status: NOT STARTED — queued behind T43
+
+Scope:
+
+- Replace the invalid `FileView` directory fallback in the Aurelia bar with a
+  watcher/read design supported by the installed QuickShell runtime.
+- Continue watching the actual parent toggle directory when it exists, handle
+  its initially absent state without a false “not a file” warning, and retain
+  explicit sync/read behavior for rapid transitions.
+- Preserve mapped-but-offscreen hiding, `ExclusionMode.Ignore`, widget state,
+  shortcut continuity, XDG ownership, atomic writer behavior, and observable
+  failures.
+
+Required tests:
+
+- [ ] Static/runtime checks prove no directory is passed to a file-only reader.
+- [ ] Missing parent, first creation, rapid update, malformed state, and
+  watcher failure cases are covered without warning suppression.
+- [ ] Real bar fixture passes when a PanelWindow backend is available; the
+  unavailable-backend path is an explicit skip subject to T43 log validation.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates.
+
+Exit gate: the live `Bar.qml:353` watcher warning is eliminated without
+silencing diagnostics, and hidden-bar state remains recoverable and resident.
+
+Dependencies: T41, T43, T02A, T31, T33.
+
+---
+
 ### T42. Requested capability integration and final acceptance gate
 
-Execution status: NOT STARTED — queued behind T36 through T41
+Execution status: NOT STARTED — blocked behind corrective T43 through T45
 
 Scope:
 
@@ -4011,7 +4147,7 @@ Exit gate: the requested capability set is structurally and behaviorally at
 Omarchy parity as far as Aurelia's preserved features and safety boundaries
 allow, every task has CP3 evidence, and no task leaves the shell unusable.
 
-Dependencies: T36, T37, T38, T39, T40, T41, T02A, T31, T32, T33.
+Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T02A, T31, T32, T33.
 
 ---
 
@@ -4058,6 +4194,9 @@ Dependencies: T36, T37, T38, T39, T40, T41, T02A, T31, T32, T33.
 | Existing Power popup lacks Omarchy battery, statistics, profile, and percentage UX | T39 |
 | Aurelia bar CLI lacks use/reset/defaults/position/transparent controls | T40 |
 | Bar hiding lacks persistent state, exact shortcut, and full Menu Bar semantics | T41 |
+| Test summary collapses skipped runtime coverage into passed assertions | T43 |
+| Power panel places non-visual processes in the keyboard panel content list | T44 |
+| Bar hidden-state watcher passes a directory to Aurelia's file reader | T45 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
