@@ -4313,13 +4313,20 @@ Observed audit finding:
   filters to remove
   selected warnings/errors before assertion, and `18` empty production/test
   `catch` blocks that discard parse, object-lifetime, or backend failures.
-- A second audit found `604` direct `2>/dev/null` stderr discards and `440`
-  compound output-to-`/dev/null` paths across the repository. These are not
+- A second audit found `604` direct stderr-to-null-device discards and `440`
+  compound output-to-null-device paths across the repository. These are not
   all QML warnings, but they create the same observability hazard when a real
   command failure is hidden behind a status probe, fallback, cleanup, or
   detached launch. They must be reviewed and removed or changed to preserve
   the diagnostic stream. The final policy cannot claim repository-wide
   visibility while these paths remain unclassified.
+- The attached 2026-09-14 restart log adds two concrete runtime failures that
+  must remain visible and be fixed at their owners: optional user-owned
+  `command-center.hides` and `command-center.json` were modeled as missing
+  `FileView`s, and a targeted reload left more than one `aurelia.calendar`
+  `IpcHandler` registered. The log also proves that workspace activation can
+  succeed independently (`[WORKSPACES] click_dispatched`), while logo and
+  reload paths still need their own interaction/lifecycle evidence.
 - These constructs are not equivalent to safe failure isolation. They can make
   a broken plugin look healthy, hide the exact QML diagnostic needed to repair
   it, and allow a fixture to pass after the failure has been removed from its
@@ -4355,6 +4362,11 @@ Scope:
   represented in an explicit state. Detached GUI/process launches must use a
   repository/user-owned diagnostic sink or inherit the caller's streams, never
   discard stderr.
+- Replace optional missing-file `FileView` construction with a reusable
+  status-probed, atomic user-file boundary; required project files remain
+  `FileView`s with error reporting enabled. Add a reload-drain boundary so a
+  destroyed plugin entry point is fully released before its replacement can
+  register the same IPC target.
 - Add one repository policy suite that scans the complete repository for the
   forbidden diagnostic suppression forms and fails closed on new occurrences.
   The policy suite must itself avoid the forbidden filtering pattern and must
@@ -4382,6 +4394,11 @@ Required tests:
   synthetic exact QML warning/error/FATAL remains a hard failure.
 - [ ] All empty catches are removed or replaced with observable bounded
   failure state, with negative tests for the affected paths.
+- [ ] Missing optional user files produce an explicit state without a QML
+  warning, and their atomic read/write/reload contract is exercised.
+- [ ] A plugin reload cannot register a duplicate IPC target; the exact
+  `another handler is registered` warning is rejected by a disposable runtime
+  fixture.
 - [ ] Full Aurelia strict and diagnostic runs, repository tests, repository-wide
   Bash syntax, changed-file ShellCheck, and `git diff --check` pass.
 
@@ -4436,6 +4453,24 @@ Checkpoint 3 — T55 expanded repository-wide boundary:
 CP3 status: `[x]` the complete repository scope, forbidden forms, permitted
 status-probe boundary, safety rules, and rollback boundary are recorded before
 the expanded implementation begins.
+
+Checkpoint 4 — T55 attached-log regression boundary:
+
+- Starting branch/SHA: `installer-resilience` / `26416c2`; the worktree
+  contains the in-progress T55 stderr/catch remediation and must be preserved.
+- Allowed production scope: optional user-file ownership in the shared app,
+  menu, and Command Center services; the resident plugin reload drain; and
+  their isolated fixtures/tests. No persisted live state is in scope.
+- Required evidence: the missing `FileView` warnings must disappear because
+  no missing optional `FileView` is constructed, not because error reporting
+  is disabled; reload must destroy the old IPC owner before replacement; and
+  all runtime logs must still be consumed without filtering.
+- Rollback: revert only this optional-file/reload-owner correction and its
+  tests, preserving all prior parity and diagnostic-policy commits.
+
+CP4 status: `[x]` the attached-log findings, production boundaries, negative
+tests, and rollback rules are recorded before the optional-file and reload
+owner implementation.
 
 ### T43. Make test outcomes truthful and warning-complete
 
