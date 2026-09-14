@@ -4135,6 +4135,11 @@ Observed production regression:
 - This is an actionable production warning, not an environment limitation.
   It must be fixed at the source reference and remain visible if a future
   production entry-point construction fails.
+- After the warning-free restart, the user clicked a workspace number and the
+  Aurelia logo; neither action produced a visible result or a diagnostic.
+  Those handlers do not report dispatch/injection failure, and the workspace
+  bar does not prefer the live workspace object's `activate()` method. This is
+  a second production no-op path, not evidence that the test passed.
 
 Scope:
 
@@ -4151,6 +4156,10 @@ Scope:
 - Make the strict Aurelia command report this regression as a failure even
   when other compositor-dependent assertions are skipped. Keep skip counts
   separate and do not turn the known headless limitation into a pass.
+- Make the logo and workspace click paths observable: report missing shell or
+  summon results, prefer the live Hyprland workspace object's activation API,
+  catch and report dispatch failure, and log the accepted click/dispatch mode.
+  Preserve normal child clicks while the bar reordering handler is present.
 - Preserve all Aurelia command names, plugin IDs, bar layout/config ownership,
   direct gestures, transparent foreground behavior, widget click/wheel paths,
   hidden-bar state, and shell survivability. No live shell/systemd/greetd/
@@ -4163,6 +4172,9 @@ Required tests:
 - [ ] Isolated production entry-point fixture exercises the transparent
   refresh callback and rejects non-existent-property/TypeError diagnostics;
   any backend-only skip is separately counted.
+- [ ] Isolated interaction fixture proves logo summon and workspace activation
+  return/diagnostic states and that normal child click routing is not silently
+  consumed by bar reordering.
 - [ ] Full Aurelia strict and diagnostic runs, repository tests, repository-
   wide Bash syntax, changed-file ShellCheck, and `git diff --check` pass with
   zero unclassified warnings/errors.
@@ -4171,7 +4183,10 @@ Checkpoint 2 — T54 pre-change boundary:
 
 - Starting branch/SHA: `installer-resilience` /
   `9b664456c66bb64b7ff9997797495214c8292aaf`; `git status --short` is clean.
-- Planned source boundary: `plugins/aurelia.bar/Bar.qml`, T54 production
+- Planned source boundary: `plugins/aurelia.bar/Bar.qml`,
+  `plugins/aurelia.bar/BarWidgetSlot.qml`,
+  `plugins/aurelia.bar/AureliaLogo.qml`,
+  `plugins/aurelia.workspaces/WorkspacesBarWidget.qml`, T54 production
   entry-point/static/runtime fixtures and tests, and this tracker. No other
   plugin, installer, package, live user configuration, systemd/greetd state,
   or reboot work is in scope.
