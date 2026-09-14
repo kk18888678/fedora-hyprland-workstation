@@ -16,6 +16,7 @@ host_file="$ROOT/services/PluginHost.qml"
 text_color_bin="$ROOT/bin/aurelia-bar-text-color"
 
 if [[ -x "$text_color_bin" ]] &&
+   grep -Fq 'fallback missing-magick' "$text_color_bin" &&
    grep -Fq 'BarInteractionModel.js' "$bar_file" &&
    grep -Fq 'surfaceFormat.opaque: false' "$bar_file" &&
    grep -Fq 'function refreshTransparentForeground' "$bar_file" &&
