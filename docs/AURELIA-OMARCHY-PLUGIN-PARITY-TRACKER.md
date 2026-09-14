@@ -8,11 +8,13 @@ session safety, T50 popup-model boundary correction, T51 composite
 identity/lifetime correction, and T52 session-action execution/ownership work
 remain complete for repository/static/headless evidence; T55 repository-wide
 diagnostic hardening, T57 workspace/logo correction, and T58 weather regression
-correction are complete for repository/static/isolated evidence; T59 Command
-Center launch observability is now in progress after user validation found a
-silent Foot launch failure. Live weather-provider availability, visual
-acceptance, and Lock/Confirm acceptance remain pending, and T42 remains the
-final acceptance gate.
+correction, and T59 Command Center launch observability are complete for
+repository/static/isolated evidence; T60 native Aurelia lock ownership is in
+progress with configured-PAM/live acceptance still open; T62 Weather parity is
+in progress with PanelWindow/live acceptance still open. T61 Crash Diagnosis
+is audit/specification-only and has no implementation. Live weather-provider
+availability, visual acceptance, configured native lock/unlock, and T42 final
+acceptance remain pending.
 T30 remains queued as the separately requested plugin-local test-directory
 task, T34 records the Bluetooth discovery-retention issue, T56 records the
 complete plugin-coverage/test-structure task, and live visual/integration
@@ -5064,10 +5066,10 @@ into a false success claim.
 
 ### T60. Restore native Aurelia lock ownership and Omarchy lock behavior
 
-Execution status: NOT STARTED — read-only audit complete; implementation is
-blocked on the pre-change contract/checkpoint below
+Execution status: IN PROGRESS — native owner/routing and missing-PAM failure
+are implemented; configured-PAM and live Wayland acceptance remain open
 
-Confirmed gap:
+Confirmed gap before this task:
 
 - Aurelia has no `aurelia.lock` service. The `SUPER + L` manifest binding still
   dispatches `noctalia msg screen-lock`, which is outside the Aurelia resident
@@ -5091,6 +5093,22 @@ Confirmed gap:
   shell reload boundaries, and tests the authentication/lock ownership seams.
   A one-line `loginctl` or Noctalia substitution cannot provide this parity.
 
+Implemented boundary and remaining parity:
+
+- [x] `aurelia.lock` now owns a resident `WlSessionLock`/
+  `WlSessionLockSurface` service with password/fingerprint `PamContext`
+  boundaries, explicit status/error state, and `keepLoaded` lifecycle.
+- [x] `SUPER + L` and `SUPER + CTRL + L` resolve to the Aurelia native lock
+  wrapper. The lock path no longer executes the previous Noctalia command or
+  `loginctl`; Session Actions routes its confirmed Lock row through the same
+  resident service and leaves missing-PAM errors visible.
+- [x] Root-owned Fedora PAM templates and an Aurelia-gated installer owner are
+  present. The agent did not install them into `/etc/pam.d`.
+- [ ] Full Omarchy parity remains open for authenticated configured-PAM
+  success/failure, fingerprint behavior on hardware, background-video/DPMS
+  wake/blank behavior, stranded-lock recovery, and authorized live lock/unlock
+  acceptance. These cannot be claimed from a missing-PAM fixture.
+
 User lock-owner direction recorded before implementation:
 
 - The Aurelia lock path must not invoke Noctalia. The existing
@@ -5105,27 +5123,28 @@ User lock-owner direction recorded before implementation:
 
 Required design freeze before implementation:
 
-- [ ] Freeze the Aurelia naming/compatibility contract: add a distinct
+- [x] Freeze the Aurelia naming/compatibility contract: add a distinct
   `aurelia.lock` service without renaming or removing `aurelia.session-actions`;
   preserve the existing user `SUPER + L` behavior only if explicitly retained,
   while adding the reference-correct `SUPER + CTRL + L` lock binding and
   resolving the key conflict deliberately.
-- [ ] Map the exact native Quickshell APIs available in the installed runtime
+- [x] Map the exact native Quickshell APIs available in the installed runtime
   (`WlSessionLock`, `WlSessionLockSurface`, `PamContext`, PAM result/message
   types) without executing a lock or changing live PAM/system state.
-- [ ] Define the PAM provisioning owner, package/provenance requirements,
+- [x] Define the PAM provisioning owner, package/provenance requirements,
   password/fingerprint fallback, restart/relock, screen-stabilization,
   stranded-lock, DPMS, wallpaper, and failure contracts before source edits.
-- [ ] Define the private authentication-service boundary so credentials never
-  enter ordinary third-party facades or the public plugin object graph.
-- [ ] Define static, isolated, negative, lifecycle/reload, and authorized live
+- [ ] Implement the private authentication-service boundary so credentials
+  never enter ordinary third-party facades or the public plugin object graph.
+- [x] Define static, isolated, negative, lifecycle/reload, and authorized live
   acceptance tests. A headless `PanelWindow` skip cannot be reported as a
   working lock; real authentication and lock acquisition require a separately
   authorized integration phase.
 
-No implementation starts until the design freeze, checkpoint, exact API map,
-PAM ownership, and rollback path are recorded. No live lock, PAM, systemd,
-greetd, compositor, package, or reboot operation is part of this audit.
+The design freeze and checkpoint are recorded for the implemented native-owner
+boundary. The private authentication-store separation and configured-PAM/live
+acceptance remain blockers to calling the task complete. No live lock, PAM,
+systemd, greetd, compositor, package, or reboot operation is part of this audit.
 
 Dependencies: T02, T02A, T15, T47, T49, T42.
 
@@ -5162,6 +5181,24 @@ Checkpoint 1 — T60 native lock owner and Noctalia removal boundary:
 CP1 status: `[x]` the user's Noctalia prohibition, dual Aurelia/reference
 binding contract, installed API map, source/PAM ownership, test boundary,
 no-live-impact rule, and rollback path are recorded before lock edits.
+
+Checkpoint 2 — T60 native-owner implementation evidence:
+
+- Source scope changed only in the new `aurelia.lock` service/view/manifest,
+  Aurelia lock bindings/wrapper, Session Actions lock routing, Fedora PAM
+  templates/installer owner, inventory fixtures, and the focused lock tests.
+  The concurrent notification edit remains untouched and uncommitted.
+- Focused result: `8/8` lock assertions passed. This includes manifest and
+  trusted-capability validation, native API ownership, no-Noctalia/no-loginctl
+  lock routing, dynamic legacy/reference bindings, missing-PAM fail-closed
+  behavior, and confirmed Session Actions service routing.
+- No live success claim: the isolated fixture intentionally supplies an empty
+  PAM directory, so it proves the service refuses to lock without the
+  root-owned authentication configuration. Configured-PAM authentication and
+  Wayland lock/unlock must be separately authorized and tested.
+
+CP2 status: `[x]` the native lock implementation evidence and remaining
+configured-PAM/live blockers are recorded without claiming full Omarchy parity.
 
 ### T61. Freeze complete Crash Diagnosis parity before implementation
 
@@ -5236,8 +5273,9 @@ Dependencies: T02A, T15, T31, T43, T55, T56, T60, T42.
 
 ### T62. Complete Weather plugin parity with Omarchy's real architecture
 
-Execution status: NOT STARTED — T58 only repaired a demonstrated request
-regression; the current Weather plugin is not parity-complete
+Execution status: IN PROGRESS — Omarchy-shaped widget/panel/backend state is
+implemented and tested in isolation; live/provider/settings-form parity remains
+open
 
 Confirmed parity gaps:
 
@@ -5285,15 +5323,18 @@ Required implementation order:
 
 Required tests:
 
-- [ ] Manifest and entry-point contract is field-checked against the reference.
+- [x] Manifest and entry-point contract is field-checked against the reference.
 - [ ] Real widget tests cover primary/middle/secondary clicks, open/close,
   popout handoff, bar hiding, orientation, settings reload, and stale-report
-  retention.
+  retention. The real PanelWindow-dependent fixture is explicitly skipped in
+  this headless environment, so this is not marked complete.
 - [ ] Real panel tests cover automatic and pinned locations, geocoding/editing,
   units, current/forecast data, malformed responses, HTTP failures, bounded
-  retries, and deterministic UI state.
-- [ ] Backend tests cover exact request construction, full response parsing,
-  malformed/error paths, and bounded HTTPS without suppressing stderr.
+  retries, and deterministic UI state. The real PanelWindow-dependent fixture
+  is explicitly skipped in this headless environment.
+- [x] Backend tests cover exact request construction, full response parsing,
+  historical direct-wttr fallback, malformed/error paths, and bounded HTTPS
+  without suppressing stderr.
 - [ ] Full diagnostic/strict/repository/syntax/ShellCheck gates pass with no
   false parity or coverage claim; authorized live acceptance is reported
   separately.
@@ -5423,6 +5464,53 @@ Checkpoint 3 — T62 caught-failure observability marker boundary:
 CP3 status: `[x]` the exact failure, helper contract, narrow test scope,
 negative-test requirement, and rollback path are recorded before changing the
 policy marker set.
+
+Checkpoint 4 — T62 post-change evidence:
+
+- Source scope changed only in the Weather manifest/model/widget/panel,
+  historical CLI fallback, Weather fixtures/tests, and inventory assertions.
+  No live provider request or shell restart was performed.
+- Focused Weather result: `7` assertions, `6` passed, `1` explicit
+  PanelWindow-environment skip, `0` failed. The pure model/manifest/widget/
+  panel contract, automatic wttr/Open-Meteo backend, direct-wttr fallback, and
+  malformed response tests pass. The skipped QML fixture is not counted as
+  real widget/panel interaction coverage.
+- Full Aurelia diagnostic result: `73 suites, 689 assertions, 676 passed,
+  13 skipped, 0 failed`. Strict mode has `0` failed but exits `2` for the
+  thirteen explicit environment skips; therefore strict coverage is not
+  reported as green. Measured source/branch coverage remains T56.
+- Root repository tests, repository-wide shell syntax, changed-script
+  ShellCheck, and `git diff --check` remain final commit gates and are not
+  represented as passed here until rerun after the complete source commit.
+
+CP4 status: `[x]` current Weather evidence and the remaining non-parity/live
+limitations are recorded without a false completion claim.
+
+Checkpoint 5 — T62 deferred-loader callback race:
+
+- New runtime evidence: the user's real shell reported
+  `WeatherBarWidget.qml[148:-1]: TypeError: Property 'configurePanel' ... is
+  not a function` together with `QQmlVMEMetaObject: ... invalid context`.
+  Line 148 is the `Qt.callLater(function() { ... })` callback in the Weather
+  widget's `Loader.onLoaded` handler. The callback can outlive the loader
+  context during bar/plugin reconstruction; this is a real lifecycle defect,
+  not a provider failure and not an acceptable environment skip.
+- Allowed source scope: only the Weather widget's loader/deferred-refresh
+  boundary and its focused test/fixture assertions. Replace the closure with
+  a timer owned by the widget so destruction cancels the pending callback; do
+  not filter logs or change wttr/Open-Meteo provider semantics. No lock/PAM,
+  user configuration, shell restart, or live provider operation is allowed.
+- Required evidence: an isolated construction/rebuild fixture or source-level
+  lifecycle assertion proves no deferred callback references a destroyed
+  Weather widget, and the focused/full diagnostic gates retain every real
+  warning/error.
+- Rollback: revert only this Weather callback correction and its regression
+  test, preserving the historical provider fallback, native lock work, prior
+  checkpoints, and the protected notification edit.
+
+CP5 status: `[x]` the exact runtime warning, source line/lifecycle cause,
+narrow correction boundary, no-suppression invariant, required test evidence,
+and rollback path are recorded before the callback edit.
 
 ### T43. Make test outcomes truthful and warning-complete
 
