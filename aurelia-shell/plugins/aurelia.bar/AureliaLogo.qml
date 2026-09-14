@@ -12,6 +12,8 @@ Item {
     property var bar: null
     property var shell: null
     property bool hovered: logoHover.hovered
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: bar && bar.barIconSlot ? bar.barIconSlot : 27
     implicitHeight: bar && bar.barSize ? bar.barSize : 26
@@ -36,8 +38,8 @@ Item {
             anchors.centerIn: parent
             width: 20
             height: 20
-            color: root.hovered ? Theme.text : Theme.accent
-            coreColor: root.hovered ? Theme.text : Theme.gold
+            color: root.hovered ? root.barForeground : Theme.accent
+            coreColor: root.hovered ? root.barForeground : Theme.gold
             opacity: root.hovered ? 1.0 : 0.92
         }
 

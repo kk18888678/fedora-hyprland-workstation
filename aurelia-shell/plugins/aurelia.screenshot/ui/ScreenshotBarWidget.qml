@@ -24,6 +24,8 @@ Item {
     property var pendingCaptureRequest: null
 
     readonly property var screenshotPanel: panelLoader.item
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-screenshot"
@@ -204,7 +206,7 @@ Item {
             height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
             glyph: "󰄀"
-            tint: hover.hovered ? Theme.text : Theme.accent
+            tint: hover.hovered ? root.barForeground : Theme.accent
         }
 
         AureliaToolTip {

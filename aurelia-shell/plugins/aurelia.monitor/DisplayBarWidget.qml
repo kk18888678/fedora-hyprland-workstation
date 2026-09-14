@@ -20,6 +20,8 @@ Item {
     property real wheelAccumulator: 0
 
     readonly property var displayPanel: panelLoader.item
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
     readonly property string sourceBinRoot: decodeURIComponent(
         String(Qt.resolvedUrl("../../bin")).replace(/^file:\/\//, "")
     )
@@ -99,7 +101,7 @@ Item {
             height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
             glyph: Quickshell.screens.length > 1 ? "󰍺" : "󰍹"
-            tint: root.isVisible() ? Theme.accent : Theme.textSecondary
+            tint: root.isVisible() ? Theme.accent : root.barForeground
         }
 
         MouseArea {

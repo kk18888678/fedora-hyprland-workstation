@@ -12,6 +12,12 @@ QtObject {
     property int barSize: 0
     property string position: "top"
     property bool vertical: false
+    property color foreground: "transparent"
+    property color barForeground: "transparent"
+    property color background: "transparent"
+    property color urgent: "transparent"
+    property bool transparent: false
+    property bool foregroundAnimationEnabled: true
     property string activePopoutId: ""
 
     property var _requestPopout: null

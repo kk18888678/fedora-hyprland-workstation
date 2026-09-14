@@ -13,6 +13,8 @@ Item {
     property var manifest: ({})
     property var pluginRegistry: null
     property int refreshTick: 0
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     readonly property string displayFormat: root.vertical
@@ -54,7 +56,7 @@ Item {
         anchors.centerIn: parent
         visible: !root.vertical
         text: root.displayText
-        color: Theme.text
+        color: root.barForeground
         font.family: Theme.fontFamily
         font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.bar.text
         font.weight: Theme.fontWeightMedium
@@ -72,7 +74,7 @@ Item {
                 width: parent.width
                 height: root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot
                 text: modelData
-                color: Theme.text
+                color: root.barForeground
                 font.family: Theme.fontFamily
                 font.pixelSize: modelData.length > 3
                     ? (root.bar && root.bar.barIconFont ? root.bar.barIconFont * 0.9 : Theme.bar.iconFont * 0.9)

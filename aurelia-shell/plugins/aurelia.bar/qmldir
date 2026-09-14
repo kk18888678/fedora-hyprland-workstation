@@ -1,0 +1,8 @@
+module AureliaBar
+AureliaLogo 1.0 AureliaLogo.qml
+Bar 1.0 Bar.qml
+BarCenter 1.0 BarCenter.qml
+BarHiddenWatcher 1.0 BarHiddenWatcher.qml
+BarWidgetRow 1.0 BarWidgetRow.qml
+BarWidgetSlot 1.0 BarWidgetSlot.qml
+CustomCommandBarWidget 1.0 CustomCommandBarWidget.qml

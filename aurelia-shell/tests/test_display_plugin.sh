@@ -52,7 +52,7 @@ if grep -Fq 'onWheel' "$plugin_root/DisplayBarWidget.qml" &&
    grep -Fq 'glyph: Quickshell.screens.length > 1 ? "󰍺" : "󰍹"' "$plugin_root/DisplayBarWidget.qml" &&
    ! grep -Fq 'name: Quickshell.screens.length > 1' "$plugin_root/DisplayBarWidget.qml" &&
    ! grep -Fq 'fallbackName: "computer"' "$plugin_root/DisplayBarWidget.qml" &&
-   grep -Fq 'tint: root.isVisible() ? Theme.accent : Theme.textSecondary' "$plugin_root/DisplayBarWidget.qml" &&
+   grep -Fq 'tint: root.isVisible() ? Theme.accent : root.barForeground' "$plugin_root/DisplayBarWidget.qml" &&
    grep -Fq 'readonly property string backendRoot: sourceBinRoot' "$plugin_root/DisplayBarWidget.qml" &&
    grep -Fq 'Qt.resolvedUrl("../../bin")' "$plugin_root/DisplayBarWidget.qml" &&
    grep -Fq 'backend_root=' "$plugin_root/DisplayPanel.qml"; then

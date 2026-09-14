@@ -21,6 +21,7 @@ Item {
     property bool registered: false
     property bool reloading: false
     property string instanceId: pluginId
+    property string region: ""
     PluginSourceResolver { id: sourceResolver }
     readonly property string home: Quickshell.env("HOME") || ""
     readonly property string configHome: {
@@ -54,6 +55,7 @@ Item {
     readonly property bool popoutActive: root.bar && root.bar.activePopoutId === root.instanceId
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
+    readonly property bool dragSource: root.bar && root.bar.widgetDragSource === root
 
     function fileUrl(value) {
         return sourceResolver.fileUrl(value)
@@ -263,6 +265,36 @@ Item {
         }
     }
 
+    DragHandler {
+        id: reorderHandler
+        target: null
+        enabled: root.visible && root.width > 0 && root.height > 0 && root.bar !== null &&
+            typeof root.bar.beginWidgetDrag === "function"
+        acceptedButtons: Qt.LeftButton
+        dragThreshold: root.bar && root.bar.barDragThreshold !== undefined
+            ? Number(root.bar.barDragThreshold) : 4
+        grabPermissions: PointerHandler.CanTakeOverFromAnything
+
+        onActiveChanged: {
+            if (!root.bar) return
+            if (active) {
+                root.bar.beginWidgetDrag(root, centroid.scenePosition)
+            } else if (typeof root.bar.endWidgetDrag === "function") {
+                root.bar.endWidgetDrag(root)
+            }
+        }
+
+        onCentroidChanged: {
+            if (active && root.bar && typeof root.bar.updateWidgetDrag === "function")
+                root.bar.updateWidgetDrag(root, centroid.scenePosition)
+        }
+
+        onCanceled: {
+            if (root.bar && typeof root.bar.cancelWidgetDrag === "function")
+                root.bar.cancelWidgetDrag(root)
+        }
+    }
+
     function reload() {
         if (root.reloading) return
         try {
@@ -290,6 +322,7 @@ Item {
     Loader {
         id: widgetLoader
         anchors.fill: parent
+        opacity: root.dragSource ? 0.22 : 1.0
         active: root.active && root.available && !root.reloading &&
             (root.pluginManifest === null || root.pluginManifest.__isFirstParty !== false || root.pluginHost !== null)
         source: active
@@ -307,6 +340,7 @@ Item {
     Loader {
         id: qmlLoader
         anchors.fill: parent
+        opacity: root.dragSource ? 0.22 : 1.0
         active: root.customQml && !root.reloading
         source: root.customQml ? root.fileUrl(root.safeCustomSource()) : ""
         onLoaded: root.handleLoaded(item)
@@ -319,6 +353,7 @@ Item {
     Loader {
         id: commandLoader
         anchors.fill: parent
+        opacity: root.dragSource ? 0.22 : 1.0
         active: root.customCommand && !root.reloading
         source: active ? Qt.resolvedUrl("CustomCommandBarWidget.qml") : ""
         onLoaded: root.handleLoaded(item)
@@ -336,6 +371,19 @@ Item {
         function onLocalPluginChanged(changedPluginId) {
             if (String(changedPluginId || "") === root.pluginId) root.reload()
         }
+    }
+
+    Rectangle {
+        visible: root.dragSource
+        anchors.fill: parent
+        anchors.margins: 1
+        radius: Math.min(Theme.radiusSm, height / 2)
+        color: "transparent"
+        border.color: root.bar && root.bar.barForeground !== undefined
+            ? root.bar.barForeground : Theme.text
+        border.width: 1
+        opacity: root.bar && root.bar.transparent ? 0.55 : 0.32
+        z: 20
     }
 
     Rectangle {

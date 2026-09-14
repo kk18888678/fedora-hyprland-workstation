@@ -137,6 +137,12 @@ Item {
         api.barSize = bar ? Math.max(0, Number(bar.barSize || 0)) : 0
         api.position = bar ? String(bar.position || "top") : "top"
         api.vertical = !!(bar && bar.vertical === true)
+        api.foreground = bar && bar.foreground !== undefined ? bar.foreground : "transparent"
+        api.barForeground = bar && bar.barForeground !== undefined ? bar.barForeground : api.foreground
+        api.background = bar && bar.background !== undefined ? bar.background : "transparent"
+        api.urgent = bar && bar.urgent !== undefined ? bar.urgent : "transparent"
+        api.transparent = !!(bar && bar.transparent === true)
+        api.foregroundAnimationEnabled = !(bar && bar.foregroundAnimationEnabled === false)
         api.activePopoutId = bar ? String(bar.activePopoutId || "") : ""
     }
 

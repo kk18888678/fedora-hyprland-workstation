@@ -23,6 +23,8 @@ Item {
         return isFinite(value) && value >= 1 ? Math.min(3600, Math.floor(value)) : 30
     }
     readonly property string visibleText: root.outputText !== "" ? root.outputText : root.configuredText
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: Math.min(240, Math.max(24, label.implicitWidth + Theme.spacingMd * 2))
     implicitHeight: root.bar && root.bar.barSize ? root.bar.barSize : Theme.bar.sizeHorizontal
@@ -103,7 +105,7 @@ Item {
             anchors.rightMargin: Theme.spacingSm
             anchors.verticalCenter: parent.verticalCenter
             text: root.visibleText
-            color: Theme.bar.foreground
+            color: root.barForeground
             font.family: Theme.fontFamily
             font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.bar.text
             horizontalAlignment: Text.AlignHCenter

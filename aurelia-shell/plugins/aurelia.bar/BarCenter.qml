@@ -1,5 +1,6 @@
 import QtQuick
 import "../../theme"
+import "."
 
 // The center region supports Omarchy's centerAnchor contract. Without an
 // anchor the configured widgets are centered as a group; with one, the named
@@ -15,6 +16,89 @@ Item {
     property var barWidgetRegistry: null
     property var pluginHost: null
     property string aureliaPath: ""
+
+    // Empty center space owns Omarchy's direct bar-position and transparency
+    // gestures. Child widget slots remain above this area and retain their own
+    // click/wheel handlers.
+    MouseArea {
+        id: centerGesture
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.LeftButton
+        pressAndHoldInterval: 200
+        propagateComposedEvents: true
+        property bool dragging: false
+        property bool suppressClick: false
+        property real pressedX: 0
+        property real pressedY: 0
+
+        function startDrag(x, y) {
+            if (root.bar && typeof root.bar.beginBarMove === "function") {
+                dragging = true
+                root.bar.beginBarMove()
+                root.bar.updateBarMove(root.bar.screenPointFromItem(centerGesture, x, y))
+            }
+        }
+
+        onPressed: function(mouse) {
+            dragging = false
+            suppressClick = false
+            pressedX = mouse.x
+            pressedY = mouse.y
+        }
+
+        onPressAndHold: function(mouse) {
+            if (centerGesture.pressed) centerGesture.startDrag(mouse.x, mouse.y)
+        }
+
+        onPositionChanged: function(mouse) {
+            if (!(mouse.buttons & Qt.LeftButton)) return
+            if (!dragging) {
+                var threshold = root.bar && root.bar.barDragThreshold !== undefined
+                    ? Number(root.bar.barDragThreshold) : 4
+                var distance = Math.abs(mouse.x - pressedX) + Math.abs(mouse.y - pressedY)
+                if (distance < threshold) return
+                centerGesture.startDrag(mouse.x, mouse.y)
+            }
+            if (dragging && root.bar && typeof root.bar.updateBarMove === "function")
+                root.bar.updateBarMove(root.bar.screenPointFromItem(centerGesture, mouse.x, mouse.y))
+        }
+
+        onReleased: function(mouse) {
+            if (!dragging) {
+                mouse.accepted = false
+                return
+            }
+            dragging = false
+            suppressClick = true
+            if (root.bar && typeof root.bar.finishBarMove === "function") root.bar.finishBarMove()
+            mouse.accepted = true
+        }
+
+        onCanceled: {
+            dragging = false
+            suppressClick = false
+            if (root.bar && typeof root.bar.clearBarMove === "function") root.bar.clearBarMove()
+        }
+
+        onClicked: function(mouse) {
+            if (suppressClick) {
+                suppressClick = false
+                mouse.accepted = true
+            }
+        }
+
+        onDoubleClicked: function(mouse) {
+            if (suppressClick) {
+                suppressClick = false
+                return
+            }
+            if (root.bar && typeof root.bar.toggleTransparency === "function") {
+                root.bar.toggleTransparency()
+                mouse.accepted = true
+            }
+        }
+    }
 
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
@@ -78,6 +162,7 @@ Item {
         barWidgetRegistry: root.barWidgetRegistry
         pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
+        region: "center"
         width: implicitWidth
         height: implicitHeight
     }
@@ -96,6 +181,7 @@ Item {
         barWidgetRegistry: root.barWidgetRegistry
         pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
+        region: "center"
     }
 
     BarWidgetSlot {
@@ -112,6 +198,7 @@ Item {
         barWidgetRegistry: root.barWidgetRegistry
         pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
+        region: "center"
     }
 
     BarWidgetRow {
@@ -128,6 +215,7 @@ Item {
         barWidgetRegistry: root.barWidgetRegistry
         pluginHost: root.pluginHost
         aureliaPath: root.aureliaPath
+        region: "center"
     }
 
 }

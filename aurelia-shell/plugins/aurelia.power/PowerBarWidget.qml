@@ -23,6 +23,8 @@ Item {
     readonly property string availabilityReason: root.batteryPresent ? "" : "no_battery"
     readonly property bool showPercentage: !!(root.powerPanel && root.powerPanel.showPercentage)
     readonly property bool vertical: !!(root.bar && root.bar.vertical)
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
     readonly property string statusText: root.powerPanel && root.powerPanel.statusText
         ? String(root.powerPanel.statusText) : "Power unavailable"
     property bool availabilityReported: false
@@ -121,7 +123,7 @@ Item {
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
             glyph: root.powerPanel && typeof root.powerPanel.batteryIcon === "function"
                 ? root.powerPanel.batteryIcon() : ""
-            tint: powerHover.hovered || root.isVisible() ? Theme.text : Theme.textSecondary
+            tint: root.barForeground
         }
 
         MouseArea {

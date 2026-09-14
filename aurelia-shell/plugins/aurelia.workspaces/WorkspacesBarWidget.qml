@@ -12,6 +12,8 @@ Item {
     property var settings: ({})
     property var manifest: ({})
     property var pluginRegistry: null
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     // The current Aurelia bar is horizontal, but keeping the widget's
     // cross-axis contract here makes it compatible with a vertical bar host
@@ -109,7 +111,7 @@ Item {
                     anchors.margins: 1
                     textFormat: Text.PlainText
                     text: focused ? "\uDB85\uDCFB" : (occupied ? (modelData === 10 ? "0" : String(modelData)) : "•")
-                    color: Theme.textSecondary
+                    color: root.barForeground
                     font.family: Theme.fontFamily
                     font.pixelSize: !focused && !occupied
                         ? (root.bar && root.bar.barTextSize ? root.bar.barTextSize + 5 : Theme.fontSizeSm + 5)

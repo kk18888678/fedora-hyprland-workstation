@@ -50,6 +50,8 @@ Item {
     // with { "showLabel": true } on the bar entry.
     readonly property bool showLabel: !!(settings &&
         (settings.showLabel === true || settings.showLabel === "true"))
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: showLabel ? barContent.implicitWidth + Theme.spacingSm * 2 : (bar ? bar.barSize : 32)
     implicitHeight: bar ? bar.barSize : 32
@@ -160,7 +162,7 @@ Item {
                 glyph: root.networkPanel && root.networkPanel.icon
                     ? root.networkPanel.icon : "󰤮"
                 tint: root.networkPanel && root.networkPanel.restricted
-                    ? Theme.warning : Theme.textSecondary
+                    ? Theme.warning : root.barForeground
             }
 
             Text {
@@ -170,7 +172,7 @@ Item {
                 width: root.showLabel ? Math.min(150, implicitWidth) : 0
                 color: root.networkPanel && root.networkPanel.restricted
                 ? Theme.warning
-                : Theme.textSecondary
+                : root.barForeground
                 font.family: Theme.fontFamily
                 font.pixelSize: root.bar && root.bar.barCaptionSize ? root.bar.barCaptionSize : Theme.fontSizeXs
                 elide: Text.ElideRight

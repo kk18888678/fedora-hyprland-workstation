@@ -54,6 +54,8 @@ Item {
         : sourceBinRoot
     readonly property var bluetoothPopup: panelLoader.item
     readonly property bool adapterAvailable: !!(bluetoothPopup && bluetoothPopup.adapter)
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: adapterAvailable ? (bar ? bar.barSize : 32) : 0
     implicitHeight: bar ? bar.barSize : 32
@@ -249,7 +251,7 @@ Item {
             height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
             name: root.bluetoothPopup ? root.bluetoothPopup.iconName : "bluetooth"
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
-            tint: root.isVisible() ? Theme.accent : Theme.textSecondary
+            tint: root.isVisible() ? Theme.accent : root.barForeground
         }
 
         MouseArea {

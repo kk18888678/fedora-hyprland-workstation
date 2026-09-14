@@ -25,6 +25,8 @@ Item {
     readonly property bool outputMuted: !!(root.sink && root.sink.audio && root.sink.audio.muted)
     readonly property real outputVolume: root.sink && root.sink.audio ? Number(root.sink.audio.volume || 0) : 0
     readonly property bool panelVisible: !!(panelLoader.item && panelLoader.item.shown === true)
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: root.audioAvailable ? (root.bar ? root.bar.barSize : 32) : 0
     implicitHeight: root.bar ? root.bar.barSize : 32
@@ -97,7 +99,7 @@ Item {
             height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
             glyph: root.outputGlyph()
-            tint: root.panelVisible ? Theme.accent : Theme.textSecondary
+            tint: root.panelVisible ? Theme.accent : root.barForeground
         }
 
         MouseArea {

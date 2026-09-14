@@ -28,6 +28,8 @@ Item {
     property string resolvedLocation: ""
     property var forecast: []
     property bool weatherReady: false
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-weather"
@@ -277,7 +279,7 @@ Item {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: root.temperatureText
-            color: Theme.textSecondary
+            color: root.barForeground
             font.family: Theme.fontFamily
             font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.fontSizeSm
         }

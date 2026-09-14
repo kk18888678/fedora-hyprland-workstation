@@ -37,6 +37,8 @@ Item {
     readonly property string statusText: root.muted
         ? "Microphone muted"
         : (root.inUse ? "Microphone in use" : "Microphone live")
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: root.hasSource ? (root.bar ? root.bar.barSize : 32) : 0
     implicitHeight: root.bar ? root.bar.barSize : 32
@@ -86,7 +88,7 @@ Item {
             height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
             glyph: Model.microphoneGlyph(root.muted)
-            tint: root.inUse ? Theme.accent : Theme.textSecondary
+            tint: root.inUse ? Theme.accent : root.barForeground
         }
 
         MouseArea {

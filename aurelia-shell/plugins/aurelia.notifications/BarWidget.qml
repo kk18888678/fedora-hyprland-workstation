@@ -16,6 +16,8 @@ Item {
     property var settings: ({})
     property var manifest: ({})
     property bool doNotDisturb: false
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: bar ? bar.barSize : 26
     implicitHeight: bar ? bar.barSize : 26
@@ -62,7 +64,7 @@ Item {
             height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
             name: root.doNotDisturb ? "notifications-disabled" : "notifications"
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
-            tint: hover.hovered ? Theme.text : (root.doNotDisturb ? Theme.warning : Theme.accent)
+            tint: hover.hovered ? root.barForeground : (root.doNotDisturb ? Theme.warning : Theme.accent)
         }
 
         AureliaToolTip {

@@ -69,8 +69,8 @@ if [[ -f "$bar_root/AureliaLogo.qml" ]] &&
    grep -q 'implicitWidth: bar && bar.barIconSlot ? bar.barIconSlot : 27' "$bar_root/AureliaLogo.qml" &&
    grep -q 'implicitHeight: bar && bar.barSize ? bar.barSize : 26' "$bar_root/AureliaLogo.qml" &&
    grep -q 'AureliaMark {' "$bar_root/AureliaLogo.qml" &&
-   grep -q 'color: root.hovered ? Theme.text : Theme.accent' "$bar_root/AureliaLogo.qml" &&
-   grep -q 'coreColor: root.hovered ? Theme.text : Theme.gold' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'color: root.hovered ? root.barForeground : Theme.accent' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'coreColor: root.hovered ? root.barForeground : Theme.gold' "$bar_root/AureliaLogo.qml" &&
    grep -q 'AureliaMark 1.0 AureliaMark.qml' "$ROOT/ui/qmldir" &&
    [[ -f "$ROOT/config/branding/aurelia-mark.svg" ]] &&
    grep -q 'viewBox="0 0 256 256"' "$ROOT/config/branding/aurelia-mark.svg" &&
@@ -256,7 +256,7 @@ fi
 
 if grep -q 'AureliaIcon {' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'sourcePath: root.iconSourceFor(modelData, appEntry)' "$tasklist_root/TasklistBarWidget.qml" &&
-   grep -q 'tint: modelData.activated ? Theme.text : Theme.textMuted' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'tint: root.barForeground' "$tasklist_root/TasklistBarWidget.qml" &&
    ! grep -q '^                Image {' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'AureliaIcon {' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'function isSymbolicIcon' "$tray_root/TrayBarWidget.qml" &&
@@ -267,7 +267,7 @@ if grep -q 'AureliaIcon {' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'smooth: false' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'preserveColors: !root.isSymbolicIcon' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'modelData && modelData.icon ? String(modelData.icon) : ""' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'tint: Theme.textSecondary' "$tray_root/TrayBarWidget.qml" &&
+   grep -q 'tint: root.barForeground' "$tray_root/TrayBarWidget.qml" &&
    ! grep -q '^                Image {' "$tray_root/TrayBarWidget.qml"; then
     pass "Tasklist and tray icons inherit semantic foreground colors while retaining their resolved sources"
 else

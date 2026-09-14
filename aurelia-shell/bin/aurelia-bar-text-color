@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+
+# aurelia-bar-text-color — choose a legible foreground for a transparent bar.
+#
+# The helper is deliberately read-only. It samples only a validated local
+# wallpaper path and returns one of the two validated theme colors. Missing
+# media, tooling, geometry, or malformed input is an expected capability
+# fallback, but remains observable on stderr for the resident bar log.
+
+set -Eeuo pipefail
+
+position="${1:-top}"
+bar_size="${2:-}"
+text_color="${3:-}"
+background_color="${4:-}"
+shift 4 2>/dev/null || true
+
+background_path=""
+screen_size=""
+
+while (( $# > 0 )); do
+    case "$1" in
+        --background)
+            (( $# >= 2 )) || {
+                printf '%s\n' '[AURELIA-BAR-TEXT] fallback reason=missing-background-argument' >&2
+                exit 0
+            }
+            background_path="$2"
+            shift 2
+            ;;
+        --screen)
+            (( $# >= 2 )) || {
+                printf '%s\n' '[AURELIA-BAR-TEXT] fallback reason=missing-screen-argument' >&2
+                exit 0
+            }
+            screen_size="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+valid_hex() {
+    [[ "${1:-}" =~ ^#[0-9A-Fa-f]{6}$ ]]
+}
+
+fallback() {
+    local reason="$1"
+    local value="#ffffff"
+    valid_hex "$text_color" && value="$text_color"
+    printf '[AURELIA-BAR-TEXT] fallback reason=%s\n' "$reason" >&2
+    printf '%s\n' "$value"
+    exit 0
+}
+
+valid_hex "$text_color" || fallback invalid-text-color
+valid_hex "$background_color" || fallback invalid-background-color
+[[ "$position" =~ ^(top|bottom|left|right)$ ]] || fallback invalid-position
+[[ "$bar_size" =~ ^[0-9]+$ && "$bar_size" -gt 0 ]] || fallback invalid-bar-size
+
+if [[ -z "$background_path" ]]; then
+    home_dir="${HOME:-}"
+    [[ "$home_dir" == /* && "$home_dir" != "/" ]] || fallback invalid-home
+    state_home="${XDG_STATE_HOME:-$home_dir/.local/state}"
+    [[ "$state_home" == /* && "$state_home" != "/" ]] || fallback invalid-state-home
+    state_file="${state_home%/}/aurelia/current/background.path"
+    if [[ -f "$state_file" && ! -L "$state_file" ]]; then
+        IFS= read -r background_path <"$state_file" || true
+    fi
+fi
+
+[[ "$background_path" == /* && "$background_path" != "/" ]] || fallback missing-background
+[[ "$background_path" != *$'\n'* && "$background_path" != *$'\r'* ]] || fallback unsafe-background
+[[ -f "$background_path" ]] || fallback background-not-file
+
+if [[ -z "$screen_size" ]]; then
+    if [[ -x /usr/bin/hyprctl && -x /usr/bin/jq ]]; then
+        screen_size="$('/usr/bin/hyprctl' monitors -j 2>/dev/null |
+            '/usr/bin/jq' -r '.[0] | "\(.width)x\(.height)"' 2>/dev/null || true)"
+    fi
+fi
+[[ "$screen_size" =~ ^([0-9]+)x([0-9]+)$ ]] || fallback invalid-screen-size
+
+screen_width="${BASH_REMATCH[1]}"
+screen_height="${BASH_REMATCH[2]}"
+(( screen_width > 0 && screen_height > 0 && bar_size <= screen_width && bar_size <= screen_height )) ||
+    fallback invalid-screen-geometry
+
+if [[ ! -x /usr/bin/magick ]]; then
+    fallback missing-magick
+fi
+
+case "$position" in
+    top)
+        crop="${screen_width}x${bar_size}+0+0"
+        ;;
+    bottom)
+        crop_y=$((screen_height - bar_size))
+        crop="${screen_width}x${bar_size}+0+${crop_y}"
+        ;;
+    left)
+        crop="${bar_size}x${screen_height}+0+0"
+        ;;
+    right)
+        crop_x=$((screen_width - bar_size))
+        crop="${bar_size}x${screen_height}+${crop_x}+0"
+        ;;
+esac
+
+# Selecting frame zero keeps a video wallpaper bounded to one decode frame.
+pixel="$(/usr/bin/magick "${background_path}[0]" -auto-orient \
+    -resize "${screen_width}x${screen_height}^" \
+    -gravity center -extent "${screen_width}x${screen_height}" \
+    -gravity NorthWest -crop "$crop" +repage \
+    -resize '1x1!' \
+    -format '%[fx:int(255*r)],%[fx:int(255*g)],%[fx:int(255*b)]' info:- 2>/dev/null || true)"
+[[ "$pixel" =~ ^([0-9]+),([0-9]+),([0-9]+)$ ]] || fallback sample-failed
+
+sample="$(printf '#%02x%02x%02x' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}")"
+
+contrast() {
+    local foreground="$1"
+    local sample_color="$2"
+    '/usr/bin/awk' -v fg="$foreground" -v bg="$sample_color" '
+        function channel(hex, start) {
+            return strtonum("0x" substr(hex, start, 2)) / 255
+        }
+        function linear(value) {
+            return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ^ 2.4
+        }
+        function luminance(hex, red, green, blue) {
+            red = linear(channel(hex, 2))
+            green = linear(channel(hex, 4))
+            blue = linear(channel(hex, 6))
+            return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        }
+        BEGIN {
+            first = luminance(fg)
+            second = luminance(bg)
+            if (first < second) {
+                swap = first
+                first = second
+                second = swap
+            }
+            printf "%.6f\n", (first + 0.05) / (second + 0.05)
+        }
+    '
+}
+
+text_contrast="$(contrast "$text_color" "$sample")"
+background_contrast="$(contrast "$background_color" "$sample")"
+
+'/usr/bin/awk' -v text="$text_contrast" -v background="$background_contrast" \
+    'BEGIN { exit !(background > text) }' && printf '%s\n' "$background_color" || printf '%s\n' "$text_color"

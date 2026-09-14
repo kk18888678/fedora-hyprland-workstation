@@ -18,6 +18,8 @@ Item {
     property var manifest: ({})
     property var pluginRegistry: null
     readonly property var menuPanel: menuLoader.item
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: taskRow.implicitWidth
     implicitHeight: bar ? bar.barSize : 26
@@ -104,7 +106,7 @@ Item {
                     iconSize: 20
                     name: ""
                     sourcePath: root.iconSourceFor(modelData, appEntry)
-                    tint: modelData.activated ? Theme.text : Theme.textMuted
+                    tint: root.barForeground
                     opacity: modelData.activated ? 1.0 : 0.65
                 }
 

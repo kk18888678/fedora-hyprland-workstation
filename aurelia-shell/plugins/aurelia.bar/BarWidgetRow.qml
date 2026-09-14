@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import "../../theme"
+import "."
 
 // Renders one configured bar region. Unknown, disabled, or malformed widget
 // ids collapse to zero width through BarWidgetSlot and never break the bar.
@@ -14,6 +15,7 @@ Item {
     property var barWidgetRegistry: null
     property var pluginHost: null
     property string aureliaPath: ""
+    property string region: ""
 
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
@@ -73,6 +75,7 @@ Item {
                 barWidgetRegistry: root.barWidgetRegistry
                 pluginHost: root.pluginHost
                 aureliaPath: root.aureliaPath
+                region: root.region
                 Layout.preferredWidth: root.vertical ? root.barSize : implicitWidth
                 Layout.preferredHeight: root.vertical ? implicitHeight : root.barSize
             }

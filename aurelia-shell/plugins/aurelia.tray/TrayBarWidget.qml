@@ -18,6 +18,8 @@ Item {
     property var pluginRegistry: null
     property var activeTrayItem: null
     readonly property var trayMenuPanel: trayMenuLoader.item
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: trayRow.implicitWidth
     implicitHeight: bar ? bar.barSize : 32
@@ -111,7 +113,7 @@ Item {
                     sourcePixelRatio: Screen.devicePixelRatio
                     smooth: false
                     preserveColors: !root.isSymbolicIcon(modelData && modelData.icon ? String(modelData.icon) : "")
-                    tint: Theme.textSecondary
+                    tint: root.barForeground
                 }
 
                 MouseArea {

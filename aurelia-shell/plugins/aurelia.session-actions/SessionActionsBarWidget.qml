@@ -22,6 +22,8 @@ Item {
     readonly property var sessionPanel: root.panelOverride !== undefined
         ? root.panelOverride : panelLoader.item
     readonly property bool actionReady: !!root.sessionPanel
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
 
     implicitWidth: root.bar ? root.bar.barSize : 26
     implicitHeight: root.bar ? root.bar.barSize : 26
@@ -97,7 +99,7 @@ Item {
             iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
             name: "system-shutdown"
             fallbackName: "system-power-off"
-            tint: root.isVisible() || sessionHover.hovered ? Theme.text : Theme.textSecondary
+            tint: root.barForeground
         }
 
         MouseArea {
