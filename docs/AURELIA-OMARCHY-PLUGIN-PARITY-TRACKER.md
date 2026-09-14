@@ -5263,6 +5263,65 @@ Compatibility and safety:
 
 Dependencies: T55, T56, T58, T59, T42.
 
+Checkpoint 1 — T62 weather contract and ownership freeze:
+
+- Baseline: `installer-resilience` at `73bed09`; only the concurrent,
+  protected `plugins/aurelia.notifications/Service.qml` edit is uncommitted.
+  It is outside this task and must remain untouched.
+- Reference contract was read directly from Omarchy's
+  `shell/plugins/panels/weather/{manifest.json,BarWidget.qml,Panel.qml,Model.js}`
+  and `test/shell.d/weather-test.sh`. No behavior is inferred from names or
+  from an assumed API.
+- Manifest mapping is frozen: retain the Aurelia id and entry-point names,
+  remove the invented `defaultSection`, and expose the validated
+  `settingsForm`/settings metadata that Aurelia's registry already supports.
+  Default placement remains repository/user layout data, not plugin code.
+- Widget mapping is frozen: the Aurelia bar entry point owns the weather
+  button and exposes `refresh`, `toggle`, `open`, `close`, `opened`,
+  `popoutSwitchClosing`, and `closeForPopoutSwitch`; primary toggles the panel,
+  middle refreshes, and secondary publishes the current weather status. Its
+  visible/size state follows the last successful label, so a refresh failure
+  does not erase a usable stale report.
+- Panel mapping is frozen: the panel owns the report, location state, provider
+  processes, geocoding editor, refresh/retry timers, stale-report policy, and
+  popup lifecycle. It uses the existing `AureliaKeyboardPanel` and Theme
+  tokens as adapters, without adding a second shell or bypassing PluginHost.
+- State ownership is frozen: Aurelia's existing inline bar-entry settings in
+  `shell.json` remain the single persisted owner. The Omarchy weather.json
+  shape is represented as the same logical `{name, latitude, longitude}`
+  state through those settings; no parallel weather state file or automatic
+  migration is introduced. Updates go through the existing host-owned settings
+  mutation boundary and are idempotently tested.
+- Provider mapping is frozen: automatic and pinned paths use the reference's
+  `wttr.in` JSON area/current response plus Open-Meteo current/daily forecast;
+  pinned names use Open-Meteo geocoding; every external process has bounded
+  HTTPS arguments and complete stdout/stderr collection. Existing
+  `aurelia-weather` remains a CLI/backend capability, but the plugin's live
+  lifecycle will no longer depend on a reduced widget-only state machine.
+- Failure mapping is frozen: empty/malformed/HTTP failures remain observable,
+  retries are bounded and independently owned, last-good data remains visible,
+  and the initial widget stays hidden only until its first valid label. No
+  fallback provider, hardcoded location, warning suppression, or fake
+  production response is allowed.
+- Test boundary is frozen before code: add pure Model tests, real widget and
+  panel source contracts, an isolated QML fixture with fake provider transport
+  and notification launcher, settings round-trip tests through the real
+  `ShellConfig`/registry boundary, malformed/error/retry tests, and strict
+  runtime-log consumption. Environment-only window-backend skips remain skips
+  and cannot be presented as live parity.
+- Allowed source scope: `aurelia.weather` manifest, Model.js, bar widget, panel,
+  only the shared notification/host API needed for the exact secondary-click
+  behavior, weather tests/fixtures, and this tracker. No live weather request,
+  shell restart, network setting, package, systemd/greetd/PAM/compositor state,
+  or reboot is permitted.
+- Rollback: revert only the T62 weather source/tests/manifest and tracker
+  changes. Preserve T55/T57/T58/T59 commits and the protected notification
+  edit.
+
+CP1 status: `[x]` the field-level reference mapping, single state owner,
+provider/failure semantics, test boundary, allowed files, no-live-impact rule,
+and rollback path are recorded before T62 implementation.
+
 ### T43. Make test outcomes truthful and warning-complete
 
 Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
