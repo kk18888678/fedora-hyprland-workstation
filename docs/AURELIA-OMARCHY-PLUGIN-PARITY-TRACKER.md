@@ -5091,6 +5091,18 @@ Confirmed gap:
   shell reload boundaries, and tests the authentication/lock ownership seams.
   A one-line `loginctl` or Noctalia substitution cannot provide this parity.
 
+User lock-owner direction recorded before implementation:
+
+- The Aurelia lock path must not invoke Noctalia. The existing
+  `noctalia msg screen-lock` binding is a confirmed prohibited dependency for
+  this behavior and will be removed from the Aurelia lock contract.
+- Aurelia will own the native lock request through `aurelia.lock`. To preserve
+  the user's established Aurelia shortcut while also exposing Omarchy's
+  documented binding, `SUPER + L` will remain an Aurelia lock alias and
+  `SUPER + CTRL + L` will be the reference-compatible lock binding. This is an
+  explicit Aurelia compatibility choice, not a claim that those two key maps
+  are identical to Omarchy.
+
 Required design freeze before implementation:
 
 - [ ] Freeze the Aurelia naming/compatibility contract: add a distinct
@@ -5116,6 +5128,40 @@ PAM ownership, and rollback path are recorded. No live lock, PAM, systemd,
 greetd, compositor, package, or reboot operation is part of this audit.
 
 Dependencies: T02, T02A, T15, T47, T49, T42.
+
+Checkpoint 1 — T60 native lock owner and Noctalia removal boundary:
+
+- Baseline: `installer-resilience` at `4e22f7c`; Weather parity source is
+  currently uncommitted, and the concurrent protected
+  `plugins/aurelia.notifications/Service.qml` edit remains outside this task.
+- Exact reference APIs were mapped from the installed Quickshell 0.3.1 type
+  declarations: `WlSessionLock`, `WlSessionLockSurface`, `PamContext`,
+  `PamResult`, and `PamError`. The Omarchy service/view/PAM files and its
+  `SUPER + CTRL + L`/`SUPER + L` bindings were read directly.
+- Allowed production scope: a new `aurelia.lock` service/lock view, its
+  manifest and host registration, the Aurelia lock shortcut declarations, and
+  only the required PAM template/provisioning ownership. Session Actions must
+  remain a separate confirmed action surface; it must not be renamed into the
+  lock service or silently routed through Noctalia.
+- Hard invariant: no Aurelia source, manifest, test fixture, or generated
+  binding may execute `noctalia msg screen-lock` for locking. Native lock
+  acquisition, authentication failure, missing PAM configuration, stranded
+  lock recovery, and reload persistence must each have an explicit observable
+  state. No live lock, PAM write, systemd change, compositor mutation, package
+  operation, shell restart, or reboot is allowed.
+- Required tests: manifest/capability validation, exact binding ownership,
+  static prohibition of the Noctalia lock command, native API/source contract,
+  missing-PAM fail-closed behavior, confirmation routing, authenticated
+  success/failure model, screen lifecycle, reload/stranded-lock handling, and
+  complete runtime diagnostic consumption. Headless window/authentication
+  skips must remain explicit strict-mode failures, not passes.
+- Rollback: revert only T60 lock source/templates/tests/binding changes;
+  preserve the Weather work, T55/T57/T58/T59 history, and the protected
+  notification edit.
+
+CP1 status: `[x]` the user's Noctalia prohibition, dual Aurelia/reference
+binding contract, installed API map, source/PAM ownership, test boundary,
+no-live-impact rule, and rollback path are recorded before lock edits.
 
 ### T61. Freeze complete Crash Diagnosis parity before implementation
 
