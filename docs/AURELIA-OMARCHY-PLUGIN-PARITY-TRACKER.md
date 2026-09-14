@@ -3993,7 +3993,8 @@ Dependencies: T40, T02A, T21, T23, T24, T31, T33.
 
 ### T53. Close remaining Omarchy bar interaction and transparent-text parity
 
-Execution status: NOT STARTED — CP2 recorded before implementation
+Execution status: COMPLETE FOR REPOSITORY EVIDENCE — live Wayland visual and
+gesture acceptance remains pending
 
 Reference checkpoint:
 
@@ -4037,17 +4038,17 @@ Scope:
 
 Required tests:
 
-- [ ] Pure bar geometry tests for nearest edge, drag threshold, insertion
+- [x] Pure bar geometry tests for nearest edge, drag threshold, insertion
   target, same-position no-op, duplicate-instance selection, and invalid drop
   rejection.
-- [ ] Real helper tests for light/dark still-image sampling, video first-frame
+- [x] Real helper tests for light/dark still-image sampling, video first-frame
   sampling, missing media/tool fallback, invalid arguments, and exact output.
-- [ ] Isolated QuickShell bar fixture for transparent state, contrast
+- [x] Isolated QuickShell bar fixture for transparent state, contrast
   foreground refresh/fallback, facade propagation, direct gesture state, and
   resident mutation ownership.
-- [ ] Isolated QuickShell fixture for widget drag preservation and normal
+- [x] Isolated QuickShell fixture for widget drag preservation and normal
   click/wheel routing; explicit backend skips remain separate from passes.
-- [ ] Full Aurelia/repository/syntax/ShellCheck gates with no warning/error
+- [x] Full Aurelia/repository/syntax/ShellCheck gates with no warning/error
   suppression.
 
 Checkpoint 2 — T53 pre-change boundary:
@@ -4075,6 +4076,38 @@ Checkpoint 2 — T53 pre-change boundary:
 CP2 status: `[x]` the T53 Omarchy reference contract, source boundary,
 ownership, compatibility, rollback, and no-live-impact requirements are
 recorded before source implementation.
+
+Checkpoint 3 — T53 post-change evidence:
+
+- `test_bar_parity.sh`: `8` passed, `0` skipped, `0` failed. It covers the
+  pure edge/threshold/insertion/placement contract, light/dark still-image
+  sampling, bounded video first-frame sampling, invalid/missing-media
+  fallbacks, Aurelia XDG background-state resolution, and real center/slot
+  QML construction with the detached color facade.
+- The resident bar now has an explicit local QML module boundary, a
+  non-opaque surface, contrast-aware transparent foreground refresh through
+  `aurelia-bar-text-color`, direct empty-center edge movement and
+  double-click transparency, and resident-owned widget drag/drop placement.
+  Built-in bar widgets consume the propagated `barForeground` color while
+  preserving semantic accent/warning colors.
+- Full diagnostic Aurelia suite: `68` suites, `646` assertions, `635`
+  passed, `11` explicitly skipped compositor/environment paths, `0` failed.
+  The default strict command reports the same `68`/`646`/`635`/`11`/`0`
+  accounting and returns `2` solely because strict mode rejects those skips.
+- Repository suite: `./tests/run.sh` — `228` passed, `0` failed. Repository-
+  wide shell syntax: `247` scripts passed `bash -n`. Changed ShellCheck:
+  clean. `git diff --check`: passed. `aurelia.bar` manifest validation:
+  passed.
+- Implementation commits: `74a62db4568823dfd83fbe13e1b5a8bbff1cdd36`
+  and `7d6aec37214643375fbc198495cf4249e05f7fa7`; pre-change tracker
+  checkpoint: `3ac83bb246eb1c898909e3479c5f66cb6ecdddbc`.
+- Live status: no shell restart, compositor mutation, user configuration
+  change, package operation, systemd/greetd change, or reboot occurred. Live
+  transparency appearance, drag behavior, and multi-monitor Wayland
+  acceptance remain unrun and are not claimed.
+
+CP3 status: `[x]` repository/static/isolated T53 evidence is complete without
+suppressing warnings/errors; live Wayland acceptance remains pending.
 
 Exit gate: Aurelia supports the requested Omarchy bar command language plus
 direct position/transparency/reorder interactions and contrast-aware
@@ -5062,7 +5095,7 @@ Dependencies: T47, T49, T51, T02A, T31, T33, T46.
 
 ### T42. Requested capability integration and final acceptance gate
 
-Execution status: NOT STARTED — queued behind completed corrective T43 through T52
+Execution status: NOT STARTED — queued behind completed corrective T43 through T53
 
 Scope:
 
@@ -5095,7 +5128,7 @@ Exit gate: the requested capability set is structurally and behaviorally at
 Omarchy parity as far as Aurelia's preserved features and safety boundaries
 allow, every task has CP3 evidence, and no task leaves the shell unusable.
 
-Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T02A, T31, T32, T33.
+Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T53, T02A, T31, T32, T33.
 
 ---
 
@@ -5153,6 +5186,7 @@ Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T
 | Passive popup delegate index is resolved against the wrong notification model during identity loss | T50 |
 | Live snapshot ownership and ListModel row lifetime lose composite notification identity during dismissal | T51 |
 | Session-action confirmation has no observable production Process result and Power retains a duplicate action surface | T52 |
+| Omarchy direct bar gestures and contrast-aware transparent foreground were not implemented | T53 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
@@ -5206,7 +5240,7 @@ architecture gap.
 
 ```text
 Parity status:
-Repository-only plugin parity work is complete through T52; notification
+Repository-only plugin parity work is complete through T53; notification
 dismissal has user-authorized live confirmation, while live Lock/Confirm and
 broader visual/integration validation remain deferred pending explicit
 authorization.
@@ -5230,18 +5264,21 @@ Starting T51 branch/SHA: installer-resilience /
 57ff8248c39d6b952e5e5257f543adbd840b717c
 Starting T52 branch/SHA: installer-resilience /
 015f54e0eda4a357e99839fee3c1fabee5f6ab83
+Starting T53 branch/SHA: installer-resilience /
+3ac83bb246eb1c898909e3479c5f66cb6ecdddbc
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T52; T30 plugin-local test
+Tasks completed: all tasks marked `[x]` through T53; T30 plugin-local test
 directories, T34 Bluetooth retention, T42 final acceptance, and authorized
 live Wayland/visual acceptance remain.
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh
---allow-skips 627 passed, 11 skipped, 0 failed across 67 suites; the default
+--allow-skips 635 passed, 11 skipped, 0 failed across 68 suites; the default
 strict command returned 2 for the 11 explicitly reported environment-gated
 paths
-Focused tests: session-actions 8 passed, 1 explicit PanelWindow backend skip,
-0 failed; notification dismissal 16 passed, 0 skipped, 0 failed
-Syntax checks: 246 shell scripts passed bash -n
-ShellCheck: all T52-changed shell files are clean; pre-existing findings
+Focused tests: T53 bar parity 8 passed, 0 skipped, 0 failed; notification
+dismissal 16 passed, 0 skipped, 0 failed; session-actions 8 passed, 1
+explicit PanelWindow backend skip, 0 failed
+Syntax checks: 247 shell scripts passed bash -n
+ShellCheck: all T53-changed shell files are clean; pre-existing findings
 remain in older migrated test sources and installer sources.
 Runtime/visual acceptance: isolated QuickShell/CLI fixtures passed; live
 notification dismissal passed on instance `8m4utt8blt`; live Lock/Confirm and
@@ -5251,17 +5288,21 @@ notification identity/persistence handling and production-path fixture, T49
 pointer-path and confirmation correction/controller fixtures, T50 popup-model
 source-aware dismissal and fixture correction, T51 composite identity and
 ListModel lifetime correction/fixture, T52 observable session Process and
-single-owner Power correction/tests, test inventory cleanup, README, and
-tracker; T43–T46 changes remain in Git history
+single-owner Power correction/tests, T53 bar gestures/transparent foreground,
+bar facade color propagation, bar module boundary, and parity fixtures/tests;
+test inventory cleanup, README, and tracker; T43–T46 changes remain in Git
+history
 Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
 T41 `e3253b0`, T43 `30f886d`, T44 `6c48237`, T45 `aa88ad4`, T46 `890ca7c`,
 T47 `4869919`, T48 `fb87e3c`, inventory cleanup `f5b09b8`, T49 `cd1e4bd`,
-T50 `a2496d0`, T51 `a92d380`, T52 `64ea0b8`
+T50 `a2496d0`, T51 `a92d380`, T52 `64ea0b8`, T53 `74a62db` plus
+test coverage `7d6aec3`
 Remaining risks: same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; 301 existing unlabelled assertions and
 four excluded legacy repository matrices remain outside the strict Aurelia
 coverage inventory; live Lock/Confirm and broader visual/UPower/session-panel
-behavior remain unverified; T30/T34/T42 remain open; reference feature
+behavior remain unverified; T30/T34/T42 remain open; live T53 Wayland gesture
+and transparency acceptance is unverified; reference feature
 omissions remain the explicit product-scope differences documented above
 ./install.sh run: no
 Packages modified: no
