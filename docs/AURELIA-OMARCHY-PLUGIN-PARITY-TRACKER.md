@@ -2516,7 +2516,10 @@ Dependencies: T24 through T29.
 
 ### T31. Preserve actionable warnings and errors (Never suppress warnings)
 
-Execution status: COMPLETE — CP2 and CP3 passed
+Execution status: SUPERSEDED — prior CP3 covered the original scoped runtime
+boundary; T55 reopens the repository-wide no-suppression invariant after a
+fresh audit found remaining diagnostic filters, FileView error suppression,
+and empty catches
 
 Scope note: this task is an observability and failure-classification audit. It
 must not make the shell noisier by duplicating the same diagnostic, but it must
@@ -4294,6 +4297,100 @@ CP3 status: `[ ]` partial repository evidence is recorded; T54 is not closed
 and no 1:1 mapped-surface parity claim is made.
 
 Dependencies: T33, T43, T46, T53.
+
+---
+
+### T55. Enforce repository-wide no diagnostic suppression
+
+Execution status: NOT STARTED — audit checkpoint recorded before suppression
+remediation
+
+Observed audit finding:
+
+- The current repository-wide T31 claim is not true. A fresh static audit found
+  `55` `printErrors: false` occurrences across production QML and test
+  fixtures, `5` Aurelia runtime-test diagnostic paths using `grep -Ev` to remove
+  selected warnings/errors before assertion, and `18` empty production/test
+  `catch` blocks that discard parse, object-lifetime, or backend failures.
+- These constructs are not equivalent to safe failure isolation. They can make
+  a broken plugin look healthy, hide the exact QML diagnostic needed to repair
+  it, and allow a fixture to pass after the failure has been removed from its
+  input stream.
+- Cleanup-only `|| true`, command-existence probes, static `grep >/dev/null`
+  checks, and explicit capture of a command's complete stderr into a log are
+  not automatically diagnostic suppression. They must remain distinguishable
+  from discarded runtime diagnostics and must not be used to hide a failed
+  operation.
+
+Scope:
+
+- Remove `printErrors: false` from every production and test QML file. Use the
+  default FileView error reporting or `printErrors: true`; when a file is
+  optional, retain an explicit existence/state branch and log its reason.
+- Replace every runtime-test diagnostic pipeline that removes lines with a
+  line-by-line classifier which consumes and reports every diagnostic. The
+  only accepted skip records are typed, explicitly named environment limits;
+  unexpected `WARN`, `ERROR`, `FATAL`, `TypeError`, `ReferenceError`,
+  `Cannot assign`, `Loader.Error`, and equivalent QML failures remain visible
+  and fail the suite.
+- Remove every empty catch in Aurelia production and test code. Each catch must
+  either produce a bounded structured diagnostic and an explicit result/state,
+  or be eliminated by validating before the operation. Expected malformed input
+  remains a reported rejection, not a silent fallback.
+- Audit discarded stderr in the Aurelia runtime boundary. Redirect complete
+  process output to a captured log when the command is tested; do not use
+  `/dev/null` to make an operation appear clean. Non-diagnostic probes may
+  keep their status-only behavior only when their failure is represented in an
+  explicit state and the policy test documents that boundary.
+- Add one repository policy suite that scans the complete Aurelia source,
+  fixtures, and test runner for these suppression patterns and fails closed on
+  new occurrences. The policy suite must itself avoid the forbidden filtering
+  pattern.
+- Update T31's status and completion record so no previous false completion
+  claim remains. Do not claim zero suppression until the policy scan and full
+  diagnostic test run are green.
+
+Compatibility and safety:
+
+- Preserve plugin quarantine, shell survivability, safe optional-service
+  classification, existing Aurelia IDs/commands, user configuration, and all
+  live-state boundaries. Reporting a failure must not turn an optional plugin
+  failure into a shell crash or login-critical mutation.
+- No installer, package, systemd/greetd, live user configuration, shell
+  restart, compositor mutation, or reboot is in scope.
+
+Required tests:
+
+- [ ] Repository-wide suppression policy finds zero forbidden diagnostic
+  suppression occurrences in Aurelia production, fixtures, and test runner.
+- [ ] All FileView instances report errors; optional missing-state behavior has
+  explicit state/reason coverage.
+- [ ] All runtime fixture logs are consumed without diagnostic deletion, and a
+  synthetic exact QML warning/error/FATAL remains a hard failure.
+- [ ] All empty catches are removed or replaced with observable bounded
+  failure state, with negative tests for the affected paths.
+- [ ] Full Aurelia strict and diagnostic runs, repository tests, repository-wide
+  Bash syntax, changed-file ShellCheck, and `git diff --check` pass.
+
+Checkpoint 2 — T55 pre-change boundary:
+
+- Starting commit: `c37c2ec32696d450d9d3a1c36328ec33cc874094` on
+  `installer-resilience`. The working tree contains the separately tracked
+  pending T54 slot/workspace corrections; those files are not considered T55
+  evidence and must not be overwritten.
+- Planned T55 source boundary: Aurelia production/test QML FileView settings,
+  Aurelia runtime diagnostic helpers/tests, empty-catch production/test paths,
+  the new suppression-policy suite, and this tracker. No installer, packages,
+  live state, system services, or compositor work is allowed.
+- Rollback removes only T55 suppression remediation, policy tests, and tracker
+  evidence. T31, T54, and the preserved Aurelia feature behavior remain
+  recoverable at their recorded commits.
+
+CP2 status: `[x]` the repository-wide suppression findings, exact remediation
+boundary, compatibility constraints, negative-test requirements, and
+no-live-impact rules are recorded before T55 implementation.
+
+Dependencies: T31, T43, T54.
 
 ---
 
