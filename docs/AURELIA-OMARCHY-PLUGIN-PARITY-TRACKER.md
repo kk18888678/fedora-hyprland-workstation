@@ -4122,7 +4122,9 @@ Dependencies: T33, T40, T41, T43, T45, T46.
 
 ### T54. Repair production bar self-reference and close entry-point warning coverage
 
-Execution status: NOT STARTED — CP2 recorded before corrective implementation
+Execution status: IN PROGRESS — production self-reference and host/panel
+architecture correction committed; mapped-surface interaction acceptance
+remains open
 
 Observed production regression:
 
@@ -4183,18 +4185,18 @@ Scope:
 
 Required tests:
 
-- [ ] Static production `Bar.qml` self-reference/property audit catches the
+- [x] Static production `Bar.qml` self-reference/property audit catches the
   exact `root.*` regression and validates the declared `barRoot` boundary.
-- [ ] Isolated production entry-point fixture exercises the transparent
-  refresh callback and rejects non-existent-property/TypeError diagnostics;
-  any backend-only skip is separately counted.
+- [x] Isolated production entry-point fixture loads the real `Bar.qml` path,
+  rejects non-existent-property/TypeError diagnostics, and counts the
+  unavailable mapped-panel backend separately.
 - [ ] Isolated interaction fixture proves logo summon and workspace activation
   return/diagnostic states and that normal child click routing is not silently
   consumed by bar reordering.
 - [ ] Isolated orientation/remap fixture proves the mapped bar surface retains
   all default widget bounds across every edge and restores normal click targets
   after repeated edge changes; unexpected QML diagnostics fail the fixture.
-- [ ] Full Aurelia strict and diagnostic runs, repository tests, repository-
+- [x] Full Aurelia strict and diagnostic runs, repository tests, repository-
   wide Bash syntax, changed-file ShellCheck, and `git diff --check` pass with
   zero unclassified warnings/errors.
 
@@ -4249,15 +4251,47 @@ Corrective architecture checkpoint — T54 surface-boundary audit:
   the same `Bar.qml` construction path and fail on any `WARN`, `ERROR`,
   `TypeError`, non-existent property, or `Loader.Error` other than an
   explicitly classified unavailable compositor backend.
-- No source implementation has been made for this corrective expansion yet.
-  This checkpoint is recorded before that work. Rollback remains limited to
-  the T54 bar boundary, interaction tests, and tracker evidence; T53 remains
-  recoverable at its implementation commits.
+- At checkpoint time no source implementation had been made for this
+  corrective expansion. The subsequent implementation is committed separately
+  below; rollback remains limited to the T54 bar boundary, interaction tests,
+  and tracker evidence, while T53 remains recoverable at its implementation
+  commits.
 
 Corrective architecture checkpoint status: `[x]` the reference-shaped mapped
 surface boundary, observed failure class, production-loading requirement,
 compatibility invariants, and no-live-impact rules are recorded before the
 next source edit.
+
+Checkpoint 3 — T54 partial post-change evidence:
+
+- The actual production root-object correction and reference-shaped host/panel
+  boundary are committed in `60323d0` (`fix(aurelia): align bar host with
+  Omarchy surface architecture`). `Bar.qml` is now an `Item` host with one
+  `BarPanel` per `Quickshell.screens`; `BarPanel` owns layer-shell geometry,
+  non-opaque rendering, horizontal/vertical content loading, and the
+  `ScreenMoveRemap` guard.
+- `test_bar_production_entrypoint.sh` loads the real `Bar.qml` entry path,
+  rejects the exact non-existent-property diagnostic, and records the mapped
+  `PanelWindow` backend limitation as an explicit skip. The static
+  self-reference/property contract is green.
+- The current headless environment cannot construct a mapped `PanelWindow`, so
+  it does not prove live panel bounds or pointer delivery. The existing
+  orientation fixture proves the real row/slot geometry only; it is intentionally
+  not counted as mapped-surface parity. The workspace model and logo dispatch
+  checks are also not a substitute for an end-to-end child-click fixture.
+- Diagnostic Aurelia suite: `69` suites, `653` assertions, `641` passed,
+  `12` explicitly skipped, `0` failed. Strict mode returns `2` solely for
+  those `12` explicit environment-gated paths. Repository suite: `228` passed,
+  `0` failed. Repository-wide Bash syntax passes; changed-file ShellCheck is
+  clean; `git diff --check` passes.
+- No shell restart, compositor mutation, live user configuration write,
+  package operation, systemd/greetd change, or reboot was performed. Live
+  Wayland bar movement, widget bounds, transparency appearance, and child
+  click delivery remain unverified and T54 stays open until the two unchecked
+  fixtures are real and green (or separately classified by backend).
+
+CP3 status: `[ ]` partial repository evidence is recorded; T54 is not closed
+and no 1:1 mapped-surface parity claim is made.
 
 Dependencies: T33, T43, T46, T53.
 
@@ -5389,7 +5423,9 @@ Parity status:
 Repository-only plugin parity work is complete through T53; notification
 dismissal has user-authorized live confirmation, while live Lock/Confirm and
 broader visual/integration validation remain deferred pending explicit
-authorization.
+authorization. T54's production self-reference repair and Omarchy-shaped
+host/panel correction are committed, but mapped-surface interaction proof is
+still open; no 1:1 bar parity claim is made.
 Starting T38 branch/SHA: installer-resilience /
 b27ce23d8883f915d6f9e41c4a8cc29ca66da1f9
 T38 implementation branch/SHA: installer-resilience /
@@ -5412,10 +5448,14 @@ Starting T52 branch/SHA: installer-resilience /
 015f54e0eda4a357e99839fee3c1fabee5f6ab83
 Starting T53 branch/SHA: installer-resilience /
 3ac83bb246eb1c898909e3479c5f66cb6ecdddbc
+Starting T54 branch/SHA: installer-resilience /
+9b664456c66bb64b7ff9997797495214c8292aaf
+T54 implementation branch/SHA: installer-resilience /
+60323d021176a9ceba226b9dacf1d202939a06fc
 Reference Omarchy branch/SHA: quattro / 31bd80daa4613ffdee995ac27467fce5a2990806
-Tasks completed: all tasks marked `[x]` through T53; T30 plugin-local test
-directories, T34 Bluetooth retention, T42 final acceptance, and authorized
-live Wayland/visual acceptance remain.
+Tasks completed: all tasks marked `[x]` through T53; T54 remains in progress;
+T30 plugin-local test directories, T34 Bluetooth retention, T42 final
+acceptance, and authorized live Wayland/visual acceptance remain.
 Tests: ./tests/run.sh 228 passed, 0 failed; ./aurelia-shell/tests/run.sh
 --allow-skips 635 passed, 11 skipped, 0 failed across 68 suites; the default
 strict command returned 2 for the 11 explicitly reported environment-gated
@@ -5442,8 +5482,9 @@ Recent implementation commits: T38 `638e9d4`, T39 `105f95a`, T40 `7bf8e95`,
 T41 `e3253b0`, T43 `30f886d`, T44 `6c48237`, T45 `aa88ad4`, T46 `890ca7c`,
 T47 `4869919`, T48 `fb87e3c`, inventory cleanup `f5b09b8`, T49 `cd1e4bd`,
 T50 `a2496d0`, T51 `a92d380`, T52 `64ea0b8`, T53 `74a62db` plus
-test coverage `7d6aec3`
-Remaining risks: same-process unsandboxed QML cannot survive deliberate
+test coverage `7d6aec3`, T54 `60323d0`
+Remaining risks: T54 mapped `BarPanel` orientation/remap and child-click
+acceptance remains unverified on Wayland; same-process unsandboxed QML cannot survive deliberate
 Qt.quit/native crash/engine corruption; 301 existing unlabelled assertions and
 four excluded legacy repository matrices remain outside the strict Aurelia
 coverage inventory; live Lock/Confirm and broader visual/UPower/session-panel
