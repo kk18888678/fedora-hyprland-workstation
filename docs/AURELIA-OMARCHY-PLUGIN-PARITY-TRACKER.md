@@ -5401,6 +5401,29 @@ CP2 status: `[x]` the exact historical provider transitions, outage behavior,
 revised no-invention invariant, test cases, and no-live-impact boundary are
 recorded before the Weather source change.
 
+Checkpoint 3 — T62 caught-failure observability marker boundary:
+
+- The full diagnostic gate found four Weather catches reported as
+  unobservable by the policy scanner. Each catch calls the Weather-owned
+  `processError(kind, code, detail)` helper, which writes a visible warning and
+  updates the explicit `lastError` state; the scanner's marker set simply did
+  not know that helper name.
+- Allowed test scope: extend the caught-block observability marker set in
+  `aurelia-shell/tests/test_warning_suppression_policy.sh` to recognize the
+  existing `processError` state/diagnostic helper. Do not add a blanket catch
+  exemption, remove a catch, or filter any runtime output. The disposable
+  null-device negative test and empty-catch checks remain mandatory.
+- Required evidence: the policy test must pass for Weather's explicit helper
+  calls and still reject a catch with neither a diagnostic nor an explicit
+  result state.
+- Rollback: revert only this policy-marker/test correction; preserve the
+  Weather provider/fallback work, native lock work, prior checkpoints, and the
+  protected notification edit.
+
+CP3 status: `[x]` the exact failure, helper contract, narrow test scope,
+negative-test requirement, and rollback path are recorded before changing the
+policy marker set.
+
 ### T43. Make test outcomes truthful and warning-complete
 
 Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
