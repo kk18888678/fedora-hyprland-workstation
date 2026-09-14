@@ -5510,7 +5510,35 @@ Checkpoint 5 — T62 deferred-loader callback race:
 
 CP5 status: `[x]` the exact runtime warning, source line/lifecycle cause,
 narrow correction boundary, no-suppression invariant, required test evidence,
-and rollback path are recorded before the callback edit.
+and rollback path were recorded before the callback edit; the captured
+closure was replaced with the widget-owned timer.
+
+Post-correction evidence:
+
+- `WeatherBarWidget.qml` now performs the immediate handoff and schedules the
+  refresh through `panelConfigureTimer`; the timer reads the current
+  `panelLoader.item` and is destroyed with the widget. The focused static
+  contract rejects the old `Qt.callLater(function() { root.configurePanel`
+  pattern.
+- The focused Weather suite remains `7` assertions, `6` passed, `1` explicit
+  PanelWindow-environment skip, `0` failed. The isolated production-shell
+  construction completed without the reported `configurePanel is not a
+  function` or invalid-context diagnostic. The run still printed genuine
+  headless backend, PipeWire, DBus, and missing-PAM diagnostics; none were
+  filtered or converted into success.
+- The network timeout remains a provider availability failure and the native
+  lock remains fail-closed until the root-owned PAM service is installed by
+  the installer during an authorized integration phase. Neither condition is
+  treated as a Weather loader pass.
+- Post-fix gates: the Aurelia diagnostic suite in allow-skips mode reports
+  `689` assertions, `676` passed, `13` explicit skips, and `0` failed; strict
+  mode reports the same `0` failures but exits `2` because those environment
+  skips are not available. Repository tests remain `228` passed and `0`
+  failed, repository-wide shell syntax passes, the Weather/lock changed shell
+  scripts pass ShellCheck at warning severity, and `git diff --check` passes.
+  A direct all-diagnostics ShellCheck run still reports the pre-existing
+  `SC2034` in `modules/desktop.sh`; the repository test excludes that code,
+  so it is not claimed as clean or suppressed here.
 
 ### T43. Make test outcomes truthful and warning-complete
 
