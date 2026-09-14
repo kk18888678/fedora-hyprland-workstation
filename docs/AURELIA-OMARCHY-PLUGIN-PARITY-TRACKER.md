@@ -2993,14 +2993,16 @@ closed or used to justify changing unrelated Bluetooth behavior.
    and setting commands.
 7. T41 — implement persistent bar hiding, `Super + Shift + Space`, and the
    Menu Bar control without killing the resident shell or its hotkeys.
-8. T43 — make test outcomes truthful: count skips separately, never let a
+8. T53 — close the remaining Omarchy bar interaction and transparent-text
+   parity gaps without weakening Aurelia's plugin isolation boundary.
+9. T43 — make test outcomes truthful: count skips separately, never let a
    backend limitation mask an unrelated warning, and provide a strict no-skip
    gate.
-9. T44 — correct Power panel non-visual child construction and add a real
-   panel entry-point contract fixture.
-10. T45 — correct the Aurelia bar hidden-state watcher for the actual
+10. T44 — correct Power panel non-visual child construction and add a real
+    panel entry-point contract fixture.
+11. T45 — correct the Aurelia bar hidden-state watcher for the actual
     FileView/runtime contract without suppressing diagnostics.
-11. T42 — run the combined contract, failure-isolation, migration, and
+12. T42 — run the combined contract, failure-isolation, migration, and
     optional real-session acceptance gates; update documentation and parity
     evidence.
 
@@ -3986,6 +3988,100 @@ the resident shell, panels, plugins, or hotkeys, and every state transition is
 tested and observable.
 
 Dependencies: T40, T02A, T21, T23, T24, T31, T33.
+
+---
+
+### T53. Close remaining Omarchy bar interaction and transparent-text parity
+
+Execution status: NOT STARTED — CP2 recorded before implementation
+
+Reference checkpoint:
+
+- Source: `/tmp/omarchy-reference`, branch `quattro`, SHA
+  `31bd80daa4613ffdee995ac27467fce5a2990806`.
+- Omarchy's bar has three related behaviors that Aurelia's T40/T41 command
+  and visibility work did not yet provide: dragging empty center space to move
+  the bar to the nearest screen edge, double-left-clicking empty center space
+  to toggle transparency, and recalculating the bar foreground against the
+  wallpaper edge when transparency is enabled.
+- Omarchy also exposes the transparent bar state through the plugin bar API;
+  Aurelia's facade currently exposes geometry and visibility but not the
+  foreground/background/active/transparent color contract.
+
+Scope:
+
+- Add the Aurelia-owned `aurelia-bar-text-color` helper using the existing
+  wallpaper state and stable media tooling. It must validate all inputs, sample
+  only the relevant edge/frame, return the theme foreground on unavailable or
+  invalid input, and emit an observable fallback diagnostic. It must never
+  execute theme or wallpaper-provided code.
+- Bind the resident bar's transparent state to a contrast-aware foreground,
+  with safe fallback and observable process failure. Preserve normal themed
+  colors when transparency is off, expose the resulting scalar color contract
+  through the plugin bar facade, and keep the bar surface explicitly
+  non-opaque.
+- Add the direct empty-center gesture: left press-and-hold or movement beyond
+  the threshold previews and commits the nearest top/bottom/left/right edge;
+  a plain click remains available to the center surface, and a double-left
+  click toggles transparency. Gesture handling must use valid item coordinate
+  APIs and must not reintroduce the `mapFromItem` warning fixed by T33.
+- Add widget drag-and-drop reordering over the existing resident mutation
+  owner. Preserve entry objects/settings and instance identity, reject
+  ambiguous or invalid drops without partial writes, and keep normal widget
+  click/wheel behavior intact.
+- Keep all changes inside the existing Aurelia bar/plugin host boundary. No
+  plugin may receive an unscoped bar object; no plugin failure may prevent the
+  host or healthy widgets from loading. Existing command names remain
+  Aurelia-owned (`aurelia-bar`, `aurelia-plugin`) and existing IDs/paths do not
+  change.
+
+Required tests:
+
+- [ ] Pure bar geometry tests for nearest edge, drag threshold, insertion
+  target, same-position no-op, duplicate-instance selection, and invalid drop
+  rejection.
+- [ ] Real helper tests for light/dark still-image sampling, video first-frame
+  sampling, missing media/tool fallback, invalid arguments, and exact output.
+- [ ] Isolated QuickShell bar fixture for transparent state, contrast
+  foreground refresh/fallback, facade propagation, direct gesture state, and
+  resident mutation ownership.
+- [ ] Isolated QuickShell fixture for widget drag preservation and normal
+  click/wheel routing; explicit backend skips remain separate from passes.
+- [ ] Full Aurelia/repository/syntax/ShellCheck gates with no warning/error
+  suppression.
+
+Checkpoint 2 — T53 pre-change boundary:
+
+- Starting branch/SHA: `installer-resilience` /
+  `bd5ef44a3f9256eae530aa89022607680f3b8cac`; `git status --short` is clean.
+- Planned source boundary: the Aurelia bar host, bar widget row/slot/center,
+  plugin bar facade/host state projection, the new Aurelia text-color helper,
+  and T53-only fixtures/tests/runner registration. No installer, package,
+  Bluetooth, Audio, Power, notification, systemd/greetd, live configuration,
+  or reboot work is in scope.
+- Mutation ownership: `ShellConfig` remains the only persisted layout owner;
+  direct gestures call its existing position/move operations through the
+  resident shell. The text-color helper is read-only and may only return a
+  validated color. A failed helper or gesture must leave the last valid bar
+  state intact and must remain observable.
+- Compatibility: keep all existing Aurelia CLI commands, menu actions,
+  hidden-bar state, plugin IDs, entry points, widget settings, and normal
+  pointer behavior. Rollback removes only T53's gesture/facade/color helper,
+  fixtures, tests, and tracker evidence.
+- Live-impact decision: implementation and isolated validation require no
+  shell restart, compositor mutation, user-state write, package operation,
+  systemd/greetd change, or reboot.
+
+CP2 status: `[x]` the T53 Omarchy reference contract, source boundary,
+ownership, compatibility, rollback, and no-live-impact requirements are
+recorded before source implementation.
+
+Exit gate: Aurelia supports the requested Omarchy bar command language plus
+direct position/transparency/reorder interactions and contrast-aware
+transparent text, with production and isolated evidence showing that a
+failure cannot make the shell unusable.
+
+Dependencies: T33, T40, T41, T43, T45, T46.
 
 ---
 
