@@ -18,6 +18,7 @@ ShellRoot {
     property string firstToggleResult: ""
     property string firstCallResult: ""
     property string firstWidgetResult: ""
+    property bool listingParseFailed: false
 
     QtObject {
         id: fakeShellConfig
@@ -439,7 +440,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }
@@ -470,7 +471,9 @@ ShellRoot {
         var listedPlugins = []
         try {
             listedPlugins = JSON.parse(fixtureIpc.listPlugins())
-        } catch (e) {}
+        } catch (e) {
+            root.listingParseFailed = true
+        }
         var callbackFailure = fakeRegistry.runtimeFailures[fakeRegistry.runtimeFailureKey("bad.callback", "panel")]
         var openFailure = fakeRegistry.runtimeFailures[fakeRegistry.runtimeFailureKey("bad.open", "panel")]
         var closeFailure = fakeRegistry.runtimeFailures[fakeRegistry.runtimeFailureKey("bad.close", "panel")]
@@ -489,7 +492,8 @@ ShellRoot {
             hostAlive: hostItem.registry !== null,
             pingResponded: fixtureIpc.ping() === "ok",
             listPluginsResponded: summaries.length === fakeRegistry.pluginIds.length &&
-                listedPlugins.length === fakeRegistry.pluginIds.length,
+                listedPlugins.length === fakeRegistry.pluginIds.length &&
+                root.listingParseFailed === false,
             healthyPanelLoaded: hostItem.itemFor("healthy.panel") !== null,
             healthyServiceLoaded: hostItem.itemFor("healthy.service") !== null,
             healthyCall: hostItem.call("healthy.panel", "health", "{}"),

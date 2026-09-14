@@ -106,8 +106,8 @@ else
     fail "Aurelia native About image is missing or not high resolution"
 fi
 
-if grep -Fq 'class = "^org\\.aurelia\\.about$"' "$ROOT/../dotfiles/hypr/windowrules.lua" 2>/dev/null &&
-   grep -A6 -Fq 'class = "^org\\.aurelia\\.about$"' "$ROOT/../dotfiles/hypr/windowrules.lua" 2>/dev/null &&
+if grep -Fq 'class = "^org\\.aurelia\\.about$"' "$ROOT/../dotfiles/hypr/windowrules.lua"  &&
+   grep -A6 -Fq 'class = "^org\\.aurelia\\.about$"' "$ROOT/../dotfiles/hypr/windowrules.lua"  &&
    ! sed -n '/class = "^org\\.aurelia\\.about$"/,/})/p' "$ROOT/../dotfiles/hypr/windowrules.lua" | grep -q 'size ='; then
     pass "Hyprland gives About a safe floating starting size for dynamic fitting"
 else
@@ -121,7 +121,7 @@ native_output="$(timeout 10s fastfetch \
     --logo-width 54 \
     --logo-height 26 \
     --pipe false \
-    -s host 2>/dev/null)"
+    -s host )"
 if [[ $native_output == *$'\e_G'* ]] && [[ $native_output == *$'\e\\'* ]]; then
     pass "Fastfetch emits a native Kitty graphics sequence for the Aurelia mark"
 else
@@ -131,7 +131,7 @@ fi
 config_output="$(AURELIA_ABOUT_IMAGE="$ROOT/config/branding/aurelia-mark.png" timeout 10s fastfetch \
     --config "$ROOT/config/fastfetch/config.jsonc" \
     --pipe false \
-    -s host 2>/dev/null)"
+    -s host )"
 if [[ $config_output == *$'\e_G'* ]] && [[ $config_output == *$'\e\\'* ]]; then
     pass "Fastfetch config resolves the native PNG from any working directory"
 else
@@ -139,7 +139,7 @@ else
 fi
 
 printf '%s\n' 'terminal.default = kitty.desktop' >"$mock_config/workstation/desktop.conf"
-if env "${test_env[@]}" "$about_bin" open >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$about_bin" open >/dev/null &&
    [[ -s "$launch_log" ]] &&
    launch_args="$(tr '\0' ' ' <"$launch_log")" &&
    [[ "$launch_args" == *"-f env AURELIA_ABOUT_LOGO_PROTOCOL=kitty kitty"* &&
@@ -156,7 +156,7 @@ fi
 
 : >"$launch_log"
 printf '%s\n' 'terminal.default = foot.desktop' >"$mock_config/workstation/desktop.conf"
-if env "${test_env[@]}" "$about_bin" open >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$about_bin" open >/dev/null &&
    launch_args="$(tr '\0' ' ' <"$launch_log")" &&
    [[ "$launch_args" == *"-f env AURELIA_ABOUT_LOGO_PROTOCOL=sixel foot"* &&
       "$launch_args" == *"--app-id org.aurelia.about"* ]]; then
@@ -172,7 +172,7 @@ exit 0
 EOF_XDG
 chmod 0755 "$mock_bin/xdg-terminal-exec"
 : >"$launch_log"
-if env "${test_env[@]}" AURELIA_ABOUT_USE_XDG_TERMINAL=1 "$about_bin" open >/dev/null 2>&1 &&
+if env "${test_env[@]}" AURELIA_ABOUT_USE_XDG_TERMINAL=1 "$about_bin" open >/dev/null &&
    launch_args="$(tr '\0' ' ' <"$launch_log")" &&
    [[ "$launch_args" == *"-f xdg-terminal-exec"* &&
       "$launch_args" == *"--app-id=org.aurelia.about"* &&

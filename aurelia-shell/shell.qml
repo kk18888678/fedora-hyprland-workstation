@@ -272,6 +272,7 @@ ShellRoot {
                 return pluginRegistry.enablePlugin(pluginId, JSON.parse(placementJson || "{}"))
                     ? "ok" : (pluginRegistry.lastError || "error")
             } catch (error) {
+                console.error("[SHELL] enable_plugin_request_invalid detail=" + String(error))
                 return "invalid placement: " + error
             }
         }
@@ -281,6 +282,7 @@ ShellRoot {
                 var putError = pluginRegistry.putBarWidget(pluginId, JSON.parse(placementJson || "{}"))
                 return putError ? putError : "ok"
             } catch (error) {
+                console.error("[SHELL] put_bar_widget_request_invalid detail=" + String(error))
                 return "invalid placement: " + error
             }
         }
@@ -315,6 +317,7 @@ ShellRoot {
                 var moveError = pluginRegistry.moveBarWidget(pluginId, JSON.parse(placementJson || "{}"))
                 return moveError ? moveError : "ok"
             } catch (error) {
+                console.error("[SHELL] move_bar_widget_request_invalid detail=" + String(error))
                 return "invalid placement: " + error
             }
         }
@@ -326,6 +329,7 @@ ShellRoot {
                 var setError = pluginRegistry.setBarWidget(pluginId, key, value, selector)
                 return setError ? setError : "ok"
             } catch (error) {
+                console.error("[SHELL] set_bar_widget_request_invalid detail=" + String(error))
                 return "invalid widget setting: " + error
             }
         }
@@ -337,6 +341,7 @@ ShellRoot {
                 return pluginRegistry.updateEntryInline(pluginId, settings, selector)
                     ? "ok" : (pluginRegistry.lastError || "error")
             } catch (error) {
+                console.error("[SHELL] update_entry_settings_request_invalid detail=" + String(error))
                 return "invalid plugin settings: " + error
             }
         }
@@ -347,6 +352,7 @@ ShellRoot {
                 return pluginRegistry.resetEntryInline(pluginId, selector)
                     ? "ok" : (pluginRegistry.lastError || "error")
             } catch (error) {
+                console.error("[SHELL] reset_entry_settings_request_invalid detail=" + String(error))
                 return "invalid settings selector: " + error
             }
         }

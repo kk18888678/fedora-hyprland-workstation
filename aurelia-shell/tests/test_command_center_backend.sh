@@ -107,7 +107,7 @@ if env -u UWSM_FINALIZE_VARNAMES -u UWSM_WAIT_VARNAMES -u IN_UWSM_ENV_PRELOADER 
    ! grep -q 'gtk-launch' "$mock_log"; then
     pass "Plain Hyprland falls back to the configured terminal without requiring UWSM"
 else
-    fail "Plain-session terminal fallback did not produce a safe structured argv: $(tr '\n' ' ' <"$mock_log" 2>/dev/null || true)"
+    fail "Plain-session terminal fallback did not produce a safe structured argv: $(tr '\n' ' ' <"$mock_log"  || true)"
 fi
 
 mkdir -p "$home_dir/.config/workstation"
@@ -119,7 +119,7 @@ if env "${common_env[@]}" UWSM_FINALIZE_VARNAMES=WAYLAND_DISPLAY \
    ! grep -q 'footclient' "$mock_log"; then
     pass "A footclient preference is normalized to the real Foot executable"
 else
-    fail "Configured footclient preference still produced an unusable terminal argv: $(tr '\n' ' ' <"$mock_log" 2>/dev/null || true)"
+    fail "Configured footclient preference still produced an unusable terminal argv: $(tr '\n' ' ' <"$mock_log"  || true)"
 fi
 
 if env "${common_env[@]}" "$backend" files readme >"$fixture/files.json" 2>"$fixture/files.err" &&
@@ -137,7 +137,7 @@ if env -u UWSM_FINALIZE_VARNAMES -u UWSM_WAIT_VARNAMES -u IN_UWSM_ENV_PRELOADER 
    grep -q $'^setsid\t-f\t.*/xdg-open\t.*/Projects/demo/README.md$' "$mock_log"; then
     pass "File activation uses the standard opener through the same session wrapper"
 else
-    fail "File activation did not preserve the validated absolute path argv: $(tr '\n' ' ' <"$mock_log" 2>/dev/null || true)"
+    fail "File activation did not preserve the validated absolute path argv: $(tr '\n' ' ' <"$mock_log"  || true)"
 fi
 
 if env "${common_env[@]}" "$backend" launch-app 'not valid.desktop' >"$fixture/invalid.out" 2>"$fixture/invalid.err"; then
@@ -146,7 +146,7 @@ else
     pass "Invalid desktop IDs fail closed before process launch"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$ROOT/plugins/aurelia.launcher/ui/Calculator.js" "$ROOT/services/AureliaAppSearch.js" <<'NODE_LOGIC'
 const calculator = require(process.argv[2]);
 const search = require(process.argv[3]);

@@ -51,9 +51,10 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache"
 result_path="$runtime_root/result.json"
+: >"$result_path"
 runtime_status=0
 AURELIA_WATCHER_POLICY_SOURCE="$policy_root" \
 AURELIA_WATCHER_POLICY_RESULT="$result_path" \
@@ -63,7 +64,7 @@ XDG_CONFIG_HOME="$runtime_root/config" XDG_CACHE_HOME="$runtime_root/cache" \
     /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
     --path "$ROOT/tests/fixtures/plugin-watcher/policy.qml" \
     >"$runtime_root/watcher.log" 2>&1 || runtime_status=$?
-if [[ "$runtime_status" -eq 0 ]] && jq -e '
+if [[ "$runtime_status" -eq 0 ]] && runtime_log_is_environment_only "$runtime_root/watcher.log" && jq -e '
     .directQml == "aurelia.clock" and .directJs == "aurelia.clock" and
     .groupedJson == "" and .groupedLua == "" and
     .groupedConf == "aurelia.single" and .newUser == "acme.new" and
@@ -72,6 +73,6 @@ if [[ "$runtime_status" -eq 0 ]] && jq -e '
   ' "$result_path" >/dev/null; then
     pass "[isolated-runtime] grouped/sibling, user, new, hidden, Git, and out-of-scope watcher paths resolve safely"
 else
-    details="$(tail -n 24 "$runtime_root/watcher.log" 2>/dev/null || true)"
+    details="$(tail -n 24 "$runtime_root/watcher.log"  || true)"
     fail "[isolated-runtime] watcher policy fixture failed (status=$runtime_status): $details"
 fi

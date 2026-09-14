@@ -31,8 +31,8 @@ aurelia_plugin_wait_for_scan() {
     local plugin_id="$2"
     local listing
     for _ in {1..20}; do
-        listing="$("$shell_cli" shell listPlugins 2>/dev/null || true)"
-        if jq -e --arg id "$plugin_id" '.[] | select(.id == $id)' <<< "$listing" >/dev/null 2>&1; then
+        listing="$("$shell_cli" shell listPlugins  || true)"
+        if jq -e --arg id "$plugin_id" '.[] | select(.id == $id)' <<< "$listing" >/dev/null; then
             return 0
         fi
         sleep 0.05

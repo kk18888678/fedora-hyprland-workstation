@@ -108,7 +108,7 @@ safe_user_config_home() {
     local IFS='/'
     local ancestor
     local owner
-    local expected_uid="${TARGET_UID:-$(id -u 2>/dev/null || true)}"
+    local expected_uid="${TARGET_UID:-$(id -u  || true)}"
 
     [[ "$config_home" == /* && "$config_home" != "/" ]] || return 1
     read -r -a components <<< "${config_home#/}"
@@ -129,7 +129,7 @@ safe_user_config_home() {
     done
     [[ -d "$ancestor" && ! -L "$ancestor" ]] || return 1
 
-    owner="$(stat -c '%u' -- "$ancestor" 2>/dev/null || true)"
+    owner="$(stat -c '%u' -- "$ancestor"  || true)"
     [[ -n "$expected_uid" && "$owner" == "$expected_uid" ]]
 }
 
@@ -200,9 +200,9 @@ validate_target_user() {
     local passwd_home
     local home_owner
 
-    current_user="$(id -un 2>/dev/null || true)"
-    current_uid="$(id -u 2>/dev/null || true)"
-    passwd_home="$(getent passwd "$TARGET_USER" 2>/dev/null | cut -d: -f6 || true)"
+    current_user="$(id -un  || true)"
+    current_uid="$(id -u  || true)"
+    passwd_home="$(getent passwd "$TARGET_USER"  | cut -d: -f6 || true)"
 
     [[ -n "$current_user" && "$TARGET_USER" == "$current_user" ]] ||
         die "Target user '$TARGET_USER' does not match the current login user '${current_user:-unknown}'."
@@ -222,7 +222,7 @@ validate_target_user() {
     [[ -w "$TARGET_HOME" ]] ||
         die "Target home directory is not writable: $TARGET_HOME"
 
-    home_owner="$(stat -c '%u' -- "$TARGET_HOME" 2>/dev/null || true)"
+    home_owner="$(stat -c '%u' -- "$TARGET_HOME"  || true)"
     [[ "$home_owner" == "$current_uid" ]] ||
         die "Target home '$TARGET_HOME' is owned by UID '${home_owner:-unknown}', expected '$current_uid'."
 }

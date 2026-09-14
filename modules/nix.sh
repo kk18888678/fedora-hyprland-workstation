@@ -167,7 +167,7 @@ EOF
 
 enable_nix_daemon() {
     local unit_files
-    if ! unit_files="$(systemctl list-unit-files nix-daemon.service --no-legend 2>/dev/null)" ||
+    if ! unit_files="$(systemctl list-unit-files nix-daemon.service --no-legend )" ||
         ! grep -q '^nix-daemon.service' <<< "$unit_files"; then
 
         return 1

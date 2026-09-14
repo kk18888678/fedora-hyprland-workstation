@@ -10,7 +10,8 @@ config_root="$ROOT/services/ShellConfig.qml"
 shell_root="$ROOT/shell.qml"
 
 if grep -q 'property bool migrationNeeded' "$config_root" &&
-   grep -q 'property Process migrationBackupProcess' "$config_root" &&
+   grep -q 'ShellConfigPersistenceBoundary' "$config_root" &&
+   grep -q 'startMigrationBackup' "$config_root" &&
    grep -q 'function normalizePluginEntries' "$config_root" &&
    grep -q 'function migrate()' "$config_root" &&
    grep -q 'function migrateConfig(): string' "$shell_root"; then
@@ -25,13 +26,14 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 state_root="$(mktemp -d)"
-trap 'rm -rf -- "$state_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$state_root"  || true' RETURN
 config_dir="$state_root/config/aurelia"
 mkdir -p -- "$config_dir"
 config_path="$config_dir/shell.json"
 backup_path="$config_path.pre-migration.bak"
 fixture_result="$state_root/first-result.json"
 fixture_log="$state_root/first.log"
+: >"$fixture_result"
 
 jq -n ' {
     version: 1,
@@ -81,9 +83,10 @@ first_status=0
 run_state_fixture "$fixture_result" "$fixture_log" || first_status=$?
 first_backup_hash=""
 if [[ -f "$backup_path" ]]; then first_backup_hash="$(sha256sum "$backup_path" | awk '{print $1}')"; fi
-config_mode="$(stat -c '%a' "$config_path" 2>/dev/null || true)"
+config_mode="$(stat -c '%a' "$config_path"  || true)"
 
 if [[ "$first_status" -eq 0 ]] && [[ -s "$fixture_result" ]] && [[ -f "$backup_path" ]] &&
+   runtime_log_is_environment_only "$fixture_log" &&
    [[ "$first_backup_hash" == "$original_hash" ]] &&
    [[ "$config_mode" == "600" ]] &&
    jq -e '
@@ -120,6 +123,7 @@ if [[ -f "$backup_path" ]]; then backup_hash_before="$(sha256sum "$backup_path" 
 second_result="$state_root/second-result.json"
 second_log="$state_root/second.log"
 second_status=0
+: >"$second_result"
 run_state_fixture "$second_result" "$second_log" || second_status=$?
 backup_hash_after=""
 if [[ -f "$backup_path" ]]; then backup_hash_after="$(sha256sum "$backup_path" | awk '{print $1}')"; fi
@@ -127,6 +131,7 @@ second_canonical_hash=""
 if [[ -f "$config_path" ]]; then second_canonical_hash="$(sha256sum "$config_path" | awk '{print $1}')"; fi
 
 if [[ "$second_status" -eq 0 ]] && [[ -s "$second_result" ]] &&
+   runtime_log_is_environment_only "$second_log" &&
    [[ "$canonical_hash" == "$second_canonical_hash" ]] &&
    [[ "$backup_hash_before" == "$backup_hash_after" ]] &&
    jq -e '.migrationNeededBefore == false and .migrationReturn == "ok" and .migrationResult == "not-needed" and .migrationNeededAfter == false' \
@@ -147,10 +152,12 @@ backup_path="$malformed_backup"
 malformed_result="$state_root/malformed-result.json"
 malformed_log="$state_root/malformed.log"
 malformed_status=0
+: >"$malformed_result"
 run_state_fixture "$malformed_result" "$malformed_log" || malformed_status=$?
 malformed_hash_after="$(sha256sum "$malformed_path" | awk '{print $1}')"
 
 if [[ "$malformed_status" -eq 0 ]] && [[ -s "$malformed_result" ]] &&
+   runtime_log_is_environment_only "$malformed_log" &&
    [[ "$malformed_hash_before" == "$malformed_hash_after" ]] &&
    [[ ! -e "$malformed_backup" && ! -L "$malformed_backup" ]] &&
    jq -e '.migrationNeededBefore == false and .migrationReturn == "ok" and .config.plugins == []' \

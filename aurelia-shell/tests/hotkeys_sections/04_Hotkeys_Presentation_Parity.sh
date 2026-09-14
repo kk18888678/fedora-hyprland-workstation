@@ -1,6 +1,6 @@
 section "Hotkeys Presentation Parity"
 
-hotkeys_rendered="$(HOTKEYS_FORCE_STDOUT=1 HOTKEYS_MANIFEST="$manifest_file" "$ROOT/bin/workstation-hotkeys" 2>/dev/null || true)"
+hotkeys_rendered="$(HOTKEYS_FORCE_STDOUT=1 HOTKEYS_MANIFEST="$manifest_file" "$ROOT/bin/workstation-hotkeys"  || true)"
 
 # Every single binding and category in keybindings_manifest.lua must appear in the rendered hotkeys text
 parity_check_output="$(

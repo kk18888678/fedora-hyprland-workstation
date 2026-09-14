@@ -106,7 +106,7 @@ fi
 
 # 6. Unknown prerelease metadata never enters stable candidate list
 sel_pre_meta_ret=0
-select_eligible_release "app_no_exception" "v2.0.0|true" >/dev/null 2>&1 || sel_pre_meta_ret=$?
+select_eligible_release "app_no_exception" "v2.0.0|true" >/dev/null || sel_pre_meta_ret=$?
 if [[ "$sel_pre_meta_ret" -ne 0 ]]; then
     pass "tag with authoritative prerelease metadata true never enters stable candidate path"
 else
@@ -142,7 +142,7 @@ cat << 'INNER_EOF' > "$bad_syntax_file"
 [broken_app]
 this is not valid key-value syntax!
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$bad_syntax_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$bad_syntax_file" ; then
     pass "malformed registry with invalid syntax is rejected by validator"
 else
     fail "malformed registry with invalid syntax was accepted"
@@ -172,7 +172,7 @@ allowed_classes = beta
 selection_policy = stable_then_allowed_prerelease
 reason = "App one duplicate"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$dup_app_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$dup_app_file" ; then
     pass "registry with duplicate application ID is rejected"
 else
     fail "registry with duplicate application ID was accepted"
@@ -187,7 +187,7 @@ allowed_classes = beta,unsupported_class
 selection_policy = stable_then_allowed_prerelease
 reason = "Custom app"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$unknown_cls_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$unknown_cls_file" ; then
     pass "registry with unknown prerelease class in allowed_classes is rejected"
 else
     fail "registry with unknown prerelease class was accepted"
@@ -202,7 +202,7 @@ allowed_classes =
 selection_policy = stable_then_allowed_prerelease
 reason = "Custom app"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$empty_cls_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$empty_cls_file" ; then
     pass "registry with empty allowed_classes is rejected"
 else
     fail "registry with empty allowed_classes was accepted"
@@ -217,7 +217,7 @@ allowed_classes = *
 selection_policy = stable_then_allowed_prerelease
 reason = "Custom app"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$wildcard_cls_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$wildcard_cls_file" ; then
     pass "wildcard in allowed_classes is rejected by validator"
 else
     fail "wildcard in allowed_classes was accepted"
@@ -232,7 +232,7 @@ allowed_classes = beta
 selection_policy = random_policy
 reason = "Custom app"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$bad_policy_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$bad_policy_file" ; then
     pass "registry with unsupported selection_policy is rejected"
 else
     fail "registry with unsupported selection_policy was accepted"
@@ -249,7 +249,7 @@ allowed_classes = beta
 selection_policy = stable_then_allowed_prerelease
 reason = "Duplicate enabled"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$dup_enabled_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$dup_enabled_file" ; then
     pass "registry with duplicate enabled property is rejected"
 else
     fail "registry with duplicate enabled property was accepted"
@@ -265,7 +265,7 @@ allowed_classes = rc
 selection_policy = stable_then_allowed_prerelease
 reason = "Duplicate classes"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$dup_classes_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$dup_classes_file" ; then
     pass "registry with duplicate allowed_classes property is rejected"
 else
     fail "registry with duplicate allowed_classes property was accepted"
@@ -281,7 +281,7 @@ selection_policy = stable_then_allowed_prerelease
 selection_policy = stable_then_allowed_prerelease
 reason = "Duplicate policy"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$dup_pol_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$dup_pol_file" ; then
     pass "registry with duplicate selection_policy property is rejected"
 else
     fail "registry with duplicate selection_policy property was accepted"
@@ -297,7 +297,7 @@ selection_policy = stable_then_allowed_prerelease
 reason = "First reason"
 reason = "Second reason"
 INNER_EOF
-if ! validate_prerelease_exceptions_registry "$dup_reason_file" 2>/dev/null; then
+if ! validate_prerelease_exceptions_registry "$dup_reason_file" ; then
     pass "registry with duplicate reason property is rejected"
 else
     fail "registry with duplicate reason property was accepted"
@@ -388,7 +388,7 @@ fi
 
 # 6. Alpha-only with beta exception -> rejected
 sel6_ret=0
-select_eligible_release "app_beta_only" "v1.0.0-alpha" >/dev/null 2>&1 || sel6_ret=$?
+select_eligible_release "app_beta_only" "v1.0.0-alpha" >/dev/null || sel6_ret=$?
 if [[ "$sel6_ret" -ne 0 ]]; then
     pass "alpha-only release with beta exception is rejected"
 else
@@ -397,7 +397,7 @@ fi
 
 # 7. RC-only with beta exception -> rejected
 sel7_ret=0
-select_eligible_release "app_beta_only" "v1.0.0-rc1" >/dev/null 2>&1 || sel7_ret=$?
+select_eligible_release "app_beta_only" "v1.0.0-rc1" >/dev/null || sel7_ret=$?
 if [[ "$sel7_ret" -ne 0 ]]; then
     pass "rc-only release with beta exception is rejected"
 else
@@ -406,7 +406,7 @@ fi
 
 # 8. Nightly-only with beta exception -> rejected
 sel8_ret=0
-select_eligible_release "app_beta_only" "v1.0.0-nightly" >/dev/null 2>&1 || sel8_ret=$?
+select_eligible_release "app_beta_only" "v1.0.0-nightly" >/dev/null || sel8_ret=$?
 if [[ "$sel8_ret" -ne 0 ]]; then
     pass "nightly-only release with beta exception is rejected"
 else
@@ -415,7 +415,7 @@ fi
 
 # 9. Dev-only with beta exception -> rejected
 sel9_ret=0
-select_eligible_release "app_beta_only" "v1.0.0-dev" >/dev/null 2>&1 || sel9_ret=$?
+select_eligible_release "app_beta_only" "v1.0.0-dev" >/dev/null || sel9_ret=$?
 if [[ "$sel9_ret" -ne 0 ]]; then
     pass "dev-only release with beta exception is rejected"
 else
@@ -424,7 +424,7 @@ fi
 
 # 10. Snapshot-only with beta exception -> rejected
 sel10_ret=0
-select_eligible_release "app_beta_only" "v1.0.0-snapshot" >/dev/null 2>&1 || sel10_ret=$?
+select_eligible_release "app_beta_only" "v1.0.0-snapshot" >/dev/null || sel10_ret=$?
 if [[ "$sel10_ret" -ne 0 ]]; then
     pass "snapshot-only release with beta exception is rejected"
 else
@@ -433,7 +433,7 @@ fi
 
 # 11. Preview-only with beta exception -> rejected
 sel11_ret=0
-select_eligible_release "app_beta_only" "v1.0.0-preview" >/dev/null 2>&1 || sel11_ret=$?
+select_eligible_release "app_beta_only" "v1.0.0-preview" >/dev/null || sel11_ret=$?
 if [[ "$sel11_ret" -ne 0 ]]; then
     pass "preview-only release with beta exception is rejected"
 else
@@ -442,7 +442,7 @@ fi
 
 # 12. Beta allowed for application A does not allow beta for application B
 sel12_ret=0
-select_eligible_release "app_unrelated" "v1.0.0-beta" >/dev/null 2>&1 || sel12_ret=$?
+select_eligible_release "app_unrelated" "v1.0.0-beta" >/dev/null || sel12_ret=$?
 if [[ "$sel12_ret" -ne 0 ]]; then
     pass "beta exception for application A does not grant permission to application B"
 else
@@ -451,7 +451,7 @@ fi
 
 # 13. Disabled exception -> prerelease rejected
 sel13_ret=0
-select_eligible_release "app_disabled" "v1.0.0-beta" >/dev/null 2>&1 || sel13_ret=$?
+select_eligible_release "app_disabled" "v1.0.0-beta" >/dev/null || sel13_ret=$?
 if [[ "$sel13_ret" -ne 0 ]]; then
     pass "disabled exception in registry rejects prerelease"
 else
@@ -460,7 +460,7 @@ fi
 
 # 14. Unknown application ID -> prerelease rejected
 sel14_ret=0
-select_eligible_release "nonexistent_app_id" "v1.0.0-beta" >/dev/null 2>&1 || sel14_ret=$?
+select_eligible_release "nonexistent_app_id" "v1.0.0-beta" >/dev/null || sel14_ret=$?
 if [[ "$sel14_ret" -ne 0 ]]; then
     pass "unknown application ID rejects prerelease"
 else
@@ -487,9 +487,9 @@ fi
 
 # 32. N_m3u8DL-RE fixture rejects alpha/nightly/etc.
 n_alpha_ret=0
-select_eligible_release "n_m3u8dl_re" "v0.7.0-alpha" >/dev/null 2>&1 || n_alpha_ret=$?
+select_eligible_release "n_m3u8dl_re" "v0.7.0-alpha" >/dev/null || n_alpha_ret=$?
 n_nightly_ret=0
-select_eligible_release "n_m3u8dl_re" "v0.7.0-nightly" >/dev/null 2>&1 || n_nightly_ret=$?
+select_eligible_release "n_m3u8dl_re" "v0.7.0-nightly" >/dev/null || n_nightly_ret=$?
 if [[ "$n_alpha_ret" -ne 0 && "$n_nightly_ret" -ne 0 ]]; then
     pass "N_m3u8DL-RE fixture strictly rejects alpha and nightly releases"
 else
@@ -771,7 +771,7 @@ fi
 # rejected instead of being interpreted as shell code.
 malformed_output_status=0
 malformed_output_marker="unchanged"
-discover_github_release_candidates "mock/repo" 'marker=changed' malformed_output_status invalid_bound_fetcher 2>/dev/null || malformed_output_status=$?
+discover_github_release_candidates "mock/repo" 'marker=changed' malformed_output_status invalid_bound_fetcher  || malformed_output_status=$?
 if [[ "$malformed_output_status" -ne 0 && "$malformed_output_marker" == "unchanged" ]]; then
     pass "release discovery rejects malformed output variable names without evaluation"
 else

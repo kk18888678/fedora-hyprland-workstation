@@ -21,7 +21,7 @@ if [[ -f "$plugin_root/manifest.json" && -f "$switcher_qml" && -f "$card_qml" &&
        .keepLoaded == true and
        .entryPoints.overlay == "WorkspaceSwitcher.qml"
    ' "$plugin_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null; then
     pass "workspace overview is a validated resident overlay plugin"
 else
     fail "workspace overview manifest or entry-point contract is incomplete"

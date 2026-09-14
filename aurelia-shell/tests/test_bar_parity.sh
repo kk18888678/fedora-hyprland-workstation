@@ -14,6 +14,7 @@ center_file="$bar_root/BarCenter.qml"
 slot_file="$bar_root/BarWidgetSlot.qml"
 api_file="$ROOT/services/PluginBarApi.qml"
 host_file="$ROOT/services/PluginHost.qml"
+facade_manager_file="$ROOT/services/PluginFacadeManager.qml"
 text_color_bin="$ROOT/bin/aurelia-bar-text-color"
 
 if [[ -x "$text_color_bin" ]] &&
@@ -38,8 +39,8 @@ if grep -Fq 'property color foreground' "$api_file" &&
    grep -Fq 'property color background' "$api_file" &&
    grep -Fq 'property color urgent' "$api_file" &&
    grep -Fq 'property bool transparent' "$api_file" &&
-   grep -Fq 'api.barForeground' "$host_file" &&
-   grep -Fq 'api.transparent' "$host_file"; then
+   grep -Fq 'api.barForeground' "$facade_manager_file" &&
+   grep -Fq 'api.transparent' "$facade_manager_file"; then
     pass "[static] scoped plugin bar facades expose the Omarchy color and transparency contract"
 else
     fail "[static] scoped plugin bar facade color propagation is incomplete"
@@ -86,14 +87,14 @@ else
     fail "[isolated-node] bar interaction model assertions failed: $model_result"
 fi
 
-if [[ ! -x "$(command -v magick 2>/dev/null || true)" ||
-      ! -x "$(command -v ffmpeg 2>/dev/null || true)" ]]; then
+if [[ ! -x "$(command -v magick  || true)" ||
+      ! -x "$(command -v ffmpeg  || true)" ]]; then
     skip "[isolated-media] ImageMagick and ffmpeg are required for transparent foreground sampling"
     return 0
 fi
 
 parity_tmp="$(mktemp -d)"
-trap 'rm -rf -- "$parity_tmp" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$parity_tmp"  || true' RETURN
 magick -size 100x100 xc:'#202020' -fill '#f5f5f5' \
     -draw 'rectangle 0,0 99,19' "$parity_tmp/light.png"
 magick -size 100x100 xc:'#f5f5f5' -fill '#202020' \
@@ -157,11 +158,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p "$runtime_root/runtime" "$runtime_root/config" "$runtime_root/state" "$runtime_root/cache"
 runtime_result="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
+logo_expected_diagnostics='\[BAR\][[:space:]]logo_click_failed[[:space:]](reason=shell_unavailable|result=error)'
 : >"$runtime_result"
 AURELIA_BAR_PARITY_RESULT="$runtime_result" \
 AURELIA_BAR_PARITY_CENTER_SOURCE="$bar_root/BarCenter.qml" \
@@ -179,16 +181,21 @@ if [[ "$runtime_status" -eq 0 && -s "$runtime_result" ]] &&
        .slotConstructed == true and
        .logoConstructed == true and
        .logoActionResult == "ok" and
+       .logoPendingResult == "pending" and
+       .logoBooleanResult == "ok" and
+       .logoFailureResult == "error" and
+       .logoUnavailableResult == "not-ready" and
        .facadeTransparent == true and
        .facadeForeground == "#101010" and
        .topEdge == "top" and .bottomEdge == "bottom" and
        .leftEdge == "left" and .rightEdge == "right"
-   ' "$runtime_result" >/dev/null; then
-    pass "[isolated-runtime] the real center and bar-slot QML components construct with the detached color facade and geometry contract"
+   ' "$runtime_result" >/dev/null &&
+   runtime_log_is_environment_only "$runtime_log" "$logo_expected_diagnostics"; then
+    pass "[isolated-runtime] center, bar-slot, and logo dispatch components construct with the detached color facade and geometry contract"
 else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$runtime_result" ]]; then details="$details result=$(tr '\n' ' ' <"$runtime_result")"; fi
-    if runtime_log_is_environment_only "$runtime_log" "[isolated-runtime] bar parity fixture cannot create a disposable runtime backend"; then
+    if runtime_log_is_environment_only "$runtime_log" "$logo_expected_diagnostics"; then
         :
     else
         fail "[isolated-runtime] bar parity fixture failed (status=$runtime_status): $details"

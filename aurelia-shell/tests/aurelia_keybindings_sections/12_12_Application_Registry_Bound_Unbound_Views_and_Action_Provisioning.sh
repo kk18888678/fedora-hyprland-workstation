@@ -70,23 +70,23 @@ fi
 
     # Leading dash must fail closed
     dash_rc=0
-    "$ROOT/bin/workstation-keybindings" add-app "-rf" >/dev/null 2>&1 || dash_rc=$?
+    "$ROOT/bin/workstation-keybindings" add-app "-rf" >/dev/null || dash_rc=$?
     if [[ "$dash_rc" -eq 0 ]]; then
         fail "12.4 add-app accepted leading dash"
     fi
 
     # Path traversal must fail closed
     trav_rc=0
-    "$ROOT/bin/workstation-keybindings" add-app "../evil.desktop" >/dev/null 2>&1 || trav_rc=$?
+    "$ROOT/bin/workstation-keybindings" add-app "../evil.desktop" >/dev/null || trav_rc=$?
     if [[ "$trav_rc" -eq 0 ]]; then
         fail "12.4 add-app accepted path traversal"
     fi
 
     # Valid desktop ID persists to user_actions.json with 0600 permissions
-    "$ROOT/bin/workstation-keybindings" add-app "org.gnome.Nautilus.desktop" >/dev/null 2>&1
+    "$ROOT/bin/workstation-keybindings" add-app "org.gnome.Nautilus.desktop" >/dev/null
     user_actions_file="$XDG_CONFIG_HOME/hypr/user_actions.json"
     if [[ -f "$user_actions_file" ]]; then
-        perms="$(stat -c '%a' "$user_actions_file" 2>/dev/null || stat -f '%Lp' "$user_actions_file" 2>/dev/null)"
+        perms="$(stat -c '%a' "$user_actions_file"  || stat -f '%Lp' "$user_actions_file" )"
         if [[ "$perms" == "600" && "$(cat "$user_actions_file")" == *"org.gnome.Nautilus.desktop"* ]]; then
             pass "12.4 add-app validates desktop ID syntax and persists atomically with 0600 permissions"
         else
@@ -118,7 +118,7 @@ EOF
     export HOTKEYS_OVERRIDES="$XDG_CONFIG_HOME/hypr/keybindings_overrides.json"
 
     # 1. Add application action
-    "$ROOT/bin/workstation-keybindings" add-app "custom.app.desktop" >/dev/null 2>&1
+    "$ROOT/bin/workstation-keybindings" add-app "custom.app.desktop" >/dev/null
 
     # 2. Check JSON output: must be present, unbound, with display_key = None (Unbound)
     json_initial="$("$ROOT/bin/workstation-keybindings" json)"
@@ -137,7 +137,7 @@ LUA_CHECK
     fi
 
     # 3. Set shortcut on user application action -> moves to bound
-    "$ROOT/bin/workstation-keybindings" set "app:custom.app.desktop" "SUPER+ALT+C" >/dev/null 2>&1
+    "$ROOT/bin/workstation-keybindings" set "app:custom.app.desktop" "SUPER+ALT+C" >/dev/null
     json_bound="$("$ROOT/bin/workstation-keybindings" json)"
     bound_valid="$("$lua_bin" - <<LUA_CHECK
 local content = [===[$json_bound]===]
@@ -153,11 +153,11 @@ LUA_CHECK
     fi
 
     # 4. Unset shortcut -> returns to unbound without deleting action
-    "$ROOT/bin/workstation-keybindings" unset "app:custom.app.desktop" >/dev/null 2>&1
+    "$ROOT/bin/workstation-keybindings" unset "app:custom.app.desktop" >/dev/null
     json_unbound="$("$ROOT/bin/workstation-keybindings" json)"
     if [[ "$json_unbound" == *'"id": "app:custom.app.desktop"'* && "$json_unbound" == *'"display_key": "None (Unbound)"'* ]]; then
         # 5. Remove app action -> completely eliminated
-        "$ROOT/bin/workstation-keybindings" remove-app "custom.app.desktop" >/dev/null 2>&1
+        "$ROOT/bin/workstation-keybindings" remove-app "custom.app.desktop" >/dev/null
         json_final="$("$ROOT/bin/workstation-keybindings" json)"
         if [[ "$json_final" != *'"id": "app:custom.app.desktop"'* ]]; then
             pass "12.5 full user action lifecycle verified (add -> unbound -> bind -> unbind -> remove)"

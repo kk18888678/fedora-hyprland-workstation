@@ -96,7 +96,7 @@ fi
 }
 
 for required_command in magick awk mktemp cp mkdir; do
-    command -v "$required_command" >/dev/null 2>&1 || {
+    command -v "$required_command" >/dev/null || {
         printf "Required command '%s' is missing. Install the package that provides it before running this utility.\n" "$required_command" >&2
         exit 127
     }
@@ -113,7 +113,7 @@ else
     pixel_height=$((height * 2))
 fi
 
-alpha_range="$(magick -background none "$image_path" -alpha extract -format '%[fx:minima] %[fx:maxima]' info: 2>/dev/null)" || {
+alpha_range="$(magick -background none "$image_path" -alpha extract -format '%[fx:minima] %[fx:maxima]' info: )" || {
     printf 'Unable to read logo image: %s\n' "$image_path" >&2
     exit 1
 }

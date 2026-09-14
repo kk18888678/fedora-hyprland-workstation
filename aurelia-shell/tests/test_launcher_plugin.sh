@@ -26,7 +26,7 @@ if [[ -f "$command_center_root/manifest.json" &&
        .keepLoaded == true and
        .entryPoints.panel == "CommandCenterPlugin.qml"
    ' "$command_center_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$command_center_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$command_center_root" >/dev/null; then
     pass "Command Center declares a validated first-party panel plugin"
 else
     fail "Command Center manifest or entry points are incomplete"
@@ -52,13 +52,13 @@ if [[ -f "$command_center_root/keybindings.lua" ]] &&
    grep -q 'SUPER + SPACE' "$command_center_root/keybindings.lua" &&
    grep -q '"shell", "toggle", "aurelia.launcher"' "$command_center_root/keybindings.lua" &&
    grep -q 'plugin_ipc' "$command_center_root/keybindings.lua" &&
-   grep -q 'shell.summon("aurelia.launcher"' "$ROOT/plugins/aurelia.bar/AureliaLogo.qml"; then
+   grep -q 'controller.summon("aurelia.launcher"' "$ROOT/plugins/aurelia.bar/AureliaLogo.qml"; then
     pass "Existing logo/keybinding IPC identities forward to the Command Center"
 else
     fail "Command Center compatibility IPC or shortcut registration is incomplete"
 fi
 
-if command -v luajit >/dev/null 2>&1 &&
+if command -v luajit >/dev/null &&
    launcher_binding="$(
        luajit - "$ROOT/dotfiles/hypr/keybindings_manifest.lua" <<'LUA'
 local manifest = dofile(arg[1])
@@ -200,7 +200,9 @@ if jq -e '
    grep -q 'setModuleEnabled' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'implemented' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
    grep -q 'property FileView defaultFile: FileView' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
-   grep -q 'property FileView userFile: FileView' "$command_center_root/ui/CommandCenterModuleRegistry.qml"; then
+   grep -q 'readonly property var userFile: userFileLoader.item' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+   grep -q 'OptionalFileStore.qml' "$command_center_root/ui/CommandCenterModuleRegistry.qml" &&
+   grep -q 'OptionalFileStore 1.0 OptionalFileStore.qml' "$services_root/qmldir"; then
     pass "Command Center has a logically ordered declarative module catalog with user enablement state"
 else
     fail "Command Center module catalog or enablement persistence contract is incomplete"

@@ -21,7 +21,7 @@ if [[ -f "$background_root/manifest.json" &&
        (.kinds == ["service"]) and
        .entryPoints.service == "Background.qml"
    ' "$background_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$background_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$background_root" >/dev/null; then
     pass "Background is a validated resident service plugin with image/video entry surfaces"
 else
     fail "Background plugin manifest or entry surfaces are incomplete"
@@ -57,7 +57,7 @@ if [[ -f "$theme_plugin_root/manifest.json" && -f "$theme_plugin_root/ThemePanel
        (.kinds == ["panel"]) and
        .entryPoints.panel == "ThemePanel.qml"
    ' "$theme_plugin_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$theme_plugin_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$theme_plugin_root" >/dev/null; then
     pass "Theme and Wallpaper selector is a validated on-demand panel plugin"
 else
     fail "Theme selector manifest or panel entry point is incomplete"
@@ -168,7 +168,7 @@ else
     fail "background next did not advance the isolated selection"
 fi
 
-if env "${theme_test_env[@]}" "$ROOT/bin/aurelia-theme-bg" set "$theme_test_tmp/home/not-supported.txt" >/dev/null 2>&1; then
+if env "${theme_test_env[@]}" "$ROOT/bin/aurelia-theme-bg" set "$theme_test_tmp/home/not-supported.txt" >/dev/null; then
     fail "background set accepted an unsupported file extension"
 else
     pass "background set rejects unsupported media paths before state mutation"

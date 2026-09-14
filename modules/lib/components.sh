@@ -105,7 +105,7 @@ reset_component_registry() {
     _COMP_VALIDATE_FN=()
     _COMP_REMOVE_FN=()
     reset_role_default_adapters
-    if declare -F init_default_role_adapters >/dev/null 2>&1; then
+    if declare -F init_default_role_adapters >/dev/null; then
         init_default_role_adapters
     fi
 }
@@ -473,7 +473,7 @@ validate_component_registry() {
             for callback_id in "${_COMP_IDS[@]}"; do
                 callback_fn="${callback_map[$callback_id]:-}"
                 if [[ -n "$callback_fn" ]] &&
-                    ! declare -F "$callback_fn" >/dev/null 2>&1; then
+                    ! declare -F "$callback_fn" >/dev/null; then
                     printf 'ERROR: Component %s references missing %s callback: %s\n' \
                         "$callback_id" "$callback_map_name" "$callback_fn" >&2
                     return 1
@@ -502,7 +502,7 @@ detect_chromium() {
     package_installed chromium || command_exists chromium
 }
 install_chromium_adapter() {
-    if type perform_install_chromium >/dev/null 2>&1; then
+    if type perform_install_chromium >/dev/null; then
         perform_install_chromium
     else
         install_dnf_packages chromium
@@ -519,7 +519,7 @@ detect_firefox() {
     package_installed firefox || command_exists firefox
 }
 install_firefox_adapter() {
-    if type perform_install_firefox >/dev/null 2>&1; then
+    if type perform_install_firefox >/dev/null; then
         perform_install_firefox
     else
         install_dnf_packages firefox
@@ -554,14 +554,14 @@ remove_neovim_adapter() {
 
 # Nix package manager
 detect_nix() {
-    if type nix_installed >/dev/null 2>&1; then
+    if type nix_installed >/dev/null; then
         nix_installed
     else
         package_installed nix && command_exists nix
     fi
 }
 install_nix_adapter() {
-    if type perform_install_nix >/dev/null 2>&1; then
+    if type perform_install_nix >/dev/null; then
         perform_install_nix
     else
         install_dnf_packages nix nix-daemon
@@ -573,9 +573,9 @@ detect_devenv() {
     command_exists devenv
 }
 install_devenv_adapter() {
-    if type perform_install_devenv >/dev/null 2>&1; then
+    if type perform_install_devenv >/dev/null; then
         perform_install_devenv
-    elif type install_devenv >/dev/null 2>&1; then
+    elif type install_devenv >/dev/null; then
         install_devenv
     else
         command_exists devenv
@@ -604,8 +604,8 @@ remove_htop_adapter() {
 
 # Noctalia runtime / greeter
 detect_noctalia() {
-    if declare -F package_command_owned >/dev/null 2>&1 &&
-        declare -F package_evr_is_stable >/dev/null 2>&1; then
+    if declare -F package_command_owned >/dev/null &&
+        declare -F package_evr_is_stable >/dev/null; then
         package_evr_is_stable noctalia && package_command_owned noctalia noctalia
     else
         command_exists noctalia || package_installed noctalia

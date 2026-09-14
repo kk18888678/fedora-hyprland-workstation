@@ -31,7 +31,7 @@ if [[ -f "$plugin_root/manifest.json" &&
           .entryPoints.barWidget == "BluetoothBarWidget.qml" and
           .barWidget.defaultSection == "right" and
           .barWidget.allowMultiple == false' "$plugin_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null; then
     pass "Bluetooth declares a validated first-party bar-widget plugin"
 else
     fail "Bluetooth manifest or entry-point contract is incomplete"
@@ -124,7 +124,7 @@ else
     fail "Bluetooth does not gate its native QML model on bounded BlueZ availability"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$probe_model_file" <<'NODE_PROBE'
 const probe = require(process.argv[2]);
 const actualOutput = [
@@ -152,9 +152,9 @@ else
     fail "Bluetooth default bar integration is incomplete"
 fi
 
-if grep -Fxq 'bluez' "$ROOT/../packages/bluetooth.txt" 2>/dev/null &&
-   grep -Fxq 'bluez-tools' "$ROOT/../packages/bluetooth.txt" 2>/dev/null &&
-   ! grep -R -Fxq 'bluez-utils' "$ROOT/../packages"/*.txt 2>/dev/null; then
+if grep -Fxq 'bluez' "$ROOT/../packages/bluetooth.txt"  &&
+   grep -Fxq 'bluez-tools' "$ROOT/../packages/bluetooth.txt"  &&
+   ! grep -R -Fxq 'bluez-utils' "$ROOT/../packages"/*.txt ; then
     pass "Bluetooth package ownership uses the Fedora BlueZ runtime and CLI tools manifest"
 else
     fail "Bluetooth package manifest is missing valid BlueZ dependencies"
@@ -169,7 +169,7 @@ fi
 
 section "Bluetooth Model"
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$model_file" <<'NODE'
 const model = require(process.argv[2])
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
@@ -329,13 +329,13 @@ else
     fail "Unpowered device connect helper behavior drifted: $(cat "$BLUETOOTH_LOG")"
 fi
 
-if "$device_bin" connect invalid-address >/dev/null 2>&1; then
+if "$device_bin" connect invalid-address >/dev/null; then
     fail "Bluetooth device helper accepted an invalid address"
 else
     pass "Bluetooth device helper rejects invalid addresses before BlueZ calls"
 fi
 
-if "$power_bin" invalid >/dev/null 2>&1; then
+if "$power_bin" invalid >/dev/null; then
     fail "Bluetooth power helper accepted an invalid operation"
 else
     pass "Bluetooth power helper rejects invalid operations"

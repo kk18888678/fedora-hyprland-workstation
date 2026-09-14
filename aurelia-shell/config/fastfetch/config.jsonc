@@ -72,7 +72,7 @@
       "type": "command",
       "key": " Update",
       "keyColor": "38;2;246;193;119",
-      "text": "dnf history info last 2>/dev/null | sed -n 's/^Begin time[[:space:]]*:[[:space:]]*//p' | head -n 1"
+      "text": "dnf history info last  | sed -n 's/^Begin time[[:space:]]*:[[:space:]]*//p' | head -n 1"
     },
     {
       "type": "custom",

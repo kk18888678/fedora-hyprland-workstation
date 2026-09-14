@@ -28,7 +28,7 @@ if [[ ! -x "$validator" || ! -f "$manifest_root" ]]; then
 fi
 
 test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$test_root"  || true' RETURN
 mkdir -p -- "$test_root/cli" "$test_root/state" "$test_root/config" "$test_root/cache" "$test_root/runtime"
 printf '%s\n' 'import QtQuick' 'Item {}' >"$test_root/Panel.qml"
 printf '%s\n' 'import QtQuick' 'Item {}' >"$test_root/Service.qml"
@@ -132,9 +132,9 @@ while IFS= read -r encoded_case; do
     jq '.manifest' <<<"$encoded_case" >"$case_dir/manifest.json"
     actual="false"
     if [[ -n "$first_party" ]]; then
-        "$validator" validate --first-party "$case_dir" >/dev/null 2>&1 && actual="true"
+        "$validator" validate --first-party "$case_dir" >/dev/null && actual="true"
     else
-        "$validator" validate "$case_dir" >/dev/null 2>&1 && actual="true"
+        "$validator" validate "$case_dir" >/dev/null && actual="true"
     fi
     if [[ "$actual" == "$expected" ]]; then
         pass "[static] CLI matrix: $case_name"
@@ -147,6 +147,7 @@ done < <(jq -c '.[]' "$test_root/matrix.json")
 runtime_result="$test_root/runtime-result.json"
 runtime_log="$test_root/runtime.log"
 runtime_status=0
+: >"$runtime_result"
 AURELIA_MANIFEST_REGISTRY_SOURCE="$registry_root" \
 AURELIA_MANIFEST_MATRIX="$test_root/matrix.json" \
 AURELIA_MANIFEST_RESULT="$runtime_result" \
@@ -162,6 +163,7 @@ XDG_CACHE_HOME="$test_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+    runtime_log_is_environment_only "$runtime_log" &&
     jq -e '.discoveryScanFinished == true and .discoveredCount == 25 and .discoveryError == "" and
        (.results | length == 25 and all(.[]; .accepted == .expected and .inputUnchanged == true))' \
        "$runtime_result" >/dev/null; then

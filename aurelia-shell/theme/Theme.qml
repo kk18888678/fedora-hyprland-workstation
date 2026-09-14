@@ -89,6 +89,7 @@ QtObject {
     property FileView themeFile: FileView {
         path: themeRoot.effectiveThemePath
         watchChanges: true
+        printErrors: true
         onLoaded: {
             themeRoot._themeReloadToken++
             console.info("[THEME] loaded path=" + themeRoot.effectiveThemePath)
@@ -102,6 +103,7 @@ QtObject {
     property FileView shellFile: FileView {
         path: themeRoot.effectiveShellPath
         watchChanges: true
+        printErrors: true
         onLoaded: themeRoot._shellReloadToken++
         onFileChanged: {
             reload()
@@ -177,6 +179,7 @@ QtObject {
 
     property FileView preferencesFile: FileView {
         path: themeRoot.preferencesOverrideAvailable ? themeRoot.preferencesPath : themeRoot.shippedPreferencesPath
+        printErrors: true
     }
 
     // Display text-size overrides are user-owned and intentionally separate
@@ -205,6 +208,7 @@ QtObject {
             ? themeRoot.displaySettingsPath
             : themeRoot.shippedThemePath
         watchChanges: themeRoot.displaySettingsAvailable
+        printErrors: true
         onFileChanged: {
             reload()
             themeRoot._displaySettingsReloadToken++
@@ -222,7 +226,12 @@ QtObject {
         var reloadToken = _displaySettingsReloadToken
         var value = 12
         var text = ""
-        try { text = displaySettingsFile.text() } catch (e) { text = "" }
+        try {
+            text = displaySettingsFile.text()
+        } catch (e) {
+            console.warn("[THEME] display_settings_read_failed")
+            text = ""
+        }
         var match = text.match(/^\s*fontBaseSize\s*=\s*([0-9]+)\s*$/m)
         if (match && Number(match[1]) >= 9 && Number(match[1]) <= 20)
             value = Number(match[1])
@@ -298,6 +307,7 @@ QtObject {
         try {
             txt = preferencesFile.text()
         } catch (e) {
+            console.warn("[THEME] preferences_read_failed")
             return {}
         }
         if (!txt || typeof txt !== "string" || txt.trim() === "") return {}
@@ -305,7 +315,7 @@ QtObject {
             var parsed = JSON.parse(txt)
             return (parsed && typeof parsed === "object") ? parsed : {}
         } catch (err) {
-            console.warn("[WARN] Theme.qml: Failed to parse preferences.json; using shipped defaults")
+            console.warn("[THEME] preferences_parse_failed; using shipped defaults")
             return {}
         }
     }
@@ -336,7 +346,7 @@ QtObject {
         try {
             txt = themeFile.text()
         } catch (e) {
-            // Configuration file missing or unreadable; defaults apply safely
+            console.warn("[THEME] theme_read_failed")
         }
         if (txt && typeof txt === "string") {
             var lines = txt.split("\n")
@@ -411,7 +421,12 @@ QtObject {
         var reloadToken = _shellReloadToken
         var map = {}
         var text = ""
-        try { text = shellFile.text() } catch (e) { text = "" }
+        try {
+            text = shellFile.text()
+        } catch (e) {
+            console.warn("[THEME] shell_tokens_read_failed")
+            text = ""
+        }
         if (!text || typeof text !== "string") return map
 
         var section = ""

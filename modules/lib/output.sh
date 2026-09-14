@@ -45,7 +45,7 @@ start_installer_logging() {
     fi
 
     if ! exec {INSTALLER_LOG_STDERR_FD}>&2; then
-        exec {INSTALLER_LOG_STDOUT_FD}>&- 2>/dev/null || true
+        exec {INSTALLER_LOG_STDOUT_FD}>&-  || true
         INSTALLER_LOG_STDOUT_FD=""
         error "Could not preserve installer stderr for logging."
         return 1
@@ -56,8 +56,8 @@ start_installer_logging() {
     # the already-created, user-owned log file.
     if ! exec > >(tee -a "$log_file") 2>&1; then
         exec 1>&"$INSTALLER_LOG_STDOUT_FD" 2>&"$INSTALLER_LOG_STDERR_FD" || true
-        exec {INSTALLER_LOG_STDOUT_FD}>&- 2>/dev/null || true
-        exec {INSTALLER_LOG_STDERR_FD}>&- 2>/dev/null || true
+        exec {INSTALLER_LOG_STDOUT_FD}>&-  || true
+        exec {INSTALLER_LOG_STDERR_FD}>&-  || true
         INSTALLER_LOG_STDOUT_FD=""
         INSTALLER_LOG_STDERR_FD=""
         error "Could not start installer logging."
@@ -86,8 +86,8 @@ stop_installer_logging() {
     if ! exec 1>&"$stdout_fd" 2>&"$stderr_fd"; then
         restore_status=1
     fi
-    exec {stdout_fd}>&- 2>/dev/null || restore_status=1
-    exec {stderr_fd}>&- 2>/dev/null || restore_status=1
+    exec {stdout_fd}>&-  || restore_status=1
+    exec {stderr_fd}>&-  || restore_status=1
 
     INSTALLER_LOG_STDOUT_FD=""
     INSTALLER_LOG_STDERR_FD=""

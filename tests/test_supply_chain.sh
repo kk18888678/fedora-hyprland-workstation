@@ -138,9 +138,9 @@ echo "val_dotdot_name3=$val_dotdot_name3"
 # 3. normalize_archive_path containment and prefix-confusion rejection
 norm_safe1="$(normalize_archive_path "" "foo/bar")"
 norm_safe2="$(normalize_archive_path "dir/subdir" "../../foo")"
-norm_esc1=0; normalize_archive_path "" "../bar" >/dev/null 2>&1 || norm_esc1=$?
-norm_esc2=0; normalize_archive_path "dir/subdir" "../../../foo" >/dev/null 2>&1 || norm_esc2=$?
-norm_abs=0; normalize_archive_path "dir" "/etc/passwd" >/dev/null 2>&1 || norm_abs=$?
+norm_esc1=0; normalize_archive_path "" "../bar" >/dev/null || norm_esc1=$?
+norm_esc2=0; normalize_archive_path "dir/subdir" "../../../foo" >/dev/null || norm_esc2=$?
+norm_abs=0; normalize_archive_path "dir" "/etc/passwd" >/dev/null || norm_abs=$?
 
 echo "norm_safe1=$norm_safe1"
 echo "norm_safe2=$norm_safe2"
@@ -242,13 +242,13 @@ echo "prov_ok=$([[ $status_ok -eq 0 && -x "$test_dest" ]] && echo 1 || echo 0)"
 # 2. Checksum mismatch fails closed
 test_bad_dest="$test_sandbox/bad_bin"
 status_bad=0
-provision_verified_binary "https://example.com/bin" "$wrong_sha512" "$test_bad_dest" "bad_bin" false >/dev/null 2>&1 || status_bad=$?
+provision_verified_binary "https://example.com/bin" "$wrong_sha512" "$test_bad_dest" "bad_bin" false >/dev/null || status_bad=$?
 echo "mismatch_rejected=$([[ $status_bad -ne 0 && ! -e "$test_bad_dest" ]] && echo 1 || echo 0)"
 
 # 3. Non-HTTPS URL rejected
 test_insecure_dest="$test_sandbox/insecure_bin"
 status_insecure=0
-provision_verified_binary "http://insecure.example.com/bin" "$correct_sha512" "$test_insecure_dest" "insecure_bin" false >/dev/null 2>&1 || status_insecure=$?
+provision_verified_binary "http://insecure.example.com/bin" "$correct_sha512" "$test_insecure_dest" "insecure_bin" false >/dev/null || status_insecure=$?
 echo "insecure_rejected=$([[ $status_insecure -ne 0 && ! -e "$test_insecure_dest" ]] && echo 1 || echo 0)"
 
 # 4. Existing destination symlink must be rejected rather than followed.
@@ -257,7 +257,7 @@ symlink_target="$test_sandbox/symlink_target"
 printf 'original\n' > "$symlink_target"
 ln -s "$symlink_target" "$symlink_dest"
 symlink_status=0
-provision_verified_binary "https://example.com/bin" "$correct_sha512" "$symlink_dest" "symlink_bin" false >/dev/null 2>&1 || symlink_status=$?
+provision_verified_binary "https://example.com/bin" "$correct_sha512" "$symlink_dest" "symlink_bin" false >/dev/null || symlink_status=$?
 echo "destination_symlink_rejected=$([[ $symlink_status -ne 0 && "$(cat "$symlink_target")" == original ]] && echo 1 || echo 0)"
 
 # 5. Root-owned-run provenance records the installed file digest and detects tampering.
@@ -373,14 +373,14 @@ clone_pinned_git \
     "https://example.com/repository.git" \
     "$checkout" \
     "2222222222222222222222222222222222222222" \
-    "Pinned checkout" >/dev/null 2>&1 || mismatch_status=$?
+    "Pinned checkout" >/dev/null || mismatch_status=$?
 
 invalid_url_status=0
 clone_pinned_git \
     "http://example.com/repository.git" \
     "$checkout_root/invalid-url" \
     "2222222222222222222222222222222222222222" \
-    "Invalid URL" >/dev/null 2>&1 || invalid_url_status=$?
+    "Invalid URL" >/dev/null || invalid_url_status=$?
 
 printf 'mismatch_rejected=%s checkout_preserved=%s invalid_url_rejected=%s\n' \
     "$([[ $mismatch_status -ne 0 ]] && echo 1 || echo 0)" \
@@ -458,7 +458,7 @@ current_payload_file="$fixture_dir/sym_plain.tar.gz"
 sym_plain_dest="$fixture_dir/installed_sym_plain/file"
 sym_plain_status=0
 (
-    provision_verified_archive "https://example.com/sym_plain.tar.gz" "$sym_plain_hash" "$sym_plain_dest" "file" "sym_plain_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/sym_plain.tar.gz" "$sym_plain_hash" "$sym_plain_dest" "file" "sym_plain_test" false >/dev/null
 ) || sym_plain_status=$?
 echo "test2_tar_symlink_plain_rejected=$([[ $sym_plain_status -ne 0 && ! -e "$sym_plain_dest" && ! -e "$sentinel_sym" ]] && echo 1 || echo 0)"
 
@@ -475,7 +475,7 @@ current_payload_file="$fixture_dir/sym_arrow.tar.gz"
 sym_arrow_dest="$fixture_dir/installed_sym_arrow/file"
 sym_arrow_status=0
 (
-    provision_verified_archive "https://example.com/sym_arrow.tar.gz" "$sym_arrow_hash" "$sym_arrow_dest" "file" "sym_arrow_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/sym_arrow.tar.gz" "$sym_arrow_hash" "$sym_arrow_dest" "file" "sym_arrow_test" false >/dev/null
 ) || sym_arrow_status=$?
 echo "test3_tar_symlink_arrow_name_rejected=$([[ $sym_arrow_status -ne 0 && ! -e "$sym_arrow_dest" && ! -e "$sentinel_arrow" ]] && echo 1 || echo 0)"
 
@@ -492,7 +492,7 @@ current_payload_file="$fixture_dir/hard_plain.tar.gz"
 hard_plain_dest="$fixture_dir/installed_hard_plain/file"
 hard_plain_status=0
 (
-    provision_verified_archive "https://example.com/hard_plain.tar.gz" "$hard_plain_hash" "$hard_plain_dest" "file" "hard_plain_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/hard_plain.tar.gz" "$hard_plain_hash" "$hard_plain_dest" "file" "hard_plain_test" false >/dev/null
 ) || hard_plain_status=$?
 echo "test4_tar_hardlink_plain_rejected=$([[ $hard_plain_status -ne 0 && ! -e "$hard_plain_dest" && ! -e "$sentinel_hard" ]] && echo 1 || echo 0)"
 
@@ -509,7 +509,7 @@ current_payload_file="$fixture_dir/hard_linkto.tar.gz"
 hard_linkto_dest="$fixture_dir/installed_hard_linkto/file"
 hard_linkto_status=0
 (
-    provision_verified_archive "https://example.com/hard_linkto.tar.gz" "$hard_linkto_hash" "$hard_linkto_dest" "file" "hard_linkto_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/hard_linkto.tar.gz" "$hard_linkto_hash" "$hard_linkto_dest" "file" "hard_linkto_test" false >/dev/null
 ) || hard_linkto_status=$?
 echo "test5_tar_hardlink_linkto_name_rejected=$([[ $hard_linkto_status -ne 0 && ! -e "$hard_linkto_dest" && ! -e "$sentinel_hardlink_to" ]] && echo 1 || echo 0)"
 
@@ -527,21 +527,21 @@ current_payload_file="$fixture_dir/sym.zip"
 zip_sym_dest="$fixture_dir/installed_zip_sym/real_zip_file"
 zip_sym_status=0
 (
-    provision_verified_archive "https://example.com/sym.zip" "$zip_sym_hash" "$zip_sym_dest" "real_zip_file" "zip_sym_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/sym.zip" "$zip_sym_hash" "$zip_sym_dest" "real_zip_file" "zip_sym_test" false >/dev/null
 ) || zip_sym_status=$?
 echo "test6_zip_symlink_rejected=$([[ $zip_sym_status -ne 0 && ! -e "$zip_sym_dest" && ! -e "$sentinel_zip_sym" ]] && echo 1 || echo 0)"
 
 # 7. Member traversal (../) -> FAIL BEFORE EXTRACTION
 mkdir -p "$fixture_dir/traversal_src"
 printf 'malicious\n' > "$fixture_dir/traversal_src/evil"
-tar -czf "$fixture_dir/traversal.tar.gz" -C "$fixture_dir/traversal_src" --transform 's|^|../|' evil 2>/dev/null || true
+tar -czf "$fixture_dir/traversal.tar.gz" -C "$fixture_dir/traversal_src" --transform 's|^|../|' evil  || true
 traversal_hash="$(sha512sum "$fixture_dir/traversal.tar.gz" | cut -d' ' -f1)"
 
 current_payload_file="$fixture_dir/traversal.tar.gz"
 traversal_dest="$fixture_dir/installed_traversal/evil"
 traversal_status=0
 (
-    provision_verified_archive "https://example.com/traversal.tar.gz" "$traversal_hash" "$traversal_dest" "evil" "evil_tool" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/traversal.tar.gz" "$traversal_hash" "$traversal_dest" "evil" "evil_tool" false >/dev/null
 ) || traversal_status=$?
 echo "test7_member_traversal_rejected_before_extraction=$([[ $traversal_status -ne 0 && ! -e "$traversal_dest" ]] && echo 1 || echo 0)"
 
@@ -561,7 +561,7 @@ echo "test8_dotdot_in_name_ok=$([[ $dotdot_status -eq 0 && "$("$dotdot_dest")" =
 # 9. Expected member containing real ".." path component -> FAIL
 real_dotdot_status=0
 (
-    provision_verified_archive "https://example.com/valid.tar.gz" "$valid_hash" "$fixture_dir/installed_real_dotdot/tool" "bin/../my_tool" "real_dotdot_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/valid.tar.gz" "$valid_hash" "$fixture_dir/installed_real_dotdot/tool" "bin/../my_tool" "real_dotdot_test" false >/dev/null
 ) || real_dotdot_status=$?
 echo "test9_real_dotdot_component_rejected=$([[ $real_dotdot_status -ne 0 ]] && echo 1 || echo 0)"
 
@@ -573,7 +573,7 @@ current_payload_file="$fixture_dir/corrupt.tar.gz"
 corrupt_dest="$fixture_dir/installed_corrupt/tool"
 corrupt_status=0
 (
-    provision_verified_archive "https://example.com/corrupt.tar.gz" "$corrupt_hash" "$corrupt_dest" "tool" "corrupt_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/corrupt.tar.gz" "$corrupt_hash" "$corrupt_dest" "tool" "corrupt_test" false >/dev/null
 ) || corrupt_status=$?
 echo "test10_corrupt_listing_rejected=$([[ $corrupt_status -ne 0 && ! -e "$corrupt_dest" ]] && echo 1 || echo 0)"
 
@@ -602,7 +602,7 @@ current_payload_file="$fixture_dir/ambig.tar.gz"
 ambig_dest="$fixture_dir/installed_ambig/tool"
 ambig_status=0
 (
-    provision_verified_archive "https://example.com/ambig.tar.gz" "$ambig_hash" "$ambig_dest" "tool" "ambig_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/ambig.tar.gz" "$ambig_hash" "$ambig_dest" "tool" "ambig_test" false >/dev/null
 ) || ambig_status=$?
 echo "test12_ambiguous_rejected=$([[ $ambig_status -ne 0 && ! -e "$ambig_dest" ]] && echo 1 || echo 0)"
 
@@ -633,7 +633,7 @@ current_payload_file="$fixture_dir/partial.tar.gz"
 partial_dest_dir="$fixture_dir/installed_partial"
 partial_status=0
 (
-    provision_verified_archive "https://example.com/partial.tar.gz" "$partial_hash" "$partial_dest_dir" "bin/tool1 bin/tool2 bin/tool3_missing" "partial_test" false >/dev/null 2>&1
+    provision_verified_archive "https://example.com/partial.tar.gz" "$partial_hash" "$partial_dest_dir" "bin/tool1 bin/tool2 bin/tool3_missing" "partial_test" false >/dev/null
 ) || partial_status=$?
 echo "test14_partial_set_rejected_cleanly=$([[ $partial_status -ne 0 && ! -e "$partial_dest_dir/tool1" && ! -e "$partial_dest_dir/tool2" ]] && echo 1 || echo 0)"
 
@@ -650,7 +650,7 @@ install() {
     command install "$@"
 }
 rollback_status=0
-provision_verified_archive "https://example.com/multi.tar.gz" "$multi_hash" "$rollback_dest_dir" "bin/tool1 bin/tool2 bin/tool3" "rollback_test" false >/dev/null 2>&1 || rollback_status=$?
+provision_verified_archive "https://example.com/multi.tar.gz" "$multi_hash" "$rollback_dest_dir" "bin/tool1 bin/tool2 bin/tool3" "rollback_test" false >/dev/null || rollback_status=$?
 rollback_backups="$(find "$rollback_dest_dir" -name '*.bak.*' -o -name '.*.fhw-stage.*' | wc -l)"
 echo "test15_mid_install_rollback=$([[ $rollback_status -ne 0 && "$(<"$rollback_dest_dir/tool1")" == old-tool1 && "$(<"$rollback_dest_dir/tool2")" == old-tool2 && ! -e "$rollback_dest_dir/tool3" && $rollback_backups -eq 0 ]] && echo 1 || echo 0)"
 

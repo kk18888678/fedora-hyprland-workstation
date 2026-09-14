@@ -43,11 +43,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 expected_widgets="$(find "$ROOT/plugins" -type f -name manifest.json -print0 | xargs -0 jq -r 'select((.kinds | index("bar-widget")) != null) | .id' | sort -u | wc -l)"
 runtime_result="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
+: >"$runtime_result"
 AURELIA_BAR_REGISTRY_PLUGIN_SOURCE="$ROOT/services/PluginRegistry.qml" \
 AURELIA_BAR_REGISTRY_SOURCE="$ROOT/services/BarWidgetRegistry.qml" \
 AURELIA_BAR_REGISTRY_RESULT="$runtime_result" \
@@ -63,6 +64,7 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e --arg root "$ROOT" --argjson expected "$expected_widgets" '
         .scanState == "success" and
         .pluginCount == 25 and

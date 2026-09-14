@@ -15,14 +15,14 @@ else
     fail "managed sudoers policy is missing or broader than stock DNS providers"
 fi
 
-if ! grep -Fqx "$sudoers_policy" "$sudoers_file" 2>/dev/null ||
-    grep -Fqx '%wheel ALL=(root) NOPASSWD: /usr/local/bin/aurelia-network-dns Custom' "$sudoers_file" 2>/dev/null; then
+if ! grep -Fqx "$sudoers_policy" "$sudoers_file"  ||
+    grep -Fqx '%wheel ALL=(root) NOPASSWD: /usr/local/bin/aurelia-network-dns Custom' "$sudoers_file" ; then
     fail "Custom DNS unexpectedly has a passwordless sudo rule"
 else
     pass "Custom DNS is not passwordless"
 fi
 
-if command -v visudo >/dev/null 2>&1 && visudo -cf "$sudoers_file" >/dev/null 2>&1; then
+if command -v visudo >/dev/null && visudo -cf "$sudoers_file" >/dev/null; then
     pass "managed sudoers policy passes visudo"
 else
     fail "managed sudoers policy does not pass visudo"
@@ -30,7 +30,7 @@ fi
 
 if grep -Fq 'install_aurelia_network_dns_authorization' "$ROOT/install.sh" &&
     grep -Fq 'run_classified_step workstation "Installing Aurelia network DNS authorization" install_aurelia_network_dns_authorization' "$ROOT/install.sh" &&
-    grep -Fq '[[ "${DESKTOP_SHELL:-}" != "aurelia" ]]' "$ROOT/modules/desktop.sh"; then
+    grep -Fq "[[ \"\${DESKTOP_SHELL:-}\" != \"aurelia\" ]]" "$ROOT/modules/desktop.sh"; then
     pass "authorization stage is wired and gated to the Aurelia desktop shell"
 else
     fail "installer authorization stage is not wired or shell-gated"
@@ -166,7 +166,7 @@ install_aurelia_network_dns_authorization
 [[ "$(stat -c '%a' "$fake_root/usr/local/bin/aurelia-network-dns")" == 755 ]]
 [[ "$(stat -c '%a' "$fake_root/usr/local/bin/aurelia-network-dns-terminal")" == 755 ]]
 [[ "$(stat -c '%a' "$fake_root/etc/sudoers.d/aurelia-network-dns")" == 440 ]]
-/usr/bin/visudo -cf "$fake_root/etc/sudoers.d/aurelia-network-dns" >/dev/null 2>&1
+/usr/bin/visudo -cf "$fake_root/etc/sudoers.d/aurelia-network-dns" >/dev/null
 printf 'installed=1\n'
 EOS
 )"

@@ -58,7 +58,7 @@ fi
 init_plan "PLAN_UNEXEC_DEF"
 add_plan_action "PLAN_UNEXEC_DEF" "CHANGE_DEFAULT" "foot" "preferred" "terminal: none -> Foot"
 unexec_rc=0
-finalize_plan "PLAN_UNEXEC_DEF" 2>/dev/null || unexec_rc=$?
+finalize_plan "PLAN_UNEXEC_DEF"  || unexec_rc=$?
 if [[ "$unexec_rc" -ne 0 ]]; then
     pass "49g. un-executable role in plan CHANGE_DEFAULT fails plan validation fail-closed"
 else
@@ -66,7 +66,7 @@ else
 fi
 
 call_unexec_rc=0
-set_system_role_default "terminal" "foot" 2>/dev/null || call_unexec_rc=$?
+set_system_role_default "terminal" "foot"  || call_unexec_rc=$?
 if [[ "$call_unexec_rc" -ne 0 ]]; then
     pass "49g2. set_system_role_default returns 1 for un-executable role"
 else

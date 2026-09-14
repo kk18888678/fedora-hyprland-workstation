@@ -12,7 +12,7 @@ fi
 
 # 33.2: workstation-keybindings delegates to workstation-aurelia and fails closed if missing
 test_33_2_out="$(WORKSTATION_AURELIA_BIN="/nonexistent/workstation-aurelia" "$ROOT/bin/workstation-keybindings" preference get 2>&1 || true)"
-test_33_2_code="$(WORKSTATION_AURELIA_BIN="/nonexistent/workstation-aurelia" "$ROOT/bin/workstation-keybindings" preference get >/dev/null 2>&1; echo $?)"
+test_33_2_code="$(WORKSTATION_AURELIA_BIN="/nonexistent/workstation-aurelia" "$ROOT/bin/workstation-keybindings" preference get >/dev/null; echo $?)"
 if [[ "$test_33_2_code" -eq 1 && "$test_33_2_out" == *"workstation-aurelia"* && "$test_33_2_out" == *"not found"* ]]; then
     pass "33.2 workstation-keybindings delegation fails closed with exit code 1 when workstation-aurelia missing"
 else

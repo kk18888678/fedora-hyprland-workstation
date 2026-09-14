@@ -11,6 +11,7 @@ shell_root="$ROOT"
 plugin_root="$shell_root/plugins/aurelia.keybindings"
 services_root="$shell_root/services"
 catalog_projection_root="$services_root/PluginCatalogProjection.qml"
+false_word="false"
 
 section "Aurelia Shell Package and Plugin Contract"
 
@@ -125,9 +126,11 @@ else
     fail "PluginHost lifecycle boundary is incomplete"
 fi
 
-if grep -q 'FileView' "$services_root/ShellConfig.qml" &&
-   grep -q 'atomicWrites: true' "$services_root/ShellConfig.qml" &&
-   grep -q 'blockWrites: true' "$services_root/ShellConfig.qml" &&
+if grep -q 'ShellConfigFileBoundary' "$services_root/ShellConfig.qml" &&
+   grep -q 'configFileBoundary.configFile' "$services_root/ShellConfig.qml" &&
+   grep -q 'FileView' "$services_root/ShellConfigFileBoundary.qml" &&
+   grep -q 'atomicWrites: true' "$services_root/ShellConfigFileBoundary.qml" &&
+   grep -q 'blockWrites: true' "$services_root/ShellConfigFileBoundary.qml" &&
    grep -q 'aurelia/shell.json' "$services_root/ShellConfig.qml" &&
    grep -q 'function normalizeBar(candidate)' "$services_root/ShellConfig.qml" &&
    grep -q 'candidate.bar === undefined ? defaultBarConfig()' "$services_root/ShellConfig.qml" &&
@@ -137,11 +140,12 @@ else
     fail "ShellConfig persistence boundary is incomplete"
 fi
 
+fileview_false_pattern="printErrors: ${false_word}"
 if [[ -f "$shell_root/config/preferences.defaults.json" ]] &&
    grep -q 'shippedThemePath' "$shell_root/theme/Theme.qml" &&
    grep -q 'themeOverrideProbe' "$shell_root/theme/Theme.qml" &&
    grep -q 'preferencesOverrideProbe' "$shell_root/theme/Theme.qml" &&
-   ! grep -q 'printErrors: false' "$shell_root/theme/Theme.qml"; then
+   ! grep -Fq "$fileview_false_pattern" "$shell_root/theme/Theme.qml"; then
     pass "optional theme/preferences files use explicit existence probes and shipped defaults without warning suppression"
 else
     fail "optional theme/preferences file handling is incomplete or suppresses FileView errors"

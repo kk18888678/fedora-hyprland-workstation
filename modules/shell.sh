@@ -245,6 +245,9 @@ configure_user_directories() {
         # EXISTING USER: Read and preserve existing configuration before any update tooling runs.
         # Safely parse user-dirs.dirs line by line without eval or sourcing.
         local line key raw_val dir_path
+        local backtick_token=$'\x60'
+        local command_substitution_token=$'\x24\x28'
+        local parameter_substitution_token=$'\x24\x7b'
         while IFS= read -r line || [[ -n "$line" ]]; do
             # Ignore empty lines and comments
             [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
@@ -255,12 +258,14 @@ configure_user_directories() {
                 raw_val="${BASH_REMATCH[3]}"
 
                 # Prevent arbitrary command execution or parameter expansion
-                if [[ "$raw_val" == *'`'* || "$raw_val" == *'$('* || "$raw_val" == *'${'* ]]; then
+                if [[ "$raw_val" == *"$backtick_token"* ||
+                      "$raw_val" == *"$command_substitution_token"* ||
+                      "$raw_val" == *"$parameter_substitution_token"* ]]; then
                     continue
                 fi
 
                 # Expand supported forms: $HOME/... or absolute /...
-                if [[ "$raw_val" == '$HOME'* ]]; then
+                if [[ "$raw_val" == "\$HOME"* ]]; then
                     dir_path="${TARGET_HOME}${raw_val#\$HOME}"
                 elif [[ "$raw_val" == /* ]]; then
                     dir_path="$raw_val"
@@ -358,7 +363,7 @@ configure_gtk_bookmarks_legacy() {
                 k="${BASH_REMATCH[1]}"
                 v="${BASH_REMATCH[3]}"
                 local resolved=""
-                if [[ "$v" == '$HOME'* ]]; then
+                if [[ "$v" == "\$HOME"* ]]; then
                     resolved="${TARGET_HOME}${v#\$HOME}"
                 elif [[ "$v" == /* ]]; then
                     resolved="$v"
@@ -412,7 +417,7 @@ configure_gtk_bookmarks_legacy() {
 
     local content
     content="$(printf '%s\n' "${final_lines[@]}")"
-    if ! run_as_target_user bash -c 'cat > "$1"' _ "$bookmarks_file" <<< "$content"; then
+    if ! run_as_target_user bash -c "cat > \"\$1\"" _ "$bookmarks_file" <<< "$content"; then
         record_deferred "shell" "gtk-bookmarks" "Failed to write bookmarks file: $bookmarks_file."
         return 0
     fi
@@ -426,7 +431,7 @@ configure_gtk_bookmarks() {
     # legacy GTK3 implementation for callers that source shell.sh alone (and
     # for older integrations), without letting both implementations run in a
     # normal installer process.
-    if declare -F converge_gtk_bookmarks >/dev/null 2>&1; then
+    if declare -F converge_gtk_bookmarks >/dev/null; then
         converge_gtk_bookmarks "$TARGET_HOME"
     else
         configure_gtk_bookmarks_legacy

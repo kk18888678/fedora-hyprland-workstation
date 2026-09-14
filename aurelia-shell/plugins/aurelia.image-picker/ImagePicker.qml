@@ -82,7 +82,12 @@ Item {
 
     function open(payloadJson) {
         var payload = {}
-        try { payload = JSON.parse(String(payloadJson || "{}")) || {} } catch (error) { payload = {} }
+        try {
+            payload = JSON.parse(String(payloadJson || "{}")) || {}
+        } catch (error) {
+            console.warn("[IMAGE-PICKER] payload_invalid reason=invalid_json")
+            payload = {}
+        }
         root.setMode(payload.mode)
         root.errorMessage = ""
         root.opened = true

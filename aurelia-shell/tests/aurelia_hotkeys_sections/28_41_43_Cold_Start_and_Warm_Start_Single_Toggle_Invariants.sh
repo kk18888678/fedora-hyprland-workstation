@@ -29,7 +29,7 @@ fi
 exit 0
 EOF
     chmod +x "$mock_dir/qs"
-    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
     toggle_count="$(grep -c '^toggle$' "$mock_log" || true)"
     ping_count="$(grep -c '^ping$' "$mock_log" || true)"
     daemon_count="$(grep -c '^daemon_start$' "$mock_log" || true)"
@@ -67,7 +67,7 @@ fi
 exit 0
 EOF
     chmod +x "$mock_dir/qs"
-    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
     toggle_count="$(grep -c '^toggle$' "$mock_log" || true)"
     daemon_count="$(grep -c '^daemon_start$' "$mock_log" || true)"
     ping_count="$(grep -c '^ping$' "$mock_log" || true)"
@@ -80,8 +80,8 @@ EOF
 )
 
 # Test 43: Startup timeout is bounded around 2s (~40 attempts * 50ms)
-timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/lib/aurelia-keybindings/toggle.sh" 2>/dev/null || true)"
-sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/lib/aurelia-keybindings/toggle.sh" 2>/dev/null || true)"
+timeout_spec="$(grep -E 'for _ in \{1\.\.40\}' "$ROOT/bin/lib/aurelia-keybindings/toggle.sh"  || true)"
+sleep_spec="$(grep -E 'sleep 0\.05' "$ROOT/bin/lib/aurelia-keybindings/toggle.sh"  || true)"
 if [[ -n "$timeout_spec" && -n "$sleep_spec" ]]; then
     pass "43. startup timeout is bounded around 2s (40 * 50ms) without arbitrary long sleeps"
 else

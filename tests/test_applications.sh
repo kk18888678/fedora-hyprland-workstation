@@ -6,7 +6,7 @@ section "Neovim Default Configuration"
 
 expected_nvim_content=$'vim.opt.number = true\nvim.opt.relativenumber = true\nvim.opt.ignorecase = true\nvim.opt.smartcase = true\nvim.opt.clipboard = \'unnamedplus\'\nvim.opt.undofile = true\nvim.opt.scrolloff = 8'
 
-actual_nvim_content="$(cat "$ROOT/dotfiles/nvim/init.lua" 2>/dev/null || true)"
+actual_nvim_content="$(cat "$ROOT/dotfiles/nvim/init.lua"  || true)"
 actual_nvim_content_trimmed="$(printf '%s' "$actual_nvim_content" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
 
 if [[ "$actual_nvim_content_trimmed" == "$expected_nvim_content" ]]; then
@@ -304,7 +304,7 @@ for bin_candidate in /usr/bin/* /bin/*; do
     [[ -x "$bin_candidate" && ! -d "$bin_candidate" ]] || continue
     bname="$(basename "$bin_candidate")"
     if [[ "$bname" != "gpg"* ]]; then
-        ln -s "$bin_candidate" "$gpg_sandbox_bin/$bname" 2>/dev/null || true
+        ln -s "$bin_candidate" "$gpg_sandbox_bin/$bname"  || true
     fi
 done
 
@@ -1004,12 +1004,12 @@ source "$SCRIPT_DIR/modules/applications.sh"
 
 mv() { return 77; }
 cursor_flags_status=0
-configure_cursor_flags >/dev/null 2>&1 || cursor_flags_status=$?
+configure_cursor_flags >/dev/null || cursor_flags_status=$?
 unset -f mv
 
 sudo() { return 77; }
 root_file_status=0
-install_root_file_from_stdin "$TARGET_HOME/root-target" 0644 root root <<< content >/dev/null 2>&1 || root_file_status=$?
+install_root_file_from_stdin "$TARGET_HOME/root-target" 0644 root root <<< content >/dev/null || root_file_status=$?
 unset -f sudo
 
 printf 'cursor_flags_status=%s\n' "$cursor_flags_status"
@@ -1049,7 +1049,7 @@ printf 'outside\n' > "$outside"
 rm -f "$flags_file"
 ln -s -- "$outside" "$flags_file"
 symlink_status=0
-configure_cursor_flags >/dev/null 2>&1 || symlink_status=$?
+configure_cursor_flags >/dev/null || symlink_status=$?
 printf 'backup_ok=%s managed_ok=%s idempotent_backups=%s symlink_rejected=%s outside_preserved=%s\n' \
     "$backup_ok" "$managed_ok" "$([[ "$backup_count" -eq 1 ]] && echo 1 || echo 0)" \
     "$([[ "$symlink_status" -ne 0 ]] && echo 1 || echo 0)" \

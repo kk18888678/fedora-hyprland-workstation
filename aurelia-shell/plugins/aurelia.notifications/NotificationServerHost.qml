@@ -19,7 +19,11 @@ Item {
         // Loader injection and the first D-Bus signal can occur in adjacent
         // event-loop turns. Track the object now so it cannot disappear while
         // the resident Service reference is being connected.
-        try { notification.tracked = true } catch (error) {}
+        try {
+            notification.tracked = true
+        } catch (error) {
+            console.warn("[NOTIFICATIONS] notification_track_deferred reason=tracking_failed")
+        }
         root.pendingNotifications = root.pendingNotifications.concat([notification])
     }
 

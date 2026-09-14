@@ -16,6 +16,8 @@ ShellRoot {
     QtObject {
         id: fakeShellConfig
 
+        signal configChanged()
+
         function settingsForEntry(id, selector) {
             return {mode: "refreshed", preserved: 11}
         }
@@ -95,7 +97,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }

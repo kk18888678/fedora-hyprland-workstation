@@ -18,6 +18,7 @@ QtObject {
         if (configuredPath !== "" && configuredPath.charAt(0) === "/") return configuredPath
         return configHome + "/aurelia/shell.json"
     }
+    readonly property bool explicitConfigPath: configuredPath !== "" && configuredPath.charAt(0) === "/"
 
     property var config: ({ version: 1, plugins: [], disabledPlugins: [] })
     property var barWidgetRegistry: null
@@ -37,6 +38,9 @@ QtObject {
     // BarDefaultConfig FileView become authoritative without overwriting an
     // explicit user-owned bar document.
     property bool configUsesDefaultBar: true
+    property bool configFileReady: false
+    property bool configBootstrapAttempted: false
+    property string configFileSignature: ""
     readonly property int settingsMaxBytes: 65536
     readonly property int settingsMaxDepth: 8
     readonly property int settingsMaxNodes: 512
@@ -45,73 +49,40 @@ QtObject {
     readonly property int settingsMaxStringLength: 4096
     readonly property string migrationBackupPath: configRoot.configPath + ".pre-migration.bak"
 
-    property FileView configFile: FileView {
+    property ShellConfigFileBoundary configFileBoundary: ShellConfigFileBoundary {
+        owner: configRoot
         path: configRoot.configPath
-        blockLoading: true
-        blockWrites: true
-        atomicWrites: true
-        watchChanges: true
-        // A missing first-run config is an expected state handled by reload();
-        // do not emit a misleading runtime warning for it.
-        printErrors: false
-
-        onSaved: {
-            configRoot.lastSaveOk = true
-            configRoot.secureConfigPermissions()
+        bootstrapText: configRoot.serializeConfig(configRoot.defaultConfig())
+        onFileAvailable: function(signature) {
+            configRoot.configFileReady = true
+            configRoot.configFileSignature = signature
+            configRoot.configFile.reload()
         }
-        onSaveFailed: {
+        onFileMissing: {
+            configRoot.configFileReady = false
+            configRoot.configFileSignature = ""
+            configRoot.reload()
+        }
+        onBootstrapStarted: configRoot.configBootstrapAttempted = true
+        onBootstrapSaved: {
+            configRoot.configFileReady = true
+            configRoot.lastError = ""
+            configRoot.config = configRoot.normalize(configRoot.config)
+            configRoot.configFile.reload()
+        }
+        onBootstrapFailed: function(reason) {
             configRoot.lastSaveOk = false
-            if (configRoot.migrationInProgress) configRoot.finishMigrationSave(false)
+            configRoot.lastError = "Could not create the initial Aurelia shell config: " +
+                String(reason || "write-failed")
         }
-        onFileChanged: configRoot.reload()
-    }
-
-    property Process migrationBackupProcess: Process {
-        id: migrationBackupProcess
-        command: [
-            "bash",
-            "-c",
-            "set -Eeuo pipefail; source_path=\"$1\"; backup_path=\"$2\"; " +
-            "[[ -f \"$source_path\" && ! -L \"$source_path\" ]] || exit 2; " +
-            "if [[ -e \"$backup_path\" || -L \"$backup_path\" ]]; then " +
-            "  [[ -f \"$backup_path\" && ! -L \"$backup_path\" ]] || exit 3; " +
-            "  exit 0; " +
-            "fi; cp -- \"$source_path\" \"$backup_path\"",
-            "aurelia-shell-config-migration-backup",
-            configRoot.configPath,
-            configRoot.migrationBackupPath
-        ]
-
-        onExited: function(code) {
-            if (code !== 0) {
-                configRoot.migrationInProgress = false
-                configRoot.migrationResult = "backup-failed"
-                configRoot.lastError = "Could not create the recoverable Aurelia shell config migration backup."
-                return
-            }
-            configRoot.configFile.setText(configRoot.migrationText)
+        onProbeFailed: function(reason) {
+            configRoot.configFileReady = false
+            configRoot.lastError = "Could not probe Aurelia shell config: " + String(reason || "probe-failed")
         }
     }
-
-    property Process securePermissionProcess: Process {
-        id: securePermissionProcess
-        command: [
-            "bash",
-            "-c",
-            "set -Eeuo pipefail; target=\"$1\"; " +
-            "[[ -f \"$target\" && ! -L \"$target\" ]] || exit 2; " +
-            "chmod 600 -- \"$target\"",
-            "aurelia-shell-config-secure-permissions",
-            configRoot.configPath
-        ]
-
-        onExited: function(code) {
-            if (code !== 0) {
-                configRoot.lastSaveOk = false
-                configRoot.lastError = "Could not secure Aurelia shell config permissions."
-            }
-            if (configRoot.migrationInProgress) configRoot.finishMigrationSave(code === 0)
-        }
+    property var configFile: configFileBoundary.configFile
+    property ShellConfigPersistenceBoundary configPersistenceBoundary: ShellConfigPersistenceBoundary {
+        owner: configRoot
     }
 
     function defaultBarConfig() {
@@ -122,6 +93,7 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(value))
         } catch (e) {
+            console.warn("[SHELL-CONFIG] json_clone_failed")
             return null
         }
     }
@@ -155,7 +127,9 @@ QtObject {
         var current = ""
         try {
             current = configRoot.configFile.text()
-        } catch (e) {}
+        } catch (e) {
+            console.info("[SHELL-CONFIG] existing_state_read_unavailable reason=write_probe")
+        }
         if (current === serialized) {
             configRoot.config = next
             configRoot.configUsesDefaultBar = false
@@ -335,6 +309,7 @@ QtObject {
         try {
             serialized = JSON.stringify(value)
         } catch (e) {
+            console.warn("[SHELL-CONFIG] settings_serialize_failed")
             return {ok: false, error: "settings must be serializable JSON"}
         }
         if (typeof serialized !== "string" || serialized.length > configRoot.settingsMaxBytes)
@@ -412,7 +387,7 @@ QtObject {
     }
 
     function secureConfigPermissions() {
-        if (!securePermissionProcess.running) securePermissionProcess.running = true
+        configRoot.configPersistenceBoundary.securePermissions()
     }
 
     function migrate() {
@@ -437,7 +412,7 @@ QtObject {
         configRoot.migrationText = configRoot.serializeConfig(configRoot.config)
         configRoot.migrationInProgress = true
         configRoot.migrationResult = "backing-up"
-        migrationBackupProcess.running = true
+        configRoot.configPersistenceBoundary.startMigrationBackup()
         return "pending"
     }
 

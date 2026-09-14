@@ -27,6 +27,7 @@ QtObject {
         try {
             return decodeURIComponent(encodedPath)
         } catch (error) {
+            console.error("[PLUGIN] source_path_decode_failed")
             return ""
         }
     }
@@ -51,6 +52,7 @@ QtObject {
         try {
             for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
         } catch (error) {
+            console.error("[PLUGIN] source_url_encode_failed")
             return ""
         }
         return "file://" + parts.join("/")

@@ -6,7 +6,7 @@ init_desired_state "$ds_omit" "workstation" "customize"
 desired_state_set_component "$ds_omit" "chromium" "managed"
 # Omit foot (which is required on workstation)
 omit_rc=0
-validate_desired_state "$ds_omit" 2>/dev/null || omit_rc=$?
+validate_desired_state "$ds_omit"  || omit_rc=$?
 if [[ "$omit_rc" -ne 0 ]]; then
     pass "1. required component omitted from Desired State fails validation fail-closed"
 else
@@ -18,7 +18,7 @@ ds_req_unm="DS_REQ_UNM"
 init_desired_state "$ds_req_unm" "workstation" "customize"
 desired_state_set_component "$ds_req_unm" "foot" "unmanaged"
 req_unm_rc=0
-validate_desired_state "$ds_req_unm" 2>/dev/null || req_unm_rc=$?
+validate_desired_state "$ds_req_unm"  || req_unm_rc=$?
 if [[ "$req_unm_rc" -ne 0 ]]; then
     pass "2. required component set to unmanaged fails validation"
 else
@@ -30,7 +30,7 @@ ds_req_rem="DS_REQ_REM"
 init_desired_state "$ds_req_rem" "workstation" "customize"
 desired_state_set_component "$ds_req_rem" "foot" "remove"
 req_rem_rc=0
-validate_desired_state "$ds_req_rem" 2>/dev/null || req_rem_rc=$?
+validate_desired_state "$ds_req_rem"  || req_rem_rc=$?
 if [[ "$req_rem_rc" -ne 0 ]]; then
     pass "3. required component set to remove fails validation"
 else
@@ -46,7 +46,7 @@ init_desired_state "$ds_unsupp_m" "vm" "customize"
 desired_state_set_component "$ds_unsupp_m" "foot" "managed"
 desired_state_set_component "$ds_unsupp_m" "wk_only" "managed"
 unsupp_m_rc=0
-validate_desired_state "$ds_unsupp_m" 2>/dev/null || unsupp_m_rc=$?
+validate_desired_state "$ds_unsupp_m"  || unsupp_m_rc=$?
 if [[ "$unsupp_m_rc" -ne 0 ]]; then
     pass "4. unsupported-profile managed component fails validation"
 else
@@ -59,7 +59,7 @@ init_desired_state "$ds_unsupp_r" "vm" "customize"
 desired_state_set_component "$ds_unsupp_r" "foot" "managed"
 desired_state_set_component "$ds_unsupp_r" "wk_only" "remove"
 unsupp_r_rc=0
-validate_desired_state "$ds_unsupp_r" 2>/dev/null || unsupp_r_rc=$?
+validate_desired_state "$ds_unsupp_r"  || unsupp_r_rc=$?
 if [[ "$unsupp_r_rc" -ne 0 ]]; then
     pass "5. unsupported-profile remove component fails validation"
 else
@@ -76,7 +76,7 @@ init_desired_state "$ds_unk" "workstation" "customize"
 desired_state_set_component "$ds_unk" "foot" "managed"
 desired_state_set_component "$ds_unk" "ghost_app" "managed"
 unk_rc=0
-validate_desired_state "$ds_unk" 2>/dev/null || unk_rc=$?
+validate_desired_state "$ds_unk"  || unk_rc=$?
 if [[ "$unk_rc" -ne 0 ]]; then
     pass "6. unknown component in desired state fails validation"
 else
@@ -89,7 +89,7 @@ init_desired_state "$ds_unk_role" "workstation" "customize"
 desired_state_set_component "$ds_unk_role" "foot" "managed"
 desired_state_set_default "$ds_unk_role" "invalid_role" "foot"
 unk_role_rc=0
-validate_desired_state "$ds_unk_role" 2>/dev/null || unk_role_rc=$?
+validate_desired_state "$ds_unk_role"  || unk_role_rc=$?
 if [[ "$unk_role_rc" -ne 0 ]]; then
     pass "7. unknown role in desired state fails validation"
 else
@@ -103,7 +103,7 @@ desired_state_set_component "$ds_def_unm" "foot" "managed"
 desired_state_set_component "$ds_def_unm" "firefox" "unmanaged"
 desired_state_set_default "$ds_def_unm" "browser" "firefox"
 def_unm_rc=0
-validate_desired_state "$ds_def_unm" 2>/dev/null || def_unm_rc=$?
+validate_desired_state "$ds_def_unm"  || def_unm_rc=$?
 if [[ "$def_unm_rc" -ne 0 ]]; then
     pass "8. default provider set to unmanaged fails validation"
 else
@@ -117,7 +117,7 @@ desired_state_set_component "$ds_def_rem" "foot" "managed"
 desired_state_set_component "$ds_def_rem" "firefox" "remove"
 desired_state_set_default "$ds_def_rem" "browser" "firefox"
 def_rem_rc=0
-validate_desired_state "$ds_def_rem" 2>/dev/null || def_rem_rc=$?
+validate_desired_state "$ds_def_rem"  || def_rem_rc=$?
 if [[ "$def_rem_rc" -ne 0 ]]; then
     pass "9. default provider set to remove fails validation"
 else
@@ -131,7 +131,7 @@ desired_state_set_component "$ds_def_wrong" "foot" "managed"
 # foot is a terminal, not a browser
 desired_state_set_default "$ds_def_wrong" "browser" "foot"
 def_wrong_rc=0
-validate_desired_state "$ds_def_wrong" 2>/dev/null || def_wrong_rc=$?
+validate_desired_state "$ds_def_wrong"  || def_wrong_rc=$?
 if [[ "$def_wrong_rc" -ne 0 ]]; then
     pass "10. default provider with wrong role fails validation"
 else
@@ -147,7 +147,7 @@ init_desired_state "$ds_def_unprof" "vm" "customize"
 desired_state_set_component "$ds_def_unprof" "foot" "managed"
 desired_state_set_default "$ds_def_unprof" "browser" "wk_browser"
 def_unprof_rc=0
-validate_desired_state "$ds_def_unprof" 2>/dev/null || def_unprof_rc=$?
+validate_desired_state "$ds_def_unprof"  || def_unprof_rc=$?
 if [[ "$def_unprof_rc" -ne 0 ]]; then
     pass "11. default provider with unsupported profile fails validation"
 else
@@ -184,7 +184,7 @@ fi
 
 desired_state_set_component DS_SHELL_AURELIA packages.aurelia unmanaged
 aurelia_group_rc=0
-validate_desired_state DS_SHELL_AURELIA 2>/dev/null || aurelia_group_rc=$?
+validate_desired_state DS_SHELL_AURELIA  || aurelia_group_rc=$?
 if [[ "$aurelia_group_rc" -ne 0 ]]; then
     pass "12b1. Aurelia desired state cannot omit its shell support package group"
 else
@@ -194,7 +194,7 @@ fi
 create_recommended_desired_state DS_SHELL_NOCTALIA workstation noctalia
 noctalia_group_rc=0
 desired_state_set_component DS_SHELL_NOCTALIA packages.aurelia managed
-validate_desired_state DS_SHELL_NOCTALIA 2>/dev/null || noctalia_group_rc=$?
+validate_desired_state DS_SHELL_NOCTALIA  || noctalia_group_rc=$?
 if [[ "$noctalia_group_rc" -ne 0 ]]; then
     pass "12b2. Noctalia desired state rejects Aurelia-only support packages"
 else

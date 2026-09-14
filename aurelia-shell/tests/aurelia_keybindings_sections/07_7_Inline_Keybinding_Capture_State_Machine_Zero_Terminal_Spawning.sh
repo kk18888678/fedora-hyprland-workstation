@@ -3,7 +3,7 @@ section "7. Inline Keybinding Capture State Machine & Zero Terminal Spawning"
 qml_window="$ROOT/components/keybindings/KeybindingsWindow.qml"
 
 # 7.1: Capture never opens a terminal window
-term_spawn="$(grep -E '(foot|kitty|alacritty|xterm).*spawn' "$qml_window" "$qml_model" 2>/dev/null || true)"
+term_spawn="$(grep -E '(foot|kitty|alacritty|xterm).*spawn' "$qml_window" "$qml_model"  || true)"
 if [[ -z "$term_spawn" ]]; then
     pass "7.1 inline capture never opens a terminal window (100% native Wayland layer-shell)"
 else

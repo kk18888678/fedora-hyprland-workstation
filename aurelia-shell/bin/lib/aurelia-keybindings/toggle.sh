@@ -47,7 +47,7 @@ toggle_aurelia() {
     fi
 
     local qs_bin=""
-    if ! qs_bin="$(resolve_quickshell_bin 2>/dev/null)"; then
+    if ! qs_bin="$(resolve_quickshell_bin )"; then
         log_event "ERROR" "Quickshell runtime binary not found" "dispatch"
         notify_user critical "Keybindings Error" "Quickshell runtime binary not found."
         printf '%s\n' "Error: Quickshell runtime binary not found." >&2
@@ -75,7 +75,7 @@ toggle_aurelia() {
     fi
 
     local shell_ipc_bin=""
-    shell_ipc_bin="$(resolve_aurelia_shell_ipc_bin 2>/dev/null || true)"
+    shell_ipc_bin="$(resolve_aurelia_shell_ipc_bin  || true)"
 
     # The normal path is the Omarchy-style shell IPC call: the resident host
     # owns plugin lifecycle and this capability command only forwards intent.
@@ -99,7 +99,7 @@ toggle_aurelia() {
     fi
 
     local t_warm_start
-    t_warm_start="$(date +%s%3N 2>/dev/null || date +%s)"
+    t_warm_start="$(date +%s%3N  || date +%s)"
     local ipc_ping_target="keybindings"
     local ping_out
     ping_out="$("$qs_bin" ipc --path "$aurelia_shell" call "$ipc_ping_target" ping 2>&1 || true)"
@@ -115,9 +115,9 @@ toggle_aurelia() {
     fi
 
     if [[ -n "$ipc_ping_target" ]]; then
-        if "$qs_bin" ipc --path "$aurelia_shell" call "$ipc_ping_target" toggle >/dev/null 2>&1; then
+        if "$qs_bin" ipc --path "$aurelia_shell" call "$ipc_ping_target" toggle >/dev/null; then
             local t_warm_end dur
-            t_warm_end="$(date +%s%3N 2>/dev/null || date +%s)"
+            t_warm_end="$(date +%s%3N  || date +%s)"
             dur=$((t_warm_end - t_warm_start))
             log_event "PERF" "Aurelia warm toggle roundtrip: ${dur}ms" "toggle" "$dur"
             log_event "INFO" "Aurelia keybindings toggled successfully on warm instance." "toggle"
@@ -130,9 +130,9 @@ toggle_aurelia() {
     fi
 
     local t_cold_start
-    t_cold_start="$(date +%s%3N 2>/dev/null || date +%s)"
+    t_cold_start="$(date +%s%3N  || date +%s)"
     local launcher_bin=""
-    launcher_bin="$(resolve_aurelia_shell_launcher 2>/dev/null || true)"
+    launcher_bin="$(resolve_aurelia_shell_launcher  || true)"
     if [[ -n "$launcher_bin" ]]; then
         if ! "$launcher_bin" >>"$AURELIA_LOG" 2>&1; then
             log_event "CRASH" "Aurelia resident shell launch failed" "launch"
@@ -180,7 +180,7 @@ toggle_aurelia() {
         log_event "CRASH" "Aurelia readiness timed out after ~2000ms" "launch" "2000"
         if [[ -f "$AURELIA_LOG" ]]; then
             local tail_diag
-            tail_diag="$(tail -n 10 "$AURELIA_LOG" 2>/dev/null || true)"
+            tail_diag="$(tail -n 10 "$AURELIA_LOG"  || true)"
             if [[ -n "$tail_diag" ]]; then
                 log_event "CRASH_DIAGNOSTIC" "Recent Aurelia engine output: $tail_diag" "launch"
             fi
@@ -191,21 +191,21 @@ toggle_aurelia() {
     fi
 
     local t_cold_ready dur_ready
-    t_cold_ready="$(date +%s%3N 2>/dev/null || date +%s)"
+    t_cold_ready="$(date +%s%3N  || date +%s)"
     dur_ready=$((t_cold_ready - t_cold_start))
     log_event "PERF" "Aurelia cold launch to ping readiness: ${dur_ready}ms" "launch" "$dur_ready"
     if [[ "$ready_target" == "shell" ]]; then
-        if "$shell_ipc_bin" shell toggle aurelia.keybindings "{}" >/dev/null 2>&1; then
+        if "$shell_ipc_bin" shell toggle aurelia.keybindings "{}" >/dev/null; then
             local t_cold_end dur_total
-            t_cold_end="$(date +%s%3N 2>/dev/null || date +%s)"
+            t_cold_end="$(date +%s%3N  || date +%s)"
             dur_total=$((t_cold_end - t_cold_start))
             log_event "PERF" "Aurelia cold shell IPC toggle completed in ${dur_total}ms" "launch" "$dur_total"
             log_event "INFO" "Aurelia keybindings toggled successfully after cold readiness." "toggle"
             return 0
         fi
-    elif "$qs_bin" ipc --path "$aurelia_shell" call "$ready_target" toggle >/dev/null 2>&1; then
+    elif "$qs_bin" ipc --path "$aurelia_shell" call "$ready_target" toggle >/dev/null; then
         local t_cold_end dur_total
-        t_cold_end="$(date +%s%3N 2>/dev/null || date +%s)"
+        t_cold_end="$(date +%s%3N  || date +%s)"
         dur_total=$((t_cold_end - t_cold_start))
         log_event "PERF" "Aurelia cold toggle completed in ${dur_total}ms" "launch" "$dur_total"
         log_event "INFO" "Aurelia keybindings toggled successfully after cold readiness." "toggle"

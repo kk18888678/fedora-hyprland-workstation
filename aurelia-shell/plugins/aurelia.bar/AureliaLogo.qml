@@ -15,14 +15,26 @@ Item {
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
 
+    function shellOwner() {
+        if (root.shell && typeof root.shell.summon === "function") return root.shell
+        if (root.bar && root.bar.shell && typeof root.bar.shell.summon === "function")
+            return root.bar.shell
+        return null
+    }
+
     function openCommandCenter() {
-        if (!root.shell || typeof root.shell.summon !== "function") {
+        console.info("[BAR] logo_click_received")
+        var controller = root.shellOwner()
+        if (!controller) {
             console.error("[BAR] logo_click_failed reason=shell_unavailable")
             return "not-ready"
         }
         var result = ""
         try {
-            result = String(root.shell.summon("aurelia.launcher", "{}") || "")
+            var rawResult = controller.summon("aurelia.launcher", "{}")
+            if (rawResult === true) result = "ok"
+            else if (rawResult === false || rawResult === undefined || rawResult === null) result = "error"
+            else result = String(rawResult)
         } catch (error) {
             console.error("[BAR] logo_click_failed reason=summon_exception")
             return "error"

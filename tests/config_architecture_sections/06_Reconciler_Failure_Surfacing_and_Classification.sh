@@ -9,7 +9,7 @@ init_plan "PLAN_CFG_FAIL"
 add_plan_action "PLAN_CFG_FAIL" "CONFIGURE" "cfg_fail_comp" "update" "Fail Cfg"
 finalize_plan "PLAN_CFG_FAIL"
 cfg_fail_rc=0
-execute_plan "PLAN_CFG_FAIL" 2>/dev/null || cfg_fail_rc=$?
+execute_plan "PLAN_CFG_FAIL"  || cfg_fail_rc=$?
 if [[ "$cfg_fail_rc" -ne 0 ]]; then
     pass "31. CONFIGURE failure is surfaced and causes non-zero reconciler exit code"
 else
@@ -26,7 +26,7 @@ init_plan "PLAN_VAL_FAIL"
 add_plan_action "PLAN_VAL_FAIL" "INSTALL" "val_fail_comp" "new" "Fail Val"
 finalize_plan "PLAN_VAL_FAIL"
 val_fail_rc=0
-execute_plan "PLAN_VAL_FAIL" 2>/dev/null || val_fail_rc=$?
+execute_plan "PLAN_VAL_FAIL"  || val_fail_rc=$?
 if [[ "$val_fail_rc" -ne 0 ]]; then
     pass "32. VALIDATE failure is surfaced and causes non-zero reconciler exit code"
 else
@@ -42,7 +42,7 @@ init_plan "PLAN_REM_FAIL"
 add_plan_action "PLAN_REM_FAIL" "REMOVE" "rem_fail_comp" "deselected" "Fail Rem"
 finalize_plan "PLAN_REM_FAIL"
 rem_fail_rc=0
-execute_plan "PLAN_REM_FAIL" 2>/dev/null || rem_fail_rc=$?
+execute_plan "PLAN_REM_FAIL"  || rem_fail_rc=$?
 if [[ "$rem_fail_rc" -ne 0 ]]; then
     pass "33. REMOVE failure is surfaced and causes non-zero reconciler exit code"
 else
@@ -64,7 +64,7 @@ init_plan "PLAN_DEF_MUT_FAIL"
 add_plan_action "PLAN_DEF_MUT_FAIL" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
 finalize_plan "PLAN_DEF_MUT_FAIL"
 def_mut_rc=0
-execute_plan "PLAN_DEF_MUT_FAIL" 2>/dev/null || def_mut_rc=$?
+execute_plan "PLAN_DEF_MUT_FAIL"  || def_mut_rc=$?
 if [[ "$def_mut_rc" -ne 0 ]]; then
     pass "34a. xdg-mime default mutation failure causes CHANGE_DEFAULT failure"
 else
@@ -81,7 +81,7 @@ init_plan "PLAN_DEF_QRY_FAIL"
 add_plan_action "PLAN_DEF_QRY_FAIL" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
 finalize_plan "PLAN_DEF_QRY_FAIL"
 def_qry_rc=0
-execute_plan "PLAN_DEF_QRY_FAIL" 2>/dev/null || def_qry_rc=$?
+execute_plan "PLAN_DEF_QRY_FAIL"  || def_qry_rc=$?
 if [[ "$def_qry_rc" -ne 0 ]]; then
     pass "34b. verification query command failure causes CHANGE_DEFAULT failure"
 else
@@ -98,7 +98,7 @@ init_plan "PLAN_DEF_EMPTY"
 add_plan_action "PLAN_DEF_EMPTY" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
 finalize_plan "PLAN_DEF_EMPTY"
 def_emp_rc=0
-execute_plan "PLAN_DEF_EMPTY" 2>/dev/null || def_emp_rc=$?
+execute_plan "PLAN_DEF_EMPTY"  || def_emp_rc=$?
 if [[ "$def_emp_rc" -ne 0 ]]; then
     pass "34c. verification query returning empty association causes CHANGE_DEFAULT failure"
 else
@@ -115,7 +115,7 @@ init_plan "PLAN_DEF_WRONG"
 add_plan_action "PLAN_DEF_WRONG" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
 finalize_plan "PLAN_DEF_WRONG"
 def_wrong_rc=0
-execute_plan "PLAN_DEF_WRONG" 2>/dev/null || def_wrong_rc=$?
+execute_plan "PLAN_DEF_WRONG"  || def_wrong_rc=$?
 if [[ "$def_wrong_rc" -ne 0 ]]; then
     pass "34d. verification query returning wrong desktop file causes CHANGE_DEFAULT failure"
 else
@@ -132,7 +132,7 @@ init_plan "PLAN_DEF_OK"
 add_plan_action "PLAN_DEF_OK" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
 finalize_plan "PLAN_DEF_OK"
 def_ok_rc=0
-execute_plan "PLAN_DEF_OK" 2>/dev/null || def_ok_rc=$?
+execute_plan "PLAN_DEF_OK"  || def_ok_rc=$?
 if [[ "$def_ok_rc" -eq 0 ]]; then
     pass "34e. verification query returning exact expected desktop file succeeds"
 else
@@ -145,7 +145,7 @@ init_plan "PLAN_DEF_REC"
 add_plan_action "PLAN_DEF_REC" "CHANGE_DEFAULT" "chromium" "preferred" "browser: none -> Chromium"
 finalize_plan "PLAN_DEF_REC"
 INSTALL_DEFERRED=()
-execute_plan "PLAN_DEF_REC" 2>/dev/null || true
+execute_plan "PLAN_DEF_REC"  || true
 if [[ "${#INSTALL_DEFERRED[@]}" -gt 0 ]]; then
     pass "34f. CHANGE_DEFAULT failure is surfaced through record_deferred"
 else
@@ -161,7 +161,7 @@ init_plan "PLAN_REQ_FAIL"
 add_plan_action "PLAN_REQ_FAIL" "INSTALL" "req_fail_comp" "user" "Req Fail"
 finalize_plan "PLAN_REQ_FAIL"
 INSTALL_REQUIRED_FAILURES=()
-execute_plan "PLAN_REQ_FAIL" 2>/dev/null || true
+execute_plan "PLAN_REQ_FAIL"  || true
 if [[ "${#INSTALL_REQUIRED_FAILURES[@]}" -gt 0 ]]; then
     pass "35. required component installation failure is recorded via record_required"
 else

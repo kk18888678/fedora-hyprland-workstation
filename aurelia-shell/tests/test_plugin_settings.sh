@@ -41,7 +41,7 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p -- "$runtime_root/config/aurelia" "$runtime_root/plugin-state"
 config_path="$runtime_root/config/aurelia/shell.json"
 printf '%s\n' '{"version":1,"owned":true}' >"$runtime_root/plugin-state/owned.json"
@@ -49,6 +49,8 @@ owned_hash_before="$(sha256sum "$runtime_root/plugin-state/owned.json" | awk '{p
 settings_result="$runtime_root/settings-result.json"
 settings_log="$runtime_root/settings.log"
 settings_status=0
+: >"$settings_result"
+printf '%s\n' '{}' >"$config_path"
 AURELIA_PLUGIN_SETTINGS_CONFIG_SOURCE="$config_root" \
 AURELIA_PLUGIN_SETTINGS_RESULT="$settings_result" \
 AURELIA_SHELL_CONFIG="$config_path" \
@@ -62,9 +64,10 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     --path "$ROOT/tests/fixtures/plugin-settings/shell.qml" \
     >"$settings_log" 2>&1 || settings_status=$?
 owned_hash_after="$(sha256sum "$runtime_root/plugin-state/owned.json" | awk '{print $1}')"
-settings_mode="$(stat -c '%a' "$config_path" 2>/dev/null || true)"
+settings_mode="$(stat -c '%a' "$config_path"  || true)"
 
 if [[ "$settings_status" -eq 0 ]] && [[ -s "$settings_result" ]] &&
+   runtime_log_is_environment_only "$settings_log" &&
    [[ "$owned_hash_before" == "$owned_hash_after" ]] &&
    [[ "$settings_mode" == "600" ]] &&
    jq -e '
@@ -104,6 +107,7 @@ fi
 host_result="$runtime_root/host-result.json"
 host_log="$runtime_root/host.log"
 host_status=0
+: >"$host_result"
 AURELIA_PLUGIN_SETTINGS_HOST_SOURCE="$host_root" \
 AURELIA_PLUGIN_SETTINGS_HOST_RESULT="$host_result" \
 QT_QPA_PLATFORM=offscreen \
@@ -117,6 +121,7 @@ XDG_CACHE_HOME="$runtime_root/host-cache" \
     >"$host_log" 2>&1 || host_status=$?
 
 if [[ "$host_status" -eq 0 ]] && [[ -s "$host_result" ]] &&
+   runtime_log_is_environment_only "$host_log" &&
    jq -e '.settings.mode == "refreshed" and .settings.preserved == 11 and .refreshes == 1' \
        "$host_result" >/dev/null; then
     pass "[isolated-runtime] resident plugin settings are refreshed in place through the narrow host boundary"

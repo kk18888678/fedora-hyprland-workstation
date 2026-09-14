@@ -124,7 +124,7 @@ bad_payload_env=(
 )
 
 if env "${test_env[@]}" "$backend" source add aurelia \
-    https://github.com/example/cliamp --yes >/dev/null 2>&1 &&
+    https://github.com/example/cliamp --yes >/dev/null &&
    grep -Fxq $'github.com/example/cliamp\thttps://github.com/example/cliamp\tall' \
        "$repo/packages/aurelia-sources.tsv" &&
    ! grep -Fq $'aurelia\t' "$repo/packages/user-managed.tsv" &&
@@ -134,7 +134,7 @@ else
     fail "Aurelia source registration did not validate and track the GitHub source"
 fi
 
-if ! env "${bad_payload_env[@]}" "$backend" install aurelia github.com/example/cliamp cliamp user --track --yes >/dev/null 2>&1 &&
+if ! env "${bad_payload_env[@]}" "$backend" install aurelia github.com/example/cliamp cliamp user --track --yes >/dev/null &&
    [[ ! -e "$home/.local/bin/cliamp" ]] &&
    ! grep -Fq $'aurelia\t' "$repo/packages/user-managed.tsv"; then
     pass "Aurelia refuses a checksum-mismatched release before changing the target or tracked state"
@@ -143,7 +143,7 @@ else
 fi
 
 expected_row="$(printf 'aurelia\tgithub.com/example/cliamp\tcliamp\tuser\tall\tv2.0.1\tcliamp-linux-amd64\tsha256:%s\t.local/bin/cliamp\thttps://github.com/example/cliamp/releases/download/v2.0.1/cliamp-linux-amd64' "$payload_checksum")"
-if env "${test_env[@]}" "$backend" install aurelia github.com/example/cliamp cliamp user --track --yes >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" install aurelia github.com/example/cliamp cliamp user --track --yes >/dev/null &&
    grep -Fxq "$expected_row" "$repo/packages/user-managed.tsv" &&
    [[ -x "$home/.local/bin/cliamp" ]] &&
    [[ "$(cat -- "$home/.local/bin/cliamp")" == "$payload" ]] &&
@@ -195,7 +195,7 @@ else
     fail "Aurelia marker failure left an unrecoverable target state: $aurelia_marker_failure_output"
 fi
 
-if ! env "${test_env[@]}" "$backend" source remove aurelia github.com/example/cliamp --yes >/dev/null 2>&1 &&
+if ! env "${test_env[@]}" "$backend" source remove aurelia github.com/example/cliamp --yes >/dev/null &&
    grep -Fq $'github.com/example/cliamp\t' "$repo/packages/aurelia-sources.tsv"; then
     pass "Aurelia source removal is blocked while a tracked package still depends on it"
 else
@@ -203,7 +203,7 @@ else
 fi
 
 rm -f -- "$home/.local/bin/cliamp" "$home/state/fedora-hyprland-workstation/package-manager/aurelia/cliamp.owner"
-if env "${test_env[@]}" "$backend" restore --aurelia >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" restore --aurelia >/dev/null &&
    [[ -x "$home/.local/bin/cliamp" ]] &&
    [[ -e "$home/state/fedora-hyprland-workstation/package-manager/aurelia/cliamp.owner" ]]; then
     pass "Restore reuses the Git-pinned Aurelia release metadata on a future system"
@@ -211,7 +211,7 @@ else
     fail "Aurelia restore did not reinstall the pinned user-local binary"
 fi
 
-if env "${test_env[@]}" "$backend" remove aurelia github.com/example/cliamp cliamp user --forget --yes >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" remove aurelia github.com/example/cliamp cliamp user --forget --yes >/dev/null &&
    [[ ! -e "$home/.local/bin/cliamp" ]] &&
    [[ ! -e "$home/state/fedora-hyprland-workstation/package-manager/aurelia/cliamp.owner" ]] &&
    ! grep -Fq $'aurelia\t' "$repo/packages/user-managed.tsv" &&
@@ -221,7 +221,7 @@ else
     fail "Aurelia remove-and-forget did not converge safely"
 fi
 
-if env "${test_env[@]}" "$backend" source remove aurelia github.com/example/cliamp --yes >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" source remove aurelia github.com/example/cliamp --yes >/dev/null &&
    ! grep -Fq $'github.com/example/cliamp\t' "$repo/packages/aurelia-sources.tsv"; then
     pass "Aurelia source removal is allowed after its tracked package declaration is removed"
 else

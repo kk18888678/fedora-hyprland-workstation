@@ -87,9 +87,9 @@ source "$ROOT/modules/packages.sh"
 invalid_manifest="$(mktemp)"
 trap 'rm -f -- "$invalid_manifest"' EXIT
 printf '%s\n' '--not-a-package-option' > "$invalid_manifest"
-validate_manifest_packages "$invalid_manifest" >/dev/null 2>&1 &&
+validate_manifest_packages "$invalid_manifest" >/dev/null &&
     validate_status=0 || validate_status=$?
-    package_manifest_all_installed "$invalid_manifest" >/dev/null 2>&1 && detect_status=0 || detect_status=$?
+    package_manifest_all_installed "$invalid_manifest" >/dev/null && detect_status=0 || detect_status=$?
 printf 'validation_propagates=%s\n' "$([[ "$validate_status" -ne 0 ]] && echo 1 || echo 0)"
 printf 'detector_propagates=%s\n' "$([[ "$detect_status" -ne 0 ]] && echo 1 || echo 0)"
 EOS
@@ -314,7 +314,7 @@ install_manifest() {
 }
 
 install_status=0
-install_packages >/dev/null 2>&1 || install_status=$?
+install_packages >/dev/null || install_status=$?
 printf 'activation_blocked=%s\n' "$ACTIVATION_BLOCKED"
 printf 'required_failures=%s\n' "${#INSTALL_REQUIRED_FAILURES[@]}"
 printf 'login_failures=%s\n' "${#INSTALL_LOGIN_FAILURES[@]}"
@@ -552,7 +552,7 @@ source "$SCRIPT_DIR/modules/lib/execution.sh"
 source "$SCRIPT_DIR/modules/lib/packages.sh"
 
 status=0
-run_dnf_command 2 "mock dnf success" bash -c 'sleep 0.1; echo Complete!' >/dev/null 2>&1 || status=$?
+run_dnf_command 2 "mock dnf success" bash -c 'sleep 0.1; echo Complete!' >/dev/null || status=$?
 echo "release-status=$status"
 rm -rf "$TARGET_HOME"
 EOS
@@ -624,7 +624,7 @@ EOF
 chmod +x "$mock_bin/dnf"
 
 status=0
-package_available "timeout-pkg" >/dev/null 2>&1 || status=$?
+package_available "timeout-pkg" >/dev/null || status=$?
 echo "timeout-query-status=$status"
 
 # 2. Mock DNF that returns cleanly with empty output (package cleanly absent)
@@ -635,7 +635,7 @@ EOF
 chmod +x "$mock_bin/dnf"
 
 status=0
-package_available "absent-pkg" >/dev/null 2>&1 || status=$?
+package_available "absent-pkg" >/dev/null || status=$?
 echo "empty-query-status=$status"
 
 rm -rf "$mock_bin" "$TARGET_HOME"

@@ -69,7 +69,7 @@ validate_artifact_destination() {
     }
 
     destination_dir="$(dirname -- "$destination")"
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path "$destination_dir"; then
         error "Refusing artifact destination with an unsafe parent path: $destination"
         return 1
@@ -108,26 +108,26 @@ artifact_atomic_install_member() {
     fi
     stage_destination="$destination_dir/.$(basename -- "$destination").fhw-stage.$(basename -- "$token_file")"
     if ! rm -f -- "$token_file" || [[ -e "$stage_destination" || -L "$stage_destination" ]]; then
-        rm -f -- "$token_file" 2>/dev/null || true
+        rm -f -- "$token_file"  || true
         return 1
     fi
 
     if is_true "$as_root"; then
         if ! sudo install -m 0755 -- "$source" "$stage_destination"; then
-            sudo rm -f -- "$stage_destination" 2>/dev/null || true
+            sudo rm -f -- "$stage_destination"  || true
             return 1
         fi
     elif ! install -m 0755 -- "$source" "$stage_destination"; then
-        rm -f -- "$stage_destination" 2>/dev/null || true
+        rm -f -- "$stage_destination"  || true
         return 1
     fi
 
     if [[ -e "$destination" || -L "$destination" ]]; then
         if ! backup_stamp="$(date +%Y%m%d-%H%M%S)"; then
             if is_true "$as_root"; then
-                sudo rm -f -- "$stage_destination" 2>/dev/null || true
+                sudo rm -f -- "$stage_destination"  || true
             else
-                rm -f -- "$stage_destination" 2>/dev/null || true
+                rm -f -- "$stage_destination"  || true
             fi
             return 1
         fi
@@ -140,11 +140,11 @@ artifact_atomic_install_member() {
 
         if is_true "$as_root"; then
             if ! sudo mv -T -- "$destination" "$existing_backup"; then
-                sudo rm -f -- "$stage_destination" 2>/dev/null || true
+                sudo rm -f -- "$stage_destination"  || true
                 return 1
             fi
         elif ! mv -T -- "$destination" "$existing_backup"; then
-            rm -f -- "$stage_destination" 2>/dev/null || true
+            rm -f -- "$stage_destination"  || true
             return 1
         fi
     fi
@@ -154,23 +154,23 @@ artifact_atomic_install_member() {
             if [[ -n "$existing_backup" && ! -e "$destination" && ! -L "$destination" ]]; then
                 sudo mv -T -- "$existing_backup" "$destination" || true
             fi
-            sudo rm -f -- "$stage_destination" 2>/dev/null || true
+            sudo rm -f -- "$stage_destination"  || true
             return 1
         fi
     elif ! mv -T -- "$stage_destination" "$destination"; then
         if [[ -n "$existing_backup" && ! -e "$destination" && ! -L "$destination" ]]; then
             mv -T -- "$existing_backup" "$destination" || true
         fi
-        rm -f -- "$stage_destination" 2>/dev/null || true
+        rm -f -- "$stage_destination"  || true
         return 1
     fi
 
     [[ -f "$destination" && ! -L "$destination" && -x "$destination" ]] || {
         if [[ -e "$destination" || -L "$destination" ]]; then
             if is_true "$as_root"; then
-                sudo rm -f -- "$destination" 2>/dev/null || true
+                sudo rm -f -- "$destination"  || true
             else
-                rm -f -- "$destination" 2>/dev/null || true
+                rm -f -- "$destination"  || true
             fi
         fi
         if [[ -n "$existing_backup" && ! -e "$destination" && ! -L "$destination" ]]; then
@@ -236,7 +236,7 @@ artifact_provenance_directory() {
     fi
 
     [[ -n "$directory" && "$directory" == /* && "$directory" != "/" ]] || return 1
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path "$directory"; then
         return 1
     fi
@@ -287,8 +287,8 @@ artifact_provenance_matches() {
     [[ -f "$marker" && ! -L "$marker" ]] || return 1
 
     if [[ "${INSTALLER_PRODUCTION_MODE:-0}" == "1" ]]; then
-        [[ "$(stat -c '%u' -- "$marker" 2>/dev/null || true)" == "0" ]] || return 1
-        [[ "$(stat -c '%a' -- "$marker" 2>/dev/null || true)" == "644" ]] || return 1
+        [[ "$(stat -c '%u' -- "$marker"  || true)" == "0" ]] || return 1
+        [[ "$(stat -c '%a' -- "$marker"  || true)" == "644" ]] || return 1
     fi
 
     expected_content="$(artifact_provenance_content "$artifact_id" "$expected_sha512" "$@")" || return 1
@@ -320,8 +320,8 @@ artifact_record_provenance() {
     fi
 
     if [[ "${INSTALLER_PRODUCTION_MODE:-0}" == "1" ]]; then
-        [[ "$(stat -c '%u' -- "$directory" 2>/dev/null || true)" == "0" ]] || return 1
-        [[ "$(stat -c '%a' -- "$directory" 2>/dev/null || true)" == "755" ]] || return 1
+        [[ "$(stat -c '%u' -- "$directory"  || true)" == "0" ]] || return 1
+        [[ "$(stat -c '%a' -- "$directory"  || true)" == "755" ]] || return 1
     fi
 
     [[ ! -L "$marker" ]] || return 1
@@ -361,7 +361,8 @@ provision_verified_binary() {
         error "Could not create a secure temporary staging directory for $label."
         return 1
     fi
-    local staging_file="$staging_dir/$(basename "$destination")"
+    local staging_file
+    staging_file="$staging_dir/$(basename "$destination")"
 
     if ! download_and_verify_artifact "$url" "$expected_sha512" "$staging_file" "$label"; then
         rm -rf "$staging_dir"
@@ -441,7 +442,7 @@ provision_verified_archive() {
         fi
 
         local raw_listing
-        if ! raw_listing="$(unzip -Z -s "$staging_archive" 2>/dev/null)"; then
+        if ! raw_listing="$(unzip -Z -s "$staging_archive" )"; then
             rm -rf "$staging_dir"
             error "Archive structural inspection failed for $label (unzip listing error)."
             return 1
@@ -484,7 +485,7 @@ provision_verified_archive() {
 
         # Validate pure member paths from unzip -Z1
         local members_listing
-        if ! members_listing="$(unzip -Z1 "$staging_archive" 2>/dev/null)"; then
+        if ! members_listing="$(unzip -Z1 "$staging_archive" )"; then
             rm -rf "$staging_dir"
             error "ZIP archive member path listing failed for $label."
             return 1
@@ -505,7 +506,7 @@ provision_verified_archive() {
         done <<< "$members_listing"
 
         # 2. Extract into staging directory
-        if ! unzip -q -o "$staging_archive" -d "$extracted_dir" 2>/dev/null; then
+        if ! unzip -q -o "$staging_archive" -d "$extracted_dir" ; then
             rm -rf "$staging_dir"
             error "Failed to extract ZIP archive for $label."
             return 1
@@ -519,7 +520,7 @@ provision_verified_archive() {
 
         # Check entry modes: reject symlinks, hardlinks, and special entries
         local verbose_listing
-        if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+        if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" )"; then
             rm -rf "$staging_dir"
             error "Archive structural inspection failed for $label (tar listing error)."
             return 1
@@ -564,7 +565,7 @@ provision_verified_archive() {
 
         # Validate pure member paths from tar -tf
         local members_listing
-        if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+        if ! members_listing="$(tar -tf "$staging_archive" )"; then
             rm -rf "$staging_dir"
             error "Tarball member path listing failed for $label."
             return 1
@@ -585,7 +586,7 @@ provision_verified_archive() {
         done <<< "$members_listing"
 
         # 2. Extract into staging directory
-        if ! tar -xf "$staging_archive" -C "$extracted_dir" --no-same-owner 2>/dev/null; then
+        if ! tar -xf "$staging_archive" -C "$extracted_dir" --no-same-owner ; then
             rm -rf "$staging_dir"
             error "Failed to extract tarball for $label."
             return 1
@@ -599,7 +600,7 @@ provision_verified_archive() {
         rm -rf "$staging_dir"
         error "Archive for $label contained unexpected symbolic link after extraction: $symlink_file"
         return 1
-    done < <(find "$extracted_dir" -type l 2>/dev/null)
+    done < <(find "$extracted_dir" -type l )
 
     # 4. Deterministic expected member resolution
     read -r -a expected_members <<< "$expected_members_arg"
@@ -621,9 +622,9 @@ provision_verified_archive() {
             # Search for subpath or basename matches
             local matches=()
             if [[ "$exp_member" == */* ]]; then
-                mapfile -t matches < <(find "$extracted_dir" -type f -path "*/$exp_member" 2>/dev/null)
+                mapfile -t matches < <(find "$extracted_dir" -type f -path "*/$exp_member" )
             else
-                mapfile -t matches < <(find "$extracted_dir" -type f -name "$exp_member" 2>/dev/null)
+                mapfile -t matches < <(find "$extracted_dir" -type f -name "$exp_member" )
             fi
 
             if [[ ${#matches[@]} -eq 0 ]]; then
@@ -669,7 +670,8 @@ provision_verified_archive() {
         fi
         local bin_file
         for bin_file in "${resolved_binaries[@]}"; do
-            local dest_file="$destination/$(basename "$bin_file")"
+            local dest_file
+            dest_file="$destination/$(basename "$bin_file")"
             if ! artifact_atomic_install_member "$bin_file" "$dest_file" "$as_root" backup_path; then
                 install_failed=1
                 break
@@ -735,7 +737,7 @@ clone_pinned_git() {
 
     if [[ -d "$destination/.git" ]]; then
         local existing_commit
-        if ! existing_commit="$(git -C "$destination" rev-parse --verify HEAD 2>/dev/null)"; then
+        if ! existing_commit="$(git -C "$destination" rev-parse --verify HEAD )"; then
             error "Existing Git checkout for $label has no readable HEAD; refusing to treat it as installed."
             return 1
         fi

@@ -33,7 +33,7 @@ else
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p -- "$runtime_root/bin" "$runtime_root/first-party" "$runtime_root/home"
 cp -a -- "$clone_root/first-party/." "$runtime_root/first-party/"
 cp -- "$clone_root/fake-aurelia-shell" "$runtime_root/bin/aurelia-shell"
@@ -126,7 +126,7 @@ else
     fail "[isolated-runtime] first-party source changed during cloning"
 fi
 
-if clone_command aurelia.multi custom.multi >/dev/null 2>&1; then
+if clone_command aurelia.multi custom.multi >/dev/null; then
     fail "[isolated-runtime] clone accepts a caller-supplied custom id"
 else
     [[ ! -e "$runtime_root/home/plugins/custom.multi" ]] &&
@@ -134,19 +134,19 @@ else
         fail "[isolated-runtime] rejected custom clone id left a target behind"
 fi
 
-if clone_command acme.example >/dev/null 2>&1; then
+if clone_command acme.example >/dev/null; then
     fail "[isolated-runtime] clone accepts a third-party source id"
 else
     pass "[isolated-runtime] clone is restricted to the first-party aurelia namespace"
 fi
 
-if clone_command >/dev/null 2>&1; then
+if clone_command >/dev/null; then
     fail "[isolated-runtime] clone accepts a missing source id"
 else
     pass "[isolated-runtime] clone requires an explicit source id"
 fi
 
-if EDITOR="$runtime_root/bin/fake-editor" clone_command aurelia.clock --edit >/dev/null 2>&1 &&
+if EDITOR="$runtime_root/bin/fake-editor" clone_command aurelia.clock --edit >/dev/null &&
    grep -qF "editor $runtime_root/home/plugins/tester.clock.2" "$calls"; then
     pass "[isolated-runtime] clone --edit opens the collision-safe clone through argv"
 else
@@ -165,7 +165,7 @@ fi
 mkdir -p -- "$runtime_root/first-party/aurelia.invalid"
 printf '%s\n' '{"schemaVersion":1,"id":"aurelia.invalid","name":"Invalid","version":"1.0.0","description":"Invalid","kinds":["bar-widget"],"entryPoints":{"barWidget":"../unsafe.qml"},"barWidget":{"displayName":"Invalid","description":"Invalid","category":"Testing","allowMultiple":false,"defaultSection":"center"}}' \
     >"$runtime_root/first-party/aurelia.invalid/manifest.json"
-if clone_command aurelia.invalid >/dev/null 2>&1; then
+if clone_command aurelia.invalid >/dev/null; then
     fail "[isolated-runtime] clone accepts an invalid first-party manifest"
 else
     [[ ! -e "$runtime_root/home/plugins/tester.invalid" ]] &&
@@ -173,7 +173,7 @@ else
         fail "[isolated-runtime] invalid source left a clone target behind"
 fi
 
-if clone_command aurelia.missing >/dev/null 2>&1; then
+if clone_command aurelia.missing >/dev/null; then
     fail "[isolated-runtime] clone succeeds with a missing declared dependency"
 else
     if [[ ! -e "$runtime_root/home/plugins/tester.missing" ]]; then
@@ -188,7 +188,7 @@ jq -n '{schemaVersion:1,id:"aurelia.symlink",name:"Symlink",version:"1.0.0",desc
     >"$runtime_root/first-party/aurelia.symlink/manifest.json"
 cp -- "$runtime_root/first-party/aurelia.clock/Clock.qml" "$runtime_root/first-party/aurelia.symlink/Widget.qml"
 ln -s -- Clock.qml "$runtime_root/first-party/aurelia.symlink/Link.qml"
-if clone_command aurelia.symlink >/dev/null 2>&1; then
+if clone_command aurelia.symlink >/dev/null; then
     fail "[isolated-runtime] clone accepts a symlinked first-party source tree"
 else
     [[ ! -e "$runtime_root/home/plugins/tester.symlink" ]] &&
@@ -196,7 +196,7 @@ else
         fail "[isolated-runtime] symlinked source left a target behind"
 fi
 
-if FAKE_NO_DISCOVERY=1 clone_command aurelia.clock >/dev/null 2>&1; then
+if FAKE_NO_DISCOVERY=1 clone_command aurelia.clock >/dev/null; then
     fail "[isolated-runtime] clone succeeds when resident discovery does not report it"
 else
     [[ ! -e "$runtime_root/home/plugins/tester.clock.2" ]] &&
@@ -204,7 +204,7 @@ else
         fail "[isolated-runtime] discovery failure left a partial clone"
 fi
 
-if FAKE_ENABLE_FAIL=1 clone_command aurelia.multi >/dev/null 2>&1; then
+if FAKE_ENABLE_FAIL=1 clone_command aurelia.multi >/dev/null; then
     fail "[isolated-runtime] clone succeeds after resident enablement failure"
 else
     if [[ ! -e "$runtime_root/home/plugins/tester.multi.1" ]] &&
@@ -225,6 +225,9 @@ state_runtime="$runtime_root/state-runtime"
 mkdir -p -- "$state_runtime/config" "$state_runtime/runtime" "$state_runtime/state" "$state_runtime/cache"
 state_result="$state_runtime/result.json"
 state_status=0
+: >"$state_result"
+printf '%s\n' '{}' >"$state_runtime/config/shell.json"
+: >"$state_result"
 AURELIA_CLONE_STATE_CONFIG_SOURCE="$state_source" \
 AURELIA_CLONE_STATE_RESULT="$state_result" \
 AURELIA_SHELL_CONFIG="$state_runtime/config/shell.json" \
@@ -233,7 +236,7 @@ XDG_RUNTIME_DIR="$state_runtime/runtime" XDG_STATE_HOME="$state_runtime/state" \
 XDG_CONFIG_HOME="$state_runtime/config" XDG_CACHE_HOME="$state_runtime/cache" \
     /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
     --path "$clone_root/state.qml" >"$state_runtime/state.log" 2>&1 || state_status=$?
-if [[ "$state_status" -eq 0 ]] && jq -e '
+if [[ "$state_status" -eq 0 ]] && runtime_log_is_environment_only "$state_runtime/state.log" && jq -e '
     .clockEnable and .clockCloneId == "tester.clock" and .clockSettings == "HH:mm" and
     .clockRecordSource == "aurelia.clock" and .clockSourceBarPresent and .clockDisable and
     .clockRestoredId == "aurelia.clock" and .clockRestoredSettings == "HH:mm" and
@@ -245,7 +248,7 @@ if [[ "$state_status" -eq 0 ]] && jq -e '
   ' "$state_result" >/dev/null; then
     pass "[isolated-runtime] clone enable/disable preserves settings, placement, active bar, and source restoration"
 else
-    details="$(tail -n 25 "$state_runtime/state.log" 2>/dev/null || true)"
+    details="$(tail -n 25 "$state_runtime/state.log"  || true)"
     fail "[isolated-runtime] clone state fixture failed (status=$state_status): $details"
 fi
 
@@ -253,6 +256,8 @@ facade_runtime="$runtime_root/facade-runtime"
 mkdir -p -- "$facade_runtime/runtime" "$facade_runtime/state" "$facade_runtime/config" "$facade_runtime/cache"
 facade_result="$facade_runtime/result.json"
 facade_status=0
+: >"$facade_result"
+: >"$facade_result"
 AURELIA_CLONE_REGISTRY_API_SOURCE="$ROOT/services/PluginRegistryApi.qml" \
 AURELIA_CLONE_SHELL_API_SOURCE="$ROOT/services/PluginShellApi.qml" \
 AURELIA_CLONE_BAR_API_SOURCE="$ROOT/services/PluginBarApi.qml" \
@@ -262,12 +267,12 @@ XDG_RUNTIME_DIR="$facade_runtime/runtime" XDG_STATE_HOME="$facade_runtime/state"
 XDG_CONFIG_HOME="$facade_runtime/config" XDG_CACHE_HOME="$facade_runtime/cache" \
     /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
     --path "$clone_root/facades.qml" >"$facade_runtime/facade.log" 2>&1 || facade_status=$?
-if [[ "$facade_status" -eq 0 ]] && jq -e '
+if [[ "$facade_status" -eq 0 ]] && runtime_log_is_environment_only "$facade_runtime/facade.log" && jq -e '
     .registrySourceKnown and .registrySourceEnabled and .registryForeignRejected and
     .shellSourceOwns and .shellForeignRejected and .barSourceAccepted and .barForeignRejected
   ' "$facade_result" >/dev/null; then
     pass "[isolated-runtime] cloned source IPC aliases remain owner-scoped in every facade"
 else
-    details="$(tail -n 25 "$facade_runtime/facade.log" 2>/dev/null || true)"
+    details="$(tail -n 25 "$facade_runtime/facade.log"  || true)"
     fail "[isolated-runtime] clone facade alias fixture failed (status=$facade_status): $details"
 fi

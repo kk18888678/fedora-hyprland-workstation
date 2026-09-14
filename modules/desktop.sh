@@ -32,7 +32,8 @@ deploy_noctalia_config() {
             [[ -e "$file" || -L "$file" ]] || continue
             [[ -f "$file" && ! -L "$file" ]] ||
                 die "Noctalia configuration file is missing or is a symlink: $file"
-            local target="$destination/$(basename "$file")"
+            local target
+            target="$destination/$(basename "$file")"
             ensure_symlink "$file" "$target"
         done
         info "Noctalia configuration deployed."
@@ -72,7 +73,7 @@ deploy_session_shell_selection() {
     local source="$SCRIPT_DIR/config/session-shell/$selected_shell"
     local destination
 
-    destination="$(desktop_shell_selector_path 2>/dev/null || true)"
+    destination="$(desktop_shell_selector_path  || true)"
     if [[ -z "$destination" ]]; then
         record_required \
             "desktop" \
@@ -106,7 +107,7 @@ resolve_packaged_executable() {
               -x "$package_path" && ! -L "$package_path" ]]; then
             matches+=("$package_path")
         fi
-    done < <(rpm -ql "$package" 2>/dev/null)
+    done < <(rpm -ql "$package" )
 
     [[ "${#matches[@]}" -eq 1 ]] || return 1
     printf '%s\n' "${matches[0]}"
@@ -153,7 +154,7 @@ install_noctalia_greeter() {
 }
 
 validate_greetd_user() {
-    if ! getent passwd greetd >/dev/null 2>&1; then
+    if ! getent passwd greetd >/dev/null; then
         record_activation_failure \
             "desktop" \
             "greetd-user" \
@@ -161,7 +162,7 @@ validate_greetd_user() {
         return 1
     fi
 
-    if ! getent group greetd >/dev/null 2>&1; then
+    if ! getent group greetd >/dev/null; then
         record_activation_failure \
             "desktop" \
             "greetd-group" \
@@ -181,14 +182,14 @@ is_virtio_or_vm_gpu() {
     fi
 
     # Only virtual machine environments require virtio-gpu cursor/scaling workarounds
-    if ! command_exists systemd-detect-virt || ! systemd-detect-virt --vm &>/dev/null; then
+    if ! command_exists systemd-detect-virt || ! systemd-detect-virt --vm >/dev/null; then
         return 1
     fi
 
     # Inspect active DRM subsystem devices specifically for virtio-gpu driver
     if [[ -d /sys/bus/virtio/drivers/virtio_gpu ]]; then
         local virtio_devs
-        virtio_devs=$(find /sys/bus/virtio/drivers/virtio_gpu -maxdepth 1 -name "virtio*" 2>/dev/null || true)
+        virtio_devs=$(find /sys/bus/virtio/drivers/virtio_gpu -maxdepth 1 -name "virtio*"  || true)
         if [[ -n "$virtio_devs" ]]; then
             return 0
         fi
@@ -198,7 +199,7 @@ is_virtio_or_vm_gpu() {
     local drm_uevent
     for drm_uevent in /sys/class/drm/card*/device/uevent; do
         if [[ -f "$drm_uevent" ]]; then
-            if grep -qi 'PCI_ID=1AF4:1050\|PCI_ID=1AF4:1010' "$drm_uevent" 2>/dev/null; then
+            if grep -qi 'PCI_ID=1AF4:1050\|PCI_ID=1AF4:1010' "$drm_uevent" ; then
                 return 0
             fi
         fi
@@ -208,8 +209,8 @@ is_virtio_or_vm_gpu() {
     if command_exists lspci; then
         local lspci_1050=""
         local lspci_1010=""
-        lspci_1050="$(lspci -d 1af4:1050 2>/dev/null || true)"
-        lspci_1010="$(lspci -d 1af4:1010 2>/dev/null || true)"
+        lspci_1050="$(lspci -d 1af4:1050  || true)"
+        lspci_1010="$(lspci -d 1af4:1010  || true)"
         if [[ -n "$lspci_1050" || -n "$lspci_1010" ]]; then
             return 0
         fi
@@ -246,7 +247,7 @@ configure_greetd() {
         return 1
     fi
 
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path /etc/greetd; then
         record_activation_failure \
             "desktop" \
@@ -300,7 +301,7 @@ configure_noctalia_greeter_state() {
 
     info "Configuring Noctalia greeter state directory."
 
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path "$dest"; then
         record_activation_failure \
             "desktop" \
@@ -356,7 +357,7 @@ enable_desktop_services() {
 
     info "Enabling desktop services."
 
-    if unit_files="$(systemctl list-unit-files NetworkManager.service --no-legend 2>/dev/null)" &&
+    if unit_files="$(systemctl list-unit-files NetworkManager.service --no-legend )" &&
         grep -q '^NetworkManager.service' <<< "$unit_files"; then
         if ! sudo systemctl enable NetworkManager.service; then
             record_required \
@@ -367,7 +368,7 @@ enable_desktop_services() {
         fi
     fi
 
-    if unit_files="$(systemctl list-unit-files power-profiles-daemon.service --no-legend 2>/dev/null)" &&
+    if unit_files="$(systemctl list-unit-files power-profiles-daemon.service --no-legend )" &&
         grep -q '^power-profiles-daemon.service' <<< "$unit_files"; then
         if ! sudo systemctl enable power-profiles-daemon.service; then
             record_required \
@@ -379,7 +380,7 @@ enable_desktop_services() {
     fi
 
     if is_true "${BLUETOOTH:-false}"; then
-        if unit_files="$(systemctl list-unit-files bluetooth.service --no-legend 2>/dev/null)" &&
+        if unit_files="$(systemctl list-unit-files bluetooth.service --no-legend )" &&
             grep -q '^bluetooth.service' <<< "$unit_files"; then
             if ! sudo systemctl enable bluetooth.service; then
                 record_required \
@@ -444,7 +445,7 @@ install_aurelia_network_dns_authorization() {
         return 0
     fi
 
-    visudo_bin="$(command -v visudo 2>/dev/null || true)"
+    visudo_bin="$(command -v visudo  || true)"
     if [[ -z "$visudo_bin" ]]; then
         record_required \
             "desktop" \
@@ -453,7 +454,7 @@ install_aurelia_network_dns_authorization() {
         return 0
     fi
 
-    if ! "$visudo_bin" -cf "$sudoers_source" >/dev/null 2>&1; then
+    if ! "$visudo_bin" -cf "$sudoers_source" >/dev/null; then
         record_required \
             "desktop" \
             "aurelia-network-dns-authorization" \
@@ -461,7 +462,7 @@ install_aurelia_network_dns_authorization() {
         return 0
     fi
 
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         { ! validate_mutation_path /usr/local/bin ||
           ! validate_mutation_path /etc/sudoers.d; }; then
         record_required \
@@ -486,7 +487,7 @@ install_aurelia_network_dns_authorization() {
         return 0
     fi
 
-    if ! sudo "$visudo_bin" -cf "$sudoers_target" >/dev/null 2>&1; then
+    if ! sudo "$visudo_bin" -cf "$sudoers_target" >/dev/null; then
         record_required \
             "desktop" \
             "aurelia-network-dns-authorization" \
@@ -534,7 +535,7 @@ install_hack_nerd_font() {
     if installer_test_override_allowed && [[ -n "${FONTS_INSTALL_DIR:-}" ]]; then
         fonts_dir="$FONTS_INSTALL_DIR"
     fi
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path "$fonts_dir"; then
         record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font destination path is unsafe."
         return 0
@@ -576,7 +577,7 @@ install_hack_nerd_font() {
 
     # Pre-extraction structural validation
     local verbose_listing
-    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" )"; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font archive inspection failed."
         return 0
@@ -597,7 +598,7 @@ install_hack_nerd_font() {
     done <<< "$verbose_listing"
 
     local members_listing
-    if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+    if ! members_listing="$(tar -tf "$staging_archive" )"; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "hack-nerd-font" "Hack Nerd Font archive member listing failed."
         return 0
@@ -635,7 +636,7 @@ install_hack_nerd_font() {
         elif ! sudo chmod 0755 "$fonts_dir"; then
             font_install_failed=1
         else
-            sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+            sudo chmod 0644 "$fonts_dir"/*  || true
         fi
     else
         if ! mkdir -p "$fonts_dir"; then
@@ -645,7 +646,7 @@ install_hack_nerd_font() {
         elif ! chmod 0755 "$fonts_dir"; then
             font_install_failed=1
         else
-            chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+            chmod 0644 "$fonts_dir"/*  || true
         fi
     fi
 
@@ -659,7 +660,7 @@ install_hack_nerd_font() {
     rm -rf "$staging_dir"
 
     if command_exists fc-cache; then
-        fc-cache -f >/dev/null 2>&1 || true
+        fc-cache -f >/dev/null || true
     fi
 
     info "Hack Nerd Font installed successfully."
@@ -673,7 +674,7 @@ install_jetbrains_mono_nerd_font() {
     if installer_test_override_allowed && [[ -n "${JETBRAINS_FONTS_INSTALL_DIR:-}" ]]; then
         fonts_dir="$JETBRAINS_FONTS_INSTALL_DIR"
     fi
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path "$fonts_dir"; then
         record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font destination path is unsafe."
         return 0
@@ -715,7 +716,7 @@ install_jetbrains_mono_nerd_font() {
 
     # Pre-extraction structural validation
     local verbose_listing
-    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" )"; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font archive inspection failed."
         return 0
@@ -736,7 +737,7 @@ install_jetbrains_mono_nerd_font() {
     done <<< "$verbose_listing"
 
     local members_listing
-    if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+    if ! members_listing="$(tar -tf "$staging_archive" )"; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "jetbrains-mono-nerd-font" "JetBrainsMono Nerd Font archive member listing failed."
         return 0
@@ -774,7 +775,7 @@ install_jetbrains_mono_nerd_font() {
         elif ! sudo chmod 0755 "$fonts_dir"; then
             font_install_failed=1
         else
-            sudo chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+            sudo chmod 0644 "$fonts_dir"/*  || true
         fi
     else
         if ! mkdir -p "$fonts_dir"; then
@@ -784,7 +785,7 @@ install_jetbrains_mono_nerd_font() {
         elif ! chmod 0755 "$fonts_dir"; then
             font_install_failed=1
         else
-            chmod 0644 "$fonts_dir"/* 2>/dev/null || true
+            chmod 0644 "$fonts_dir"/*  || true
         fi
     fi
 
@@ -798,7 +799,7 @@ install_jetbrains_mono_nerd_font() {
     rm -rf "$staging_dir"
 
     if command_exists fc-cache; then
-        fc-cache -f >/dev/null 2>&1 || true
+        fc-cache -f >/dev/null || true
     fi
 
     info "JetBrainsMono Nerd Font installed successfully."
@@ -842,7 +843,7 @@ install_rose_pine_gtk_theme() {
 
     # Pre-extraction safety validation: enumerate archive members and inspect entry types
     local verbose_listing
-    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" 2>/dev/null)"; then
+    if ! verbose_listing="$(tar --warning=no-unknown-keyword -tvf "$staging_archive" )"; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive inspection failed."
         return 0
@@ -878,7 +879,7 @@ install_rose_pine_gtk_theme() {
                         target_combined="$sym_dir/$sym_target"
                     fi
 
-                    if ! normalize_archive_path "" "$target_combined" >/dev/null 2>&1; then
+                    if ! normalize_archive_path "" "$target_combined" >/dev/null; then
                         rm -rf "$staging_dir"
                         record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK archive contains escaping symlink target: $sym_path -> $sym_target"
                         return 0
@@ -894,7 +895,7 @@ install_rose_pine_gtk_theme() {
     done <<< "$verbose_listing"
 
     local members_listing
-    if ! members_listing="$(tar -tf "$staging_archive" 2>/dev/null)"; then
+    if ! members_listing="$(tar -tf "$staging_archive" )"; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive member listing failed."
         return 0
@@ -905,7 +906,7 @@ install_rose_pine_gtk_theme() {
     local member
     while IFS= read -r member; do
         [[ -n "$member" ]] || continue
-        if [[ "$member" == /* ]] || ! validate_path_components "$member" || ! normalize_archive_path "" "$member" >/dev/null 2>&1; then
+        if [[ "$member" == /* ]] || ! validate_path_components "$member" || ! normalize_archive_path "" "$member" >/dev/null; then
             rm -rf "$staging_dir"
             record_deferred "desktop" "rose-pine-gtk" "Rosé Pine GTK theme archive contains forbidden member path: $member"
             return 0
@@ -933,14 +934,14 @@ install_rose_pine_gtk_theme() {
     fi
 
     # Extract only the required rose-pine-moon-gtk subtree
-    if ! tar --warning=no-unknown-keyword -xzf "$staging_archive" -C "$extracted_dir" 2>/dev/null; then
+    if ! tar --warning=no-unknown-keyword -xzf "$staging_archive" -C "$extracted_dir" ; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "rose-pine-gtk" "Failed to extract Rosé Pine GTK theme archive subtree."
         return 0
     fi
 
     local theme_src
-    theme_src="$(find "$extracted_dir" -maxdepth 3 -type d -name "rose-pine-moon-gtk" 2>/dev/null | awk 'NR==1{print}' || true)"
+    theme_src="$(find "$extracted_dir" -maxdepth 3 -type d -name "rose-pine-moon-gtk"  | awk 'NR==1{print}' || true)"
     if [[ -z "$theme_src" || ! -d "$theme_src" || ! -f "$theme_src/index.theme" ]]; then
         rm -rf "$staging_dir"
         record_deferred "desktop" "rose-pine-gtk" "Rosé Pine Moon GTK theme directory not found after extraction."
@@ -951,7 +952,7 @@ install_rose_pine_gtk_theme() {
     local symlink_escape=0
     local symlink_file target_resolved
     while IFS= read -r -d '' symlink_file; do
-        target_resolved="$(readlink -f "$symlink_file" 2>/dev/null || true)"
+        target_resolved="$(readlink -f "$symlink_file"  || true)"
         if [[ "$target_resolved" != "$theme_src"* && "$target_resolved" != "$extracted_dir"* ]]; then
             symlink_escape=1
             break
@@ -1127,15 +1128,15 @@ converge_gtk_bookmarks_file() {
 
     # Fully idempotent when already in converged desired state
     if [[ ${#existing_lines[@]} -eq ${#target_lines[@]} ]]; then
-        local matches=1
+        local all_bookmarks_match=1
         local i
         for (( i=0; i<${#target_lines[@]}; i++ )); do
             if [[ "${existing_lines[i]}" != "${target_lines[i]}" ]]; then
-                matches=0
+                all_bookmarks_match=0
                 break
             fi
         done
-        if (( matches == 1 )); then
+        if (( all_bookmarks_match == 1 )); then
             return 0
         fi
     fi
@@ -1164,7 +1165,7 @@ converge_gtk_bookmarks() {
     local home_dir="${1:-$TARGET_HOME}"
 
     info "Converging GTK Places bookmarks."
-    if declare -F safe_user_config_home >/dev/null 2>&1 &&
+    if declare -F safe_user_config_home >/dev/null &&
         ! safe_user_config_home "$home_dir/.config"; then
         record_deferred \
             "desktop" \
@@ -1241,8 +1242,8 @@ capture_graphical_activation_state() {
     local greetd_state
     local default_target
 
-    greetd_state="$(systemctl is-enabled greetd.service 2>/dev/null || true)"
-    default_target="$(systemctl get-default 2>/dev/null || true)"
+    greetd_state="$(systemctl is-enabled greetd.service  || true)"
+    default_target="$(systemctl get-default  || true)"
 
     if [[ -z "$greetd_state" || ! "$default_target" =~ ^[A-Za-z0-9_.@:-]+\.target$ ]]; then
         return 1

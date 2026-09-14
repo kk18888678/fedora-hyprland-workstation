@@ -54,7 +54,7 @@ PACKAGED_PATH="${AURELIA_NETWORK_DNS_PACKAGED_PATH:-/usr/local/bin/aurelia-netwo
 # machine whose aurelia-settings predates that file falls through to polkit
 # instead of dying on a password prompt it has no terminal to show.
 sudo_grants_passwordless() {
-  sudo -n -l -l "$PACKAGED_PATH" "$@" 2>/dev/null | grep -q '!authenticate'
+  sudo -n -l -l "$PACKAGED_PATH" "$@"  | grep -q '!authenticate'
 }
 
 require_root() {
@@ -100,7 +100,7 @@ resolved_dns() {
         print value
         exit
       }
-    ' "$RESOLVED_DNS_CONF" 2>/dev/null || true
+    ' "$RESOLVED_DNS_CONF"  || true
     return 0
   fi
 
@@ -112,7 +112,7 @@ resolved_dns() {
       print value
       exit
     }
-  ' /etc/systemd/resolved.conf 2>/dev/null || true
+  ' /etc/systemd/resolved.conf  || true
 }
 
 current_dns_provider() {
@@ -283,29 +283,29 @@ reapply_active_dns_connections() {
     [[ -n $device && $state == connected ]] || continue
     case "$type" in
       wifi|ethernet)
-        nmcli device reapply "$device" >/dev/null 2>&1 || true
+        nmcli device reapply "$device" >/dev/null || true
         ;;
     esac
   done < <(nmcli -t -f DEVICE,TYPE,STATE device status)
 }
 
 reload_dns_stack() {
-  if systemctl is-active --quiet NetworkManager.service 2>/dev/null; then
+  if systemctl is-active --quiet NetworkManager.service ; then
     # Load the updated NetworkManager config first, then reapply the active
     # profiles. A single conf,dns-full reload here pushes the old active DNS
     # settings, making the shell toggle appear one selection behind.
-    nmcli general reload conf >/dev/null 2>&1 || systemctl reload NetworkManager.service 2>/dev/null || true
+    nmcli general reload conf >/dev/null || systemctl reload NetworkManager.service  || true
     reapply_active_dns_connections
   fi
 
-  if systemctl is-active --quiet systemd-resolved.service 2>/dev/null; then
-    systemctl reload systemd-resolved.service 2>/dev/null || true
+  if systemctl is-active --quiet systemd-resolved.service ; then
+    systemctl reload systemd-resolved.service  || true
   fi
 
-  if systemctl is-active --quiet NetworkManager.service 2>/dev/null; then
+  if systemctl is-active --quiet NetworkManager.service ; then
     # A resolved reload/restart can leave per-link DNS stale or empty; ask
     # NetworkManager to publish DNS after resolved has reread its config.
-    nmcli general reload dns-full >/dev/null 2>&1 || true
+    nmcli general reload dns-full >/dev/null || true
   fi
 }
 

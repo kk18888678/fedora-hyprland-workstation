@@ -8,6 +8,7 @@ section "Aurelia Sensitive Service Boundary"
 
 registry_root="$ROOT/services/PluginRegistry.qml"
 host_root="$ROOT/services/PluginHost.qml"
+facade_manager_root="$ROOT/services/PluginFacadeManager.qml"
 registry_api_root="$ROOT/services/PluginRegistryApi.qml"
 shell_api_root="$ROOT/services/PluginShellApi.qml"
 
@@ -21,8 +22,8 @@ else
     fail "[static] trusted capability stamping or manifest sanitization is incomplete"
 fi
 
-if grep -q 'function activeThirdParty' "$host_root" &&
-   grep -q 'manifest.__isFirstParty === false' "$host_root" &&
+if grep -q 'function activeThirdParty' "$facade_manager_root" &&
+   grep -q 'manifest.__isFirstParty === false' "$facade_manager_root" &&
    grep -q 'function serviceFor' "$shell_api_root" &&
    grep -q 'api.owns(id)' "$shell_api_root" &&
    grep -q 'same-process' "$shell_api_root"; then
@@ -45,10 +46,11 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 runtime_result="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
+: >"$runtime_result"
 AURELIA_SENSITIVE_REGISTRY_SOURCE="$registry_root" \
 AURELIA_SENSITIVE_REGISTRY_API_SOURCE="$registry_api_root" \
 AURELIA_SENSITIVE_SHELL_API_SOURCE="$shell_api_root" \
@@ -64,6 +66,7 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '
         .firstStamped == true and
         .firstHasAuth == true and

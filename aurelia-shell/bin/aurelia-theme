@@ -31,14 +31,14 @@ case "$command_name" in
             exit 2
         }
         if [[ "$list_json" -eq 1 ]]; then
-            command -v jq >/dev/null 2>&1 ||
+            command -v jq >/dev/null ||
                 aurelia_theme_fail "jq is required for JSON theme output."
             rows=()
             while IFS= read -r slug; do
                 theme_dir="$(aurelia_theme_source_dir "$slug")" || continue
-                source_file="$(aurelia_theme_source_file "$theme_dir" 2>/dev/null || true)"
+                source_file="$(aurelia_theme_source_file "$theme_dir"  || true)"
                 [[ -n "$source_file" ]] || continue
-                preview="$(aurelia_theme_preview_path "$slug" 2>/dev/null || true)"
+                preview="$(aurelia_theme_preview_path "$slug"  || true)"
                 rows+=("$(jq -n \
                     --arg id "$slug" \
                     --arg name "$(aurelia_theme_display_name "$slug")" \
@@ -63,7 +63,7 @@ case "$command_name" in
             aurelia_theme_usage
             exit 2
         }
-        command -v jq >/dev/null 2>&1 ||
+        command -v jq >/dev/null ||
             aurelia_theme_fail "jq is required for JSON theme output."
         current_slug="$(aurelia_theme_current_slug)"
         current_background=""
@@ -73,12 +73,12 @@ case "$command_name" in
         theme_rows=()
         while IFS= read -r slug; do
             theme_dir="$(aurelia_theme_source_dir "$slug")" || continue
-            source_file="$(aurelia_theme_source_file "$theme_dir" 2>/dev/null || true)"
+            source_file="$(aurelia_theme_source_file "$theme_dir"  || true)"
             [[ -n "$source_file" ]] || continue
-            preview="$(aurelia_theme_preview_path "$slug" 2>/dev/null || true)"
-            preview_unlock="$(aurelia_theme_asset_path "$slug" preview-unlock.png 2>/dev/null || true)"
-            unlock="$(aurelia_theme_asset_path "$slug" unlock.png 2>/dev/null || true)"
-            icons_theme="$(aurelia_theme_asset_path "$slug" icons.theme 2>/dev/null || true)"
+            preview="$(aurelia_theme_preview_path "$slug"  || true)"
+            preview_unlock="$(aurelia_theme_asset_path "$slug" preview-unlock.png  || true)"
+            unlock="$(aurelia_theme_asset_path "$slug" unlock.png  || true)"
+            icons_theme="$(aurelia_theme_asset_path "$slug" icons.theme  || true)"
             icon_set=""
             if [[ -n "$icons_theme" ]]; then
                 icon_set="$(sed -n '1p' "$icons_theme")"
@@ -118,7 +118,7 @@ case "$command_name" in
         }
         slug="$(aurelia_theme_current_slug)"
         if [[ "$list_json" -eq 1 ]]; then
-            command -v jq >/dev/null 2>&1 ||
+            command -v jq >/dev/null ||
                 aurelia_theme_fail "jq is required for JSON theme output."
             jq -n --arg id "$slug" --arg name "$(aurelia_theme_display_name "$slug")" \
                 '{id:$id,name:$name}'
@@ -131,11 +131,11 @@ case "$command_name" in
             aurelia_theme_usage
             exit 2
         }
-        slug="$(aurelia_theme_normalize_name "$1" 2>/dev/null || true)"
+        slug="$(aurelia_theme_normalize_name "$1"  || true)"
         [[ -n "$slug" ]] || aurelia_theme_fail "Invalid theme name: $1"
-        theme_dir="$(aurelia_theme_source_dir "$slug" 2>/dev/null || true)"
+        theme_dir="$(aurelia_theme_source_dir "$slug"  || true)"
         [[ -n "$theme_dir" ]] || aurelia_theme_fail "Theme does not exist: $1"
-        source_file="$(aurelia_theme_source_file "$theme_dir" 2>/dev/null || true)"
+        source_file="$(aurelia_theme_source_file "$theme_dir"  || true)"
         [[ -n "$source_file" ]] ||
             aurelia_theme_fail "Theme has no theme.conf or colors.toml: $theme_dir"
 
@@ -154,7 +154,7 @@ case "$command_name" in
             current_background="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH")"
         fi
         if [[ -z "$current_background" ]]; then
-            current_background="$(aurelia_theme_legacy_background 2>/dev/null || true)"
+            current_background="$(aurelia_theme_legacy_background  || true)"
         fi
 
         chosen_background=""
@@ -173,7 +173,7 @@ case "$command_name" in
         if [[ -n "$chosen_background" ]]; then
             aurelia_theme_atomic_text "$chosen_background" "$AURELIA_THEME_BACKGROUND_PATH"
         elif [[ -n "$current_background" ]]; then
-            resolved_current="$(aurelia_theme_resolve_media_path "$current_background" 2>/dev/null || true)"
+            resolved_current="$(aurelia_theme_resolve_media_path "$current_background"  || true)"
             [[ -n "$resolved_current" ]] &&
                 aurelia_theme_atomic_text "$resolved_current" "$AURELIA_THEME_BACKGROUND_PATH"
         fi

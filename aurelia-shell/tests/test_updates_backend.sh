@@ -117,7 +117,7 @@ fi
 
 rm -f -- "$launch_log"
 printf '%s\n' 'terminal.default = kitty.desktop' >"$mock_config/workstation/desktop.conf"
-if env "${test_env[@]}" "$updates_bin" open >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$updates_bin" open >/dev/null &&
    [[ -s "$launch_log" ]] &&
    launch_args="$(tr '\0' ' ' <"$launch_log")" &&
    [[ "$launch_args" == *"kitty"* && "$launch_args" == *"menu"* && "$launch_args" == *"workstation-updates"* ]]; then

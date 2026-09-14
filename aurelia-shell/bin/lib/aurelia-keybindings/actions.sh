@@ -14,7 +14,7 @@ aurelia_read_nul_argv() {
     local argv_fd argv_pid value status=0
     AURELIA_ACTION_ARGV=()
 
-    coproc aurelia_argv_stream { "$producer" "$@" 2>/dev/null; }
+    coproc aurelia_argv_stream { "$producer" "$@" ; }
     argv_fd="${aurelia_argv_stream[0]}"
     argv_pid="$aurelia_argv_stream_PID"
     while IFS= read -r -d '' value <&"$argv_fd"; do
@@ -57,18 +57,18 @@ aurelia_spawn_detached() {
             printf 'Error: Command "%s" is not installed or not executable.\n' "$executable" >&2
             return 1
         fi
-    elif ! command -v "$executable" >/dev/null 2>&1; then
+    elif ! command -v "$executable" >/dev/null; then
         log_event "ERROR" "$log_message failed: command '$executable' not found" "run"
         notify_user critical "Launch Failed" "Command not found: $executable"
         printf 'Error: Command "%s" is not installed or not executable.\n' "$executable" >&2
         return 1
     fi
 
-    if command -v setsid >/dev/null 2>&1; then
-        setsid -f "${command_argv[@]}" </dev/null >/dev/null 2>&1
-    elif command -v nohup >/dev/null 2>&1; then
+    if command -v setsid >/dev/null; then
+        setsid -f "${command_argv[@]}" </dev/null >/dev/null
+    elif command -v nohup >/dev/null; then
         (
-            nohup "${command_argv[@]}" </dev/null >/dev/null 2>&1 &
+            nohup "${command_argv[@]}" </dev/null >/dev/null &
         )
     else
         log_event "ERROR" "$log_message failed: neither setsid nor nohup is available" "run"
@@ -121,7 +121,7 @@ execute_application() {
     fi
 
     local description
-    description="$(get_application_description "$desktop_id" 2>/dev/null || printf '%s' "$desktop_id")"
+    description="$(get_application_description "$desktop_id"  || printf '%s' "$desktop_id")"
     aurelia_spawn_detached \
         "$description" \
         "Application '$desktop_id' ($description)" \
@@ -231,12 +231,12 @@ LUA_ASSIGN
                 else
                     printf 'RUN:%s\n' "${command_argv[*]}"
                     if [[ "${KEYBINDINGS_TEST_EXEC:-${HOTKEYS_TEST_EXEC:-0}}" == "1" ]]; then
-                        nohup "${command_argv[@]}" >/dev/null 2>&1 &
+                        nohup "${command_argv[@]}" >/dev/null &
                     fi
                 fi
             else
                 local description
-                description="$(get_action_description "$target_id" 2>/dev/null || true)"
+                description="$(get_action_description "$target_id"  || true)"
                 if [[ -z "$description" ]]; then
                     printf '%s\n' "ERROR: Action not found: $target_id" >&2
                     return 1

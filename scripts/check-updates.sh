@@ -46,7 +46,7 @@ check_github_release() {
 
     printf 'Checking %s (%s)...\n' "$project_label" "$current_version"
 
-    if ! command -v curl >/dev/null 2>&1; then
+    if ! command -v curl >/dev/null; then
         printf '  [SKIP] curl is required for release checks.\n'
         return 0
     fi
@@ -84,7 +84,7 @@ check_github_release() {
     fi
 
     local selected_tag=""
-    if selected_tag="$(select_eligible_release --discovery-status "$discovery_status" "$app_id" "${candidate_list[@]}" 2>/dev/null)"; then
+    if selected_tag="$(select_eligible_release --discovery-status "$discovery_status" "$app_id" "${candidate_list[@]}" )"; then
         local sel_class
         sel_class="$(classify_release_tag "$selected_tag")"
         printf '  Current pinned : %s\n' "$current_version"

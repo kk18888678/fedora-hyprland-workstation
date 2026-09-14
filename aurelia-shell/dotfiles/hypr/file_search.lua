@@ -42,7 +42,7 @@ function M.search(query)
     local command = "timeout --kill-after=1s 3s find " .. shell_quote(home) ..
         " -xdev -mindepth 1 -maxdepth 5 \\( " ..
         table.concat(prune, " -o ") ..
-        " \\) -prune -o -printf '%y\\t%p\\0' 2>/dev/null"
+        " \\) -prune -o -printf '%y\\t%p\\0' "
 
     local pipe = io.popen(command, "r")
     if not pipe then return {} end

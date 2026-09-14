@@ -12,6 +12,7 @@ ShellRoot {
     readonly property string widgetSource: Quickshell.env("AURELIA_BAR_LAYOUT_WIDGET_SOURCE") || ""
     readonly property string resultPath: Quickshell.env("AURELIA_BAR_LAYOUT_RESULT") || ""
     property bool evaluated: false
+    property bool rowActive: true
     property var row: null
 
     QtObject {
@@ -64,8 +65,14 @@ ShellRoot {
         function hasActiveRuntimeFailure() { return false }
     }
 
+    QtObject {
+        id: fakeHost
+        function configurePluginTarget() {}
+    }
+
     Loader {
         id: rowLoader
+        active: root.rowActive
         source: root.rowSource
         onLoaded: {
             item.entries = [{id: "fixture.one"}, {id: "fixture.two"}]
@@ -73,6 +80,7 @@ ShellRoot {
             item.bar = fakeBar
             item.pluginRegistry = fakeRegistry
             item.barWidgetRegistry = fakeRegistry
+            item.pluginHost = fakeHost
             item.width = 300
             item.height = 32
             root.row = item
@@ -113,7 +121,8 @@ ShellRoot {
             verticalInBounds: verticalInBounds,
             restoredInBounds: restoredInBounds,
             verticalWidthsFit: verticalWidthsFit,
-            horizontalWidthsRestored: horizontalWidthsRestored
+            horizontalWidthsRestored: horizontalWidthsRestored,
+            recreatedInBounds: recreatedInBounds
         }) + "\n")
     }
 
@@ -122,6 +131,7 @@ ShellRoot {
     property bool restoredInBounds: false
     property bool verticalWidthsFit: false
     property bool horizontalWidthsRestored: false
+    property bool recreatedInBounds: false
 
     Timer {
         id: slotTimer
@@ -155,6 +165,28 @@ ShellRoot {
             root.horizontalWidthsRestored = fakeBar.slots.every(function(slot) {
                 return slot.width > fakeBar.barSize
             })
+            root.row = null
+            root.rowActive = false
+            recreateTimer.restart()
+        }
+    }
+
+    Timer {
+        id: recreateTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            root.rowActive = true
+            recreateSettledTimer.restart()
+        }
+    }
+
+    Timer {
+        id: recreateSettledTimer
+        interval: 220
+        repeat: false
+        onTriggered: {
+            root.recreatedInBounds = root.allSlotsInBounds()
             root.finish()
         }
     }

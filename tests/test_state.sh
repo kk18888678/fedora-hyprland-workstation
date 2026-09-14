@@ -30,7 +30,7 @@ echo "lock_fd_dynamic=$([[ "$INSTALLER_LOCK_FD" =~ ^[0-9]+$ ]] && echo 1 || echo
 # 2. Attempt concurrent acquisition in subshell while lock is held
 concurrent_status=0
 (
-    acquire_installer_lock 2>/dev/null || exit 1
+    acquire_installer_lock  || exit 1
 ) || concurrent_status=$?
 echo "concurrent_rejected=$concurrent_status"
 
@@ -50,11 +50,11 @@ installer_proceeded=0
 (
     command_exists() {
         if [[ "$1" == "flock" ]]; then return 1; fi
-        command -v "$1" >/dev/null 2>&1
+        command -v "$1" >/dev/null
     }
     acquire_installer_lock || exit $?
     installer_proceeded=1
-) 2>/dev/null || missing_flock_status=$?
+)  || missing_flock_status=$?
 
 echo "missing_flock_status=$missing_flock_status"
 echo "installer_proceeded=$installer_proceeded"
@@ -64,16 +64,16 @@ missing_stat_status=0
 (
     command_exists() {
         if [[ "$1" == "stat" ]]; then return 1; fi
-        command -v "$1" >/dev/null 2>&1
+        command -v "$1" >/dev/null
     }
     get_installer_lock_path || exit $?
-) 2>/dev/null || missing_stat_status=$?
+)  || missing_stat_status=$?
 echo "missing_stat_status=$missing_stat_status"
 
 # 7. Foreign-owned candidate rejected
 foreign_val_status=0
 (
-    OVERRIDE_EUID=9995 validate_lock_directory "$test_lock_dir" 9995 >/dev/null 2>&1
+    OVERRIDE_EUID=9995 validate_lock_directory "$test_lock_dir" 9995 >/dev/null
 ) || foreign_val_status=$?
 echo "foreign_owned_rejected=$([[ $foreign_val_status -ne 0 ]] && echo 1 || echo 0)"
 
@@ -82,7 +82,7 @@ unsafe_perm_dir="$(mktemp -d)"
 chmod 0777 "$unsafe_perm_dir"
 unsafe_perm_status=0
 (
-    validate_lock_directory "$unsafe_perm_dir" "$current_uid" >/dev/null 2>&1
+    validate_lock_directory "$unsafe_perm_dir" "$current_uid" >/dev/null
 ) || unsafe_perm_status=$?
 rm -rf "$unsafe_perm_dir"
 echo "unsafe_perm_rejected=$([[ $unsafe_perm_status -ne 0 ]] && echo 1 || echo 0)"
@@ -92,7 +92,7 @@ symlink_candidate="$(mktemp -u)"
 ln -s "$test_lock_dir" "$symlink_candidate"
 symlink_cand_status=0
 (
-    validate_lock_directory "$symlink_candidate" "$current_uid" >/dev/null 2>&1
+    validate_lock_directory "$symlink_candidate" "$current_uid" >/dev/null
 ) || symlink_cand_status=$?
 rm -f "$symlink_candidate"
 echo "symlink_candidate_rejected=$([[ $symlink_cand_status -ne 0 ]] && echo 1 || echo 0)"
@@ -100,7 +100,7 @@ echo "symlink_candidate_rejected=$([[ $symlink_cand_status -ne 0 ]] && echo 1 ||
 # 10. Relative XDG_RUNTIME_DIR path rejected
 relative_xdg_status=0
 (
-    validate_lock_directory "relative/path" "$current_uid" >/dev/null 2>&1
+    validate_lock_directory "relative/path" "$current_uid" >/dev/null
 ) || relative_xdg_status=$?
 echo "relative_xdg_rejected=$([[ $relative_xdg_status -ne 0 ]] && echo 1 || echo 0)"
 
@@ -140,7 +140,7 @@ rm -rf "$hostile_sym_dir"
 ln -s "/tmp" "$hostile_sym_dir"
 hostile_sym_status=0
 (
-    OVERRIDE_EUID="$hostile_sym_uid" get_installer_lock_path >/dev/null 2>&1
+    OVERRIDE_EUID="$hostile_sym_uid" get_installer_lock_path >/dev/null
 ) || hostile_sym_status=$?
 rm -f "$hostile_sym_dir"
 echo "hostile_fallback_symlink_rejected=$([[ $hostile_sym_status -ne 0 ]] && echo 1 || echo 0)"
@@ -152,7 +152,7 @@ rm -rf "$hostile_dir"
 mkdir -m 0700 "$hostile_dir"
 hostile_dir_status=0
 (
-    OVERRIDE_EUID="$hostile_dir_uid" get_installer_lock_path >/dev/null 2>&1
+    OVERRIDE_EUID="$hostile_dir_uid" get_installer_lock_path >/dev/null
 ) || hostile_dir_status=$?
 rm -rf "$hostile_dir"
 echo "hostile_foreign_fallback_rejected=$([[ $hostile_dir_status -ne 0 ]] && echo 1 || echo 0)"
@@ -250,10 +250,10 @@ fi
 
 if grep -q 'exec {INSTALLER_LOCK_FD}>' "$ROOT/modules/state.sh" &&
    ! grep -q 'eval .*INSTALLER_LOCK' "$ROOT/modules/state.sh" &&
-   grep -q 'validate_mutation_path "\$INSTALLER_STATE_ROOT"' "$ROOT/modules/state.sh" &&
-   grep -q -- '-g "\$target_gid"' "$ROOT/modules/state.sh" &&
+   grep -q "validate_mutation_path \"\$INSTALLER_STATE_ROOT\"" "$ROOT/modules/state.sh" &&
+   grep -q -- "-g \"\$target_gid\"" "$ROOT/modules/state.sh" &&
    grep -q 'write_installer_state_file' "$ROOT/modules/state.sh" &&
-   grep -q 'mktemp "\$INSTALLER_STATE_ROOT/logs/install-' "$ROOT/modules/state.sh"; then
+   grep -q "mktemp \"\$INSTALLER_STATE_ROOT/logs/install-" "$ROOT/modules/state.sh"; then
     pass "state initialization uses validated paths and numeric target ownership without dynamic redirection"
 else
     fail "state initialization safety contract is incomplete"

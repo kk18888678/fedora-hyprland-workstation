@@ -142,17 +142,17 @@ printf '{"version":2,"actions":[]}\n' > "$test_22_4_tmp/user_actions.json"
 printf '{}\n' > "$test_22_4_tmp/overrides.json"
 
 KEYBINDINGS_USER_ACTIONS="$test_22_4_tmp/user_actions.json" KEYBINDINGS_OVERRIDES="$test_22_4_tmp/overrides.json" \
-    "$ROOT/bin/workstation-keybindings" add-exec "exec:testrunner" "Test Runner" "$test_22_4_tmp/test-runner.sh" "$test_22_4_tmp/output.log" "arg_alpha" "arg_beta" >/dev/null 2>&1 || true
+    "$ROOT/bin/workstation-keybindings" add-exec "exec:testrunner" "Test Runner" "$test_22_4_tmp/test-runner.sh" "$test_22_4_tmp/output.log" "arg_alpha" "arg_beta" >/dev/null || true
 # Verify JSON argv contains structured arguments
 run_argv_json="$(KEYBINDINGS_USER_ACTIONS="$test_22_4_tmp/user_actions.json" KEYBINDINGS_OVERRIDES="$test_22_4_tmp/overrides.json" \
-    "$ROOT/bin/workstation-keybindings" json | jq -r '.[] | select(.id == "exec:testrunner") | .command_argv | @tsv' 2>/dev/null || true)"
+    "$ROOT/bin/workstation-keybindings" json | jq -r '.[] | select(.id == "exec:testrunner") | .command_argv | @tsv'  || true)"
 if [[ "$run_argv_json" == *"$test_22_4_tmp/test-runner.sh"* && "$run_argv_json" == *"arg_alpha"* && "$run_argv_json" == *"arg_beta"* ]]; then
     pass "22.4 structured arguments preserved without shell splitting or evaluation"
 else
     fail "22.4 structured argument preservation failed: $run_argv_json"
 fi
 KEYBINDINGS_USER_ACTIONS="$test_22_4_tmp/user_actions.json" KEYBINDINGS_OVERRIDES="$test_22_4_tmp/overrides.json" \
-    "$ROOT/bin/workstation-keybindings" remove-action "exec:testrunner" >/dev/null 2>&1 || true
+    "$ROOT/bin/workstation-keybindings" remove-action "exec:testrunner" >/dev/null || true
 rm -rf "$test_22_4_tmp"
 
 # 22.5: Executable disappearing later: action remains registered, marked unrunnable (not deleted)

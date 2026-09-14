@@ -16,7 +16,9 @@ Item {
         try {
             var requested = JSON.parse(String(payloadJson || "{}"))
             if (requested && requested.mode === "background") payload.mode = "background"
-        } catch (error) {}
+        } catch (error) {
+            console.warn("[THEME] panel_payload_invalid reason=invalid_json")
+        }
 
         if (!root.shell || typeof root.shell.summon !== "function") return "not-ready"
         root.shell.summon("aurelia.image-picker", JSON.stringify(payload))

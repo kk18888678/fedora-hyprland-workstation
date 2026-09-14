@@ -32,9 +32,9 @@ set_browser_default_adapter() {
     fi
 
     local err=0
-    xdg-mime default "$desktop_file" x-scheme-handler/http 2>/dev/null || err=1
-    xdg-mime default "$desktop_file" x-scheme-handler/https 2>/dev/null || err=1
-    xdg-mime default "$desktop_file" text/html 2>/dev/null || err=1
+    xdg-mime default "$desktop_file" x-scheme-handler/http  || err=1
+    xdg-mime default "$desktop_file" x-scheme-handler/https  || err=1
+    xdg-mime default "$desktop_file" text/html  || err=1
 
     if [[ "$err" -ne 0 ]]; then
         warn "Failed to set default browser MIME associations to $desktop_file"
@@ -43,7 +43,7 @@ set_browser_default_adapter() {
 
     # Canonical verification: query command must succeed, be non-empty, and match expected desktop file
     local check_def
-    if ! check_def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null)"; then
+    if ! check_def="$(xdg-mime query default x-scheme-handler/https )"; then
         warn "Failed to query default application for x-scheme-handler/https"
         return 1
     fi
@@ -82,7 +82,7 @@ set_file_manager_default_adapter() {
     fi
 
     local err=0
-    xdg-mime default "$desktop_file" inode/directory 2>/dev/null || err=1
+    xdg-mime default "$desktop_file" inode/directory  || err=1
 
     if [[ "$err" -ne 0 ]]; then
         warn "Failed to set default file manager MIME association to $desktop_file"
@@ -90,7 +90,7 @@ set_file_manager_default_adapter() {
     fi
 
     local check_def
-    if ! check_def="$(xdg-mime query default inode/directory 2>/dev/null)"; then
+    if ! check_def="$(xdg-mime query default inode/directory )"; then
         warn "Failed to query default application for inode/directory"
         return 1
     fi
@@ -118,7 +118,7 @@ set_system_role_default() {
     fi
 
     local adapter_fn="${_ROLE_DEFAULT_ADAPTERS[$role]:-}"
-    if [[ -z "$adapter_fn" ]] || ! declare -F "$adapter_fn" >/dev/null 2>&1; then
+    if [[ -z "$adapter_fn" ]] || ! declare -F "$adapter_fn" >/dev/null; then
         warn "Default adapter function not found for role $role: ${adapter_fn:-<none>}"
         return 1
     fi
@@ -139,12 +139,12 @@ _reconciler_invoke() {
     # Support test mock executor injection
     if installer_test_override_allowed &&
         [[ -n "${RECONCILER_MOCK_EXECUTOR:-}" ]] &&
-        type "$RECONCILER_MOCK_EXECUTOR" >/dev/null 2>&1; then
+        type "$RECONCILER_MOCK_EXECUTOR" >/dev/null; then
         "$RECONCILER_MOCK_EXECUTOR" "$comp_id" "$action_type" "$fn_name"
         return $?
     fi
 
-    if type "$fn_name" >/dev/null 2>&1; then
+    if type "$fn_name" >/dev/null; then
         "$fn_name"
         return $?
     else
@@ -165,7 +165,7 @@ _reconciler_check_dependencies() {
     local out_failed_var="${2:-}"
 
     local deps
-    deps="$(get_component_attr "$comp_id" dependencies 2>/dev/null || true)"
+    deps="$(get_component_attr "$comp_id" dependencies  || true)"
     if [[ -z "$deps" ]]; then
         return 0
     fi
@@ -238,7 +238,7 @@ execute_plan() {
             info "Reconciling REMOVE: $comp_id (${details_map[$idx]})"
             if ! _reconciler_invoke "$rem_fn" "$comp_id" "REMOVE"; then
                 warn "Failed to remove component: $comp_id"
-                if type record_deferred >/dev/null 2>&1; then
+                if type record_deferred >/dev/null; then
                     record_deferred "components" "$comp_id" "Failed to remove component: $comp_id"
                 fi
                 had_failure=1
@@ -260,18 +260,18 @@ execute_plan() {
             local val_fn
             val_fn="$(get_component_attr "$comp_id" validate_fn)"
             local is_req
-            is_req="$(get_component_attr "$comp_id" required 2>/dev/null || true)"
+            is_req="$(get_component_attr "$comp_id" required  || true)"
 
             # Dependency guard: fail closed if any required dependency failed or is unsatisfied
             local failed_dep=""
             if ! _reconciler_check_dependencies "$comp_id" failed_dep; then
                 warn "Reconciling INSTALL: $comp_id blocked because required dependency '$failed_dep' failed or is unsatisfied"
                 if [[ "$is_req" == "true" ]]; then
-                    if type record_required >/dev/null 2>&1; then
+                    if type record_required >/dev/null; then
                         record_required "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
                     fi
                 else
-                    if type record_deferred >/dev/null 2>&1; then
+                    if type record_deferred >/dev/null; then
                         record_deferred "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
                     fi
                 fi
@@ -283,11 +283,11 @@ execute_plan() {
             info "Reconciling INSTALL: $comp_id (${details_map[$idx]})"
             if ! _reconciler_invoke "$inst_fn" "$comp_id" "INSTALL"; then
                 if [[ "$is_req" == "true" ]]; then
-                    if type record_required >/dev/null 2>&1; then
+                    if type record_required >/dev/null; then
                         record_required "components" "$comp_id" "Required component installation failed: $comp_id"
                     fi
                 else
-                    if type record_deferred >/dev/null 2>&1; then
+                    if type record_deferred >/dev/null; then
                         record_deferred "components" "$comp_id" "Optional component installation failed: $comp_id"
                     fi
                 fi
@@ -301,9 +301,9 @@ execute_plan() {
                 if ! _reconciler_invoke "$val_fn" "$comp_id" "VALIDATE"; then
                     warn "Validation failed for component: $comp_id"
                     if [[ "$is_req" == "true" ]]; then
-                        type record_required >/dev/null 2>&1 && record_required "components" "$comp_id" "Validation failed for required component: $comp_id"
+                        type record_required >/dev/null && record_required "components" "$comp_id" "Validation failed for required component: $comp_id"
                     else
-                        type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Validation failed for optional component: $comp_id"
+                        type record_deferred >/dev/null && record_deferred "components" "$comp_id" "Validation failed for optional component: $comp_id"
                     fi
                     _comp_outcomes["$comp_id"]="failed"
                     had_failure=1
@@ -316,9 +316,9 @@ execute_plan() {
                 if ! _reconciler_invoke "$cfg_fn" "$comp_id" "CONFIGURE"; then
                     warn "Configuration failed for component: $comp_id"
                     if [[ "$is_req" == "true" ]]; then
-                        type record_required >/dev/null 2>&1 && record_required "components" "$comp_id" "Configuration failed for required component: $comp_id"
+                        type record_required >/dev/null && record_required "components" "$comp_id" "Configuration failed for required component: $comp_id"
                     else
-                        type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Configuration failed for optional component: $comp_id"
+                        type record_deferred >/dev/null && record_deferred "components" "$comp_id" "Configuration failed for optional component: $comp_id"
                     fi
                     _comp_outcomes["$comp_id"]="failed"
                     had_failure=1
@@ -339,18 +339,18 @@ execute_plan() {
             local val_fn
             val_fn="$(get_component_attr "$comp_id" validate_fn)"
             local is_req
-            is_req="$(get_component_attr "$comp_id" required 2>/dev/null || true)"
+            is_req="$(get_component_attr "$comp_id" required  || true)"
 
             # Dependency guard: fail closed if any required dependency failed or is unsatisfied
             local failed_dep=""
             if ! _reconciler_check_dependencies "$comp_id" failed_dep; then
                 warn "Reconciling CONFIGURE: $comp_id blocked because required dependency '$failed_dep' failed or is unsatisfied"
                 if [[ "$is_req" == "true" ]]; then
-                    if type record_required >/dev/null 2>&1; then
+                    if type record_required >/dev/null; then
                         record_required "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
                     fi
                 else
-                    if type record_deferred >/dev/null 2>&1; then
+                    if type record_deferred >/dev/null; then
                         record_deferred "components" "$comp_id" "Blocked because required dependency $failed_dep failed"
                     fi
                 fi
@@ -366,9 +366,9 @@ execute_plan() {
                 if ! _reconciler_invoke "$val_fn" "$comp_id" "VALIDATE"; then
                     warn "Validation failed for component: $comp_id"
                     if [[ "$is_req" == "true" ]]; then
-                        type record_required >/dev/null 2>&1 && record_required "components" "$comp_id" "Validation failed for required component: $comp_id"
+                        type record_required >/dev/null && record_required "components" "$comp_id" "Validation failed for required component: $comp_id"
                     else
-                        type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Validation failed for optional component: $comp_id"
+                        type record_deferred >/dev/null && record_deferred "components" "$comp_id" "Validation failed for optional component: $comp_id"
                     fi
                     _comp_outcomes["$comp_id"]="failed"
                     had_failure=1
@@ -379,9 +379,9 @@ execute_plan() {
             if ! _reconciler_invoke "$cfg_fn" "$comp_id" "CONFIGURE"; then
                 warn "Configuration failed for component: $comp_id"
                 if [[ "$is_req" == "true" ]]; then
-                    type record_required >/dev/null 2>&1 && record_required "components" "$comp_id" "Configuration failed for required component: $comp_id"
+                    type record_required >/dev/null && record_required "components" "$comp_id" "Configuration failed for required component: $comp_id"
                 else
-                    type record_deferred >/dev/null 2>&1 && record_deferred "components" "$comp_id" "Configuration failed for optional component: $comp_id"
+                    type record_deferred >/dev/null && record_deferred "components" "$comp_id" "Configuration failed for optional component: $comp_id"
                 fi
                 _comp_outcomes["$comp_id"]="failed"
                 had_failure=1
@@ -404,7 +404,7 @@ execute_plan() {
             local outcome="${_comp_outcomes[$comp_id]:-}"
             if [[ "$outcome" == "failed" || "$outcome" == "blocked" || "$outcome" == "removed" ]]; then
                 warn "Skipping CHANGE_DEFAULT for $role -> $comp_id: target component outcome is '$outcome'"
-                if type record_deferred >/dev/null 2>&1; then
+                if type record_deferred >/dev/null; then
                     record_deferred "roles" "$role" "Failed to set default provider for role: $role -> $comp_id (target component $outcome)"
                 fi
                 had_failure=1
@@ -414,7 +414,7 @@ execute_plan() {
             info "Reconciling CHANGE_DEFAULT: $role -> $comp_id"
             if ! set_system_role_default "$role" "$comp_id"; then
                 warn "Failed to set default for role $role to $comp_id"
-                if type record_deferred >/dev/null 2>&1; then
+                if type record_deferred >/dev/null; then
                     record_deferred "roles" "$role" "Failed to set default provider for role: $role -> $comp_id"
                 fi
                 had_failure=1

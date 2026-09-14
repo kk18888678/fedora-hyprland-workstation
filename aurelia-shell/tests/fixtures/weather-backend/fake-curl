@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+endpoint=""
+format=""
+arguments=("$@")
+for ((index = 0; index < ${#arguments[@]}; index++)); do
+    argument="${arguments[index]}"
+    case "$argument" in
+        https://*) endpoint="$argument" ;;
+        --data-urlencode)
+            (( index += 1 ))
+            format="${arguments[index]}"
+            ;;
+    esac
+done
+
+printf '%s\n' "$*" >>"$WEATHER_CURL_CALLS"
+
+if [[ "$endpoint" == "https://wttr.in/" && "$format" == "format=j1" ]]; then
+    /usr/bin/cat -- "$WEATHER_WTTR_RESPONSE"
+    exit 0
+fi
+
+if [[ "$endpoint" == "https://api.open-meteo.com/v1/forecast" ]]; then
+    /usr/bin/cat -- "$WEATHER_FORECAST_RESPONSE"
+    exit 0
+fi
+
+printf 'Unexpected weather fixture request endpoint=%s format=%s\n' "$endpoint" "$format" >&2
+exit 97

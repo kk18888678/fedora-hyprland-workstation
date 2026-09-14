@@ -45,7 +45,7 @@ copr_enabled() {
 
     grep -Rqs \
         "$repo_fragment" \
-        /etc/yum.repos.d/_copr:* 2>/dev/null
+        /etc/yum.repos.d/_copr:*
 }
 
 enable_copr() {
@@ -159,20 +159,20 @@ is_rpm_gpg_key_imported() {
     upper_expected_fp="$(printf '%s' "$expected_fp" | tr '[:lower:]' '[:upper:]')"
 
     # Verification of installed OpenPGP identity requires gpg capability
-    if ! command -v gpg >/dev/null 2>&1; then
+    if ! command -v gpg >/dev/null; then
         return 1
     fi
 
     # Export installed public-key material from RPM database (%{DESCRIPTION} provides ASCII-armored OpenPGP blocks)
     local gpg_dump
-    gpg_dump="$(rpm -qa "gpg-pubkey*" --qf '%{DESCRIPTION}\n' 2>/dev/null)" || gpg_dump=""
+    gpg_dump="$(rpm -qa "gpg-pubkey*" --qf '%{DESCRIPTION}\n' )" || gpg_dump=""
     if [[ -z "$gpg_dump" ]]; then
         return 1
     fi
 
     # Derive complete 40-hex OpenPGP fingerprints directly from exported key blocks
     local actual_fps
-    actual_fps="$(gpg --with-colons --show-keys <<< "$gpg_dump" 2>/dev/null | awk -F: '$1=="fpr"{print toupper($10)}')" || actual_fps=""
+    actual_fps="$(gpg --with-colons --show-keys <<< "$gpg_dump"  | awk -F: '$1=="fpr"{print toupper($10)}')" || actual_fps=""
     if [[ -z "$actual_fps" ]]; then
         return 1
     fi
@@ -221,7 +221,7 @@ converge_chatgpt_gpg_key() {
     fi
 
     # 3. GPG verification capability MUST be available to inspect fingerprint
-    if ! command -v gpg >/dev/null 2>&1; then
+    if ! command -v gpg >/dev/null; then
         error "gpg command unavailable to verify official ChatGPT repository GPG key."
         return 1
     fi
@@ -229,7 +229,7 @@ converge_chatgpt_gpg_key() {
     # 4. Extract and strictly verify OpenPGP fingerprint
     local actual_fp
     actual_fp="$(
-        gpg --with-colons --show-keys "$key_file" 2>/dev/null |
+        gpg --with-colons --show-keys "$key_file"  |
         awk -F: '$1=="fpr"{print toupper($10); exit}'
     )"
 
@@ -269,7 +269,7 @@ converge_vendor_repository_definitions() {
     # These repositories can participate in every later DNF transaction, so
     # repair any existing drift (or create a selected repository) before the
     # trust gate is consulted by the first package operation.
-    if declare -F configure_cursor_repository >/dev/null 2>&1; then
+    if declare -F configure_cursor_repository >/dev/null; then
         repo_path="${cursor_repo_file:-/etc/yum.repos.d/cursor.repo}"
         if is_true "${CURSOR:-false}" || [[ -f "$repo_path" || -L "$repo_path" ]]; then
             if ! configure_cursor_repository; then
@@ -282,7 +282,7 @@ converge_vendor_repository_definitions() {
         fi
     fi
 
-    if declare -F configure_brave_origin_repository >/dev/null 2>&1; then
+    if declare -F configure_brave_origin_repository >/dev/null; then
         repo_path="${brave_repo_file:-/etc/yum.repos.d/brave-browser.repo}"
         if is_true "${BROWSER_BRAVE_ORIGIN:-false}" || [[ -f "$repo_path" || -L "$repo_path" ]]; then
             if ! configure_brave_origin_repository; then
@@ -315,7 +315,7 @@ check_repository_trust() {
     # known file exists but no longer matches the reviewed HTTPS endpoint,
     # refuse every subsequent DNF operation until it is repaired.
     local cursor_path="${cursor_repo_file:-/etc/yum.repos.d/cursor.repo}"
-    if declare -F cursor_repo_configured >/dev/null 2>&1 &&
+    if declare -F cursor_repo_configured >/dev/null &&
         [[ -f "$cursor_path" || -L "$cursor_path" ]] &&
         ! cursor_repo_configured; then
         error "Repository trust check failed: Cursor repository definition is missing, altered, or unsafe."
@@ -323,7 +323,7 @@ check_repository_trust() {
     fi
 
     local brave_path="${brave_repo_file:-/etc/yum.repos.d/brave-browser.repo}"
-    if declare -F brave_origin_repo_installed >/dev/null 2>&1 &&
+    if declare -F brave_origin_repo_installed >/dev/null &&
         [[ -f "$brave_path" || -L "$brave_path" ]] &&
         ! brave_origin_repo_installed; then
         error "Repository trust check failed: Brave repository definition is missing, altered, or unsafe."

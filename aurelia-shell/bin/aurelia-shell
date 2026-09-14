@@ -60,7 +60,7 @@ fi
 timeout_bin=""
 if [[ -x "/usr/bin/timeout" ]]; then
     timeout_bin="/usr/bin/timeout"
-elif [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -x "$(command -v timeout 2>/dev/null || true)" ]]; then
+elif [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -x "$(command -v timeout  || true)" ]]; then
     timeout_bin="$(command -v timeout)"
 else
     fail "Required safety utility 'timeout' is not available"
@@ -69,7 +69,7 @@ fi
 ipc_timeout="${AURELIA_SHELL_IPC_TIMEOUT:-2s}"
 output=""
 status=0
-output="$("$timeout_bin" --kill-after=1s "$ipc_timeout" "$qs_bin" ipc --path "$shell_root/shell.qml" call -- "$@" 2>/dev/null)" || status=$?
+output="$("$timeout_bin" --kill-after=1s "$ipc_timeout" "$qs_bin" ipc --path "$shell_root/shell.qml" call -- "$@" )" || status=$?
 
 if [[ "$status" -eq 124 || "$status" -eq 137 ]]; then
     fail "Aurelia Shell is not responding"

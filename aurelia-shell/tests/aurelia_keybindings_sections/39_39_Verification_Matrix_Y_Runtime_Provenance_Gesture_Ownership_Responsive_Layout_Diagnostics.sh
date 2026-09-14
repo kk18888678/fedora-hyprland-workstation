@@ -113,7 +113,7 @@ fi
 
 # 39.11: aurelia-shell-keybindings diagnostics runtime --json produces valid JSON
 diag_json="$("$ROOT/bin/aurelia-shell-keybindings" diagnostics runtime --json)"
-json_valid="$(echo "$diag_json" | jq -r '.canonical_backend.path, .canonical_backend.sha256, .managed_component_root, (.expected_manifest.files | length)' 2>/dev/null || true)"
+json_valid="$(echo "$diag_json" | jq -r '.canonical_backend.path, .canonical_backend.sha256, .managed_component_root, (.expected_manifest.files | length)'  || true)"
 if [[ -n "$json_valid" && "$diag_json" == *"aurelia-keybindings"* && \
       "$diag_json" == *"manifest_mismatches"* && "$diag_json" == *"provider"* ]]; then
     pass "39.11 aurelia-shell-keybindings diagnostics runtime --json produces authoritative provenance JSON"

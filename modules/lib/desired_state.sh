@@ -74,8 +74,8 @@ desired_state_set_component() {
         return 1
     fi
 
-    local -n comp_map="${prefix}_COMPONENTS"
-    comp_map["$id"]="$state"
+    local -n component_state_map="${prefix}_COMPONENTS"
+    component_state_map["$id"]="$state"
     return 0
 }
 
@@ -84,8 +84,8 @@ desired_state_get_component() {
     local prefix="$1"
     local id="$2"
 
-    local -n comp_map="${prefix}_COMPONENTS"
-    printf '%s\n' "${comp_map[$id]:-unmanaged}"
+    local -n component_state_get_map="${prefix}_COMPONENTS"
+    printf '%s\n' "${component_state_get_map["$id"]:-unmanaged}"
 }
 
 # Set default component for a role
@@ -94,8 +94,8 @@ desired_state_set_default() {
     local role="$2"
     local id="$3"
 
-    local -n def_map="${prefix}_ROLE_DEFAULTS"
-    def_map["$role"]="$id"
+    local -n role_default_map="${prefix}_ROLE_DEFAULTS"
+    role_default_map["$role"]="$id"
     return 0
 }
 
@@ -104,8 +104,8 @@ desired_state_get_default() {
     local prefix="$1"
     local role="$2"
 
-    local -n def_map="${prefix}_ROLE_DEFAULTS"
-    printf '%s\n' "${def_map[$role]:-}"
+    local -n role_default_get_map="${prefix}_ROLE_DEFAULTS"
+    printf '%s\n' "${role_default_get_map["$role"]:-}"
 }
 
 # Set/get the post-login shell as desired state.  This is intentionally an
@@ -226,14 +226,14 @@ validate_desired_state() {
         return 1
     fi
 
-    local -n comp_map="${prefix}_COMPONENTS"
-    local -n def_map="${prefix}_ROLE_DEFAULTS"
+    local -n validation_component_map="${prefix}_COMPONENTS"
+    local -n validation_role_default_map="${prefix}_ROLE_DEFAULTS"
 
     # The Aurelia package group is derived from the selected shell and is not
     # an independent user choice.  Prevent a plan from selecting Aurelia
     # without its runtime, or from adding Aurelia-only packages to Noctalia.
     if component_exists "packages.aurelia"; then
-        local aurelia_group_state="${comp_map[packages.aurelia]:-unmanaged}"
+        local aurelia_group_state="${validation_component_map["packages.aurelia"]:-unmanaged}"
         if [[ "$desktop_shell" == "aurelia" && "$aurelia_group_state" != "managed" ]]; then
             printf 'ERROR: Aurelia desktop shell requires packages.aurelia to be managed\n' >&2
             return 1
@@ -245,13 +245,13 @@ validate_desired_state() {
     fi
 
     # 1. Check each component entry in the map
-    for id in "${!comp_map[@]}"; do
+    for id in "${!validation_component_map[@]}"; do
         if ! component_exists "$id"; then
             printf 'ERROR: Desired state references unknown component: %s\n' "$id" >&2
             return 1
         fi
 
-        local state="${comp_map[$id]}"
+        local state="${validation_component_map["$id"]}"
         if [[ "$state" != "managed" && "$state" != "unmanaged" && "$state" != "remove" ]]; then
             printf 'ERROR: Desired state has invalid state for %s: %s\n' "$id" "$state" >&2
             return 1
@@ -296,7 +296,7 @@ validate_desired_state() {
             local is_req
             is_req="$(get_component_attr "$req_id" required)"
             if [[ "$is_req" == "true" ]]; then
-                local req_st="${comp_map[$req_id]:-}"
+                local req_st="${validation_component_map["$req_id"]:-}"
                 if [[ "$req_st" != "managed" ]]; then
                     printf 'ERROR: Required component %s for profile %s is missing or not managed (state: %s)\n' \
                         "$req_id" "$profile" "${req_st:-<omitted>}" >&2
@@ -307,12 +307,12 @@ validate_desired_state() {
     done
 
     # 3. Conflict validation between managed components
-    for id1 in "${!comp_map[@]}"; do
-        if [[ "${comp_map[$id1]}" == "managed" ]]; then
+    for id1 in "${!validation_component_map[@]}"; do
+        if [[ "${validation_component_map["$id1"]}" == "managed" ]]; then
             local confs
             confs="$(get_component_attr "$id1" conflicts)"
             for id2 in $confs; do
-                if [[ "${comp_map[$id2]:-unmanaged}" == "managed" ]]; then
+                if [[ "${validation_component_map["$id2"]:-unmanaged}" == "managed" ]]; then
                     printf 'ERROR: Conflict in desired state between %s and %s\n' "$id1" "$id2" >&2
                     return 1
                 fi
@@ -321,7 +321,7 @@ validate_desired_state() {
     done
 
     # 4. Validate role defaults
-    for role in "${!def_map[@]}"; do
+    for role in "${!validation_role_default_map[@]}"; do
         # Unknown roles are strictly rejected
         local role_valid=0
         for sr in "${SUPPORTED_ROLES[@]}"; do
@@ -332,7 +332,7 @@ validate_desired_state() {
             return 1
         fi
 
-        local def_id="${def_map[$role]}"
+        local def_id="${validation_role_default_map["$role"]}"
         if [[ -n "$def_id" ]]; then
             if ! component_exists "$def_id"; then
                 printf 'ERROR: Default for role %s references unknown component: %s\n' "$role" "$def_id" >&2
@@ -358,7 +358,7 @@ validate_desired_state() {
             fi
 
             # Default provider MUST be desired managed (not unmanaged, not remove)
-            local comp_state="${comp_map[$def_id]:-unmanaged}"
+            local comp_state="${validation_component_map["$def_id"]:-unmanaged}"
             if [[ "$comp_state" != "managed" ]]; then
                 printf 'ERROR: Default provider %s for role %s must be desired managed (currently: %s)\n' \
                     "$def_id" "$role" "$comp_state" >&2
@@ -381,25 +381,25 @@ serialize_desired_state() {
     printf 'SETUP_MODE=%s\n' "${!mode_var}"
     printf 'DESKTOP_SHELL=%s\n' "${!shell_var:-noctalia}"
 
-    local -n comp_map="${prefix}_COMPONENTS"
+    local -n serialization_component_map="${prefix}_COMPONENTS"
     # Sort keys for deterministic output
     local sorted_ids=()
     while IFS= read -r k; do
         [[ -n "$k" ]] && sorted_ids+=("$k")
-    done < <(printf '%s\n' "${!comp_map[@]}" | sort)
+    done < <(printf '%s\n' "${!serialization_component_map[@]}" | sort)
 
     for id in "${sorted_ids[@]}"; do
-        printf 'COMPONENT:%s=%s\n' "$id" "${comp_map[$id]}"
+        printf 'COMPONENT:%s=%s\n' "$id" "${serialization_component_map["$id"]}"
     done
 
-    local -n def_map="${prefix}_ROLE_DEFAULTS"
+    local -n serialization_role_default_map="${prefix}_ROLE_DEFAULTS"
     local sorted_roles=()
     while IFS= read -r k; do
         [[ -n "$k" ]] && sorted_roles+=("$k")
-    done < <(printf '%s\n' "${!def_map[@]}" | sort)
+    done < <(printf '%s\n' "${!serialization_role_default_map[@]}" | sort)
 
     for role in "${sorted_roles[@]}"; do
-        printf 'DEFAULT:%s=%s\n' "$role" "${def_map[$role]}"
+        printf 'DEFAULT:%s=%s\n' "$role" "${serialization_role_default_map["$role"]}"
     done
 }
 
@@ -425,14 +425,14 @@ deserialize_desired_state() {
 
     init_desired_state "$prefix" "$prof" "$mode" "$desktop_shell" || return 1
 
-    local -n comp_map="${prefix}_COMPONENTS"
-    local -n def_map="${prefix}_ROLE_DEFAULTS"
+    local -n deserialize_component_map="${prefix}_COMPONENTS"
+    local -n deserialize_role_default_map="${prefix}_ROLE_DEFAULTS"
 
     while IFS= read -r line; do
         if [[ "$line" =~ ^COMPONENT:([^=]+)=(.*)$ ]]; then
-            comp_map["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+            deserialize_component_map["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
         elif [[ "$line" =~ ^DEFAULT:([^=]+)=(.*)$ ]]; then
-            def_map["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+            deserialize_role_default_map["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
         fi
     done <<< "$content"
 

@@ -37,11 +37,17 @@ AureliaKeyboardPanel {
     property string profileError: ""
 
     function readDisplayDevice() {
-        try { return UPower.displayDevice } catch (error) { return null }
+        try { return UPower.displayDevice } catch (error) {
+            console.warn("[POWER] UPower unavailable reason=display-device")
+            return null
+        }
     }
 
     function readOnBattery() {
-        try { return !!UPower.onBattery } catch (error) { return false }
+        try { return !!UPower.onBattery } catch (error) {
+            console.warn("[POWER] UPower unavailable reason=on-battery")
+            return false
+        }
     }
 
     function readPowerStates() {

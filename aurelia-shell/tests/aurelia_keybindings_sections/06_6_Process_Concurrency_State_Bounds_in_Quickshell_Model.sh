@@ -43,8 +43,8 @@ fi
 exit 0
 MOCK_EOF
     chmod +x "$mock_dir/qs"
-    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" "$ROOT/bin/workstation-keybindings" toggle >/dev/null 2>&1
-    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" "$ROOT/bin/workstation-keybindings" toggle >/dev/null 2>&1
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" "$ROOT/bin/workstation-keybindings" toggle >/dev/null
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" "$ROOT/bin/workstation-keybindings" toggle >/dev/null
     daemons="$(grep -c '^daemon_start$' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
     if [[ "$daemons" -eq 0 ]]; then

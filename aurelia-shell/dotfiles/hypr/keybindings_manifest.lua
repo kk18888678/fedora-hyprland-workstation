@@ -436,7 +436,7 @@ local function load_aurelia_plugin_bindings()
     local handle = io.popen(
         "find " .. shell_quote(plugin_dir) ..
         " -mindepth 2 -maxdepth 2 -type f -name 'keybindings.lua' " ..
-        "-printf '%p\\n' 2>/dev/null | sort"
+        "-printf '%p\\n'  | sort"
     )
     if not handle then return end
 

@@ -155,6 +155,7 @@ Item {
         try {
             return Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name || "") : ""
         } catch (error) {
+            console.warn("[BAR] focused_monitor_read_failed")
             return ""
         }
     }

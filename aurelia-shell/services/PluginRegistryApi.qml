@@ -17,6 +17,7 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(value))
         } catch (e) {
+            console.warn("[PLUGIN] registry_facade_snapshot_failed owner=" + api.pluginId)
             return null
         }
     }

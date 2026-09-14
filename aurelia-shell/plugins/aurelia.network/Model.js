@@ -123,6 +123,8 @@ function decodeIwSsid(value) {
 
     return decodeURIComponent(encoded)
   } catch (error) {
+    if (typeof console !== "undefined" && console.warn)
+      console.warn("[NETWORK] escape_decode_failed")
     return raw
   }
 }
@@ -339,7 +341,7 @@ var enterpriseConnectScript =
   " 802-1x.identity \"$2\" 802-1x.auth-timeout 8 >/dev/null" +
   " && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | nmcli connection edit uuid \"$u\" >/dev/null" +
   " && nmcli connection up uuid \"$u\"" +
-  " || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
+  " || { nmcli connection delete uuid \"$u\" >/dev/null; false; }"
 
 function networkFailureReason(reason, needsCredentials, reasons) {
   var r = reasons || {}

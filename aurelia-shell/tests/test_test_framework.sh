@@ -21,7 +21,7 @@ else
 fi
 
 strict_root="$(mktemp -d)"
-trap 'rm -rf -- "$strict_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$strict_root"  || true' RETURN
 strict_status=0
 AURELIA_TESTS_REQUIRE_NO_SKIPS=1 bash -c 'set -Eeuo pipefail; source "$1"; skip unavailable; print_test_summary' _ \
     "$ROOT/tests/test_helper.sh" \
@@ -47,7 +47,7 @@ printf '%s\n' \
     "WARN scene: ${diagnostic_source_prefix}/tmp/test.qml[2:1]: TypeError: Cannot assign object of type Process" \
     >"$dirty_log"
 if runtime_log_is_environment_only "$clean_log" &&
-   ! runtime_log_is_environment_only "$dirty_log"; then
+   runtime_log_has_rejected_diagnostic "$dirty_log"; then
     pass "[isolated-framework] runtime skip classifier accepts only approved backend diagnostics"
 else
     fail "[isolated-framework] runtime skip classifier masked an unrelated diagnostic"
@@ -57,8 +57,10 @@ property_error_log="$strict_root/property-error.log"
 property_error_source='file://'"/tmp/Bar.qml[309:-1]"
 printf '%s\n' \
     "WARN scene: ${property_error_source}: Error: Cannot assign to non-existent property \"transparentForeground\"" \
+    'ERROR qml: TypeError: Property "safeConfigure" is not a function' \
+    'FATAL qml: fatal fixture diagnostic' \
     >"$property_error_log"
-if ! runtime_log_is_environment_only "$property_error_log"; then
+if runtime_log_has_rejected_diagnostic "$property_error_log"; then
     pass "[isolated-framework] production non-existent-property diagnostics always fail runtime skip classification"
 else
     fail "[isolated-framework] production non-existent-property diagnostic was incorrectly accepted"
@@ -106,8 +108,8 @@ while IFS= read -r test_path; do
     case "$test_path" in
         */test_test_framework.sh|*/test_helper.sh) continue ;;
     esac
-    if rg -n 'pass \"[^\"]*(SKIP|skipped)' "$test_path" >/dev/null 2>&1 ||
-       rg -n 'printf .*SKIP' "$test_path" >/dev/null 2>&1; then
+    if rg -n 'pass \"[^\"]*(SKIP|skipped)' "$test_path" >/dev/null ||
+       rg -n 'printf .*SKIP' "$test_path" >/dev/null; then
         legacy_skip_paths=1
         break
     fi
@@ -122,7 +124,7 @@ fi
 empty_suite="$(mktemp)"
 printf '%s\n' 'section empty-suite' >"$empty_suite"
 before_failures="$FAILS"
-run_suite "$empty_suite" >/dev/null 2>&1 || true
+run_suite "$empty_suite" >/dev/null || true
 rm -f -- "$empty_suite"
 if [[ "$FAILS" -eq $((before_failures + 1)) ]]; then
     pass "[isolated-framework] a suite with no explicit outcome fails closed"
@@ -131,8 +133,18 @@ else
 fi
 
 registered_suite_count="$(rg -c '^run_suite ' "$ROOT/tests/run.sh" || true)"
-discovered_suite_count="$(find "$ROOT/tests" -maxdepth 1 -type f -name 'test_*.sh' ! -name 'test_helper.sh' -printf '%f\n' |
-    grep -Evc '^(test_aurelia_hotkeys|test_aurelia_keybindings|test_hotkeys|test_quickshell_provenance)\.sh$' || true)"
+candidate_suite_count=0
+excluded_suite_count=0
+while IFS= read -r suite_name; do
+    [[ -z "$suite_name" ]] && continue
+    candidate_suite_count=$((candidate_suite_count + 1))
+    case "$suite_name" in
+        test_aurelia_hotkeys.sh|test_aurelia_keybindings.sh|test_hotkeys.sh|test_quickshell_provenance.sh)
+            excluded_suite_count=$((excluded_suite_count + 1))
+            ;;
+    esac
+done < <(find "$ROOT/tests" -maxdepth 1 -type f -name 'test_*.sh' ! -name 'test_helper.sh' -printf '%f\n')
+discovered_suite_count=$((candidate_suite_count - excluded_suite_count))
 runner_discovery_marker="find \"\$ROOT/tests\" -maxdepth 1 -type f -name 'test_*.sh'"
 if [[ "$registered_suite_count" -eq 1 ]] &&
    grep -Fq "$runner_discovery_marker" "$ROOT/tests/run.sh" &&

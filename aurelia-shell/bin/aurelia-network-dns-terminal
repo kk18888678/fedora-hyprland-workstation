@@ -36,7 +36,7 @@ if [[ -n "$terminal" ]]; then
   esac
 else
   for candidate in kitty foot gnome-terminal xterm; do
-    if command -v "$candidate" >/dev/null 2>&1; then
+    if command -v "$candidate" >/dev/null; then
       terminal="$candidate"
       break
     fi
@@ -47,7 +47,7 @@ fi
   printf 'Error: no supported terminal emulator is available.\n' >&2
   exit 1
 }
-command -v "$terminal" >/dev/null 2>&1 || {
+command -v "$terminal" >/dev/null || {
   printf 'Error: configured terminal is not available: %s\n' "$terminal" >&2
   exit 1
 }

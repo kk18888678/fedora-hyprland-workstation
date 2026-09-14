@@ -48,7 +48,7 @@ wsp_dnf_installed_rows() {
 
     dnf_bin="$(wsp_dnf_binary)" || return 1
     raw="$(wsp_run_timeout 90 "$dnf_bin" -q repoquery --installed --userinstalled \
-        --qf $'%{repoid}\t%{name}\t%{evr}\t%{arch}\n' 2>/dev/null)" || return 1
+        --qf $'%{repoid}\t%{name}\t%{evr}\t%{arch}\n' )" || return 1
     while IFS=$'\t' read -r repo identifier evr arch || [[ -n "$identifier" ]]; do
         [[ -n "$identifier" ]] || continue
         repo="${repo:-unknown}"
@@ -67,9 +67,9 @@ wsp_flatpak_installed_rows_for_scope() {
     local version
     local branch
 
-    command -v flatpak >/dev/null 2>&1 || return 1
+    command -v flatpak >/dev/null || return 1
     raw="$(wsp_run_timeout 60 flatpak list "--$scope" --app \
-        --columns=application,origin,name,version,branch 2>/dev/null)" || return 1
+        --columns=application,origin,name,version,branch )" || return 1
     while IFS=$'\t' read -r identifier origin name version branch || [[ -n "$identifier" ]]; do
         [[ -n "$identifier" ]] || continue
         wsp_valid_flatpak_id "$identifier" || continue
@@ -97,17 +97,17 @@ wsp_entry_installed() {
 
     case "$provider" in
         dnf)
-            command -v rpm >/dev/null 2>&1 || return 1
-            rpm -q "$identifier" >/dev/null 2>&1
+            command -v rpm >/dev/null || return 1
+            rpm -q "$identifier" >/dev/null
             ;;
         flatpak)
-            command -v flatpak >/dev/null 2>&1 || return 1
-            installed="$(wsp_run_timeout 60 flatpak list "--$scope" --app --columns=application 2>/dev/null)" || return 1
+            command -v flatpak >/dev/null || return 1
+            installed="$(wsp_run_timeout 60 flatpak list "--$scope" --app --columns=application )" || return 1
             grep -Fxq -- "$identifier" <<< "$installed"
             ;;
         aurelia)
             local target_path
-            target_path="$(wsp_aurelia_target_path "$identifier" 2>/dev/null)" || return 1
+            target_path="$(wsp_aurelia_target_path "$identifier" )" || return 1
             wsp_aurelia_marker_matches_target "$identifier" "$target_path"
             ;;
         *) return 1 ;;
@@ -139,12 +139,12 @@ wsp_entry_origin() {
                 return 0
             }
             origin="$(wsp_run_timeout 60 "$dnf_bin" -q repoquery --installed \
-                --qf $'%{repoid}\n' "$identifier" 2>/dev/null | awk 'NF { print; exit }' || true)"
+                --qf $'%{repoid}\n' "$identifier"  | awk 'NF { print; exit }' || true)"
             printf '%s\n' "${origin:-unknown}"
             ;;
         aurelia)
             local target_path
-            target_path="$(wsp_aurelia_target_path "$identifier" 2>/dev/null || true)"
+            target_path="$(wsp_aurelia_target_path "$identifier"  || true)"
             if [[ -n "$target_path" ]] && wsp_aurelia_marker_matches_target "$identifier" "$target_path"; then
                 printf '%s\n' "$WSP_AURELIA_MARKER_SOURCE"
             else
@@ -192,7 +192,7 @@ wsp_status_json() {
     local flatpak_source_json
     local aurelia_source_json
 
-    command -v jq >/dev/null 2>&1 || {
+    command -v jq >/dev/null || {
         wsp_error "jq is required for package status JSON."
         return 1
     }

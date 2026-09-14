@@ -78,7 +78,7 @@ aurelia_plugin_catalog_json() {
 aurelia_plugin_git_commit() {
     local plugin_path="$1"
     local commit
-    commit="$(git -C "$plugin_path" rev-parse --verify HEAD 2>/dev/null)" || {
+    commit="$(git -C "$plugin_path" rev-parse --verify HEAD )" || {
         aurelia_plugin_fail "Could not record the selected Git commit for $plugin_path"
         return 1
     }
@@ -159,7 +159,7 @@ aurelia_plugin_lifecycle_cleanup() {
     fi
     if [[ "$AURELIA_PLUGIN_UPDATE_ACTIVE" == "1" &&
           "$AURELIA_PLUGIN_UPDATE_PUBLISHED" == "1" ]]; then
-        aurelia_plugin_update_rollback >/dev/null 2>&1 || true
+        aurelia_plugin_update_rollback >/dev/null || true
     fi
 }
 
@@ -337,11 +337,11 @@ aurelia_plugin_update_one() {
         return 1
     }
     aurelia_plugin_validate_manifest "$target" 0 1 || return 1
-    [[ -z "$(git -C "$target" status --porcelain 2>/dev/null)" ]] || {
+    [[ -z "$(git -C "$target" status --porcelain )" ]] || {
         aurelia_plugin_fail "Plugin has local changes; refusing an in-place update: $plugin_id"
         return 1
     }
-    remote="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
+    remote="$(git -C "$target" config --get remote.origin.url  || true)"
     [[ "$remote" =~ ^https://[^[:space:]]+$ ]] || {
         aurelia_plugin_fail "Plugin remote is not an HTTPS URL: $plugin_id"
         return 1

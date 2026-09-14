@@ -116,7 +116,7 @@ flatpak_source_configured() {
     fi
 
     remote_rows="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak remotes ($scope)" \
-        flatpak remotes "--$scope" --columns=name,url,options 2>/dev/null)" ||
+        flatpak remotes "--$scope" --columns=name,url,options )" ||
         return 1
 
     local actual_source actual_url options
@@ -169,7 +169,7 @@ configure_flatpak_sources() {
 
 flathub_configured() {
     local url
-    url="$(flatpak_source_url_for flathub system 2>/dev/null || true)"
+    url="$(flatpak_source_url_for flathub system  || true)"
     [[ -n "$url" ]] && flatpak_source_configured flathub system "$url"
 }
 
@@ -226,7 +226,7 @@ install_localsend() {
 
     local installed_apps
     if ! installed_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list (LocalSend)" \
-        flatpak list --app --columns=application 2>/dev/null)"; then
+        flatpak list --app --columns=application )"; then
         record_deferred "flatpak" "localsend" "Flatpak application inventory query timed out or failed."
         return 0
     fi
@@ -250,7 +250,7 @@ install_localsend() {
     fi
 
     if ! installed_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list (LocalSend validation)" \
-        flatpak list --app --columns=application 2>/dev/null)" ||
+        flatpak list --app --columns=application )" ||
         ! grep -Fxq "org.localsend.localsend_app" <<< "$installed_apps"; then
         record_deferred "flatpak" "localsend" "LocalSend Flatpak was not present after installation."
         return 0
@@ -284,7 +284,7 @@ install_ulaa() {
 
     local installed_apps
     if ! installed_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list (Ulaa)" \
-        flatpak list --app --columns=application 2>/dev/null)"; then
+        flatpak list --app --columns=application )"; then
         record_deferred "flatpak" "ulaa" "Flatpak application inventory query timed out or failed."
         return 0
     fi
@@ -308,7 +308,7 @@ install_ulaa() {
     fi
 
     if ! installed_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list (Ulaa validation)" \
-        flatpak list --app --columns=application 2>/dev/null)" ||
+        flatpak list --app --columns=application )" ||
         ! grep -Fxq "com.ulaa.Ulaa" <<< "$installed_apps"; then
         record_deferred \
             "flatpak" \
@@ -342,7 +342,7 @@ install_user_managed_flatpak_applications() {
     while IFS=$'\t' read -r provider source identifier scope profiles; do
         [[ "$provider" == flatpak ]] || continue
         if ! installed_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list ($identifier)" \
-            flatpak list --app "--$scope" --columns=application 2>/dev/null)"; then
+            flatpak list --app "--$scope" --columns=application )"; then
             record_deferred "flatpak" "$identifier" "Flatpak application inventory query timed out or failed."
             failed=1
             continue
@@ -352,7 +352,7 @@ install_user_managed_flatpak_applications() {
             continue
         fi
         local expected_url
-        expected_url="$(flatpak_source_url_for "$source" "$scope" 2>/dev/null || true)"
+        expected_url="$(flatpak_source_url_for "$source" "$scope"  || true)"
         if [[ -z "$expected_url" ]] ||
             ! flatpak_source_configured "$source" "$scope" "$expected_url"; then
             record_deferred "flatpak" "$identifier" "Tracked Flatpak source is not configured: $source ($scope)."
@@ -380,7 +380,7 @@ install_user_managed_flatpak_applications() {
         fi
 
         if ! installed_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list ($identifier validation)" \
-            flatpak list --app "--$scope" --columns=application 2>/dev/null)" ||
+            flatpak list --app "--$scope" --columns=application )" ||
             ! grep -Fxq "$identifier" <<< "$installed_apps"; then
             record_deferred "flatpak" "$identifier" "Tracked Flatpak was not present after installation."
             failed=1

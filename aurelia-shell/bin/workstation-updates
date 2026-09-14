@@ -65,7 +65,7 @@ first_error_line() {
     local line=""
 
     [[ -s $file ]] || return 0
-    line="$(awk 'NF { print; exit }' "$file" 2>/dev/null || true)"
+    line="$(awk 'NF { print; exit }' "$file"  || true)"
     line="$(printf '%s' "$line" | tr '\r\n' ' ' | cut -c1-160)"
     printf '%s' "$line"
 }
@@ -98,7 +98,7 @@ capture_command() {
     shift 3
 
     CAPTURE_STATUS=0
-    if ! command -v timeout >/dev/null 2>&1; then
+    if ! command -v timeout >/dev/null; then
         printf '%s\n' "timeout is not installed." >"$error_file"
         CAPTURE_STATUS=127
         return 0
@@ -121,14 +121,14 @@ dnf_status() {
     local state="unavailable"
     local items_json='[]'
 
-    if command -v dnf5 >/dev/null 2>&1; then
+    if command -v dnf5 >/dev/null; then
         dnf_bin="$(command -v dnf5)"
         capture_command "$output_file" "$error_file" "$DNF_STATUS_TIMEOUT_SECONDS" \
             "$dnf_bin" check-update --refresh --json
 
         if (( CAPTURE_STATUS == 0 || CAPTURE_STATUS == 100 )); then
             count="$(jq -r '(.upgrades // []) | if type == "array" then length else -1 end' \
-                "$output_file" 2>/dev/null || printf '%s' '-1')"
+                "$output_file"  || printf '%s' '-1')"
             if [[ $count =~ ^[0-9]+$ ]]; then
                 items_json="$(jq -c '[.upgrades[]? | select(.name != null) | {
                     id: .name,
@@ -137,7 +137,7 @@ dnf_status() {
                     repository: (.repository // ""),
                     scope: "fedora",
                     argument: .name
-                }]' "$output_file" 2>/dev/null || printf '%s' '[]')"
+                }]' "$output_file"  || printf '%s' '[]')"
                 if (( count > 0 )); then
                     state="updates"
                     detail="$count Fedora package update(s) available"
@@ -153,7 +153,7 @@ dnf_status() {
         else
             detail="Fedora update check failed"
         fi
-    elif command -v dnf >/dev/null 2>&1; then
+    elif command -v dnf >/dev/null; then
         dnf_bin="$(command -v dnf)"
         capture_command "$output_file" "$error_file" "$DNF_STATUS_TIMEOUT_SECONDS" \
             "$dnf_bin" -q check-update --refresh
@@ -172,7 +172,7 @@ dnf_status() {
                         scope: "fedora",
                         argument: .
                     })
-                ' 2>/dev/null || printf '%s' '[]')"
+                '  || printf '%s' '[]')"
             if (( count > 0 )); then
                 state="updates"
                 detail="$count Fedora package update(s) available"
@@ -241,7 +241,7 @@ flatpak_status() {
     local system_items_json='[]'
     local user_items_json='[]'
 
-    if ! command -v flatpak >/dev/null 2>&1; then
+    if ! command -v flatpak >/dev/null; then
         provider_json "flatpak" "Flatpak applications" "unavailable" 0 \
             "Flatpak is not installed" '[]'
         return 0
@@ -292,7 +292,7 @@ flatpak_status() {
 status_json() {
     ensure_tmp_dir
 
-    if ! command -v jq >/dev/null 2>&1; then
+    if ! command -v jq >/dev/null; then
         printf '%s\n' '{"schema":1,"checked_at":"","updates_available":false,"providers":[],"error":"jq is not installed"}'
         return 0
     fi
@@ -302,7 +302,7 @@ status_json() {
     local checked_at
     fedora_json="$(dnf_status)"
     flatpak_json="$(flatpak_status)"
-    checked_at="$(date -Iseconds 2>/dev/null || date)"
+    checked_at="$(date -Iseconds  || date)"
 
     jq -cn \
         --arg checked_at "$checked_at" \
@@ -429,37 +429,37 @@ resolve_terminal_argv() {
     for candidate in "${candidates[@]}"; do
         case "$candidate" in
             kitty)
-                command -v kitty >/dev/null 2>&1 || continue
+                command -v kitty >/dev/null || continue
                 TERMINAL_ARGV=(kitty --class org.aurelia.updates --title "$TERMINAL_TITLE" "$script_path" menu)
                 return 0
                 ;;
             foot)
-                command -v foot >/dev/null 2>&1 || continue
+                command -v foot >/dev/null || continue
                 TERMINAL_ARGV=(foot --app-id org.aurelia.updates --title "$TERMINAL_TITLE" "$script_path" menu)
                 return 0
                 ;;
             ghostty)
-                command -v ghostty >/dev/null 2>&1 || continue
+                command -v ghostty >/dev/null || continue
                 TERMINAL_ARGV=(ghostty --class=org.aurelia.updates --title="$TERMINAL_TITLE" -e "$script_path" menu)
                 return 0
                 ;;
             alacritty)
-                command -v alacritty >/dev/null 2>&1 || continue
+                command -v alacritty >/dev/null || continue
                 TERMINAL_ARGV=(alacritty --class org.aurelia.updates --title "$TERMINAL_TITLE" -e "$script_path" menu)
                 return 0
                 ;;
             gnome-terminal)
-                command -v gnome-terminal >/dev/null 2>&1 || continue
+                command -v gnome-terminal >/dev/null || continue
                 TERMINAL_ARGV=(gnome-terminal --title="$TERMINAL_TITLE" -- "$script_path" menu)
                 return 0
                 ;;
             konsole)
-                command -v konsole >/dev/null 2>&1 || continue
+                command -v konsole >/dev/null || continue
                 TERMINAL_ARGV=(konsole --name org.aurelia.updates --title "$TERMINAL_TITLE" -e "$script_path" menu)
                 return 0
                 ;;
             xterm)
-                command -v xterm >/dev/null 2>&1 || continue
+                command -v xterm >/dev/null || continue
                 TERMINAL_ARGV=(xterm -class org.aurelia.updates -title "$TERMINAL_TITLE" -e "$script_path" menu)
                 return 0
                 ;;
@@ -478,16 +478,16 @@ open_update_terminal() {
     }
     launch_argv=("${TERMINAL_ARGV[@]}")
 
-    if command -v uwsm-app >/dev/null 2>&1 &&
+    if command -v uwsm-app >/dev/null &&
         [[ -n ${XDG_RUNTIME_DIR:-} ]] &&
         [[ -n ${UWSM_FINALIZE_VARNAMES:-} || -n ${UWSM_WAIT_VARNAMES:-} || -n ${IN_UWSM_ENV_PRELOADER:-} ]]; then
         launch_argv=(uwsm-app -- "${launch_argv[@]}")
     fi
 
-    if command -v setsid >/dev/null 2>&1; then
-        setsid -f "${launch_argv[@]}" >/dev/null 2>&1
+    if command -v setsid >/dev/null; then
+        setsid -f "${launch_argv[@]}" >/dev/null
     else
-        ("${launch_argv[@]}" >/dev/null 2>&1 &)
+        ("${launch_argv[@]}" >/dev/null &)
     fi
 }
 
@@ -497,7 +497,7 @@ run_update_step() {
     local step_status=0
 
     printf '\n===== %s =====\n' "$label"
-    if ! command -v timeout >/dev/null 2>&1; then
+    if ! command -v timeout >/dev/null; then
         printf '%s\n' "ERROR: timeout is not installed; refusing an unbounded update." >&2
         return 1
     fi
@@ -531,7 +531,7 @@ interactive_update() {
         return 1
     fi
 
-    if ! command -v flock >/dev/null 2>&1 ||
+    if ! command -v flock >/dev/null ||
         [[ $runtime_dir != /* ]] ||
         [[ ! -d $runtime_dir ]] ||
         [[ ! -O $runtime_dir ]]; then
@@ -553,7 +553,7 @@ interactive_update() {
         "Each provider keeps its own confirmation and progress output."
 
     if [[ $UPDATE_MODE_ALL == true || ${#FEDORA_PACKAGES[@]} -gt 0 ]]; then
-        if command -v dnf >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+        if command -v dnf >/dev/null && command -v sudo >/dev/null; then
             if [[ $UPDATE_MODE_ALL == true ]]; then
                 run_update_step "Fedora system packages" sudo dnf upgrade --refresh || failed=1
             else
@@ -568,7 +568,7 @@ interactive_update() {
     fi
 
     if [[ $UPDATE_MODE_ALL == true || ${#FLATPAK_USER_REFS[@]} -gt 0 ]]; then
-        if command -v flatpak >/dev/null 2>&1; then
+        if command -v flatpak >/dev/null; then
             if [[ $UPDATE_MODE_ALL == true ]]; then
                 run_update_step "Flatpak user installation" flatpak update --user || failed=1
             else
@@ -580,7 +580,7 @@ interactive_update() {
         fi
     fi
     if [[ $UPDATE_MODE_ALL == true || ${#FLATPAK_SYSTEM_REFS[@]} -gt 0 ]]; then
-        if command -v flatpak >/dev/null 2>&1; then
+        if command -v flatpak >/dev/null; then
             if [[ $UPDATE_MODE_ALL == true ]]; then
                 run_update_step "Flatpak system installation" flatpak update --system || failed=1
             else
@@ -687,7 +687,7 @@ menu_select_and_install() {
 
     MENU_FLOW=stay
 
-    if ! command -v fzf >/dev/null 2>&1; then
+    if ! command -v fzf >/dev/null; then
         printf '%s\n' 'fzf is required for the update picker.' >&2
         MENU_FLOW=exit
         return 1

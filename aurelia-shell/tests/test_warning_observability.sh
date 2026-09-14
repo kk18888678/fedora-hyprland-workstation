@@ -22,8 +22,9 @@ else
     fail "[static] Bluetooth probe diagnostics are incomplete"
 fi
 
+empty_catch_pattern='catch (e) '"{}"
 if ! grep -Fq 'status === Loader.Error && !root.available' "$bar_root" &&
-   ! grep -Fq 'catch (e) {}' "$host_root" &&
+   ! grep -Fq "$empty_catch_pattern" "$host_root" &&
    grep -Fq 'loaderErrorDetail' "$bar_root" &&
    grep -Fq 'aurelia.plugin.resolve_id_failed' "$host_root"; then
     pass "[static] host and bar Loader failures are not hidden by the old silent gates"
@@ -31,7 +32,7 @@ else
     fail "[static] an actionable host/bar failure is still silently suppressed"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$probe_root" <<'NODE_PROBE'
 const probe = require(process.argv[2]);
 const actualOutput = [

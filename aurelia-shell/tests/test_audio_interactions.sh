@@ -85,7 +85,7 @@ else
     fail "[static] canonical default bar does not contain Audio at the reference location"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$audio_root/Model.js" <<'NODE_AUDIO_CONTROLS'
 const audio = require(process.argv[2])
 const assert = (condition, message) => { if (!condition) throw new Error(message) }

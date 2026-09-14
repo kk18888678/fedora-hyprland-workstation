@@ -42,9 +42,9 @@ else
     fail "noctalia config.toml missing persistent workspaces widget configuration"
 fi
 
-if command -v noctalia >/dev/null 2>&1; then
+if command -v noctalia >/dev/null; then
     tmp_validate_home="$(mktemp -d)"
-    if HOME="$tmp_validate_home" noctalia config validate "$noctalia_config" >/dev/null 2>&1; then
+    if HOME="$tmp_validate_home" noctalia config validate "$noctalia_config" >/dev/null; then
         pass "noctalia config validate confirms config/noctalia/config.toml is strictly valid"
     else
         fail "noctalia config validate rejected config/noctalia/config.toml"

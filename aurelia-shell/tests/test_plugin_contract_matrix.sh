@@ -38,7 +38,7 @@ for manifest_path in "${matrix_manifests[@]}"; do
     plugin_dir="${manifest_path%/manifest.json}"
     plugin_id="$(jq -r '.id // empty' "$manifest_path")"
     if [[ "$(basename -- "$plugin_dir")" == "$plugin_id" ]] &&
-       "$validator" validate --first-party "$plugin_dir" >/dev/null 2>&1; then
+       "$validator" validate --first-party "$plugin_dir" >/dev/null; then
         pass "[static] first-party manifest validates: $plugin_id"
     else
         fail "[static] first-party manifest validation failed: $manifest_path"
@@ -126,7 +126,7 @@ if [[ "$matrix_coverage_failures" -eq 0 ]]; then
 fi
 
 matrix_invalid_root="$(mktemp -d)"
-trap 'rm -rf -- "$matrix_invalid_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$matrix_invalid_root"  || true' RETURN
 
 matrix_write_manifest() {
     local target="$1"
@@ -175,7 +175,7 @@ ln -s -- "$matrix_invalid_root/outside.qml" \
 matrix_expect_reject() {
     local label="$1"
     shift
-    if "$@" >/dev/null 2>&1; then
+    if "$@" >/dev/null; then
         fail "[isolated-cli] unsafe fixture was accepted: $label"
     else
         pass "[isolated-cli] unsafe fixture rejected before publication: $label"
@@ -217,6 +217,7 @@ jq -n '{
 matrix_duplicate_result="$matrix_invalid_root/duplicate-result.json"
 matrix_duplicate_log="$matrix_invalid_root/duplicate.log"
 matrix_duplicate_status=0
+: >"$matrix_duplicate_result"
 mkdir -p -- "$matrix_invalid_root/empty-config/aurelia/plugins"
 AURELIA_DISCOVERY_REGISTRY_SOURCE="$ROOT/services/PluginRegistry.qml" \
 AURELIA_DISCOVERY_FIRST_PARTY="$matrix_duplicate_root" \
@@ -233,16 +234,17 @@ XDG_CACHE_HOME="$matrix_invalid_root/duplicate-cache" \
     >"$matrix_duplicate_log" 2>&1 || matrix_duplicate_status=$?
 
 if [[ "$matrix_duplicate_status" -eq 0 ]] &&
+   runtime_log_is_environment_only "$matrix_duplicate_log" '\[PLUGIN\] aurelia\.plugin\.rejected' &&
    jq -e '
        .scanState == "partial" and
        .scanFailureClass == "rejected-manifests" and
        (.ids | length == 1) and
        (.ids | index("aurelia.duplicate")) and
        (.catalog.rejected | any(.reason | contains("duplicated")))
-   ' "$matrix_duplicate_result" >/dev/null 2>&1; then
+   ' "$matrix_duplicate_result" >/dev/null; then
     pass "[isolated-runtime] duplicate IDs are rejected while the first valid registry entry remains available"
 else
-    matrix_duplicate_details="$(tail -n 24 "$matrix_duplicate_log" 2>/dev/null || true)"
+    matrix_duplicate_details="$(tail -n 24 "$matrix_duplicate_log"  || true)"
     fail "[isolated-runtime] duplicate-ID registry fixture failed (status=$matrix_duplicate_status): $matrix_duplicate_details"
 fi
 
@@ -291,6 +293,7 @@ cp -- "$matrix_runtime_root/aurelia.bar/Entry.qml" \
 matrix_runtime_result="$matrix_invalid_root/runtime-result.json"
 matrix_runtime_log="$matrix_invalid_root/runtime.log"
 matrix_runtime_status=0
+: >"$matrix_runtime_result"
 AURELIA_CONTRACT_MATRIX_HOST_SOURCE="$ROOT/services/PluginHost.qml" \
 AURELIA_CONTRACT_MATRIX_ROOT="$matrix_runtime_root" \
 AURELIA_CONTRACT_MATRIX_RESULT="$matrix_runtime_result" \
@@ -305,6 +308,7 @@ XDG_CACHE_HOME="$matrix_invalid_root/runtime-cache" \
     >"$matrix_runtime_log" 2>&1 || matrix_runtime_status=$?
 
 if [[ "$matrix_runtime_status" -eq 0 ]] && [[ -s "$matrix_runtime_result" ]] &&
+   runtime_log_is_environment_only "$matrix_runtime_log" &&
    jq -e '
        .hostStillAlive == true and
        .pingResponded == true and
@@ -322,10 +326,10 @@ if [[ "$matrix_runtime_status" -eq 0 ]] && [[ -s "$matrix_runtime_result" ]] &&
        .healthyServiceAfterBarFailure == true and
        .healthyWidgetAfterBarFailure == true and
        .reloadedPanel == true
-   ' "$matrix_runtime_result" >/dev/null 2>&1; then
+   ' "$matrix_runtime_result" >/dev/null; then
     pass "[isolated-runtime] every supported kind loads through PluginHost and contained callback/reload/bar failures preserve host health"
 else
-    matrix_runtime_details="$(tail -n 40 "$matrix_runtime_log" 2>/dev/null || true)"
+    matrix_runtime_details="$(tail -n 40 "$matrix_runtime_log"  || true)"
     if [[ -s "$matrix_runtime_result" ]]; then
         matrix_runtime_details="$matrix_runtime_details result=$(tr '\n' ' ' <"$matrix_runtime_result")"
     fi

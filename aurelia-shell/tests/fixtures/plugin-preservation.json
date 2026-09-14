@@ -24,7 +24,7 @@
     {"id":"aurelia.weather","kinds":["bar-widget"],"entryPoints":{"barWidget":"WeatherBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Weather","description":"Automatic weather bar widget with city and coordinate overrides.","category":"Weather","allowMultiple":false,"defaultSection":"center"}},
     {"id":"aurelia.wifiqr","kinds":["panel"],"entryPoints":{"panel":"WifiQrPlugin.qml"},"keepLoaded":false,"barWidget":null},
     {"id":"aurelia.workspace-switcher","kinds":["overlay"],"entryPoints":{"overlay":"WorkspaceSwitcher.qml"},"keepLoaded":true,"barWidget":null},
-    {"id":"aurelia.workspaces","kinds":["bar-widget"],"entryPoints":{"barWidget":"WorkspacesBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Workspaces","description":"Hyprland workspace switcher for the Aurelia bar.","category":"Workspace","allowMultiple":false,"defaultSection":"center"}}
+    {"id":"aurelia.workspaces","kinds":["bar-widget"],"entryPoints":{"barWidget":"WorkspacesBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Workspaces","description":"Hyprland workspace switcher for the Aurelia bar.","category":"Workspace","allowMultiple":false}}
   ],
   "defaultBar": {
     "id": "aurelia.bar",

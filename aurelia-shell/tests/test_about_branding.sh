@@ -57,7 +57,7 @@ branding_bin="$ROOT/bin/aurelia-branding-about"
 branding_dir="$mock_config/aurelia/branding"
 branding_image="$branding_dir/about.png"
 
-if env "${test_env[@]}" "$branding_bin" reset >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$branding_bin" reset >/dev/null &&
    cmp -s "$branding_image" "$ROOT/config/branding/aurelia-mark.png" &&
    [[ -s "$launch_log" ]]; then
     pass "Restore Default publishes the high-resolution Aurelia mark and reopens About"
@@ -68,7 +68,7 @@ fi
 cp -- "$ROOT/config/branding/aurelia-mark.svg" "$fixture/input.svg"
 cp -- "$ROOT/config/branding/aurelia-mark.svg" "$fixture/input.txt"
 : >"$launch_log"
-if env "${test_env[@]}" "$branding_bin" image "$fixture/input.svg" >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$branding_bin" image "$fixture/input.svg" >/dev/null &&
    [[ -s "$branding_image" ]] &&
    [[ -s "$launch_log" ]] &&
    file "$branding_image" | grep -q 'PNG image data' &&

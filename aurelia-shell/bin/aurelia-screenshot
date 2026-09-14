@@ -31,11 +31,11 @@ fail() {
 }
 
 require_command() {
-    command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
+    command -v "$1" >/dev/null || fail "Required command not found: $1"
 }
 
 timeout_bin="/usr/bin/timeout"
-[[ -x "$timeout_bin" ]] || timeout_bin="$(command -v timeout 2>/dev/null || true)"
+[[ -x "$timeout_bin" ]] || timeout_bin="$(command -v timeout  || true)"
 [[ -n "$timeout_bin" && -x "$timeout_bin" ]] || fail "Required command not found: timeout"
 
 run_bounded() {
@@ -49,8 +49,8 @@ resolve_pictures_dir() {
     if [[ -z "$candidate" && -n "${XDG_PICTURES_DIR:-}" ]]; then
         candidate="$XDG_PICTURES_DIR"
     fi
-    if [[ -z "$candidate" ]] && command -v xdg-user-dir >/dev/null 2>&1; then
-        candidate="$(xdg-user-dir PICTURES 2>/dev/null || true)"
+    if [[ -z "$candidate" ]] && command -v xdg-user-dir >/dev/null; then
+        candidate="$(xdg-user-dir PICTURES  || true)"
     fi
     [[ -n "$candidate" ]] || candidate="${HOME:-}/Pictures"
     [[ "$candidate" == /* && "$candidate" != "/" ]] || {
@@ -190,19 +190,19 @@ original_inactive_timeout=""
 inactivity_timeout_changed=0
 cleanup() {
     if [[ -n "$freeze_pid" ]]; then
-        kill "$freeze_pid" 2>/dev/null || true
-        wait "$freeze_pid" 2>/dev/null || true
+        kill "$freeze_pid"  || true
+        wait "$freeze_pid"  || true
     fi
     if (( inactivity_timeout_changed == 1 )); then
         restore_inactive_status=0
-        run_bounded 5 hyprctl keyword cursor:inactive_timeout "$original_inactive_timeout" >/dev/null 2>&1 || restore_inactive_status=$?
+        run_bounded 5 hyprctl keyword cursor:inactive_timeout "$original_inactive_timeout" >/dev/null || restore_inactive_status=$?
         if (( restore_inactive_status != 0 )); then
             printf 'Error: Could not restore Hyprland cursor inactivity (status %s).\n' "$restore_inactive_status" >&2
         fi
     fi
     if (( cursor_mode_changed == 1 )); then
         restore_status=0
-        run_bounded 5 hyprctl keyword cursor:no_hardware_cursors "$original_no_hw_cursors" >/dev/null 2>&1 || restore_status=$?
+        run_bounded 5 hyprctl keyword cursor:no_hardware_cursors "$original_no_hw_cursors" >/dev/null || restore_status=$?
         if (( restore_status != 0 )); then
             printf 'Error: Could not restore Hyprland cursor mode (status %s).\n' "$restore_status" >&2
         fi
@@ -218,11 +218,11 @@ trap cleanup EXIT
 
 start_freeze() {
     [[ -z "$freeze_pid" ]] || return 0
-    hyprpicker -r -z >/dev/null 2>&1 &
+    hyprpicker -r -z >/dev/null &
     freeze_pid=$!
     sleep 0.1
-    if ! kill -0 "$freeze_pid" 2>/dev/null; then
-        wait "$freeze_pid" 2>/dev/null || true
+    if ! kill -0 "$freeze_pid" ; then
+        wait "$freeze_pid"  || true
         freeze_pid=""
         fail "Could not freeze the screen for selection."
     fi

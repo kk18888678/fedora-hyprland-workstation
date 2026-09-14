@@ -477,6 +477,7 @@ QtObject {
                 root.rebuildResults()
             } catch (error) {
                 root.errorMessage = "Action discovery returned invalid data."
+                console.warn("[COMMAND_CENTER] action_discovery_parse_failed")
             }
         }
     }
@@ -512,6 +513,7 @@ QtObject {
                 root.fileItems = []
                 root.fileQuery = ""
                 root.errorMessage = "File search returned invalid data."
+                console.warn("[COMMAND_CENTER] file_search_parse_failed")
                 root.rebuildResults()
             }
             if (root.pendingFileQuery !== completedQuery) fileRequestTimer.restart()

@@ -36,7 +36,9 @@ Item {
 
     function open(payloadJson) {
         var payload = {}
-        try { payload = JSON.parse(payloadJson || "{}") || {} } catch (errorValue) {}
+        try { payload = JSON.parse(payloadJson || "{}") || {} } catch (errorValue) {
+            console.warn("[NETWORK] speedtest_payload_invalid reason=invalid_json")
+        }
         connectionName = payload.connection !== undefined ? String(payload.connection) : ""
         if (connectionName === "") refreshConnectionName()
         opened = true

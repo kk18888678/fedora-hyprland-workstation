@@ -732,16 +732,21 @@ QtObject {
                             return
                         }
                     }
-                } catch (e) {}
+                } catch (e) {
+                    console.warn("[KEYBINDINGS] path_completion_invalid_output")
+                }
                 root.pathCompletions = []
             }
         }
         stderr: StdioCollector {
-            onStreamFinished: {}
+            id: completeError
+            waitForEnd: true
         }
         onExited: function(code) {
             if (code !== 0) {
                 root.pathCompletions = []
+                console.error("[KEYBINDINGS] path_completion_failed code=" + code +
+                    (completeError.text ? " detail=" + completeError.text.trim() : ""))
             }
         }
     }
@@ -762,9 +767,6 @@ QtObject {
         command: [root.backendBin, "preference", "set", "", ""]
         environment: root.procEnv
         property string errorMsg: ""
-        stdout: StdioCollector {
-            onStreamFinished: {}
-        }
         stderr: StdioCollector {
             onStreamFinished: {
                 prefSetProcess.errorMsg = this.text ? this.text.trim() : ""
@@ -800,9 +802,6 @@ QtObject {
         command: [root.backendBin, "preference", "reset", "--component=keybindings"]
         environment: root.procEnv
         property string errorMsg: ""
-        stdout: StdioCollector {
-            onStreamFinished: {}
-        }
         stderr: StdioCollector {
             onStreamFinished: {
                 prefResetProcess.errorMsg = this.text ? this.text.trim() : ""

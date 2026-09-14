@@ -82,19 +82,19 @@ fi
 [[ -f /etc/fedora-release ]] ||
     die "This installer is intended for Fedora Linux."
 
-command -v dnf >/dev/null 2>&1 ||
+command -v dnf >/dev/null ||
     die "dnf was not found."
 
-command -v sudo >/dev/null 2>&1 ||
+command -v sudo >/dev/null ||
     die "sudo was not found."
 
-command -v timeout >/dev/null 2>&1 ||
+command -v timeout >/dev/null ||
     die "timeout (GNU coreutils) was not found."
 
-command -v id >/dev/null 2>&1 ||
+command -v id >/dev/null ||
     die "id was not found."
 
-command -v getent >/dev/null 2>&1 ||
+command -v getent >/dev/null ||
     die "getent was not found."
 
 # shellcheck source=/dev/null
@@ -185,8 +185,8 @@ cleanup_installer_children() {
     stop_sudo_keepalive
 
     if [[ -n "${ACTIVE_TIMEOUT_PID:-}" ]]; then
-        kill -TERM "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
-        wait "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        kill -TERM "$ACTIVE_TIMEOUT_PID"  || true
+        wait "$ACTIVE_TIMEOUT_PID"  || true
         ACTIVE_TIMEOUT_PID=""
     fi
 }

@@ -12,7 +12,9 @@ fixture_root="$ROOT/tests/fixtures/plugin-lifecycle"
 if grep -q 'function keepsResident' "$host_root" &&
    grep -q '!host.keepsResident' "$host_root" &&
    grep -q 'Array.isArray(pending)' "$host_root" &&
-   grep -q 'queue.push' "$host_root"; then
+   grep -q 'queue.push' "$host_root" &&
+   grep -q 'reloadDrainTimer' "$host_root" &&
+   grep -q 'function commitReload' "$host_root"; then
     pass "[static] resident reload retention and ordered pending-open queues are explicit"
 else
     fail "[static] keepLoaded or pending-open lifecycle semantics are incomplete"
@@ -33,10 +35,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 runtime_result="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
+mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache"
+: >"$runtime_result"
 AURELIA_LIFECYCLE_HOST_SOURCE="$ROOT/services/PluginHost.qml" \
 AURELIA_LIFECYCLE_BAR_REGISTRY_SOURCE="$ROOT/services/BarWidgetRegistry.qml" \
 AURELIA_LIFECYCLE_RESULT="$runtime_result" \
@@ -51,6 +55,7 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '
         .hostAlive == true and
         .pingResponded == true and
@@ -62,6 +67,8 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
         .menuLoaded == true and
         .queueFirstResult == "pending" and
         .queueSecondResult == "pending" and
+        .firstReloadCommitted == true and
+        .queueReloadCommitted == true and
         .queuePayloadsInOrder == true and
         .toggleResult == "ok" and
         .closeResult == "ok" and

@@ -112,7 +112,7 @@ sheen_build() {
     declare -gA SHEEN_CHAR_COLORS=()
     SHEEN_CHAR_COLORS=()
 
-    mapfile -t SHEEN_SOURCE_LINES 2>/dev/null <"$file" || return 1
+    mapfile -t SHEEN_SOURCE_LINES  <"$file" || return 1
     (( ${#SHEEN_SOURCE_LINES[@]} > 0 )) || return 1
 
     for row in "${!SHEEN_SOURCE_LINES[@]}"; do

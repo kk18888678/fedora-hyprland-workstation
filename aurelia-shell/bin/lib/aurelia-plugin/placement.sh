@@ -121,7 +121,7 @@ aurelia_plugin_parse_placement() {
 }
 
 aurelia_plugin_placement_json() {
-    command -v jq >/dev/null 2>&1 || {
+    command -v jq >/dev/null || {
         aurelia_plugin_fail "jq is required for placement operations"
         return 1
     }

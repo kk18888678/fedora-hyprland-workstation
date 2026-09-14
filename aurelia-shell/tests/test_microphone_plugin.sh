@@ -26,7 +26,7 @@ if [[ -f "$manifest_file" && -f "$widget_file" ]] &&
        .barWidget.allowMultiple == false and
        (.barWidget.defaultSection == null)
    ' "$manifest_file" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$microphone_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$microphone_root" >/dev/null; then
     pass "[static] Microphone has a validated optional bar-widget manifest matching the reference metadata"
 else
     fail "[static] Microphone manifest, entry point, or optional metadata is incomplete"
@@ -77,7 +77,7 @@ else
     fail "[static] shared Audio microphone model helpers are incomplete"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$audio_model_file" <<'NODE_MICROPHONE_MODEL'
 const audio = require(process.argv[2])
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
@@ -116,11 +116,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 result_file="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache"
+: >"$result_file"
 
 AURELIA_MICROPHONE_FOUNDATION_RESULT="$result_file" \
 AURELIA_MICROPHONE_FOUNDATION_SOURCE="file://$widget_file" \
@@ -133,11 +134,8 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
     --path "$fixture_root/shell.qml" --no-color >"$runtime_log" 2>&1 || runtime_status=$?
 
-unexpected_diagnostics="$(grep -E 'WARN|ERROR|FATAL|TypeError|ReferenceError|QML Error|Segmentation fault|Cannot assign' "$runtime_log" | \
-    grep -Ev 'ERROR quickshell\.ipc: Failed to start IPC server on path |ERROR quickshell\.service\.pipewire\.loop: Failed to connect pipewire context\. Errno: 1' || true)"
-
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
-   [[ -z "$unexpected_diagnostics" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '.microphoneLoaded == true and .noSource.visible == false and
           .noSource.inUse == false and .noSource.muted == true and
           .noSource.volume == 0 and .fake.initialVisible == true and
@@ -150,7 +148,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
           .fake.summonedPlugin == "aurelia.audio" and
           .fake.upperVolume == 1 and .fake.lowerVolume == 0' "$result_file" >/dev/null; then
     pass "[isolated-runtime] real Microphone widget handlers load safely and cover mute, Audio summon, in-use text, and input bounds"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Failed to connect pipewire context' "$runtime_log" &&
+elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Microphone entry-point fixture cannot create a disposable runtime backend"; then
     :
 else

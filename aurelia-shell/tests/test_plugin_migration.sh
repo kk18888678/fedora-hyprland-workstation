@@ -21,7 +21,7 @@ while IFS= read -r manifest; do
         printf 'Non-canonical bar manifest: %s\n' "$manifest" >&2
         matrix_failures=$((matrix_failures + 1))
     fi
-    if ! "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_dir" >/dev/null 2>&1; then
+    if ! "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_dir" >/dev/null; then
         printf 'Manifest validation failed: %s\n' "$manifest" >&2
         matrix_failures=$((matrix_failures + 1))
     fi

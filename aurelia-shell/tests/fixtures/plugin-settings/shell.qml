@@ -16,6 +16,8 @@ ShellRoot {
     QtObject {
         id: fakeBarRegistry
 
+        signal widgetCatalogChanged()
+
         function allowMultipleFor(id) {
             return id === "fixture.multi" ? true : (id === "fixture.widget" ? false : null)
         }
@@ -53,7 +55,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }

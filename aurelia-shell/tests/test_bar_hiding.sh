@@ -57,7 +57,7 @@ else
     fail "[static] exact persistent-bar keybinding declaration is incomplete"
 fi
 
-if command -v luajit >/dev/null 2>&1; then
+if command -v luajit >/dev/null; then
     binding_result="$(luajit - "$ROOT/dotfiles/hypr/keybindings_manifest.lua" <<'LUA'
 local manifest = dofile(arg[1])
 local found = 0
@@ -94,7 +94,7 @@ fi
 
 if jq -e '
        any(.items[]; .id == "style.bar" and .provider == "bar" and .label == "Menu Bar")
-   ' "$menu_file" >/dev/null 2>&1 &&
+   ' "$menu_file" >/dev/null &&
    grep -Fq 'allowedProviders' "$menu_model" &&
    grep -Fq 'bar-position-top' "$menu_model" &&
    grep -Fq 'bar-transparent-toggle' "$menu_model" &&
@@ -105,7 +105,7 @@ else
 fi
 
 state_root="$(mktemp -d)"
-trap 'rm -rf -- "$state_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$state_root"  || true' RETURN
 mkdir -p -- "$state_root/home" "$state_root/state" "$state_root/config" "$state_root/cache"
 sync_log="$state_root/sync.log"
 touch "$sync_log"
@@ -230,6 +230,7 @@ mkdir -p -- "$watcher_runtime_root/runtime" "$watcher_runtime_root/state" \
     "$watcher_runtime_root/config" "$watcher_runtime_root/cache" \
     "$watcher_runtime_root/events"
 watcher_result="$watcher_runtime_root/result.json"
+: >"$watcher_result"
 watcher_log="$watcher_runtime_root/runtime.log"
 watcher_status=0
 AURELIA_BAR_WATCHER_SOURCE="file://$watcher_file" \
@@ -244,11 +245,11 @@ XDG_CACHE_HOME="$watcher_runtime_root/cache" \
     --path "$ROOT/tests/fixtures/bar-hiding/watcher.qml" >"$watcher_log" 2>&1 || watcher_status=$?
 if [[ "$watcher_status" -eq 0 ]] && [[ -s "$watcher_result" ]] &&
    jq -e '.loaded == true and .watcherAvailable == true and .syncEvents >= 2' \
-       "$watcher_result" >/dev/null 2>&1 &&
+       "$watcher_result" >/dev/null &&
    runtime_log_is_environment_only "$watcher_log"; then
     pass "[isolated-runtime] the real parent-directory watcher observes marker creation/removal without a PanelWindow"
 else
-    details="$(tail -n 40 "$watcher_log" 2>/dev/null || true)"
+    details="$(tail -n 40 "$watcher_log"  || true)"
     if [[ -s "$watcher_result" ]]; then details="$details result=$(tr '\n' ' ' <"$watcher_result")"; fi
     fail "[isolated-runtime] parent-directory watcher fixture failed (status=$watcher_status): $details"
 fi
@@ -289,13 +290,13 @@ if [[ "$menu_status" -eq 0 ]] && jq -e '
        .positionAccepted and .transparencyAccepted and .defaultsAccepted and
        .userExtension and .invalidRejected and
        .lastAction == "bar-defaults"
-   ' "$menu_result" >/dev/null 2>&1; then
+   ' "$menu_result" >/dev/null; then
     pass "[isolated-runtime] Menu Bar controls dispatch through safe shell APIs, expose checked state, and preserve user extensions"
 elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$menu_log" &&
      runtime_skip_if_environment_only "$menu_log" "[isolated-runtime] Menu Bar model fixture could not create a disposable QuickShell surface"; then
     :
 else
-    details="$(tail -n 32 "$menu_log" 2>/dev/null || true)"
+    details="$(tail -n 32 "$menu_log"  || true)"
     if [[ -s "$menu_result" ]]; then details="$details result=$(tr '\n' ' ' <"$menu_result")"; fi
     fail "[isolated-runtime] Menu Bar model fixture failed (status=$menu_status): $details"
 fi
@@ -303,6 +304,7 @@ fi
 bar_root_runtime="$state_root/bar"
 mkdir -p -- "$bar_root_runtime/runtime" "$bar_root_runtime/state" "$bar_root_runtime/config" "$bar_root_runtime/cache"
 bar_result="$bar_root_runtime/result.json"
+: >"$bar_result"
 bar_log="$bar_root_runtime/runtime.log"
 bar_status=0
 HOME="$bar_root_runtime/home" \
@@ -322,13 +324,13 @@ if [[ "$bar_status" -eq 0 ]] && jq -e '
        .hiddenExclusion and .hiddenOffscreen and .restored and
        .restoredExclusion and .widgetBefore == "healthy" and
        .widgetAfter == "healthy" and .writerFailureReported == false
-   ' "$bar_result" >/dev/null 2>&1; then
+   ' "$bar_result" >/dev/null; then
     pass "[isolated-runtime] mapped bar hides off-screen, removes exclusion, restores in place, and keeps healthy widget routing alive"
 elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$bar_log" &&
      runtime_skip_if_environment_only "$bar_log" "[isolated-runtime] bar-hidden surface fixture could not create a disposable window backend"; then
     :
 else
-    details="$(tail -n 48 "$bar_log" 2>/dev/null || true)"
+    details="$(tail -n 48 "$bar_log"  || true)"
     if [[ -s "$bar_result" ]]; then details="$details result=$(tr '\n' ' ' <"$bar_result")"; fi
     fail "[isolated-runtime] bar-hidden surface fixture failed (status=$bar_status): $details"
 fi

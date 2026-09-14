@@ -18,8 +18,8 @@ else
 fi
 
 # 44. remove != purge
-htop_rem_body="$(type remove_htop_adapter 2>/dev/null)"
-dnf_remove_helper_body="$(type remove_managed_dnf_package 2>/dev/null)"
+htop_rem_body="$(type remove_htop_adapter )"
+dnf_remove_helper_body="$(type remove_managed_dnf_package )"
 if [[ "$htop_rem_body" != *"rm -rf"* &&
       "$dnf_remove_helper_body" == *"dnf remove"* &&
       "$dnf_remove_helper_body" == *"run_dnf_command"* ]]; then
@@ -77,7 +77,7 @@ init_desired_state "$ds_cap_fail" "workstation" "customize"
 desired_state_set_component "$ds_cap_fail" "foot" "managed"
 desired_state_set_component "$ds_cap_fail" "needs_cap" "managed"
 cap_fail_rc=0
-create_execution_plan "$ds_cap_fail" "PLAN_CAP_FAIL" 2>/dev/null || cap_fail_rc=$?
+create_execution_plan "$ds_cap_fail" "PLAN_CAP_FAIL"  || cap_fail_rc=$?
 if [[ "$cap_fail_rc" -ne 0 ]]; then
     pass "47. unsatisfied capability requirement fails closed during planning"
 else

@@ -13,7 +13,7 @@ position="${1:-top}"
 bar_size="${2:-}"
 text_color="${3:-}"
 background_color="${4:-}"
-shift 4 2>/dev/null || true
+shift 4  || true
 
 background_path=""
 screen_size=""
@@ -77,8 +77,8 @@ fi
 
 if [[ -z "$screen_size" ]]; then
     if [[ -x /usr/bin/hyprctl && -x /usr/bin/jq ]]; then
-        screen_size="$('/usr/bin/hyprctl' monitors -j 2>/dev/null |
-            '/usr/bin/jq' -r '.[0] | "\(.width)x\(.height)"' 2>/dev/null || true)"
+        screen_size="$('/usr/bin/hyprctl' monitors -j  |
+            '/usr/bin/jq' -r '.[0] | "\(.width)x\(.height)"'  || true)"
     fi
 fi
 [[ "$screen_size" =~ ^([0-9]+)x([0-9]+)$ ]] || fallback invalid-screen-size
@@ -115,7 +115,7 @@ pixel="$(/usr/bin/magick "${background_path}[0]" -auto-orient \
     -gravity center -extent "${screen_width}x${screen_height}" \
     -gravity NorthWest -crop "$crop" +repage \
     -resize '1x1!' \
-    -format '%[fx:int(255*r)],%[fx:int(255*g)],%[fx:int(255*b)]' info:- 2>/dev/null || true)"
+    -format '%[fx:int(255*r)],%[fx:int(255*g)],%[fx:int(255*b)]' info:-  || true)"
 [[ "$pixel" =~ ^([0-9]+),([0-9]+),([0-9]+)$ ]] || fallback sample-failed
 
 sample="$(printf '#%02x%02x%02x' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}")"

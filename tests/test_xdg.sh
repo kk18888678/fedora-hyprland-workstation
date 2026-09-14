@@ -188,7 +188,7 @@ else
 fi
 
 # Test with real installed xdg-user-dirs-update binary in isolated sandbox if present
-if command -v xdg-user-dirs-update >/dev/null 2>&1; then
+if command -v xdg-user-dirs-update >/dev/null; then
     real_binary_test_output="$(
         bash -s <<'EOS'
 set -Eeuo pipefail

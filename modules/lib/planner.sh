@@ -48,18 +48,18 @@ add_plan_action() {
     local reason="$4"
     local details="${5:-}"
 
-    local -n actions_list="${plan_prefix}_ACTIONS"
-    local -n type_map="${plan_prefix}_ACTION_TYPE"
-    local -n target_map="${plan_prefix}_ACTION_TARGET"
-    local -n reason_map="${plan_prefix}_ACTION_REASON"
-    local -n details_map="${plan_prefix}_ACTION_DETAILS"
+    local -n add_action_ids="${plan_prefix}_ACTIONS"
+    local -n add_action_types="${plan_prefix}_ACTION_TYPE"
+    local -n add_action_targets="${plan_prefix}_ACTION_TARGET"
+    local -n add_action_reasons="${plan_prefix}_ACTION_REASON"
+    local -n add_action_details="${plan_prefix}_ACTION_DETAILS"
 
-    local idx="${#actions_list[@]}"
-    actions_list+=("$idx")
-    type_map["$idx"]="$action_type"
-    target_map["$idx"]="$target"
-    reason_map["$idx"]="$reason"
-    details_map["$idx"]="$details"
+    local idx="${#add_action_ids[@]}"
+    add_action_ids+=("$idx")
+    add_action_types["$idx"]="$action_type"
+    add_action_targets["$idx"]="$target"
+    add_action_reasons["$idx"]="$reason"
+    add_action_details["$idx"]="$details"
 
     case "$action_type" in
         INSTALL)
@@ -89,10 +89,10 @@ add_plan_action() {
 detect_component_presence() {
     local id="$1"
     local detect_fn
-    detect_fn="$(get_component_attr "$id" detect_fn 2>/dev/null || true)"
+    detect_fn="$(get_component_attr "$id" detect_fn  || true)"
 
-    if [[ -n "$detect_fn" ]] && type "$detect_fn" >/dev/null 2>&1; then
-        if "$detect_fn" >/dev/null 2>&1; then
+    if [[ -n "$detect_fn" ]] && type "$detect_fn" >/dev/null; then
+        if "$detect_fn" >/dev/null; then
             return 0
         else
             return 1
@@ -100,7 +100,7 @@ detect_component_presence() {
     fi
 
     # Fallback to standard command_exists or package_installed
-    if command_exists "$id" 2>/dev/null || package_installed "$id" 2>/dev/null; then
+    if command_exists "$id"  || package_installed "$id" ; then
         return 0
     fi
     return 1
@@ -108,9 +108,9 @@ detect_component_presence() {
 
 # Browser default detector adapter
 detect_browser_default_adapter() {
-    if command_exists xdg-mime 2>/dev/null; then
+    if command_exists xdg-mime ; then
         local def
-        def="$(xdg-mime query default x-scheme-handler/https 2>/dev/null || true)"
+        def="$(xdg-mime query default x-scheme-handler/https  || true)"
         case "$def" in
             *chromium*) printf 'chromium\n' ;;
             *firefox*)  printf 'firefox\n' ;;
@@ -121,9 +121,9 @@ detect_browser_default_adapter() {
 
 # File manager default detector adapter
 detect_file_manager_default_adapter() {
-    if command_exists xdg-mime 2>/dev/null; then
+    if command_exists xdg-mime ; then
         local def
-        def="$(xdg-mime query default inode/directory 2>/dev/null || true)"
+        def="$(xdg-mime query default inode/directory  || true)"
         case "$def" in
             *Nautilus*|*nautilus*) printf 'nautilus\n' ;;
             *thunar*|*Thunar*)     printf 'thunar\n' ;;
@@ -136,7 +136,7 @@ detect_file_manager_default_adapter() {
 detect_current_role_default() {
     local role="$1"
     local detector="${_ROLE_DEFAULT_DETECTORS[$role]:-}"
-    if [[ -n "$detector" ]] && declare -F "$detector" >/dev/null 2>&1; then
+    if [[ -n "$detector" ]] && declare -F "$detector" >/dev/null; then
         "$detector"
     else
         printf ''
@@ -182,7 +182,7 @@ topological_sort_components() {
         _visit_state["$curr"]=1
 
         local deps
-        deps="$(get_component_attr "$curr" dependencies 2>/dev/null || true)"
+        deps="$(get_component_attr "$curr" dependencies  || true)"
         for dep in $deps; do
             if [[ -n "${_in_set[$dep]:-}" ]]; then
                 if ! _topo_dfs "$dep"; then
@@ -216,11 +216,11 @@ topological_sort_components() {
 # Compute deterministic fingerprint of all actions in a plan
 compute_plan_fingerprint() {
     local plan_prefix="$1"
-    local -n actions_list="${plan_prefix}_ACTIONS"
-    local -n type_map="${plan_prefix}_ACTION_TYPE"
-    local -n target_map="${plan_prefix}_ACTION_TARGET"
-    local -n reason_map="${plan_prefix}_ACTION_REASON"
-    local -n details_map="${plan_prefix}_ACTION_DETAILS"
+    local -n fingerprint_action_ids="${plan_prefix}_ACTIONS"
+    local -n fingerprint_action_types="${plan_prefix}_ACTION_TYPE"
+    local -n fingerprint_action_targets="${plan_prefix}_ACTION_TARGET"
+    local -n fingerprint_action_reasons="${plan_prefix}_ACTION_REASON"
+    local -n fingerprint_action_details="${plan_prefix}_ACTION_DETAILS"
 
     local c_inst="${plan_prefix}_COUNT_INSTALL"
     local c_rem="${plan_prefix}_COUNT_REMOVE"
@@ -232,8 +232,8 @@ compute_plan_fingerprint() {
     local lines=()
     lines+=("DESKTOP_SHELL:${!shell_var:-noctalia}")
     lines+=("COUNTS:${!c_inst}:${!c_rem}:${!c_cfg}:${!c_keep}:${!c_def}")
-    for idx in "${actions_list[@]}"; do
-        lines+=("ACTION:$idx:${type_map[$idx]}:${target_map[$idx]}:${reason_map[$idx]}:${details_map[$idx]}")
+    for idx in "${fingerprint_action_ids[@]}"; do
+        lines+=("ACTION:$idx:${fingerprint_action_types["$idx"]}:${fingerprint_action_targets["$idx"]}:${fingerprint_action_reasons["$idx"]}:${fingerprint_action_details["$idx"]}")
     done
 
     printf '%s\n' "${lines[@]}" | sha256sum | awk '{print $1}'
@@ -243,11 +243,11 @@ compute_plan_fingerprint() {
 _validate_plan_structure() {
     local plan_prefix="$1"
 
-    local -n actions_list="${plan_prefix}_ACTIONS"
-    local -n type_map="${plan_prefix}_ACTION_TYPE"
-    local -n target_map="${plan_prefix}_ACTION_TARGET"
-    local -n reason_map="${plan_prefix}_ACTION_REASON"
-    local -n details_map="${plan_prefix}_ACTION_DETAILS"
+    local -n validation_action_ids="${plan_prefix}_ACTIONS"
+    local -n validation_action_types="${plan_prefix}_ACTION_TYPE"
+    local -n validation_action_targets="${plan_prefix}_ACTION_TARGET"
+    local -n validation_action_reasons="${plan_prefix}_ACTION_REASON"
+    local -n validation_action_details="${plan_prefix}_ACTION_DETAILS"
 
     local c_inst="${plan_prefix}_COUNT_INSTALL"
     local c_rem="${plan_prefix}_COUNT_REMOVE"
@@ -263,16 +263,16 @@ _validate_plan_structure() {
     fi
 
     local sum=$(( ${!c_inst:-0} + ${!c_rem:-0} + ${!c_cfg:-0} + ${!c_keep:-0} + ${!c_def:-0} ))
-    if [[ "$sum" -ne "${#actions_list[@]}" ]]; then
-        printf 'ERROR: Plan action count mismatch: sum=%d, actions=%d\n' "$sum" "${#actions_list[@]}" >&2
+    if [[ "$sum" -ne "${#validation_action_ids[@]}" ]]; then
+        printf 'ERROR: Plan action count mismatch: sum=%d, actions=%d\n' "$sum" "${#validation_action_ids[@]}" >&2
         return 1
     fi
 
     declare -A seen_removes=()
     declare -A seen_installs=()
-    for idx in "${actions_list[@]}"; do
-        local atype="${type_map[$idx]:-}"
-        local target="${target_map[$idx]:-}"
+    for idx in "${validation_action_ids[@]}"; do
+        local atype="${validation_action_types["$idx"]:-}"
+        local target="${validation_action_targets["$idx"]:-}"
 
         if [[ -z "$atype" || -z "$target" ]]; then
             printf 'ERROR: Malformed plan action at index %s\n' "$idx" >&2
@@ -299,13 +299,13 @@ _validate_plan_structure() {
                     return 1
                 fi
                 local is_req
-                is_req="$(get_component_attr "$target" required 2>/dev/null || true)"
+                is_req="$(get_component_attr "$target" required  || true)"
                 if [[ "$is_req" == "true" ]]; then
                     printf 'ERROR: Illegal plan action: required component %s cannot be removed\n' "$target" >&2
                     return 1
                 fi
                 local is_rem
-                is_rem="$(get_component_attr "$target" removable 2>/dev/null || true)"
+                is_rem="$(get_component_attr "$target" removable  || true)"
                 if [[ "$is_rem" != "true" ]]; then
                     printf 'ERROR: Illegal plan action: component %s is not removable\n' "$target" >&2
                     return 1
@@ -317,7 +317,7 @@ _validate_plan_structure() {
                     printf 'ERROR: Plan CHANGE_DEFAULT action references unknown component: %s\n' "$target" >&2
                     return 1
                 fi
-                local details="${details_map[$idx]:-}"
+                local details="${validation_action_details["$idx"]:-}"
                 local role="${details%%:*}"
                 local valid_role=0
                 for r in "${SUPPORTED_ROLES[@]}"; do
@@ -332,7 +332,7 @@ _validate_plan_structure() {
                     return 1
                 fi
                 local comp_roles
-                comp_roles="$(get_component_attr "$target" roles 2>/dev/null || true)"
+                comp_roles="$(get_component_attr "$target" roles  || true)"
                 local has_role=0
                 for r in $comp_roles; do
                     if [[ "$r" == "$role" ]]; then has_role=1; break; fi
@@ -350,9 +350,9 @@ _validate_plan_structure() {
     done
 
     # Check that no CHANGE_DEFAULT target is also marked for REMOVE
-    for idx in "${actions_list[@]}"; do
-        if [[ "${type_map[$idx]}" == "CHANGE_DEFAULT" ]]; then
-            local target="${target_map[$idx]}"
+    for idx in "${validation_action_ids[@]}"; do
+        if [[ "${validation_action_types["$idx"]}" == "CHANGE_DEFAULT" ]]; then
+            local target="${validation_action_targets["$idx"]}"
             if [[ -n "${seen_removes[$target]:-}" ]]; then
                 printf 'ERROR: Invalid plan: CHANGE_DEFAULT target %s is also marked for REMOVE\n' "$target" >&2
                 return 1
@@ -364,7 +364,7 @@ _validate_plan_structure() {
     for target in "${!seen_installs[@]}"; do
         local target_idx="${seen_installs[$target]}"
         local deps
-        deps="$(get_component_attr "$target" dependencies 2>/dev/null || true)"
+        deps="$(get_component_attr "$target" dependencies  || true)"
         for dep in $deps; do
             if [[ -n "${seen_installs[$dep]:-}" ]]; then
                 local dep_idx="${seen_installs[$dep]}"
@@ -461,7 +461,7 @@ create_execution_plan() {
         for id in $(list_component_ids); do
             if [[ "${working_state[$id]}" == "managed" ]]; then
                 local deps
-                deps="$(get_component_attr "$id" dependencies 2>/dev/null || true)"
+                deps="$(get_component_attr "$id" dependencies  || true)"
                 for dep in $deps; do
                     # Cannot depend on a component explicitly marked for removal
                     if [[ "${working_state[$dep]}" == "remove" ]]; then
@@ -493,7 +493,7 @@ create_execution_plan() {
     # 4. Check for conflicts among all resolved managed components
     for id1 in "${sorted_managed[@]}"; do
         local confs
-        confs="$(get_component_attr "$id1" conflicts 2>/dev/null || true)"
+        confs="$(get_component_attr "$id1" conflicts  || true)"
         for id2 in $confs; do
             if [[ "${working_state[$id2]}" == "managed" ]]; then
                 printf 'ERROR: Conflict detected between %s and %s\n' "$id1" "$id2" >&2
@@ -505,14 +505,14 @@ create_execution_plan() {
     # 5. Capability requirements validation
     for id in "${sorted_managed[@]}"; do
         local reqs
-        reqs="$(get_component_attr "$id" requires 2>/dev/null || true)"
+        reqs="$(get_component_attr "$id" requires  || true)"
         for req in $reqs; do
             local satisfied=0
             for other in $(list_component_ids); do
                 local other_st="${working_state[$other]}"
                 if [[ "$other_st" == "managed" ]]; then
                     local provs
-                    provs="$(get_component_attr "$other" provides 2>/dev/null || true)"
+                    provs="$(get_component_attr "$other" provides  || true)"
                     for p in $provs; do
                         if [[ "$p" == "$req" ]]; then satisfied=1; break 2; fi
                     done
@@ -550,7 +550,7 @@ create_execution_plan() {
         local is_present=0
         if [[ -n "$actual_prefix" ]]; then
             local act_pres_var="${actual_prefix}_PRESENT"
-            if declare -p "$act_pres_var" >/dev/null 2>&1; then
+            if declare -p "$act_pres_var" >/dev/null; then
                 local -n act_map="$act_pres_var"
                 if [[ "${act_map[$id]:-false}" == "true" ]]; then is_present=1; fi
             fi
@@ -559,9 +559,9 @@ create_execution_plan() {
         fi
 
         local disp
-        disp="$(get_component_attr "$id" display_name 2>/dev/null || true)"
+        disp="$(get_component_attr "$id" display_name  || true)"
         local cat
-        cat="$(get_component_attr "$id" category 2>/dev/null || true)"
+        cat="$(get_component_attr "$id" category  || true)"
 
         if [[ "$is_present" -eq 1 ]]; then
             add_plan_action "$plan_prefix" "REMOVE" "$id" "explicitly deselected for removal" "$disp ($cat)"
@@ -573,7 +573,7 @@ create_execution_plan() {
         local is_present=0
         if [[ -n "$actual_prefix" ]]; then
             local act_pres_var="${actual_prefix}_PRESENT"
-            if declare -p "$act_pres_var" >/dev/null 2>&1; then
+            if declare -p "$act_pres_var" >/dev/null; then
                 local -n act_map="$act_pres_var"
                 if [[ "${act_map[$id]:-false}" == "true" ]]; then is_present=1; fi
             fi
@@ -582,22 +582,22 @@ create_execution_plan() {
         fi
 
         local disp
-        disp="$(get_component_attr "$id" display_name 2>/dev/null || true)"
+        disp="$(get_component_attr "$id" display_name  || true)"
         local cat
-        cat="$(get_component_attr "$id" category 2>/dev/null || true)"
+        cat="$(get_component_attr "$id" category  || true)"
 
         if [[ "$is_present" -eq 0 ]]; then
             local reason="selected by user"
             if [[ -n "${dependency_reason[$id]:-}" ]]; then
                 reason="${dependency_reason[$id]}"
             fi
-            if package_installed "$id" 2>/dev/null; then
+            if package_installed "$id" ; then
                 reason="installed package does not satisfy desired state (convergence required)"
             fi
             add_plan_action "$plan_prefix" "INSTALL" "$id" "$reason" "$disp ($cat)"
         else
             local cfg_fn
-            cfg_fn="$(get_component_attr "$id" configure_fn 2>/dev/null || true)"
+            cfg_fn="$(get_component_attr "$id" configure_fn  || true)"
             if [[ -n "$cfg_fn" ]]; then
                 add_plan_action "$plan_prefix" "CONFIGURE" "$id" "configuration update" "$disp ($cat)"
             else
@@ -626,7 +626,7 @@ create_execution_plan() {
         local is_present=0
         if [[ -n "$actual_prefix" ]]; then
             local act_pres_var="${actual_prefix}_PRESENT"
-            if declare -p "$act_pres_var" >/dev/null 2>&1; then
+            if declare -p "$act_pres_var" >/dev/null; then
                 local -n act_map="$act_pres_var"
                 if [[ "${act_map[$id]:-false}" == "true" ]]; then is_present=1; fi
             fi
@@ -635,9 +635,9 @@ create_execution_plan() {
         fi
 
         local disp
-        disp="$(get_component_attr "$id" display_name 2>/dev/null || true)"
+        disp="$(get_component_attr "$id" display_name  || true)"
         local cat
-        cat="$(get_component_attr "$id" category 2>/dev/null || true)"
+        cat="$(get_component_attr "$id" category  || true)"
 
         if [[ "$is_present" -eq 1 ]]; then
             add_plan_action "$plan_prefix" "KEEP" "$id" "already installed (unmanaged)" "$disp ($cat)"
@@ -654,7 +654,7 @@ create_execution_plan() {
             local actual_def=""
             if [[ -n "$actual_prefix" ]]; then
                 local act_def_var="${actual_prefix}_ROLE_DEFAULTS"
-                if declare -p "$act_def_var" >/dev/null 2>&1; then
+                if declare -p "$act_def_var" >/dev/null; then
                     local -n act_def_map="$act_def_var"
                     actual_def="${act_def_map[$role]:-}"
                 fi
@@ -664,7 +664,7 @@ create_execution_plan() {
 
             if [[ "$actual_def" != "$desired_def" ]]; then
                 local disp_desired
-                disp_desired="$(get_component_attr "$desired_def" display_name 2>/dev/null || true)"
+                disp_desired="$(get_component_attr "$desired_def" display_name  || true)"
                 add_plan_action "$plan_prefix" "CHANGE_DEFAULT" "$desired_def" \
                     "preferred default for $role" \
                     "$role: ${actual_def:-none} -> $disp_desired"
@@ -682,11 +682,11 @@ create_execution_plan() {
 format_plan_summary() {
     local plan_prefix="$1"
 
-    local -n actions_list="${plan_prefix}_ACTIONS"
-    local -n type_map="${plan_prefix}_ACTION_TYPE"
-    local -n target_map="${plan_prefix}_ACTION_TARGET"
-    local -n reason_map="${plan_prefix}_ACTION_REASON"
-    local -n details_map="${plan_prefix}_ACTION_DETAILS"
+    local -n summary_action_ids="${plan_prefix}_ACTIONS"
+    local -n summary_action_types="${plan_prefix}_ACTION_TYPE"
+    local -n summary_action_targets="${plan_prefix}_ACTION_TARGET"
+    local -n summary_action_reasons="${plan_prefix}_ACTION_REASON"
+    local -n summary_action_details="${plan_prefix}_ACTION_DETAILS"
 
     local c_inst="${plan_prefix}_COUNT_INSTALL"
     local c_rem="${plan_prefix}_COUNT_REMOVE"
@@ -702,65 +702,65 @@ format_plan_summary() {
 
     # 1. INSTALL
     local has_inst=0
-    for idx in "${actions_list[@]}"; do
-        if [[ "${type_map[$idx]}" == "INSTALL" ]]; then
+    for idx in "${summary_action_ids[@]}"; do
+        if [[ "${summary_action_types["$idx"]}" == "INSTALL" ]]; then
             if [[ "$has_inst" -eq 0 ]]; then
                 printf 'INSTALL (%d components):\n' "${!c_inst}"
                 has_inst=1
             fi
-            printf '  + %-24s [%s]\n' "${details_map[$idx]}" "${reason_map[$idx]}"
+            printf '  + %-24s [%s]\n' "${summary_action_details["$idx"]}" "${summary_action_reasons["$idx"]}"
         fi
     done
     [[ "$has_inst" -eq 1 ]] && printf '\n'
 
     # 2. CONFIGURE
     local has_cfg=0
-    for idx in "${actions_list[@]}"; do
-        if [[ "${type_map[$idx]}" == "CONFIGURE" ]]; then
+    for idx in "${summary_action_ids[@]}"; do
+        if [[ "${summary_action_types["$idx"]}" == "CONFIGURE" ]]; then
             if [[ "$has_cfg" -eq 0 ]]; then
                 printf 'CONFIGURE (%d components):\n' "${!c_cfg}"
                 has_cfg=1
             fi
-            printf '  * %-24s [%s]\n' "${details_map[$idx]}" "${reason_map[$idx]}"
+            printf '  * %-24s [%s]\n' "${summary_action_details["$idx"]}" "${summary_action_reasons["$idx"]}"
         fi
     done
     [[ "$has_cfg" -eq 1 ]] && printf '\n'
 
     # 3. CHANGE DEFAULT
     local has_def=0
-    for idx in "${actions_list[@]}"; do
-        if [[ "${type_map[$idx]}" == "CHANGE_DEFAULT" ]]; then
+    for idx in "${summary_action_ids[@]}"; do
+        if [[ "${summary_action_types["$idx"]}" == "CHANGE_DEFAULT" ]]; then
             if [[ "$has_def" -eq 0 ]]; then
                 printf 'CHANGE DEFAULT (%d roles):\n' "${!c_def}"
                 has_def=1
             fi
-            printf '  > %-24s [%s]\n' "${details_map[$idx]}" "${reason_map[$idx]}"
+            printf '  > %-24s [%s]\n' "${summary_action_details["$idx"]}" "${summary_action_reasons["$idx"]}"
         fi
     done
     [[ "$has_def" -eq 1 ]] && printf '\n'
 
     # 4. KEEP
     local has_keep=0
-    for idx in "${actions_list[@]}"; do
-        if [[ "${type_map[$idx]}" == "KEEP" ]]; then
+    for idx in "${summary_action_ids[@]}"; do
+        if [[ "${summary_action_types["$idx"]}" == "KEEP" ]]; then
             if [[ "$has_keep" -eq 0 ]]; then
                 printf 'KEEP (%d components):\n' "${!c_keep}"
                 has_keep=1
             fi
-            printf '    %-24s [%s]\n' "${details_map[$idx]}" "${reason_map[$idx]}"
+            printf '    %-24s [%s]\n' "${summary_action_details["$idx"]}" "${summary_action_reasons["$idx"]}"
         fi
     done
     [[ "$has_keep" -eq 1 ]] && printf '\n'
 
     # 5. REMOVE (Destructive highlight)
     local has_rem=0
-    for idx in "${actions_list[@]}"; do
-        if [[ "${type_map[$idx]}" == "REMOVE" ]]; then
+    for idx in "${summary_action_ids[@]}"; do
+        if [[ "${summary_action_types["$idx"]}" == "REMOVE" ]]; then
             if [[ "$has_rem" -eq 0 ]]; then
                 printf '!!! REMOVE (DESTRUCTIVE) (%d components) !!!\n' "${!c_rem}"
                 has_rem=1
             fi
-            printf '  - %-24s [%s]\n' "${details_map[$idx]}" "${reason_map[$idx]}"
+            printf '  - %-24s [%s]\n' "${summary_action_details["$idx"]}" "${summary_action_reasons["$idx"]}"
         fi
     done
     [[ "$has_rem" -eq 1 ]] && printf '\n'

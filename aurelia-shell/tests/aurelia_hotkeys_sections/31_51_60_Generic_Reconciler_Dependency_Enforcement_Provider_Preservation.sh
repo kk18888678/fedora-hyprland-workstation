@@ -15,7 +15,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     finalize_plan "PLAN_DEP_OK"
 
     rec_rc=0
-    execute_plan "PLAN_DEP_OK" >/dev/null 2>&1 || rec_rc=$?
+    execute_plan "PLAN_DEP_OK" >/dev/null || rec_rc=$?
     if [[ "$rec_rc" -eq 0 && "$c_dep" -eq 1 && "$c_app" -eq 1 ]]; then
         pass "51. dependency succeeds -> dependent executes"
     else
@@ -38,7 +38,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     finalize_plan "PLAN_DEP_FAIL"
 
     rec_rc=0
-    execute_plan "PLAN_DEP_FAIL" >/dev/null 2>&1 || rec_rc=$?
+    execute_plan "PLAN_DEP_FAIL" >/dev/null || rec_rc=$?
     if [[ "$rec_rc" -ne 0 && "$c_dep_fail" -eq 1 && "$c_app_blocked" -eq 0 ]]; then
         pass "52. dependency fails -> dependent callback is NOT invoked"
     else
@@ -60,7 +60,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     add_plan_action "PLAN_DEP_BLOCKED" "INSTALL" "app_blocked" "test" "App Blocked"
     finalize_plan "PLAN_DEP_BLOCKED"
 
-    execute_plan "PLAN_DEP_BLOCKED" >/dev/null 2>&1 || true
+    execute_plan "PLAN_DEP_BLOCKED" >/dev/null || true
 
     blocked_found=0
     for entry in "${INSTALL_DEFERRED[@]}"; do
@@ -95,7 +95,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     add_plan_action "PLAN_TRANS" "INSTALL" "c_leaf" "test" "Leaf"
     finalize_plan "PLAN_TRANS"
 
-    execute_plan "PLAN_TRANS" >/dev/null 2>&1 || true
+    execute_plan "PLAN_TRANS" >/dev/null || true
     if [[ "$c_root_cnt" -eq 1 && "$c_mid_cnt" -eq 0 && "$c_leaf_cnt" -eq 0 ]]; then
         pass "54. transitive dependency failure blocks downstream components"
     else
@@ -121,7 +121,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     add_plan_action "PLAN_UNREL" "INSTALL" "c_unrel" "test" "Unrel"
     finalize_plan "PLAN_UNREL"
 
-    execute_plan "PLAN_UNREL" >/dev/null 2>&1 || true
+    execute_plan "PLAN_UNREL" >/dev/null || true
     if [[ "$c_fail_cnt" -eq 1 && "$c_dep_cnt" -eq 0 && "$c_unrel_cnt" -eq 1 ]]; then
         pass "55. unrelated component still executes despite sibling dependency failure"
     else
@@ -173,7 +173,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     add_plan_action "PLAN_AURE_FAIL" "INSTALL" "desktop.hotkeys.aurelia" "selected by user" "Aurelia Hotkeys"
     finalize_plan "PLAN_AURE_FAIL"
 
-    TARGET_HOME="$prov_sb" execute_plan "PLAN_AURE_FAIL" >/dev/null 2>&1 || true
+    TARGET_HOME="$prov_sb" execute_plan "PLAN_AURE_FAIL" >/dev/null || true
 
     curr_prov="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$prov_sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
     rm -rf "$prov_sb"
@@ -205,7 +205,7 @@ section "51-60. Generic Reconciler Dependency Enforcement & Provider Preservatio
     add_plan_action "PLAN_VAL_FAIL" "INSTALL" "desktop.hotkeys.aurelia" "new" "Aurelia Hotkeys"
     finalize_plan "PLAN_VAL_FAIL"
 
-    TARGET_HOME="$prov_sb" execute_plan "PLAN_VAL_FAIL" >/dev/null 2>&1 || true
+    TARGET_HOME="$prov_sb" execute_plan "PLAN_VAL_FAIL" >/dev/null || true
 
     curr_prov="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$prov_sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
     rm -rf "$prov_sb"

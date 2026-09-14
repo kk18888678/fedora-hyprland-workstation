@@ -25,7 +25,7 @@ if [[ -f "$manifest_file" && -f "$model_file" && -f "$widget_file" ]] &&
        .barWidget.category == "Audio" and
        .barWidget.allowMultiple == false
    ' "$manifest_file" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$audio_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$audio_root" >/dev/null; then
     pass "[static] Audio has a validated opt-in bar-widget manifest and safe entry point"
 else
     fail "[static] Audio manifest, entry point, or shared validation contract is incomplete"
@@ -57,7 +57,7 @@ else
     fail "[static] Audio model is incomplete or owns an unsafe process path"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$model_file" <<'NODE_AUDIO_MODEL'
 const audio = require(process.argv[2])
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
@@ -95,7 +95,7 @@ else
     skip "[isolated-runtime] Audio model matrix (node unavailable)"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$model_file" <<'NODE_AUDIO_MPRIS'
 const audio = require(process.argv[2])
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
@@ -148,11 +148,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 result_file="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache"
+: >"$result_file"
 
 AURELIA_AUDIO_FOUNDATION_RESULT="$result_file" \
 AURELIA_AUDIO_FOUNDATION_SOURCE="file://$widget_file" \
@@ -165,16 +166,13 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
     --path "$fixture_root/shell.qml" --no-color >"$runtime_log" 2>&1 || runtime_status=$?
 
-unexpected_diagnostics="$(grep -E 'WARN|ERROR|FATAL|TypeError|ReferenceError|QML Error|Segmentation fault|Cannot assign' "$runtime_log" | \
-    grep -Ev 'ERROR quickshell\.ipc: Failed to start IPC server on path |\[AUDIO\] panel_load_failed|No PanelWindow backend loaded' || true)"
-
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
-   [[ -z "$unexpected_diagnostics" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '.audioLoaded == true and .exposesAudioAvailability == true and
           .exposesPanelVisibility == true and .panelVisible == false' \
        "$result_file" >/dev/null; then
     pass "[isolated-runtime] real Audio bar entry point loads safely without mutating audio state"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$runtime_log" &&
+elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Audio entry-point fixture cannot create a disposable window backend"; then
     :
 else

@@ -40,10 +40,13 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 runtime_result="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
+: >"$runtime_result"
+mkdir -p -- "$runtime_root/config/aurelia"
+printf '%s\n' '{}' >"$runtime_root/config/aurelia/shell.json"
 AURELIA_BAR_METADATA_REGISTRY_SOURCE="$ROOT/services/BarWidgetRegistry.qml" \
 AURELIA_BAR_METADATA_CONFIG_SOURCE="$ROOT/services/ShellConfig.qml" \
 AURELIA_BAR_METADATA_RESULT="$runtime_result" \
@@ -59,6 +62,7 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '
         .defaultFormat == "default" and
         .explicitFormat == "custom" and

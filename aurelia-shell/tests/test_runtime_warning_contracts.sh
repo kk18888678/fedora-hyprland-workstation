@@ -10,6 +10,8 @@ launcher_root="$ROOT/plugins/aurelia.launcher"
 display_root="$ROOT/plugins/aurelia.monitor"
 network_root="$ROOT/plugins/aurelia.network"
 bluetooth_root="$ROOT/plugins/aurelia.bluetooth"
+menu_root="$ROOT/plugins/aurelia.menu"
+wifiqr_root="$ROOT/plugins/aurelia.wifiqr"
 
 if grep -q 'property var pluginManagement: null' "$launcher_root/ui/CommandCenterPanel.qml" &&
    grep -q 'pluginManagement: pluginManagement' "$launcher_root/CommandCenterPlugin.qml"; then
@@ -19,7 +21,8 @@ else
 fi
 
 if grep -q 'onBackendRootChanged: root.refresh()' "$display_root/DisplayPanel.qml" &&
-   ! grep -q 'onBackendRootChanged: Qt.callLater' "$display_root/DisplayPanel.qml"; then
+   ! grep -q 'onBackendRootChanged: Qt.callLater' "$display_root/DisplayPanel.qml" &&
+   ! grep -q 'if (!active) Qt.callLater' "$ROOT/services/PluginHost.qml"; then
     pass "[static] DisplayPanel refreshes synchronously and cannot retain a stale delayed callback"
 else
     fail "[static] DisplayPanel stale-refresh callback guard is incomplete"
@@ -47,17 +50,27 @@ else
     fail "[static] BlueZ object-manager construction guard is incomplete"
 fi
 
+if grep -Fq 'import Quickshell.Io' "$menu_root/Menu.qml" &&
+   grep -Fq 'IpcHandler' "$menu_root/Menu.qml" &&
+   grep -Fq 'import Quickshell.Io' "$wifiqr_root/WifiQrPlugin.qml" &&
+   grep -Fq 'IpcHandler' "$wifiqr_root/WifiQrPlugin.qml"; then
+    pass "[static] Menu and Wi-Fi QR entry points import the module that owns their IPC type"
+else
+    fail "[static] Menu or Wi-Fi QR entry point has an unresolved IPC type import"
+fi
+
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
     skip "[isolated-runtime] warning-stream QuickShell fixture (qs or timeout unavailable)"
     return 0
 fi
 
 warning_root="$(mktemp -d)"
-trap 'rm -rf -- "$warning_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$warning_root"  || true' RETURN
 warning_result="$warning_root/result.json"
 warning_log="$warning_root/runtime.log"
 warning_status=0
 mkdir -p -- "$warning_root/home" "$warning_root/config" "$warning_root/state" "$warning_root/cache"
+: >"$warning_result"
 HOME="$warning_root/home" \
 XDG_CONFIG_HOME="$warning_root/config" \
 XDG_STATE_HOME="$warning_root/state" \
@@ -68,6 +81,8 @@ AURELIA_WARNING_LAUNCHER_SOURCE="file://$launcher_root/CommandCenterPlugin.qml" 
 AURELIA_WARNING_DISPLAY_SOURCE="file://$display_root/DisplayPanel.qml" \
 AURELIA_WARNING_NETWORK_SOURCE="file://$network_root/NetworkBarWidget.qml" \
 AURELIA_WARNING_BLUETOOTH_SOURCE="file://$bluetooth_root/BluetoothBarWidget.qml" \
+AURELIA_WARNING_MENU_SOURCE="file://$menu_root/Menu.qml" \
+AURELIA_WARNING_WIFIQR_SOURCE="file://$wifiqr_root/WifiQrPlugin.qml" \
 AURELIA_WARNING_DISPLAY_BACKEND="$warning_root/backend" \
 AURELIA_WARNING_RESULT="$warning_result" \
 QT_QPA_PLATFORM=offscreen \
@@ -87,15 +102,17 @@ if [[ "$warning_status" -eq 0 ]] &&
        .finalBluetoothAOwner == false and
        .finalBluetoothBOwner == true and
        .bluezObjectManagerProbe == true and
+       .menuLoaded == true and
+       .wifiQrLoaded == true and
        .bluezInvalidProbe == true
-   ' "$warning_result" >/dev/null 2>&1 &&
-   ! grep -Eq 'Cannot assign to non-existent property "pluginManagement"|NetworkRow is not a type|Handler was registered but will not be used|TypeError: Property .refresh. of object|Internal error - attempted to evaluate a function in an invalid context|Failed to create DBusObjectManagerInterface for "org.bluez"' "$warning_log"; then
+   ' "$warning_result" >/dev/null &&
+   runtime_log_is_environment_only "$warning_log"; then
     pass "[isolated-runtime] affected components load without the reported construction, stale-refresh, duplicate-handler, or BlueZ object-manager warnings"
-elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Failed to connect to system scope bus via local transport: Operation not permitted' "$warning_log" &&
+elif runtime_log_has_environment_diagnostic "$warning_log" &&
      runtime_skip_if_environment_only "$warning_log" "[isolated-runtime] warning-stream fixture could not create an additional QuickShell surface"; then
     :
 else
-    details="$(tail -n 48 "$warning_log" 2>/dev/null || true)"
+    details="$(tail -n 48 "$warning_log"  || true)"
     if [[ -s "$warning_result" ]]; then details="$details result=$(tr '\n' ' ' <"$warning_result")"; fi
     fail "[isolated-runtime] warning-stream fixture failed (status=$warning_status): $details"
 fi

@@ -127,8 +127,8 @@ run_fastfetch() {
 }
 
 clear_screen() {
-    if command -v clear >/dev/null 2>&1 && [[ -n ${TERM:-} ]]; then
-        clear 2>/dev/null || printf '\e[2J\e[3J\e[H'
+    if command -v clear >/dev/null && [[ -n ${TERM:-} ]]; then
+        clear  || printf '\e[2J\e[3J\e[H'
     else
         printf '\e[2J\e[3J\e[H'
     fi
@@ -154,7 +154,7 @@ apply_size_rule() {
         rule="aurelia_about_size_rule = hl.window_rule({ match = { class = \"$APP_ID\" }, size = { $1, $2 } })"
     hyprctl eval \
         "if aurelia_about_size_rule then aurelia_about_size_rule:set_enabled(false) end; aurelia_about_size_rule = nil; $rule" \
-        >/dev/null 2>&1 || true
+        >/dev/null || true
 }
 
 presize_window() {
@@ -192,7 +192,7 @@ settle_grid() {
 fit_window() {
     local logo_w=54 logo_h=26 modules module_w module_rows target_c target_r
 
-    modules="$(run_fastfetch --logo none 2>/dev/null)" || return 1
+    modules="$(run_fastfetch --logo none )" || return 1
     module_w="$(printf '%s\n' "$modules" |
         sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | display_columns)"
     module_rows="$(printf '%s\n' "$modules" | wc -l)"
@@ -210,16 +210,16 @@ fit_window() {
     local nudges=0 rows cols address width height shift_w shift_h target_w target_h
     while :; do
         read -r rows cols <<<"$(stty size)"
-        read -r address width height <<<"$(hyprctl clients -j 2>/dev/null | jq -r \
+        read -r address width height <<<"$(hyprctl clients -j  | jq -r \
             --arg class "$APP_ID" --arg title "$TERMINAL_TITLE" \
             '.[] | select((.class // "") == $class or
                 (.initialClass // "") == $class or
                 (.title // "") == $title or
                 (.initialTitle // "") == $title) |
-                "\(.address) \(.size[0]) \(.size[1])"' 2>/dev/null | head -n 1)"
+                "\(.address) \(.size[0]) \(.size[1])"'  | head -n 1)"
         if [[ -z ${address:-} ]]; then
-            read -r address width height <<<"$(hyprctl activewindow -j 2>/dev/null | jq -r \
-                'if .address then "\(.address) \(.size[0]) \(.size[1])" else empty end' 2>/dev/null)"
+            read -r address width height <<<"$(hyprctl activewindow -j  | jq -r \
+                'if .address then "\(.address) \(.size[0]) \(.size[1])" else empty end' )"
         fi
         [[ -n ${address:-} ]] || return 1
         (( cols > 0 && rows > 0 && width > 0 && height > 0 )) || return 1
@@ -236,11 +236,11 @@ fit_window() {
         target_h=$(( height + (shift_h >= 0 ? (shift_h + rows - 1) / rows : shift_h / rows) ))
 
         if ! hyprctl dispatch resizeactive \
-            "exact $target_w $target_h" >/dev/null 2>&1; then
+            "exact $target_w $target_h" >/dev/null; then
             hyprctl dispatch resizewindowpixel \
-                "exact $target_w $target_h,address:$address" >/dev/null 2>&1 || return 1
+                "exact $target_w $target_h,address:$address" >/dev/null || return 1
         fi
-        hyprctl dispatch centerwindow >/dev/null 2>&1 || return 1
+        hyprctl dispatch centerwindow >/dev/null || return 1
         settle_grid
     done
 }
@@ -248,7 +248,7 @@ fit_window() {
 content_changed() {
     [[ ${RESIZED:-false} == true ]] && return 0
     [[ $(stty size) != "$GRID" ||
-        $(stat -c %Y "$IMAGE_FILE" 2>/dev/null || printf 0) != "$LOGO_STAMP" ]]
+        $(stat -c %Y "$IMAGE_FILE"  || printf 0) != "$LOGO_STAMP" ]]
 }
 
 tick() {
@@ -261,7 +261,7 @@ render_about() {
         printf '%s\n' 'Refusing About presentation without an interactive terminal.' >&2
         return 1
     }
-    command -v fastfetch >/dev/null 2>&1 || {
+    command -v fastfetch >/dev/null || {
         printf '%s\n' 'Fastfetch is required for Aurelia About.' >&2
         return 1
     }
@@ -286,7 +286,7 @@ render_about() {
     while :; do
         refresh_image_state
         GRID="$(stty size)"
-        LOGO_STAMP="$(stat -c %Y "$IMAGE_FILE" 2>/dev/null || printf 0)"
+        LOGO_STAMP="$(stat -c %Y "$IMAGE_FILE"  || printf 0)"
         RESIZED=false
         clear_screen
         run_fastfetch
@@ -330,14 +330,14 @@ read_terminal_preference() {
 }
 
 focus_existing_about() {
-    command -v hyprctl >/dev/null 2>&1 || return 1
-    command -v jq >/dev/null 2>&1 || return 1
+    command -v hyprctl >/dev/null || return 1
+    command -v jq >/dev/null || return 1
 
     local address
-    address="$(hyprctl clients -j 2>/dev/null | jq -r \
-        --arg class "$APP_ID" '.[] | select(.class == $class or .initialClass == $class) | .address' 2>/dev/null | head -n 1)" || return 1
+    address="$(hyprctl clients -j  | jq -r \
+        --arg class "$APP_ID" '.[] | select(.class == $class or .initialClass == $class) | .address'  | head -n 1)" || return 1
     [[ -n $address && $address != null ]] || return 1
-    hyprctl dispatch focuswindow "address:$address" >/dev/null 2>&1
+    hyprctl dispatch focuswindow "address:$address" >/dev/null
 }
 
 resolve_terminal_argv() {
@@ -349,11 +349,11 @@ resolve_terminal_argv() {
     # installed native-image terminal when no explicit terminal preference is
     # configured, otherwise the image can open at an unrelated saved size.
     if [[ -z $preferred && ${AURELIA_ABOUT_USE_XDG_TERMINAL:-0} != 1 ]] &&
-        command -v kitty >/dev/null 2>&1; then
+        command -v kitty >/dev/null; then
         preferred=kitty
     fi
 
-    if [[ -z $preferred ]] && command -v xdg-terminal-exec >/dev/null 2>&1; then
+    if [[ -z $preferred ]] && command -v xdg-terminal-exec >/dev/null; then
         TERMINAL_ARGV=(xdg-terminal-exec "--app-id=$APP_ID" -e "$SCRIPT_PATH" --render)
         return 0
     fi
@@ -364,7 +364,7 @@ resolve_terminal_argv() {
     for candidate in "${candidates[@]}"; do
         case "$candidate" in
         kitty)
-            command -v kitty >/dev/null 2>&1 || continue
+            command -v kitty >/dev/null || continue
             TERMINAL_ARGV=(env AURELIA_ABOUT_LOGO_PROTOCOL=kitty kitty
                 --override remember_window_size=no
                 --override "initial_window_width=${INITIAL_COLUMNS}c"
@@ -373,34 +373,34 @@ resolve_terminal_argv() {
             return 0
             ;;
         foot)
-            command -v foot >/dev/null 2>&1 || continue
+            command -v foot >/dev/null || continue
             TERMINAL_ARGV=(env AURELIA_ABOUT_LOGO_PROTOCOL=sixel foot
                 --window-size-chars "${INITIAL_COLUMNS}x${INITIAL_ROWS}"
                 --app-id "$APP_ID" --title "$TERMINAL_TITLE" "$SCRIPT_PATH" --render)
             return 0
             ;;
         ghostty)
-            command -v ghostty >/dev/null 2>&1 || continue
+            command -v ghostty >/dev/null || continue
             TERMINAL_ARGV=(env AURELIA_ABOUT_LOGO_PROTOCOL=kitty ghostty --class="$APP_ID" --title="$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
             return 0
             ;;
         alacritty)
-            command -v alacritty >/dev/null 2>&1 || continue
+            command -v alacritty >/dev/null || continue
             TERMINAL_ARGV=(alacritty --class "$APP_ID" --title "$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
             return 0
             ;;
         gnome-terminal)
-            command -v gnome-terminal >/dev/null 2>&1 || continue
+            command -v gnome-terminal >/dev/null || continue
             TERMINAL_ARGV=(gnome-terminal --title="$TERMINAL_TITLE" -- "$SCRIPT_PATH" --render)
             return 0
             ;;
         konsole)
-            command -v konsole >/dev/null 2>&1 || continue
+            command -v konsole >/dev/null || continue
             TERMINAL_ARGV=(konsole --name "$APP_ID" --title "$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
             return 0
             ;;
         xterm)
-            command -v xterm >/dev/null 2>&1 || continue
+            command -v xterm >/dev/null || continue
             TERMINAL_ARGV=(xterm -class "$APP_ID" -title "$TERMINAL_TITLE" -e "$SCRIPT_PATH" --render)
             return 0
             ;;
@@ -418,16 +418,16 @@ open_about_terminal() {
     }
 
     local -a launch_argv=("${TERMINAL_ARGV[@]}")
-    if command -v uwsm-app >/dev/null 2>&1 &&
+    if command -v uwsm-app >/dev/null &&
         [[ -n ${XDG_RUNTIME_DIR:-} ]] &&
         [[ -n ${UWSM_FINALIZE_VARNAMES:-} || -n ${UWSM_WAIT_VARNAMES:-} || -n ${IN_UWSM_ENV_PRELOADER:-} ]]; then
         launch_argv=(uwsm-app -- "${launch_argv[@]}")
     fi
 
-    if command -v setsid >/dev/null 2>&1; then
-        setsid -f "${launch_argv[@]}" >/dev/null 2>&1
+    if command -v setsid >/dev/null; then
+        setsid -f "${launch_argv[@]}" >/dev/null
     else
-        ("${launch_argv[@]}" >/dev/null 2>&1 &)
+        ("${launch_argv[@]}" >/dev/null &)
     fi
 }
 

@@ -34,7 +34,7 @@ require_boolean() {
 }
 
 command_exists() {
-    command -v "$1" >/dev/null 2>&1
+    command -v "$1" >/dev/null
 }
 
 # Test fixtures may replace host identity, repository paths, parsers, or
@@ -70,9 +70,9 @@ run_as_target_user() {
         [[ -n "${OVERRIDE_TARGET_UID:-}" ]]; then
         target_uid="$OVERRIDE_TARGET_UID"
     elif command_exists id; then
-        target_uid="$(id -u "$target_user" 2>/dev/null || true)"
+        target_uid="$(id -u "$target_user"  || true)"
     elif command_exists getent; then
-        target_uid="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f3 || true)"
+        target_uid="$(getent passwd "$target_user"  | cut -d: -f3 || true)"
     fi
 
     # 1. If caller is already actually running as TARGET_USER (effective UID matches target UID)
@@ -85,7 +85,7 @@ run_as_target_user() {
     if [[ -z "$target_uid" && "$effective_uid" -ne 0 ]]; then
         local current_login=""
         if command_exists id; then
-            current_login="$(id -un 2>/dev/null || true)"
+            current_login="$(id -un  || true)"
         fi
         if [[ -n "$current_login" && "$current_login" == "$target_user" ]]; then
             HOME="$target_home" USER="$target_user" "$@"
@@ -184,8 +184,8 @@ SUDO_KEEPALIVE_PID=""
 
 stop_sudo_keepalive() {
     if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
-        kill "$SUDO_KEEPALIVE_PID" >/dev/null 2>&1 || true
-        wait "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+        kill "$SUDO_KEEPALIVE_PID" >/dev/null || true
+        wait "$SUDO_KEEPALIVE_PID"  || true
         SUDO_KEEPALIVE_PID=""
     fi
 }
@@ -201,7 +201,7 @@ require_sudo() {
             sleep 60
             sudo -n true || exit 1
         done
-    ) >/dev/null 2>&1 &
+    ) >/dev/null &
 
     SUDO_KEEPALIVE_PID=$!
 }
@@ -221,7 +221,7 @@ install_root_file_atomically() {
     [[ "$destination" == /* && "$destination" != "/" ]] || return 1
 
     destination_dir="$(dirname -- "$destination")"
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path "$destination_dir"; then
         return 1
     fi
@@ -241,7 +241,7 @@ install_root_file_atomically() {
     fi
 
     if ! sudo mv -T -- "$staged_destination" "$destination"; then
-        sudo rm -f -- "$staged_destination" 2>/dev/null || true
+        sudo rm -f -- "$staged_destination"  || true
         return 1
     fi
 }
@@ -279,7 +279,7 @@ install_root_file_from_stdin_preserving_existing() {
 
     [[ "$destination" == /* && "$destination" != "/" ]] || return 1
     destination_dir="$(dirname -- "$destination")"
-    if declare -F validate_mutation_path >/dev/null 2>&1 &&
+    if declare -F validate_mutation_path >/dev/null &&
         ! validate_mutation_path "$destination_dir"; then
         return 1
     fi
@@ -340,7 +340,7 @@ install_root_file() {
 
     local temp_file
     if ! temp_file="$(mktemp)" || ! cp -- "$source" "$temp_file"; then
-        rm -f -- "${temp_file:-}" 2>/dev/null || true
+        rm -f -- "${temp_file:-}"  || true
         return 1
     fi
 

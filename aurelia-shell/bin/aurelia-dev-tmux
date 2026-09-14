@@ -56,7 +56,7 @@ done
     exit 2
 }
 
-command -v tmux >/dev/null 2>&1 || {
+command -v tmux >/dev/null || {
     printf 'Error: tmux is not installed. Run ./install.sh --profile vm after updating the checkout.\n' >&2
     exit 1
 }
@@ -74,7 +74,7 @@ if [[ -n "${QUICKSHELL_BIN:-}" ]]; then
     qs_bin="$QUICKSHELL_BIN"
 elif [[ -x /usr/bin/qs ]]; then
     qs_bin=/usr/bin/qs
-elif qs_bin="$(command -v qs 2>/dev/null || true)"; [[ -n "$qs_bin" ]]; then
+elif qs_bin="$(command -v qs  || true)"; [[ -n "$qs_bin" ]]; then
     :
 else
     printf 'Error: Quickshell runtime binary was not found.\n' >&2
@@ -86,7 +86,7 @@ fi
     exit 1
 }
 
-if tmux has-session -t "$session_name" 2>/dev/null; then
+if tmux has-session -t "$session_name" ; then
     printf 'Reusing existing tmux session: %s\n' "$session_name"
 else
     tmux new-session \

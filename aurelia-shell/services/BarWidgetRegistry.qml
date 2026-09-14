@@ -102,6 +102,7 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(value))
         } catch (e) {
+            console.warn("[PLUGIN] bar_registry_snapshot_failed")
             return null
         }
     }

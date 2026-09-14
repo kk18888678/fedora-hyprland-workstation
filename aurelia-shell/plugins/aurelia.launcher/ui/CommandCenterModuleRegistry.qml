@@ -80,11 +80,16 @@ QtObject {
 
     function loadUserOverrides(raw) {
         var parsed = {}
+        var rawText = String(raw || "").trim()
+        if (rawText === "") {
+            root.userOverrides = {}
+            return
+        }
         try {
-            var value = JSON.parse(String(raw || ""))
+            var value = JSON.parse(rawText)
             if (value && value.version === 1 && value.modules && typeof value.modules === "object" && !Array.isArray(value.modules)) parsed = value.modules
         } catch (error) {
-            // A missing or malformed optional user file leaves safe defaults.
+            console.warn("[COMMAND_CENTER] user_override_parse_failed")
         }
         var valid = {}
         for (var key in parsed) {
@@ -172,8 +177,7 @@ QtObject {
         next[id] = enabled === true
         root.lastSaveOk = false
         root.userOverrides = next
-        root.userFile.setText(JSON.stringify({ version: 1, modules: next }, null, 2) + "\n")
-        if (!root.lastSaveOk) {
+        if (!root.userFile || !root.userFile.setValue(JSON.stringify({ version: 1, modules: next }, null, 2) + "\n")) {
             root.userOverrides = previous
             root.lastError = "Could not persist Command Center module state."
             return false
@@ -185,28 +189,40 @@ QtObject {
     property FileView defaultFile: FileView {
         path: root.defaultModulesPath
         watchChanges: true
-        printErrors: false
+        printErrors: true
         onLoaded: root.loadDefaults(text())
         onFileChanged: reload()
         onLoadFailed: root.loadDefaults("")
     }
 
-    property FileView userFile: FileView {
-        path: root.userModulesPath
-        watchChanges: true
-        blockLoading: true
-        blockWrites: true
-        atomicWrites: true
-        printErrors: false
-        onLoaded: root.loadUserOverrides(text())
-        onFileChanged: reload()
-        onLoadFailed: root.loadUserOverrides("")
-        onSaved: root.lastSaveOk = true
-        onSaveFailed: root.lastSaveOk = false
+    readonly property var userFile: userFileLoader.item
+
+    property Loader userFileLoader: Loader {
+        active: true
+        source: Qt.resolvedUrl("../../../services/OptionalFileStore.qml")
+        onLoaded: {
+            item.writable = true
+            item.watchChanges = true
+            item.path = root.userModulesPath
+        }
+    }
+
+    property Connections userFileConnection: Connections {
+        target: userFileLoader.item
+        function onLoaded(value) { root.loadUserOverrides(value) }
+        function onLoadFailed(reason) {
+            root.loadUserOverrides("")
+            if (reason !== "") console.error("[COMMAND_CENTER] user_file_store_failed reason=" + reason)
+            root.lastSaveOk = false
+        }
+        function onSaved() { root.lastSaveOk = true }
+        function onSaveFailed(reason) {
+            root.lastSaveOk = false
+            root.lastError = "Could not persist Command Center module state: " + reason
+        }
     }
 
     Component.onCompleted: {
         root.defaultFile.reload()
-        root.userFile.reload()
     }
 }

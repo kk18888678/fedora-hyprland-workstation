@@ -11,6 +11,10 @@ section "Aurelia Production Bar Entry Point"
 
 bar_file="$ROOT/plugins/aurelia.bar/Bar.qml"
 panel_file="$ROOT/plugins/aurelia.bar/BarPanel.qml"
+logo_file="$ROOT/plugins/aurelia.bar/AureliaLogo.qml"
+
+center_line="$(grep -n '^        BarCenter {' "$panel_file" | head -1 | cut -d: -f1)"
+left_line="$(grep -n '^            id: leftGroup' "$panel_file" | head -1 | cut -d: -f1)"
 
 if [[ -f "$bar_file" ]] &&
    grep -Fq 'id: barRoot' "$bar_file" &&
@@ -22,14 +26,23 @@ else
     fail "[static] production Bar.qml contains an undeclared root reference or missing transparent-state property"
 fi
 
+if [[ -n "$center_line" && -n "$left_line" && "$center_line" -lt "$left_line" ]] &&
+   grep -Fq 'function shellOwner()' "$logo_file" &&
+   grep -Fq 'logo_click_received' "$logo_file" &&
+   grep -Fq 'rawResult === true' "$logo_file"; then
+    pass "[static] Omarchy-shaped stacking leaves the logo above center gestures and its dispatch contract is explicit"
+else
+    fail "[static] bar stacking or logo dispatch boundary is incomplete"
+fi
+
 production_log="$(mktemp)"
-trap 'rm -f -- "$production_log" 2>/dev/null || true' RETURN
+trap 'rm -f -- "$production_log"  || true' RETURN
 property_error_source='file://'"/tmp/Bar.qml[309:-1]"
 printf '%s\n' \
     'ERROR quickshell.ipc: Failed to start IPC server on path /tmp/ipc.sock' \
     "WARN scene: ${property_error_source}: Error: Cannot assign to non-existent property \"transparentForeground\"" \
     >"$production_log"
-if ! runtime_log_is_environment_only "$production_log"; then
+if runtime_log_has_rejected_diagnostic "$production_log"; then
     pass "[isolated-framework] a production non-existent-property warning cannot be accepted as a backend-only skip"
 else
     fail "[isolated-framework] production non-existent-property warning was classified as environment-only"
@@ -47,6 +60,9 @@ if grep -Fq 'id: barRoot' "$bar_file" &&
    grep -Fq 'onBarHiddenChanged' "$bar_file" &&
    grep -Fq 'visible: !remapGuard.remapping' "$panel_file" &&
    grep -Fq 'ScreenMoveRemap' "$panel_file" &&
+   grep -Fq 'id: settingsRefreshTimer' "$ROOT/plugins/aurelia.bar/BarWidgetSlot.qml" &&
+   grep -Fq 'onTriggered: root.refreshSettings()' "$ROOT/plugins/aurelia.bar/BarWidgetSlot.qml" &&
+   ! grep -Fq 'Qt.callLater(root.refreshSettings)' "$ROOT/plugins/aurelia.bar/BarWidgetSlot.qml" &&
    grep -Fq 'columns: root.vertical ? 1' "$ROOT/plugins/aurelia.tray/TrayBarWidget.qml" &&
    grep -Fq 'columns: root.vertical ? 1' "$ROOT/plugins/aurelia.tasklist/TasklistBarWidget.qml" &&
    grep -Fq 'visible: !root.vertical' "$ROOT/plugins/aurelia.weather/WeatherBarWidget.qml" &&
@@ -88,7 +104,7 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 production_root="$(mktemp -d)"
-trap 'rm -rf -- "$production_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$production_root"  || true' RETURN
 mkdir -p "$production_root/runtime" "$production_root/config" "$production_root/state" "$production_root/cache"
 production_result="$production_root/result.json"
 production_log="$production_root/runtime.log"
@@ -128,7 +144,7 @@ rm -rf -- "$production_root"
 trap - RETURN
 
 layout_root="$(mktemp -d)"
-trap 'rm -rf -- "$layout_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$layout_root"  || true' RETURN
 mkdir -p "$layout_root/runtime" "$layout_root/config" "$layout_root/state" "$layout_root/cache"
 layout_result="$layout_root/result.json"
 layout_log="$layout_root/runtime.log"
@@ -149,7 +165,8 @@ if [[ "$layout_status" -eq 0 && -s "$layout_result" ]] &&
        .verticalInBounds == true and
        .restoredInBounds == true and
        .verticalWidthsFit == true and
-       .horizontalWidthsRestored == true
+       .horizontalWidthsRestored == true and
+       .recreatedInBounds == true
    ' "$layout_result" >/dev/null &&
    runtime_log_is_environment_only "$layout_log"; then
     pass "[isolated-runtime] real bar rows keep every widget inside the bar through horizontal/vertical/orientation restoration"

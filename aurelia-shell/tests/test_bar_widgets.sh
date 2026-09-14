@@ -26,7 +26,8 @@ else
 fi
 
 if [[ -f "$workspace_root/manifest.json" && -f "$workspace_root/WorkspacesBarWidget.qml" ]] &&
-   jq -e '.schemaVersion == 1 and .id == "aurelia.workspaces" and (.kinds == ["bar-widget"])' "$workspace_root/manifest.json" >/dev/null &&
+   jq -e '.schemaVersion == 1 and .id == "aurelia.workspaces" and (.kinds == ["bar-widget"]) and
+          (.barWidget.defaultSection == null)' "$workspace_root/manifest.json" >/dev/null &&
    grep -q 'Quickshell.Hyprland' "$workspace_root/WorkspacesBarWidget.qml" &&
    grep -Fq 'var ids = [1, 2, 3, 4, 5]' "$workspace_root/WorkspacesBarWidget.qml" &&
    grep -Fq 'id > 0 && id <= 10' "$workspace_root/WorkspacesBarWidget.qml" &&
@@ -51,7 +52,7 @@ if [[ -f "$workspace_root/manifest.json" && -f "$workspace_root/WorkspacesBarWid
    ! grep -Fq 'focused ? Theme.fontWeightBold' "$workspace_root/WorkspacesBarWidget.qml" &&
    grep -Fq 'columns: root.vertical ? 1' "$workspace_root/WorkspacesBarWidget.qml" &&
    grep -Fq 'rowSpacing: root.vertical ? 2 : 0' "$workspace_root/WorkspacesBarWidget.qml" &&
-   grep -Fq 'implicitHeight: root.barSize' "$workspace_root/WorkspacesBarWidget.qml" &&
+   grep -Fq 'implicitHeight: workspaceGrid.implicitHeight' "$workspace_root/WorkspacesBarWidget.qml" &&
    grep -Fq 'Layout.preferredHeight: root.barSize' "$workspace_root/WorkspacesBarWidget.qml" &&
    ! grep -Fq 'cellInset' "$workspace_root/WorkspacesBarWidget.qml" &&
    grep -Fq 'WorkspaceActionModel.actionFor' "$workspace_root/WorkspacesBarWidget.qml" &&
@@ -74,7 +75,7 @@ if [[ -f "$bar_root/AureliaLogo.qml" ]] &&
    [[ -f "$ROOT/config/branding/aurelia-mark.svg" ]] &&
    grep -q 'viewBox="0 0 256 256"' "$ROOT/config/branding/aurelia-mark.svg" &&
    grep -q 'aria-label="Aurelia"' "$ROOT/config/branding/aurelia-mark.svg" &&
-   grep -q 'shell.summon("aurelia.launcher"' "$bar_root/AureliaLogo.qml"; then
+   grep -q 'controller.summon("aurelia.launcher"' "$bar_root/AureliaLogo.qml"; then
     pass "Aurelia logo uses one vector brand mark with a theme-aware hover state"
 else
     fail "Aurelia logo sizing, monogram rendering, or launcher action is incomplete"
@@ -278,7 +279,7 @@ fi
 
 if [[ -f "$clock_root/manifest.json" && -f "$clock_root/ClockBarWidget.qml" ]] &&
    jq -e '.schemaVersion == 1 and .id == "aurelia.clock" and (.kinds == ["bar-widget"]) and .entryPoints.barWidget == "ClockBarWidget.qml"' "$clock_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$clock_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$clock_root" >/dev/null; then
     pass "Clock is a validated first-party bar-widget plugin"
 else
     fail "Clock bar-widget manifest or entry point is incomplete"
@@ -286,7 +287,7 @@ fi
 
 if [[ -f "$weather_root/manifest.json" && -f "$weather_root/WeatherBarWidget.qml" ]] &&
    jq -e '.schemaVersion == 1 and .id == "aurelia.weather" and (.kinds == ["bar-widget"]) and .entryPoints.barWidget == "WeatherBarWidget.qml"' "$weather_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$weather_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$weather_root" >/dev/null; then
     pass "Weather is a validated first-party bar-widget plugin"
 else
     fail "Weather bar-widget manifest or entry point is incomplete"
@@ -312,7 +313,8 @@ if [[ -x "$weather_bin" ]] &&
    grep -q 'apparent_temperature' "$weather_bin" &&
    grep -q 'relative_humidity_2m' "$weather_bin" &&
    grep -q 'forecast_days=3' "$weather_bin" &&
-   grep -q 'format=%l' "$weather_bin" &&
+   grep -q 'format=j1' "$weather_bin" &&
+   grep -q 'nearest_area\[0\]' "$weather_bin" &&
    grep -q 'automatic weather location response was invalid' "$weather_bin" &&
    grep -q -- '--connect-timeout 3' "$weather_bin" &&
    grep -q -- '--max-time 5' "$weather_bin" &&
@@ -357,7 +359,7 @@ if grep -q 'AureliaIcon' "$weather_root/WeatherBarWidget.qml" &&
    ! grep -q 'PanelWindow' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'function scheduleRefresh' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'onSettingsChanged:' "$weather_root/WeatherBarWidget.qml" &&
-   grep -q 'function onVisibleChanged' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'function onBarVisibleChanged' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'property bool weatherReady: false' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'visible: root.weatherReady' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'forecastData.length < 3' "$weather_root/WeatherBarWidget.qml" &&

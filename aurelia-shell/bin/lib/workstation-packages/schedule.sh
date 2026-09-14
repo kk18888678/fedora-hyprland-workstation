@@ -25,7 +25,7 @@ wsp_daily_enable() {
     local service_tmp
     local timer_tmp
 
-    command -v systemctl >/dev/null 2>&1 || {
+    command -v systemctl >/dev/null || {
         wsp_error "systemctl is required to enable daily package refresh."
         return 1
     }
@@ -88,7 +88,7 @@ wsp_daily_disable() {
     local service_path
     local timer_path
 
-    command -v systemctl >/dev/null 2>&1 || {
+    command -v systemctl >/dev/null || {
         wsp_error "systemctl is required to disable daily package refresh."
         return 1
     }
@@ -99,8 +99,8 @@ wsp_daily_disable() {
         wsp_error "Refusing to remove package refresh units through a symlinked directory: $unit_dir"
         return 1
     }
-    systemctl --user disable --now workstation-packages-refresh.timer >/dev/null 2>&1 || true
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    systemctl --user disable --now workstation-packages-refresh.timer >/dev/null || true
+    systemctl --user daemon-reload >/dev/null || true
     [[ ! -L "$service_path" && ! -L "$timer_path" ]] || {
         wsp_error "Refusing to remove a symlinked package refresh unit."
         return 1
@@ -113,13 +113,13 @@ wsp_daily_status() {
     local timer_state="disabled"
     local last_run="unknown"
 
-    if command -v systemctl >/dev/null 2>&1 &&
-       systemctl --user is-enabled workstation-packages-refresh.timer >/dev/null 2>&1; then
+    if command -v systemctl >/dev/null &&
+       systemctl --user is-enabled workstation-packages-refresh.timer >/dev/null; then
         timer_state="enabled"
     fi
-    if command -v systemctl >/dev/null 2>&1; then
+    if command -v systemctl >/dev/null; then
         last_run="$(systemctl --user show workstation-packages-refresh.service \
-            --property=ExecMainExitTimestamp --value 2>/dev/null || true)"
+            --property=ExecMainExitTimestamp --value  || true)"
     fi
     printf 'daily_refresh=%s\nlast_run=%s\n' "$timer_state" "${last_run:-unknown}"
 }

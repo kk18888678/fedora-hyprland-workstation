@@ -11,7 +11,7 @@ parent_config="$ROOT/../dotfiles/hypr/hyprland.lua"
 keybind_lua="$ROOT/dotfiles/hypr/keybind.lua"
 
 if [[ -x "$provider_bin" ]] &&
-   "$provider_bin" --help >/dev/null 2>&1 &&
+   "$provider_bin" --help >/dev/null &&
    grep -q 'hyprland-provider.lua' "$provider_bin"; then
     pass "provider command exposes explicit enable/disable/status lifecycle"
 else

@@ -136,6 +136,7 @@ Item {
             if (root.customCommand) return Qt.resolvedUrl("CustomCommandBarWidget.qml")
             if (root.pluginSource && root.pluginSource.url) return String(root.pluginSource.url)
         } catch (e) {
+            console.warn("[BAR] widget_source_read_failed id=" + root.pluginId)
             return ""
         }
         return ""
@@ -148,6 +149,7 @@ Item {
                 detail = root.pluginRegistry.boundedFailureDetail(error)
             else if (error) detail = String(error)
         } catch (e) {
+            console.warn("[BAR] widget_failure_detail_unavailable id=" + root.pluginId)
             detail = "bar widget failure detail unavailable"
         }
         try {
@@ -173,6 +175,7 @@ Item {
         try {
             if (loader && typeof loader.errorString === "function") detail = String(loader.errorString() || "")
         } catch (error) {
+            console.warn("[BAR] loader_error_detail_unavailable id=" + root.pluginId)
             detail = ""
         }
         return detail !== "" ? detail : String(fallback || "Loader.Error")
@@ -200,6 +203,10 @@ Item {
         } catch (error) {
             root.reportFailure("settings", error)
         }
+    }
+
+    function scheduleSettingsRefresh() {
+        settingsRefreshTimer.restart()
     }
 
     function handleLoaded(target) {
@@ -327,10 +334,8 @@ Item {
         opacity: root.dragSource ? 0.22 : 1.0
         active: root.active && root.available && !root.reloading &&
             (root.pluginManifest === null || root.pluginManifest.__isFirstParty !== false || root.pluginHost !== null)
-        source: active
-            ? (root.pluginSource && root.pluginSource.valid === true
-                ? String(root.pluginSource.url || "") : "")
-            : ""
+        source: root.pluginSource && root.pluginSource.valid === true
+            ? String(root.pluginSource.url || "") : ""
 
         onLoaded: root.handleLoaded(item)
         onStatusChanged: {
@@ -357,7 +362,7 @@ Item {
         anchors.fill: parent
         opacity: root.dragSource ? 0.22 : 1.0
         active: root.customCommand && !root.reloading
-        source: active ? Qt.resolvedUrl("CustomCommandBarWidget.qml") : ""
+        source: Qt.resolvedUrl("CustomCommandBarWidget.qml")
         onLoaded: root.handleLoaded(item)
         onStatusChanged: {
             if (status === Loader.Error)
@@ -365,8 +370,19 @@ Item {
         }
     }
 
-    onSettingsChanged: Qt.callLater(root.refreshSettings)
-    onPluginHostChanged: Qt.callLater(root.refreshSettings)
+    // A Loader can destroy a slot while the host is rebuilding a bar surface.
+    // Keep the deferred settings push owned by this component so destruction
+    // cancels it instead of invoking an unbound function in an invalid QML
+    // context.
+    Timer {
+        id: settingsRefreshTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.refreshSettings()
+    }
+
+    onSettingsChanged: root.scheduleSettingsRefresh()
+    onPluginHostChanged: root.scheduleSettingsRefresh()
 
     property Connections pluginChangeConnection: Connections {
         target: root.pluginRegistry

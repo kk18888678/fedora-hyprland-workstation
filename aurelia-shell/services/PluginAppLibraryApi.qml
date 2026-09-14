@@ -15,6 +15,7 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(api._rows(String(query || ""))))
         } catch (e) {
+            console.warn("[PLUGIN] app_catalog_snapshot_failed owner=" + api.ownerPluginId)
             return []
         }
     }

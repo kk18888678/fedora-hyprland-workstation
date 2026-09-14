@@ -27,22 +27,22 @@ fi
 if ! /usr/bin/rg -n -F --glob '*.qml' --glob '*.js' --glob '*.sh' \
        '"file://" +' "$ROOT" \
        --glob '!**/tests/**' --glob '!**/examples/**' \
-       --glob '!**/services/SourceUrl.js' --glob '!**/services/PluginSourceResolver.qml' >/dev/null 2>&1 &&
+       --glob '!**/services/SourceUrl.js' --glob '!**/services/PluginSourceResolver.qml' >/dev/null &&
    ! /usr/bin/rg -n --glob '*.qml' --glob '*.js' --glob '*.sh' \
-       '/home/user/Projects' "$ROOT" --glob '!**/tests/**' --glob '!**/examples/**' >/dev/null 2>&1; then
+       '/home/user/Projects' "$ROOT" --glob '!**/tests/**' --glob '!**/examples/**' >/dev/null; then
     pass "[static] production has no ad-hoc file-URL concatenation or developer checkout path"
 else
     fail "[static] production source path construction still contains an ad-hoc or fixed checkout path"
 fi
 
 if ! /usr/bin/rg -n --hidden --glob '!.git/**' -F "$forbidden_local_file_prefix" \
-       "$ROOT/.." >/dev/null 2>&1; then
+       "$ROOT/.." >/dev/null; then
     pass "[static] no repository file embeds the forbidden local file-URL prefix"
 else
     fail "[static] forbidden local file-URL prefix is still embedded in the repository"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$resolver_js" <<'NODE_SOURCE'
 const source = require(process.argv[2]);
 const path = '/tmp/alternate root/Δ files/#capture?.png%';
@@ -78,7 +78,7 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 
 run_relocation_case() {
     local case_name="$1"
@@ -88,6 +88,7 @@ run_relocation_case() {
     local runtime_status=0
     mkdir -p -- "$destination" "$runtime_root/$case_name/runtime" "$runtime_root/$case_name/state" \
         "$runtime_root/$case_name/config" "$runtime_root/$case_name/cache"
+    : >"$result"
     cp -- "$fixture_root/Healthy.qml" "$destination/Healthy.qml"
 
     AURELIA_SOURCE_BOUNDARY_ROOT="$destination" \
@@ -109,7 +110,7 @@ run_relocation_case() {
         sed -n '1,40p' "$result" >&2 || true
         return
     fi
-    if jq -e --arg root "$destination" '
+    if runtime_log_is_environment_only "$log" && jq -e --arg root "$destination" '
         .healthyLoaded == true and
         .healthyMarker == "healthy-source" and
         .sourceRoot == $root and
@@ -141,6 +142,7 @@ run_registry_case() {
     local runtime_status=0
     mkdir -p -- "$plugin_root" "$runtime_root/$case_name/runtime" "$runtime_root/$case_name/state" \
         "$runtime_root/$case_name/config" "$runtime_root/$case_name/cache"
+    : >"$result"
     jq -n '{schemaVersion:1,id:"aurelia.source-fixture",name:"Source Fixture",version:"1.0.0",description:"T32 source fixture",kinds:["panel"],entryPoints:{panel:"Panel.qml"}}' \
         >"$plugin_root/manifest.json"
     cp -- "$fixture_root/Healthy.qml" "$plugin_root/Panel.qml"
@@ -164,7 +166,7 @@ run_registry_case() {
         sed -n '1,40p' "$result" >&2 || true
         return
     fi
-    if jq -e --arg root "$source_root" --arg plugin "$plugin_root" '
+    if runtime_log_is_environment_only "$log" && jq -e --arg root "$source_root" --arg plugin "$plugin_root" '
         .scanState == "success" and
         .descriptorValid == true and
         .descriptorId == "aurelia.source-fixture" and

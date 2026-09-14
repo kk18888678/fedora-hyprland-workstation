@@ -146,7 +146,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }

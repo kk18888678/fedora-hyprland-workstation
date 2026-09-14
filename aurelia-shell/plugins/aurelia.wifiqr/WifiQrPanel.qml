@@ -43,7 +43,9 @@ Item {
 
     function open(payloadJson) {
         var payload = {}
-        try { payload = JSON.parse(payloadJson || "{}") || {} } catch (errorValue) {}
+        try { payload = JSON.parse(payloadJson || "{}") || {} } catch (errorValue) {
+            console.warn("[NETWORK] wifiqr_payload_invalid reason=invalid_json")
+        }
         var requestedIface = validInterface(payload.iface) ? String(payload.iface) : ""
         ssid = payload.ssid !== undefined ? String(payload.ssid) : ""
         generate(requestedIface)

@@ -8,6 +8,7 @@ section "Aurelia Scoped Plugin Facades"
 
 services_root="$ROOT/services"
 host_root="$services_root/PluginHost.qml"
+facade_manager_root="$services_root/PluginFacadeManager.qml"
 bar_root="$ROOT/plugins/aurelia.bar"
 shell_root="$ROOT/shell.qml"
 
@@ -26,15 +27,16 @@ else
     fail "[static] scoped facade type declarations are incomplete"
 fi
 
-if grep -q 'publicPluginManifest' "$host_root" &&
-   grep -q 'scopedRegistryApiFor' "$host_root" &&
-   grep -q 'scopedShellApiFor' "$host_root" &&
-   grep -q 'scopedBarApiFor' "$host_root" &&
-   grep -q 'scopedBarWidgetRegistryApiFor' "$host_root" &&
-   grep -q 'scopedAppLibraryApiFor' "$host_root" &&
-   grep -q 'pruneScopedFacades' "$host_root" &&
-   grep -q 'syncScopedFacades' "$host_root"; then
-    pass "[static] PluginHost owns detached facade construction, refresh, and revocation"
+if grep -q 'publicPluginManifest' "$facade_manager_root" &&
+   grep -q 'scopedRegistryApiFor' "$facade_manager_root" &&
+   grep -q 'scopedShellApiFor' "$facade_manager_root" &&
+   grep -q 'scopedBarApiFor' "$facade_manager_root" &&
+   grep -q 'scopedBarWidgetRegistryApiFor' "$facade_manager_root" &&
+   grep -q 'scopedAppLibraryApiFor' "$facade_manager_root" &&
+   grep -q 'pruneScopedFacades' "$facade_manager_root" &&
+   grep -q 'syncScopedFacades' "$facade_manager_root" &&
+   grep -q 'PluginFacadeManager' "$host_root"; then
+    pass "[static] PluginFacadeManager owns detached facade construction, refresh, and revocation"
 else
     fail "[static] PluginHost facade lifecycle boundary is incomplete"
 fi
@@ -59,10 +61,11 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 runtime_result="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
+: >"$runtime_result"
 AURELIA_PLUGIN_FACADE_RESULT="$runtime_result" \
 AURELIA_PLUGIN_FACADE_HOST_SOURCE="$host_root" \
 AURELIA_PLUGIN_FACADE_REGISTRY_SOURCE="$services_root/PluginRegistryApi.qml" \
@@ -83,6 +86,7 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '
         .publicManifestHasSource == false and
         .publicManifestHasPartyMarker == false and

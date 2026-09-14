@@ -94,7 +94,7 @@ assert(ok == true, "set_override failed: " .. tostring(err))
 local val = pref.get_effective("components.keybindings.default_view", tmp)
 assert(val == "unbound", "written value mismatch")
 
-local p = io.popen("stat -c \"%a\" " .. tmp .. " 2>/dev/null || stat -f \"%Lp\" " .. tmp .. " 2>/dev/null")
+local p = io.popen("stat -c \"%a\" " .. tmp .. "  || stat -f \"%Lp\" " .. tmp .. " ")
 local perms = p:read("*l") or ""
 p:close()
 os.remove(tmp)

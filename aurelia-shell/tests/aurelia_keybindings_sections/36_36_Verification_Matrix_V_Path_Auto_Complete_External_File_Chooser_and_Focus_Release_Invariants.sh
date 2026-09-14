@@ -32,9 +32,9 @@ test_dir="$(mktemp -d)"
 mkdir -p "$test_dir/subdir/nested"
 touch "$test_dir/file1.sh" "$test_dir/subdir/file2.sh" "$test_dir/subdir/nested/file3.sh"
 cp_imm_out="$("$ROOT/bin/workstation-keybindings" complete-path "$test_dir/")"
-if jq -e . <<< "$cp_imm_out" >/dev/null 2>&1 && \
-   jq -e 'index("'"$test_dir"'/subdir/") != null' <<< "$cp_imm_out" >/dev/null 2>&1 && \
-   jq -e 'index("'"$test_dir"'/file1.sh") != null' <<< "$cp_imm_out" >/dev/null 2>&1 && \
+if jq -e . <<< "$cp_imm_out" >/dev/null && \
+   jq -e 'index("'"$test_dir"'/subdir/") != null' <<< "$cp_imm_out" >/dev/null && \
+   jq -e 'index("'"$test_dir"'/file1.sh") != null' <<< "$cp_imm_out" >/dev/null && \
    ! grep -q "file2.sh" <<< "$cp_imm_out" && \
    ! grep -q "file3.sh" <<< "$cp_imm_out"; then
     pass "36.4 complete-path enumerates immediate directory only without recursive descent"
@@ -108,7 +108,7 @@ fi
 
 # 36.9: complete-path explicitly expands ~ to target user home
 cp_tilde_out="$("$ROOT/bin/workstation-keybindings" complete-path "~/")"
-if jq -e . <<< "$cp_tilde_out" >/dev/null 2>&1 && \
+if jq -e . <<< "$cp_tilde_out" >/dev/null && \
    ! grep -q '"~/' <<< "$cp_tilde_out" && \
    grep -q "\"$HOME" <<< "$cp_tilde_out"; then
     pass "36.9 complete-path expands ~ to absolute home directory without shell evaluation"

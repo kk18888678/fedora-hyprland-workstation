@@ -15,7 +15,7 @@ state_file_target_is_safe() {
     [[ -n "$destination" && "$destination" == "$INSTALLER_STATE_ROOT"/* ]] || return 1
     [[ ! -L "$destination" ]] || return 1
 
-    if declare -F validate_mutation_path >/dev/null 2>&1; then
+    if declare -F validate_mutation_path >/dev/null; then
         validate_mutation_path "$(dirname -- "$destination")" || return 1
     fi
 }
@@ -51,7 +51,7 @@ init_installer_state() {
     # Validate every installer-owned state path before any privileged mkdir.
     # This rejects a pre-existing symlink at the root or one of its managed
     # subdirectories instead of allowing install(1) to follow it.
-    if declare -F validate_mutation_path >/dev/null 2>&1; then
+    if declare -F validate_mutation_path >/dev/null; then
         validate_mutation_path "$INSTALLER_STATE_ROOT" ||
             die "Installer state root path is unsafe."
         validate_mutation_path "$INSTALLER_STATE_ROOT/state" ||
@@ -68,10 +68,10 @@ init_installer_state() {
         die "Installer state contains a symlinked managed file; refusing to write state."
 
     if [[ -z "$target_uid" ]]; then
-        target_uid="$(id -u "$TARGET_USER" 2>/dev/null || true)"
+        target_uid="$(id -u "$TARGET_USER"  || true)"
     fi
     if [[ -z "$target_gid" ]]; then
-        target_gid="$(id -g "$TARGET_USER" 2>/dev/null || true)"
+        target_gid="$(id -g "$TARGET_USER"  || true)"
     fi
     [[ "$target_uid" =~ ^[0-9]+$ && "$target_gid" =~ ^[0-9]+$ ]] ||
         die "Could not determine numeric ownership for installer state."
@@ -127,7 +127,7 @@ journal_stage() {
     fi
 
     journal_dir="$(dirname -- "$journal_file")"
-    temporary_file="$(mktemp "$journal_dir/.journal.XXXXXX" 2>/dev/null)" || return 0
+    temporary_file="$(mktemp "$journal_dir/.journal.XXXXXX" )" || return 0
 
     if [[ -f "$journal_file" ]] && ! cp -- "$journal_file" "$temporary_file"; then
         rm -f -- "$temporary_file"
@@ -220,7 +220,7 @@ validate_lock_directory() {
 
     # 6. Ownership verification
     local owner
-    owner="$(stat -c '%u' "$candidate" 2>/dev/null || true)"
+    owner="$(stat -c '%u' "$candidate"  || true)"
     if [[ -z "$owner" ]]; then
         warn "Could not determine owner for lock directory candidate: $candidate"
         return 1
@@ -233,7 +233,7 @@ validate_lock_directory() {
 
     # 7. Permission policy verification (reject group/world write)
     local perm
-    perm="$(stat -c '%a' "$candidate" 2>/dev/null || true)"
+    perm="$(stat -c '%a' "$candidate"  || true)"
     if [[ -z "$perm" ]]; then
         warn "Could not determine permissions for lock directory candidate: $candidate"
         return 1
@@ -280,14 +280,14 @@ get_installer_lock_path() {
     fi
 
     if [[ ! -d "$fallback_dir" ]]; then
-        if ! mkdir -m 0700 "$fallback_dir" 2>/dev/null; then
+        if ! mkdir -m 0700 "$fallback_dir" ; then
             error "Failed to create private lock directory: $fallback_dir"
             return 1
         fi
     fi
 
     if validate_lock_directory "$fallback_dir" "$uid"; then
-        chmod 0700 "$fallback_dir" 2>/dev/null || true
+        chmod 0700 "$fallback_dir"  || true
         printf '%s/installer.lock\n' "$fallback_dir"
         return 0
     fi
@@ -316,13 +316,13 @@ acquire_installer_lock() {
         die "Another instance of the installer is currently running (locked at $INSTALLER_LOCK_FILE). Refusing concurrent execution."
     fi
 
-    printf '%s\n' "$$" >&"$INSTALLER_LOCK_FD" 2>/dev/null || true
+    printf '%s\n' "$$" >&"$INSTALLER_LOCK_FD"  || true
 }
 
 release_installer_lock() {
     if [[ -n "${INSTALLER_LOCK_FD:-}" ]]; then
-        flock -u "$INSTALLER_LOCK_FD" 2>/dev/null || true
-        exec {INSTALLER_LOCK_FD}>&- 2>/dev/null || true
+        flock -u "$INSTALLER_LOCK_FD"  || true
+        exec {INSTALLER_LOCK_FD}>&-  || true
         INSTALLER_LOCK_FD=""
     fi
 }

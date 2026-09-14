@@ -12,7 +12,7 @@ surface_root="$menu_root/Menu.qml"
 
 if [[ -f "$menu_root/manifest.json" && -f "$menu_root/menu.json" &&
       -f "$model_root" && -f "$surface_root" ]] &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$menu_root" >/dev/null 2>&1 &&
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$menu_root" >/dev/null &&
    grep -q 'allowedActions' "$model_root" &&
    grep -q 'allowedProviders' "$model_root" &&
    grep -q 'function validateItem' "$model_root" &&
@@ -38,7 +38,8 @@ fi
 if grep -q 'userMenuPath' "$model_root" &&
    grep -q 'loadUser' "$model_root" &&
    grep -q 'root.userItems' "$model_root" &&
-   grep -q 'root.userFile' "$model_root"; then
+   grep -q 'userFileLoader' "$model_root" &&
+   grep -q 'OptionalFileStore.qml' "$model_root"; then
     pass "[static] shipped menu data and optional XDG user extensions are separate inputs"
 else
     fail "[static] menu extension input boundary is incomplete"
@@ -50,13 +51,15 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config/aurelia" "$runtime_root/cache"
 jq -n '{version:1,items:[
     {id:"user.custom",label:"Custom",description:"User extension",action:"open-command-center",order:5},
     {id:"user.invalid",label:"Invalid",action:"bash -c id",order:6}
 ]}' >"$runtime_root/config/aurelia/menu.json"
 result_path="$runtime_root/result.json"
+menu_log="$runtime_root/menu.log"
+: >"$result_path"
 runtime_status=0
 AURELIA_MENU_MODEL_SOURCE="$model_root" \
 AURELIA_MENU_MODEL_RESULT="$result_path" \
@@ -65,13 +68,13 @@ XDG_RUNTIME_DIR="$runtime_root/runtime" XDG_STATE_HOME="$runtime_root/state" \
 XDG_CONFIG_HOME="$runtime_root/config" XDG_CACHE_HOME="$runtime_root/cache" \
     /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
     --path "$ROOT/tests/fixtures/aurelia-menu/model.qml" \
-    >"$runtime_root/menu.log" 2>&1 || runtime_status=$?
-if [[ "$runtime_status" -eq 0 ]] && jq -e '
+    >"$menu_log" 2>&1 || runtime_status=$?
+if [[ "$runtime_status" -eq 0 ]] && runtime_log_is_environment_only "$menu_log" && jq -e '
     .commandCenter and .provider and .custom and .invalidRejected and
     .checked and .toggleResult and .lastAction == "toggle:aurelia.bar"
   ' "$result_path" >/dev/null; then
     pass "[isolated-runtime] menu model merges safe user extensions, exposes providers, evaluates checked state, and dispatches approved actions"
 else
-    details="$(tail -n 24 "$runtime_root/menu.log" 2>/dev/null || true)"
+    details="$(tail -n 24 "$menu_log"  || true)"
     fail "[isolated-runtime] menu model fixture failed (status=$runtime_status): $details"
 fi

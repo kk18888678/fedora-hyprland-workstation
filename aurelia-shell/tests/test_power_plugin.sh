@@ -28,7 +28,7 @@ if [[ -f "$manifest_file" && -f "$panel_file" && -f "$widget_file" && -f "$model
        .barWidget.displayName == "Power" and
        .barWidget.allowMultiple == false
    ' "$manifest_file" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$power_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$power_root" >/dev/null; then
     pass "[static] Power retains its validated first-party bar-widget identity and entry point"
 else
     fail "[static] Power manifest or preserved entry-point identity is incomplete"
@@ -109,7 +109,7 @@ else
     fail "[static] Power pure model contract is incomplete"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$model_file" <<'NODE_POWER_MODEL'
 const power = require(process.argv[2])
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
@@ -168,11 +168,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 result_file="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache"
+: >"$result_file"
 
 AURELIA_POWER_FOUNDATION_RESULT="$result_file" \
 AURELIA_POWER_FOUNDATION_SOURCE="file://$widget_file" \
@@ -185,23 +186,15 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
     --path "$fixture_root/shell.qml" --no-color >"$runtime_log" 2>&1 || runtime_status=$?
 
-unexpected_diagnostics="$(grep -E 'WARN|ERROR|FATAL|TypeError|ReferenceError|QML Error|Segmentation fault|Cannot assign' "$runtime_log" | \
-    grep -Ev 'ERROR quickshell\.ipc: Failed to start IPC server on path |Type AureliaKeyboardPanel unavailable|No PanelWindow backend loaded|\[POWER\] panel_load_failed|Failed to connect to UPower|UPower.*unavailable|Could not connect to UPower|Signal QQmlEngine::quit\(\) emitted' || true)"
-
-backend_diagnostic=0
-if grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|Type AureliaKeyboardPanel unavailable|No PanelWindow backend loaded|Failed to connect to UPower|Could not connect to UPower|Signal QQmlEngine::quit\(\) emitted|Operation not permitted' "$runtime_log"; then
-    backend_diagnostic=1
-fi
-
-if [[ ("$runtime_status" -eq 0 || ("$runtime_status" -eq 124 && "$backend_diagnostic" -eq 1)) ]] && [[ -s "$result_file" ]] &&
-   [[ -z "$unexpected_diagnostics" ]] &&
+if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '.widgetLoaded == true and .initialVisible == true and
           .shownAfterOpen == true and .percentageAfterRight == true and
           .shownAfterClose == false and .hiddenWithoutBattery == true and
           .noBatteryReason == true and
           .actionFailureDidNotEscape == true' "$result_file" >/dev/null; then
     pass "[isolated-runtime] real Power bar widget preserves open/close, percentage toggle, no-battery hiding, and failure isolation"
-elif [[ "$backend_diagnostic" -eq 1 ]] &&
+elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Power fixture cannot create a disposable window or UPower backend"; then
     :
 else
@@ -211,12 +204,13 @@ else
 fi
 
 panel_runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$panel_runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$panel_runtime_root"  || true' RETURN
 panel_result="$panel_runtime_root/result.json"
 panel_log="$panel_runtime_root/runtime.log"
 panel_status=0
 mkdir -p -- "$panel_runtime_root/runtime" "$panel_runtime_root/state" \
     "$panel_runtime_root/config" "$panel_runtime_root/cache"
+: >"$panel_result"
 AURELIA_POWER_PANEL_RESULT="$panel_result" \
 AURELIA_POWER_PANEL_SOURCE="file://$panel_file" \
 AURELIA_POWER_RUNTIME_SOURCE="file://$runtime_file" \
@@ -233,12 +227,12 @@ if [[ "$panel_status" -eq 0 ]] && [[ -s "$panel_result" ]] &&
        "$panel_result" >/dev/null; then
     pass "[isolated-runtime] real PowerPanel entry point constructs without contentItem type errors"
 elif [[ -s "$panel_result" ]] &&
-     jq -e '.runtimeLoaded == true and .runtimeAvailable == true' "$panel_result" >/dev/null 2>&1 &&
+     jq -e '.runtimeLoaded == true and .runtimeAvailable == true' "$panel_result" >/dev/null &&
      grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$panel_log" &&
      runtime_skip_if_environment_only "$panel_log" "[isolated-runtime] PowerPanel fixture cannot create a disposable window backend"; then
     :
 else
-    details="$(tail -n 48 "$panel_log" 2>/dev/null || true)"
+    details="$(tail -n 48 "$panel_log"  || true)"
     if [[ -s "$panel_result" ]]; then details="$details result=$(tr '\n' ' ' <"$panel_result")"; fi
     fail "[isolated-runtime] PowerPanel entry-point fixture failed (status=$panel_status): $details"
 fi

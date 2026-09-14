@@ -48,7 +48,7 @@ band_for_freq() {
 # under a non-English session; `-e no` because `-g` otherwise escapes ':' and
 # '\' in values, and an escaped SSID would never match iw's raw one.
 nm_get() {
-  LC_ALL=C nmcli -e no -g "$@" 2>/dev/null
+  LC_ALL=C nmcli -e no -g "$@"
 }
 
 wifi_device() {
@@ -68,7 +68,7 @@ selected_band() {
 # the rest of its line, so an SSID containing ':' needs no special handling.
 read_link() {
   local link
-  link=$(iw dev "$1" link 2>/dev/null)
+  link=$(iw dev "$1" link )
   ssid=$(awk '/SSID:/ { sub(/.*SSID: /, ""); print; exit }' <<<"$link")
   freq=$(awk '/freq:/ { print $2; exit }' <<<"$link")
 }
@@ -156,9 +156,9 @@ set_band() {
   # A band change only takes effect on reassociation. If the radio cannot come
   # back up on the requested band, put the previous setting back and reconnect
   # rather than leaving the machine stranded offline.
-  if ! nmcli connection up "$profile" >/dev/null 2>&1; then
+  if ! nmcli connection up "$profile" >/dev/null; then
     nmcli connection modify "$profile" 802-11-wireless.band "$previous" >/dev/null
-    nmcli connection up "$profile" >/dev/null 2>&1 || true
+    nmcli connection up "$profile" >/dev/null || true
     echo "Error: could not connect on ${target}; reverted to previous band." >&2
     exit 1
   fi

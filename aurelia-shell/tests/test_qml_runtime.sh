@@ -105,7 +105,7 @@ XDG_STATE_HOME="$smoke_dir/state" XDG_CONFIG_HOME="$smoke_dir/config" XDG_CACHE_
     /usr/bin/timeout --kill-after=1s 6s /usr/bin/qs --no-duplicate --path "$smoke_file" >"$smoke_output" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] &&
-   ! grep -Eq 'WARN|ERROR|FATAL|ReferenceError|TypeError|widget_load_failed|panel_load_failed' "$smoke_output"; then
+   runtime_log_is_environment_only "$smoke_output"; then
     pass "Screenshot, weather, notification, workspace, workspace-overview, and image-picker surfaces instantiate in QuickShell without QML warnings or errors"
 elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$smoke_output" &&
      runtime_skip_if_environment_only "$smoke_output" "QML runtime smoke (test runner cannot create an additional Wayland QuickShell surface)"; then

@@ -7,7 +7,7 @@ else
     fail "dotfiles/hypr/keybindings_manifest.lua is missing"
 fi
 
-lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+lua_bin="$(command -v luajit  || command -v lua  || true)"
 if [[ -n "$lua_bin" ]]; then
     pass "Lua runtime available for manifest evaluation ($lua_bin)"
 else

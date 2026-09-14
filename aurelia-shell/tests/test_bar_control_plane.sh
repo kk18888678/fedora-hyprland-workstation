@@ -65,7 +65,7 @@ else
 fi
 
 cli_root="$(mktemp -d)"
-trap 'rm -rf -- "$cli_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$cli_root"  || true' RETURN
 cp -- "$ROOT/tests/fixtures/bar-cli/aurelia-shell" "$cli_root/aurelia-shell"
 chmod 0755 "$cli_root/aurelia-shell"
 calls="$cli_root/calls.jsonl"
@@ -108,11 +108,25 @@ else
 fi
 
 invalid_calls_before="$(wc -l <"$calls")"
-if aurelia_bar_position diagonal >/dev/null 2>&1 ||
-   aurelia_bar_transparent maybe >/dev/null 2>&1 ||
-   aurelia_bar_use 'bad/id' >/dev/null 2>&1 ||
-   aurelia_bar_reset extra >/dev/null 2>&1 ||
-   aurelia_bar_defaults extra >/dev/null 2>&1; then
+run_invalid_bar_command() {
+    AURELIA_DEVELOPMENT_MODE=1 \
+    AURELIA_PLUGIN_BIN_DIR="$cli_root" \
+    AURELIA_BAR_CLI_CALLS="$calls" \
+    bash -c '
+        set -Eeuo pipefail
+        source "$1/common.sh"
+        source "$1/placement.sh"
+        source "$1/bar.sh"
+        shift
+        "$@"
+    ' _ "$ROOT/bin/lib/aurelia-plugin" "$@"
+}
+
+if run_invalid_bar_command aurelia_bar_position diagonal ||
+   run_invalid_bar_command aurelia_bar_transparent maybe ||
+   run_invalid_bar_command aurelia_bar_use 'bad/id' ||
+   run_invalid_bar_command aurelia_bar_reset extra ||
+   run_invalid_bar_command aurelia_bar_defaults extra; then
     fail "[isolated-cli] invalid bar control arguments were accepted"
 elif [[ "$(wc -l <"$calls")" -eq "$invalid_calls_before" ]]; then
     pass "[isolated-cli] invalid bar control values fail closed before any shell request"
@@ -126,7 +140,7 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p -- "$runtime_root/config/aurelia" "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/cache"
 runtime_config="$runtime_root/config/aurelia/shell.json"
 runtime_result="$runtime_root/result.json"

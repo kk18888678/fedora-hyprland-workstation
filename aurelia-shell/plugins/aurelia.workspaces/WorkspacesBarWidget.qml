@@ -24,7 +24,10 @@ Item {
     readonly property real trailingGap: root.vertical ? 0 : Theme.spacingXs / 2
 
     implicitWidth: workspaceGrid.implicitWidth + root.trailingGap
-    implicitHeight: root.barSize
+    // In a vertical bar the five workspace cells form the widget's actual
+    // height. Reporting only one barSize made BarWidgetSlot clip the grid to a
+    // single cell, so workspaces 1–5 disappeared below the first slot.
+    implicitHeight: workspaceGrid.implicitHeight
 
     function workspaceValues() {
         return Hyprland.workspaces ? Hyprland.workspaces.values : []

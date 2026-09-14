@@ -22,7 +22,7 @@ fi
 
 # Duplicate component ID rejected
 dup_rc=0
-register_component id "test_comp_a" display_name "Duplicate" category "Testing" 2>/dev/null || dup_rc=$?
+register_component id "test_comp_a" display_name "Duplicate" category "Testing"  || dup_rc=$?
 if [[ "$dup_rc" -ne 0 ]]; then
     pass "duplicate component ID is rejected fail-closed"
 else
@@ -36,7 +36,7 @@ register_component \
     category "Testing" \
     dependencies "nonexistent_component"
 reg_val_rc=0
-validate_component_registry 2>/dev/null || reg_val_rc=$?
+validate_component_registry  || reg_val_rc=$?
 if [[ "$reg_val_rc" -ne 0 ]]; then
     pass "registry referential integrity rejects unknown dependency"
 else
@@ -49,7 +49,7 @@ register_component \
     id "test_comp_c" \
     display_name "Test Component C" \
     category "Testing" \
-    supported_profiles "invalid_profile" 2>/dev/null || inv_prof_rc=$?
+    supported_profiles "invalid_profile"  || inv_prof_rc=$?
 if [[ "$inv_prof_rc" -ne 0 ]]; then
     pass "component with invalid profile is rejected"
 else

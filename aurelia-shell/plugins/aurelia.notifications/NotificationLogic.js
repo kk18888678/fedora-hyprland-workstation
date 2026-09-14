@@ -213,7 +213,8 @@ function stringHint(hints, name) {
     try {
         if (hints && hints[name] !== undefined && hints[name] !== null) return String(hints[name])
     } catch (error) {
-        // Malformed optional hints are ignored by design.
+        if (typeof console !== "undefined" && console.info)
+            console.info("[NOTIFICATIONS] hint_rejected name=" + String(name || ""))
     }
     return ""
 }
@@ -232,6 +233,8 @@ function transientFromNotification(notification) {
     try {
         return !!(notification.hints && notification.hints.transient === true)
     } catch (error) {
+        if (typeof console !== "undefined" && console.info)
+            console.info("[NOTIFICATIONS] transient_hint_rejected")
         return false
     }
 }
@@ -240,7 +243,13 @@ function parseExecArgv(value) {
     var text = String(value || "")
     if (text === "") return null
     var parsed
-    try { parsed = JSON.parse(text) } catch (error) { return null }
+    try {
+        parsed = JSON.parse(text)
+    } catch (error) {
+        if (typeof console !== "undefined" && console.info)
+            console.info("[NOTIFICATIONS] exec_argv_rejected reason=invalid_json")
+        return null
+    }
     if (!Array.isArray(parsed) || parsed.length === 0) return null
     for (var i = 0; i < parsed.length; i++) {
         if (typeof parsed[i] !== "string") return null
@@ -267,7 +276,13 @@ function isEphemeralApp(appName) {
 function actionsOf(notification) {
     var result = []
     var source = []
-    try { source = notification && notification.actions ? notification.actions : [] } catch (error) { source = [] }
+    try {
+        source = notification && notification.actions ? notification.actions : []
+    } catch (error) {
+        if (typeof console !== "undefined" && console.warn)
+            console.warn("[NOTIFICATIONS] actions_read_failed")
+        source = []
+    }
     if (!source || typeof source.length !== "number") return result
 
     for (var i = 0; i < source.length && result.length < MAX_ACTIONS; i++) {
@@ -286,7 +301,13 @@ function actionsOf(notification) {
 
 function defaultActionText(notification) {
     var source = []
-    try { source = notification && notification.actions ? notification.actions : [] } catch (error) { source = [] }
+    try {
+        source = notification && notification.actions ? notification.actions : []
+    } catch (error) {
+        if (typeof console !== "undefined" && console.warn)
+            console.warn("[NOTIFICATIONS] default_action_read_failed")
+        source = []
+    }
     if (!source || typeof source.length !== "number") return ""
 
     for (var i = 0; i < source.length; i++) {
@@ -388,6 +409,8 @@ function parseSettings(raw) {
             legacy: !!(parsed && (parsed.pending || parsed.past || parsed.entries))
         }
     } catch (error) {
+        if (typeof console !== "undefined" && console.warn)
+            console.warn("[NOTIFICATIONS] settings_parse_failed")
         return { ok: false, dnd: null, legacy: false }
     }
 }
@@ -397,7 +420,13 @@ function parseHistory(raw, limit) {
     if (text === "") return []
 
     var parsed
-    try { parsed = JSON.parse(text) } catch (error) { return [] }
+    try {
+        parsed = JSON.parse(text)
+    } catch (error) {
+        if (typeof console !== "undefined" && console.warn)
+            console.warn("[NOTIFICATIONS] history_parse_failed")
+        return []
+    }
     var source = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.notifications) ? parsed.notifications : [])
     var rows = []
     for (var i = 0; i < source.length && rows.length < MAX_HISTORY; i++) {
@@ -543,7 +572,10 @@ function parsePopupFiles(raw, normalUrgency) {
             var value = JSON.parse(line)
             var entry = value && typeof value === "object" ? popupEntry(value, normalUrgency) : null
             if (entry && hasPopupIdentity(entry)) entries.push(entry)
-        } catch (error) {}
+        } catch (error) {
+            if (typeof console !== "undefined" && console.warn)
+                console.warn("[NOTIFICATIONS] popup_file_line_rejected line=" + String(i + 1))
+        }
     }
     entries.sort(function(left, right) { return Number(right.timestamp || 0) - Number(left.timestamp || 0) })
     return entries

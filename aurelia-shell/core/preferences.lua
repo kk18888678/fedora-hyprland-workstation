@@ -483,7 +483,7 @@ local function atomic_write_file(path, content)
     end
 
     local template = dir .. "/.preferences.tmp.XXXXXX"
-    local p = io.popen("mktemp " .. sh_quote(template) .. " 2>/dev/null", "r")
+    local p = io.popen("mktemp " .. sh_quote(template) .. " ", "r")
     if not p then
         return false, "Failed to invoke mktemp for exclusive temporary file"
     end
@@ -493,7 +493,7 @@ local function atomic_write_file(path, content)
         return false, "Failed to create exclusive temporary file via mktemp"
     end
 
-    os.execute("chmod 0600 " .. sh_quote(tmp_path) .. " 2>/dev/null")
+    os.execute("chmod 0600 " .. sh_quote(tmp_path) .. " ")
 
     local f, err = io.open(tmp_path, "w")
     if not f then
@@ -926,7 +926,7 @@ end
 -- Bounded log file truncation via tail (only called when file size exceeds bound)
 function M.bound_logfile(log_path, max_lines)
     max_lines = max_lines or 2000
-    local p = io.popen("tail -n " .. tonumber(max_lines) .. " " .. sh_quote(log_path) .. " 2>/dev/null", "r")
+    local p = io.popen("tail -n " .. tonumber(max_lines) .. " " .. sh_quote(log_path) .. " ", "r")
     if not p then return end
     local content = p:read("*a")
     p:close()
@@ -966,7 +966,7 @@ function M.log_event(level, component, event_id, msg, dur_ms, context)
 
     local dir = log_path:match("^(.*)/[^/]+$")
     if dir and dir ~= "" then
-        os.execute("mkdir -p -m 0700 " .. sh_quote(dir) .. " 2>/dev/null")
+        os.execute("mkdir -p -m 0700 " .. sh_quote(dir) .. " ")
     end
 
     -- Append directly without reading file into memory

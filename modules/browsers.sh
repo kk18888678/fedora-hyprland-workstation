@@ -18,7 +18,7 @@ perform_install_chromium() {
         return 1
     fi
 
-    if ! rpm -q chromium >/dev/null 2>&1; then
+    if ! rpm -q chromium >/dev/null; then
         record_required "browsers" "chromium" "Chromium installation could not be validated."
         return 1
     fi
@@ -54,7 +54,7 @@ brave_origin_repo_installed() {
             'enabled=1' \
             'gpgcheck=1' \
             'gpgkey=https://brave-browser-rpm-release.s3.brave.com/brave-core.asc' \
-            'baseurl=https://brave-browser-rpm-release.s3.brave.com/$basearch'
+            "baseurl=https://brave-browser-rpm-release.s3.brave.com/\$basearch"
     )
 }
 
@@ -134,7 +134,7 @@ perform_install_firefox() {
         return 1
     fi
 
-    if ! rpm -q firefox >/dev/null 2>&1; then
+    if ! rpm -q firefox >/dev/null; then
         record_deferred \
             "browsers" \
             "firefox" \

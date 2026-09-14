@@ -3,7 +3,7 @@
 # DNF and RPM package manager helpers.
 
 package_installed() {
-    rpm -q "$1" >/dev/null 2>&1 || rpm -q --whatprovides "$1" >/dev/null 2>&1
+    rpm -q "$1" >/dev/null || rpm -q --whatprovides "$1" >/dev/null
 }
 
 package_command_owned() {
@@ -12,10 +12,10 @@ package_command_owned() {
     local command_path
     local owner_name
 
-    command_path="$(command -v "$command_name" 2>/dev/null || true)"
+    command_path="$(command -v "$command_name"  || true)"
     [[ "$command_path" == /* && -x "$command_path" && ! -L "$command_path" ]] || return 1
 
-    owner_name="$(rpm -qf --qf '%{NAME}\n' -- "$command_path" 2>/dev/null || true)"
+    owner_name="$(rpm -qf --qf '%{NAME}\n' -- "$command_path"  || true)"
     [[ "$owner_name" == "$package" ]]
 }
 
@@ -24,7 +24,7 @@ package_evr_is_stable() {
     local evr
 
     package_installed "$package" || return 1
-    evr="$(rpm -q --qf '%{EVR}' "$package" 2>/dev/null || true)"
+    evr="$(rpm -q --qf '%{EVR}' "$package"  || true)"
     [[ -n "$evr" ]] || return 1
 
     case "${evr,,}" in
@@ -63,9 +63,9 @@ detect_dnf_lock_diagnostics() {
     fi
 
     # 2. Process-table fallback: inspect for concurrent dnf/rpm processes without fragile pipes
-    if command -v ps >/dev/null 2>&1; then
+    if command -v ps >/dev/null; then
         local ps_out
-        ps_out="$(ps -eo pid,args --no-headers 2>/dev/null)" || ps_out=""
+        ps_out="$(ps -eo pid,args --no-headers )" || ps_out=""
         if [[ -n "$ps_out" ]]; then
             while IFS= read -r proc_line || [[ -n "$proc_line" ]]; do
                 [[ -n "$proc_line" ]] || continue
@@ -190,7 +190,7 @@ package_available() {
 
     output="$(
         run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery $package" \
-            dnf -q repoquery --available --qf '%{name}' "$package" 2>/dev/null
+            dnf -q repoquery --available --qf '%{name}' "$package"
     )" || status=$?
 
     if (( status == 124 )); then
@@ -207,7 +207,7 @@ package_available() {
 
     output="$(
         run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery whatprovides $package" \
-            dnf -q repoquery --available --whatprovides "$package" --qf '%{name}' 2>/dev/null
+            dnf -q repoquery --available --whatprovides "$package" --qf '%{name}'
     )" || status=$?
 
     if (( status == 124 )); then
@@ -251,7 +251,7 @@ package_available_from_repo() {
     }
     output="$(
         run_with_timeout "$TIMEOUT_METADATA_SECONDS" "repoquery $repo $package" \
-            dnf -q repoquery --available --repoid "$repo" --qf $'%{name}\n' "$package" 2>/dev/null
+            dnf -q repoquery --available --repoid "$repo" --qf $'%{name}\n' "$package"
     )" || status=$?
     if (( status != 0 )); then
         if (( status == 124 )); then

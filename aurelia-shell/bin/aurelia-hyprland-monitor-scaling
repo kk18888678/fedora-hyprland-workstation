@@ -16,12 +16,12 @@ die() {
     exit 1
 }
 
-command -v timeout >/dev/null 2>&1 || die "timeout is required"
-command -v hyprctl >/dev/null 2>&1 || die "hyprctl is required"
-command -v jq >/dev/null 2>&1 || die "jq is required"
-command -v awk >/dev/null 2>&1 || die "awk is required"
+command -v timeout >/dev/null || die "timeout is required"
+command -v hyprctl >/dev/null || die "hyprctl is required"
+command -v jq >/dev/null || die "jq is required"
+command -v awk >/dev/null || die "awk is required"
 
-monitor_json="$(bounded hyprctl monitors -j 2>/dev/null || bounded hyprctl -j monitors 2>/dev/null)" ||
+monitor_json="$(bounded hyprctl monitors -j  || bounded hyprctl -j monitors )" ||
     die "could not query Hyprland monitors"
 focused="$(jq -e -c '[.[] | select(.focused == true)][0] // empty' <<<"$monitor_json")" ||
     die "no focused monitor is available"

@@ -1,6 +1,6 @@
 section "11. Role-Based Action Resolution & Dynamic Application Intent"
 
-lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+lua_bin="$(command -v luajit  || command -v lua  || true)"
 
 # 11.1: File manager role resolves dynamically without mutating shortcut declaration
 role_fm_out="$("$lua_bin" - "$ROOT" <<'LUA_CHECK'

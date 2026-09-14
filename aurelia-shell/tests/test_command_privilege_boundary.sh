@@ -41,7 +41,7 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mock_bin="$runtime_root/bin"
 plugin_dir="$runtime_root/plugins"
 mkdir -p -- "$mock_bin" "$plugin_dir"

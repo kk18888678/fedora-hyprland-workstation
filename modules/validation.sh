@@ -83,8 +83,8 @@ validate_hyprland_desktop() {
         is_true "${INSTALL_NOCTALIA:-false}" ||
         is_true "${INSTALL_GREETER:-false}"; then
         local noctalia_ok=0
-        if declare -F package_evr_is_stable >/dev/null 2>&1 &&
-            declare -F package_command_owned >/dev/null 2>&1; then
+        if declare -F package_evr_is_stable >/dev/null &&
+            declare -F package_command_owned >/dev/null; then
             if package_evr_is_stable noctalia && package_command_owned noctalia noctalia; then
                 noctalia_ok=1
             fi
@@ -120,7 +120,7 @@ validate_session_shell_environment() {
             ;;
     esac
 
-    selector_path="$(desktop_shell_selector_path 2>/dev/null || true)"
+    selector_path="$(desktop_shell_selector_path  || true)"
     if [[ -z "$selector_path" || ! -L "$selector_path" || ! -f "$selector_path" ]]; then
         record_required \
             "validation" \
@@ -147,8 +147,8 @@ validate_session_shell_environment() {
         fi
 
         local quickshell_ok=0
-        if declare -F quickshell_package_is_stable >/dev/null 2>&1 &&
-            declare -F package_command_owned >/dev/null 2>&1; then
+        if declare -F quickshell_package_is_stable >/dev/null &&
+            declare -F package_command_owned >/dev/null; then
             if quickshell_package_is_stable &&
                 { package_command_owned quickshell qs ||
                   package_command_owned quickshell quickshell; }; then
@@ -188,12 +188,12 @@ validate_greeter_configuration() {
         failed=1
     fi
 
-    if ! getent passwd greetd >/dev/null 2>&1; then
+    if ! getent passwd greetd >/dev/null; then
         error "Fedora greetd service user was not found."
         failed=1
     fi
 
-    if ! getent group greetd >/dev/null 2>&1; then
+    if ! getent group greetd >/dev/null; then
         error "Fedora greetd service group was not found."
         failed=1
     fi
@@ -233,8 +233,8 @@ validate_greeter_configuration() {
     fi
 
     systemctl list-unit-files greetd.service \
-        --no-legend 2>/dev/null |
-        grep '^greetd.service' >/dev/null 2>&1 || {
+        --no-legend  |
+        grep '^greetd.service' >/dev/null || {
         error "greetd.service was not found."
         failed=1
     }
@@ -246,7 +246,7 @@ validate_graphical_activation() {
     local failed=0
 
     if is_true "${INSTALL_GREETER:-false}"; then
-        if ! systemctl is-enabled greetd.service >/dev/null 2>&1; then
+        if ! systemctl is-enabled greetd.service >/dev/null; then
             error "greetd.service is not enabled."
             failed=1
         fi
@@ -431,7 +431,7 @@ validate_browser_environment() {
 
         local flatpak_apps=""
         if ! flatpak_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list (Ulaa validation)" \
-            flatpak list --app --columns=application 2>/dev/null)"; then
+            flatpak list --app --columns=application )"; then
             record_deferred "validation" "ulaa" "Flatpak application inventory query timed out or failed."
         elif ! grep -Fxq "com.ulaa.Ulaa" <<< "$flatpak_apps"; then
             record_deferred "validation" "ulaa" "Ulaa Flatpak is enabled by the profile but is not installed."
@@ -462,7 +462,7 @@ validate_bluetooth_environment() {
     done
 
     local bluetooth_units=""
-    if ! bluetooth_units="$(systemctl list-unit-files bluetooth.service --no-legend 2>/dev/null)" ||
+    if ! bluetooth_units="$(systemctl list-unit-files bluetooth.service --no-legend )" ||
         ! grep -q '^bluetooth.service' <<< "$bluetooth_units"; then
         record_required \
             "validation" \
@@ -608,7 +608,7 @@ validate_application_environment() {
     if is_true "${LOCALSEND:-false}"; then
         local flatpak_apps=""
         if ! flatpak_apps="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak list (LocalSend validation)" \
-            flatpak list --app --columns=application 2>/dev/null)"; then
+            flatpak list --app --columns=application )"; then
             record_deferred \
                 "validation" \
                 "localsend" \
@@ -691,10 +691,10 @@ validate_flatpak_environment() {
     fi
 
     local flathub_ok=1
-    if declare -F flatpak_source_configured >/dev/null 2>&1 &&
-        declare -F flatpak_source_url_for >/dev/null 2>&1; then
+    if declare -F flatpak_source_configured >/dev/null &&
+        declare -F flatpak_source_url_for >/dev/null; then
         local flathub_url
-        flathub_url="$(flatpak_source_url_for flathub system 2>/dev/null || true)"
+        flathub_url="$(flatpak_source_url_for flathub system  || true)"
         if [[ -n "$flathub_url" ]] &&
             flatpak_source_configured flathub system "$flathub_url"; then
             flathub_ok=0
@@ -702,7 +702,7 @@ validate_flatpak_environment() {
     else
         local flatpak_remotes=""
         if flatpak_remotes="$(run_with_timeout "$TIMEOUT_FLATPAK_SECONDS" "flatpak remote-list" \
-            flatpak remote-list --system --columns=name 2>/dev/null)" &&
+            flatpak remote-list --system --columns=name )" &&
             grep -Fxq "flathub" <<< "$flatpak_remotes"; then
             flathub_ok=0
         fi
@@ -736,12 +736,12 @@ validate_nix_development_environment() {
         return 1
     fi
 
-    if ! nix --version >/dev/null 2>&1; then
+    if ! nix --version >/dev/null; then
         record_required "validation" "nix" "Nix failed to execute."
         return 1
     fi
 
-    if ! devenv version >/dev/null 2>&1; then
+    if ! devenv version >/dev/null; then
         record_required "validation" "devenv" "devenv failed to execute."
         return 1
     fi
@@ -766,22 +766,22 @@ validate_container_environment() {
 
     local subuid_file
     local subgid_file
-    subuid_file="$(subid_file_path uid 2>/dev/null || true)"
-    subgid_file="$(subid_file_path gid 2>/dev/null || true)"
+    subuid_file="$(subid_file_path uid  || true)"
+    subgid_file="$(subid_file_path gid  || true)"
 
     if [[ -z "$subuid_file" ]] ||
-        ! subid_user_range "$subuid_file" "$TARGET_USER" >/dev/null 2>&1; then
+        ! subid_user_range "$subuid_file" "$TARGET_USER" >/dev/null; then
         record_required "validation" "subuid" "No subordinate UID range exists for $TARGET_USER."
         return 1
     fi
 
     if [[ -z "$subgid_file" ]] ||
-        ! subid_user_range "$subgid_file" "$TARGET_USER" >/dev/null 2>&1; then
+        ! subid_user_range "$subgid_file" "$TARGET_USER" >/dev/null; then
         record_required "validation" "subgid" "No subordinate GID range exists for $TARGET_USER."
         return 1
     fi
 
-    if ! podman info >/dev/null 2>&1; then
+    if ! podman info >/dev/null; then
         record_required "validation" "podman info" "Rootless Podman validation failed."
         return 1
     fi

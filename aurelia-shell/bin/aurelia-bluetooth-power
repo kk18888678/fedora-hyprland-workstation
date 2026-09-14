@@ -16,7 +16,7 @@ fi
 
 controllers() {
     # A missing controller is a valid "off/unavailable" state for the bar.
-    timeout 2s bluetoothctl list 2>/dev/null | awk '{print $2}' || true
+    timeout 2s bluetoothctl list  | awk '{print $2}' || true
 }
 
 powered() {
@@ -24,7 +24,7 @@ powered() {
 
     while IFS= read -r controller; do
         [[ -n "$controller" ]] || continue
-        if [[ "$(timeout 2s bluetoothctl show "$controller" 2>/dev/null || true)" == *"Powered: yes"* ]]; then
+        if [[ "$(timeout 2s bluetoothctl show "$controller"  || true)" == *"Powered: yes"* ]]; then
             return 0
         fi
     done < <(controllers)
@@ -52,7 +52,7 @@ power_on() {
     # it was powered down without rfkill, ask BlueZ once before failing.
     wait_powered && return 0
 
-    timeout 5s bluetoothctl power on >/dev/null 2>&1 || true
+    timeout 5s bluetoothctl power on >/dev/null || true
     wait_powered && return 0
 
     printf '%s\n' "aurelia-bluetooth-power: adapter did not come up" >&2

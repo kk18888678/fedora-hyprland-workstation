@@ -35,6 +35,7 @@ QtObject {
     })
     property var value: root.fallback
     property bool loaded: false
+    property string lastError: ""
 
     function pathFromUrl(value) {
         return SourceUrl.pathFromUrl(value)
@@ -44,6 +45,8 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(candidate))
         } catch (error) {
+            root.lastError = "Bar default configuration could not be cloned."
+            console.error("[BAR] default_config_clone_failed")
             return null
         }
     }
@@ -71,14 +74,23 @@ QtObject {
     }
 
     function load(raw) {
+        root.lastError = ""
+        var parsed = null
         try {
-            var parsed = JSON.parse(String(raw || ""))
-            if (root.validDocument(parsed)) {
-                root.value = root.cloneJson(parsed) || root.fallback
-                root.loaded = true
-                return
-            }
-        } catch (error) {}
+            parsed = JSON.parse(String(raw || ""))
+        } catch (error) {
+            root.lastError = "Bar default configuration is not valid JSON."
+            console.error("[BAR] default_config_load_failed reason=invalid_json")
+        }
+        if (root.validDocument(parsed)) {
+            root.value = root.cloneJson(parsed) || root.fallback
+            root.loaded = true
+            return
+        }
+        if (root.lastError === "") {
+            root.lastError = "Bar default configuration has an invalid shape."
+            console.error("[BAR] default_config_load_failed reason=invalid_shape")
+        }
         root.value = root.cloneJson(root.fallback)
         root.loaded = false
     }
@@ -90,7 +102,7 @@ QtObject {
     property FileView defaultFile: FileView {
         path: root.defaultPath
         watchChanges: true
-        printErrors: false
+        printErrors: true
         onLoaded: root.load(text())
         onFileChanged: root.load(text())
         onLoadFailed: root.load("")

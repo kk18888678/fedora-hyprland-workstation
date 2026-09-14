@@ -4,7 +4,7 @@ section "Plan Validation, Finalization, and Reconciler Guards"
 init_plan "PLAN_UNVAL"
 add_plan_action "PLAN_UNVAL" "INSTALL" "chromium" "test" "Chromium"
 unval_exec_rc=0
-execute_plan "PLAN_UNVAL" 2>/dev/null || unval_exec_rc=$?
+execute_plan "PLAN_UNVAL"  || unval_exec_rc=$?
 if [[ "$unval_exec_rc" -ne 0 ]]; then
     pass "13. unvalidated plan is rejected by reconciler fail-closed"
 else
@@ -16,7 +16,7 @@ init_plan "PLAN_MAL"
 add_plan_action "PLAN_MAL" "INSTALL" "chromium" "test" "Chromium"
 PLAN_MAL_COUNT_INSTALL=99
 mal_val_rc=0
-validate_plan "PLAN_MAL" 2>/dev/null || mal_val_rc=$?
+validate_plan "PLAN_MAL"  || mal_val_rc=$?
 if [[ "$mal_val_rc" -ne 0 ]]; then
     pass "14. malformed plan with mismatched counts is rejected"
 else
@@ -27,7 +27,7 @@ fi
 init_plan "PLAN_UNK_ACT"
 add_plan_action "PLAN_UNK_ACT" "PURGE" "chromium" "test" "Chromium"
 unk_act_rc=0
-finalize_plan "PLAN_UNK_ACT" 2>/dev/null || unk_act_rc=$?
+finalize_plan "PLAN_UNK_ACT"  || unk_act_rc=$?
 if [[ "$unk_act_rc" -ne 0 ]]; then
     pass "15. unknown action type in plan is rejected"
 else
@@ -38,7 +38,7 @@ fi
 init_plan "PLAN_UNK_TARG"
 add_plan_action "PLAN_UNK_TARG" "INSTALL" "fake_app" "test" "Fake App"
 unk_targ_rc=0
-finalize_plan "PLAN_UNK_TARG" 2>/dev/null || unk_targ_rc=$?
+finalize_plan "PLAN_UNK_TARG"  || unk_targ_rc=$?
 if [[ "$unk_targ_rc" -ne 0 ]]; then
     pass "16. unknown target component in plan is rejected"
 else
@@ -49,7 +49,7 @@ fi
 init_plan "PLAN_ILL_REM"
 add_plan_action "PLAN_ILL_REM" "REMOVE" "foot" "test" "Foot"
 ill_rem_rc=0
-finalize_plan "PLAN_ILL_REM" 2>/dev/null || ill_rem_rc=$?
+finalize_plan "PLAN_ILL_REM"  || ill_rem_rc=$?
 if [[ "$ill_rem_rc" -ne 0 ]]; then
     pass "17. illegal REMOVE action of required component is rejected"
 else
@@ -60,7 +60,7 @@ fi
 init_plan "PLAN_INV_DEF"
 add_plan_action "PLAN_INV_DEF" "CHANGE_DEFAULT" "foot" "test" "browser: none -> Foot"
 inv_def_rc=0
-finalize_plan "PLAN_INV_DEF" 2>/dev/null || inv_def_rc=$?
+finalize_plan "PLAN_INV_DEF"  || inv_def_rc=$?
 if [[ "$inv_def_rc" -ne 0 ]]; then
     pass "18. invalid CHANGE_DEFAULT action for wrong role is rejected"
 else
@@ -74,7 +74,7 @@ finalize_plan "PLAN_TAMP"
 # Mutate the plan target after finalization
 PLAN_TAMP_ACTION_TARGET[0]="firefox"
 tamp_rc=0
-execute_plan "PLAN_TAMP" 2>/dev/null || tamp_rc=$?
+execute_plan "PLAN_TAMP"  || tamp_rc=$?
 if [[ "$tamp_rc" -ne 0 ]]; then
     pass "19. modified plan after finalization is rejected by deterministic fingerprint check"
 else
@@ -112,7 +112,7 @@ add_plan_action "PLAN_SHELL_META" "KEEP" "chromium" "already installed" "Chromiu
 finalize_plan "PLAN_SHELL_META"
 PLAN_SHELL_META_DESKTOP_SHELL="noctalia"
 shell_meta_rc=0
-validate_plan "PLAN_SHELL_META" 2>/dev/null || shell_meta_rc=$?
+validate_plan "PLAN_SHELL_META"  || shell_meta_rc=$?
 if [[ "$shell_meta_rc" -ne 0 ]]; then
     pass "20b. changing selected desktop shell after review fails plan integrity validation"
 else

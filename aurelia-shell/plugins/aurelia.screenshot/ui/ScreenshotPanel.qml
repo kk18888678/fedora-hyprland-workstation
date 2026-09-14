@@ -46,6 +46,7 @@ Item {
         } catch (error) {
             statusMessage = "Invalid screenshot request."
             statusKind = "error"
+            console.warn("[SCREENSHOT] request_parse_failed reason=invalid_json")
         }
     }
 

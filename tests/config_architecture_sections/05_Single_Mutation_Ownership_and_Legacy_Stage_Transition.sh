@@ -90,7 +90,7 @@ command_exists() {
 }
 INSTALL_GREETER=true
 greeter_validation_status=0
-install_noctalia_greeter >/dev/null 2>&1 || greeter_validation_status=$?
+install_noctalia_greeter >/dev/null || greeter_validation_status=$?
 printf 'status=%s dnf=%s\n' "$greeter_validation_status" "$greeter_dnf_called"
 EOS
 )"

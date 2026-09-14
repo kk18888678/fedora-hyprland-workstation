@@ -46,9 +46,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
-mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache"
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
+mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config/aurelia" "$runtime_root/cache"
 result_path="$runtime_root/result.json"
+runtime_log="$runtime_root/default.log"
+: >"$result_path"
+printf '%s\n' '{}' >"$runtime_root/config/aurelia/shell.json"
 runtime_status=0
 AURELIA_BAR_DEFAULT_SOURCE="$default_service" \
 AURELIA_BAR_STATE_CONFIG_SOURCE="$shell_config" \
@@ -58,8 +61,8 @@ XDG_RUNTIME_DIR="$runtime_root/runtime" XDG_STATE_HOME="$runtime_root/state" \
 XDG_CONFIG_HOME="$runtime_root/config" XDG_CACHE_HOME="$runtime_root/cache" \
     /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
     --path "$ROOT/tests/fixtures/bar-default/shell.qml" \
-    >"$runtime_root/default.log" 2>&1 || runtime_status=$?
-if [[ "$runtime_status" -eq 0 ]] && jq -e '
+    >"$runtime_log" 2>&1 || runtime_status=$?
+if [[ "$runtime_status" -eq 0 ]] && runtime_log_is_environment_only "$runtime_log" && jq -e '
     .loaded == true and .id == "aurelia.bar" and .position == "top" and
     .centerAnchor == "aurelia.clock" and
     .left == ["aurelia.workspaces"] and
@@ -69,6 +72,6 @@ if [[ "$runtime_status" -eq 0 ]] && jq -e '
   ' "$result_path" >/dev/null; then
     pass "[isolated-runtime] canonical bar-default loader returns the preserved default layout"
 else
-    details="$(tail -n 24 "$runtime_root/default.log" 2>/dev/null || true)"
+    details="$(tail -n 24 "$runtime_log"  || true)"
     fail "[isolated-runtime] canonical bar-default fixture failed (status=$runtime_status): $details"
 fi

@@ -23,10 +23,10 @@ esac
 script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
 script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
 power_helper="$script_dir/aurelia-bluetooth-power"
-[[ -x "$power_helper" ]] || power_helper="$(command -v aurelia-bluetooth-power 2>/dev/null || true)"
+[[ -x "$power_helper" ]] || power_helper="$(command -v aurelia-bluetooth-power  || true)"
 
 power_on() {
-    if [[ "$(timeout 2s bluetoothctl show 2>/dev/null || true)" == *"Powered: yes"* ]]; then
+    if [[ "$(timeout 2s bluetoothctl show  || true)" == *"Powered: yes"* ]]; then
         return 0
     fi
 
@@ -36,27 +36,27 @@ power_on() {
 }
 
 trust_device() {
-    timeout 10s bluetoothctl trust "$address" >/dev/null 2>&1 || true
+    timeout 10s bluetoothctl trust "$address" >/dev/null || true
 }
 
 case "$action" in
     pair)
         power_on || true
-        timeout 20s bluetoothctl pair "$address" >/dev/null 2>&1 || true
+        timeout 20s bluetoothctl pair "$address" >/dev/null || true
         trust_device
-        timeout 20s bluetoothctl connect "$address" >/dev/null 2>&1 || true
+        timeout 20s bluetoothctl connect "$address" >/dev/null || true
         ;;
     connect)
         power_on || true
         trust_device
-        timeout 20s bluetoothctl connect "$address" >/dev/null 2>&1 || true
+        timeout 20s bluetoothctl connect "$address" >/dev/null || true
         ;;
     disconnect)
-        timeout 10s bluetoothctl disconnect "$address" >/dev/null 2>&1 || true
+        timeout 10s bluetoothctl disconnect "$address" >/dev/null || true
         ;;
     forget)
         power_on || true
-        timeout 10s bluetoothctl disconnect "$address" >/dev/null 2>&1 || true
-        timeout 10s bluetoothctl remove "$address" >/dev/null 2>&1 || true
+        timeout 10s bluetoothctl disconnect "$address" >/dev/null || true
+        timeout 10s bluetoothctl remove "$address" >/dev/null || true
         ;;
 esac

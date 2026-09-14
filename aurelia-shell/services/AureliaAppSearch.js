@@ -15,7 +15,8 @@ function keywordText(entry) {
             return entry.keywords.join(" ")
         }
     } catch (error) {
-        // Malformed optional desktop metadata should not break discovery.
+        if (typeof console !== "undefined" && console.warn)
+            console.warn("[APP-SEARCH] malformed_desktop_keywords")
     }
     return ""
 }

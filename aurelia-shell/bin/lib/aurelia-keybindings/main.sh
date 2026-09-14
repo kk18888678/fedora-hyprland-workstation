@@ -275,7 +275,7 @@ run_explicit_command() {
             ;;
         run)
             local description=""
-            if ! description="$(lookup_action_description "$TARGET_ID" 2>/dev/null)"; then
+            if ! description="$(lookup_action_description "$TARGET_ID" )"; then
                 printf '%s\n' "Error: Unknown action ID: $TARGET_ID" >&2
                 return 1
             fi

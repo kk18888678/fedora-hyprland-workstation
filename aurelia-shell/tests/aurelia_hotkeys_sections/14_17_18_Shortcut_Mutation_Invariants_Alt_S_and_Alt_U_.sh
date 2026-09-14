@@ -5,7 +5,7 @@ test_overrides="$test_sb/overrides.json"
 echo "{}" > "$test_overrides"
 
 # Test 17: Alt+S routes to physical capture backend
-HOTKEYS_OVERRIDES="$test_overrides" HOTKEYS_CAPTURE_MOCK_INPUT="SUPER+SHIFT+T" "$ROOT/bin/workstation-hotkeys" set terminal >/dev/null 2>&1
+HOTKEYS_OVERRIDES="$test_overrides" HOTKEYS_CAPTURE_MOCK_INPUT="SUPER+SHIFT+T" "$ROOT/bin/workstation-hotkeys" set terminal >/dev/null
 check_set="$(cat "$test_overrides")"
 if [[ "$check_set" == *"SUPER + SHIFT + T"* ]]; then
     pass "17. Alt+S routes to existing physical capture backend"
@@ -14,7 +14,7 @@ else
 fi
 
 # Test 18: Alt+U routes to unset backend
-HOTKEYS_OVERRIDES="$test_overrides" "$ROOT/bin/workstation-hotkeys" unset terminal >/dev/null 2>&1
+HOTKEYS_OVERRIDES="$test_overrides" "$ROOT/bin/workstation-hotkeys" unset terminal >/dev/null
 check_unset="$(cat "$test_overrides")"
 if [[ "$check_unset" == *"false"* || "$check_unset" == *"none"* ]]; then
     pass "18. Alt+U routes to existing unset backend"

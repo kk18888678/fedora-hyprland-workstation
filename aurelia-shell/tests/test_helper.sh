@@ -40,48 +40,153 @@ section() {
     printf '\n== %s ==\n' "$*"
 }
 
-# Return the diagnostics that are allowed when an isolated QML fixture cannot
-# create its optional desktop backend. This list is intentionally narrow:
-# arbitrary WARN/ERROR/TypeError/Loader output must keep a fixture failing even
-# when a compositor limitation is also present in the same log.
+# Runtime fixture diagnostics are consumed line by line. No diagnostic is
+# deleted from the stream before classification: an approved environment
+# limitation is printed, while every other WARN/ERROR/FATAL/QML failure is
+# printed as unexpected and fails the caller.
+runtime_log_line_is_diagnostic() {
+    local line="$1"
+    [[ "$line" == *WARN* || "$line" == *ERROR* || "$line" == *FATAL* ||
+       "$line" == *ReferenceError* || "$line" == *TypeError* ||
+       "$line" == *QML\ Error* || "$line" == *"Segmentation fault"* ||
+       "$line" == *Cannot\ assign* || "$line" == *Loader.Error* ]]
+}
+
+runtime_log_line_is_window_backend_failure() {
+    local line="$1"
+    [[ "$line" == *"No PanelWindow backend loaded"* ||
+       "$line" == *"Failed to create wl_display"* ||
+       "$line" == *"Could not load the Qt platform plugin"* ]]
+}
+
+runtime_log_line_matches_extra() {
+    local line="$1"
+    local extra_allowed="${2:-}"
+    [[ -n "$extra_allowed" && "$line" =~ $extra_allowed ]]
+}
+
+runtime_log_contains_window_backend_failure() {
+    local log_file="$1"
+    local line
+
+    [[ -f "$log_file" ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if runtime_log_line_is_window_backend_failure "$line"; then return 0; fi
+    done <"$log_file"
+    return 1
+}
+
+runtime_log_line_is_environment_only() {
+    local line="$1"
+    local extra_allowed="${2:-}"
+    local backend_failure_seen="${3:-0}"
+
+    case "$line" in
+        *"ERROR quickshell.ipc: Failed to start IPC server on path "*|\
+        *"Failed to create wl_display"*|\
+        *"Could not create instance runtime directory"*|\
+        *"Could not load the Qt platform plugin"*|\
+        *"No PanelWindow backend loaded"*|\
+        *"Failed to connect to UPower"*|\
+        *"Could not connect to UPower"*|\
+        *"UPower"*"unavailable"*|\
+        *"Failed to connect pipewire context"*|\
+        *"Signal QQmlEngine::quit() emitted"*|\
+        *"Failed to connect to system scope bus via local transport: Operation not permitted"*)
+            return 0
+            ;;
+    esac
+
+    # A dependent QML type may be reported unavailable only after the window
+    # backend failure above is present in the same complete log. Never accept
+    # these names on their own.
+    if [[ "$backend_failure_seen" == "1" ]] &&
+       [[ "$line" == *"Type AureliaKeyboardPanel unavailable"* ||
+          "$line" == *"Type CommandCenterPanel unavailable"* ||
+          "$line" == *"Type BarPanel unavailable"* ||
+          "$line" == *"Type ScreenMoveRemap unavailable"* ||
+          "$line" == *"ERROR: Failed to load configuration"* ||
+          "$line" =~ \[[A-Z]+\][[:space:]].*(panel|wifiqr)_load_failed ]]; then
+        return 0
+    fi
+
+    if runtime_log_line_matches_extra "$line" "$extra_allowed"; then return 0; fi
+    return 1
+}
+
+runtime_log_has_environment_diagnostic() {
+    local log_file="$1"
+    local extra_allowed="${2:-}"
+    local line
+
+    [[ -f "$log_file" ]] || return 1
+    local backend_failure_seen=0
+    if runtime_log_contains_window_backend_failure "$log_file"; then backend_failure_seen=1; fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if runtime_log_line_is_diagnostic "$line" &&
+           runtime_log_line_is_environment_only "$line" "$extra_allowed" "$backend_failure_seen"; then
+            return 0
+        fi
+    done <"$log_file"
+    return 1
+}
+
 runtime_log_is_environment_only() {
     local log_file="$1"
     local extra_allowed="${2:-}"
-    local diagnostics
-    local allowed
-    local unexpected
+    local line
+    local unexpected=0
+    local backend_failure_seen=0
 
     [[ -f "$log_file" ]] || return 1
-    diagnostics="$(grep -E 'WARN|ERROR|FATAL|ReferenceError|TypeError|QML Error|Segmentation fault|Cannot assign|Loader\.Error' "$log_file" || true)"
-    [[ -z "$diagnostics" ]] && return 0
+    if runtime_log_contains_window_backend_failure "$log_file"; then backend_failure_seen=1; fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        runtime_log_line_is_diagnostic "$line" || continue
+        if runtime_log_line_is_environment_only "$line" "$extra_allowed" "$backend_failure_seen"; then
+            if runtime_log_line_matches_extra "$line" "$extra_allowed"; then
+                printf '  Expected diagnostic: %s\n' "$line" >&2
+            else
+                printf '  Environment diagnostic: %s\n' "$line" >&2
+            fi
+        else
+            printf '  Unexpected diagnostic: %s\n' "$line" >&2
+            unexpected=1
+        fi
+    done <"$log_file"
 
-    allowed='ERROR quickshell\.ipc: Failed to start IPC server on path |Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded|Failed to connect to UPower|Could not connect to UPower|UPower.*unavailable|Failed to connect pipewire context|ERROR quickshell\.service\.pipewire\.loop: Failed to connect pipewire context\. Errno: 1|Signal QQmlEngine::quit\(\) emitted'
-    if grep -Eq 'No PanelWindow backend loaded|Failed to create wl_display|Could not load the Qt platform plugin' <<<"$diagnostics"; then
-        # These messages are emitted by dependent QML types after the
-        # compositor/window backend has already failed. They are accepted only
-        # in that explicit context; application warnings remain failures.
-            allowed="${allowed}|Type AureliaKeyboardPanel unavailable|Type CommandCenterPanel unavailable|Type BarPanel unavailable|Type ScreenMoveRemap unavailable|ERROR: Failed to load configuration|\\[[A-Z]+\\] (audio|network|power)_?panel_load_failed|\\[[A-Z]+\\] panel_load_failed"
-    fi
-    allowed="${allowed}|Failed to connect to system scope bus via local transport: Operation not permitted"
-    if [[ -n "$extra_allowed" ]]; then allowed="${allowed}|${extra_allowed}"; fi
-    unexpected="$(grep -Ev "$allowed" <<<"$diagnostics" || true)"
-    if [[ -n "$unexpected" ]]; then
-        printf '%s\n' "$unexpected" >&2
-        return 1
-    fi
-    return 0
+    if (( unexpected == 0 )); then return 0; fi
+    return 1
+}
+
+# Negative fixtures intentionally contain a diagnostic that must be rejected.
+# Keep those lines visible, but label them as expected test evidence so a
+# passing test run cannot be mistaken for an unnoticed production failure.
+runtime_log_has_rejected_diagnostic() {
+    local log_file="$1"
+    local line
+    local rejected=0
+    local backend_failure_seen=0
+
+    [[ -f "$log_file" ]] || return 1
+    if runtime_log_contains_window_backend_failure "$log_file"; then backend_failure_seen=1; fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        runtime_log_line_is_diagnostic "$line" || continue
+        if runtime_log_line_is_environment_only "$line" "" "$backend_failure_seen"; then
+            printf '  Environment diagnostic: %s\n' "$line" >&2
+        else
+            printf '  Expected rejected diagnostic: %s\n' "$line" >&2
+            rejected=1
+        fi
+    done <"$log_file"
+
+    (( rejected == 1 ))
 }
 
 runtime_skip_if_environment_only() {
     local log_file="$1"
     local description="$2"
     local extra_allowed="${3:-}"
-    local diagnostics
     runtime_log_is_environment_only "$log_file" "$extra_allowed" || return 1
-    diagnostics="$(grep -E 'WARN|ERROR|FATAL|ReferenceError|TypeError|QML Error|Segmentation fault|Cannot assign|Loader\.Error' "$log_file" || true)"
-    if [[ -n "$diagnostics" ]]; then
-        printf '  Environment diagnostics for skipped fixture:\n%s\n' "$diagnostics" >&2
-    fi
     skip "$description"
 }
 

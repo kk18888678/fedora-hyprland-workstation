@@ -120,8 +120,12 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'var manualInbox = isManualInboxEntry(entry)' "$plugin_root/Service.qml" &&
    grep -q 'function sweepOrphanImages' "$plugin_root/Service.qml" &&
    grep -q 'notificationBusRetryTimer.restart' "$plugin_root/Service.qml" &&
-   grep -q 'atomicWrites: true' "$plugin_root/Service.qml" &&
-   grep -q 'blockWrites: true' "$plugin_root/Service.qml" &&
+   grep -q 'property OptionalFileStore settingsFile: OptionalFileStore' "$plugin_root/Service.qml" &&
+   grep -q 'property OptionalFileStore historyFile: OptionalFileStore' "$plugin_root/Service.qml" &&
+   grep -q 'import "../../services"' "$plugin_root/Service.qml" &&
+   grep -q 'writable: true' "$plugin_root/Service.qml" &&
+   ! grep -q 'property FileView settingsFile' "$plugin_root/Service.qml" &&
+   ! grep -q 'property FileView historyFile' "$plugin_root/Service.qml" &&
    grep -q 'function toggleDnd' "$plugin_root/Service.qml" &&
    grep -q 'function showHistory' "$plugin_root/Service.qml" &&
    grep -q 'function clearHistory' "$plugin_root/Service.qml" &&
@@ -283,7 +287,7 @@ else
     fail "Multi-kind plugin selection or default bar registration is incomplete"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$plugin_root/NotificationLogic.js" "$ROOT/services/SourceUrl.js" <<'NODE_LOGIC'
 const logic = require(process.argv[2]);
 const sourceUrl = require(process.argv[3]);
@@ -367,7 +371,7 @@ else
     skip "notification logic runtime check (node unavailable)"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$plugin_root/NotificationLogic.js" "$plugin_root/NotificationFileLogic.js" <<'NODE_FILES'
 const fs = require("fs");
 const path = require("path");
@@ -447,10 +451,14 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 dismissal_root="$(mktemp -d)"
-trap 'rm -rf -- "$dismissal_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$dismissal_root"  || true' RETURN
 mkdir -p -- "$dismissal_root/runtime" "$dismissal_root/state" \
     "$dismissal_root/config" "$dismissal_root/cache"
 dismissal_result="$dismissal_root/result.json"
+: >"$dismissal_result"
+mkdir -p -- "$dismissal_root/state/aurelia"
+: >"$dismissal_root/state/aurelia/notifications.json"
+: >"$dismissal_root/state/aurelia/notification-history.json"
 dismissal_log="$dismissal_root/runtime.log"
 dismissal_status=0
 AURELIA_NOTIFICATION_DISMISSAL_RESULT="$dismissal_result" \
@@ -485,16 +493,20 @@ if [[ "$dismissal_completed" -eq 1 ]] && [[ -s "$dismissal_result" ]] &&
        "$dismissal_result" >/dev/null; then
     pass "[isolated-runtime] production Service and real Toast dismissal wiring preserve identity across index churn and re-entrant sender close"
 else
-    details="$(tail -n 48 "$dismissal_log" 2>/dev/null || true)"
+    details="$(tail -n 48 "$dismissal_log"  || true)"
     if [[ -s "$dismissal_result" ]]; then details="$details result=$(tr '\n' ' ' <"$dismissal_result")"; fi
     fail "[isolated-runtime] notification cross-button dismissal fixture failed (status=$dismissal_status): $details"
 fi
 
 collision_root="$(mktemp -d)"
-trap 'rm -rf -- "$collision_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$collision_root"  || true' RETURN
 mkdir -p -- "$collision_root/runtime" "$collision_root/state" \
     "$collision_root/config" "$collision_root/cache"
 collision_result="$collision_root/result.json"
+: >"$collision_result"
+mkdir -p -- "$collision_root/state/aurelia"
+: >"$collision_root/state/aurelia/notifications.json"
+: >"$collision_root/state/aurelia/notification-history.json"
 collision_log="$collision_root/runtime.log"
 collision_status=0
 AURELIA_NOTIFICATION_COLLISION_RESULT="$collision_result" \
@@ -530,7 +542,7 @@ if [[ "$collision_completed" -eq 1 ]] && [[ -s "$collision_result" ]] &&
        "$collision_result" >/dev/null; then
     pass "[isolated-runtime] repeated numeric notification IDs retain composite identity across restored rows, replacement, and popup dismissal"
 else
-    details="$(tail -n 48 "$collision_log" 2>/dev/null || true)"
+    details="$(tail -n 48 "$collision_log"  || true)"
     if [[ -s "$collision_result" ]]; then details="$details result=$(tr '\n' ' ' <"$collision_result")"; fi
     fail "[isolated-runtime] repeated notification identity collision fixture failed (status=$collision_status): $details"
 fi

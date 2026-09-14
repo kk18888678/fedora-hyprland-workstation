@@ -128,8 +128,8 @@ else
     fail "vendor repository repair ordering failed: $vendor_repo_repair_output"
 fi
 
-if grep -q 'install_root_file_from_stdin_preserving_existing "\$brave_repo_file"' "$ROOT/modules/browsers.sh" &&
-   grep -q 'install_root_file_from_stdin_preserving_existing "\$cursor_repo_file"' "$ROOT/modules/applications.sh"; then
+if grep -q "install_root_file_from_stdin_preserving_existing \"\$brave_repo_file\"" "$ROOT/modules/browsers.sh" &&
+   grep -q "install_root_file_from_stdin_preserving_existing \"\$cursor_repo_file\"" "$ROOT/modules/applications.sh"; then
     pass "vendor repository repair preserves replaced definitions as recoverable backups"
 else
     fail "vendor repository repair can overwrite existing definitions without preservation"

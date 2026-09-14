@@ -63,7 +63,7 @@ wsp_manifest_rows() {
             return 1
         fi
         if [[ "$provider" == aurelia ]]; then
-            if ! declare -F wsp_aurelia_metadata_valid >/dev/null 2>&1 ||
+            if ! declare -F wsp_aurelia_metadata_valid >/dev/null ||
                 ! wsp_aurelia_metadata_valid "$source" "$identifier" "$version" "$asset" "$checksum" "$target" "$artifact_url"; then
                 wsp_error "Malformed Aurelia package metadata: $line"
                 return 1

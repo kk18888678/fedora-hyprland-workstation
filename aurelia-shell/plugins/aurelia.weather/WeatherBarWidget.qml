@@ -28,6 +28,8 @@ Item {
     property string resolvedLocation: ""
     property var forecast: []
     property bool weatherReady: false
+    property bool refreshQueued: false
+    property int failureRetryCount: 0
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
@@ -104,7 +106,9 @@ Item {
     }
 
     function refresh() {
-        if (!root.configured || weatherProcess.running || !(root.bar && root.bar.barVisible)) return
+        root.refreshQueued = false
+        if (!root.configured || weatherProcess.running || failureRetryTimer.running ||
+            !(root.bar && root.bar.barVisible)) return
         var command = [root.backendBin, "fetch", "--units", root.units]
         if (root.hasCoordinates) {
             command.push("--latitude", root.latitude, "--longitude", root.longitude)
@@ -119,6 +123,8 @@ Item {
     }
 
     function scheduleRefresh() {
+        if (root.refreshQueued || weatherProcess.running || failureRetryTimer.running) return
+        root.refreshQueued = true
         refreshRequestTimer.restart()
     }
 
@@ -127,6 +133,13 @@ Item {
         interval: 0
         repeat: false
         onTriggered: root.refresh()
+    }
+
+    Timer {
+        id: failureRetryTimer
+        interval: 2500
+        repeat: false
+        onTriggered: root.scheduleRefresh()
     }
 
     function iconFor(code, isDay) {
@@ -160,6 +173,11 @@ Item {
         onExited: function(code) {
             if (code !== 0) {
                 console.warn("[WEATHER] fetch_failed code=" + code + " error=" + weatherStderr.text.trim())
+                if (root.failureRetryCount < 3) {
+                    root.failureRetryCount++
+                    console.info("[WEATHER] retry_scheduled attempt=" + root.failureRetryCount)
+                    failureRetryTimer.restart()
+                }
                 if (!root.weatherReady) {
                     root.temperatureText = ""
                     root.feelsText = ""
@@ -206,8 +224,15 @@ Item {
                     ? root.iconFor(weatherCode, isDay)
                     : root.iconForCondition(root.conditionText, isDay)
                 root.weatherReady = true
+                root.failureRetryCount = 0
+                failureRetryTimer.stop()
             } catch (error) {
                 console.warn("[WEATHER] response_invalid error=" + error)
+                if (root.failureRetryCount < 3) {
+                    root.failureRetryCount++
+                    console.info("[WEATHER] retry_scheduled attempt=" + root.failureRetryCount)
+                    failureRetryTimer.restart()
+                }
                 if (!root.weatherReady) {
                     root.temperatureText = ""
                     root.feelsText = ""
@@ -240,7 +265,7 @@ Item {
 
     Connections {
         target: root.bar
-        function onVisibleChanged() {
+        function onBarVisibleChanged() {
             if (root.bar && root.bar.barVisible) root.scheduleRefresh()
         }
     }
@@ -252,6 +277,8 @@ Item {
     }
     onSettingsChanged: {
         root.weatherReady = false
+        root.failureRetryCount = 0
+        failureRetryTimer.stop()
         root.scheduleRefresh()
     }
     onWeatherReadyChanged: {

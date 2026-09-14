@@ -133,24 +133,34 @@ Item {
     property FileView defaultHiddenFile: FileView {
         path: root.defaultHiddenPath
         watchChanges: true
-        printErrors: false
+        printErrors: true
         onLoaded: root.loadDefaultHiddenEntries(text())
         onFileChanged: reload()
         onLoadFailed: root.loadDefaultHiddenEntries("")
     }
 
-    property FileView userHiddenFile: FileView {
-        path: root.userHiddenPath
-        watchChanges: true
-        printErrors: false
-        onLoaded: root.loadUserHiddenEntries(text())
-        onFileChanged: reload()
-        onLoadFailed: root.loadUserHiddenEntries("")
+    Loader {
+        id: userHiddenStoreLoader
+        active: true
+        source: Qt.resolvedUrl("OptionalFileStore.qml")
+        onLoaded: {
+            item.writable = false
+            item.watchChanges = true
+            item.path = root.userHiddenPath
+        }
+    }
+
+    Connections {
+        target: userHiddenStoreLoader.item
+        function onLoaded(value) { root.loadUserHiddenEntries(value) }
+        function onLoadFailed(reason) {
+            root.loadUserHiddenEntries("")
+            console.error("[APP-LIBRARY] user_hidden_store_failed reason=" + reason)
+        }
     }
 
     Component.onCompleted: {
         root.defaultHiddenFile.reload()
-        root.userHiddenFile.reload()
     }
 
     Connections {

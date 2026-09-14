@@ -1,6 +1,7 @@
 PluginRegistry 1.0 PluginRegistry.qml
 BarWidgetRegistry 1.0 BarWidgetRegistry.qml
 PluginHost 1.0 PluginHost.qml
+PluginFacadeManager 1.0 PluginFacadeManager.qml
 ShellConfig 1.0 ShellConfig.qml
 AureliaAppLibrary 1.0 AureliaAppLibrary.qml
 PluginRegistryApi 1.0 PluginRegistryApi.qml
@@ -14,5 +15,8 @@ PluginCatalogProjection 1.0 PluginCatalogProjection.qml
 PluginWatcherPolicy 1.0 PluginWatcherPolicy.qml
 BarDefaultConfig 1.0 BarDefaultConfig.qml
 PluginSourceResolver 1.0 PluginSourceResolver.qml
+OptionalFileStore 1.0 OptionalFileStore.qml
+ShellConfigFileBoundary 1.0 ShellConfigFileBoundary.qml
+ShellConfigPersistenceBoundary 1.0 ShellConfigPersistenceBoundary.qml
 BarConfigOperations 1.0 BarConfigOperations.qml
 BarControlRegistry 1.0 BarControlRegistry.qml

@@ -113,9 +113,9 @@ _wizard_read_key() {
 # Check whether terminal supports ANSI cursor movement for in-place redrawing
 _wizard_supports_cursor() {
     # Only use cursor manipulation when connected to an interactive tty and not in mock/test mode
-    [[ "${INSTALLER_PRODUCTION_MODE:-0}" != "1" &&
-       ! wizard_test_input_enabled &&
-       -t 1 && "${TERM:-}" != "dumb" ]]
+    [[ "${INSTALLER_PRODUCTION_MODE:-0}" != "1" ]] || return 1
+    wizard_test_input_enabled && return 1
+    [[ -t 1 && "${TERM:-}" != "dumb" ]]
 }
 
 # Clear previous frame lines

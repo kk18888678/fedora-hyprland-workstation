@@ -47,7 +47,8 @@ fi
 runtime_dir="$(mktemp -d)"
 runtime_result="$runtime_dir/result.json"
 runtime_output="$runtime_dir/output.log"
-trap 'rm -rf -- "$runtime_dir" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_dir"  || true' RETURN
+: >"$runtime_result"
 
 runtime_status=0
 AURELIA_PLUGIN_SURVIVABILITY_RESULT="$runtime_result" \
@@ -64,7 +65,7 @@ XDG_RUNTIME_DIR="$runtime_dir/runtime" \
     >"$runtime_output" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
-   ! grep -Eq 'FATAL|Binding loop detected|TypeError|ReferenceError|Segmentation fault' "$runtime_output" &&
+   runtime_log_is_environment_only "$runtime_output" '@(BadWidgetLoad|BadInit|BadLoad|Missing|BadBar)\.qml|\[PLUGIN\] aurelia\.plugin\.(failure|initialization_failed)|\[BAR\] aurelia\.bar\.widget_failure' &&
    grep -Eq '(\[PLUGIN\] aurelia\.plugin\.failure id=|\[BAR\] aurelia\.bar\.widget_failure id=)' "$runtime_output" &&
    jq -e '
         .hostAlive == true and

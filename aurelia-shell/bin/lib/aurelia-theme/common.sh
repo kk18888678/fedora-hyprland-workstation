@@ -135,8 +135,8 @@ aurelia_theme_source_file() {
     else
         local user_dir=""
         local builtin_dir=""
-        user_dir="$(aurelia_theme_user_dir "$slug" 2>/dev/null || true)"
-        builtin_dir="$(aurelia_theme_builtin_dir "$slug" 2>/dev/null || true)"
+        user_dir="$(aurelia_theme_user_dir "$slug"  || true)"
+        builtin_dir="$(aurelia_theme_builtin_dir "$slug"  || true)"
         [[ -n "$user_dir" ]] && directories+=("$user_dir")
         [[ -n "$builtin_dir" ]] && directories+=("$builtin_dir")
         [[ -n "$theme_dir" ]] && directories+=("$theme_dir")
@@ -166,8 +166,8 @@ aurelia_theme_shell_source_file() {
         return 1
     fi
 
-    user_dir="$(aurelia_theme_user_dir "$slug" 2>/dev/null || true)"
-    builtin_dir="$(aurelia_theme_builtin_dir "$slug" 2>/dev/null || true)"
+    user_dir="$(aurelia_theme_user_dir "$slug"  || true)"
+    builtin_dir="$(aurelia_theme_builtin_dir "$slug"  || true)"
     for directory in "$user_dir" "$builtin_dir"; do
         [[ -n "$directory" ]] || continue
         if [[ -f "$directory/shell.toml" && ! -L "$directory/shell.toml" ]]; then
@@ -187,8 +187,8 @@ aurelia_theme_shell_override_file() {
     local candidate
 
     [[ "$section" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
-    user_dir="$(aurelia_theme_user_dir "$slug" 2>/dev/null || true)"
-    builtin_dir="$(aurelia_theme_builtin_dir "$slug" 2>/dev/null || true)"
+    user_dir="$(aurelia_theme_user_dir "$slug"  || true)"
+    builtin_dir="$(aurelia_theme_builtin_dir "$slug"  || true)"
     for directory in "$user_dir" "$builtin_dir"; do
         [[ -n "$directory" ]] || continue
         candidate="$directory/shell.$section.toml"
@@ -208,8 +208,8 @@ aurelia_theme_asset_path() {
 
     [[ "$asset" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
 
-    user_dir="$(aurelia_theme_user_dir "$slug" 2>/dev/null || true)"
-    builtin_dir="$(aurelia_theme_builtin_dir "$slug" 2>/dev/null || true)"
+    user_dir="$(aurelia_theme_user_dir "$slug"  || true)"
+    builtin_dir="$(aurelia_theme_builtin_dir "$slug"  || true)"
     for directory in "$user_dir" "$builtin_dir"; do
         [[ -n "$directory" ]] || continue
         if [[ -f "$directory/$asset" && ! -L "$directory/$asset" ]]; then
@@ -232,8 +232,8 @@ aurelia_theme_preview_path() {
         preview.mp4 preview.m4v preview.mov preview.webm preview.mkv preview.avi
     )
 
-    user_dir="$(aurelia_theme_user_dir "$slug" 2>/dev/null || true)"
-    builtin_dir="$(aurelia_theme_builtin_dir "$slug" 2>/dev/null || true)"
+    user_dir="$(aurelia_theme_user_dir "$slug"  || true)"
+    builtin_dir="$(aurelia_theme_builtin_dir "$slug"  || true)"
     for directory in "$user_dir" "$builtin_dir"; do
         [[ -n "$directory" ]] || continue
         for asset in "${preview_names[@]}"; do
@@ -249,7 +249,7 @@ aurelia_theme_preview_path() {
     # Aurelia themes and stock overlays as well.
     local theme_dir=""
     local -a backgrounds=()
-    theme_dir="$(aurelia_theme_source_dir "$slug" 2>/dev/null || true)"
+    theme_dir="$(aurelia_theme_source_dir "$slug"  || true)"
     if [[ -n "$theme_dir" ]]; then
         mapfile -d '' -t backgrounds < <(aurelia_theme_collect_backgrounds "$slug" "$theme_dir")
         if [[ "${#backgrounds[@]}" -gt 0 ]]; then
@@ -288,7 +288,7 @@ aurelia_theme_resolve_media_path() {
     local path="$1"
     local resolved
 
-    resolved="$(readlink -f -- "$path" 2>/dev/null || true)"
+    resolved="$(readlink -f -- "$path"  || true)"
     [[ "$resolved" == /* && "$resolved" != "/" && -f "$resolved" ]] || return 1
     aurelia_theme_is_media_path "$resolved" || return 1
     printf '%s\n' "$resolved"
@@ -301,8 +301,8 @@ aurelia_theme_collect_backgrounds() {
     local user_dir=""
     local builtin_dir=""
 
-    user_dir="$(aurelia_theme_user_dir "$theme_slug" 2>/dev/null || true)"
-    builtin_dir="$(aurelia_theme_builtin_dir "$theme_slug" 2>/dev/null || true)"
+    user_dir="$(aurelia_theme_user_dir "$theme_slug"  || true)"
+    builtin_dir="$(aurelia_theme_builtin_dir "$theme_slug"  || true)"
 
     # A user theme overlays the packaged theme. The extra background directory
     # is a separate user-owned source, matching Omarchy's documented layout.
@@ -351,11 +351,11 @@ aurelia_theme_cache_preview_link() {
 
     [[ "$destination" == "$AURELIA_THEME_PREVIEW_CACHE_ROOT/"* ]] || return 1
     [[ -f "$source" && ! -L "$source" ]] || return 1
-    source_real="$(readlink -f -- "$source" 2>/dev/null || true)"
+    source_real="$(readlink -f -- "$source"  || true)"
     [[ "$source_real" == /* && -f "$source_real" ]] || return 1
 
     if [[ -L "$destination" ]]; then
-        destination_real="$(readlink -f -- "$destination" 2>/dev/null || true)"
+        destination_real="$(readlink -f -- "$destination"  || true)"
         if [[ "$destination_real" == "$source_real" ]]; then
             return 0
         fi
@@ -373,7 +373,7 @@ aurelia_theme_cache_key() {
     local source="$1"
     local signature
 
-    signature="$(stat -Lc '%s:%Y' -- "$source" 2>/dev/null || true)"
+    signature="$(stat -Lc '%s:%Y' -- "$source"  || true)"
     [[ -n "$signature" ]] || return 1
     printf '%s\t%s' "$source" "$signature" | sha256sum | cut -d ' ' -f 1
 }
@@ -391,10 +391,10 @@ aurelia_theme_thumbnail_for() {
     local timeout_bin=""
     local generator=""
 
-    resolved="$(aurelia_theme_resolve_media_path "$source" 2>/dev/null || true)"
+    resolved="$(aurelia_theme_resolve_media_path "$source"  || true)"
     [[ -n "$resolved" ]] || return 1
     aurelia_theme_prepare_thumbnail_cache
-    key="$(aurelia_theme_cache_key "$resolved" 2>/dev/null || true)"
+    key="$(aurelia_theme_cache_key "$resolved"  || true)"
     [[ "$key" =~ ^[0-9a-f]{64}$ ]] || return 1
 
     thumbnail="$AURELIA_THEME_THUMBNAIL_CACHE_ROOT/$key.jpg"
@@ -414,13 +414,13 @@ aurelia_theme_thumbnail_for() {
         printf '%s\n' "$thumbnail"
         return 0
     fi
-    if [[ "$generator" == "ffmpegthumbnailer" && ! -x "$(command -v ffmpegthumbnailer 2>/dev/null || true)" ]]; then
+    if [[ "$generator" == "ffmpegthumbnailer" && ! -x "$(command -v ffmpegthumbnailer  || true)" ]]; then
         return 1
     fi
     [[ ! -L "$thumbnail" && ! -L "$lock_path" && ! -L "$failed_path" ]] || return 1
     [[ ! -f "$failed_path" ]] || return 1
 
-    timeout_bin="$(command -v timeout 2>/dev/null || true)"
+    timeout_bin="$(command -v timeout  || true)"
     [[ -x "$timeout_bin" ]] || return 1
     exec {lock_fd}>"$lock_path" || return 1
     flock -w 30 "$lock_fd" || return 1
@@ -454,7 +454,7 @@ aurelia_theme_color_hex() {
     local value=""
 
     if [[ -x "$color_bin" ]]; then
-        value="$("$color_bin" --file "$source" "$key" 2>/dev/null || true)"
+        value="$("$color_bin" --file "$source" "$key"  || true)"
     fi
     if [[ "$value" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
         printf '%s\n' "$value"
@@ -579,7 +579,7 @@ aurelia_theme_render_shell() {
     # key/value data is accepted here; headers, commands, and substitutions
     # are ignored rather than interpreted.
     for section in lock controls popups tooltip notifications launcher menu image-picker; do
-        override="$(aurelia_theme_shell_override_file "$slug" "$section" 2>/dev/null || true)"
+        override="$(aurelia_theme_shell_override_file "$slug" "$section"  || true)"
         [[ -n "$override" ]] || continue
         printf '\n[%s]\n' "$section"
         while IFS= read -r line || [[ -n "$line" ]]; do
@@ -608,7 +608,7 @@ aurelia_theme_atomic_shell() {
     temporary="$(mktemp "${destination}.XXXXXX")" ||
         aurelia_theme_fail "Could not create theme shell staging file."
 
-    full_source="$(aurelia_theme_shell_source_file "$slug" 2>/dev/null || true)"
+    full_source="$(aurelia_theme_shell_source_file "$slug"  || true)"
     if [[ -n "$full_source" ]]; then
         if ! cp -- "$full_source" "$temporary"; then
             rm -f -- "$temporary"
@@ -686,7 +686,7 @@ aurelia_theme_current_slug() {
     local slug=""
     if [[ -f "$AURELIA_THEME_NAME_PATH" && ! -L "$AURELIA_THEME_NAME_PATH" ]]; then
         slug="$(sed -n '1p' "$AURELIA_THEME_NAME_PATH")"
-        slug="$(aurelia_theme_normalize_name "$slug" 2>/dev/null || true)"
+        slug="$(aurelia_theme_normalize_name "$slug"  || true)"
     fi
     printf '%s\n' "${slug:-default}"
 }
@@ -722,7 +722,7 @@ aurelia_theme_notify_shell() {
 
     local client="$AURELIA_THEME_SHELL_ROOT/bin/aurelia-shell"
     if [[ ! -x "$client" ]]; then
-        client="$(command -v aurelia-shell 2>/dev/null || true)"
+        client="$(command -v aurelia-shell  || true)"
     fi
     if [[ ! -x "$client" ]]; then
         printf 'Warning: Aurelia state applied, but the live shell client is unavailable.\n' >&2
@@ -730,7 +730,7 @@ aurelia_theme_notify_shell() {
     fi
 
     local apply_theme_rc=0
-    "$client" shell applyTheme >/dev/null 2>&1 || apply_theme_rc=$?
+    "$client" shell applyTheme >/dev/null || apply_theme_rc=$?
 
     if [[ "$apply_theme_rc" -eq 0 ]]; then
         AURELIA_THEME_LIVE_RELOAD_RESULT="ok"

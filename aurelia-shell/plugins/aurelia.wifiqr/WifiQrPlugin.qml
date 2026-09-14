@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 
 // Standalone secondary surface. The network bar widget summons this plugin
 // through the resident shell, so QR generation and password lifetime do not

@@ -65,11 +65,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p -- "$runtime_root/empty-shell/bin" "$runtime_root/catalog/runtime" \
     "$runtime_root/catalog/state" "$runtime_root/catalog/config" "$runtime_root/catalog/cache"
 catalog_result="$runtime_root/catalog/result.json"
 catalog_status=0
+: >"$catalog_result"
 # The fixture is copied into the temporary tree so its source directory does
 # not participate in the empty first-party scan above.
 cp -- "$ROOT/tests/fixtures/plugin-management/catalog.qml" "$runtime_root/catalog.qml"
@@ -82,7 +83,7 @@ XDG_RUNTIME_DIR="$runtime_root/catalog/runtime" XDG_STATE_HOME="$runtime_root/ca
 XDG_CONFIG_HOME="$runtime_root/catalog/config" XDG_CACHE_HOME="$runtime_root/catalog/cache" \
     /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
     --path "$runtime_root/catalog.qml" >"$runtime_root/catalog/catalog.log" 2>&1 || catalog_status=$?
-if [[ "$catalog_status" -eq 0 ]] && jq -e '
+if [[ "$catalog_status" -eq 0 ]] && runtime_log_is_environment_only "$runtime_root/catalog/catalog.log" && jq -e '
     .barActive and
     .source.source == "first-party" and .source.kind == "bar-widget" and .source.canDisable == true and
     .clone.source == "user" and .clone.kind == "bar-widget" and .clone.enabled == true and
@@ -91,7 +92,7 @@ if [[ "$catalog_status" -eq 0 ]] && jq -e '
   ' "$catalog_result" >/dev/null; then
     pass "[isolated-runtime] canonical catalog projection reports source, kind, active, enablement, bar, clone, and error state"
 else
-    details="$(tail -n 24 "$runtime_root/catalog/catalog.log" 2>/dev/null || true)"
+    details="$(tail -n 24 "$runtime_root/catalog/catalog.log"  || true)"
     fail "[isolated-runtime] catalog projection fixture failed (status=$catalog_status): $details"
 fi
 
@@ -103,6 +104,7 @@ management_result="$runtime_root/management/result.json"
 management_calls="$runtime_root/management/calls"
 touch "$management_calls"
 management_status=0
+: >"$management_result"
 AURELIA_PLUGIN_MANAGEMENT_MODEL_SOURCE="$ROOT/plugins/aurelia.launcher/ui/PluginManagementModel.qml" \
 AURELIA_PLUGIN_MANAGEMENT_CLI="$runtime_root/management/bin/aurelia-plugin" \
 AURELIA_PLUGIN_MANAGEMENT_RESULT="$management_result" \
@@ -113,13 +115,13 @@ XDG_CONFIG_HOME="$runtime_root/management/config" XDG_CACHE_HOME="$runtime_root/
     /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
     --path "$ROOT/tests/fixtures/plugin-management/management.qml" \
     >"$runtime_root/management/management.log" 2>&1 || management_status=$?
-if [[ "$management_status" -eq 0 ]] && jq -e '
+if [[ "$management_status" -eq 0 ]] && runtime_log_is_environment_only "$runtime_root/management/management.log" && jq -e '
     .success and .action == "remove" and .pluginId == "tester.weather" and
     .hasEnable and .hasUpdate and .hasRemove and .hasValidate and .hasClone and .hasDisable
   ' "$management_result" >/dev/null &&
    grep -qx 'remove tester.weather --yes' "$management_calls"; then
     pass "[isolated-runtime] Command Center management rows invoke the safe CLI through structured argv"
 else
-    details="$(tail -n 24 "$runtime_root/management/management.log" 2>/dev/null || true)"
+    details="$(tail -n 24 "$runtime_root/management/management.log"  || true)"
     fail "[isolated-runtime] management model fixture failed (status=$management_status): $details"
 fi

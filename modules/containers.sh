@@ -168,8 +168,8 @@ ensure_rootless_subids() {
 
     local uid_range=""
     local gid_range=""
-    uid_range="$(subid_user_range "$uid_file" "$TARGET_USER" 2>/dev/null || true)"
-    gid_range="$(subid_user_range "$gid_file" "$TARGET_USER" 2>/dev/null || true)"
+    uid_range="$(subid_user_range "$uid_file" "$TARGET_USER"  || true)"
+    gid_range="$(subid_user_range "$gid_file" "$TARGET_USER"  || true)"
 
     if [[ -n "$uid_range" && -n "$gid_range" ]]; then
         return 0
@@ -211,8 +211,8 @@ ensure_rootless_subids() {
             return 1
     fi
 
-    [[ -n "$(subid_user_range "$uid_file" "$TARGET_USER" 2>/dev/null || true)" &&
-       -n "$(subid_user_range "$gid_file" "$TARGET_USER" 2>/dev/null || true)" ]]
+    [[ -n "$(subid_user_range "$uid_file" "$TARGET_USER"  || true)" &&
+       -n "$(subid_user_range "$gid_file" "$TARGET_USER"  || true)" ]]
 }
 
 configure_rootless_storage() {
@@ -226,7 +226,7 @@ configure_rootless_storage() {
 
 enable_podman_socket() {
     if systemctl --user list-unit-files podman.socket \
-        --no-legend 2>/dev/null | grep '^podman.socket' >/dev/null 2>&1; then
+        --no-legend  | grep '^podman.socket' >/dev/null; then
 
         info "Enabling Podman user socket."
 
@@ -291,7 +291,7 @@ configure_containers() {
     fi
     enable_podman_socket
 
-    if ! podman info >/dev/null 2>&1; then
+    if ! podman info >/dev/null; then
         record_required "containers" "podman info" "Rootless Podman validation failed."
         return 1
     fi

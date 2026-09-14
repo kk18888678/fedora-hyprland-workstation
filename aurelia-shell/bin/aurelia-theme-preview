@@ -57,10 +57,10 @@ emit_themes() {
     while IFS= read -r slug; do
         [[ -n "$slug" ]] || continue
         label="$(aurelia_theme_display_name "$slug")"
-        preview="$(aurelia_theme_preview_path "$slug" 2>/dev/null || true)"
+        preview="$(aurelia_theme_preview_path "$slug"  || true)"
         cached=""
         if [[ -n "$preview" && -f "$preview" && ! -L "$preview" ]]; then
-            source_real="$(readlink -f -- "$preview" 2>/dev/null || true)"
+            source_real="$(readlink -f -- "$preview"  || true)"
             if [[ "$source_real" == /* && -f "$source_real" &&
                   "$source_real" != *$'\t'* && "$source_real" != *$'\n'* && "$source_real" != *$'\r'* ]]; then
                 extension="${source_real##*.}"
@@ -88,16 +88,16 @@ emit_backgrounds() {
     local thumbnail
     local label
 
-    theme_slug="$(aurelia_theme_normalize_name "$theme_slug" 2>/dev/null || true)"
+    theme_slug="$(aurelia_theme_normalize_name "$theme_slug"  || true)"
     [[ -n "$theme_slug" ]] || aurelia_theme_fail "Invalid theme name."
-    theme_dir="$(aurelia_theme_source_dir "$theme_slug" 2>/dev/null || true)"
+    theme_dir="$(aurelia_theme_source_dir "$theme_slug"  || true)"
     [[ -n "$theme_dir" ]] || aurelia_theme_fail "Theme does not exist: $theme_slug"
     aurelia_theme_prepare_thumbnail_cache
-    current="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH" 2>/dev/null || true)"
+    current="$(sed -n '1p' "$AURELIA_THEME_BACKGROUND_PATH"  || true)"
 
     while IFS= read -r -d '' background; do
         field_is_safe "$background" || continue
-        thumbnail="$(aurelia_theme_thumbnail_for "$background" 2>/dev/null || true)"
+        thumbnail="$(aurelia_theme_thumbnail_for "$background"  || true)"
         field_is_safe "$thumbnail" || thumbnail=""
         label="$(display_name_for_path "$background")"
         field_is_safe "$label" || label="Background"

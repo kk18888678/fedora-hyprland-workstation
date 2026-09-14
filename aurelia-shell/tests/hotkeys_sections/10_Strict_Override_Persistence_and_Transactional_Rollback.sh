@@ -3,7 +3,7 @@ section "Strict Override Persistence and Transactional Rollback"
 # 1. Truncated JSON is rejected entirely
 printf '{"terminal": "SUPER + RETURN"' > "$sandbox_overrides"
 trunc_ret=0
-HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || trunc_ret=$?
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null || trunc_ret=$?
 if [[ "$trunc_ret" -ne 0 ]]; then
     pass "truncated JSON override file is rejected entirely"
 else
@@ -13,7 +13,7 @@ fi
 # 2. Trailing garbage after JSON object is rejected
 printf '{"terminal": "SUPER + RETURN"} trailing_garbage' > "$sandbox_overrides"
 trail_ret=0
-HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || trail_ret=$?
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null || trail_ret=$?
 if [[ "$trail_ret" -ne 0 ]]; then
     pass "trailing garbage after JSON object is rejected"
 else
@@ -23,7 +23,7 @@ fi
 # 3. Malformed value in overrides is rejected
 printf '{"terminal": 123}' > "$sandbox_overrides"
 val_ret=0
-HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || val_ret=$?
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null || val_ret=$?
 if [[ "$val_ret" -ne 0 ]]; then
     pass "malformed number value in overrides is rejected"
 else
@@ -33,7 +33,7 @@ fi
 # 4. Unsupported boolean true in overrides is rejected
 printf '{"terminal": true}' > "$sandbox_overrides"
 true_ret=0
-HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true_ret=$?
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null || true_ret=$?
 if [[ "$true_ret" -ne 0 ]]; then
     pass "unsupported boolean true in overrides is rejected"
 else
@@ -43,7 +43,7 @@ fi
 # 5. Unsupported null in overrides is rejected
 printf '{"terminal": null}' > "$sandbox_overrides"
 null_ret=0
-HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || null_ret=$?
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null || null_ret=$?
 if [[ "$null_ret" -ne 0 ]]; then
     pass "unsupported null in overrides is rejected"
 else
@@ -53,7 +53,7 @@ fi
 # 6. Unknown action ID in overrides is rejected
 printf '{"unknown_action_xyz": "SUPER + A"}' > "$sandbox_overrides"
 unk_ret=0
-HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || unk_ret=$?
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null || unk_ret=$?
 if [[ "$unk_ret" -ne 0 ]]; then
     pass "unknown action ID in overrides is rejected"
 else
@@ -63,7 +63,7 @@ fi
 # 7. Malformed override does not partially apply earlier valid entries
 printf '{\n  "file_manager": "SUPER + ALT + E",\n  "terminal": 123\n}\n' > "$sandbox_overrides"
 partial_ret=0
-HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || partial_ret=$?
+HOTKEYS_TEST_ACTION=list "$ROOT/bin/workstation-hotkeys" >/dev/null || partial_ret=$?
 # Verify via Lua that resolve_bindings returns nil error and does not yield partial table
 partial_lua_ok=0
 partial_check="$(
@@ -86,7 +86,7 @@ fi
 # 8. Simulated successful reload commits candidate override
 printf '{\n  "file_manager": "SUPER + ALT + M"\n}\n' > "$sandbox_overrides"
 tx_commit_ret=0
-HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + N" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_commit_ret=$?
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + N" "$ROOT/bin/workstation-hotkeys" >/dev/null || tx_commit_ret=$?
 if [[ "$tx_commit_ret" -eq 0 ]] && grep -q "SUPER + ALT + N" "$sandbox_overrides"; then
     pass "simulated successful reload commits candidate override"
 else
@@ -96,7 +96,7 @@ fi
 # 9. Simulated reload failure restores exact previous override content
 pre_content="$(cat "$sandbox_overrides")"
 tx_fail_ret=0
-HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_fail_ret=$?
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null || tx_fail_ret=$?
 post_content="$(cat "$sandbox_overrides")"
 if [[ "$tx_fail_ret" -ne 0 && "$pre_content" == "$post_content" ]]; then
     pass "simulated reload failure restores exact previous override content"
@@ -107,7 +107,7 @@ fi
 # 10. Simulated reload failure when no previous override existed restores absence
 rm -f "$sandbox_overrides"
 tx_noprev_ret=0
-HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_noprev_ret=$?
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null || tx_noprev_ret=$?
 if [[ "$tx_noprev_ret" -ne 0 && ! -f "$sandbox_overrides" ]]; then
     pass "simulated reload failure when no previous override existed restores absence"
 else
@@ -124,7 +124,7 @@ fi
 
 # 12. Reload failure is never swallowed
 tx_swallow_ret=0
-HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || tx_swallow_ret=$?
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null || tx_swallow_ret=$?
 if [[ "$tx_swallow_ret" -ne 0 ]]; then
     pass "reload failure is never swallowed"
 else
@@ -132,8 +132,8 @@ else
 fi
 
 # 13. Normal save creates override file with restrictive 0600 permissions
-HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + M" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
-perm_check="$(stat -c %a "$sandbox_overrides" 2>/dev/null || true)"
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + M" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
+perm_check="$(stat -c %a "$sandbox_overrides"  || true)"
 if [[ "$perm_check" == "600" ]]; then
     pass "override file is created with restrictive 0600 permissions via exclusive mktemp"
 else
@@ -144,7 +144,7 @@ fi
 decoy_file="$sandbox_dir/decoy.txt"
 printf "DO_NOT_CORRUPT_DECOY\n" > "$decoy_file"
 ln -s "$decoy_file" "$sandbox_dir/.tmp.overrides.123456"
-HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + N" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + N" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
 decoy_after="$(cat "$decoy_file")"
 if [[ "$decoy_after" == "DO_NOT_CORRUPT_DECOY" ]]; then
     pass "exclusive temporary file creation avoids following or corrupting symlinks"
@@ -161,7 +161,7 @@ else
     fail "leftover temporary files remained after normal save: $leftover_tmp"
 fi
 
-HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+HOTKEYS_SIMULATE_RELOAD_FAIL=1 HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="file_manager" HOTKEYS_TEST_INPUT="SUPER + ALT + Z" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
 leftover_fail_tmp="$(find "$sandbox_dir" -maxdepth 1 -name ".tmp.overrides.*")"
 if [[ -z "$leftover_fail_tmp" ]]; then
     pass "no leftover temporary files remain after failed reload transactions"

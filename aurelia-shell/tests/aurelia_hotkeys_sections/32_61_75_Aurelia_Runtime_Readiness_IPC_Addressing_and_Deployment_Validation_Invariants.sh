@@ -19,7 +19,7 @@ fi
 exit 0
 EOF
     chmod +x "$mock_dir/qs"
-    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
     pings="$(grep -c '^ipc:ping$' "$mock_log" || true)"
     toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
     daemons="$(grep -c '^daemon_start$' "$mock_log" || true)"
@@ -53,7 +53,7 @@ fi
 exit 0
 EOF
     chmod +x "$mock_dir/qs"
-    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
     pings="$(grep -c '^ipc:ping$' "$mock_log" || true)"
     toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
     daemons="$(grep -c '^daemon_start$' "$mock_log" || true)"
@@ -88,7 +88,7 @@ exit 0
 EOF
     chmod +x "$mock_dir/qs"
     MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
-        "$1" >/dev/null 2>&1 || true
+        "$1" >/dev/null || true
     ' _ "$ROOT/bin/workstation-hotkeys"
     toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
     fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
@@ -125,7 +125,7 @@ exit 0
 EOF
     chmod +x "$mock_dir/qs"
     MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
-        "$1" >/dev/null 2>&1 || true
+        "$1" >/dev/null || true
     ' _ "$ROOT/bin/workstation-hotkeys"
     pings="$(grep -c '^ipc:ping$' "$mock_log" || true)"
     toggles="$(grep -c '^ipc:toggle$' "$mock_log" || true)"
@@ -159,7 +159,7 @@ exit 0
 EOF
     chmod +x "$mock_dir/qs"
     MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
-        "$1" >/dev/null 2>&1 || true
+        "$1" >/dev/null || true
     ' _ "$ROOT/bin/workstation-hotkeys"
     fallback_called="$(grep -c '^fallback_foot:' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
@@ -184,7 +184,7 @@ fi
 exit 0
 EOF
     chmod +x "$mock_dir/qs"
-    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" "$ROOT/bin/workstation-hotkeys" >/dev/null || true
     used_path="$(grep '^path:' "$mock_log" | head -n 1 | cut -d ':' -f2-)"
     used_action="$(grep '^action:' "$mock_log" | head -n 1 | cut -d ':' -f2-)"
     rm -rf "$mock_dir" "$mock_log"
@@ -221,7 +221,7 @@ exit 0
 EOF
     chmod +x "$mock_dir/qs"
     MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
-        "$1" >/dev/null 2>&1 || true
+        "$1" >/dev/null || true
     ' _ "$ROOT/bin/workstation-hotkeys"
     fallback_called="$(grep -c 'fallback_foot' "$mock_log" || true)"
     rm -rf "$mock_dir" "$mock_log"
@@ -300,9 +300,9 @@ exit 255
 EOF
     chmod +x "$mock_dir/qs"
     MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" HOTKEYS_TEST_PROVIDER="aurelia" bash -c '
-        "$1" >/dev/null 2>&1 || true
+        "$1" >/dev/null || true
     ' _ "$ROOT/bin/workstation-hotkeys"
-    foot_args="$(cat "$mock_log" 2>/dev/null || true)"
+    foot_args="$(cat "$mock_log"  || true)"
     rm -rf "$mock_dir" "$mock_log"
     if [[ -z "$foot_args" ]]; then
         pass "71. Aurelia failure fails closed without launching fallback terminal"
@@ -325,7 +325,7 @@ fi
     sb="$(mktemp -d)"
     mkdir -p "$sb/.config/workstation"
     echo "hotkeys.provider = aurelia" > "$sb/.config/workstation/desktop.conf"
-    XDG_CONFIG_HOME="$sb/.config" HOTKEYS_SIMULATE_AURELIA_FAIL=1 "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || true
+    XDG_CONFIG_HOME="$sb/.config" HOTKEYS_SIMULATE_AURELIA_FAIL=1 "$ROOT/bin/workstation-hotkeys" >/dev/null || true
     persisted="$(grep -E '^[[:space:]]*hotkeys[._]provider[[:space:]]*=' "$sb/.config/workstation/desktop.conf" | cut -d '=' -f2 | tr -d '[:space:]')"
     rm -rf "$sb"
     if [[ "$persisted" == "aurelia" ]]; then
@@ -346,11 +346,11 @@ fi
 # Test 75: Component deploy_aurelia_config links the canonical package without creating a directory conflict
 (
     sb="$(mktemp -d)"
-    SCRIPT_DIR="$ROOT" TARGET_HOME="$sb" deploy_aurelia_config >/dev/null 2>&1
+    SCRIPT_DIR="$ROOT" TARGET_HOME="$sb" deploy_aurelia_config >/dev/null
     dest="$sb/.config/aurelia"
     dest_is_link=$([[ -L "$dest" ]] && echo 1 || echo 0)
-    dest_target="$(readlink "$dest" 2>/dev/null || true)"
-    bak_exists=$([[ -d "$sb/.config/aurelia.bak" || $(ls -d "$sb/.config"/aurelia.bak.* 2>/dev/null | wc -l) -gt 0 ]] && echo 1 || echo 0)
+    dest_target="$(readlink "$dest"  || true)"
+    bak_exists=$([[ -d "$sb/.config/aurelia.bak" || $(ls -d "$sb/.config"/aurelia.bak.*  | wc -l) -gt 0 ]] && echo 1 || echo 0)
     rm -rf "$sb"
     if [[ "$dest_is_link" -eq 1 && "$dest_target" == "$ROOT" && "$bak_exists" -eq 0 ]]; then
         pass "75. deploy_aurelia_config creates clean symlink without spurious backup"

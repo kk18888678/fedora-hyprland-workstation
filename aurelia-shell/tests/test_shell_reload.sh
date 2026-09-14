@@ -54,10 +54,13 @@ else
     fail "bar widget isolation from the resident bar host is incomplete"
 fi
 
-if grep -q 'watchChanges: true' "$ROOT/services/ShellConfig.qml" &&
-   grep -q 'onFileChanged: configRoot.reload()' "$ROOT/services/ShellConfig.qml" &&
+if grep -q 'ShellConfigFileBoundary' "$ROOT/services/ShellConfig.qml" &&
+   grep -q 'property ShellConfigFileBoundary configFileBoundary' "$ROOT/services/ShellConfig.qml" &&
+   grep -q 'onFileAvailable' "$ROOT/services/ShellConfig.qml" &&
+   grep -q 'interval: 1000' "$ROOT/services/ShellConfigFileBoundary.qml" &&
+   grep -q 'onTriggered: boundary.probe()' "$ROOT/services/ShellConfigFileBoundary.qml" &&
    grep -q 'QS_DISABLE_FILE_WATCHER=1' "$ROOT/bin/aurelia-launch-shell"; then
-    pass "shell.json watches in place while broad Quickshell file watching stays disabled"
+    pass "shell.json presence/signature watcher stays scoped while broad Quickshell file watching stays disabled"
 else
     fail "configuration or Quickshell watcher ownership is incomplete"
 fi

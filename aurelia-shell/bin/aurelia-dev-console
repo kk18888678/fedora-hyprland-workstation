@@ -64,7 +64,7 @@ if [[ "$interactive_shell" == */* ]]; then
         exit 1
     }
 else
-    interactive_shell_path="$(command -v -- "$interactive_shell" 2>/dev/null || true)"
+    interactive_shell_path="$(command -v -- "$interactive_shell"  || true)"
     [[ -n "$interactive_shell_path" ]] || {
         printf 'Error: interactive shell was not found: %s\n' "$interactive_shell" >&2
         exit 1

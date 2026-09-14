@@ -420,7 +420,7 @@ function M.scan_desktop_files_in_dir(dir_path)
     end
 
     -- Safe bounded fallback using find without shell wildcard expansion
-    local p = io.popen("find " .. sh_quote(dir_path) .. " -maxdepth 10 -name '*.desktop' 2>/dev/null", "r")
+    local p = io.popen("find " .. sh_quote(dir_path) .. " -maxdepth 10 -name '*.desktop' ", "r")
     if p then
         for line in p:lines() do
             line = trim(line)
@@ -692,19 +692,19 @@ M.get_applications_search_dirs = M.get_search_dirs
 -- Query truthful detectable system default roles via XDG MIME
 function M.get_truthful_default_roles()
     local defaults = {}
-    local p_br = io.popen("xdg-mime query default x-scheme-handler/https 2>/dev/null", "r")
+    local p_br = io.popen("xdg-mime query default x-scheme-handler/https ", "r")
     if p_br then
         local br = p_br:read("*l")
         p_br:close()
         if br and br ~= "" then defaults[trim(br)] = "Default Browser" end
     end
-    local p_fm = io.popen("xdg-mime query default inode/directory 2>/dev/null", "r")
+    local p_fm = io.popen("xdg-mime query default inode/directory ", "r")
     if p_fm then
         local fm = p_fm:read("*l")
         p_fm:close()
         if fm and fm ~= "" then defaults[trim(fm)] = "Default File Manager" end
     end
-    local p_te = io.popen("xdg-mime query default text/plain 2>/dev/null", "r")
+    local p_te = io.popen("xdg-mime query default text/plain ", "r")
     if p_te then
         local te = p_te:read("*l")
         p_te:close()
@@ -948,7 +948,7 @@ function M.resolve_role(role)
 
         -- 3. Standard desktop/XDG default via xdg-mime
         if not explicit_target then
-            local ok, p = pcall(io.popen, "xdg-mime query default inode/directory 2>/dev/null")
+            local ok, p = pcall(io.popen, "xdg-mime query default inode/directory ")
             if ok and p then
                 local res = trim(p:read("*l") or "")
                 pcall(function() p:close() end)
@@ -978,7 +978,7 @@ function M.resolve_role(role)
 
         -- 3. Standard desktop/XDG default via xdg-mime
         if not explicit_target then
-            local ok, p = pcall(io.popen, "xdg-mime query default x-scheme-handler/https 2>/dev/null")
+            local ok, p = pcall(io.popen, "xdg-mime query default x-scheme-handler/https ")
             if ok and p then
                 local res = trim(p:read("*l") or "")
                 pcall(function() p:close() end)

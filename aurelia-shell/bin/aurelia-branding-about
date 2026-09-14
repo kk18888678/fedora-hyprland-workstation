@@ -48,16 +48,16 @@ usage() {
 }
 
 select_image() {
-    if command -v zenity >/dev/null 2>&1; then
+    if command -v zenity >/dev/null; then
         zenity --file-selection \
             --title="Pick PNG or SVG for Aurelia About" \
-            --file-filter="Image files | *.png *.svg" 2>/dev/null
+            --file-filter="Image files | *.png *.svg"
         return $?
     fi
 
-    if command -v kdialog >/dev/null 2>&1; then
+    if command -v kdialog >/dev/null; then
         kdialog --title "Pick PNG or SVG for Aurelia About" \
-            --getopenfilename "$HOME" "*.png *.svg" 2>/dev/null
+            --getopenfilename "$HOME" "*.png *.svg"
         return $?
     fi
 
@@ -70,7 +70,7 @@ install_image() {
     local source="$1"
     local temporary
 
-    command -v magick >/dev/null 2>&1 || {
+    command -v magick >/dev/null || {
         printf '%s\n' 'ImageMagick (magick) is required for native image branding.' >&2
         return 1
     }

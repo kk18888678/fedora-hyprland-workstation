@@ -28,9 +28,9 @@ valid_monitor_name() {
 }
 
 focused_monitor() {
-    command -v jq >/dev/null 2>&1 || return 1
+    command -v jq >/dev/null || return 1
     local monitors
-    monitors="$(bounded hyprctl monitors -j 2>/dev/null || bounded hyprctl -j monitors 2>/dev/null)" || return 1
+    monitors="$(bounded hyprctl monitors -j  || bounded hyprctl -j monitors )" || return 1
     jq -er '[.[] | select(.focused == true)][0].name // empty' <<<"$monitors"
 }
 
@@ -65,8 +65,8 @@ backlight_device() {
 
 backlight_read() {
     local device="$1" output
-    command -v brightnessctl >/dev/null 2>&1 || return 1
-    output="$(bounded brightnessctl -d "$device" -m 2>/dev/null)" || return 1
+    command -v brightnessctl >/dev/null || return 1
+    output="$(bounded brightnessctl -d "$device" -m )" || return 1
     awk -F, '
         $4 ~ /^[0-9]+%$/ { gsub(/%/, "", $4); print $4; found = 1; exit }
         END { exit !found }
@@ -75,9 +75,9 @@ backlight_read() {
 
 ddc_bus_for_monitor() {
     local monitor="$1" detection
-    command -v ddcutil >/dev/null 2>&1 || return 1
+    command -v ddcutil >/dev/null || return 1
     valid_monitor_name "$monitor" || return 1
-    detection="$(bounded ddcutil --skip-ddc-checks detect --brief 2>/dev/null)" || return 1
+    detection="$(bounded ddcutil --skip-ddc-checks detect --brief )" || return 1
     awk -v target="$monitor" '
         /^[[:space:]]*I2C bus:/ {
             bus = $3
@@ -98,7 +98,7 @@ ddc_read() {
     local monitor="$1" bus response
     bus="$(ddc_bus_for_monitor "$monitor")" || return 1
     [[ "$bus" =~ ^[0-9]+$ ]] || return 1
-    response="$(bounded ddcutil --bus "$bus" --skip-ddc-checks --noverify getvcp 10 2>/dev/null)" || return 1
+    response="$(bounded ddcutil --bus "$bus" --skip-ddc-checks --noverify getvcp 10 )" || return 1
     awk '$1 == "VCP" && $2 == "10" && $3 == "C" && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
         if ($5 < 1 || $4 < 0 || $4 > $5) exit 1
         printf "%d %d\n", int(($4 * 100) / $5 + 0.5), $5
@@ -183,11 +183,11 @@ while (( $# > 0 )); do
     esac
 done
 
-command -v timeout >/dev/null 2>&1 || die "timeout is required"
-command -v hyprctl >/dev/null 2>&1 || die "hyprctl is required"
+command -v timeout >/dev/null || die "timeout is required"
+command -v hyprctl >/dev/null || die "hyprctl is required"
 
 if [[ -z "$monitor" ]]; then
-    monitor="$(focused_monitor 2>/dev/null || true)"
+    monitor="$(focused_monitor  || true)"
 fi
 [[ -n "$monitor" ]] || die "could not determine a focused monitor"
 valid_monitor_name "$monitor" || die "could not determine a safe focused monitor"
@@ -202,9 +202,9 @@ fi
 runtime_dir="${XDG_RUNTIME_DIR:-}"
 [[ "$runtime_dir" == /* && "$runtime_dir" != "/" && -d "$runtime_dir" && ! -L "$runtime_dir" ]] ||
     die "XDG_RUNTIME_DIR is required for safe concurrent brightness updates"
-[[ "$(stat -c '%u' -- "$runtime_dir" 2>/dev/null || true)" == "$(id -u)" ]] ||
+[[ "$(stat -c '%u' -- "$runtime_dir"  || true)" == "$(id -u)" ]] ||
     die "XDG_RUNTIME_DIR is not owned by the current user"
-command -v flock >/dev/null 2>&1 || die "flock is required for safe brightness updates"
+command -v flock >/dev/null || die "flock is required for safe brightness updates"
 
 lock_path="$runtime_dir/aurelia-brightness-display.lock"
 exec {lock_fd}>"$lock_path"

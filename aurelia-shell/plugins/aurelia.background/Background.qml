@@ -89,10 +89,19 @@ Item {
             return
         }
         var candidate = ""
-        try { candidate = root.normalizePath(backgroundStateFile.text()) } catch (e) {}
+        try {
+            candidate = root.normalizePath(backgroundStateFile.text())
+        } catch (e) {
+            console.warn("[BACKGROUND] state_path_read_failed reason=invalid_file_value")
+        }
         if (!root.validBackgroundPath(candidate)) candidate = root.normalizePath(root.configuredWallpaper)
         if (!root.validBackgroundPath(candidate)) {
-            try { candidate = root.legacyBackgroundPath(legacyNoctaliaFile.text()) } catch (e2) { candidate = "" }
+            try {
+                candidate = root.legacyBackgroundPath(legacyNoctaliaFile.text())
+            } catch (e2) {
+                candidate = ""
+                console.warn("[BACKGROUND] legacy_path_read_failed reason=invalid_file_value")
+            }
         }
         root.initialResolutionPending = false
         root.reloadRequested = false
@@ -214,7 +223,7 @@ Item {
         id: backgroundStateFile
         path: root.backgroundStatePath
         watchChanges: true
-        printErrors: false
+        printErrors: true
         onLoaded: {
             root.stateFileSettled = true
             root.scheduleInitialResolution()
@@ -235,7 +244,7 @@ Item {
         id: legacyNoctaliaFile
         path: root.legacyNoctaliaStatePath
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onLoaded: {
             root.legacyFileSettled = true
             root.scheduleInitialResolution()

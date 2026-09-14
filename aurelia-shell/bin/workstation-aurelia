@@ -18,7 +18,7 @@ set -Eeuo pipefail
 
 script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
 script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
-lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+lua_bin="$(command -v luajit  || command -v lua  || true)"
 
 if [[ -z "$lua_bin" ]]; then
     printf '%s\n' "Error: Lua interpreter (luajit or lua) not found." >&2
@@ -45,8 +45,8 @@ pref_dir="$(dirname -- "$pref_lua")"
 export LUA_PATH="$pref_dir/?.lua;${LUA_PATH:-;;}"
 
 reload_compositor_motion_rules() {
-    if [[ "${WORKSTATION_TEST_MODE:-0}" != "1" ]] && command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-        hyprctl reload config-only >/dev/null 2>&1 || true
+    if [[ "${WORKSTATION_TEST_MODE:-0}" != "1" ]] && command -v hyprctl >/dev/null && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+        hyprctl reload config-only >/dev/null || true
     fi
 }
 
@@ -71,7 +71,7 @@ EOF
 }
 
 cmd="${1:-help}"
-shift 2>/dev/null || true
+shift  || true
 
 case "$cmd" in
     diagnostics)
@@ -154,7 +154,7 @@ LUA_SCRIPT
 
     preference|pref)
         sub="${1:-get}"
-        shift 2>/dev/null || true
+        shift  || true
         case "$sub" in
             get)
                 key="${1:-}"
@@ -289,7 +289,7 @@ LUA_SCRIPT
 
     motion)
         sub="${1:-status}"
-        shift 2>/dev/null || true
+        shift  || true
         case "$sub" in
             status)
                 "$lua_bin" - "$pref_dir" <<'LUA_SCRIPT'
@@ -348,7 +348,7 @@ LUA_SCRIPT
         level="${1:-INFO}"
         comp="${2:-core}"
         event="${3:-diagnostic}"
-        shift 3 2>/dev/null || shift $#
+        shift 3  || shift $#
         msg="$*"
         "$lua_bin" - "$pref_dir" "$level" "$comp" "$event" "$msg" <<'LUA_SCRIPT'
 local pref_dir = arg[1]

@@ -25,7 +25,7 @@ if [[ -f "$network_root/manifest.json" &&
        .entryPoints.barWidget == "NetworkBarWidget.qml" and
        .barWidget.defaultSection == "right"
    ' "$network_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$network_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$network_root" >/dev/null; then
     pass "Network declares a validated first-party bar-widget plugin"
 else
     fail "Network manifest or bar-widget entry point is incomplete"
@@ -132,7 +132,7 @@ else
     fail "Network default-bar, shortcut, or package integration is incomplete"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$network_root/Model.js" "$wifiqr_root/Model.js" <<'NODE'
 const network = require(process.argv[2])
 const wifiqr = require(process.argv[3])
@@ -192,7 +192,7 @@ chmod 0755 "$dns_terminal_fixture/kitty"
 if PATH="$dns_terminal_fixture:$PATH" \
    AURELIA_TERMINAL=kitty \
    AURELIA_NETWORK_TERMINAL_CALLS="$dns_terminal_fixture/call" \
-   "$ROOT/bin/aurelia-network-dns-terminal" Cloudflare >/dev/null 2>&1 &&
+   "$ROOT/bin/aurelia-network-dns-terminal" Cloudflare >/dev/null &&
    grep -Fq -- "--title Aurelia DNS -- /bin/bash $ROOT/bin/aurelia-network-dns Cloudflare" "$dns_terminal_fixture/call"; then
     pass "DNS fallback launches the real helper in a supported terminal with structured provider arguments"
 else
@@ -201,7 +201,7 @@ fi
 rm -rf -- "$dns_terminal_fixture"
 trap - RETURN
 
-if command -v bwrap >/dev/null 2>&1; then
+if command -v bwrap >/dev/null; then
     dns_fixture="$(mktemp -d)"
     trap 'rm -rf -- "$dns_fixture"' RETURN
     mkdir -p "$dns_fixture/etc/NetworkManager/conf.d" \
@@ -265,7 +265,7 @@ EOF_SYSTEMCTL_DNS
         fi
     fi
 
-    if (( dns_fixture_ok )) && dns_fixture_run DHCP >/dev/null 2>&1 &&
+    if (( dns_fixture_ok )) && dns_fixture_run DHCP >/dev/null &&
        [[ ! -e "$dns_fixture/etc/NetworkManager/conf.d/20-aurelia-dns.conf" ]] &&
        [[ ! -e "$dns_fixture/etc/systemd/resolved.conf.d/20-aurelia-dns.conf" ]] &&
        grep -Fq 'DNS=9.9.9.9' "$dns_fixture/etc/systemd/resolved.conf"; then

@@ -58,7 +58,7 @@ fi
 # 2. Module presence and syntax
 effective_module="$ROOT/dotfiles/hypr/effective_bindings.lua"
 if [[ -f "$effective_module" ]]; then
-    if "$lua_bin" -e 'assert(loadfile("'"$effective_module"'"))' >/dev/null 2>&1; then
+    if "$lua_bin" -e 'assert(loadfile("'"$effective_module"'"))' >/dev/null; then
         pass "effective_bindings.lua exists and compiles cleanly"
     else
         fail "effective_bindings.lua has syntax errors"
@@ -167,7 +167,7 @@ fi
 
 # Verify runnable action without command_argv fails closed
 missing_argv_ret=0
-HOTKEYS_MANIFEST="$mock_manifest" HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_ID="test_invalid_argv_action" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || missing_argv_ret=$?
+HOTKEYS_MANIFEST="$mock_manifest" HOTKEYS_TEST_ACTION=run HOTKEYS_TEST_ID="test_invalid_argv_action" "$ROOT/bin/workstation-hotkeys" >/dev/null || missing_argv_ret=$?
 if [[ "$missing_argv_ret" -eq 2 ]]; then
     pass "runnable action missing valid structured command_argv fails closed as unavailable"
 else
@@ -195,7 +195,7 @@ fi
 
 # Verify override file is data-only (valid JSON) and not executable code
 if [[ -f "$sandbox_overrides" ]]; then
-    if jq . "$sandbox_overrides" >/dev/null 2>&1; then
+    if jq . "$sandbox_overrides" >/dev/null; then
         pass "user override file is pure valid JSON and not executable code"
     else
         fail "user override file is not valid JSON"
@@ -209,7 +209,7 @@ cp -f "$sandbox_overrides" "$sandbox_overrides.pre"
 
 # Test generator aggregate cannot be edited
 gen_edit_ret=0
-HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="workspaces_switch_1_10" HOTKEYS_TEST_INPUT="SUPER + 1" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || gen_edit_ret=$?
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="workspaces_switch_1_10" HOTKEYS_TEST_INPUT="SUPER + 1" "$ROOT/bin/workstation-hotkeys" >/dev/null || gen_edit_ret=$?
 if [[ "$gen_edit_ret" -ne 0 ]]; then
     pass "hotkeys manager refuses editing generator aggregate bindings"
 else
@@ -218,7 +218,7 @@ fi
 
 # Test gesture cannot be edited
 gesture_edit_ret=0
-HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="workspace_touchpad_swipe" HOTKEYS_TEST_INPUT="SUPER + S" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || gesture_edit_ret=$?
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="workspace_touchpad_swipe" HOTKEYS_TEST_INPUT="SUPER + S" "$ROOT/bin/workstation-hotkeys" >/dev/null || gesture_edit_ret=$?
 if [[ "$gesture_edit_ret" -ne 0 ]]; then
     pass "hotkeys manager refuses assigning keyboard shortcut to gesture action"
 else
@@ -227,7 +227,7 @@ fi
 
 # Test mouse action cannot be edited
 mouse_edit_ret=0
-HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="mouse_window_drag" HOTKEYS_TEST_INPUT="SUPER + M" "$ROOT/bin/workstation-hotkeys" >/dev/null 2>&1 || mouse_edit_ret=$?
+HOTKEYS_TEST_ACTION=edit HOTKEYS_TEST_ID="mouse_window_drag" HOTKEYS_TEST_INPUT="SUPER + M" "$ROOT/bin/workstation-hotkeys" >/dev/null || mouse_edit_ret=$?
 if [[ "$mouse_edit_ret" -ne 0 ]]; then
     pass "hotkeys manager refuses editing mouse binding through keyboard editor"
 else

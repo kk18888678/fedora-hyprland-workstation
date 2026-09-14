@@ -25,7 +25,7 @@ plugin_harness_run_fixture_contract() {
         plugin_harness_fail fixture "shell.json state fixture is malformed"
     fi
 
-    if [[ -f "$malformed/manifest.json" ]] && ! jq -e . "$malformed/manifest.json" >/dev/null 2>&1; then
+    if [[ -f "$malformed/manifest.json" ]] && ! jq -e . "$malformed/manifest.json" >/dev/null; then
         plugin_harness_pass fixture "creates malformed manifest input"
     else
         plugin_harness_fail fixture "malformed manifest fixture is not malformed"

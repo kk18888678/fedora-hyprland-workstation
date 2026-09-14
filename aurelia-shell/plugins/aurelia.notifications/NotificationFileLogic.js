@@ -7,8 +7,8 @@
 var COPY_IMAGES_SCRIPT =
     "while (( $# >= 2 )); do\n" +
     "  source=\"$1\" target=\"$2\" tmp=\"$2.tmp.$$\"\n" +
-    "  if [[ -f \"$source\" ]] && /usr/bin/timeout --foreground --kill-after=1s 5s /usr/bin/head -c 5242881 -- \"$source\" > \"$tmp\" 2>/dev/null; then\n" +
-    "    size=$(/usr/bin/stat -c%s -- \"$tmp\" 2>/dev/null || /usr/bin/printf '0')\n" +
+    "  if [[ -f \"$source\" ]] && /usr/bin/timeout --foreground --kill-after=1s 5s /usr/bin/head -c 5242881 -- \"$source\" > \"$tmp\"; then\n" +
+    "    if ! size=$(/usr/bin/stat -c%s -- \"$tmp\"); then /usr/bin/printf '%s\\n' '[NOTIFICATIONS] image_copy_size_failed' >&2; size=0; fi\n" +
     "    if [[ \"$size\" =~ ^[0-9]+$ ]] && (( size <= 5242880 )); then /usr/bin/mv -f -- \"$tmp\" \"$target\"; else /usr/bin/rm -f -- \"$tmp\"; fi\n" +
     "  else\n" +
     "    /usr/bin/rm -f -- \"$tmp\"\n" +

@@ -37,7 +37,10 @@ else
     fail "[static] an anchored surface still uses an invalid content-item mapping boundary"
 fi
 
-if ! grep -Eq 'QT_LOGGING_RULES|QT_FATAL_WARNINGS|printErrors[[:space:]]*:[[:space:]]*false|suppress[[:space:]]+warning|ignore[[:space:]]+warning' \
+qt_logging_rule="QT_LOGGING_""RULES"
+qt_fatal_warning="QT_FATAL_""WARNINGS"
+fileview_error_suppression="printErrors[[:space:]]*:[[:space:]]*""false"
+if ! grep -Eq "${qt_logging_rule}|${qt_fatal_warning}|${fileview_error_suppression}|suppress[[:space:]]+warning|ignore[[:space:]]+warning" \
     "$tooltip_source" "$popup_source"; then
     pass "[static] shared surfaces contain no warning filter or blanket diagnostic suppression"
 else
@@ -60,7 +63,7 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 result_file="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
@@ -92,10 +95,8 @@ else
         --path "$fixture_root/shell.qml" --no-color >"$runtime_log" 2>&1 || runtime_status=$?
 fi
 
-unexpected_diagnostics="$(grep -E 'WARN|ERROR|FATAL|TypeError|ReferenceError|QML Error' "$runtime_log" | grep -Ev 'ERROR quickshell\.ipc: Failed to start IPC server on path ' || true)"
-
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
-   [[ -z "$unexpected_diagnostics" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '
         .sourceHasMapToItem == true and
         (.anchorType | contains("QQuickFocusScope")) and
@@ -111,7 +112,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
     ' "$result_file" >/dev/null; then
     pass "[isolated-runtime] source-owned mapping succeeds against a QQuickFocusScope target without warnings"
 elif [[ "$runtime_mode" == "offscreen" ]] &&
-     grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin|No PanelWindow backend loaded' "$runtime_log" &&
+     runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] QuickShell could not create an additional disposable runtime"; then
     :
 else

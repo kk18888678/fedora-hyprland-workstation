@@ -71,14 +71,14 @@ command_exists() {
     if [[ "$1" == "sudo" ]]; then
         return 1
     fi
-    command -v "$1" >/dev/null 2>&1
+    command -v "$1" >/dev/null
 }
 no_sudo_executed=0
 no_sudo_cmd() { no_sudo_executed=1; }
 no_sudo_status=0
 OVERRIDE_EUID=1001
 USER="otheruser"
-run_as_target_user no_sudo_cmd >/dev/null 2>&1 || no_sudo_status=$?
+run_as_target_user no_sudo_cmd >/dev/null || no_sudo_status=$?
 echo "test4_executed=$no_sudo_executed"
 echo "test5_status=$no_sudo_status"
 
@@ -88,7 +88,7 @@ spoofed_cmd() { spoofed_executed=1; }
 spoofed_status=0
 OVERRIDE_EUID=1001
 USER="mockuser" # Spoofed USER environment variable!
-run_as_target_user spoofed_cmd >/dev/null 2>&1 || spoofed_status=$?
+run_as_target_user spoofed_cmd >/dev/null || spoofed_status=$?
 echo "test6_executed=$spoofed_executed"
 echo "test6_status=$spoofed_status"
 
@@ -307,14 +307,14 @@ run_with_timeout 1 "sleep test" "$child_runner" "$test_cmd_pid_file" || status=$
 end_time=$(date +%s)
 elapsed=$((end_time - start_time))
 
-tracked_timeout_pid="$(cat "$test_cmd_pid_file" 2>/dev/null || true)"
+tracked_timeout_pid="$(cat "$test_cmd_pid_file"  || true)"
 
 if (( status == 124 )) && (( elapsed < 5 )); then
     echo "timeout-terminated-ok"
 fi
 
 sleep 0.2
-if [[ -n "$tracked_timeout_pid" ]] && ! kill -0 "$tracked_timeout_pid" 2>/dev/null; then
+if [[ -n "$tracked_timeout_pid" ]] && ! kill -0 "$tracked_timeout_pid" ; then
     echo "timeout-tracked-child-dead-ok"
 fi
 rm -f "$child_runner" "$test_cmd_pid_file"
@@ -355,7 +355,7 @@ missing_timeout_status=0
 (
     PATH=""
     run_with_timeout 5 "missing timeout check" true || exit $?
-) 2>/dev/null || missing_timeout_status=$?
+)  || missing_timeout_status=$?
 
 if (( missing_timeout_status == 127 )); then
     echo "timeout-missing-fail-closed-ok"
@@ -363,7 +363,7 @@ fi
 
 # 5. Invalid non-positive timeout fails closed with nonzero status
 invalid_timeout_status=0
-run_with_timeout 0 "invalid timeout check" true 2>/dev/null || invalid_timeout_status=$?
+run_with_timeout 0 "invalid timeout check" true  || invalid_timeout_status=$?
 
 if (( invalid_timeout_status != 0 )); then
     echo "timeout-invalid-fail-closed-ok"
@@ -409,7 +409,7 @@ pkg_timeout_status=0
 (
     run_with_timeout() { return 124; }
     package_available fake-pkg-timed-out || exit $?
-) 2>/dev/null || pkg_timeout_status=$?
+)  || pkg_timeout_status=$?
 
 if (( pkg_timeout_status == 2 )); then
     echo "pkg-timeout-status-2-ok"
@@ -455,12 +455,12 @@ INTERRUPTED_SIGNAL=0
 cleanup_installer_children() {
     stop_sudo_keepalive
     if [[ -n "${ACTIVE_TIMEOUT_PID:-}" ]]; then
-        kill -TERM "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
-        wait "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        kill -TERM "$ACTIVE_TIMEOUT_PID"  || true
+        wait "$ACTIVE_TIMEOUT_PID"  || true
         ACTIVE_TIMEOUT_PID=""
     fi
-    if command -v pkill >/dev/null 2>&1; then
-        pkill -P "$$" 2>/dev/null || true
+    if command -v pkill >/dev/null; then
+        pkill -P "$$"  || true
     fi
 }
 
@@ -511,24 +511,24 @@ SCRIPT
 chmod +x "$sigint_test_script"
 
 set -m
-"$sigint_test_script" "$SCRIPT_DIR" "$sigint_pid_file" 2>/dev/null &
+"$sigint_test_script" "$SCRIPT_DIR" "$sigint_pid_file"  &
 CHILD_INSTALLER_PID=$!
 set +m
 sleep 0.4
 
-tracked_worker_pid="$(cat "$sigint_pid_file" 2>/dev/null || true)"
+tracked_worker_pid="$(cat "$sigint_pid_file"  || true)"
 
 # Send SIGINT to the running child installer script
-kill -INT "$CHILD_INSTALLER_PID" 2>/dev/null || true
+kill -INT "$CHILD_INSTALLER_PID"  || true
 child_exit_code=0
-wait "$CHILD_INSTALLER_PID" 2>/dev/null || child_exit_code=$?
+wait "$CHILD_INSTALLER_PID"  || child_exit_code=$?
 
 sleep 0.2
 if (( child_exit_code == 130 )); then
     echo "sigint-exit-130-ok"
 fi
 
-if [[ -n "$tracked_worker_pid" ]] && ! kill -0 "$tracked_worker_pid" 2>/dev/null; then
+if [[ -n "$tracked_worker_pid" ]] && ! kill -0 "$tracked_worker_pid" ; then
     echo "sigint-tracked-worker-dead-ok"
 fi
 rm -f "$sigint_test_script" "$sigint_pid_file"

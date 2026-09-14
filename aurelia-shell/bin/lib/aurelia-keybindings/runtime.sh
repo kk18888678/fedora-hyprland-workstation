@@ -48,7 +48,7 @@ find_quickshell_runtime() {
             printf '%s\t%s\n' "$pid" "$args"
             return 0
         fi
-    done < <(ps -u "$current_uid" -o pid=,args= 2>/dev/null || true)
+    done < <(ps -u "$current_uid" -o pid=,args=  || true)
 
     return 1
 }
@@ -98,7 +98,7 @@ runtime_provider() {
     local config_file="${XDG_CONFIG_HOME:-$HOME/.config}/workstation/desktop.conf"
     if [[ -f "$config_file" ]]; then
         local provider
-        provider="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$config_file" 2>/dev/null | tail -n 1 | cut -d '=' -f2 | tr -d ' "[:space:]' || true)"
+        provider="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$config_file"  | tail -n 1 | cut -d '=' -f2 | tr -d ' "[:space:]' || true)"
         if [[ -n "$provider" ]]; then
             printf '%s\n' "$provider"
             return 0
@@ -111,7 +111,7 @@ resolve_quickshell_bin() {
     if [[ ("${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1") &&
           -n "${QUICKSHELL_BIN:-}" && -x "$QUICKSHELL_BIN" ]]; then
         printf '%s\n' "$QUICKSHELL_BIN"
-    elif [[ "${WORKSTATION_TEST_MODE:-0}" == "1" ]] && command -v qs >/dev/null 2>&1; then
+    elif [[ "${WORKSTATION_TEST_MODE:-0}" == "1" ]] && command -v qs >/dev/null; then
         # Test-only PATH injection keeps the isolated mock harness deterministic;
         # production dispatch uses the fixed managed runtime paths below.
         command -v qs
@@ -148,11 +148,11 @@ run_diagnostics_runtime() {
 
     local running_pid="" running_args="" running_qml_root=""
     local runtime_info=""
-    if ! runtime_info="$(find_quickshell_runtime "$active_qml_root" 2>/dev/null)" &&
+    if ! runtime_info="$(find_quickshell_runtime "$active_qml_root" )" &&
        [[ -n "$active_qml_root" ]]; then
         # If the configured Aurelia tree is not the resident process, expose
         # the other Quickshell root so a stale or wrong instance is diagnosable.
-        runtime_info="$(find_quickshell_runtime 2>/dev/null || true)"
+        runtime_info="$(find_quickshell_runtime  || true)"
     fi
     if [[ -n "$runtime_info" ]]; then
         IFS=$'\t' read -r running_pid running_args <<< "$runtime_info"
@@ -175,15 +175,15 @@ run_diagnostics_runtime() {
     local live_revision="not running"
     local active_view="none"
     local qs_bin=""
-    if qs_bin="$(resolve_quickshell_bin 2>/dev/null)" &&
+    if qs_bin="$(resolve_quickshell_bin )" &&
        [[ -n "$running_pid" && "$running_pid" =~ ^[0-9]+$ ]] &&
        [[ -n "$ipc_qml_root" && -f "$ipc_qml_root" ]]; then
         local q_rev q_view
-        q_rev="$("$qs_bin" ipc --path "$ipc_qml_root" call keybindings revision 2>/dev/null || true)"
+        q_rev="$("$qs_bin" ipc --path "$ipc_qml_root" call keybindings revision  || true)"
         if [[ -n "$q_rev" ]]; then
             live_revision="$q_rev"
         fi
-        q_view="$("$qs_bin" ipc --path "$ipc_qml_root" call keybindings activeView 2>/dev/null || true)"
+        q_view="$("$qs_bin" ipc --path "$ipc_qml_root" call keybindings activeView  || true)"
         if [[ -n "$q_view" ]]; then
             active_view="$q_view"
         fi
@@ -226,20 +226,20 @@ run_diagnostics_runtime() {
         deployed_backend_root="$(dirname -- "$selected_backend_path")"
     fi
     if [[ -f "$canonical_backend_path" ]]; then
-        canonical_backend_hash="$(sha256sum "$canonical_backend_path" 2>/dev/null | awk '{print $1}')"
+        canonical_backend_hash="$(sha256sum "$canonical_backend_path"  | awk '{print $1}')"
     fi
     if [[ -f "$selected_backend_path" ]]; then
-        selected_backend_hash="$(sha256sum "$selected_backend_path" 2>/dev/null | awk '{print $1}')"
+        selected_backend_hash="$(sha256sum "$selected_backend_path"  | awk '{print $1}')"
     fi
 
     local provider
     provider="$(runtime_provider)"
     local motion_enabled="true" motion_scale="1.0"
     local aurelia_bin=""
-    if aurelia_bin="$(resolve_aurelia_bin 2>/dev/null)"; then
+    if aurelia_bin="$(resolve_aurelia_bin )"; then
         local me ms
-        me="$("$aurelia_bin" preference get components.keybindings.motion.enabled 2>/dev/null || true)"
-        ms="$("$aurelia_bin" preference get components.keybindings.motion.scale 2>/dev/null || true)"
+        me="$("$aurelia_bin" preference get components.keybindings.motion.enabled  || true)"
+        ms="$("$aurelia_bin" preference get components.keybindings.motion.scale  || true)"
         [[ -n "$me" ]] && motion_enabled="$me"
         [[ -n "$ms" ]] && motion_scale="$ms"
     fi
@@ -247,7 +247,7 @@ run_diagnostics_runtime() {
     local manifest_path
     manifest_path="$(runtime_manifest_path)"
 
-    if ! command -v python3 >/dev/null 2>&1; then
+    if ! command -v python3 >/dev/null; then
         printf '%s\n' "Error: python3 is required for authoritative runtime diagnostics." >&2
         return 1
     fi

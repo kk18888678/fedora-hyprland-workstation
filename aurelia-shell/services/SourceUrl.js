@@ -23,6 +23,8 @@ function pathFromUrl(value) {
     try {
         return decodeURIComponent(encodedPath)
     } catch (error) {
+        if (typeof console !== "undefined" && console.error)
+            console.error("[SOURCE] path_decode_failed")
         return ""
     }
 }
@@ -48,6 +50,8 @@ function fileUrl(value) {
     try {
         for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
     } catch (error) {
+        if (typeof console !== "undefined" && console.error)
+            console.error("[SOURCE] path_encode_failed")
         return ""
     }
     return "file://" + parts.join("/")

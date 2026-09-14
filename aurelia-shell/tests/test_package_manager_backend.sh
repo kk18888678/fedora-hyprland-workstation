@@ -148,7 +148,7 @@ test_env=(
     "MOCK_OPEN_LOG=$fixture/open.log"
 )
 
-if env "${test_env[@]}" "$backend" adopt dnf fedora mock-dnf system --yes >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" adopt dnf fedora mock-dnf system --yes >/dev/null &&
    grep -Fxq $'dnf\tfedora\tmock-dnf\tsystem\tall' "$repo/packages/user-managed.tsv" &&
    [[ "$(find "$repo" -type f -name '*.bak' -print -quit)" == "" ]]; then
     pass "Adopting an installed DNF package records one canonical manifest row without backups"
@@ -156,21 +156,21 @@ else
     fail "DNF adoption did not update user-managed.tsv safely"
 fi
 
-if env "${test_env[@]}" "$backend" install dnf fedora new-dnf system --track --yes >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" install dnf fedora new-dnf system --track --yes >/dev/null &&
    grep -Fxq $'dnf\tfedora\tnew-dnf\tsystem\tall' "$repo/packages/user-managed.tsv"; then
     pass "DNF install-and-track persists desired state only after the package transaction"
 else
     fail "DNF install-and-track did not persist the expected row"
 fi
 
-if env "${test_env[@]}" "$backend" adopt flatpak flathub org.example.App system --yes >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" adopt flatpak flathub org.example.App system --yes >/dev/null &&
    grep -Fxq $'flatpak\tflathub\torg.example.App\tsystem\tall' "$repo/packages/user-managed.tsv"; then
     pass "Flatpak adoption preserves remote and installation scope"
 else
     fail "Flatpak adoption did not preserve source and scope"
 fi
 
-if env "${test_env[@]}" "$backend" remove dnf fedora mock-dnf system --forget --yes >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" remove dnf fedora mock-dnf system --forget --yes >/dev/null &&
    ! grep -Fq $'dnf\tfedora\tmock-dnf\tsystem\tall' "$repo/packages/user-managed.tsv"; then
     pass "DNF remove-and-forget removes the declaration without purge semantics"
 else
@@ -195,7 +195,7 @@ else
     fail "Status JSON omitted tracked package provenance"
 fi
 
-if env "${test_env[@]}" "$backend" refresh >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" refresh >/dev/null &&
    env "${test_env[@]}" "$backend" search mock-dnf | grep -Fq $'dnf\tfedora\tmock-dnf' &&
    ! env "${test_env[@]}" "$backend" search mock-dnf-i686 | grep -Fq $'dnf\tfedora\tmock-dnf-i686' &&
    env "${test_env[@]}" "$backend" search org.example.Catalog | grep -Fq $'flatpak\tflathub\torg.example.Catalog'; then
@@ -204,18 +204,18 @@ else
     fail "Refresh did not make both DNF and Flatpak catalog rows searchable"
 fi
 
-if env "${test_env[@]}" "$backend" open >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" open >/dev/null &&
    tr '\0' ' ' <"$fixture/open.log" | grep -Fq 'tui search'; then
     pass "Opening Package Manager enters the ready package search directly"
 else
     fail "Opening Package Manager did not launch the direct search surface"
 fi
 
-if env "${test_env[@]}" "$backend" daily enable >/dev/null 2>&1 &&
+if env "${test_env[@]}" "$backend" daily enable >/dev/null &&
    [[ -f "$home/.config/systemd/user/workstation-packages-refresh.service" ]] &&
    [[ -f "$home/.config/systemd/user/workstation-packages-refresh.timer" ]] &&
    grep -Fq 'ExecStart=' "$home/.config/systemd/user/workstation-packages-refresh.service" &&
-   env "${test_env[@]}" "$backend" daily disable >/dev/null 2>&1 &&
+   env "${test_env[@]}" "$backend" daily disable >/dev/null &&
    [[ ! -e "$home/.config/systemd/user/workstation-packages-refresh.service" ]] &&
    [[ ! -e "$home/.config/systemd/user/workstation-packages-refresh.timer" ]]; then
     pass "Daily refresh writes and removes one user timer without backup files"

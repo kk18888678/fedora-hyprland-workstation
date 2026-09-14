@@ -20,6 +20,10 @@ ShellRoot {
     property string menuResult: ""
     property string toggleResult: ""
     property string closeResult: ""
+    property bool firstReloadCommitted: false
+    property bool queueReloadCommitted: false
+    property bool ipcReloaded: false
+    property int ipcLoadedCount: 0
 
     QtObject {
         id: shellConfig
@@ -70,6 +74,14 @@ ShellRoot {
                 entryPoints: { panel: "LazyPanel.qml" },
                 keepLoaded: false
             },
+            "fixture.reload-ipc": {
+                name: "Reloaded IPC panel",
+                version: "1.0.0",
+                description: "Fixture",
+                kinds: ["panel"],
+                entryPoints: { panel: "IpcPanel.qml" },
+                keepLoaded: false
+            },
             "fixture.multi": {
                 name: "Multi-kind service widget",
                 version: "1.0.0",
@@ -93,6 +105,7 @@ ShellRoot {
             "fixture.menu-widget",
             "fixture.multi",
             "fixture.queue",
+            "fixture.reload-ipc",
             "fixture.resident"
         ]
 
@@ -184,6 +197,13 @@ ShellRoot {
         }
     }
 
+    Connections {
+        target: hostLoader.item
+        function onPluginLoaded(pluginId, kind) {
+            if (pluginId === "fixture.reload-ipc" && kind === "panel") root.ipcLoadedCount++
+        }
+    }
+
     FileView {
         id: resultFile
         path: root.resultPath
@@ -191,7 +211,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }
@@ -204,13 +224,35 @@ ShellRoot {
         root.keptBefore = host.itemFor("fixture.kept")
         root.multiBefore = host.itemFor("fixture.multi")
 
-        host.beginReload()
+        host.setRequested("fixture.reload-ipc", true)
+        ipcLoadWait.start()
+    }
+
+    function beginIpcReload() {
+        if (!hostLoader.item || !barRegistryLoader.item) return
+        var host = hostLoader.item
+        host.beginReload({ "fixture.reload-ipc": true })
         host.finishReload()
+        firstReloadDrain.start()
+    }
+
+    function continueAfterFirstReload() {
+        if (!hostLoader.item || !barRegistryLoader.item) return
+        root.firstReloadCommitted = hostLoader.item.reloadDrainPending === false
+        var host = hostLoader.item
+        root.ipcReloaded = root.ipcLoadedCount >= 2 && host.itemFor("fixture.reload-ipc") !== null
 
         host.beginReload({ "fixture.queue": true })
         root.firstQueueResult = host.open("fixture.queue", "one")
         root.secondQueueResult = host.open("fixture.queue", "two")
         host.finishReload()
+        queueReloadDrain.start()
+    }
+
+    function continueAfterQueueReload() {
+        if (!hostLoader.item || !barRegistryLoader.item) return
+        root.queueReloadCommitted = hostLoader.item.reloadDrainPending === false
+        var host = hostLoader.item
 
         root.menuResult = host.open("fixture.menu-widget", "{}")
         root.toggleResult = host.toggle("fixture.kept", "{}")
@@ -242,6 +284,10 @@ ShellRoot {
             menuResult: root.menuResult,
             queueFirstResult: root.firstQueueResult,
             queueSecondResult: root.secondQueueResult,
+            firstReloadCommitted: root.firstReloadCommitted,
+            queueReloadCommitted: root.queueReloadCommitted,
+            ipcReloaded: root.ipcReloaded,
+            ipcLoadedCount: root.ipcLoadedCount,
             queuePayloadsInOrder: JSON.stringify(queuePayloads) === JSON.stringify(["one", "two"]),
             toggleResult: root.toggleResult,
             closeResult: root.closeResult,
@@ -249,6 +295,27 @@ ShellRoot {
             loadedEventAvailable: typeof host.pluginLoaded === "function",
             reloadEventAvailable: typeof host.pluginReloaded === "function"
         }) + "\n")
+    }
+
+    Timer {
+        id: ipcLoadWait
+        interval: 300
+        repeat: false
+        onTriggered: root.beginIpcReload()
+    }
+
+    Timer {
+        id: firstReloadDrain
+        interval: 300
+        repeat: false
+        onTriggered: root.continueAfterFirstReload()
+    }
+
+    Timer {
+        id: queueReloadDrain
+        interval: 300
+        repeat: false
+        onTriggered: root.continueAfterQueueReload()
     }
 
     Timer {

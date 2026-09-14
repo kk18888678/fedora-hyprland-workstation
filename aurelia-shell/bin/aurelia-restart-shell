@@ -37,7 +37,7 @@ if [[ -n "${QUICKSHELL_BIN:-}" ]]; then
     qs_bin="$QUICKSHELL_BIN"
 elif [[ -x /usr/bin/qs ]]; then
     qs_bin=/usr/bin/qs
-elif qs_bin="$(command -v qs 2>/dev/null || true)"; [[ -n "$qs_bin" ]]; then
+elif qs_bin="$(command -v qs  || true)"; [[ -n "$qs_bin" ]]; then
     :
 else
     printf 'Error: Quickshell runtime binary was not found.\n' >&2
@@ -55,7 +55,7 @@ list_output="$($qs_bin list --path "$shell_root/shell.qml" 2>&1)" || {
 active_pid="$(printf '%s\n' "$list_output" | sed -n 's/^  Process ID: \([0-9][0-9]*\)$/\1/p' | head -n1)"
 instance_id="$(printf '%s\n' "$list_output" | sed -n 's/^Instance \([^:][^:]*\):$/\1/p' | head -n1)"
 shell_id="$(printf '%s\n' "$list_output" | sed -n 's/^  Shell ID: \([^[:space:]][^[:space:]]*\)$/\1/p' | head -n1)"
-if [[ -n "$active_pid" ]] && ! kill -0 "$active_pid" 2>/dev/null; then
+if [[ -n "$active_pid" ]] && ! kill -0 "$active_pid" ; then
     # Quickshell can leave an instance record behind after a crash. An absent
     # PID is already stopped; do not turn a harmless stale record into a
     # restart failure or attempt to signal an unrelated recycled PID. Remove
@@ -105,12 +105,12 @@ if [[ -n "$active_pid" ]]; then
         exit 1
     }
     for _ in 1 2 3 4 5; do
-        if ! kill -0 "$active_pid" 2>/dev/null; then
+        if ! kill -0 "$active_pid" ; then
             break
         fi
         sleep 0.2
     done
-    if kill -0 "$active_pid" 2>/dev/null; then
+    if kill -0 "$active_pid" ; then
         printf 'Error: Aurelia Shell instance (pid %s) did not stop in time.\n' "$active_pid" >&2
         exit 1
     fi

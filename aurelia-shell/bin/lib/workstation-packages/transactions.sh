@@ -37,7 +37,7 @@ wsp_require_source_available() {
                 return 1
             }
             output="$(wsp_run_timeout 90 "$dnf_bin" -q repoquery --available \
-                --repoid "$source" --qf $'%{name}\t%{arch}\n' "$identifier" 2>/dev/null)" || status=$?
+                --repoid "$source" --qf $'%{name}\t%{arch}\n' "$identifier" )" || status=$?
             if (( status != 0 )); then
                 if (( status == 124 )); then
                     wsp_error "DNF package availability query timed out for '$identifier' from '$source'."
@@ -53,12 +53,12 @@ wsp_require_source_available() {
             }
             ;;
         flatpak)
-            command -v flatpak >/dev/null 2>&1 || {
+            command -v flatpak >/dev/null || {
                 wsp_error "Flatpak is unavailable."
                 return 1
             }
             local flatpak_remotes
-            flatpak_remotes="$(wsp_run_timeout 60 flatpak remotes "--$scope" --columns=name 2>/dev/null)" || {
+            flatpak_remotes="$(wsp_run_timeout 60 flatpak remotes "--$scope" --columns=name )" || {
                 wsp_error "Could not enumerate Flatpak sources for $scope scope within the timeout."
                 return 1
             }
@@ -72,7 +72,7 @@ wsp_require_source_available() {
                 wsp_error "Aurelia packages use user scope."
                 return 1
             }
-            wsp_aurelia_source_url_for "$source" >/dev/null 2>&1 || {
+            wsp_aurelia_source_url_for "$source" >/dev/null || {
                 wsp_error "Aurelia source '$source' is not tracked. Add the GitHub source before installing packages from it."
                 return 1
             }

@@ -26,6 +26,7 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(value))
         } catch (error) {
+            console.warn("[COMMAND_CENTER] plugin_catalog_snapshot_failed")
             return null
         }
     }

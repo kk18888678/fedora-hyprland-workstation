@@ -578,8 +578,8 @@ cleanup_installer_children() {
     release_installer_lock
 
     if [[ -n "${ACTIVE_TIMEOUT_PID:-}" ]]; then
-        kill -TERM "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
-        wait "$ACTIVE_TIMEOUT_PID" 2>/dev/null || true
+        kill -TERM "$ACTIVE_TIMEOUT_PID"  || true
+        wait "$ACTIVE_TIMEOUT_PID"  || true
         ACTIVE_TIMEOUT_PID=""
     fi
 }
@@ -610,7 +610,7 @@ CHILD_SCRIPT
 
 echo "real_pipe_rc=$real_pipe_rc"
 echo "real_pipe_has_summary=$([[ -f "$real_pipe_log" ]] && grep -q 'Installation summary' "$real_pipe_log" && echo 1 || echo 0)"
-echo "real_pipe_last_run_status=$(grep 'status=' "$real_pipe_last_run" 2>/dev/null || echo 'status=none')"
+echo "real_pipe_last_run_status=$(grep 'status=' "$real_pipe_last_run"  || echo 'status=none')"
 
 rm -rf "$TARGET_HOME"
 EOS

@@ -23,7 +23,7 @@ else
 fi
 
 management_root="$(mktemp -d)"
-trap 'rm -rf -- "$management_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$management_root"  || true' RETURN
 
 case_setup() {
     case_root="$(mktemp -d "$management_root/case.XXXXXX")"
@@ -116,7 +116,7 @@ jq -n '{
 }' >"$duplicate_dir/manifest.json"
 printf '%s\n' 'user-owned duplicate' >"$duplicate_dir/sentinel"
 duplicate_status=0
-FAKE_GIT_ID=acme.lifecycle plugin_command add https://example.invalid/incoming.git --yes >/dev/null 2>&1 || duplicate_status=$?
+FAKE_GIT_ID=acme.lifecycle plugin_command add https://example.invalid/incoming.git --yes >/dev/null || duplicate_status=$?
 if [[ "$duplicate_status" -ne 0 && -f "$duplicate_dir/sentinel" &&
       ! -e "$case_root/plugins/acme.lifecycle" ]] &&
    ! find "$case_root/plugins" -mindepth 1 -maxdepth 1 -name '.add.*' -print -quit | grep -q .; then
@@ -161,7 +161,7 @@ fi
 
 case_setup
 noninteractive_status=0
-plugin_command add https://example.invalid/noninteractive.git >/dev/null 2>&1 || noninteractive_status=$?
+plugin_command add https://example.invalid/noninteractive.git >/dev/null || noninteractive_status=$?
 if [[ "$noninteractive_status" -ne 0 ]] &&
    ! find "$case_root/plugins" -mindepth 1 -maxdepth 1 -name '.add.*' -print -quit | grep -q .; then
     pass "[isolated-runtime] non-interactive add requires explicit --yes without mutating"
@@ -186,7 +186,7 @@ fi
 case_setup
 write_managed_plugin acme.dirty 1.0.0
 dirty_status=0
-FAKE_GIT_ID=acme.dirty FAKE_GIT_DIRTY=1 plugin_command update acme.dirty --yes >/dev/null 2>&1 || dirty_status=$?
+FAKE_GIT_ID=acme.dirty FAKE_GIT_DIRTY=1 plugin_command update acme.dirty --yes >/dev/null || dirty_status=$?
 if [[ "$dirty_status" -ne 0 ]] &&
    jq -e '.version == "1.0.0"' "$case_root/plugins/acme.dirty/manifest.json" >/dev/null &&
    ! grep -q '^git-clone' "$git_calls"; then
@@ -198,7 +198,7 @@ fi
 case_setup
 write_managed_plugin acme.invalid 1.0.0
 invalid_status=0
-FAKE_GIT_ID=acme.invalid FAKE_GIT_INVALID=1 plugin_command update acme.invalid --yes >/dev/null 2>&1 || invalid_status=$?
+FAKE_GIT_ID=acme.invalid FAKE_GIT_INVALID=1 plugin_command update acme.invalid --yes >/dev/null || invalid_status=$?
 if [[ "$invalid_status" -ne 0 ]] &&
    jq -e '.version == "1.0.0"' "$case_root/plugins/acme.invalid/manifest.json" >/dev/null &&
    ! find "$case_root/plugins" -mindepth 1 -maxdepth 1 -name '.update.*' -print -quit | grep -q .; then
@@ -266,7 +266,7 @@ fi
 case_setup
 write_managed_plugin acme.remove-confirm 1.0.0
 remove_confirm_status=0
-plugin_command remove acme.remove-confirm >/dev/null 2>&1 || remove_confirm_status=$?
+plugin_command remove acme.remove-confirm >/dev/null || remove_confirm_status=$?
 if [[ "$remove_confirm_status" -ne 0 && -d "$case_root/plugins/acme.remove-confirm" ]]; then
     pass "[isolated-runtime] non-interactive removal requires explicit --yes without deleting user data"
 else

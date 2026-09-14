@@ -176,6 +176,23 @@ PanelWindow {
             z: -100
         }
 
+        BarCenter {
+            anchors.fill: parent
+            entries: panelRoot.bar ? panelRoot.bar.entriesFor("center") : []
+            anchorId: panelRoot.bar ? panelRoot.bar.centerAnchor : ""
+            bar: panelRoot.bar
+            barPanel: panelRoot
+            shell: panelRoot.bar ? panelRoot.bar.shell : null
+            pluginRegistry: panelRoot.bar ? panelRoot.bar.pluginRegistry : null
+            barWidgetRegistry: panelRoot.bar ? panelRoot.bar.barWidgetRegistry : null
+            pluginHost: panelRoot.bar ? panelRoot.bar.pluginHost : null
+            aureliaPath: panelRoot.bar ? panelRoot.bar.aureliaPath : ""
+        }
+
+        // Keep the left group after the full-center gesture surface, matching
+        // the reference stacking order. Its logo and widgets must remain the
+        // topmost pointer targets while the center still owns empty-bar drag
+        // and transparency gestures.
         GridLayout {
             id: leftGroup
             anchors.left: contentRoot.orientationVertical ? undefined : parent.left
@@ -210,19 +227,6 @@ PanelWindow {
                 Layout.preferredHeight: contentRoot.orientationVertical
                     ? implicitHeight : panelRoot.barSize
             }
-        }
-
-        BarCenter {
-            anchors.fill: parent
-            entries: panelRoot.bar ? panelRoot.bar.entriesFor("center") : []
-            anchorId: panelRoot.bar ? panelRoot.bar.centerAnchor : ""
-            bar: panelRoot.bar
-            barPanel: panelRoot
-            shell: panelRoot.bar ? panelRoot.bar.shell : null
-            pluginRegistry: panelRoot.bar ? panelRoot.bar.pluginRegistry : null
-            barWidgetRegistry: panelRoot.bar ? panelRoot.bar.barWidgetRegistry : null
-            pluginHost: panelRoot.bar ? panelRoot.bar.pluginHost : null
-            aureliaPath: panelRoot.bar ? panelRoot.bar.aureliaPath : ""
         }
 
         BarWidgetRow {

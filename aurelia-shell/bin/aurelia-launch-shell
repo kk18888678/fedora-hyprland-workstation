@@ -79,7 +79,7 @@ qs_bin=""
 if [[ "${AURELIA_DEVELOPMENT_MODE:-0}" == "1" || "${WORKSTATION_TEST_MODE:-0}" == "1" ]] &&
    [[ -n "${QUICKSHELL_BIN:-}" && -x "$QUICKSHELL_BIN" ]]; then
     qs_bin="$QUICKSHELL_BIN"
-elif [[ "${WORKSTATION_TEST_MODE:-0}" == "1" ]] && command -v qs >/dev/null 2>&1; then
+elif [[ "${WORKSTATION_TEST_MODE:-0}" == "1" ]] && command -v qs >/dev/null; then
     qs_bin="$(command -v qs)"
 elif [[ -x "/usr/bin/qs" ]]; then
     qs_bin="/usr/bin/qs"

@@ -40,7 +40,7 @@ else
 fi
 
 cli_root="$(mktemp -d)"
-trap 'rm -rf -- "$cli_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$cli_root"  || true' RETURN
 cp -- "$ROOT/tests/fixtures/bar-cli/aurelia-shell" "$cli_root/aurelia-shell"
 chmod 0755 "$cli_root/aurelia-shell"
 calls="$cli_root/calls.jsonl"
@@ -113,10 +113,12 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
     skip "[isolated-runtime] catalog/config signal-cycle fixture (qs or timeout unavailable)"
 else
     cycle_root="$(mktemp -d)"
-    trap 'rm -rf -- "$cycle_root" 2>/dev/null || true' RETURN
+    trap 'rm -rf -- "$cycle_root"  || true' RETURN
     mkdir -p -- "$cycle_root/config/aurelia"
     cycle_result="$cycle_root/result.json"
     cycle_log="$cycle_root/runtime.log"
+    : >"$cycle_result"
+    printf '%s\n' '{}' >"$cycle_root/config/aurelia/shell.json"
     cycle_status=0
     AURELIA_BAR_CYCLE_REGISTRY_SOURCE="$ROOT/services/BarWidgetRegistry.qml" \
     AURELIA_BAR_CYCLE_CONFIG_SOURCE="$ROOT/services/ShellConfig.qml" \
@@ -133,6 +135,7 @@ else
         >"$cycle_log" 2>&1 || cycle_status=$?
 
     if [[ "$cycle_status" -eq 0 ]] && [[ -s "$cycle_result" ]] &&
+       runtime_log_is_environment_only "$cycle_log" &&
        jq -e '
             .configChanges <= 2 and
             .feedbackSignals <= 2 and
@@ -153,12 +156,14 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 runtime_root="$(mktemp -d)"
-trap 'rm -rf -- "$runtime_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$runtime_root"  || true' RETURN
 mkdir -p -- "$runtime_root/config/aurelia"
 runtime_config="$runtime_root/config/aurelia/shell.json"
 runtime_result="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
+: >"$runtime_result"
+printf '%s\n' '{}' >"$runtime_config"
 AURELIA_BAR_OPERATIONS_CONFIG_SOURCE="$ROOT/services/ShellConfig.qml" \
 AURELIA_BAR_OPERATIONS_RESULT="$runtime_result" \
 AURELIA_SHELL_CONFIG="$runtime_config" \
@@ -173,6 +178,7 @@ XDG_CACHE_HOME="$runtime_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+   runtime_log_is_environment_only "$runtime_log" &&
    jq -e '
         .enableResult == "" and
         .rightAfterEnable == ["aurelia.tray", "fixture.widget"] and

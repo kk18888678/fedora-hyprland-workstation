@@ -24,7 +24,7 @@ wsp_fail() {
 
 wsp_require_command() {
     local command_name="$1"
-    command -v "$command_name" >/dev/null 2>&1 ||
+    command -v "$command_name" >/dev/null ||
         wsp_fail "Required command is unavailable: $command_name"
 }
 
@@ -133,7 +133,7 @@ wsp_run_timeout() {
         wsp_error "Invalid timeout: $seconds"
         return 2
     }
-    command -v timeout >/dev/null 2>&1 || {
+    command -v timeout >/dev/null || {
         wsp_error "timeout is required; refusing an unbounded package operation."
         return 127
     }
@@ -229,9 +229,9 @@ wsp_runtime_directory() {
             continue
         fi
         if [[ ! -d "$fallback_base" ]]; then
-            mkdir -m 0700 -- "$fallback_base" 2>/dev/null || continue
+            mkdir -m 0700 -- "$fallback_base"  || continue
         fi
-        chmod 0700 -- "$fallback_base" 2>/dev/null || continue
+        chmod 0700 -- "$fallback_base"  || continue
         [[ -O "$fallback_base" && -w "$fallback_base" ]] || continue
         printf '%s\n' "$fallback_base"
         return 0
@@ -243,7 +243,7 @@ wsp_lock_start() {
     local runtime_dir
     local lock_path
 
-    command -v flock >/dev/null 2>&1 || {
+    command -v flock >/dev/null || {
         wsp_error "flock is required; refusing concurrent package operations."
         return 1
     }
@@ -271,8 +271,8 @@ wsp_lock_start() {
 
 wsp_lock_stop() {
     if [[ -n "${WSP_LOCK_FD:-}" ]]; then
-        flock -u "$WSP_LOCK_FD" 2>/dev/null || true
-        exec {WSP_LOCK_FD}>&- 2>/dev/null || true
+        flock -u "$WSP_LOCK_FD"  || true
+        exec {WSP_LOCK_FD}>&-  || true
         WSP_LOCK_FD=""
     fi
 }

@@ -15,7 +15,7 @@ wsp_catalog_cache_age() {
         return 0
     }
     now="$(date +%s)"
-    modified="$(stat -c '%Y' "$WSP_CATALOG_FILE" 2>/dev/null || printf '%s' 0)"
+    modified="$(stat -c '%Y' "$WSP_CATALOG_FILE"  || printf '%s' 0)"
     if [[ "$modified" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ && "$now" -ge "$modified" ]]; then
         printf '%s\n' "$((now - modified))"
     else
@@ -62,17 +62,17 @@ wsp_catalog_needs_refresh() {
     # Version 1 of the catalog could silently drop DNF rows because DNF5's
     # query format did not include an explicit record newline. Invalidate such
     # a cache instead of presenting a Flatpak-only search surface.
-    if command -v dnf5 >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
+    if command -v dnf5 >/dev/null || command -v dnf >/dev/null; then
         wsp_catalog_has_provider dnf || return 0
     fi
-    if declare -F wsp_aurelia_sources_rows >/dev/null 2>&1; then
+    if declare -F wsp_aurelia_sources_rows >/dev/null; then
         local aurelia_sources_file
         local aurelia_sources
         local catalog_mtime
         local sources_mtime
 
-        aurelia_sources_file="$(wsp_aurelia_sources_path 2>/dev/null || true)"
-        aurelia_sources="$(wsp_aurelia_sources_rows 2>/dev/null || true)"
+        aurelia_sources_file="$(wsp_aurelia_sources_path  || true)"
+        aurelia_sources="$(wsp_aurelia_sources_rows  || true)"
         if [[ -n "$aurelia_sources" ]]; then
             wsp_catalog_has_provider aurelia || return 0
             while IFS=$'\t' read -r source _url _profiles; do
@@ -82,8 +82,8 @@ wsp_catalog_needs_refresh() {
                     return 0
                 fi
             done <<< "$aurelia_sources"
-            catalog_mtime="$(stat -c '%Y' "$WSP_CATALOG_FILE" 2>/dev/null || printf '%s' 0)"
-            sources_mtime="$(stat -c '%Y' "$aurelia_sources_file" 2>/dev/null || printf '%s' 0)"
+            catalog_mtime="$(stat -c '%Y' "$WSP_CATALOG_FILE"  || printf '%s' 0)"
+            sources_mtime="$(stat -c '%Y' "$aurelia_sources_file"  || printf '%s' 0)"
             if [[ "$sources_mtime" =~ ^[0-9]+$ && "$catalog_mtime" =~ ^[0-9]+$ &&
                   "$sources_mtime" -gt "$catalog_mtime" ]]; then
                 return 0
@@ -94,9 +94,9 @@ wsp_catalog_needs_refresh() {
 }
 
 wsp_dnf_binary() {
-    if command -v dnf5 >/dev/null 2>&1; then
+    if command -v dnf5 >/dev/null; then
         command -v dnf5
-    elif command -v dnf >/dev/null 2>&1; then
+    elif command -v dnf >/dev/null; then
         command -v dnf
     else
         return 1
@@ -124,8 +124,8 @@ wsp_catalog_refresh_dnf() {
         printf 'Unsupported host architecture for DNF catalog.\n' >> "$WSP_REFRESH_ERRORS"
         return 1
     }
-    raw_file="$(mktemp 2>/dev/null)" || return 1
-    err_file="$(mktemp 2>/dev/null)" || {
+    raw_file="$(mktemp )" || return 1
+    err_file="$(mktemp )" || {
         rm -f -- "$raw_file"
         return 1
     }
@@ -171,8 +171,8 @@ wsp_flatpak_remote_names() {
     local scope="$1"
     local output
 
-    command -v flatpak >/dev/null 2>&1 || return 1
-    output="$(wsp_run_timeout 45 flatpak remotes "--$scope" --columns=name 2>/dev/null)" || return 1
+    command -v flatpak >/dev/null || return 1
+    output="$(wsp_run_timeout 45 flatpak remotes "--$scope" --columns=name )" || return 1
     while IFS= read -r source; do
         source="$(wsp_trim_line "$source")"
         [[ -n "$source" ]] || continue
@@ -194,14 +194,14 @@ wsp_catalog_refresh_flatpak_scope() {
     local branch
     local status=0
 
-    command -v flatpak >/dev/null 2>&1 || {
+    command -v flatpak >/dev/null || {
         printf '%s\n' 'Flatpak is unavailable.' >> "$WSP_REFRESH_ERRORS"
         return 1
     }
     while IFS= read -r source; do
         [[ -n "$source" ]] || continue
-        raw_file="$(mktemp 2>/dev/null)" || return 1
-        err_file="$(mktemp 2>/dev/null)" || {
+        raw_file="$(mktemp )" || return 1
+        err_file="$(mktemp )" || {
             rm -f -- "$raw_file"
             return 1
         }
@@ -249,9 +249,9 @@ wsp_catalog_refresh() {
     local aurelia_status=0
 
     wsp_catalog_paths_safe || return 1
-    temporary="$(mktemp "$cache_dir/.catalog.XXXXXX" 2>/dev/null)" || return 1
+    temporary="$(mktemp "$cache_dir/.catalog.XXXXXX" )" || return 1
     WSP_CATALOG_ROWS="$temporary"
-    WSP_REFRESH_ERRORS="$(mktemp 2>/dev/null)" || {
+    WSP_REFRESH_ERRORS="$(mktemp )" || {
         rm -f -- "$temporary"
         return 1
     }
@@ -269,7 +269,7 @@ wsp_catalog_refresh() {
     if [[ "${WSP_QUIET_REFRESH:-0}" != 1 ]]; then
         wsp_info "Refreshing Aurelia GitHub release sources..."
     fi
-    if declare -F wsp_aurelia_catalog_rows >/dev/null 2>&1; then
+    if declare -F wsp_aurelia_catalog_rows >/dev/null; then
         wsp_aurelia_catalog_rows >> "$temporary" || aurelia_status=$?
     fi
 
@@ -409,10 +409,10 @@ wsp_catalog_live_dnf_rows() {
 
     dnf_bin="$(wsp_dnf_binary)" || return 1
     native_arch="$(wsp_dnf_native_arch)" || return 1
-    raw_file="$(mktemp 2>/dev/null)" || return 1
+    raw_file="$(mktemp )" || return 1
     if ! wsp_run_timeout 90 "$dnf_bin" -C -q repoquery --available \
         --qf $'%{name}\t%{summary}\t%{evr}\t%{repoid}\t%{arch}\n' \
-        > "$raw_file" 2>/dev/null; then
+        > "$raw_file" ; then
         rm -f -- "$raw_file"
         return 1
     fi
@@ -448,13 +448,13 @@ wsp_catalog_live_flatpak_rows_for_scope() {
     local version
     local branch
 
-    command -v flatpak >/dev/null 2>&1 || return 1
+    command -v flatpak >/dev/null || return 1
     while IFS= read -r source; do
         [[ -n "$source" ]] || continue
-        raw_file="$(mktemp 2>/dev/null)" || return 1
+        raw_file="$(mktemp )" || return 1
         if ! wsp_run_timeout 90 flatpak remote-ls "--$scope" --cached --app \
             --columns=application,name,description,version,branch "$source" \
-            > "$raw_file" 2>/dev/null; then
+            > "$raw_file" ; then
             rm -f -- "$raw_file"
             continue
         fi
@@ -496,8 +496,8 @@ wsp_catalog_seed_aurelia_discovery() {
     [[ -n "${WSP_AURELIA_DISCOVERY_SOURCE:-}" &&
        -n "${WSP_AURELIA_DISCOVERY_IDENTIFIER:-}" ]] || return 1
     wsp_catalog_paths_safe || return 1
-    temporary="$(mktemp "$WSP_CACHE_DIR/.catalog-seed.XXXXXX" 2>/dev/null)" || return 1
-    filtered="$(mktemp "$WSP_CACHE_DIR/.catalog-seed-filtered.XXXXXX" 2>/dev/null)" || {
+    temporary="$(mktemp "$WSP_CACHE_DIR/.catalog-seed.XXXXXX" )" || return 1
+    filtered="$(mktemp "$WSP_CACHE_DIR/.catalog-seed-filtered.XXXXXX" )" || {
         rm -f -- "$temporary"
         return 1
     }
@@ -537,7 +537,7 @@ wsp_catalog_rows_for_tui() {
     if [[ -s "$WSP_CATALOG_FILE" && ! -L "$WSP_CATALOG_FILE" ]]; then
         cat -- "$WSP_CATALOG_FILE"
         if ! wsp_catalog_has_provider dnf &&
-           ( command -v dnf5 >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 ); then
+           ( command -v dnf5 >/dev/null || command -v dnf >/dev/null ); then
             # Repair the old Flatpak-only cache in the foreground from local
             # metadata when possible; the network refresh still runs in the
             # background and atomically replaces the cache later.

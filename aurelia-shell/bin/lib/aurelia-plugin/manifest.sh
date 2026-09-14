@@ -28,7 +28,7 @@ aurelia_plugin_validate_manifest() {
         aurelia_plugin_fail "Plugin tree contains a symlink: $plugin_path"
         return 1
     fi
-    if ! command -v jq >/dev/null 2>&1; then
+    if ! command -v jq >/dev/null; then
         aurelia_plugin_fail "jq is required to validate Aurelia plugin manifests"
         return 1
     fi
@@ -181,7 +181,7 @@ aurelia_plugin_validate_manifest() {
                 end
             else false
             end
-        ' "$manifest_path" >/dev/null 2>&1; then
+        ' "$manifest_path" >/dev/null; then
             aurelia_plugin_fail "Manifest icon name is invalid: $manifest_path"
             return 1
         fi
@@ -266,7 +266,7 @@ aurelia_plugin_validate_manifest() {
     done < <(jq -r '.entryPoints | keys[]' "$manifest_path")
 
     if [[ "$allow_first_party" != "1" ]] &&
-        jq -e '.aurelia.capabilities? != null' "$manifest_path" >/dev/null 2>&1; then
+        jq -e '.aurelia.capabilities? != null' "$manifest_path" >/dev/null; then
         aurelia_plugin_fail "Third-party plugins cannot declare trusted Aurelia capabilities: $id"
         return 1
     fi

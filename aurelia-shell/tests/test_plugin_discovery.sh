@@ -35,7 +35,7 @@ if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
 fi
 
 discovery_root="$(mktemp -d)"
-trap 'rm -rf -- "$discovery_root" 2>/dev/null || true' RETURN
+trap 'rm -rf -- "$discovery_root"  || true' RETURN
 first_party="$discovery_root/first-party"
 user_plugins="$discovery_root/config/aurelia/plugins"
 mkdir -p -- \
@@ -92,7 +92,7 @@ jq -n '{
 }' >"$user_plugins/aurelia.primary/manifest.json"
 
 if "$ROOT/bin/aurelia-plugin" validate --first-party --manifest-file Sibling.manifest.json \
-    "$first_party/bar/widgets" >/dev/null 2>&1; then
+    "$first_party/bar/widgets" >/dev/null; then
     pass "[static] sibling manifest validates through the author-facing canonical validator"
 else
     fail "[static] sibling manifest was rejected by the canonical validator"
@@ -101,6 +101,7 @@ fi
 runtime_result="$discovery_root/result.json"
 runtime_log="$discovery_root/runtime.log"
 runtime_status=0
+: >"$runtime_result"
 AURELIA_DISCOVERY_REGISTRY_SOURCE="$ROOT/services/PluginRegistry.qml" \
 AURELIA_DISCOVERY_FIRST_PARTY="$first_party" \
 AURELIA_DISCOVERY_RESULT="$runtime_result" \
@@ -116,6 +117,7 @@ XDG_CACHE_HOME="$discovery_root/cache" \
     >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
+   runtime_log_is_environment_only "$runtime_log" '\[PLUGIN\] aurelia\.plugin\.rejected' &&
    jq -e --arg first "$first_party/aurelia.duplicate" \
       --arg grouped "$first_party/grouped/status" \
       --arg sibling "$first_party/bar/widgets" \
@@ -148,6 +150,7 @@ fi
 malformed_result="$discovery_root/malformed-result.json"
 malformed_log="$discovery_root/malformed.log"
 malformed_status=0
+: >"$malformed_result"
 AURELIA_DISCOVERY_REGISTRY_SOURCE="$ROOT/services/PluginRegistry.qml" \
 AURELIA_DISCOVERY_FIRST_PARTY="$first_party" \
 AURELIA_DISCOVERY_RESULT="$malformed_result" \
@@ -164,6 +167,7 @@ XDG_CACHE_HOME="$discovery_root/malformed-cache" \
     >"$malformed_log" 2>&1 || malformed_status=$?
 
 if [[ "$malformed_status" -eq 0 ]] && [[ -s "$malformed_result" ]] &&
+   runtime_log_is_environment_only "$malformed_log" &&
    jq -e '.scanState == "malformed-output" and .scanFailureClass == "malformed-output"' \
        "$malformed_result" >/dev/null; then
     pass "[isolated-runtime] malformed scanner output fails closed with an explicit registry state"
@@ -177,6 +181,7 @@ mkdir -p -- "$empty_root" "$empty_config/aurelia/plugins"
 empty_result="$discovery_root/empty-result.json"
 empty_log="$discovery_root/empty.log"
 empty_status=0
+: >"$empty_result"
 AURELIA_DISCOVERY_REGISTRY_SOURCE="$ROOT/services/PluginRegistry.qml" \
 AURELIA_DISCOVERY_FIRST_PARTY="$empty_root" \
 AURELIA_DISCOVERY_RESULT="$empty_result" \
@@ -192,6 +197,7 @@ XDG_CACHE_HOME="$discovery_root/empty-cache" \
     >"$empty_log" 2>&1 || empty_status=$?
 
 if [[ "$empty_status" -eq 0 ]] && [[ -s "$empty_result" ]] &&
+   runtime_log_is_environment_only "$empty_log" &&
    jq -e '.scanState == "empty" and .scanFailureClass == "empty-valid-catalog" and (.ids | length == 0)' \
        "$empty_result" >/dev/null; then
     pass "[isolated-runtime] an empty valid catalog is explicitly distinguished from malformed discovery"

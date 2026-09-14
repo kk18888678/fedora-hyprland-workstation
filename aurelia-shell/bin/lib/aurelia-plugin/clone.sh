@@ -13,7 +13,7 @@ aurelia_plugin_clone_first_party_root() {
                 aurelia_plugin_fail "Could not resolve the packaged Aurelia plugin tree"
                 return 1
             }
-            candidate="$(cd -- "$bin_root/../plugins" 2>/dev/null && pwd -P)" || {
+            candidate="$(cd -- "$bin_root/../plugins"  && pwd -P)" || {
                 aurelia_plugin_fail "Could not resolve the packaged Aurelia plugin tree"
                 return 1
             }
@@ -25,8 +25,8 @@ aurelia_plugin_clone_first_party_root() {
     }
 
     local first_party_real user_real
-    first_party_real="$(readlink -f -- "$candidate" 2>/dev/null || true)"
-    user_real="$(readlink -m -- "$aurelia_plugin_dir" 2>/dev/null || true)"
+    first_party_real="$(readlink -f -- "$candidate"  || true)"
+    user_real="$(readlink -m -- "$aurelia_plugin_dir"  || true)"
     [[ -n "$first_party_real" && "$first_party_real" != "/" && -n "$user_real" ]] || {
         aurelia_plugin_fail "Could not resolve the Aurelia plugin tree safely"
         return 1
@@ -73,7 +73,7 @@ aurelia_plugin_clone_find_source() {
             source_dir="${manifest_path%/*}"
         fi
         [[ -d "$source_dir" && ! -L "$source_dir" ]] || continue
-        if ! manifest_id="$(jq -r '.id // empty' "$manifest_path" 2>/dev/null)"; then
+        if ! manifest_id="$(jq -r '.id // empty' "$manifest_path" )"; then
             continue
         fi
         [[ "$manifest_id" == "$source_id" ]] || continue
@@ -115,7 +115,7 @@ aurelia_plugin_clone_copy_dependency() {
         return 1
     }
     source_root_real="$(readlink -f -- "$source_dir")"
-    source_real="$(readlink -f -- "$source_path" 2>/dev/null || true)"
+    source_real="$(readlink -f -- "$source_path"  || true)"
     [[ -n "$source_real" && ( "$source_real" == "$source_root_real" || "$source_real" == "$source_root_real/"* ) ]] || {
         aurelia_plugin_fail "Declared clone dependency escapes the plugin source: $source"
         return 1
@@ -223,7 +223,7 @@ aurelia_plugin_clone_update_manifest() {
 
 aurelia_plugin_clone_user_prefix() {
     local raw_user="${USER:-}"
-    [[ -n "$raw_user" ]] || raw_user="$(id -un 2>/dev/null || true)"
+    [[ -n "$raw_user" ]] || raw_user="$(id -un  || true)"
     local safe_user
     safe_user="$(printf '%s' "$raw_user" | sed 's/[^A-Za-z0-9_.-]/_/g; s/^[^A-Za-z0-9]*//')"
     while [[ "$safe_user" == *".."* ]]; do safe_user="${safe_user//../_}"; done
@@ -345,7 +345,7 @@ aurelia_plugin_clone() {
         return 1
     fi
     if ! aurelia_plugin_enable "$AURELIA_CLONE_NEW_ID"; then
-        if ! aurelia_plugin_set_enabled "$AURELIA_CLONE_NEW_ID" false >/dev/null 2>&1; then
+        if ! aurelia_plugin_set_enabled "$AURELIA_CLONE_NEW_ID" false >/dev/null; then
             AURELIA_PLUGIN_CLONE_CLEANUP_TARGET=0
             aurelia_plugin_fail "Clone enablement failed and state rollback could not be confirmed; preserving $AURELIA_CLONE_TARGET"
             return 1

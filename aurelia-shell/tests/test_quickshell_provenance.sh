@@ -75,7 +75,7 @@ chmod +x "$mock_dir/sudo"
     copr_enabled() { return 0; }
     export MOCK_LOG="$mock_log"
     export MOCK_APPR_REPO="$appr_repo"
-    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null 2>&1 || true
+    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null || true
 )
 
 if grep -q -- "--from-repo=$appr_repo" "$mock_log"; then
@@ -133,7 +133,7 @@ fi
 
 # 10. wrong architecture is rejected
 reason=""
-host_arch="$(uname -m 2>/dev/null || echo "x86_64")"
+host_arch="$(uname -m  || echo "x86_64")"
 bad_arch="aarch64"
 [[ "$host_arch" == "aarch64" ]] && bad_arch="x86_64"
 if ! validate_quickshell_candidate "quickshell" "0" "0.3.1" "2.fc44" "$bad_arch" "copr:copr.fedorainfracloud.org:errornointernet:quickshell" reason; then
@@ -245,10 +245,10 @@ rc=0
     run_dnf_command() { shift 2; "$@"; }
     copr_enabled() { return 0; }
     export MOCK_LOG="$mock_log"
-    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null 2>&1 || exit $?
+    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null || exit $?
 ) || rc=$?
 
-mutations="$(cat "$mock_log" 2>/dev/null || true)"
+mutations="$(cat "$mock_log"  || true)"
 rm -rf "$mock_dir" "$mock_log"
 
 if [[ "$rc" -ne 0 && -z "$mutations" ]]; then
@@ -272,7 +272,7 @@ fi
 # 19. corrected candidate discovery against approved repository
 appr_cand="$(query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID")" || appr_cand=""
 read -r p_name p_epoch p_ver p_rel p_arch p_repo extra_tokens <<< "$appr_cand"
-host_arch="$(uname -m 2>/dev/null || echo "x86_64")"
+host_arch="$(uname -m  || echo "x86_64")"
 
 if [[ -n "$appr_cand" && \
       "$p_name" == "quickshell" && \
@@ -298,7 +298,7 @@ chmod +x "$mock_dir/dnf"
 
 mal_rc=0
 mal_out=""
-mal_out="$(PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" 2>/dev/null)" || mal_rc=$?
+mal_out="$(PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" )" || mal_rc=$?
 rm -rf "$mock_dir"
 
 if [[ "$mal_rc" -eq 3 && -z "$mal_out" ]]; then
@@ -337,7 +337,7 @@ MOCK_EOF
 chmod +x "$mock_dir/dnf"
 
 empty_rc=0
-PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" >/dev/null 2>&1 || empty_rc=$?
+PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" >/dev/null || empty_rc=$?
 rm -rf "$mock_dir"
 
 if [[ "$empty_rc" -eq 1 ]]; then
@@ -383,7 +383,7 @@ MOCK_EOF
     run_dnf_command() { shift 2; "$@"; }
     export MOCK_APPR_REPO="$QUICKSHELL_APPROVED_REPOID"
     post_val_rc=0
-    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null 2>&1 || post_val_rc=$?
+    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null || post_val_rc=$?
     rm -rf "$mock_dir"
 
     if [[ "$post_val_rc" -ne 0 ]]; then

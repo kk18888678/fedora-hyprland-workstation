@@ -46,7 +46,7 @@ resolve_repo_root() {
 source "$script_dir/lib/workstation-packages/common.sh"
 
 WSP_SCRIPT_PATH="$script_path"
-WSP_REPO_ROOT="$(resolve_repo_root 2>/dev/null || true)"
+WSP_REPO_ROOT="$(resolve_repo_root  || true)"
 if [[ -z "$WSP_REPO_ROOT" ]]; then
     printf '%s\n' 'ERROR: Could not locate the Fedora workstation repository. Set WORKSTATION_PACKAGE_REPO to its absolute path.' >&2
     exit 1
@@ -81,9 +81,9 @@ source "$script_dir/lib/workstation-packages/schedule.sh"
 cleanup() {
     local package_temp
 
-    if [[ -n "${WSP_REFRESH_PID:-}" ]] && kill -0 "$WSP_REFRESH_PID" 2>/dev/null; then
-        kill -TERM "$WSP_REFRESH_PID" 2>/dev/null || true
-        wait "$WSP_REFRESH_PID" 2>/dev/null || true
+    if [[ -n "${WSP_REFRESH_PID:-}" ]] && kill -0 "$WSP_REFRESH_PID" ; then
+        kill -TERM "$WSP_REFRESH_PID"  || true
+        wait "$WSP_REFRESH_PID"  || true
     fi
     WSP_REFRESH_PID=""
     wsp_lock_stop
@@ -209,37 +209,37 @@ resolve_terminal_argv() {
     for candidate in "${TERMINAL_CANDIDATES[@]}"; do
         case "$candidate" in
             kitty)
-                command -v kitty >/dev/null 2>&1 || continue
+                command -v kitty >/dev/null || continue
                 TERMINAL_ARGV=(kitty --class org.aurelia.packages --title "Fedora Package Manager" "$script_path" tui search)
                 return 0
                 ;;
             foot)
-                command -v foot >/dev/null 2>&1 || continue
+                command -v foot >/dev/null || continue
                 TERMINAL_ARGV=(foot --app-id org.aurelia.packages --title "Fedora Package Manager" "$script_path" tui search)
                 return 0
                 ;;
             ghostty)
-                command -v ghostty >/dev/null 2>&1 || continue
+                command -v ghostty >/dev/null || continue
                 TERMINAL_ARGV=(ghostty --class=org.aurelia.packages --title="Fedora Package Manager" -e "$script_path" tui search)
                 return 0
                 ;;
             alacritty)
-                command -v alacritty >/dev/null 2>&1 || continue
+                command -v alacritty >/dev/null || continue
                 TERMINAL_ARGV=(alacritty --class org.aurelia.packages --title "Fedora Package Manager" -e "$script_path" tui search)
                 return 0
                 ;;
             gnome-terminal)
-                command -v gnome-terminal >/dev/null 2>&1 || continue
+                command -v gnome-terminal >/dev/null || continue
                 TERMINAL_ARGV=(gnome-terminal --title="Fedora Package Manager" -- "$script_path" tui search)
                 return 0
                 ;;
             konsole)
-                command -v konsole >/dev/null 2>&1 || continue
+                command -v konsole >/dev/null || continue
                 TERMINAL_ARGV=(konsole --name org.aurelia.packages --title "Fedora Package Manager" -e "$script_path" tui search)
                 return 0
                 ;;
             xterm)
-                command -v xterm >/dev/null 2>&1 || continue
+                command -v xterm >/dev/null || continue
                 TERMINAL_ARGV=(xterm -class org.aurelia.packages -title "Fedora Package Manager" -e "$script_path" tui search)
                 return 0
                 ;;
@@ -256,15 +256,15 @@ open_terminal() {
         return 1
     }
     launch_argv=("${TERMINAL_ARGV[@]}")
-    if command -v uwsm-app >/dev/null 2>&1 &&
+    if command -v uwsm-app >/dev/null &&
        [[ -n "${XDG_RUNTIME_DIR:-}" ]] &&
        [[ -n "${UWSM_FINALIZE_VARNAMES:-}" || -n "${UWSM_WAIT_VARNAMES:-}" || -n "${IN_UWSM_ENV_PRELOADER:-}" ]]; then
         launch_argv=(uwsm-app -- "${launch_argv[@]}")
     fi
-    if command -v setsid >/dev/null 2>&1; then
-        setsid -f "${launch_argv[@]}" >/dev/null 2>&1
+    if command -v setsid >/dev/null; then
+        setsid -f "${launch_argv[@]}" >/dev/null
     else
-        ("${launch_argv[@]}" >/dev/null 2>&1 &)
+        ("${launch_argv[@]}" >/dev/null &)
     fi
 }
 
@@ -274,7 +274,7 @@ start_background_catalog_refresh() {
     wsp_catalog_needs_refresh || return 1
 
     (
-        WSP_QUIET_REFRESH=1 "$script_path" refresh --scheduled >/dev/null 2>&1 || true
+        WSP_QUIET_REFRESH=1 "$script_path" refresh --scheduled >/dev/null || true
     ) &
     WSP_REFRESH_PID=$!
     return 0
@@ -422,7 +422,7 @@ tui_search_install() {
     # refreshed in the background and the fzf input is atomically reloaded
     # when that bounded refresh finishes.
     start_background_catalog_refresh || true
-    command -v fzf >/dev/null 2>&1 || {
+    command -v fzf >/dev/null || {
         wsp_error "fzf is required for package search."
         return 1
     }
@@ -643,7 +643,7 @@ tui_add_aurelia_source() {
 
     require_tty || return 1
     read -r -p 'GitHub repository URL (https://github.com/OWNER/REPOSITORY): ' url
-    source="$(wsp_aurelia_source_from_url "$url" 2>/dev/null || true)"
+    source="$(wsp_aurelia_source_from_url "$url"  || true)"
     [[ -n "$source" ]] || {
         wsp_error 'Only exact official GitHub repository URLs are accepted.'
         return 1
@@ -674,8 +674,8 @@ tui_sources() {
         printf '  aurelia/%s (%s) %s\n' "$source" "$profiles" "$url"
     done
     printf '\nEnabled DNF repositories:\n'
-    if command -v dnf >/dev/null 2>&1; then
-        wsp_run_timeout 45 dnf repolist --enabled 2>/dev/null || wsp_warn 'Could not enumerate enabled DNF repositories.'
+    if command -v dnf >/dev/null; then
+        wsp_run_timeout 45 dnf repolist --enabled  || wsp_warn 'Could not enumerate enabled DNF repositories.'
     else
         printf '  DNF unavailable\n'
     fi
@@ -710,7 +710,7 @@ tui() {
     local choice
 
     require_tty || return 1
-    command -v fzf >/dev/null 2>&1 || {
+    command -v fzf >/dev/null || {
         wsp_error 'fzf is required for the Package Manager TUI.'
         return 1
     }
@@ -924,9 +924,9 @@ dispatch() {
                     wsp_sources_rows
                     printf '\nConfigured Aurelia GitHub sources:\n'
                     wsp_aurelia_sources_rows
-                    if command -v dnf >/dev/null 2>&1; then
+                    if command -v dnf >/dev/null; then
                         printf '\nEnabled DNF repositories:\n'
-                        wsp_run_timeout 45 dnf repolist --enabled 2>/dev/null || true
+                        wsp_run_timeout 45 dnf repolist --enabled  || true
                     fi
                     ;;
                 add)
@@ -940,7 +940,7 @@ dispatch() {
                         url="$2"
                         shift 2
                         parse_mutation_options "$@" || return 2
-                        source="$(wsp_aurelia_source_from_url "$url" 2>/dev/null || true)"
+                        source="$(wsp_aurelia_source_from_url "$url"  || true)"
                         [[ -n "$source" ]] || {
                             wsp_error 'Aurelia source must be an exact official GitHub repository URL.'
                             return 2

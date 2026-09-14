@@ -20,7 +20,7 @@ if [[ -f "$plugin_root/manifest.json" &&
           (.kinds == ["bar-widget"]) and
           .entryPoints.barWidget == "DisplayBarWidget.qml" and
           .barWidget.defaultSection == "right"' "$plugin_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$plugin_root" >/dev/null; then
     pass "Display declares a validated first-party bar-widget plugin"
 else
     fail "Display manifest or entry-point contract is incomplete"
@@ -72,7 +72,7 @@ else
     fail "Display default-bar or text-size integration is incomplete"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     if node - "$model_file" <<'NODE'
 const model = require(process.argv[2])
 const assert = (condition, message) => { if (!condition) throw new Error(message) }

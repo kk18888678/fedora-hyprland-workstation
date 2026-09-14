@@ -252,7 +252,7 @@ quickshell_package_is_stable() {
     local sorted_versions=()
 
     package_evr_is_stable quickshell || return 1
-    version="$(rpm -q --qf '%{VERSION}' quickshell 2>/dev/null || true)"
+    version="$(rpm -q --qf '%{VERSION}' quickshell  || true)"
     [[ -n "$version" ]] || return 1
 
     # Aurelia relies on the v0.3 API surface; Fedora's older 0.2.x package
@@ -323,22 +323,23 @@ validate_user_managed_manifest() {
         rm -f -- "$rows_file"
         return 1
     fi
+    local validation_failed=0
     while IFS=$'\t' read -r provider source identifier scope profiles; do
         if [[ "$provider" == dnf ]] &&
            { is_component_migrated "$identifier" || package_is_in_static_manifest "$identifier"; }; then
             error "User-managed package duplicates a repository-owned package: $identifier"
-            rm -f -- "$rows_file"
-            return 1
+            validation_failed=1
+            break
         fi
         if [[ "$provider" == flatpak &&
               ( "$identifier" == "org.localsend.localsend_app" || "$identifier" == "com.ulaa.Ulaa" ) ]]; then
             error "User-managed Flatpak duplicates a repository-owned application: $identifier"
-            rm -f -- "$rows_file"
-            return 1
+            validation_failed=1
+            break
         fi
     done < "$rows_file"
     rm -f -- "$rows_file"
-    return 0
+    return "$validation_failed"
 }
 
 install_user_managed_dnf_packages() {

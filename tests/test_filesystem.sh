@@ -19,29 +19,29 @@ sandbox="$(mktemp -d)"
 
 # 1. Empty path checks
 empty_dir_status=0
-( ensure_directory "" >/dev/null 2>&1 ) || empty_dir_status=$?
+( ensure_directory "" >/dev/null ) || empty_dir_status=$?
 
 empty_sym_src_status=0
-( ensure_symlink "" "$sandbox/dest" >/dev/null 2>&1 ) || empty_sym_src_status=$?
+( ensure_symlink "" "$sandbox/dest" >/dev/null ) || empty_sym_src_status=$?
 
 empty_sym_dst_status=0
-( ensure_symlink "$sandbox/src" "" >/dev/null 2>&1 ) || empty_sym_dst_status=$?
+( ensure_symlink "$sandbox/src" "" >/dev/null ) || empty_sym_dst_status=$?
 
 # 2. Refusal of root '/' as symlink destination
 root_dst_status=0
-( ensure_symlink "$sandbox/src" "/" >/dev/null 2>&1 ) || root_dst_status=$?
+( ensure_symlink "$sandbox/src" "/" >/dev/null ) || root_dst_status=$?
 
 # 3. Refusal of relative '.' and '..'
 dot_dir_status=0
-( ensure_directory "." >/dev/null 2>&1 ) || dot_dir_status=$?
+( ensure_directory "." >/dev/null ) || dot_dir_status=$?
 dot_sym_status=0
-( ensure_symlink "$sandbox/src" ".." >/dev/null 2>&1 ) || dot_sym_status=$?
+( ensure_symlink "$sandbox/src" ".." >/dev/null ) || dot_sym_status=$?
 
 # 4. Target exists as regular file when ensuring directory
 file_as_dir_target="$sandbox/existing_file_target"
 touch "$file_as_dir_target"
 file_as_dir_status=0
-( ensure_directory "$file_as_dir_target" >/dev/null 2>&1 ) || file_as_dir_status=$?
+( ensure_directory "$file_as_dir_target" >/dev/null ) || file_as_dir_status=$?
 
 # 5. Normal symlink creation & Idempotent re-run
 src_file="$sandbox/test_source"
@@ -51,7 +51,7 @@ dst_link="$sandbox/test_link"
 source_symlink="$sandbox/source-link"
 ln -s -- "$src_file" "$source_symlink"
 source_symlink_status=0
-( ensure_symlink "$source_symlink" "$sandbox/source-link-destination" >/dev/null 2>&1 ) || source_symlink_status=$?
+( ensure_symlink "$source_symlink" "$sandbox/source-link-destination" >/dev/null ) || source_symlink_status=$?
 
 ensure_symlink "$src_file" "$dst_link"
 sym_created=$([[ -L "$dst_link" && "$(readlink "$dst_link")" == "$src_file" ]] && echo 1 || echo 0)
@@ -83,7 +83,7 @@ symlink_parent="$sandbox/symlink-parent"
 mkdir -p "$real_parent"
 ln -s "$real_parent" "$symlink_parent"
 symlink_parent_status=0
-( ensure_directory "$symlink_parent/child" >/dev/null 2>&1 ) || symlink_parent_status=$?
+( ensure_directory "$symlink_parent/child" >/dev/null ) || symlink_parent_status=$?
 
 # 7. Existing regular user file backed up before symlink creation
 existing_file_dest="$sandbox/user_regular_file"
@@ -121,7 +121,7 @@ validate_managed_dotfile_path() {
 ns_ok=0
 validate_managed_dotfile_path "$TARGET_HOME/.config/hypr" "$TARGET_HOME" || ns_ok=$?
 ns_escape_status=0
-validate_managed_dotfile_path "/etc/shadow" "$TARGET_HOME" >/dev/null 2>&1 || ns_escape_status=$?
+validate_managed_dotfile_path "/etc/shadow" "$TARGET_HOME" >/dev/null || ns_escape_status=$?
 
 echo "empty_dir_status=$empty_dir_status"
 echo "empty_sym_src_status=$empty_sym_src_status"

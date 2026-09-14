@@ -661,7 +661,7 @@ local function atomic_write_file(path, content)
     -- mktemp uses mkstemp() (O_CREAT | O_EXCL) creating the file with mode 0600 atomically,
     -- eliminating symlink following and permission race windows.
     local template = dir .. "/.tmp.overrides.XXXXXX"
-    local p = io.popen("mktemp " .. sh_quote(template) .. " 2>/dev/null", "r")
+    local p = io.popen("mktemp " .. sh_quote(template) .. " ", "r")
     if not p then
         return false, "Failed to invoke mktemp for exclusive temporary file"
     end
@@ -1760,7 +1760,7 @@ function M.reload_session()
     if os.getenv("WORKSTATION_TEST_MODE") ~= "1" and
        os.getenv("HYPRLAND_INSTANCE_SIGNATURE") and
        os.getenv("HYPRLAND_INSTANCE_SIGNATURE") ~= "" then
-        local ret = os.execute("hyprctl reload config-only >/dev/null 2>&1 || hyprctl reload >/dev/null 2>&1")
+        local ret = os.execute("hyprctl reload config-only >/dev/null || hyprctl reload >/dev/null")
         if ret ~= 0 and ret ~= true then
             return false, "hyprctl reload exited with failure status"
         end

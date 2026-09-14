@@ -379,11 +379,11 @@ wsp_aurelia_discover_source() {
         wsp_aurelia_fail "Unsupported architecture for Aurelia release discovery: $(uname -m)"
         return 1
     fi
-    if ! command -v curl >/dev/null 2>&1; then
+    if ! command -v curl >/dev/null; then
         wsp_aurelia_fail 'curl is required for Aurelia release discovery.'
         return 1
     fi
-    if ! command -v jq >/dev/null 2>&1; then
+    if ! command -v jq >/dev/null; then
         wsp_aurelia_fail 'jq is required for Aurelia release discovery.'
         return 1
     fi
@@ -398,7 +398,7 @@ wsp_aurelia_discover_source() {
         wsp_aurelia_fail "Could not query GitHub releases for $source."
         return 1
     fi
-    if ! jq -e 'type == "array"' "$releases_file" >/dev/null 2>&1; then
+    if ! jq -e 'type == "array"' "$releases_file" >/dev/null; then
         rm -f -- "$releases_file"
         wsp_aurelia_fail "GitHub returned an invalid release response for $source."
         return 1
@@ -455,7 +455,7 @@ wsp_aurelia_discover_source() {
 
     if [[ "$digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
         checksum="${digest,,}"
-    elif checksum="$(wsp_aurelia_checksum_from_text "$body" "$asset" 2>/dev/null)"; then
+    elif checksum="$(wsp_aurelia_checksum_from_text "$body" "$asset" )"; then
         :
     elif [[ -n "$sidecar_url" ]]; then
         if ! sidecar_file="$(mktemp)"; then
@@ -464,7 +464,7 @@ wsp_aurelia_discover_source() {
         fi
         WSP_AURELIA_TEMP_FILES+=("$sidecar_file")
         if wsp_aurelia_download "$sidecar_url" "$sidecar_file" 60; then
-            checksum="$(wsp_aurelia_checksum_from_text "$(<"$sidecar_file")" "$asset" 2>/dev/null || true)"
+            checksum="$(wsp_aurelia_checksum_from_text "$(<"$sidecar_file")" "$asset"  || true)"
         fi
         rm -f -- "$sidecar_file"
     fi
@@ -581,7 +581,7 @@ wsp_aurelia_resolve_record() {
         WSP_AURELIA_DISCOVERY_ARTIFACT_URL="$artifact_url"
         return 0
     fi
-    source_url="$(wsp_aurelia_source_url_for "$source" 2>/dev/null || true)"
+    source_url="$(wsp_aurelia_source_url_for "$source"  || true)"
     [[ -n "$source_url" ]] || source_url="https://$source"
     if ! wsp_aurelia_discover_source "$source_url"; then
         wsp_error "${WSP_AURELIA_LAST_ERROR:-Could not discover Aurelia release metadata for $source.}"

@@ -21,6 +21,10 @@ ShellRoot {
     QtObject {
         id: fakeShellConfig
         property var config: ({version: 1, plugins: [], bar: {layout: {left: [], center: [], right: []}}})
+
+        function isPluginEnabled(id, firstParty) {
+            return firstParty === true || config.plugins.indexOf(id) !== -1
+        }
     }
 
     Loader {
@@ -40,7 +44,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }

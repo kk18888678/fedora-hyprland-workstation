@@ -57,7 +57,7 @@ needed_functions=(
 )
 
 defined="$(
-    grep -hE '^[a-zA-Z_][a-zA-Z0-9_]*\(\) \{' "$ROOT"/modules/*.sh "$ROOT"/modules/lib/*.sh 2>/dev/null |
+    grep -hE '^[a-zA-Z_][a-zA-Z0-9_]*\(\) \{' "$ROOT"/modules/*.sh "$ROOT"/modules/lib/*.sh  |
         sed 's/() {//'
 )"
 
@@ -153,10 +153,10 @@ else
     fail "production callback validation failed: $callback_validation_output"
 fi
 
-if grep -Fq 'TARGET_USER="$(id -un)"' "$ROOT/install.sh" &&
-   grep -Fq 'TARGET_GID="$(id -g)"' "$ROOT/install.sh" &&
-   grep -Fq 'TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"' "$ROOT/install.sh" &&
-   grep -Fq 'TARGET_HOME" == "$passwd_home"' "$ROOT/modules/common.sh"; then
+if grep -Fq "TARGET_USER=\"\$(id -un)\"" "$ROOT/install.sh" &&
+   grep -Fq "TARGET_GID=\"\$(id -g)\"" "$ROOT/install.sh" &&
+   grep -Fq "TARGET_HOME=\"\$(getent passwd \"\$TARGET_USER\" | cut -d: -f6)\"" "$ROOT/install.sh" &&
+   grep -Fq "TARGET_HOME\" == \"\$passwd_home\"" "$ROOT/modules/common.sh"; then
     pass "production target identity and home are derived from UID/passwd state"
 else
     fail "production target identity still trusts environment-controlled USER/HOME"
@@ -174,7 +174,7 @@ source "$SCRIPT_DIR/modules/status.sh"
 TARGET_USER="$(id -un)"
 TARGET_HOME="$(mktemp -d)"
 guard_status=0
-( validate_target_user >/dev/null 2>&1 ) || guard_status=$?
+( validate_target_user >/dev/null ) || guard_status=$?
 printf 'arbitrary_home_rejected=%s\n' "$([[ $guard_status -ne 0 ]] && echo 1 || echo 0)"
 rm -rf -- "$TARGET_HOME"
 EOS
@@ -195,7 +195,7 @@ source "$ROOT/modules/status.sh"
 source "$ROOT/profiles/vm.conf"
 CHATGPT=maybe
 invalid_status=0
-( validate_profile >/dev/null 2>&1 ) || invalid_status=$?
+( validate_profile >/dev/null ) || invalid_status=$?
 printf 'invalid_chatgpt_rejected=%s\n' "$([[ $invalid_status -ne 0 ]] && echo 1 || echo 0)"
 EOS
 )"
@@ -249,7 +249,7 @@ ln -s "$custom_config_home" "$symlink_parent/config"
 custom_selector="$(INSTALLER_PRODUCTION_MODE=1 XDG_CONFIG_HOME="$custom_config_home" desktop_shell_selector_path)"
 symlink_selector_status=0
 INSTALLER_PRODUCTION_MODE=1 XDG_CONFIG_HOME="$symlink_parent/config" \
-    desktop_shell_selector_path >/dev/null 2>&1 || symlink_selector_status=$?
+    desktop_shell_selector_path >/dev/null || symlink_selector_status=$?
 
 printf 'custom_selector_ok=%s symlink_config_rejected=%s\n' \
     "$([[ "$custom_selector" == "$custom_config_home/fedora-hyprland-workstation/session-shell" ]] && echo 1 || echo 0)" \
@@ -311,7 +311,7 @@ uname() {
 }
 
 arch_rejected=0
-( validate_fedora >/dev/null 2>&1 ) || arch_rejected=$?
+( validate_fedora >/dev/null ) || arch_rejected=$?
 echo "arch_rejected=$([[ $arch_rejected -ne 0 ]] && echo 1 || echo 0)"
 
 rm -rf "$TARGET_HOME"

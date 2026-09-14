@@ -103,6 +103,8 @@ function parseDisplays(raw) {
   try {
     displays = raw ? JSON.parse(String(raw)) : []
   } catch (error) {
+    if (typeof console !== "undefined" && console.warn)
+      console.warn("[MONITOR] display_payload_parse_failed")
     displays = []
   }
   if (!Array.isArray(displays)) displays = []

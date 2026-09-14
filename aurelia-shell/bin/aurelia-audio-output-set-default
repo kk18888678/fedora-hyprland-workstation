@@ -13,12 +13,12 @@ sink_name="${2:-}"
     exit 1
 }
 
-timeout 2s wpctl set-default "$node_id" >/dev/null 2>&1 || true
-timeout 2s pactl set-default-sink "$sink_name" >/dev/null 2>&1 || true
+timeout 2s wpctl set-default "$node_id" >/dev/null || true
+timeout 2s pactl set-default-sink "$sink_name" >/dev/null || true
 
 # DSP filter chains and EasyEffects are not ordinary application streams. Move
 # only sink inputs that expose an application name, preserving their topology.
-timeout 2s pactl list sink-inputs 2>/dev/null | awk '
+timeout 2s pactl list sink-inputs  | awk '
     /^Sink Input #/ { id = substr($3, 2) }
     /application\.name = / {
         app = $0
@@ -28,5 +28,5 @@ timeout 2s pactl list sink-inputs 2>/dev/null | awk '
     }
 ' | while IFS= read -r input; do
     [[ -n "$input" ]] || continue
-    timeout 2s pactl move-sink-input "$input" "$sink_name" >/dev/null 2>&1 || true
+    timeout 2s pactl move-sink-input "$input" "$sink_name" >/dev/null || true
 done

@@ -14,6 +14,10 @@ ShellRoot {
     readonly property string logoSource: Quickshell.env("AURELIA_BAR_PARITY_LOGO_SOURCE") || ""
     property bool evaluated: false
     property string logoActionResult: ""
+    property string logoPendingResult: ""
+    property string logoBooleanResult: ""
+    property string logoFailureResult: ""
+    property string logoUnavailableResult: ""
 
     QtObject {
         id: fakeShell
@@ -21,6 +25,7 @@ ShellRoot {
         property string lastTransparent: ""
         property string lastMoveId: ""
         property string lastMovePlacement: ""
+        property string summonMode: "ok"
 
         function setBarPosition(value) {
             lastPosition = String(value || "")
@@ -39,6 +44,9 @@ ShellRoot {
         }
 
         function summon(id, payload) {
+            if (summonMode === "pending") return "pending"
+            if (summonMode === "boolean") return true
+            if (summonMode === "failure") return "error"
             return "ok"
         }
     }
@@ -123,6 +131,18 @@ ShellRoot {
             item.bar = fakeBar
             item.shell = fakeShell
             root.logoActionResult = String(item.openCommandCenter() || "")
+            fakeShell.summonMode = "pending"
+            root.logoPendingResult = String(item.openCommandCenter() || "")
+            fakeShell.summonMode = "boolean"
+            root.logoBooleanResult = String(item.openCommandCenter() || "")
+            fakeShell.summonMode = "failure"
+            root.logoFailureResult = String(item.openCommandCenter() || "")
+            item.shell = null
+            fakeBar.shell = null
+            root.logoUnavailableResult = String(item.openCommandCenter() || "")
+            fakeBar.shell = fakeShell
+            item.shell = fakeShell
+            fakeShell.summonMode = "ok"
             root.evaluate()
         }
     }
@@ -140,6 +160,10 @@ ShellRoot {
             slotConstructed: slotLoader.item !== null,
             logoConstructed: logoLoader.item !== null,
             logoActionResult: root.logoActionResult,
+            logoPendingResult: root.logoPendingResult,
+            logoBooleanResult: root.logoBooleanResult,
+            logoFailureResult: root.logoFailureResult,
+            logoUnavailableResult: root.logoUnavailableResult,
             facadeTransparent: facade.transparent === true,
             facadeForeground: String(facade.barForeground),
             topEdge: root.nearestEdge({x: 320, y: 5}, 640, 360),

@@ -2,7 +2,7 @@ section "34-35. Strict Action ID Validation"
 
 # Test 34: Unknown action ID must fail closed
 unknown_rc=0
-"$ROOT/bin/workstation-hotkeys" run "non_existent_action_xyz" >/dev/null 2>&1 || unknown_rc=$?
+"$ROOT/bin/workstation-hotkeys" run "non_existent_action_xyz" >/dev/null || unknown_rc=$?
 if [[ "$unknown_rc" -ne 0 ]]; then
     pass "34. unknown action ID cannot run (fails closed)"
 else
@@ -11,7 +11,7 @@ fi
 
 # Test 35: Malicious/metacharacter action ID must fail closed
 meta_rc=0
-"$ROOT/bin/workstation-hotkeys" run "app:foo;reboot" >/dev/null 2>&1 || meta_rc=$?
+"$ROOT/bin/workstation-hotkeys" run "app:foo;reboot" >/dev/null || meta_rc=$?
 if [[ "$meta_rc" -ne 0 ]]; then
     pass "35. invalid action ID format fails closed"
 else

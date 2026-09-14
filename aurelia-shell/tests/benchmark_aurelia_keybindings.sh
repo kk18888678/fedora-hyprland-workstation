@@ -9,7 +9,7 @@
 
 set -Eeuo pipefail
 
-if ! command -v python3 >/dev/null 2>&1; then
+if ! command -v python3 >/dev/null; then
     printf '%s\n' "Error: python3 is required for the Aurelia live benchmark." >&2
     exit 1
 fi

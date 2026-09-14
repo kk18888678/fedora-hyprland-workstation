@@ -18,7 +18,7 @@ else
     fail "Aurelia transcode utility contract is incomplete"
 fi
 
-if ! command -v magick >/dev/null 2>&1; then
+if ! command -v magick >/dev/null; then
     fixture="$(mktemp -d)"
     if "$transcoder" "$ROOT/config/branding/aurelia-mark.svg" "$fixture/logo.txt" >"$fixture/out" 2>"$fixture/err"; then
         fail "Missing ImageMagick dependency did not fail closed"

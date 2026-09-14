@@ -79,7 +79,7 @@ init_desired_state "$ds_cyc1" "workstation" "customize"
 desired_state_set_component "$ds_cyc1" "foot" "managed"
 desired_state_set_component "$ds_cyc1" "cyc_a" "managed"
 cyc1_rc=0
-create_execution_plan "$ds_cyc1" "PLAN_CYC1" 2>/dev/null || cyc1_rc=$?
+create_execution_plan "$ds_cyc1" "PLAN_CYC1"  || cyc1_rc=$?
 if [[ "$cyc1_rc" -ne 0 ]]; then
     pass "23. direct dependency cycle (A -> B -> A) fails closed before mutation"
 else
@@ -97,7 +97,7 @@ init_desired_state "$ds_cyc2" "workstation" "customize"
 desired_state_set_component "$ds_cyc2" "foot" "managed"
 desired_state_set_component "$ds_cyc2" "ind_a" "managed"
 cyc2_rc=0
-create_execution_plan "$ds_cyc2" "PLAN_CYC2" 2>/dev/null || cyc2_rc=$?
+create_execution_plan "$ds_cyc2" "PLAN_CYC2"  || cyc2_rc=$?
 if [[ "$cyc2_rc" -ne 0 ]]; then
     pass "24. indirect dependency cycle (A -> B -> C -> A) fails closed before mutation"
 else
@@ -115,7 +115,7 @@ desired_state_set_component "$ds_rem_dep" "foot" "managed"
 desired_state_set_component "$ds_rem_dep" "parent_comp" "managed"
 desired_state_set_component "$ds_rem_dep" "child_comp" "remove"
 rem_dep_rc=0
-create_execution_plan "$ds_rem_dep" "PLAN_REM_DEP" 2>/dev/null || rem_dep_rc=$?
+create_execution_plan "$ds_rem_dep" "PLAN_REM_DEP"  || rem_dep_rc=$?
 if [[ "$rem_dep_rc" -ne 0 ]]; then
     pass "25. planning fails closed when required dependency is marked for removal"
 else

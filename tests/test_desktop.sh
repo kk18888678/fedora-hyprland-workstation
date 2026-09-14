@@ -53,7 +53,7 @@ else
     fail "managed greetd configuration backup/rollback boundary failed: $greetd_backup_output"
 fi
 
-if grep -q 'install_root_file_from_stdin_preserving_existing "\$greeter_toml"' "$ROOT/modules/desktop.sh"; then
+if grep -q "install_root_file_from_stdin_preserving_existing \"\$greeter_toml\"" "$ROOT/modules/desktop.sh"; then
     pass "managed Noctalia greeter state preserves changed administrator content"
 else
     fail "managed Noctalia greeter state still overwrites existing configuration"
@@ -91,8 +91,8 @@ fi
 
 if grep -q 'extracted_dir/HackNerdFont-Regular.ttf' "$ROOT/modules/desktop.sh" &&
    grep -q 'extracted_dir/JetBrainsMonoNerdFont-Regular.ttf' "$ROOT/modules/desktop.sh" &&
-   grep -q '! -L "\$fonts_dir/HackNerdFont-Regular.ttf"' "$ROOT/modules/desktop.sh" &&
-   grep -q 'validate_mutation_path "\$fonts_dir"' "$ROOT/modules/desktop.sh"; then
+   grep -q "! -L \"\$fonts_dir/HackNerdFont-Regular.ttf\"" "$ROOT/modules/desktop.sh" &&
+   grep -q "validate_mutation_path \"\$fonts_dir\"" "$ROOT/modules/desktop.sh"; then
     pass "font provisioning requires explicit regular-font members and rejects symlink markers"
 else
     fail "font provisioning lacks explicit payload validation"
@@ -106,7 +106,7 @@ else
     fail "greetd executable provenance is not package-bound"
 fi
 
-if grep -q 'safe_user_config_home "\$themes_dir"' "$ROOT/modules/desktop.sh"; then
+if grep -q "safe_user_config_home \"\$themes_dir\"" "$ROOT/modules/desktop.sh"; then
     pass "GTK theme provisioning rejects symlinked user theme directories"
 else
     fail "GTK theme provisioning lacks a safe user theme directory boundary"
@@ -380,7 +380,7 @@ if grep -q "active_colors" "$qt6ct_scheme" &&
    grep -q "232136" "$qt6ct_scheme"; then
     pass "rose-pine-moon.conf contains valid Qt6ct palette roles and Rosé Pine Moon hex values"
 else
-    fail "rose-pine-moon.conf malformed or missing palette roles: $(cat "$qt6ct_scheme" 2>/dev/null)"
+    fail "rose-pine-moon.conf malformed or missing palette roles: $(cat "$qt6ct_scheme" )"
 fi
 
 section "Terminals: Foot and Kitty Configuration"
@@ -498,7 +498,7 @@ else
 fi
 
 # Opportunistic foot --check-config validation if foot binary is present
-if command -v foot >/dev/null 2>&1; then
+if command -v foot >/dev/null; then
     foot_chk_tmp="$(mktemp -d)"
     mkdir -p "$foot_chk_tmp/foot/themes"
     cp "$ROOT/dotfiles/foot/foot.ini" "$foot_chk_tmp/foot/foot.ini"
@@ -1068,7 +1068,7 @@ systemctl() {
 }
 sudo() { return 0; }
 
-activate_graphical_session >/dev/null 2>&1
+activate_graphical_session >/dev/null
 printf 'activation_blocked=%s\n' "$ACTIVATION_BLOCKED"
 printf 'activation_state=%s\n' "$GRAPHICAL_ACTIVATION_STATE"
 printf 'success_recorded=%s\n' "$(printf '%s\n' "${INSTALL_SUCCEEDED[@]}" | grep -cx 'activate_graphical_session' || true)"
@@ -1123,7 +1123,7 @@ sudo() {
     return 0
 }
 
-activate_graphical_session >/dev/null 2>&1
+activate_graphical_session >/dev/null
 printf 'blocked=%s state=%s restored_greetd=%s restored_target=%s successes=%s\n' \
     "$ACTIVATION_BLOCKED" "$GRAPHICAL_ACTIVATION_STATE" \
     "$restored_greetd" "$restored_target" \
@@ -1141,8 +1141,8 @@ section "Monitor Configuration"
 
 monitor_conf="$ROOT/dotfiles/hypr/monitors.lua"
 if [[ -f "$monitor_conf" ]]; then
-    if command -v luajit >/dev/null 2>&1; then
-        if luajit -e 'assert(loadfile("'"$monitor_conf"'"))' >/dev/null 2>&1; then
+    if command -v luajit >/dev/null; then
+        if luajit -e 'assert(loadfile("'"$monitor_conf"'"))' >/dev/null; then
             pass "monitors.lua has valid Lua syntax"
         else
             fail "monitors.lua has invalid Lua syntax"

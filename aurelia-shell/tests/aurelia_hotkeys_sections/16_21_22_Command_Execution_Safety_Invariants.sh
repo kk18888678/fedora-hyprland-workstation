@@ -9,8 +9,8 @@ else
 fi
 
 # Test 22: No eval or sh -c command execution added
-eval_hotkeys="$(grep -E 'eval |sh -c' "$ROOT/bin/workstation-hotkeys" 2>/dev/null || true)"
-eval_qml="$(grep -E 'eval\(|sh -c' "$ROOT/components/hotkeys/"*.qml 2>/dev/null || true)"
+eval_hotkeys="$(grep -E 'eval |sh -c' "$ROOT/bin/workstation-hotkeys"  || true)"
+eval_qml="$(grep -E 'eval\(|sh -c' "$ROOT/components/hotkeys/"*.qml  || true)"
 if [[ -z "$eval_hotkeys" && -z "$eval_qml" ]]; then
     pass "22. no eval/sh-c command execution added"
 else

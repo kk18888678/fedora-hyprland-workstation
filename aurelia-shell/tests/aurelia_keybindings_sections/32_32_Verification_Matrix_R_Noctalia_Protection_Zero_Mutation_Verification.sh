@@ -1,7 +1,7 @@
 section "32. Verification Matrix R: Noctalia Protection & Zero Mutation Verification"
 
 # 32.1: Aurelia changes introduce zero modifications to config/noctalia/**
-noctalia_diff="$(git status --porcelain "$ROOT/config/noctalia" 2>/dev/null || true)"
+noctalia_diff="$(git status --porcelain "$ROOT/config/noctalia"  || true)"
 if [[ -z "$noctalia_diff" ]]; then
     pass "32.1 zero modifications to config/noctalia/** (Noctalia 100% protected and untouched)"
 else

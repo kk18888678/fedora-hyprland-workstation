@@ -24,7 +24,7 @@ if [[ -f "$picker_root/manifest.json" &&
        .keepLoaded == true and
        .entryPoints.overlay == "ImagePicker.qml"
    ' "$picker_root/manifest.json" >/dev/null &&
-   "$ROOT/bin/aurelia-plugin" validate --first-party "$picker_root" >/dev/null 2>&1; then
+   "$ROOT/bin/aurelia-plugin" validate --first-party "$picker_root" >/dev/null; then
     pass "image picker declares a validated resident overlay plugin"
 else
     fail "image picker manifest or entry point is incomplete"

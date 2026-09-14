@@ -29,7 +29,7 @@ local function shell_quote(value)
 end
 
 local function read_realpath(path)
-    local handle = io.popen("readlink -f -- " .. shell_quote(path) .. " 2>/dev/null")
+    local handle = io.popen("readlink -f -- " .. shell_quote(path) .. " ")
     if not handle then return nil end
     local resolved = handle:read("*l")
     handle:close()

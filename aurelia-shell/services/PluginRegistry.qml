@@ -242,6 +242,7 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(manifest))
         } catch (e) {
+            console.error("[PLUGIN] registry_manifest_clone_failed")
             return null
         }
     }
@@ -256,6 +257,7 @@ QtObject {
             if (value && value.message !== undefined) detail = String(value.message)
             else detail = String(value || "")
         } catch (e) {
+            console.warn("[PLUGIN] failure_detail_stringify_failed")
             detail = "plugin failure detail unavailable"
         }
         detail = detail.replace(/\s+/g, " ").trim()
@@ -800,10 +802,10 @@ QtObject {
 
     readonly property string scanScript: [
         "set -Eeuo pipefail",
-        "command -v jq >/dev/null 2>&1 || exit 127",
+        "command -v jq >/dev/null || exit 127",
         "validator=\"$3\"",
         "[[ -x \"$validator\" ]] || exit 127",
-        "first_party_root=\"$(readlink -f -- \"$1\" 2>/dev/null || true)\"",
+        "if ! first_party_root=\"$(readlink -f -- \"$1\")\"; then printf '%s\\n' 'Aurelia first-party plugin root could not be resolved.' >&2; exit 1; fi",
         "[[ -n \"$first_party_root\" ]] || exit 1",
         "emitted=0",
         "rejected=0",
@@ -813,8 +815,8 @@ QtObject {
         "  local max_depth=\"$3\"",
         "  [[ -d \"$root\" ]] || return 0",
         "  if [[ \"$source_kind\" == \"thirdparty\" ]]; then",
-        "    local root_real=\"$(readlink -f -- \"$root\" 2>/dev/null || true)\"",
-        "    [[ -n \"$root_real\" ]] || return 0",
+        "    local root_real",
+        "    if ! root_real=\"$(readlink -f -- \"$root\")\"; then printf '%s\\n' \"Aurelia plugin root could not be resolved: $root\" >&2; return 1; fi",
         "    if [[ \"$root_real\" == \"$first_party_root\" || \"$root_real\" == \"$first_party_root/\"* || \"$first_party_root\" == \"$root_real/\"* ]]; then",
         "      return 0",
         "    fi",
@@ -826,12 +828,12 @@ QtObject {
         "    if [[ \"$manifest_name\" == \"manifest.json\" ]]; then plugin_dir=\"${manifest_path%/manifest.json}\"; else plugin_dir=\"${manifest_path%/*}\"; fi",
         "    if [[ -L \"$plugin_dir\" ]]; then rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; fi",
         "    if find -P \"$plugin_dir\" -type l -print -quit | grep -q .; then rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; fi",
-        "    if ! jq -e '.schemaVersion == 1 and (.id | type == \"string\") and (.name | type == \"string\") and (.version | type == \"string\") and (.kinds | type == \"array\") and (.entryPoints | type == \"object\")' \"$manifest_path\" >/dev/null 2>&1; then rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; fi",
+        "    if ! jq -e '.schemaVersion == 1 and (.id | type == \"string\") and (.name | type == \"string\") and (.version | type == \"string\") and (.kinds | type == \"array\") and (.entryPoints | type == \"object\")' \"$manifest_path\" >/dev/null; then rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; fi",
         "    if [[ \"$source_kind\" == \"firstparty\" ]]; then",
-        "      \"$validator\" validate --first-party --manifest-file \"$manifest_name\" \"$plugin_dir\" >/dev/null 2>&1 || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
+        "      \"$validator\" validate --first-party --manifest-file \"$manifest_name\" \"$plugin_dir\" >/dev/null || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
         "    else",
         "      [[ \"$manifest_name\" == \"manifest.json\" ]] || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
-        "      \"$validator\" validate \"$plugin_dir\" >/dev/null 2>&1 || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
+        "      \"$validator\" validate \"$plugin_dir\" >/dev/null || { rejected=$((rejected + 1)); printf '===AURELIA_PLUGIN_REJECTED::%s===\\n' \"$manifest_path\"; return; }",
         "    fi",
         "    emitted=$((emitted + 1))",
         "    printf '===%s::%s===\\n' \"$source_kind\" \"$plugin_dir\"",

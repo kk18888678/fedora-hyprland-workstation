@@ -299,7 +299,7 @@ load_prerelease_exceptions_registry() {
     _PRERELEASE_APP_REASON=()
     _PRERELEASE_REGISTRY_FILE="$file"
 
-    if ! validate_prerelease_exceptions_registry "$file" 2>/dev/null; then
+    if ! validate_prerelease_exceptions_registry "$file" ; then
         _PRERELEASE_REGISTRY_LOADED=true
         _PRERELEASE_REGISTRY_VALID=false
         return 1
@@ -507,7 +507,7 @@ select_eligible_release() {
         selected="$(printf '%s\n' "${allowed_candidates[@]}" | sort -V | tail -n 1)"
         local sel_cls
         sel_cls="$(classify_release_tag "$selected")"
-        if type info >/dev/null 2>&1; then
+        if type info >/dev/null; then
             info "No stable release available for $app_id. Policy exception permits class: $sel_cls. Selected: $selected" >&2
         fi
         printf '%s\n' "$selected"
@@ -552,13 +552,13 @@ _default_github_page_fetcher() {
     local page="$2"
     local per_page="$3"
 
-    if ! command -v curl >/dev/null 2>&1; then
+    if ! command -v curl >/dev/null; then
         return 1
     fi
 
     curl --proto '=https' --proto-redir '=https' -fsSL --max-time 15 \
         -H "Accept: application/vnd.github+json" \
-        "https://api.github.com/repos/${repo_slug}/releases?page=${page}&per_page=${per_page}" 2>/dev/null
+        "https://api.github.com/repos/${repo_slug}/releases?page=${page}&per_page=${per_page}"
 }
 
 # Discover release candidates from GitHub API across bounded pages.
@@ -595,7 +595,7 @@ discover_github_release_candidates() {
     if release_policy_test_override_allowed && [[ -n "${JQ_CMD:-}" ]]; then
         jq_bin="$JQ_CMD"
     fi
-    if ! command -v "$jq_bin" >/dev/null 2>&1; then
+    if ! command -v "$jq_bin" >/dev/null; then
         out_status="parser_unavailable"
         return 0
     fi
@@ -619,7 +619,7 @@ discover_github_release_candidates() {
                 error("API response is not an array")
             else
                 .[] | select(.draft != true) | "\(.tag_name)\t\(.prerelease)"
-            end' 2>/dev/null)"; then
+            end' )"; then
             discovery_status="parse_error"
             break
         fi

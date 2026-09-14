@@ -12,6 +12,7 @@ ShellRoot {
     property var stateConfig: null
     property bool started: false
     property bool finishing: false
+    property bool configReadFailed: false
 
     Loader {
         id: configLoader
@@ -29,7 +30,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }
@@ -38,14 +39,19 @@ ShellRoot {
         if (root.finishing || !root.stateConfig) return
         root.finishing = true
         var raw = ""
-        try { raw = root.stateConfig.configFile.text() } catch (e) {}
+        try {
+            raw = root.stateConfig.configFile.text()
+        } catch (e) {
+            root.configReadFailed = true
+        }
         resultFile.setText(JSON.stringify({
             migrationNeededBefore: root.migrationNeededBefore,
             migrationReturn: root.migrationReturn,
             migrationResult: root.stateConfig.migrationResult,
             migrationNeededAfter: root.stateConfig.migrationNeeded,
             config: root.stateConfig.config,
-            raw: raw
+            raw: raw,
+            configReadFailed: root.configReadFailed
         }) + "\n")
     }
 

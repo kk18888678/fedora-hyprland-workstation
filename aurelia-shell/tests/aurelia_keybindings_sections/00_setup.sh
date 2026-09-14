@@ -22,4 +22,4 @@ source "$ROOT/modules/lib/reconciler.sh"
 # shellcheck source=/dev/null
 source "$ROOT/modules/desktop.sh"
 
-lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+lua_bin="$(command -v luajit  || command -v lua  || true)"

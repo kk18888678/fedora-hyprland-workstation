@@ -12,6 +12,8 @@ ShellRoot {
     readonly property string displaySource: Quickshell.env("AURELIA_WARNING_DISPLAY_SOURCE") || ""
     readonly property string networkSource: Quickshell.env("AURELIA_WARNING_NETWORK_SOURCE") || ""
     readonly property string bluetoothSource: Quickshell.env("AURELIA_WARNING_BLUETOOTH_SOURCE") || ""
+    readonly property string menuSource: Quickshell.env("AURELIA_WARNING_MENU_SOURCE") || ""
+    readonly property string wifiQrSource: Quickshell.env("AURELIA_WARNING_WIFIQR_SOURCE") || ""
     readonly property string displayBackendRoot: Quickshell.env("AURELIA_WARNING_DISPLAY_BACKEND") || "/tmp"
     readonly property string resultPath: Quickshell.env("AURELIA_WARNING_RESULT") || ""
 
@@ -20,6 +22,8 @@ ShellRoot {
     property var networkB: null
     property var bluetoothA: null
     property var bluetoothB: null
+    property bool menuLoaded: false
+    property bool wifiQrLoaded: false
     property bool launcherLoaded: false
     property bool displayLoaded: false
     property bool initialCaptured: false
@@ -114,6 +118,18 @@ ShellRoot {
         }
     }
 
+    Loader {
+        id: menuLoader
+        source: root.menuSource
+        onLoaded: root.menuLoaded = true
+    }
+
+    Loader {
+        id: wifiQrLoader
+        source: root.wifiQrSource
+        onLoaded: root.wifiQrLoaded = true
+    }
+
     FileView {
         id: resultFile
         path: root.resultPath
@@ -121,7 +137,7 @@ ShellRoot {
         blockWrites: true
         atomicWrites: true
         watchChanges: false
-        printErrors: false
+        printErrors: true
         onSaved: Qt.quit()
         onSaveFailed: Qt.quit()
     }
@@ -163,6 +179,8 @@ ShellRoot {
             finalNetworkBOwner: root.networkB.ipcOwner === true,
             finalBluetoothAOwner: root.bluetoothA.ipcOwner === true,
             finalBluetoothBOwner: root.bluetoothB.ipcOwner === true,
+            menuLoaded: root.menuLoaded,
+            wifiQrLoaded: root.wifiQrLoaded,
             bluezObjectManagerProbe: root.bluetoothA.hasBluezService(
                 "org.freedesktop.DBus.ObjectManager method GetManagedObjects"
             ) === true,

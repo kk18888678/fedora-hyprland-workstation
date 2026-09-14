@@ -27,7 +27,7 @@ else
 fi
 
 if [[ -x "$capture_bin" ]] &&
-   "$capture_bin" --help >/dev/null 2>&1 &&
+   "$capture_bin" --help >/dev/null &&
    grep -q 'capture <full|region>' "$capture_bin" &&
    grep -q 'select region' "$capture_bin" &&
    ! grep -Eiq 'smart|windows?|capture_mode.*window|selector.*window' "$capture_bin" &&

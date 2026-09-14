@@ -82,7 +82,7 @@ graph TD
 - **Single Responsibility Modules**: The canonical entrypoint only wires the bounded modules together. Read-only projections, structured action execution and edits, runtime diagnostics, Quickshell IPC lifecycle, and CLI routing have separate owners under `bin/lib/aurelia-keybindings/`; compatibility wrappers contain no backend implementation.
 - **Double-Fork Process Launch**: Action execution through `aurelia-shell-keybindings run <action_id>` uses a POSIX double-fork pattern:
   1. The parent orchestrator forks a launcher subshell.
-  2. The launcher subshell invokes `( "$@" ) >/dev/null 2>&1 &` to spawn the target application and immediately terminates with status 0.
+  2. The launcher subshell invokes `( "$@" ) >/dev/null &` to spawn the target application and immediately terminates with status 0.
   3. The target application (grandchild) is instantly reparented to `systemd` / `init` (`PPID=1`).
   4. Zero intermediate wrapper shells or file descriptors are retained. No temporary files are created during execution.
 - **Strict Structured `argv` Dispatch**: Commands are resolved from canonical manifests into structured argument arrays (`command_argv`). Command lines are never evaluated with `eval` or passed through arbitrary `sh -c` interpreters.

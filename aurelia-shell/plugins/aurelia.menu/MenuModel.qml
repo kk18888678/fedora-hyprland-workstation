@@ -43,6 +43,7 @@ QtObject {
         try {
             return JSON.parse(JSON.stringify(value))
         } catch (error) {
+            console.warn("[MENU] json_clone_failed")
             return null
         }
     }
@@ -79,11 +80,14 @@ QtObject {
     }
 
     function parseItems(raw, sourceName) {
+        var rawText = String(raw || "").trim()
+        if (rawText === "") return []
         var parsed
         try {
-            parsed = JSON.parse(String(raw || ""))
+            parsed = JSON.parse(rawText)
         } catch (error) {
             if (sourceName === "shipped") root.lastError = "Shipped Aurelia menu data is invalid."
+            console.warn("[MENU] menu_parse_failed source=" + String(sourceName || "unknown"))
             return []
         }
         var values = Array.isArray(parsed) ? parsed : (parsed && parsed.version === 1 ? parsed.items : null)
@@ -147,6 +151,8 @@ QtObject {
                 ? root.pluginHost.activeBar() : null
             return !!(bar && bar.barHidden !== true)
         } catch (error) {
+            root.lastError = "Bar visibility provider failed safely."
+            console.warn("[MENU] bar_visibility_provider_failed")
             return false
         }
     }
@@ -316,21 +322,29 @@ QtObject {
     property FileView shippedFile: FileView {
         path: root.shippedMenuPath
         watchChanges: true
-        printErrors: false
+        printErrors: true
         onLoaded: root.loadShipped(text())
         onFileChanged: root.loadShipped(text())
         onLoadFailed: root.loadShipped("")
     }
 
-    property FileView userFile: FileView {
-        path: root.userMenuPath
-        watchChanges: true
-        blockLoading: true
-        blockWrites: true
-        printErrors: false
-        onLoaded: root.loadUser(text())
-        onFileChanged: root.loadUser(text())
-        onLoadFailed: root.loadUser("")
+    property Loader userFileLoader: Loader {
+        active: true
+        source: Qt.resolvedUrl("../../services/OptionalFileStore.qml")
+        onLoaded: {
+            item.writable = false
+            item.watchChanges = true
+            item.path = root.userMenuPath
+        }
+    }
+
+    property Connections userFileConnection: Connections {
+        target: userFileLoader.item
+        function onLoaded(value) { root.loadUser(value) }
+        function onLoadFailed(reason) {
+            root.loadUser("")
+            console.error("[MENU] user_file_store_failed reason=" + reason)
+        }
     }
 
     property Connections registryConnection: Connections {
@@ -340,7 +354,6 @@ QtObject {
 
     Component.onCompleted: {
         root.shippedFile.reload()
-        root.userFile.reload()
         root.rebuild()
     }
 }

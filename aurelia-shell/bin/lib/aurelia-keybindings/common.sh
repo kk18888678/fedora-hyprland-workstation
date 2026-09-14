@@ -30,7 +30,7 @@ if [[ "${WORKSTATION_TEST_MODE:-0}" == "1" && -z "${XDG_STATE_HOME:-}" ]]; then
 else
     LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/workstation"
 fi
-mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="/tmp"
+mkdir -p "$LOG_DIR"  || LOG_DIR="/tmp"
 KEYBINDINGS_LOG="$LOG_DIR/keybindings.log"
 CRASH_LOG="$LOG_DIR/crashes.log"
 AURELIA_LOG="$LOG_DIR/aurelia.log"
@@ -41,13 +41,13 @@ bound_logfile() {
     local max_lines=2000
     if [[ -f "$logfile" ]]; then
         local line_count
-        line_count="$(wc -l < "$logfile" 2>/dev/null || echo 0)"
+        line_count="$(wc -l < "$logfile"  || echo 0)"
         if [[ "$line_count" -gt "$max_lines" ]]; then
             local tmp_log
-            tmp_log="$(mktemp "${logfile}.tmp.XXXXXX" 2>/dev/null || true)"
+            tmp_log="$(mktemp "${logfile}.tmp.XXXXXX"  || true)"
             if [[ -n "$tmp_log" ]]; then
-                tail -n 2000 "$logfile" > "$tmp_log" 2>/dev/null || true
-                mv -f "$tmp_log" "$logfile" 2>/dev/null || rm -f "$tmp_log"
+                tail -n 2000 "$logfile" > "$tmp_log"  || true
+                mv -f "$tmp_log" "$logfile"  || rm -f "$tmp_log"
             fi
         fi
     fi
@@ -59,18 +59,18 @@ log_event() {
     local operation="${3:-core}"
     local duration="${4:-0}"
     local timestamp
-    timestamp="$(date -Iseconds 2>/dev/null || date)"
+    timestamp="$(date -Iseconds  || date)"
 
-    logger -t aurelia-shell-keybindings "[$level] [$operation] $message" 2>/dev/null || true
+    logger -t aurelia-shell-keybindings "[$level] [$operation] $message"  || true
     if [[ -d "$LOG_DIR" ]]; then
-        printf '%s [%s] [%s] %s\n' "$timestamp" "$level" "$operation" "$message" >> "$KEYBINDINGS_LOG" 2>/dev/null || true
+        printf '%s [%s] [%s] %s\n' "$timestamp" "$level" "$operation" "$message" >> "$KEYBINDINGS_LOG"  || true
         bound_logfile "$KEYBINDINGS_LOG"
         if [[ "$level" == "CRASH" || "$level" == "FATAL" || "$level" == "ERROR" ]]; then
-            printf '%s [%s] [%s] %s\n' "$timestamp" "$level" "$operation" "$message" >> "$CRASH_LOG" 2>/dev/null || true
+            printf '%s [%s] [%s] %s\n' "$timestamp" "$level" "$operation" "$message" >> "$CRASH_LOG"  || true
             bound_logfile "$CRASH_LOG"
         fi
         if [[ "$level" == "PERF" || "$level" == "PERF-WARN" ]]; then
-            printf '%s [%s] [%s] %s (dur=%sms)\n' "$timestamp" "$level" "$operation" "$message" "$duration" >> "$PERF_LOG" 2>/dev/null || true
+            printf '%s [%s] [%s] %s (dur=%sms)\n' "$timestamp" "$level" "$operation" "$message" "$duration" >> "$PERF_LOG"  || true
             bound_logfile "$PERF_LOG"
         fi
     fi
@@ -84,8 +84,8 @@ notify_user() {
           -n "${HOTKEYS_SIMULATE_AURELIA_FAIL:-}" || -n "${AURELIA_TEST_MODE:-}" ]]; then
         return 0
     fi
-    if command -v notify-send >/dev/null 2>&1; then
-        notify-send -u "$urgency" "$title" "$message" 2>/dev/null || true
+    if command -v notify-send >/dev/null; then
+        notify-send -u "$urgency" "$title" "$message"  || true
     fi
 }
 
@@ -119,7 +119,7 @@ fi
 
 effective_dir="$(dirname -- "$effective_lua")"
 export LUA_PATH="$manifest_dir/?.lua;$effective_dir/?.lua;${LUA_PATH:-;;}"
-lua_bin="$(command -v luajit 2>/dev/null || command -v lua 2>/dev/null || true)"
+lua_bin="$(command -v luajit  || command -v lua  || true)"
 if [[ -z "$lua_bin" ]]; then
     printf '%s\n' "Error: Lua interpreter not found." >&2
     exit 1
@@ -142,7 +142,7 @@ get_provider() {
     local config_file="${XDG_CONFIG_HOME:-$HOME/.config}/workstation/desktop.conf"
     if [[ -f "$config_file" ]]; then
         local provider
-        provider="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$config_file" 2>/dev/null |
+        provider="$(grep -E '^[[:space:]]*(keybindings|hotkeys)[._]provider[[:space:]]*=' "$config_file"  |
             tail -n 1 | cut -d '=' -f2 | tr -d ' "[:space:]' || true)"
         if [[ -n "$provider" ]]; then
             printf '%s\n' "$provider"

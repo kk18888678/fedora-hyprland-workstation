@@ -16,7 +16,7 @@ for file in "${BASH_FILES[@]}"; do
     fi
 done
 
-if command -v shellcheck >/dev/null 2>&1; then
+if command -v shellcheck >/dev/null; then
     if shellcheck --shell=bash \
         --exclude=SC1090,SC1091,SC2034,SC2154,SC2329 \
         "${BASH_FILES[@]}"; then
@@ -31,7 +31,7 @@ fi
 section "Duplicate function definitions"
 
 dupes="$(
-    grep -hE '^[a-zA-Z_][a-zA-Z0-9_]*\(\) \{' "$ROOT"/modules/*.sh "$ROOT"/modules/lib/*.sh 2>/dev/null |
+    grep -hE '^[a-zA-Z_][a-zA-Z0-9_]*\(\) \{' "$ROOT"/modules/*.sh "$ROOT"/modules/lib/*.sh  |
         sed 's/() {//' |
         grep -vx die |
         sort |
