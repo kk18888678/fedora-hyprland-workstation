@@ -9,12 +9,12 @@ identity/lifetime correction, and T52 session-action execution/ownership work
 remain complete for repository/static/headless evidence; T55 repository-wide
 diagnostic hardening, T57 workspace/logo correction, and T58 weather regression
 correction, and T59 Command Center launch observability are complete for
-repository/static/isolated evidence; T60 native Aurelia lock ownership is in
-progress with configured-PAM/live acceptance still open; T62 Weather parity is
-in progress with PanelWindow/live acceptance still open. T61 Crash Diagnosis
-is audit/specification-only and has no implementation. Live weather-provider
-availability, visual acceptance, configured native lock/unlock, and T42 final
-acceptance remain pending.
+repository/static/isolated evidence; T60 native Aurelia lock ownership and
+Fedora-native PAM selection are implemented with credential/live acceptance
+still open; T62 Weather parity is in progress with PanelWindow/live acceptance
+still open. T61 Crash Diagnosis is audit/specification-only and has no
+implementation. Live weather-provider availability, visual acceptance,
+configured native lock/unlock, and T42 final acceptance remain pending.
 T30 remains queued as the separately requested plugin-local test-directory
 task, T34 records the Bluetooth discovery-retention issue, T56 records the
 complete plugin-coverage/test-structure task, and live visual/integration
@@ -5066,8 +5066,8 @@ into a false success claim.
 
 ### T60. Restore native Aurelia lock ownership and Omarchy lock behavior
 
-Execution status: IN PROGRESS — native owner/routing and missing-PAM failure
-are implemented; configured-PAM and live Wayland acceptance remain open
+Execution status: IN PROGRESS — native owner/routing and Fedora system-PAM
+selection are implemented; credential and live Wayland acceptance remain open
 
 Confirmed gap before this task:
 
@@ -5102,12 +5102,15 @@ Implemented boundary and remaining parity:
   wrapper. The lock path no longer executes the previous Noctalia command or
   `loginctl`; Session Actions routes its confirmed Lock row through the same
   resident service and leaves missing-PAM errors visible.
-- [x] Root-owned Fedora PAM templates and an Aurelia-gated installer owner are
-  present. The agent did not install them into `/etc/pam.d`.
-- [ ] Full Omarchy parity remains open for authenticated configured-PAM
-  success/failure, fingerprint behavior on hardware, background-video/DPMS
-  wake/blank behavior, stranded-lock recovery, and authorized live lock/unlock
-  acceptance. These cannot be claimed from a missing-PAM fixture.
+- [x] Password and fingerprint authentication use Fedora's existing root-owned
+  `password-auth` and `fingerprint-auth` services; Aurelia does not require a
+  new user password or install a custom PAM file.
+- [ ] Full parity remains open for actual authenticated success/failure,
+  fingerprint behavior on hardware, background-video/DPMS wake/blank
+  behavior, stranded-lock recovery, and authorized live lock/unlock
+  acceptance. The native lifecycle is Omarchy-shaped, while the PAM service
+  names are the Fedora platform equivalent rather than a literal Arch PAM
+  file copy.
 
 User lock-owner direction recorded before implementation:
 
@@ -5131,7 +5134,7 @@ Required design freeze before implementation:
 - [x] Map the exact native Quickshell APIs available in the installed runtime
   (`WlSessionLock`, `WlSessionLockSurface`, `PamContext`, PAM result/message
   types) without executing a lock or changing live PAM/system state.
-- [x] Define the PAM provisioning owner, package/provenance requirements,
+- [x] Define the system PAM ownership, package/provenance requirements,
   password/fingerprint fallback, restart/relock, screen-stabilization,
   stranded-lock, DPMS, wallpaper, and failure contracts before source edits.
 - [ ] Implement the private authentication-service boundary so credentials
@@ -5141,10 +5144,11 @@ Required design freeze before implementation:
   working lock; real authentication and lock acquisition require a separately
   authorized integration phase.
 
-The design freeze and checkpoint are recorded for the implemented native-owner
-boundary. The private authentication-store separation and configured-PAM/live
-acceptance remain blockers to calling the task complete. No live lock, PAM,
-systemd, greetd, compositor, package, or reboot operation is part of this audit.
+The design freeze and checkpoints are recorded for the implemented native-owner
+and Fedora system-PAM boundary. Private credential handling, actual
+authentication, and live lock/unlock acceptance remain blockers to calling the
+task complete. No live lock, PAM, systemd, greetd, compositor, package, or
+reboot operation is part of this audit.
 
 Dependencies: T02, T02A, T15, T47, T49, T42.
 
@@ -5199,6 +5203,112 @@ Checkpoint 2 — T60 native-owner implementation evidence:
 
 CP2 status: `[x]` the native lock implementation evidence and remaining
 configured-PAM/live blockers are recorded without claiming full Omarchy parity.
+
+Checkpoint 3 — T60 exact Omarchy authentication boundary:
+
+- User direction: Noctalia is not an Aurelia lock dependency and will be
+  removed from the Aurelia session architecture in the future. Aurelia must
+  not invoke `noctalia`, use a Noctalia fallback, or delegate lock ownership
+  through another shell.
+- The Omarchy reference does not ask the user to create a password. Its
+  installer writes root-owned `/etc/pam.d/omarchy-lock-password` and, when
+  applicable, `/etc/pam.d/omarchy-lock-fingerprint`; its native lock service
+  consumes those named PAM services through `PamContext`. The missing-file
+  result occurs only when that installation step has not completed.
+- Decision: retain the same dedicated-service architecture under the Aurelia
+  names `aurelia-lock-password` and `aurelia-lock-fingerprint`, with Aurelia
+  remaining the sole native `WlSessionLock` owner. The next source edit must
+  use an exact, Fedora-validated transcription of the reference PAM policy;
+  it must not substitute the Noctalia `login` service or retain the current
+  simplified stack as if it were parity.
+- Fedora compatibility must be established from installed module/authselect
+  evidence before the template is changed. Missing modules, unsupported
+  directives, and failed root-owned provisioning remain explicit failures;
+  no user-writable or environment-selected PAM path is acceptable.
+- Allowed source scope: the native Aurelia lock service, its focused fixture
+  and tests, the exact PAM templates, and the Aurelia-gated installer owner.
+  No Noctalia command, Noctalia package, live PAM file, systemd state, lock
+  request, compositor state, installer run, or reboot is allowed.
+- Required evidence: exact reference-to-Fedora PAM mapping, configured-PAM
+  success-path fixture, missing-PAM failure, authentication failure,
+  fingerprint availability boundary, native lock ownership,
+  no-Noctalia/no-loginctl routing, and complete diagnostic consumption. The
+  fixture must not make a real lock request or accept a missing service as
+  success.
+- Rollback: revert only this exact PAM boundary and its tests, preserving the
+  prior native lock owner, Weather callback correction, earlier checkpoints,
+  and the protected notification edit.
+
+CP3 status: `[x]` the no-Noctalia direction, Omarchy service-file model,
+Fedora validation requirement, fail-closed semantics, source boundary,
+required evidence, and rollback path are recorded before the authentication
+boundary is changed.
+
+CP3 disposition: the dedicated-service option was retained for audit and then
+superseded by CP4 before the final source edit because Fedora already provides
+the safer split `password-auth`/`fingerprint-auth` services and does not ship
+Omarchy's Arch-specific `system-local-login` include.
+
+Checkpoint 4 — T60 Fedora-native authentication boundary correction:
+
+- The Fedora audit found that Omarchy's literal `system-local-login` PAM
+  include is not present on this host, so copying the Arch-specific file
+  unchanged would not be a valid parity implementation. Noctalia's installed
+  lock path uses its `login` PAM service, but that service can include
+  fingerprint authentication and is not accepted as Aurelia's reliability
+  boundary.
+- Final decision: Aurelia keeps the Omarchy-shaped separation of password and
+  fingerprint conversations, using Fedora's existing root-owned
+  `password-auth` and `fingerprint-auth` services. These are authselect-owned
+  system stacks, not Aurelia configuration and not a request for a new user
+  password. The native Aurelia lock service remains the sole lock owner.
+- `password-auth` must not be replaced by `login`: Fedora's password stack
+  avoids the fingerprint path for password entry, while `fingerprint-auth`
+  is started only after the service and enrolled-device probes succeed.
+  Missing system services, PAM start/auth/account failures, and unavailable
+  fingerprint hardware remain explicit diagnostics and fail-closed results.
+- Allowed source scope: the native Aurelia lock service, focused fixtures and
+  tests, user-facing error text, and removal of the unused custom PAM
+  template/provisioning path. No Noctalia command/package, `loginctl`, live
+  PAM file, systemd state, lock request, compositor state, installer run, or
+  reboot is allowed.
+- Required evidence: static service-name ownership, configured-system-PAM
+  fixture, missing-system-PAM failure, authentication failure, fingerprint
+  availability boundary, native lock ownership, no-Noctalia/no-loginctl
+  routing, and complete diagnostic consumption.
+- Rollback: revert only this Fedora-native PAM boundary and its tests,
+  preserving the native lock owner, Weather callback correction, earlier
+  checkpoints, and the protected notification edit.
+
+CP4 status: `[x]` the incompatible literal Omarchy include was rejected,
+Noctalia's `login` limitation was recorded, and the Fedora-native password/
+fingerprint service boundary plus required evidence and rollback path were
+recorded before the final lock authentication edit.
+
+Post-correction evidence:
+
+- `aurelia.lock` now selects the root-owned Fedora `password-auth` service for
+  password authentication and `fingerprint-auth` for the optional enrolled
+  fingerprint path. The unused Aurelia-specific PAM templates and installer
+  mutation were removed; no user password or live PAM file is created by the
+  shell.
+- The focused lock suite reports `9` assertions, `9` passed, `0` skipped, and
+  `0` failed. It covers both an absent system password service (explicit
+  fail-closed `missing-pam`) and a configured disposable system service (the
+  native lock request is accepted without any custom Aurelia PAM file).
+- The configured fixture proves service selection and native request state,
+  not a real credential. Actual password success/failure, hardware fingerprint
+  behavior, and Wayland lock/unlock remain a separately authorized live gate.
+- Full post-correction gates: Aurelia allow-skips mode reports `73` suites,
+  `690` assertions, `677` passed, `13` explicit skips, and `0` failed; strict
+  mode reports the same `0` failures and exits `2` because the environment
+  skips are unavailable. The repository suite reports `228` passed and `0`
+  failed; all repository shell syntax and `git diff --check` pass. The
+  Weather/lock changed scripts pass ShellCheck at warning severity. The
+  repository's existing global ShellCheck command still excludes `SC2034`,
+  and a direct run reports the pre-existing `GRAPHICAL_ACTIVATION_STATE`
+  warning in `modules/desktop.sh` plus Weather `SC2016` informational notes;
+  these are recorded rather than suppressed or claimed clean.
 
 ### T61. Freeze complete Crash Diagnosis parity before implementation
 
