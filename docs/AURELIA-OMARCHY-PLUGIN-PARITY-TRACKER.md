@@ -8,10 +8,11 @@ session safety, T50 popup-model boundary correction, T51 composite
 identity/lifetime correction, and T52 session-action execution/ownership work
 remain complete for repository/static/headless evidence; T55 repository-wide
 diagnostic hardening, T57 workspace/logo correction, and T58 weather regression
-correction are complete for repository/static/isolated evidence after user
-validation found a persisted bar-layout override and an automatic weather
-regression. Live weather-provider availability, visual acceptance, and Lock/
-Confirm acceptance remain pending, and T42 remains the final acceptance gate.
+correction are complete for repository/static/isolated evidence; T59 Command
+Center launch observability is now in progress after user validation found a
+silent Foot launch failure. Live weather-provider availability, visual
+acceptance, and Lock/Confirm acceptance remain pending, and T42 remains the
+final acceptance gate.
 T30 remains queued as the separately requested plugin-local test-directory
 task, T34 records the Bluetooth discovery-retention issue, T56 records the
 complete plugin-coverage/test-structure task, and live visual/integration
@@ -4841,8 +4842,8 @@ recorded before the metadata correction.
 
 ### T58. Restore the working Omarchy-shaped automatic weather path
 
-Execution status: COMPLETE FOR REPOSITORY/STATIC/ISOLATED EVIDENCE — live
-provider availability remains environment-dependent
+Execution status: COMPLETE ONLY FOR THE DEMONSTRATED REQUEST REGRESSION — full
+Weather parity is explicitly reopened as T62
 
 This task addresses the demonstrated post-`9f3781d` regression described in
 T55 CP8. It does not make network availability a success condition: a real
@@ -4900,6 +4901,312 @@ Compatibility and safety:
   Noctalia mutation, or reboot is part of this task.
 
 Dependencies: T55, T57, T02A, T24, T42.
+
+### T59. Make detached Command Center application launches observable
+
+Execution status: IN PROGRESS — checkpoint recorded before launch-boundary
+correction
+
+Confirmed finding:
+
+- `CommandCenterModel` waits only for `aurelia-shell-keybindings` to exit.
+  `aurelia_spawn_detached()` then invokes `setsid -f`/`nohup`, redirects child
+  stdout to `/dev/null`, does not check the launcher status, and returns a
+  successful “Running” result before the desktop application has proved that
+  it can start. A Foot/`gtk-launch`/UWSM failure can therefore look like a
+  successful Command Center action.
+- Omarchy uses a similarly detached application launch (`Util.execDetached`),
+  but that reference behavior does not satisfy Aurelia's explicit requirement
+  that application failures remain observable. The correction is an Aurelia
+  reliability improvement at the same host/backend boundary, not a production
+  fake application or a hidden fallback.
+
+Scope:
+
+- Preserve structured argv and the existing UWSM/terminal resolution rules.
+  Capture detached child stdout/stderr in a bounded Aurelia-owned launch log,
+  check the detached launcher return status, and report the exact failure to
+  the Command Center/backend log boundary.
+- Add isolated success and launcher-failure fixtures for `launch-app foot.desktop`
+  plus a source assertion that no detached child stream is sent to a null
+  device. Do not execute Foot, `gtk-launch`, or any real GUI application in
+  the test suite.
+- Keep the existing Command Center UI and application discovery behavior unless
+  the new explicit result requires a minimal status/error text correction.
+
+Required tests:
+
+- [ ] A real `aurelia-shell-keybindings launch-app` execution with a fixture
+  desktop entry proves the exact final argv, log capture, and successful
+  launcher result.
+- [ ] A fixture launcher failure returns non-zero, preserves its diagnostic,
+  and prevents the backend from reporting a successful launch.
+- [ ] The real Command Center model fixture consumes a launch failure and
+  exposes a non-empty error/status result rather than silently closing as a
+  success.
+- [ ] No stdout/stderr suppression is introduced; full diagnostic, strict,
+  repository, syntax, changed-script ShellCheck, and diff gates remain green.
+
+Compatibility and safety:
+
+- No real application is launched by tests; no arbitrary shell command or
+  `eval` is introduced; no installer, package, systemd/greetd, compositor,
+  user configuration, or reboot state is changed.
+- The existing Omarchy-shaped command center/app-library architecture remains
+  intact, with Aurelia's stronger failure observability layered at the backend
+  boundary.
+
+Dependencies: T55, T58, T02A, T24, T42.
+
+Checkpoint 1 — T59 launch observability boundary:
+
+- Starting branch/SHA: `installer-resilience` / `7eb649d`; the only current
+  uncommitted file is the protected concurrent
+  `plugins/aurelia.notifications/Service.qml` edit and must remain untouched.
+- Allowed production scope: the Aurelia keybindings detached-launch helper and
+  only the minimal Command Center result handling required by the fixture;
+  allowed tests are the existing Command Center backend/model fixtures and
+  this tracker.
+- Required evidence: failure must be reproduced with an isolated launcher,
+  stdout/stderr must remain in a bounded user-owned diagnostic sink, and the
+  backend must return failure when the launcher itself fails.
+- Rollback: revert only the launch-boundary source/test changes; preserve the
+  committed T55/T57/T58 fixes and the protected notification edit.
+
+CP1 status: `[x]` the silent-detached-launch root cause, Omarchy comparison,
+structured-argv boundary, protected-file boundary, required failure evidence,
+and rollback path are recorded before T59 implementation.
+
+Checkpoint 2 — T59 exact graphical desktop-entry launch boundary:
+
+- Baseline SHA: `7eb649d26d02e86a50406684308be0393965ec9d`; the current working
+  tree contains the in-progress T59 detached-launch changes and the protected
+  concurrent `plugins/aurelia.notifications/Service.qml` edit. The protected
+  file remains outside this checkpoint and must not be staged.
+- Reproduction evidence: the user's live launch diagnostic recorded
+  `/usr/bin/uwsm-app -- foot.desktop`. Omarchy's actual
+  `shell/services/AppLibrary.qml` invokes
+  `uwsm-app -- gtk-launch <desktop-id>.desktop` for graphical desktop entries.
+  The current Aurelia resolver therefore bypasses the desktop-entry launcher
+  that the reference uses; a detached launcher can succeed while the intended
+  application is not presented.
+- Allowed production scope: only the UWSM graphical application argv branch in
+  `aurelia-shell/dotfiles/hypr/application_registry.lua`. Allowed test scope:
+  the existing Command Center backend fixture and the smallest resolver
+  assertions needed to prove the exact final argv. No live application launch,
+  compositor mutation, or user configuration migration is allowed.
+- Required invariant: Terminal=true entries retain Aurelia's configured
+  terminal behavior; graphical entries under UWSM must resolve to the exact
+  reference-shaped `uwsm-app`, `--`, `gtk-launch`, desktop-id argv. Failure
+  diagnostics remain visible and no null-device redirection is permitted.
+- Rollback: revert only this resolver/test correction while preserving the T59
+  diagnostic sink, prior T55/T57/T58 commits, and the protected notification
+  edit.
+
+CP2 status: `[x]` the live argv evidence, exact Omarchy comparison, narrow
+source/test boundary, compatibility rule, no-live-impact rule, and rollback
+path are recorded before the resolver edit.
+
+### T60. Restore native Aurelia lock ownership and Omarchy lock behavior
+
+Execution status: NOT STARTED — read-only audit complete; implementation is
+blocked on the pre-change contract/checkpoint below
+
+Confirmed gap:
+
+- Aurelia has no `aurelia.lock` service. The `SUPER + L` manifest binding still
+  dispatches `noctalia msg screen-lock`, which is outside the Aurelia resident
+  shell and produces no Aurelia diagnostic when Noctalia is not the active
+  locker. The Session Actions bar plugin uses `/usr/bin/loginctl lock-session`,
+  which delegates to an external locker and is not the native lock owner.
+- Session Actions correctly requires confirmation, but its process path returns
+  `pending` and closes the panel before the command's result is known. A
+  successful `loginctl` call can still leave no visible locker, while a failure
+  is not presented in the closed panel. This is why a click can appear to do
+  nothing without an Aurelia QML warning.
+- Omarchy owns the behavior in a dedicated `omarchy.lock` service manifest with
+  `keepLoaded: true` and an authentication capability. Its `Service.qml` owns
+  `WlSessionLock`, `WlSessionLockSurface`, password/fingerprint `PamContext`,
+  screen stabilization, stranded-lock recovery, display blank/wake state, and
+  observable lock events. `omarchy-system-lock` is the command wrapper, and
+  Omarchy's lock binding is `SUPER + CTRL + L`; `SUPER + L` is workspace-layout
+  toggle in the reference.
+- Omarchy also provisions `omarchy-lock-password` and optional
+  `omarchy-lock-fingerprint` PAM services, keeps the user lock state across
+  shell reload boundaries, and tests the authentication/lock ownership seams.
+  A one-line `loginctl` or Noctalia substitution cannot provide this parity.
+
+Required design freeze before implementation:
+
+- [ ] Freeze the Aurelia naming/compatibility contract: add a distinct
+  `aurelia.lock` service without renaming or removing `aurelia.session-actions`;
+  preserve the existing user `SUPER + L` behavior only if explicitly retained,
+  while adding the reference-correct `SUPER + CTRL + L` lock binding and
+  resolving the key conflict deliberately.
+- [ ] Map the exact native Quickshell APIs available in the installed runtime
+  (`WlSessionLock`, `WlSessionLockSurface`, `PamContext`, PAM result/message
+  types) without executing a lock or changing live PAM/system state.
+- [ ] Define the PAM provisioning owner, package/provenance requirements,
+  password/fingerprint fallback, restart/relock, screen-stabilization,
+  stranded-lock, DPMS, wallpaper, and failure contracts before source edits.
+- [ ] Define the private authentication-service boundary so credentials never
+  enter ordinary third-party facades or the public plugin object graph.
+- [ ] Define static, isolated, negative, lifecycle/reload, and authorized live
+  acceptance tests. A headless `PanelWindow` skip cannot be reported as a
+  working lock; real authentication and lock acquisition require a separately
+  authorized integration phase.
+
+No implementation starts until the design freeze, checkpoint, exact API map,
+PAM ownership, and rollback path are recorded. No live lock, PAM, systemd,
+greetd, compositor, package, or reboot operation is part of this audit.
+
+Dependencies: T02, T02A, T15, T47, T49, T42.
+
+### T61. Freeze complete Crash Diagnosis parity before implementation
+
+Execution status: NOT STARTED — audit recorded; no Crash Diagnosis code has
+been added
+
+Reference contract audited from `/tmp/omarchy-reference`:
+
+- `bin/omarchy-crash-watch` is a user systemd daemon. It follows
+  `journalctl -f -n 0 -o json` for systemd-coredump's fixed message ID,
+  parses `_UID`, `COREDUMP_COMM`, `COREDUMP_PID`, `COREDUMP_EXE`, and
+  `COREDUMP_SIGNAL_NAME`, ignores other users and configured/internal names,
+  deduplicates one program for a bounded window, waits for the notification
+  server, and emits a critical notification with discrete `--exec`
+  `omarchy-agent-crash` arguments.
+- `bin/omarchy-crash-mute` owns per-program regular-file mute flags keyed by
+  executable basename; `bin/omarchy-toggle-crash-capture` owns the global
+  `crash-capture-off` flag and starts/stops the user unit. The unit is enabled
+  by default, survives login through `ConditionPathExists=!…`, and restarts
+  after failure.
+- `bin/omarchy-agent-crash` gathers the PID/comm/executable/signal/time and
+  delegates the evidence-first diagnosis to
+  `default/agents/skills/diagnose-crash/SKILL.md` and `reporting.md`. The skill
+  requires `coredumpctl info/list`, resource/OOM checks, timestamp/filesystem/
+  journal/package correlation, whole-core/thread/third-party inspection,
+  optional bounded symbolization, user-data safety, and an honest report. It
+  permits only the explicitly requested per-program mute as a mutation.
+- The crash group is registered by `bin/omarchy`, the menu exposes
+  `Trigger > Toggle > Crash Capture`, the default agent must exist before a
+  toast is offered, and `test/shell.d/crash-capture-test.sh` exercises toggle
+  persistence, real watcher notification/silence, UID filtering, dedupe,
+  basename/path safety, malformed/empty fields, write failures, skill wiring,
+  menu wiring, and router metadata.
+
+Aurelia currently lacks the corresponding crash watcher, coredump event
+  parser, per-program/global mute commands, user systemd unit, agent handoff,
+  diagnosis skill/reporting contract, Command Center/menu integration, and
+  acceptance test matrix. Therefore no Crash Diagnosis parity claim is valid.
+
+Implementation gate — do not begin until every item is checked:
+
+- [ ] Freeze Aurelia command names and compatibility aliases for watch, mute,
+  global capture, and manual agent diagnosis without copying Omarchy's paths or
+  silently replacing existing Aurelia commands.
+- [ ] Freeze the exact systemd-coredump message ID/JSON schema and handling of
+  missing, empty, malformed, foreign-UID, internal, muted, duplicate, and
+  notification-server-unavailable events. Every rejected event remains
+  diagnosable; no stderr or journal field is hidden to make a test pass.
+- [ ] Freeze the user-unit lifecycle, enable-by-default behavior, persistent
+  global flag, bounded restart/dedupe policy, ownership/permissions, and safe
+  interrupt semantics.
+- [ ] Freeze the discrete-argv agent handoff and the complete evidence-first
+  diagnosis skill, including core secrecy/temporary-file cleanup and the
+  explicit no-mutation rule except user-requested mute.
+- [ ] Freeze integration with Aurelia notifications, Command Center/menu, the
+  default-agent resolver, plugin survivability, and third-party facade
+  isolation. A crash in the shell itself must still be reportable after a
+  replacement shell claims the notification bus.
+- [ ] Freeze static, Bash, JSON/parser, negative, watcher lifecycle, notification
+  delivery, mute persistence/path-safety, skill, and authorized live-coredump
+  acceptance tests. Strict mode must reject missing watcher coverage and
+  environment skips.
+- [ ] Record an implementation checkpoint and rollback plan. Until then this
+  task remains audit/specification only.
+
+No Crash Diagnosis implementation, systemd unit installation, coredump
+generation, notification mutation, package change, or live-system operation is
+authorized by this task. This preserves the user's requirement that a complete
+1:1 design be proven before construction.
+
+Dependencies: T02A, T15, T31, T43, T55, T56, T60, T42.
+
+### T62. Complete Weather plugin parity with Omarchy's real architecture
+
+Execution status: NOT STARTED — T58 only repaired a demonstrated request
+regression; the current Weather plugin is not parity-complete
+
+Confirmed parity gaps:
+
+- Omarchy's weather manifest is a `bar-widget` with no invented default section
+  and a settings form. Its `BarWidget.qml` is the bar owner: it exposes the
+  shared `open/close/opened`, popout-switch, and refresh contracts, toggles on
+  primary click, refreshes on middle click, and sends the weather status on
+  secondary click. Aurelia currently has a generic `Item`, hides until its
+  backend succeeds, and does not reproduce the complete button interaction
+  contract.
+- Omarchy's `Panel.qml` owns the weather lifecycle and uses one location state
+  shape, `wttr.in/?format=j1` current/area data, an automatic-location probe,
+  Open-Meteo daily/current data, location editing/geocoding, stale-report
+  retention, panel refresh timers, and separate bounded retry state. Aurelia's
+  current backend merges part of this into `bin/aurelia-weather`; its panel is a
+  reduced presentation surface without the reference lifecycle and interaction
+  contract. Restoring one request URL did not make these structures equivalent.
+- Omarchy keeps a successful report visible while a refresh fails and only
+  hides the initial widget when no label has ever arrived. Aurelia's
+  `weatherReady`/`visible` state and failure retries are a different state
+  machine. This must be reconciled deliberately, not through another retry or
+  visibility patch.
+- Omarchy's weather tests include pure model tests, real panel/widget source
+  contracts, location-state persistence, malformed data, retry behavior, and
+  deterministic pinned-coordinate acceptance. Aurelia's current tests prove a
+  backend regression fixture and a non-zero failure state, but do not constitute
+  the complete plugin matrix or measured source/branch coverage.
+
+Required implementation order:
+
+1. Freeze a field-by-field Aurelia-to-Omarchy contract matrix for manifest,
+   widget, panel, state, providers, icon/temperature units, retries, popout,
+   pointer/keyboard interactions, and failure/stale-data behavior.
+2. Decide the single Aurelia location-state owner while preserving the existing
+   user-owned `shell.json` settings and avoiding duplicate state files. Any
+   migration must be explicit, recoverable, idempotent, and tested.
+3. Implement the real bar-widget/panel lifecycle against Aurelia's existing
+   host/facade boundary, retaining Aurelia IDs and design tokens but removing
+   behaviorally divergent shortcuts.
+4. Add the complete pure/isolated/negative/lifecycle/interaction matrix and an
+   authorized pinned-coordinate live acceptance path. Network availability must
+   never be faked in production.
+5. Measure source/branch coverage and integrate the strict diagnostic gate only
+   after T56's plugin-local coverage architecture is implemented.
+
+Required tests:
+
+- [ ] Manifest and entry-point contract is field-checked against the reference.
+- [ ] Real widget tests cover primary/middle/secondary clicks, open/close,
+  popout handoff, bar hiding, orientation, settings reload, and stale-report
+  retention.
+- [ ] Real panel tests cover automatic and pinned locations, geocoding/editing,
+  units, current/forecast data, malformed responses, HTTP failures, bounded
+  retries, and deterministic UI state.
+- [ ] Backend tests cover exact request construction, full response parsing,
+  malformed/error paths, and bounded HTTPS without suppressing stderr.
+- [ ] Full diagnostic/strict/repository/syntax/ShellCheck gates pass with no
+  false parity or coverage claim; authorized live acceptance is reported
+  separately.
+
+Compatibility and safety:
+
+- Existing Aurelia plugin ID, user settings, design language, commands, and
+  unrelated features remain intact.
+- No alternate provider, hardcoded location, fake production widget, warning
+  suppression, or silent fallback is allowed.
+- No live shell restart, network-setting change, package/systemd/greetd/PAM/
+  compositor mutation, or reboot is part of the design/audit phase.
+
+Dependencies: T55, T56, T58, T59, T42.
 
 ### T43. Make test outcomes truthful and warning-complete
 
