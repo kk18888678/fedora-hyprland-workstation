@@ -4140,6 +4140,11 @@ Observed production regression:
   Those handlers do not report dispatch/injection failure, and the workspace
   bar does not prefer the live workspace object's `activate()` method. This is
   a second production no-op path, not evidence that the test passed.
+- The user then dragged the bar between edges. The move committed in logs, but
+  movement was slow and the visible bar lost or displaced its icons even though
+  the persisted widget layout remained intact. This invalidates T53's live
+  parity claim: an isolated row geometry fixture is not sufficient evidence
+  for a mapped layer-shell surface transition.
 
 Scope:
 
@@ -4160,6 +4165,17 @@ Scope:
   summon results, prefer the live Hyprland workspace object's activation API,
   catch and report dispatch failure, and log the accepted click/dispatch mode.
   Preserve normal child clicks while the bar reordering handler is present.
+- Reconcile edge changes with the reference's actual surface architecture:
+  keep the public Aurelia bar owner stable, but give each mapped surface an
+  explicit horizontal/vertical content boundary and a compositor-safe remap
+  after an edge transition. Every default widget must remain inside the active
+  surface in top, bottom, left, and right modes; no visual overflow may be
+  accepted merely because the JSON layout is unchanged.
+- Match the reference drag interaction as a real pointer state machine: empty
+  center drag moves the bar, widget drag reorders through `ShellConfig`, drop
+  feedback is visual-only and non-interactive, and normal widget/logo clicks
+  remain delivered to their owning handlers. Do not use a broad overlay or a
+  test-only path that steals clicks or simulates a successful move.
 - Preserve all Aurelia command names, plugin IDs, bar layout/config ownership,
   direct gestures, transparent foreground behavior, widget click/wheel paths,
   hidden-bar state, and shell survivability. No live shell/systemd/greetd/
@@ -4175,6 +4191,9 @@ Required tests:
 - [ ] Isolated interaction fixture proves logo summon and workspace activation
   return/diagnostic states and that normal child click routing is not silently
   consumed by bar reordering.
+- [ ] Isolated orientation/remap fixture proves the mapped bar surface retains
+  all default widget bounds across every edge and restores normal click targets
+  after repeated edge changes; unexpected QML diagnostics fail the fixture.
 - [ ] Full Aurelia strict and diagnostic runs, repository tests, repository-
   wide Bash syntax, changed-file ShellCheck, and `git diff --check` pass with
   zero unclassified warnings/errors.
@@ -4186,7 +4205,10 @@ Checkpoint 2 — T54 pre-change boundary:
 - Planned source boundary: `plugins/aurelia.bar/Bar.qml`,
   `plugins/aurelia.bar/BarWidgetSlot.qml`,
   `plugins/aurelia.bar/AureliaLogo.qml`,
-  `plugins/aurelia.workspaces/WorkspacesBarWidget.qml`, T54 production
+  `plugins/aurelia.workspaces/WorkspacesBarWidget.qml`,
+  `plugins/aurelia.tray/TrayBarWidget.qml`,
+  `plugins/aurelia.weather/WeatherBarWidget.qml`,
+  `plugins/aurelia.tasklist/TasklistBarWidget.qml`, T54 production
   entry-point/static/runtime fixtures and tests, and this tracker. No other
   plugin, installer, package, live user configuration, systemd/greetd state,
   or reboot work is in scope.
