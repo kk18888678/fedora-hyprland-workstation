@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+printf '%s\n' 'fixture command-center launch failure' >&2
+exit 42

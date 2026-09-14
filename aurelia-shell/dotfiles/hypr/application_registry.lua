@@ -651,9 +651,12 @@ function M.wrap_session_argv(argv)
     return wrapped, "uwsm"
 end
 
--- Resolve an application for the Command Center. Graphical entries are passed
--- to UWSM as desktop IDs so their native entry metadata remains authoritative.
--- Terminal=true entries use the registry's verified terminal argv instead of
+-- Resolve an application for the Command Center. Graphical entries are routed
+-- through gtk-launch so the desktop entry remains the authority for Exec,
+-- environment, actions, and startup metadata. In a UWSM session the launcher
+-- is then placed in the same app scope as the reference shell:
+--   uwsm-app -- gtk-launch <desktop-id>
+-- Terminal=true entries retain Aurelia's verified terminal argv instead of
 -- asking UWSM to guess: UWSM may select a hidden footclient entry that requires
 -- a separately running Foot server. Plain Hyprland sessions use the same
 -- verified terminal vector without the UWSM wrapper.
@@ -663,12 +666,14 @@ function M.resolve_application_launch_argv(desktop_id)
         return nil, "Desktop application not found: " .. tostring(desktop_id)
     end
 
-    local launch_argv = { info.desktop_id }
+    local launch_argv
     if info.terminal then
         if type(info.command_argv) ~= "table" or #info.command_argv == 0 or info.command_argv[1] == "gtk-launch" then
             return nil, "Terminal application requires an installed terminal: " .. info.desktop_id
         end
         launch_argv = info.command_argv
+    else
+        launch_argv = { "gtk-launch", info.desktop_id }
     end
 
     local wrapped, mode = M.wrap_session_argv(launch_argv)

@@ -16,13 +16,13 @@ aurelia_read_nul_argv() {
 
     coproc aurelia_argv_stream { "$producer" "$@" ; }
     argv_fd="${aurelia_argv_stream[0]}"
-    argv_pid="$aurelia_argv_stream_PID"
+    local argv_pid="${aurelia_argv_stream_PID:-}"
     while IFS= read -r -d '' value <&"$argv_fd"; do
         AURELIA_ACTION_ARGV+=("$value")
     done
     exec {argv_fd}<&-
     wait "$argv_pid" || status=$?
-    AURELIA_ACTION_ARGV_STATUS="$status"
+    export AURELIA_ACTION_ARGV_STATUS="$status"
     return "$status"
 }
 
@@ -64,15 +64,23 @@ aurelia_spawn_detached() {
         return 1
     fi
 
-    if command -v setsid >/dev/null; then
-        setsid -f "${command_argv[@]}" </dev/null >/dev/null
-    elif command -v nohup >/dev/null; then
-        (
-            nohup "${command_argv[@]}" </dev/null >/dev/null &
-        )
-    else
-        log_event "ERROR" "$log_message failed: neither setsid nor nohup is available" "run"
-        printf '%s\n' "Error: No supported detached process launcher is available." >&2
+    local launch_log="${AURELIA_LAUNCH_DIAGNOSTIC_LOG:-$LOG_DIR/command-center-launch.log}"
+    if [[ "$launch_log" != /* || "$launch_log" == "/" ||
+          "$launch_log" == *$'\n'* || "$launch_log" == *$'\r'* || -L "$launch_log" ]]; then
+        log_event "ERROR" "$log_message failed: launch diagnostic path is unsafe" "run"
+        printf '%s\n' "Error: Launch diagnostic path is unsafe." >&2
+        return 1
+    fi
+    local launch_log_dir="${launch_log%/*}"
+    if [[ -z "$launch_log_dir" || ! -d "$launch_log_dir" ]] &&
+       ! mkdir -p -- "$launch_log_dir"; then
+        log_event "ERROR" "$log_message failed: could not create launch diagnostic directory" "run"
+        printf 'Error: Could not create launch diagnostic directory: %s\n' "$launch_log_dir" >&2
+        return 1
+    fi
+    if ! : >>"$launch_log"; then
+        log_event "ERROR" "$log_message failed: could not open launch diagnostic log" "run"
+        printf 'Error: Could not open launch diagnostic log: %s\n' "$launch_log" >&2
         return 1
     fi
 
@@ -83,8 +91,35 @@ aurelia_spawn_detached() {
         printf -v rendered_arg '%q' "$quoted_arg"
         argv_summary+="${argv_summary:+ }$rendered_arg"
     done
+    printf '%s [%s] launch.requested argv=%s\n' "$(date -Iseconds  || date)" "$display_description" "$argv_summary" >>"$launch_log"
+
+    local launcher_status=0
+    local launcher_kind=""
+    if command -v setsid >/dev/null; then
+        launcher_kind="setsid"
+        setsid -f "${command_argv[@]}" </dev/null >>"$launch_log" 2>&1 || launcher_status=$?
+    elif command -v nohup >/dev/null; then
+        launcher_kind="nohup"
+        (
+            nohup "${command_argv[@]}" </dev/null >>"$launch_log" 2>&1 &
+        )
+    else
+        log_event "ERROR" "$log_message failed: neither setsid nor nohup is available" "run"
+        printf '%s\n' "Error: No supported detached process launcher is available." >&2
+        return 1
+    fi
+
+    if [[ "$launcher_status" -ne 0 ]]; then
+        log_event "ERROR" "$log_message failed: $launcher_kind exited with status $launcher_status; diagnostics=$launch_log" "run"
+        printf 'Error: Could not start detached launch (status %s). Diagnostics: %s\n' \
+            "$launcher_status" "$launch_log" >&2
+        return 1
+    fi
+
+    printf '%s [%s] launch.detached launcher=%s diagnostics=%s\n' \
+        "$(date -Iseconds  || date)" "$display_description" "$launcher_kind" "$launch_log" >>"$launch_log"
     log_event "INFO" "$log_message via structured argv: $argv_summary" "run"
-    printf '%s\n' "Running: $display_description"
+    printf 'Running: %s\nLaunch diagnostics: %s\n' "$display_description" "$launch_log"
     return 0
 }
 
@@ -161,7 +196,7 @@ apply_binding_edit() {
     local overrides_path="${KEYBINDINGS_OVERRIDES:-${HOTKEYS_OVERRIDES:-}}"
     local force_flag="${FORCE:-0}"
 
-    "$lua_bin" - "$manifest_path" "$manifest_dir" "$action_id" "$new_input" "$overrides_path" "$force_flag" <<'LUA_EDIT'
+    "${lua_bin:?}" - "${manifest_path:?}" "${manifest_dir:?}" "$action_id" "$new_input" "$overrides_path" "$force_flag" <<'LUA_EDIT'
 local manifest_path  = arg[1]
 local manifest_dir   = arg[2]
 local action_id      = arg[3]
@@ -201,7 +236,7 @@ run_test_action() {
             get_app_rows
             ;;
         assign_app)
-            if "$lua_bin" - "$manifest_path" "$manifest_dir" "$target_id" "$target_input" <<'LUA_ASSIGN'
+            if "${lua_bin:?}" - "${manifest_path:?}" "${manifest_dir:?}" "$target_id" "$target_input" <<'LUA_ASSIGN'
 local manifest_path = arg[1]
 local manifest_dir  = arg[2]
 local desktop_id    = arg[3]
@@ -231,7 +266,7 @@ LUA_ASSIGN
                 else
                     printf 'RUN:%s\n' "${command_argv[*]}"
                     if [[ "${KEYBINDINGS_TEST_EXEC:-${HOTKEYS_TEST_EXEC:-0}}" == "1" ]]; then
-                        nohup "${command_argv[@]}" >/dev/null &
+                        nohup "${command_argv[@]}" >>"$LOG_DIR/command-center-launch.log" 2>&1 &
                     fi
                 fi
             else

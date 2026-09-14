@@ -4904,17 +4904,17 @@ Dependencies: T55, T57, T02A, T24, T42.
 
 ### T59. Make detached Command Center application launches observable
 
-Execution status: IN PROGRESS — checkpoint recorded before launch-boundary
-correction
+Execution status: COMPLETE FOR REPOSITORY/STATIC/ISOLATED EVIDENCE — live
+application acceptance remains separate
 
 Confirmed finding:
 
 - `CommandCenterModel` waits only for `aurelia-shell-keybindings` to exit.
-  `aurelia_spawn_detached()` then invokes `setsid -f`/`nohup`, redirects child
-  stdout to `/dev/null`, does not check the launcher status, and returns a
-  successful “Running” result before the desktop application has proved that
-  it can start. A Foot/`gtk-launch`/UWSM failure can therefore look like a
-  successful Command Center action.
+  Before T59, `aurelia_spawn_detached()` invoked `setsid -f`/`nohup`, sent
+  child diagnostics to `/dev/null`, did not check the launcher status, and
+  returned a successful “Running” result before the desktop application had
+  proved that it could start. A Foot/`gtk-launch`/UWSM failure could therefore
+  look like a successful Command Center action.
 - Omarchy uses a similarly detached application launch (`Util.execDetached`),
   but that reference behavior does not satisfy Aurelia's explicit requirement
   that application failures remain observable. The correction is an Aurelia
@@ -4923,10 +4923,11 @@ Confirmed finding:
 
 Scope:
 
-- Preserve structured argv and the existing UWSM/terminal resolution rules.
-  Capture detached child stdout/stderr in a bounded Aurelia-owned launch log,
-  check the detached launcher return status, and report the exact failure to
-  the Command Center/backend log boundary.
+- Preserve structured argv and the existing terminal resolution rule. Match
+  Omarchy's exact graphical UWSM boundary (`uwsm-app -- gtk-launch
+  <desktop-id>`) and capture detached child stdout/stderr in the user-owned
+  Aurelia launch diagnostic log. Check the detached launcher return status and
+  report the exact failure to the Command Center/backend log boundary.
 - Add isolated success and launcher-failure fixtures for `launch-app foot.desktop`
   plus a source assertion that no detached child stream is sent to a null
   device. Do not execute Foot, `gtk-launch`, or any real GUI application in
@@ -4936,16 +4937,19 @@ Scope:
 
 Required tests:
 
-- [ ] A real `aurelia-shell-keybindings launch-app` execution with a fixture
+- [x] A real `aurelia-shell-keybindings launch-app` execution with a fixture
   desktop entry proves the exact final argv, log capture, and successful
   launcher result.
-- [ ] A fixture launcher failure returns non-zero, preserves its diagnostic,
+- [x] A fixture launcher failure returns non-zero, preserves its diagnostic,
   and prevents the backend from reporting a successful launch.
-- [ ] The real Command Center model fixture consumes a launch failure and
+- [x] The real Command Center model fixture consumes a launch failure and
   exposes a non-empty error/status result rather than silently closing as a
   success.
-- [ ] No stdout/stderr suppression is introduced; full diagnostic, strict,
-  repository, syntax, changed-script ShellCheck, and diff gates remain green.
+- [x] No stdout/stderr suppression is introduced. The diagnostic suite passes
+  with `663/663` assertions and `0` failures; strict mode has `0` failures but
+  exits `2` for the repository's twelve explicitly classified environment
+  skips; repository tests, all-shell syntax, changed-script ShellCheck, and
+  `git diff --check` pass.
 
 Compatibility and safety:
 
@@ -5006,6 +5010,57 @@ Checkpoint 2 — T59 exact graphical desktop-entry launch boundary:
 CP2 status: `[x]` the live argv evidence, exact Omarchy comparison, narrow
 source/test boundary, compatibility rule, no-live-impact rule, and rollback
 path are recorded before the resolver edit.
+
+Checkpoint 3 — T59 diagnostic-policy scanner scope correction:
+
+- Evidence: the full Aurelia diagnostic gate reached
+  `test_warning_suppression_policy.sh` and failed only because its null-device
+  scan traversed `.git/hooks/*.sample`, which contains Git's own sample-hook
+  redirections. The Aurelia-tree and repository-wide source scans do not treat
+  Git metadata as product code; this is a test-harness scope defect, not
+  permission to suppress a runtime diagnostic.
+- Allowed test scope: only the null-device `rg` invocation in
+  `aurelia-shell/tests/test_warning_suppression_policy.sh`. Keep the existing
+  stderr/combined-stream forbidden patterns unchanged and exclude `.git` with
+  the same explicit repository-boundary rule used by the other policy scans.
+  No production source, user state, or live shell state may change.
+- Required evidence: the policy test must still fail on a forbidden pattern in
+  tracked Aurelia/repository source, pass when only Git metadata contains the
+  pattern, and the complete strict/diagnostic test gates must report their real
+  status.
+- Rollback: revert only this test-scope correction; preserve T59's detached
+  launch diagnostics, exact UWSM argv, T55/T57/T58 history, and the protected
+  notification edit.
+
+CP3 status: `[x]` the failure cause, exact test-only scope, forbidden-pattern
+invariant, required negative evidence, no-live-impact rule, and rollback path
+are recorded before editing the policy scanner.
+
+Checkpoint 4 — T59 post-change evidence:
+
+- Production changes are limited to the detached-launch helper and the
+  application resolver's graphical UWSM branch. Test changes cover the real
+  backend/model boundary and the policy scanner's `.git`-metadata exclusion;
+  the concurrent notification `Service.qml` edit remains unmodified and
+  uncommitted.
+- Focused result: Command Center backend fixture `10/10` passed, including
+  exact `setsid -f uwsm-app -- gtk-launch foot.desktop`, Terminal=true
+  preservation, launcher failure propagation, complete child diagnostics, and
+  model-level failure visibility.
+- Full Aurelia diagnostic result: `72 suites, 675 assertions, 663 passed,
+  12 skipped, 0 failed`. Strict result: `72 suites, 675 passed, 12 skipped,
+  0 failed`, exit `2` because strict mode correctly rejects those environment
+  skips; this is not reported as a green strict pass. Root repository tests
+  pass (`228/0`), all repository shell syntax passes, targeted ShellCheck
+  passes for the changed scripts, and `git diff --check` passes.
+- Live acceptance is not claimed: no Foot process was launched by the agent.
+  The user's next shell restart can verify the corrected UWSM desktop-entry
+  path in the real session; any child warning/error will now remain in the
+  diagnostic log rather than being discarded.
+
+CP4 status: `[x]` focused and complete diagnostic evidence is recorded without
+converting the strict-mode environment skips or unperformed live acceptance
+into a false success claim.
 
 ### T60. Restore native Aurelia lock ownership and Omarchy lock behavior
 

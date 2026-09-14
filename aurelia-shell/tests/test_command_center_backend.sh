@@ -2,7 +2,7 @@
 
 # Isolated execution tests for the Command Center backend boundary. These tests
 # never launch a real application: a fixture PATH records the final argv that
-# the backend would detach.
+# the backend would detach and exercises launcher failure propagation.
 
 set -Eeuo pipefail
 
@@ -91,10 +91,10 @@ if env "${common_env[@]}" UWSM_FINALIZE_VARNAMES=WAYLAND_DISPLAY \
    "$backend" launch-app foot.desktop >"$fixture/foot.out" 2>"$fixture/foot.err" &&
    env "${common_env[@]}" UWSM_FINALIZE_VARNAMES=WAYLAND_DISPLAY \
    "$backend" launch-app btop.desktop >"$fixture/btop.out" 2>"$fixture/btop.err" &&
-   grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tfoot.desktop$' "$mock_log" &&
+   grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tgtk-launch\tfoot.desktop$' "$mock_log" &&
    grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tkitty\t--\tbtop$' "$mock_log" &&
-   ! grep -q 'gtk-launch' "$mock_log"; then
-    pass "UWSM scopes graphical entries natively and uses the verified terminal argv for Terminal=true apps"
+   ! grep -q $'^setsid\t-f\t.*/uwsm-app\t--\tfoot.desktop$' "$mock_log"; then
+    pass "UWSM matches the reference desktop-entry launch and preserves the verified terminal argv"
 else
     fail "UWSM desktop-entry launch resolution did not produce the expected argv"
 fi
@@ -121,6 +121,81 @@ if env "${common_env[@]}" UWSM_FINALIZE_VARNAMES=WAYLAND_DISPLAY \
 else
     fail "Configured footclient preference still produced an unusable terminal argv: $(tr '\n' ' ' <"$mock_log"  || true)"
 fi
+
+launch_diagnostic_log="$state_home/workstation/command-center-launch.log"
+cat >"$mock_bin/setsid" <<'EOF_SETISD_FAILURE'
+#!/usr/bin/env bash
+printf '%s\n' 'fixture detached launcher failure' >&2
+exit 42
+EOF_SETISD_FAILURE
+chmod 0755 "$mock_bin/setsid"
+rm -f -- "$launch_diagnostic_log"
+failure_status=0
+env "${common_env[@]}" AURELIA_LAUNCH_DIAGNOSTIC_LOG="$launch_diagnostic_log" \
+   "$backend" launch-app foot.desktop >"$fixture/failure.out" 2>"$fixture/failure.err" || failure_status=$?
+if [[ "$failure_status" -ne 0 ]] &&
+   grep -Fq 'Could not start detached launch' "$fixture/failure.err" &&
+   grep -Fq 'fixture detached launcher failure' "$launch_diagnostic_log" &&
+   ! grep -Fq 'Running: Foot' "$fixture/failure.out"; then
+    pass "Detached launcher failure remains visible, returns non-zero, and is not reported as a successful Foot launch"
+else
+    fail "Detached launcher failure was swallowed or reported as success (status=$failure_status out=$(tr '\n' ' ' <"$fixture/failure.out") err=$(tr '\n' ' ' <"$fixture/failure.err") log=$(tr '\n' ' ' <"$launch_diagnostic_log"))"
+fi
+
+if grep -Fq 'command-center-launch.log' "$ROOT/bin/lib/aurelia-keybindings/actions.sh" &&
+   grep -Fq 'launcher_status' "$ROOT/bin/lib/aurelia-keybindings/actions.sh" &&
+   grep -Fq '>>"$launch_log" 2>&1' "$ROOT/bin/lib/aurelia-keybindings/actions.sh" &&
+   ! grep -Eq '^[[:space:]]*(setsid|nohup)[[:space:]].*>[[:space:]]*/dev/null' "$ROOT/bin/lib/aurelia-keybindings/actions.sh"; then
+    pass "Detached application streams use the bounded Aurelia diagnostic sink without null-device suppression"
+else
+    fail "Detached application diagnostic sink or launcher-status boundary is incomplete"
+fi
+
+if [[ -x /usr/bin/qs && -x /usr/bin/timeout ]]; then
+    model_runtime_root="$fixture/command-center-model"
+    mkdir -p -- "$model_runtime_root/runtime" "$model_runtime_root/state" \
+        "$model_runtime_root/config" "$model_runtime_root/cache"
+    model_result="$model_runtime_root/result.json"
+    model_log="$model_runtime_root/runtime.log"
+    model_backend="$model_runtime_root/failing-backend"
+    cp -- "$ROOT/tests/fixtures/command-center-launch/failing-backend" "$model_backend"
+    chmod 0755 "$model_backend"
+    : >"$model_result"
+    model_status=0
+    expected_model_diagnostic='\[COMMAND_CENTER\][[:space:]]launch\.failed[[:space:]]code=42'
+    AURELIA_COMMAND_CENTER_MODEL_SOURCE="$ROOT/plugins/aurelia.launcher/ui/CommandCenterModel.qml" \
+    AURELIA_COMMAND_CENTER_MODEL_BACKEND="$model_backend" \
+    AURELIA_COMMAND_CENTER_MODEL_RESULT="$model_result" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$model_runtime_root/runtime" XDG_STATE_HOME="$model_runtime_root/state" \
+    XDG_CONFIG_HOME="$model_runtime_root/config" XDG_CACHE_HOME="$model_runtime_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/tests/fixtures/command-center-launch/shell.qml" \
+        >"$model_log" 2>&1 || model_status=$?
+    if [[ "$model_status" -eq 0 ]] && [[ -s "$model_result" ]] &&
+       runtime_log_is_environment_only "$model_log" "$expected_model_diagnostic" &&
+       jq -e '.success == false and
+              (.message | contains("fixture command-center launch failure")) and
+              (.errorMessage | contains("fixture command-center launch failure")) and
+              .statusMessage == ""' "$model_result" >/dev/null; then
+        pass "The real Command Center model keeps a failed Foot-style application launch visible instead of closing successfully"
+    else
+        details="status=$model_status log=$(tr '\n' ' ' <"$model_log")"
+        if [[ -s "$model_result" ]]; then details="$details result=$(tr '\n' ' ' <"$model_result")"; fi
+        fail "Command Center model launch-failure fixture failed: $details"
+    fi
+else
+    skip "[isolated-runtime] Command Center model launch-failure fixture (qs or timeout unavailable)"
+fi
+
+cat >"$mock_bin/setsid" <<'EOF_SETSID_SUCCESS_AGAIN'
+#!/usr/bin/env bash
+printf 'setsid' >> "$AURELIA_COMMAND_CENTER_MOCK_LOG"
+for value in "$@"; do printf '\t%s' "$value" >> "$AURELIA_COMMAND_CENTER_MOCK_LOG"; done
+printf '\n' >> "$AURELIA_COMMAND_CENTER_MOCK_LOG"
+exit 0
+EOF_SETSID_SUCCESS_AGAIN
+chmod 0755 "$mock_bin/setsid"
 
 if env "${common_env[@]}" "$backend" files readme >"$fixture/files.json" 2>"$fixture/files.err" &&
    jq -e 'length >= 1 and any(.[]; .name == "README.md" and .kind == "file" and (.path | endswith("/Projects/demo/README.md")))' \

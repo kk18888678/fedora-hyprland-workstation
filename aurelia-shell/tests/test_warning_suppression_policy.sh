@@ -139,14 +139,34 @@ null_device="/dev/""null"
 stderr_null_pattern="2>[[:space:]]*${null_device}"
 all_null_pattern="&>[[:space:]]*${null_device}"
 ordered_all_null_pattern=">[[:space:]]*${null_device}[[:space:]]+2>&1"
-if rg -n --hidden --glob '!.git/**' \
-    -e "$stderr_null_pattern" -e "$all_null_pattern" -e "$ordered_all_null_pattern" \
-    "$repository_root" >"$policy_tmp/null-device-diagnostics.txt"; then
+if (cd -- "$repository_root" &&
+    rg -n --hidden --glob '!.git/**' \
+        -e "$stderr_null_pattern" -e "$all_null_pattern" -e "$ordered_all_null_pattern" \
+        .) >"$policy_tmp/null-device-diagnostics.txt"; then
     cat "$policy_tmp/null-device-diagnostics.txt"
     fail "[static] repository code still discards a diagnostic stream to the null device"
     policy_failure=1
 else
     pass "[static] repository code preserves stderr and does not discard combined diagnostics"
+fi
+
+# Exercise the scanner itself against a disposable repository-shaped tree. A
+# forbidden redirect in product source must be found, while the same text in
+# Git metadata must remain outside the audit scope. This guards the boundary
+# that previously caused a false failure in the real working tree.
+null_probe="$policy_tmp/null-device-probe"
+mkdir -p -- "$null_probe/.git/hooks" "$null_probe/source"
+printf '%s\n' "2>${null_device}" >"$null_probe/source/widget.qml"
+printf '%s\n' ">${null_device} 2>&1" >"$null_probe/.git/hooks/sample"
+if (cd -- "$null_probe" &&
+    rg -n --hidden --glob '!.git/**' \
+        -e "$stderr_null_pattern" -e "$all_null_pattern" -e "$ordered_all_null_pattern" \
+        .) >"$policy_tmp/null-probe-findings.txt"; then
+    pass "[isolated-framework] diagnostic policy detects product null-device streams while excluding Git metadata"
+else
+    cat "$policy_tmp/null-probe-findings.txt"
+    fail "[isolated-framework] diagnostic policy failed to detect a product null-device stream"
+    policy_failure=1
 fi
 
 # Every test that actually launches QuickShell must classify its complete
