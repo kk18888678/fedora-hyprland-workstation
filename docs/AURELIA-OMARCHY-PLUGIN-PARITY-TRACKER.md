@@ -2995,14 +2995,16 @@ closed or used to justify changing unrelated Bluetooth behavior.
    Menu Bar control without killing the resident shell or its hotkeys.
 8. T53 — close the remaining Omarchy bar interaction and transparent-text
    parity gaps without weakening Aurelia's plugin isolation boundary.
-9. T43 — make test outcomes truthful: count skips separately, never let a
+9. T54 — repair the production bar self-reference regression and close the
+   production-entrypoint warning coverage gap.
+10. T43 — make test outcomes truthful: count skips separately, never let a
    backend limitation mask an unrelated warning, and provide a strict no-skip
    gate.
-10. T44 — correct Power panel non-visual child construction and add a real
+11. T44 — correct Power panel non-visual child construction and add a real
     panel entry-point contract fixture.
-11. T45 — correct the Aurelia bar hidden-state watcher for the actual
+12. T45 — correct the Aurelia bar hidden-state watcher for the actual
     FileView/runtime contract without suppressing diagnostics.
-12. T42 — run the combined contract, failure-isolation, migration, and
+13. T42 — run the combined contract, failure-isolation, migration, and
     optional real-session acceptance gates; update documentation and parity
     evidence.
 
@@ -4118,6 +4120,78 @@ Dependencies: T33, T40, T41, T43, T45, T46.
 
 ---
 
+### T54. Repair production bar self-reference and close entry-point warning coverage
+
+Execution status: NOT STARTED — CP2 recorded before corrective implementation
+
+Observed production regression:
+
+- After T53, the user-authorized source checkout restart emitted repeated
+  `Bar.qml[309] Error: Cannot assign to non-existent property
+  "transparentForeground"` warnings. The bar's root object is named
+  `barRoot`, but the new T53 functions use `root.*`; the headless tests did
+  not construct the production `PanelWindow` path and therefore missed this
+  live QML-context error.
+- This is an actionable production warning, not an environment limitation.
+  It must be fixed at the source reference and remain visible if a future
+  production entry-point construction fails.
+
+Scope:
+
+- Correct every T53 bar-host self-reference to the actual `barRoot` object and
+  audit the complete new bar path for undefined-object/property references.
+  Do not add a compatibility alias, warning filter, `try/catch` blanket, or
+  other suppression shortcut.
+- Add a production-entrypoint source contract that fails when a bar-host file
+  references an undeclared `root.*` object, and add a runtime fixture or
+  explicitly classified backend gate that proves the production `Bar.qml`
+  entry path is either warning-free or fails with only the approved backend
+  diagnostic. A backend skip must never accept `TypeError`, `Cannot assign`,
+  `non-existent property`, `Loader.Error`, `FATAL`, or unrelated `WARN`/`ERROR`.
+- Make the strict Aurelia command report this regression as a failure even
+  when other compositor-dependent assertions are skipped. Keep skip counts
+  separate and do not turn the known headless limitation into a pass.
+- Preserve all Aurelia command names, plugin IDs, bar layout/config ownership,
+  direct gestures, transparent foreground behavior, widget click/wheel paths,
+  hidden-bar state, and shell survivability. No live shell/systemd/greetd/
+  package/configuration mutation is required for implementation.
+
+Required tests:
+
+- [ ] Static production `Bar.qml` self-reference/property audit catches the
+  exact `root.*` regression and validates the declared `barRoot` boundary.
+- [ ] Isolated production entry-point fixture exercises the transparent
+  refresh callback and rejects non-existent-property/TypeError diagnostics;
+  any backend-only skip is separately counted.
+- [ ] Full Aurelia strict and diagnostic runs, repository tests, repository-
+  wide Bash syntax, changed-file ShellCheck, and `git diff --check` pass with
+  zero unclassified warnings/errors.
+
+Checkpoint 2 — T54 pre-change boundary:
+
+- Starting branch/SHA: `installer-resilience` /
+  `9b664456c66bb64b7ff9997797495214c8292aaf`; `git status --short` is clean.
+- Planned source boundary: `plugins/aurelia.bar/Bar.qml`, T54 production
+  entry-point/static/runtime fixtures and tests, and this tracker. No other
+  plugin, installer, package, live user configuration, systemd/greetd state,
+  or reboot work is in scope.
+- Required safety boundary: fix the actual root-object reference; do not
+  suppress warnings, broaden the runtime skip classifier, or bypass the
+  production loader. The last valid bar/config state must remain intact if a
+  transparent-color probe fails.
+- Rollback removes only the T54 correction and its tests/tracker evidence;
+  the T53 checkpoint and implementation remain recoverable at their commits.
+- Live-impact decision: no shell restart, compositor mutation, user-state
+  write, package operation, systemd/greetd change, or reboot is required.
+
+CP2 status: `[x]` the observed production warning, exact source cause,
+strict-test requirement, source boundary, rollback, and no-live-impact rules
+are recorded before corrective source implementation.
+
+Dependencies: T33, T43, T46, T53.
+
+---
+
 ### T43. Make test outcomes truthful and warning-complete
 
 Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
@@ -5095,7 +5169,7 @@ Dependencies: T47, T49, T51, T02A, T31, T33, T46.
 
 ### T42. Requested capability integration and final acceptance gate
 
-Execution status: NOT STARTED — queued behind completed corrective T43 through T53
+Execution status: NOT STARTED — queued behind completed corrective T43 through T54
 
 Scope:
 
@@ -5128,7 +5202,7 @@ Exit gate: the requested capability set is structurally and behaviorally at
 Omarchy parity as far as Aurelia's preserved features and safety boundaries
 allow, every task has CP3 evidence, and no task leaves the shell unusable.
 
-Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T53, T02A, T31, T32, T33.
+Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T53, T54, T02A, T31, T32, T33.
 
 ---
 
@@ -5187,6 +5261,7 @@ Dependencies: T36, T37, T38, T39, T40, T41, T43, T44, T45, T46, T47, T48, T49, T
 | Live snapshot ownership and ListModel row lifetime lose composite notification identity during dismissal | T51 |
 | Session-action confirmation has no observable production Process result and Power retains a duplicate action surface | T52 |
 | Omarchy direct bar gestures and contrast-aware transparent foreground were not implemented | T53 |
+| Production Bar.qml self-reference warning escaped headless entry-point coverage | T54 |
 | Requested Audio/Microphone/Power/bar/hiding capabilities lack a combined acceptance gate | T42 |
 
 ## Final preservation gate
