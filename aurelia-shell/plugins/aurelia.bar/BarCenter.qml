@@ -11,6 +11,7 @@ Item {
     property var entries: []
     property string anchorId: ""
     property var bar: null
+    property var barPanel: null
     property var shell: null
     property var pluginRegistry: null
     property var barWidgetRegistry: null
@@ -33,10 +34,11 @@ Item {
         property real pressedY: 0
 
         function startDrag(x, y) {
-            if (root.bar && typeof root.bar.beginBarMove === "function") {
+            if (root.barPanel && typeof root.barPanel.beginBarMove === "function") {
                 dragging = true
-                root.bar.beginBarMove()
-                root.bar.updateBarMove(root.bar.screenPointFromItem(centerGesture, x, y))
+                root.barPanel.beginBarMove()
+                root.barPanel.updateBarMove(root.bar.screenPointFromItem(
+                    centerGesture, x, y, root.barPanel))
             }
         }
 
@@ -60,8 +62,9 @@ Item {
                 if (distance < threshold) return
                 centerGesture.startDrag(mouse.x, mouse.y)
             }
-            if (dragging && root.bar && typeof root.bar.updateBarMove === "function")
-                root.bar.updateBarMove(root.bar.screenPointFromItem(centerGesture, mouse.x, mouse.y))
+            if (dragging && root.barPanel && typeof root.barPanel.updateBarMove === "function")
+                root.barPanel.updateBarMove(root.bar.screenPointFromItem(
+                    centerGesture, mouse.x, mouse.y, root.barPanel))
         }
 
         onReleased: function(mouse) {
@@ -71,14 +74,16 @@ Item {
             }
             dragging = false
             suppressClick = true
-            if (root.bar && typeof root.bar.finishBarMove === "function") root.bar.finishBarMove()
+            if (root.barPanel && typeof root.barPanel.finishBarMove === "function")
+                root.barPanel.finishBarMove()
             mouse.accepted = true
         }
 
         onCanceled: {
             dragging = false
             suppressClick = false
-            if (root.bar && typeof root.bar.clearBarMove === "function") root.bar.clearBarMove()
+            if (root.barPanel && typeof root.barPanel.clearBarMove === "function")
+                root.barPanel.clearBarMove()
         }
 
         onClicked: function(mouse) {
@@ -157,6 +162,7 @@ Item {
         // entries in that mode.
         entries: root.hasAnchor ? [] : root.entries
         bar: root.bar
+        barPanel: root.barPanel
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry
@@ -176,6 +182,7 @@ Item {
         visible: root.hasAnchor
         entries: root.beforeEntries
         bar: root.bar
+        barPanel: root.barPanel
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry
@@ -193,6 +200,7 @@ Item {
         instanceId: root.hasAnchor ? root.entryInstanceId(root.anchorEntry) : ""
         settings: root.hasAnchor ? root.entrySettings(root.anchorEntry) : ({})
         bar: root.bar
+        barPanel: root.barPanel
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry
@@ -210,6 +218,7 @@ Item {
         visible: root.hasAnchor
         entries: root.afterEntries
         bar: root.bar
+        barPanel: root.barPanel
         shell: root.shell
         pluginRegistry: root.pluginRegistry
         barWidgetRegistry: root.barWidgetRegistry

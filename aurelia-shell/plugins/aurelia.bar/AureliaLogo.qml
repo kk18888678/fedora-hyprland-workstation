@@ -15,6 +15,25 @@ Item {
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
 
+    function openCommandCenter() {
+        if (!root.shell || typeof root.shell.summon !== "function") {
+            console.error("[BAR] logo_click_failed reason=shell_unavailable")
+            return "not-ready"
+        }
+        var result = ""
+        try {
+            result = String(root.shell.summon("aurelia.launcher", "{}") || "")
+        } catch (error) {
+            console.error("[BAR] logo_click_failed reason=summon_exception")
+            return "error"
+        }
+        if (result === "ok" || result === "pending")
+            console.info("[BAR] logo_click_dispatched result=" + result)
+        else
+            console.error("[BAR] logo_click_failed result=" + result)
+        return result
+    }
+
     implicitWidth: bar && bar.barIconSlot ? bar.barIconSlot : 27
     implicitHeight: bar && bar.barSize ? bar.barSize : 26
 
@@ -50,9 +69,7 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onClicked: function(mouse) {
             mouse.accepted = true
-            if (root.shell && typeof root.shell.summon === "function") {
-                root.shell.summon("aurelia.launcher", "{}")
-            }
+            root.openCommandCenter()
         }
     }
 }

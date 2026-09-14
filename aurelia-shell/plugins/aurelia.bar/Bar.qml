@@ -1,16 +1,18 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import "../../theme"
 import "BarInteractionModel.js" as BarInteractionModel
+import "."
 
 // Aurelia's first bar host follows the Omarchy boundary: the host owns the
 // bar surface and configuration, while each configured module is a manifest-
 // backed `bar-widget` entry point. The bar is mounted by the resident host;
 // Noctalia remains independently selectable as the active desktop shell.
-PanelWindow {
+Item {
     id: barRoot
 
     property string aureliaPath: String(Qt.resolvedUrl("../../")).replace(/^file:\/\//, "")
@@ -21,15 +23,20 @@ PanelWindow {
     property var barWidgetRegistry: null
     property var pluginHost: null
     property var widgetSlots: []
+    property var barPanels: []
     property int widgetRevision: 0
     property bool barMoveActive: false
     property string barMoveCandidate: ""
     property var barMoveScreen: null
+    property var barMovePanel: null
     property bool widgetDragActive: false
     property var widgetDragSource: null
+    property var widgetDragPanel: null
     property var widgetDragTarget: null
     property bool widgetDragAfter: false
     property var widgetDropMarkerGeometry: null
+    property real widgetDragLastSceneX: NaN
+    property real widgetDragLastSceneY: NaN
 
     // ShellConfig is present in the production host. Keep only a minimal
     // recovery shape here so a missing state object cannot prevent a bar from
@@ -101,25 +108,6 @@ PanelWindow {
     property var activePopout: null
     property string activePopoutId: ""
 
-    WlrLayershell.layer: WlrLayer.Top
-    WlrLayershell.namespace: "aurelia-bar"
-    anchors.top: position === "top" || vertical
-    anchors.bottom: position === "bottom" || vertical
-    anchors.left: position === "left" || !vertical
-    anchors.right: position === "right" || !vertical
-    implicitWidth: vertical ? barSize : 0
-    implicitHeight: vertical ? 0 : barSize
-    margins {
-        top: barRoot.barHidden && position === "top" ? -barSize : 0
-        bottom: barRoot.barHidden && position === "bottom" ? -barSize : 0
-        left: barRoot.barHidden && position === "left" ? -barSize : 0
-        right: barRoot.barHidden && position === "right" ? -barSize : 0
-    }
-    exclusionMode: barHidden ? ExclusionMode.Ignore : ExclusionMode.Auto
-    color: "transparent"
-    surfaceFormat.opaque: false
-    visible: true
-
     function entriesFor(region) {
         if (!barConfigReady || !Array.isArray(barConfig.layout[region])) return []
         return barConfig.layout[region]
@@ -139,6 +127,19 @@ PanelWindow {
         widgetRevision++
     }
 
+    function registerBarPanel(panel) {
+        if (!panel || barPanels.indexOf(panel) !== -1) return
+        var next = barPanels.slice()
+        next.push(panel)
+        barPanels = next
+    }
+
+    function unregisterBarPanel(panel) {
+        barPanels = barPanels.filter(function(item) { return item !== panel })
+        if (barMovePanel === panel) clearBarMove()
+        if (widgetDragPanel === panel) clearWidgetDrag()
+    }
+
     function bumpWidgetRevision() {
         widgetRevision++
     }
@@ -150,17 +151,75 @@ PanelWindow {
         }
     }
 
+    function focusedScreenName() {
+        try {
+            return Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name || "") : ""
+        } catch (error) {
+            return ""
+        }
+    }
+
+    function panelScreenName(panel) {
+        return panel && panel.screen ? String(panel.screen.name || "") : ""
+    }
+
+    function slotScreenName(slot) {
+        return slot && slot.barPanel ? barRoot.panelScreenName(slot.barPanel) : ""
+    }
+
+    function visibleSlot(slot) {
+        return !!slot && slot.visible === true && slot.width > 0 && slot.height > 0 &&
+            !!slot.widgetItem
+    }
+
+    function chooseWidgetSlot(candidates) {
+        var visible = candidates.filter(barRoot.visibleSlot)
+        if (visible.length === 0) visible = candidates.filter(function(slot) { return !!slot })
+        if (visible.length === 0) return {slot: null, ambiguous: false}
+
+        var focused = barRoot.focusedScreenName()
+        if (focused !== "") {
+            var onFocused = visible.filter(function(slot) {
+                return barRoot.slotScreenName(slot) === focused
+            })
+            if (onFocused.length > 0) visible = onFocused
+        }
+        if (visible.length === 1) return {slot: visible[0], ambiguous: false}
+
+        // One configured widget is replicated once per monitor. It is not an
+        // ambiguous instance; select the first drawn copy when no focused
+        // monitor has been reported. Duplicate entries on one monitor remain
+        // ambiguous and are rejected by the caller.
+        var firstScreen = barRoot.slotScreenName(visible[0])
+        var sameScreen = visible.filter(function(slot) {
+            return barRoot.slotScreenName(slot) === firstScreen
+        })
+        return {slot: sameScreen.length === 1 ? sameScreen[0] : null,
+            ambiguous: sameScreen.length > 1}
+    }
+
     function anchorItemFor(pluginId) {
-        var revision = widgetRevision
+        var matches = []
         for (var i = 0; i < widgetSlots.length; i++) {
             var slot = widgetSlots[i]
-            if (slot && slot.pluginId === pluginId) return slot
+            if (slot && slot.pluginId === pluginId) matches.push(slot)
         }
-        return null
+        var selected = barRoot.chooseWidgetSlot(matches)
+        return selected.ambiguous ? null : selected.slot
     }
 
     function barAnchorItem() {
-        return barContentAnchor
+        var focused = barRoot.focusedScreenName()
+        var panels = barRoot.barPanels.filter(function(panel) {
+            return panel && panel.contentAnchorItem
+        })
+        if (focused !== "") {
+            var focusedPanel = panels.filter(function(panel) {
+                return barRoot.panelScreenName(panel) === focused
+            })
+            if (focusedPanel.length > 0) return focusedPanel[0].contentAnchorItem
+        }
+        return panels.length > 0 ? panels[0].contentAnchorItem : null
     }
 
     function callWidget(pluginId, method, argument) {
@@ -172,10 +231,12 @@ PanelWindow {
             if (slot.instanceId === pluginId) exactMatches.push(slot)
             else if (slot.pluginId === pluginId) baseMatches.push(slot)
         }
-        if (exactMatches.length > 1) return "ambiguous"
-        if (exactMatches.length === 1) return exactMatches[0].invoke(method, argument)
-        if (baseMatches.length > 1) return "ambiguous"
-        if (baseMatches.length === 1) return baseMatches[0].invoke(method, argument)
+        var selected = barRoot.chooseWidgetSlot(exactMatches)
+        if (selected.ambiguous) return "ambiguous"
+        if (selected.slot) return selected.slot.invoke(method, argument)
+        selected = barRoot.chooseWidgetSlot(baseMatches)
+        if (selected.ambiguous) return "ambiguous"
+        if (selected.slot) return selected.slot.invoke(method, argument)
         return "not-loaded"
     }
 
@@ -188,11 +249,26 @@ PanelWindow {
     }
 
     function screenForBar() {
-        try {
-            if (barRoot.screen) return barRoot.screen
-        } catch (error) {
-            console.warn("[BAR] screen_lookup_failed")
+        var focused = barRoot.focusedScreenName()
+        if (focused !== "") {
+            for (var i = 0; i < barPanels.length; i++) {
+                var focusedPanel = barPanels[i]
+                if (focusedPanel && barRoot.panelScreenName(focusedPanel) === focused)
+                    return focusedPanel.screen
+            }
+            try {
+                if (Quickshell.screens) {
+                    for (var screenIndex = 0; screenIndex < Quickshell.screens.length; screenIndex++) {
+                        var focusedScreen = Quickshell.screens[screenIndex]
+                        if (focusedScreen && String(focusedScreen.name || "") === focused)
+                            return focusedScreen
+                    }
+                }
+            } catch (error) {
+                console.warn("[BAR] screen_lookup_failed")
+            }
         }
+        if (barPanels.length > 0 && barPanels[0].screen) return barPanels[0].screen
         try {
             if (Quickshell.screens && Quickshell.screens.length > 0) return Quickshell.screens[0]
         } catch (error2) {
@@ -201,7 +277,7 @@ PanelWindow {
         return null
     }
 
-    function screenPointFromItem(item, x, y) {
+    function screenPointFromItem(item, x, y, panel) {
         var point = {x: Number(x) || 0, y: Number(y) || 0}
         try {
             if (item && typeof item.mapToItem === "function") point = item.mapToItem(null, point.x, point.y)
@@ -210,17 +286,20 @@ PanelWindow {
             return point
         }
 
-        var activeScreen = root.screenForBar()
+        var activePanel = panel || barRoot.barMovePanel
+        var activeScreen = activePanel && activePanel.screen ? activePanel.screen : barRoot.screenForBar()
         if (!activeScreen) return point
         var screenWidth = Number(activeScreen.width) || 0
         var screenHeight = Number(activeScreen.height) || 0
-        if (root.position === "bottom") point.y += Math.max(0, screenHeight - Number(barRoot.height || 0))
-        else if (root.position === "right") point.x += Math.max(0, screenWidth - Number(barRoot.width || 0))
+        var panelWidth = activePanel ? Number(activePanel.width || 0) : 0
+        var panelHeight = activePanel ? Number(activePanel.height || 0) : 0
+        if (barRoot.position === "bottom") point.y += Math.max(0, screenHeight - panelHeight)
+        else if (barRoot.position === "right") point.x += Math.max(0, screenWidth - panelWidth)
         return point
     }
 
     function screenPointForDrag(point) {
-        var activeScreen = root.screenForBar()
+        var activeScreen = barRoot.screenForBar()
         if (!activeScreen) return point || {x: 0, y: 0}
         return {
             x: Math.max(0, Math.min(Number(activeScreen.width) || 0, Number(point && point.x) || 0)),
@@ -228,24 +307,26 @@ PanelWindow {
         }
     }
 
-    function beginBarMove() {
-        root.barMoveScreen = root.screenForBar()
-        root.barMoveCandidate = root.position
-        root.barMoveActive = !!root.barMoveScreen
-        if (root.barMoveActive) console.info("[BAR] direct_move_started")
+    function beginBarMove(panel) {
+        barRoot.barMovePanel = panel || null
+        barRoot.barMoveScreen = panel && panel.screen ? panel.screen : barRoot.screenForBar()
+        barRoot.barMoveCandidate = barRoot.position
+        barRoot.barMoveActive = !!barRoot.barMoveScreen
+        if (barRoot.barMoveActive) console.info("[BAR] direct_move_started")
         else console.error("[BAR] direct_move_failed reason=screen_unavailable")
     }
 
     function updateBarMove(point) {
-        if (!root.barMoveActive || !root.barMoveScreen) return
-        root.barMoveCandidate = BarInteractionModel.nearestScreenEdge(point,
-            root.barMoveScreen.width, root.barMoveScreen.height)
+        if (!barRoot.barMoveActive || !barRoot.barMoveScreen) return
+        barRoot.barMoveCandidate = BarInteractionModel.nearestScreenEdge(point,
+            barRoot.barMoveScreen.width, barRoot.barMoveScreen.height)
     }
 
     function clearBarMove() {
-        root.barMoveActive = false
-        root.barMoveCandidate = ""
-        root.barMoveScreen = null
+        barRoot.barMoveActive = false
+        barRoot.barMoveCandidate = ""
+        barRoot.barMoveScreen = null
+        barRoot.barMovePanel = null
     }
 
     function setBarPosition(value) {
@@ -254,32 +335,32 @@ PanelWindow {
             console.error("[BAR] direct_move_failed reason=invalid_position value=" + requested)
             return "invalid-position"
         }
-        if (!root.shell || typeof root.shell.setBarPosition !== "function") {
+        if (!barRoot.shell || typeof barRoot.shell.setBarPosition !== "function") {
             console.error("[BAR] direct_move_failed reason=mutation_owner_unavailable")
             return "not-ready"
         }
-        var result = String(root.shell.setBarPosition(requested) || "")
+        var result = String(barRoot.shell.setBarPosition(requested) || "")
         if (result === "ok") console.info("[BAR] direct_move_committed position=" + requested)
         else console.error("[BAR] direct_move_failed position=" + requested + " detail=" + result)
         return result
     }
 
     function finishBarMove() {
-        var candidate = root.barMoveCandidate
-        if (!root.barMoveActive || candidate === "" || candidate === root.position) {
-            root.clearBarMove()
+        var candidate = barRoot.barMoveCandidate
+        if (!barRoot.barMoveActive || candidate === "" || candidate === barRoot.position) {
+            barRoot.clearBarMove()
             return "ok"
         }
-        root.clearBarMove()
-        return root.setBarPosition(candidate)
+        barRoot.clearBarMove()
+        return barRoot.setBarPosition(candidate)
     }
 
     function toggleTransparency() {
-        if (!root.shell || typeof root.shell.setBarTransparent !== "function") {
+        if (!barRoot.shell || typeof barRoot.shell.setBarTransparent !== "function") {
             console.error("[BAR] transparency_toggle_failed reason=mutation_owner_unavailable")
             return "not-ready"
         }
-        var result = String(root.shell.setBarTransparent("toggle") || "")
+        var result = String(barRoot.shell.setBarTransparent("toggle") || "")
         if (result === "ok") console.info("[BAR] transparency_toggled")
         else console.error("[BAR] transparency_toggle_failed detail=" + result)
         return result
@@ -297,47 +378,47 @@ PanelWindow {
     }
 
     function screenSizeArgument() {
-        var activeScreen = root.screenForBar()
-        var width = activeScreen ? Number(activeScreen.width) : Number(root.width)
-        var height = activeScreen ? Number(activeScreen.height) : Number(root.height)
+        var activeScreen = barRoot.screenForBar()
+        var width = activeScreen ? Number(activeScreen.width) : Number(barRoot.width)
+        var height = activeScreen ? Number(activeScreen.height) : Number(barRoot.height)
         return (isFinite(width) && width > 0 ? Math.round(width) : 0) + "x" +
             (isFinite(height) && height > 0 ? Math.round(height) : 0)
     }
 
     function scheduleTransparentForegroundRefresh() {
-        if (!root.requestedTransparent) {
-            root.transparentForeground = root.themeForeground
-            root.transparentForegroundFallbackReported = false
+        if (!barRoot.requestedTransparent) {
+            barRoot.transparentForeground = barRoot.themeForeground
+            barRoot.transparentForegroundFallbackReported = false
             return
         }
         transparentForegroundTimer.restart()
     }
 
     function refreshTransparentForeground() {
-        if (!root.requestedTransparent || transparentForegroundProcess.running) return
-        if (root.barTextColorToolPath === "") {
-            root.transparentForeground = root.themeForeground
-            if (!root.transparentForegroundFallbackReported) {
-                root.transparentForegroundFallbackReported = true
+        if (!barRoot.requestedTransparent || transparentForegroundProcess.running) return
+        if (barRoot.barTextColorToolPath === "") {
+            barRoot.transparentForeground = barRoot.themeForeground
+            if (!barRoot.transparentForegroundFallbackReported) {
+                barRoot.transparentForegroundFallbackReported = true
                 console.warn("[BAR] transparent_foreground_fallback reason=helper_unavailable")
             }
             return
         }
         transparentForegroundProcess.command = [
-            root.barTextColorToolPath,
-            root.position,
-            String(root.barSize),
-            root.colorHex(root.themeForeground),
-            root.colorHex(root.themeContrastForeground),
+            barRoot.barTextColorToolPath,
+            barRoot.position,
+            String(barRoot.barSize),
+            barRoot.colorHex(barRoot.themeForeground),
+            barRoot.colorHex(barRoot.themeContrastForeground),
             "--screen",
-            root.screenSizeArgument()
+            barRoot.screenSizeArgument()
         ]
         transparentForegroundProcess.running = true
     }
 
     function reportBarFacadeState() {
-        if (root.pluginHost && typeof root.pluginHost.syncScopedFacades === "function")
-            Qt.callLater(function() { root.pluginHost.syncScopedFacades() })
+        if (barRoot.pluginHost && typeof barRoot.pluginHost.syncScopedFacades === "function")
+            Qt.callLater(function() { barRoot.pluginHost.syncScopedFacades() })
     }
 
     function widgetSlotSceneRect(slot) {
@@ -351,68 +432,60 @@ PanelWindow {
         }
     }
 
-    function widgetDropMarkerFor(target, after) {
-        if (!target || !barSurface) return null
-        try {
-            var point = target.mapToItem(barSurface, 0, 0)
-            var thickness = 2
-            if (root.vertical) return {
-                x: Math.round(point.x),
-                y: Math.round(point.y + (after ? target.height : 0) - thickness / 2),
-                width: Math.max(1, target.width),
-                height: thickness
-            }
-            return {
-                x: Math.round(point.x + (after ? target.width : 0) - thickness / 2),
-                y: Math.round(point.y),
-                width: thickness,
-                height: Math.max(1, target.height)
-            }
-        } catch (error) {
-            console.warn("[BAR] widget_drop_marker_failed")
-            return null
-        }
-    }
-
     function clearWidgetDrag() {
-        root.widgetDragActive = false
-        root.widgetDragSource = null
-        root.widgetDragTarget = null
-        root.widgetDragAfter = false
-        root.widgetDropMarkerGeometry = null
+        barRoot.widgetDragActive = false
+        barRoot.widgetDragSource = null
+        barRoot.widgetDragPanel = null
+        barRoot.widgetDragTarget = null
+        barRoot.widgetDragAfter = false
+        barRoot.widgetDropMarkerGeometry = null
+        barRoot.widgetDragLastSceneX = NaN
+        barRoot.widgetDragLastSceneY = NaN
     }
 
     function beginWidgetDrag(source, point) {
-        if (!source || !root.shell || typeof root.shell.moveBarWidget !== "function") return false
-        root.widgetDragActive = true
-        root.widgetDragSource = source
-        root.updateWidgetDrag(source, point)
+        if (!source || !barRoot.shell || typeof barRoot.shell.moveBarWidget !== "function") return false
+        barRoot.widgetDragActive = true
+        barRoot.widgetDragSource = source
+        barRoot.widgetDragPanel = source.barPanel || null
+        barRoot.widgetDragLastSceneX = NaN
+        barRoot.widgetDragLastSceneY = NaN
+        barRoot.updateWidgetDrag(source, point)
         console.info("[BAR] widget_drag_started id=" + String(source.instanceId || source.pluginId || ""))
         return true
     }
 
     function updateWidgetDrag(source, point) {
-        if (!root.widgetDragActive || root.widgetDragSource !== source) return
+        if (!barRoot.widgetDragActive || barRoot.widgetDragSource !== source) return
+        var sceneX = Number(point && point.x)
+        var sceneY = Number(point && point.y)
+        if (isFinite(barRoot.widgetDragLastSceneX) && isFinite(barRoot.widgetDragLastSceneY) &&
+            Math.abs(sceneX - barRoot.widgetDragLastSceneX) < 2 &&
+            Math.abs(sceneY - barRoot.widgetDragLastSceneY) < 2) return
+        barRoot.widgetDragLastSceneX = sceneX
+        barRoot.widgetDragLastSceneY = sceneY
+        var panel = barRoot.widgetDragPanel || source.barPanel || null
         var candidates = []
-        for (var i = 0; i < root.widgetSlots.length; i++) {
-            var candidate = root.widgetSlots[i]
+        for (var i = 0; i < barRoot.widgetSlots.length; i++) {
+            var candidate = barRoot.widgetSlots[i]
             if (!candidate || candidate === source || candidate.visible !== true ||
-                !candidate.widgetItem) continue
-            var rect = root.widgetSlotSceneRect(candidate)
+                !candidate.widgetItem || (panel && candidate.barPanel !== panel)) continue
+            var rect = barRoot.widgetSlotSceneRect(candidate)
             if (rect) candidates.push(rect)
         }
-        var target = BarInteractionModel.nearestDropTarget(candidates, point, root.vertical)
-        root.widgetDragTarget = target ? target.slot : null
-        root.widgetDragAfter = target ? target.after === true : false
-        root.widgetDropMarkerGeometry = target
-            ? root.widgetDropMarkerFor(target.slot, target.after === true) : null
+        var target = BarInteractionModel.nearestDropTarget(candidates, point, barRoot.vertical)
+        barRoot.widgetDragTarget = target ? target.slot : null
+        barRoot.widgetDragAfter = target ? target.after === true : false
+        barRoot.widgetDropMarkerGeometry = target && panel &&
+            typeof panel.widgetDropMarkerFor === "function"
+            ? panel.widgetDropMarkerFor(target.slot, target.after === true) : null
     }
 
     function endWidgetDrag(source) {
-        if (!root.widgetDragActive || root.widgetDragSource !== source) return "ok"
-        var target = root.widgetDragTarget
-        var after = root.widgetDragAfter
-        root.clearWidgetDrag()
+        if (!barRoot.widgetDragActive || barRoot.widgetDragSource !== source) return "ok"
+        var target = barRoot.widgetDragTarget
+        var after = barRoot.widgetDragAfter
+        barRoot.clearWidgetDrag()
         if (!target || target === source) return "ok"
 
         var sourceId = String(source.instanceId || source.pluginId || "")
@@ -422,7 +495,7 @@ PanelWindow {
             console.error("[BAR] widget_drag_failed reason=invalid_target")
             return "invalid-target"
         }
-        var result = String(root.shell.moveBarWidget(sourceId, JSON.stringify(placement)) || "")
+        var result = String(barRoot.shell.moveBarWidget(sourceId, JSON.stringify(placement)) || "")
         if (result === "ok") console.info("[BAR] widget_drag_committed id=" + sourceId +
             " section=" + target.region + " relation=" + (after ? "after" : "before") +
             " target=" + targetId)
@@ -431,7 +504,7 @@ PanelWindow {
     }
 
     function cancelWidgetDrag(source) {
-        if (root.widgetDragSource === source) root.clearWidgetDrag()
+        if (barRoot.widgetDragSource === source) barRoot.clearWidgetDrag()
     }
 
     function open(payloadJson) {
@@ -534,14 +607,23 @@ PanelWindow {
     }
 
     function themeStatus() {
+        var panel = barRoot.barPanels.length > 0 ? barRoot.barPanels[0] : null
+        var focused = barRoot.focusedScreenName()
+        for (var panelIndex = 0; panelIndex < barRoot.barPanels.length; panelIndex++) {
+            var candidate = barRoot.barPanels[panelIndex]
+            if (candidate && barRoot.panelScreenName(candidate) === focused) {
+                panel = candidate
+                break
+            }
+        }
         return JSON.stringify({
-            visible: barRoot.visible,
+            visible: panel ? panel.visible === true : barRoot.visible,
             hidden: barRoot.barHidden,
             hiddenState: barRoot.hiddenStateReadState,
             hiddenStateError: barRoot.hiddenStateReadError,
             transparent: barRoot.transparent,
-            surface: String(barSurface.color),
-            border: String(barSurface.border.color),
+            surface: panel ? panel.surfaceColor : "",
+            border: panel ? panel.surfaceBorderColor : "",
             themeBackground: String(Theme.bar.background),
             themeAccent: String(Theme.bar.active),
             themeText: String(barRoot.foreground),
@@ -730,105 +812,18 @@ PanelWindow {
         barRoot.scheduleTransparentForegroundRefresh()
     }
 
-    Rectangle {
-        id: barSurface
-        anchors.fill: parent
-        color: barRoot.transparent ? "transparent" : Theme.bar.background
-        border.color: barRoot.transparent ? "transparent" : Theme.bar.border
-        border.width: barRoot.transparent ? 0 : Theme.borderWidthDefault
+    // Omarchy creates the mapped bar surface once per monitor. Keeping this
+    // variant boundary in the resident host is what prevents a position or
+    // monitor transition from reusing one window's stale global geometry.
+    Variants {
+        model: Quickshell.screens
 
-        Item {
-            id: content
-            anchors.fill: parent
-            anchors.leftMargin: barRoot.vertical ? 0 : barRoot.barOuterMargin
-            anchors.rightMargin: barRoot.vertical ? 0 : barRoot.barOuterMargin
-            anchors.topMargin: barRoot.vertical ? barRoot.barOuterMargin : 0
-            anchors.bottomMargin: barRoot.vertical ? barRoot.barOuterMargin : 0
-
-            // Stable fallback anchor for center-on-bar panels while a widget
-            // slot is still being registered. It is non-interactive and does
-            // not replace a real widget anchor when one is available.
-            Item {
-                id: barContentAnchor
-                objectName: "aurelia-bar-content-anchor"
-                anchors.fill: parent
-                visible: true
-                opacity: 0
-                enabled: false
-                z: -100
-            }
-
-            GridLayout {
-                id: leftGroup
-                anchors.left: barRoot.vertical ? undefined : parent.left
-                anchors.top: barRoot.vertical ? parent.top : undefined
-                anchors.horizontalCenter: barRoot.vertical ? parent.horizontalCenter : undefined
-                anchors.verticalCenter: barRoot.vertical ? undefined : parent.verticalCenter
-                columns: barRoot.vertical ? 1 : 2
-                columnSpacing: barRoot.vertical ? 0 : Theme.spacingSm
-                rowSpacing: barRoot.vertical ? Theme.spacingSm : 0
-
-                AureliaLogo {
-                    bar: barRoot
-                    shell: barRoot.shell
-                    Layout.preferredWidth: barRoot.vertical ? barRoot.barSize : implicitWidth
-                    Layout.preferredHeight: barRoot.vertical ? implicitHeight : barRoot.barSize
-                }
-
-                BarWidgetRow {
-                    entries: barRoot.entriesFor("left")
-                    bar: barRoot
-                    shell: barRoot.shell
-                    pluginRegistry: barRoot.pluginRegistry
-                    barWidgetRegistry: barRoot.barWidgetRegistry
-                    pluginHost: barRoot.pluginHost
-                    aureliaPath: barRoot.aureliaPath
-                    region: "left"
-                    Layout.preferredWidth: barRoot.vertical ? barRoot.barSize : implicitWidth
-                    Layout.preferredHeight: barRoot.vertical ? implicitHeight : barRoot.barSize
-                }
-            }
-
-            BarCenter {
-                anchors.fill: parent
-                entries: barRoot.entriesFor("center")
-                anchorId: barRoot.centerAnchor
+        delegate: Component {
+            BarPanel {
+                required property var modelData
                 bar: barRoot
-                shell: barRoot.shell
-                pluginRegistry: barRoot.pluginRegistry
-                barWidgetRegistry: barRoot.barWidgetRegistry
-                pluginHost: barRoot.pluginHost
-                aureliaPath: barRoot.aureliaPath
+                screenModel: modelData
             }
-
-            BarWidgetRow {
-                id: rightGroup
-                anchors.right: barRoot.vertical ? undefined : parent.right
-                anchors.bottom: barRoot.vertical ? parent.bottom : undefined
-                anchors.horizontalCenter: barRoot.vertical ? parent.horizontalCenter : undefined
-                anchors.verticalCenter: barRoot.vertical ? undefined : parent.verticalCenter
-                entries: barRoot.entriesFor("right")
-                bar: barRoot
-                shell: barRoot.shell
-                pluginRegistry: barRoot.pluginRegistry
-                barWidgetRegistry: barRoot.barWidgetRegistry
-                pluginHost: barRoot.pluginHost
-                aureliaPath: barRoot.aureliaPath
-                region: "right"
-            }
-        }
-
-        Rectangle {
-            id: widgetDropMarker
-            readonly property var geometry: barRoot.widgetDropMarkerGeometry
-            visible: barRoot.widgetDragActive && geometry !== null
-            x: geometry ? geometry.x : 0
-            y: geometry ? geometry.y : 0
-            width: geometry ? geometry.width : 0
-            height: geometry ? geometry.height : 0
-            radius: Math.min(width, height) / 2
-            color: barRoot.barForeground
-            z: 100
         }
     }
 

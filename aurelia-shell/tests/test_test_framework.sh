@@ -53,6 +53,17 @@ else
     fail "[isolated-framework] runtime skip classifier masked an unrelated diagnostic"
 fi
 
+property_error_log="$strict_root/property-error.log"
+property_error_source='file://'"/tmp/Bar.qml[309:-1]"
+printf '%s\n' \
+    "WARN scene: ${property_error_source}: Error: Cannot assign to non-existent property \"transparentForeground\"" \
+    >"$property_error_log"
+if ! runtime_log_is_environment_only "$property_error_log"; then
+    pass "[isolated-framework] production non-existent-property diagnostics always fail runtime skip classification"
+else
+    fail "[isolated-framework] production non-existent-property diagnostic was incorrectly accepted"
+fi
+
 isolated_suite="$strict_root/child-suite.sh"
 printf '%s\n' 'pass child-suite-pass' 'skip child-suite-skip' >"$isolated_suite"
 suite_output="$strict_root/child-suite.out"

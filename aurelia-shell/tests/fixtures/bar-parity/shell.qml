@@ -11,7 +11,9 @@ ShellRoot {
     readonly property string resultPath: Quickshell.env("AURELIA_BAR_PARITY_RESULT") || ""
     readonly property string centerSource: Quickshell.env("AURELIA_BAR_PARITY_CENTER_SOURCE") || ""
     readonly property string slotSource: Quickshell.env("AURELIA_BAR_PARITY_SLOT_SOURCE") || ""
+    readonly property string logoSource: Quickshell.env("AURELIA_BAR_PARITY_LOGO_SOURCE") || ""
     property bool evaluated: false
+    property string logoActionResult: ""
 
     QtObject {
         id: fakeShell
@@ -33,6 +35,10 @@ ShellRoot {
         function moveBarWidget(id, placement) {
             lastMoveId = String(id || "")
             lastMovePlacement = String(placement || "")
+            return "ok"
+        }
+
+        function summon(id, payload) {
             return "ok"
         }
     }
@@ -110,6 +116,17 @@ ShellRoot {
         }
     }
 
+    Loader {
+        id: logoLoader
+        source: root.logoSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.shell = fakeShell
+            root.logoActionResult = String(item.openCommandCenter() || "")
+            root.evaluate()
+        }
+    }
+
     function writeResult(value) {
         if (root.evaluated || root.resultPath === "") return
         root.evaluated = true
@@ -117,10 +134,12 @@ ShellRoot {
     }
 
     function evaluate() {
-        if (centerLoader.item === null || slotLoader.item === null) return
+        if (centerLoader.item === null || slotLoader.item === null || logoLoader.item === null) return
         root.writeResult({
             centerConstructed: centerLoader.item !== null,
             slotConstructed: slotLoader.item !== null,
+            logoConstructed: logoLoader.item !== null,
+            logoActionResult: root.logoActionResult,
             facadeTransparent: facade.transparent === true,
             facadeForeground: String(facade.barForeground),
             topEdge: root.nearestEdge({x: 320, y: 5}, 640, 360),

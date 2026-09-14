@@ -60,7 +60,7 @@ runtime_log_is_environment_only() {
         # These messages are emitted by dependent QML types after the
         # compositor/window backend has already failed. They are accepted only
         # in that explicit context; application warnings remain failures.
-        allowed="${allowed}|Type AureliaKeyboardPanel unavailable|Type CommandCenterPanel unavailable|ERROR: Failed to load configuration|\\[[A-Z]+\\] (audio|network|power)_?panel_load_failed|\\[[A-Z]+\\] panel_load_failed"
+            allowed="${allowed}|Type AureliaKeyboardPanel unavailable|Type CommandCenterPanel unavailable|Type BarPanel unavailable|Type ScreenMoveRemap unavailable|ERROR: Failed to load configuration|\\[[A-Z]+\\] (audio|network|power)_?panel_load_failed|\\[[A-Z]+\\] panel_load_failed"
     fi
     allowed="${allowed}|Failed to connect to system scope bus via local transport: Operation not permitted"
     if [[ -n "$extra_allowed" ]]; then allowed="${allowed}|${extra_allowed}"; fi

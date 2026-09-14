@@ -10,6 +10,7 @@ Item {
     id: root
 
     property var bar: null
+    property var barPanel: null
     property var shell: null
     property var pluginRegistry: null
     property var barWidgetRegistry: null
@@ -104,6 +105,7 @@ Item {
         ? (root.vertical ? Math.max(1, Number(widgetItem.implicitHeight || 0)) : root.barSize)
         : 0
     visible: active && available && widgetItem !== null
+    clip: true
 
     function configure(target) {
         if (!target) return
@@ -268,30 +270,30 @@ Item {
     DragHandler {
         id: reorderHandler
         target: null
-        enabled: root.visible && root.width > 0 && root.height > 0 && root.bar !== null &&
-            typeof root.bar.beginWidgetDrag === "function"
+        enabled: root.visible && root.width > 0 && root.height > 0 && root.barPanel !== null &&
+            typeof root.barPanel.beginWidgetDrag === "function"
         acceptedButtons: Qt.LeftButton
         dragThreshold: root.bar && root.bar.barDragThreshold !== undefined
             ? Number(root.bar.barDragThreshold) : 4
         grabPermissions: PointerHandler.CanTakeOverFromAnything
 
         onActiveChanged: {
-            if (!root.bar) return
+            if (!root.barPanel) return
             if (active) {
-                root.bar.beginWidgetDrag(root, centroid.scenePosition)
-            } else if (typeof root.bar.endWidgetDrag === "function") {
-                root.bar.endWidgetDrag(root)
+                root.barPanel.beginWidgetDrag(root, centroid.scenePosition)
+            } else if (typeof root.barPanel.endWidgetDrag === "function") {
+                root.barPanel.endWidgetDrag(root)
             }
         }
 
         onCentroidChanged: {
-            if (active && root.bar && typeof root.bar.updateWidgetDrag === "function")
-                root.bar.updateWidgetDrag(root, centroid.scenePosition)
+            if (active && root.barPanel && typeof root.barPanel.updateWidgetDrag === "function")
+                root.barPanel.updateWidgetDrag(root, centroid.scenePosition)
         }
 
         onCanceled: {
-            if (root.bar && typeof root.bar.cancelWidgetDrag === "function")
-                root.bar.cancelWidgetDrag(root)
+            if (root.barPanel && typeof root.barPanel.cancelWidgetDrag === "function")
+                root.barPanel.cancelWidgetDrag(root)
         }
     }
 

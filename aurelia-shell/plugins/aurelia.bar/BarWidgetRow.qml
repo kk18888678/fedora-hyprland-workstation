@@ -10,6 +10,7 @@ Item {
 
     property var entries: []
     property var bar: null
+    property var barPanel: null
     property var shell: null
     property var pluginRegistry: null
     property var barWidgetRegistry: null
@@ -70,6 +71,7 @@ Item {
                 instanceId: root.entryInstanceId(modelData)
                 settings: root.entrySettings(modelData)
                 bar: root.bar
+                barPanel: root.barPanel
                 shell: root.shell
                 pluginRegistry: root.pluginRegistry
                 barWidgetRegistry: root.barWidgetRegistry

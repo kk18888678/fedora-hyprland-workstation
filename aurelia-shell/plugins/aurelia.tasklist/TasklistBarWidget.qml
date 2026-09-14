@@ -21,8 +21,9 @@ Item {
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
 
-    implicitWidth: taskRow.implicitWidth
-    implicitHeight: bar ? bar.barSize : 26
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    implicitWidth: root.vertical ? (bar ? bar.barSize : 26) : taskRow.implicitWidth
+    implicitHeight: root.vertical ? taskRow.implicitHeight : (bar ? bar.barSize : 26)
     visible: Hyprland.toplevels && Hyprland.toplevels.values.length > 0
 
     function configureMenu(target) {
@@ -79,10 +80,12 @@ Item {
 
     onBarChanged: root.configureMenu(menuLoader.item)
 
-    RowLayout {
+    GridLayout {
         id: taskRow
         anchors.centerIn: parent
-        spacing: Theme.spacingXs
+        columns: root.vertical ? 1 : Math.max(1, Hyprland.toplevels ? Hyprland.toplevels.values.length : 1)
+        columnSpacing: root.vertical ? 0 : Theme.spacingXs
+        rowSpacing: 0
 
         Repeater {
             model: Hyprland.toplevels
@@ -90,8 +93,10 @@ Item {
             delegate: Item {
                 id: taskDelegate
                 required property var modelData
-                Layout.preferredWidth: 24
-                Layout.preferredHeight: root.bar ? root.bar.barSize - 6 : 20
+                Layout.preferredWidth: root.vertical ? (root.bar ? root.bar.barSize : 26) : 24
+                Layout.preferredHeight: root.vertical
+                    ? (root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : 27)
+                    : (root.bar ? root.bar.barSize - 6 : 20)
 
                 readonly property var appEntry: {
                     var handle = modelData.handle

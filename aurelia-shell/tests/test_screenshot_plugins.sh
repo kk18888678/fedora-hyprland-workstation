@@ -45,8 +45,8 @@ if [[ -x "$capture_bin" ]] &&
    grep -q -- '--show-pointer' "$capture_bin" &&
    grep -q -- '--geometry' "$capture_bin" &&
    grep -q '.aurelia-screenshot-XXXXXX.png' "$capture_bin" &&
-   grep -q 'mv -f -- "$capture_path" "$published_path"' "$capture_bin" &&
-   grep -q '"$capture_mode" == "full"' "$capture_bin" &&
+   grep -q "mv -f -- \"\$capture_path\" \"\$published_path\"" "$capture_bin" &&
+   grep -q "\"\$capture_mode\" == \"full\"" "$capture_bin" &&
    ! grep -Eq '(^|[[:space:];])eval([[:space:];]|$)' "$capture_bin"; then
     pass "Screenshot backend keeps bounded full/region capture without dead window code or eval"
 else
@@ -142,12 +142,13 @@ else
 fi
 
 if grep -q 'target: "aurelia.bar"' "$bar_root/Bar.qml" &&
-   grep -q 'BarWidgetRow' "$bar_root/Bar.qml" &&
-   grep -q 'BarCenter' "$bar_root/Bar.qml" &&
+   grep -q 'BarWidgetRow' "$bar_root/BarPanel.qml" &&
+   grep -q 'BarCenter' "$bar_root/BarPanel.qml" &&
    grep -q 'barSize: vertical ? Theme.bar.sizeVertical : Theme.bar.sizeHorizontal' "$bar_root/Bar.qml" &&
-   grep -q 'AureliaLogo' "$bar_root/Bar.qml" &&
+   grep -q 'AureliaLogo' "$bar_root/BarPanel.qml" &&
    grep -q 'centerAnchor' "$bar_root/Bar.qml" &&
-   grep -q 'visible: true' "$bar_root/Bar.qml" &&
+   grep -q 'visible: !remapGuard.remapping' "$bar_root/BarPanel.qml" &&
+   grep -q 'model: Quickshell.screens' "$bar_root/Bar.qml" &&
    [[ -f "$bar_root/BarWidgetSlot.qml" && -f "$bar_root/BarWidgetRow.qml" && -f "$bar_root/BarCenter.qml" ]] &&
    grep -q 'entryPointUrl(root.pluginId, "bar-widget")' "$bar_root/BarWidgetSlot.qml"; then
     pass "Bar exposes manifest-backed theme-aware widgets and the compact screenshot action"

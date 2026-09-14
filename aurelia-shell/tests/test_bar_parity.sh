@@ -9,6 +9,7 @@ section "Omarchy Bar Interaction and Transparency Parity"
 
 bar_root="$ROOT/plugins/aurelia.bar"
 bar_file="$bar_root/Bar.qml"
+panel_file="$bar_root/BarPanel.qml"
 center_file="$bar_root/BarCenter.qml"
 slot_file="$bar_root/BarWidgetSlot.qml"
 api_file="$ROOT/services/PluginBarApi.qml"
@@ -18,7 +19,7 @@ text_color_bin="$ROOT/bin/aurelia-bar-text-color"
 if [[ -x "$text_color_bin" ]] &&
    grep -Fq 'fallback missing-magick' "$text_color_bin" &&
    grep -Fq 'BarInteractionModel.js' "$bar_file" &&
-   grep -Fq 'surfaceFormat.opaque: false' "$bar_file" &&
+   grep -Fq 'surfaceFormat.opaque: false' "$panel_file" &&
    grep -Fq 'function refreshTransparentForeground' "$bar_file" &&
    grep -Fq 'function beginBarMove' "$bar_file" &&
    grep -Fq 'function beginWidgetDrag' "$bar_file" &&
@@ -26,7 +27,7 @@ if [[ -x "$text_color_bin" ]] &&
    grep -Fq 'onPressAndHold: function(mouse)' "$center_file" &&
    grep -Fq 'DragHandler {' "$slot_file" &&
    grep -Fq 'moveBarWidget' "$bar_file" &&
-   ! grep -Fq 'mapFromItem' "$bar_file" "$center_file" "$slot_file"; then
+   ! grep -Fq 'mapFromItem' "$bar_file" "$center_file" "$slot_file" "$panel_file"; then
     pass "[static] bar owns transparent foreground, direct gestures, and safe item-coordinate boundaries"
 else
     fail "[static] T53 bar interaction or transparency boundary is incomplete"
@@ -165,6 +166,7 @@ runtime_status=0
 AURELIA_BAR_PARITY_RESULT="$runtime_result" \
 AURELIA_BAR_PARITY_CENTER_SOURCE="$bar_root/BarCenter.qml" \
 AURELIA_BAR_PARITY_SLOT_SOURCE="$bar_root/BarWidgetSlot.qml" \
+AURELIA_BAR_PARITY_LOGO_SOURCE="$bar_root/AureliaLogo.qml" \
 QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
 XDG_RUNTIME_DIR="$runtime_root/runtime" XDG_CONFIG_HOME="$runtime_root/config" \
 XDG_STATE_HOME="$runtime_root/state" XDG_CACHE_HOME="$runtime_root/cache" \
@@ -175,6 +177,8 @@ if [[ "$runtime_status" -eq 0 && -s "$runtime_result" ]] &&
    jq -e '
        .centerConstructed == true and
        .slotConstructed == true and
+       .logoConstructed == true and
+       .logoActionResult == "ok" and
        .facadeTransparent == true and
        .facadeForeground == "#101010" and
        .topEdge == "top" and .bottomEdge == "bottom" and

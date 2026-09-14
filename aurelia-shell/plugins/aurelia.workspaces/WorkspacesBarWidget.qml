@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell.Hyprland
 import "../../theme"
+import "WorkspaceActionModel.js" as WorkspaceActionModel
 
 Item {
     id: root
@@ -56,17 +57,40 @@ Item {
     }
 
     function focusWorkspace(id) {
-        if (!root.validWorkspaceId(id)) return false
-        // Quickshell already owns the Hyprland IPC connection. Dispatching
-        // through it avoids depending on HYPRLAND_INSTANCE_SIGNATURE being
-        // exported to a child process and still accepts only normalized IDs.
-        var workspaceId = String(Number(id))
-        if (Hyprland.usingLua) {
-            Hyprland.dispatch("hl.dsp.focus({ workspace = \"" + workspaceId + "\" })")
-        } else {
-            Hyprland.dispatch("workspace " + workspaceId)
+        if (!root.validWorkspaceId(id)) {
+            console.error("[WORKSPACES] click_failed reason=invalid_workspace id=" + String(id || ""))
+            return "invalid-workspace"
         }
-        return true
+        var workspace = root.workspaceById(id)
+        var action = WorkspaceActionModel.actionFor(workspace, id, Hyprland.usingLua)
+        if (!action.ok) {
+            console.error("[WORKSPACES] click_failed reason=" + action.reason +
+                " id=" + String(id || ""))
+            return action.reason
+        }
+        if (action.mode === "object") {
+            try {
+                workspace.activate()
+                console.info("[WORKSPACES] click_dispatched id=" + action.id + " mode=object")
+                return "ok"
+            } catch (error) {
+                console.error("[WORKSPACES] click_failed id=" + action.id +
+                    " mode=object reason=activation_exception")
+                return "error"
+            }
+        }
+
+        // Empty baseline workspaces do not have a live object to activate.
+        // Quickshell owns the Hyprland IPC connection for this fallback.
+        try {
+            Hyprland.dispatch(action.command)
+            console.info("[WORKSPACES] click_dispatched id=" + action.id + " mode=dispatch")
+            return "ok"
+        } catch (error2) {
+            console.error("[WORKSPACES] click_failed id=" + action.id +
+                " mode=dispatch reason=dispatch_exception")
+            return "error"
+        }
     }
 
     GridLayout {

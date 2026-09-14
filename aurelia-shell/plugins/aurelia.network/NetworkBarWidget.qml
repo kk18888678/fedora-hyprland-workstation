@@ -52,8 +52,10 @@ Item {
         (settings.showLabel === true || settings.showLabel === "true"))
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
 
-    implicitWidth: showLabel ? barContent.implicitWidth + Theme.spacingSm * 2 : (bar ? bar.barSize : 32)
+    implicitWidth: showLabel && !root.vertical
+        ? barContent.implicitWidth + Theme.spacingSm * 2 : (bar ? bar.barSize : 32)
     implicitHeight: bar ? bar.barSize : 32
 
     function configurePanel(target) {
@@ -166,7 +168,7 @@ Item {
             }
 
             Text {
-                visible: root.showLabel
+                visible: root.showLabel && !root.vertical
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.networkPanel ? root.networkPanel.barLabel : "Network"
                 width: root.showLabel ? Math.min(150, implicitWidth) : 0

@@ -30,6 +30,7 @@ Item {
     property bool weatherReady: false
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
 
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-weather"
@@ -48,7 +49,8 @@ Item {
     })
 
     visible: root.weatherReady
-    implicitWidth: root.weatherReady ? weatherRow.implicitWidth + Theme.spacingSm * 2 : 0
+    implicitWidth: root.weatherReady && !root.vertical ? weatherRow.implicitWidth + Theme.spacingSm * 2 :
+        (root.weatherReady ? (root.bar ? root.bar.barSize : 26) : 0)
     implicitHeight: bar ? bar.barSize : 26
 
     Loader {
@@ -277,6 +279,7 @@ Item {
         }
 
         Text {
+            visible: !root.vertical
             anchors.verticalCenter: parent.verticalCenter
             text: root.temperatureText
             color: root.barForeground

@@ -107,6 +107,11 @@ ShellRoot {
         return root.bar ? root.bar.callWidget("healthy.widget", "health", "") : "missing"
     }
 
+    function surface() {
+        return root.bar && Array.isArray(root.bar.barPanels) && root.bar.barPanels.length > 0
+            ? root.bar.barPanels[0] : null
+    }
+
     function finish() {
         if (root.evaluated || !root.bar) return
         root.evaluated = true
@@ -139,8 +144,8 @@ ShellRoot {
         running: true
         repeat: false
         onTriggered: {
-            if (!root.bar) { restart(); return }
-            root.initialVisible = root.bar.visible === true
+            if (!root.bar || !root.surface()) { restart(); return }
+            root.initialVisible = root.surface().visible === true
             root.widgetBefore = root.widgetHealth()
             if (!writerProcess.running) writerProcess.running = true
         }
@@ -151,11 +156,11 @@ ShellRoot {
         interval: 500
         repeat: false
         onTriggered: {
-            if (!root.bar || root.bar.barHidden !== true) { restart(); return }
+            if (!root.bar || !root.surface() || root.bar.barHidden !== true) { restart(); return }
             root.hidden = true
-            root.hiddenVisible = root.bar.visible === true
-            root.hiddenExclusion = root.bar.exclusionMode === ExclusionMode.Ignore
-            root.hiddenOffscreen = root.bar.margins.top < 0
+            root.hiddenVisible = root.surface().visible === true
+            root.hiddenExclusion = root.surface().exclusionMode === ExclusionMode.Ignore
+            root.hiddenOffscreen = root.surface().margins.top < 0
             root.widgetAfter = root.widgetHealth()
             if (!restoreProcess.running) restoreProcess.running = true
         }
@@ -166,9 +171,9 @@ ShellRoot {
         interval: 500
         repeat: false
         onTriggered: {
-            if (!root.bar || root.bar.barHidden === true) { restart(); return }
+            if (!root.bar || !root.surface() || root.bar.barHidden === true) { restart(); return }
             root.restored = true
-            root.restoredExclusion = root.bar.exclusionMode === ExclusionMode.Auto
+            root.restoredExclusion = root.surface().exclusionMode === ExclusionMode.Auto
             root.finish()
         }
     }

@@ -38,10 +38,11 @@ if [[ -f "$watcher_file" ]] &&
    grep -Fq 'SplitParser' "$watcher_file" &&
    grep -Fq 'syncHidden' "$bar_file" &&
    grep -Fq 'hidden_state_watcher_failed' "$watcher_file" &&
-   grep -Fq 'ExclusionMode.Ignore' "$bar_file" &&
-   grep -Fq 'visible: true' "$bar_file" &&
+   grep -Fq 'ExclusionMode.Ignore' "$bar_root/BarPanel.qml" &&
+   grep -Fq 'visible: !remapGuard.remapping' "$bar_root/BarPanel.qml" &&
+   grep -Fq 'ScreenMoveRemap' "$bar_root/BarPanel.qml" &&
    ! grep -Fq 'FileView' "$bar_file"; then
-    pass "[static] bar hiding uses the runtime-supported parent watcher, keeps the surface mapped, and leaves diagnostics enabled"
+    pass "[static] bar hiding uses the runtime-supported parent watcher and reference-shaped mapped panel remap boundary"
 else
     fail "[static] resident bar hidden-state watcher or truthful diagnostic boundary is incomplete"
 fi

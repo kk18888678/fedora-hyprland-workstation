@@ -20,9 +20,10 @@ Item {
     readonly property var trayMenuPanel: trayMenuLoader.item
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
 
-    implicitWidth: trayRow.implicitWidth
-    implicitHeight: bar ? bar.barSize : 32
+    implicitWidth: root.vertical ? (bar ? bar.barSize : 32) : trayRow.implicitWidth
+    implicitHeight: root.vertical ? trayRow.implicitHeight : (bar ? bar.barSize : 32)
     visible: SystemTray.items && SystemTray.items.values.length > 0
 
     function isSymbolicIcon(icon) {
@@ -89,10 +90,12 @@ Item {
 
     onBarChanged: root.configureTrayMenu(trayMenuLoader.item)
 
-    RowLayout {
+    GridLayout {
         id: trayRow
         anchors.centerIn: parent
-        spacing: 0
+        columns: root.vertical ? 1 : Math.max(1, SystemTray.items ? SystemTray.items.values.length : 1)
+        columnSpacing: 0
+        rowSpacing: 0
 
         Repeater {
             model: SystemTray.items
@@ -100,8 +103,12 @@ Item {
             delegate: Item {
                 id: trayDelegate
                 required property var modelData
-                Layout.preferredWidth: root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : 27
-                Layout.preferredHeight: root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot
+                Layout.preferredWidth: root.vertical
+                    ? (root.bar && root.bar.barSize ? root.bar.barSize : 32)
+                    : (root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : 27)
+                Layout.preferredHeight: root.vertical
+                    ? (root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot)
+                    : (root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot)
 
                 AureliaIcon {
                     anchors.centerIn: parent

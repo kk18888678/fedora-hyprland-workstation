@@ -54,9 +54,8 @@ if [[ -f "$workspace_root/manifest.json" && -f "$workspace_root/WorkspacesBarWid
    grep -Fq 'implicitHeight: root.barSize' "$workspace_root/WorkspacesBarWidget.qml" &&
    grep -Fq 'Layout.preferredHeight: root.barSize' "$workspace_root/WorkspacesBarWidget.qml" &&
    ! grep -Fq 'cellInset' "$workspace_root/WorkspacesBarWidget.qml" &&
-   grep -Fq 'if (Hyprland.usingLua)' "$workspace_root/WorkspacesBarWidget.qml" &&
-   grep -Fq 'Hyprland.dispatch("hl.dsp.focus' "$workspace_root/WorkspacesBarWidget.qml" &&
-   grep -Fq 'Hyprland.dispatch("workspace " + workspaceId)' "$workspace_root/WorkspacesBarWidget.qml" &&
+   grep -Fq 'WorkspaceActionModel.actionFor' "$workspace_root/WorkspacesBarWidget.qml" &&
+   grep -Fq 'Hyprland.dispatch(action.command)' "$workspace_root/WorkspacesBarWidget.qml" &&
    ! grep -q 'focusProcess' "$workspace_root/WorkspacesBarWidget.qml" &&
    ! grep -q 'modelData.activate' "$workspace_root/WorkspacesBarWidget.qml"; then
     pass "Workspace switcher mirrors the reference model/state/layout, renders dots for empty workspaces and a theme-aware active glyph without cell highlighting, stays inside the bar, and focuses through native Hyprland IPC"
@@ -110,9 +109,11 @@ if grep -Fq 'barOuterMargin: Theme.bar.outerMargin' "$bar_root/Bar.qml" &&
    grep -Fq 'barTextSize: Theme.bar.text' "$bar_root/Bar.qml" &&
    grep -Fq 'barCaptionSize: Theme.bar.caption' "$bar_root/Bar.qml" &&
    grep -Fq 'barSize: vertical ? Theme.bar.sizeVertical : Theme.bar.sizeHorizontal' "$bar_root/Bar.qml" &&
-   grep -Fq 'anchors.leftMargin: barRoot.vertical ? 0 : barRoot.barOuterMargin' "$bar_root/Bar.qml" &&
-   grep -Fq 'anchors.rightMargin: barRoot.vertical ? 0 : barRoot.barOuterMargin' "$bar_root/Bar.qml" &&
-   grep -Fq 'bar: barRoot' "$bar_root/Bar.qml"; then
+   grep -Fq 'anchors.leftMargin: contentRoot.orientationVertical ? 0' "$bar_root/BarPanel.qml" &&
+   grep -Fq 'anchors.rightMargin: contentRoot.orientationVertical ? 0' "$bar_root/BarPanel.qml" &&
+   grep -Fq 'bar: panelRoot.bar' "$bar_root/BarPanel.qml" &&
+   grep -Fq 'model: Quickshell.screens' "$bar_root/Bar.qml" &&
+   grep -Fq 'BarPanel' "$bar_root/Bar.qml"; then
     pass "Bar geometry keeps the reference edge margin, shared icon slot, and minimum readable text metrics without changing palette tokens"
 else
     fail "Reference bar geometry metrics or shared widget injection is incomplete"
@@ -195,7 +196,8 @@ else
     fail "System tray bar widget is incomplete"
 fi
 
-if grep -Fq 'spacing: 0' "$tray_root/TrayBarWidget.qml" &&
+if grep -Fq 'columnSpacing: 0' "$tray_root/TrayBarWidget.qml" &&
+   grep -Fq 'rowSpacing: 0' "$tray_root/TrayBarWidget.qml" &&
    grep -Fq 'root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : 27' "$tray_root/TrayBarWidget.qml" &&
    grep -Fq 'root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot' "$tray_root/TrayBarWidget.qml" &&
    grep -Fq 'root.bar && root.bar.barTrayIcon ? root.bar.barTrayIcon : Theme.bar.trayIcon' "$tray_root/TrayBarWidget.qml"; then

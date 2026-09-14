@@ -46,7 +46,7 @@ if grep -q 'configurePluginTarget' "$host_root" &&
    grep -q 'host.scopedBarWidgetRegistryApiFor' "$host_root" &&
    grep -q 'property var pluginHost' "$bar_root/BarWidgetSlot.qml" &&
    grep -q 'pluginManifest.__isFirstParty !== false' "$bar_root/BarWidgetSlot.qml" &&
-   grep -q 'pluginHost: barRoot.pluginHost' "$bar_root/Bar.qml" &&
+   grep -q 'pluginHost: panelRoot.bar ? panelRoot.bar.pluginHost' "$bar_root/BarPanel.qml" &&
    grep -q 'registryApiComponent: pluginRegistryApiComponent' "$shell_root"; then
     pass "[static] third-party bar entries receive scoped host injection while first-party wiring remains explicit"
 else

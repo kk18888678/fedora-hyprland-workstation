@@ -90,8 +90,8 @@ fi
 
 if grep -q 'function themeStatus()' "$ROOT/plugins/aurelia.bar/Bar.qml" &&
    grep -q 'function barThemeStatus(): string' "$ROOT/shell.qml" &&
-   grep -q 'id: barSurface' "$ROOT/plugins/aurelia.bar/Bar.qml"; then
-    pass "bar exposes its bound surface and shared theme values for runtime diagnosis"
+   grep -q 'id: barSurface' "$ROOT/plugins/aurelia.bar/BarPanel.qml"; then
+    pass "bar host exposes its mapped panel surface and shared theme values for runtime diagnosis"
 else
     fail "bar runtime theme diagnosis is incomplete"
 fi
