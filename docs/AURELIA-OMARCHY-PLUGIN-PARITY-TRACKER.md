@@ -4225,6 +4225,40 @@ CP2 status: `[x]` the observed production warning, exact source cause,
 strict-test requirement, source boundary, rollback, and no-live-impact rules
 are recorded before corrective source implementation.
 
+Corrective architecture checkpoint — T54 surface-boundary audit:
+
+- The refreshed Omarchy reference was re-read at `/tmp/omarchy-reference`,
+  branch `quattro`, SHA `31bd80daa4613ffdee995ac27467fce5a2990806`.
+- Omarchy's production bar entry point is an `Item` host. It creates one
+  explicit `BarPanel: PanelWindow` per `Quickshell.screens`; the mapped panel,
+  not the host, owns layer-shell anchors, surface format, remap visibility,
+  horizontal/vertical content loading, and per-screen pointer ownership.
+- Aurelia's current `Bar.qml` is itself a single `PanelWindow`. The pending
+  orientation workaround hides and rebuilds content inside that one window;
+  this is not the reference surface boundary and is insufficient evidence for
+  edge-transition parity. It is the identified cause class for the reported
+  slow movement and widgets leaving the visible bar after repeated moves.
+- T54 source correction is therefore expanded to the smallest reference-shaped
+  boundary: keep `Bar.qml` as the resident Aurelia host API, introduce an
+  explicit mapped panel component/variant boundary, move surface-local content
+  and gesture ownership under that panel, and use a remap guard at the mapped
+  panel boundary. The existing Aurelia CLI, plugin IDs, JSON layout, and
+  `ShellConfig` mutation owner remain unchanged.
+- The correction must be production-loaded; no test-only replacement of the
+  mapped surface is acceptable. A production-entrypoint fixture must exercise
+  the same `Bar.qml` construction path and fail on any `WARN`, `ERROR`,
+  `TypeError`, non-existent property, or `Loader.Error` other than an
+  explicitly classified unavailable compositor backend.
+- No source implementation has been made for this corrective expansion yet.
+  This checkpoint is recorded before that work. Rollback remains limited to
+  the T54 bar boundary, interaction tests, and tracker evidence; T53 remains
+  recoverable at its implementation commits.
+
+Corrective architecture checkpoint status: `[x]` the reference-shaped mapped
+surface boundary, observed failure class, production-loading requirement,
+compatibility invariants, and no-live-impact rules are recorded before the
+next source edit.
+
 Dependencies: T33, T43, T46, T53.
 
 ---
