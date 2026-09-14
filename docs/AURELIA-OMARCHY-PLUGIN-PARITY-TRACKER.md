@@ -4302,16 +4302,24 @@ Dependencies: T33, T43, T46, T53.
 
 ### T55. Enforce repository-wide no diagnostic suppression
 
-Execution status: NOT STARTED — audit checkpoint recorded before suppression
-remediation
+Execution status: IN PROGRESS — expanded repository-wide diagnostic boundary
+checkpoint recorded; implementation is not yet complete
 
 Observed audit finding:
 
 - The current repository-wide T31 claim is not true. A fresh static audit found
-  `55` `printErrors: false` occurrences across production QML and test
-  fixtures, `5` Aurelia runtime-test diagnostic paths using `grep -Ev` to remove
+  `55` disabled FileView error-reporting settings across production QML and
+  test fixtures, `5` Aurelia runtime-test diagnostic paths using negative-match
+  filters to remove
   selected warnings/errors before assertion, and `18` empty production/test
   `catch` blocks that discard parse, object-lifetime, or backend failures.
+- A second audit found `604` direct `2>/dev/null` stderr discards and `440`
+  compound output-to-`/dev/null` paths across the repository. These are not
+  all QML warnings, but they create the same observability hazard when a real
+  command failure is hidden behind a status probe, fallback, cleanup, or
+  detached launch. They must be reviewed and removed or changed to preserve
+  the diagnostic stream. The final policy cannot claim repository-wide
+  visibility while these paths remain unclassified.
 - These constructs are not equivalent to safe failure isolation. They can make
   a broken plugin look healthy, hide the exact QML diagnostic needed to repair
   it, and allow a fixture to pass after the failure has been removed from its
@@ -4324,7 +4332,8 @@ Observed audit finding:
 
 Scope:
 
-- Remove `printErrors: false` from every production and test QML file. Use the
+- Remove disabled FileView error-reporting settings from every production and
+  test QML file. Use the
   default FileView error reporting or `printErrors: true`; when a file is
   optional, retain an explicit existence/state branch and log its reason.
 - Replace every runtime-test diagnostic pipeline that removes lines with a
@@ -4337,15 +4346,19 @@ Scope:
   either produce a bounded structured diagnostic and an explicit result/state,
   or be eliminated by validating before the operation. Expected malformed input
   remains a reported rejection, not a silent fallback.
-- Audit discarded stderr in the Aurelia runtime boundary. Redirect complete
+- Audit every discarded stderr stream in the complete repository, including
+  Aurelia QML/JS, Aurelia Bash/Lua/configuration, Aurelia tests, installer
+  modules, root scripts, and documentation examples. Redirect complete
   process output to a captured log when the command is tested; do not use
-  `/dev/null` to make an operation appear clean. Non-diagnostic probes may
-  keep their status-only behavior only when their failure is represented in an
-  explicit state and the policy test documents that boundary.
-- Add one repository policy suite that scans the complete Aurelia source,
-  fixtures, and test runner for these suppression patterns and fails closed on
-  new occurrences. The policy suite must itself avoid the forbidden filtering
-  pattern.
+  `/dev/null` to make an operation appear clean. A status-only check may
+  discard ordinary stdout only when it preserves stderr and its failure is
+  represented in an explicit state. Detached GUI/process launches must use a
+  repository/user-owned diagnostic sink or inherit the caller's streams, never
+  discard stderr.
+- Add one repository policy suite that scans the complete repository for the
+  forbidden diagnostic suppression forms and fails closed on new occurrences.
+  The policy suite must itself avoid the forbidden filtering pattern and must
+  report every finding instead of deleting lines from its input.
 - Update T31's status and completion record so no previous false completion
   claim remains. Do not claim zero suppression until the policy scan and full
   diagnostic test run are green.
@@ -4393,6 +4406,36 @@ no-live-impact rules are recorded before T55 implementation.
 Dependencies: T31, T43, T54.
 
 ---
+
+Checkpoint 3 — T55 expanded repository-wide boundary:
+
+- Starting branch/SHA: `installer-resilience` / `901f037` (the current
+  worktree also contains the previously scoped T54 follow-up and T55
+  remediation edits; neither may be overwritten).
+- Expanded owned source boundary: all repository production scripts and
+  configuration that discard stderr or both output streams, all Aurelia and
+  repository tests that hide command diagnostics, all caught failures that
+  return an unrecorded fallback, the suppression-policy suite, and this
+  tracker. This includes the installer modules because the user requirement
+  is repository-wide; it does not authorize installer execution or live host
+  mutation.
+- Forbidden forms for the completion gate: direct stderr redirection to
+  `/dev/null`, combined output redirection to `/dev/null`, Qt logging/fatal
+  warning suppression, disabled QML `FileView` errors, diagnostic line
+  deletion, empty catches, and caught failures with no observable reason.
+  Ordinary stdout suppression for a pure capability/status probe is allowed
+  only after stderr remains visible and the probe's result is explicitly
+  classified and tested.
+- Safety boundary: no installer run, package/repository transaction, live
+  user configuration change, shell restart, systemd/greetd/PAM/Hyprland/
+  Noctalia mutation, or reboot. All verification remains syntax, isolated,
+  mocked, and repository-local.
+- Rollback: revert only this expanded T55 audit/remediation and its tests;
+  preserve the prior plugin-parity and T54 source-boundary commits.
+
+CP3 status: `[x]` the complete repository scope, forbidden forms, permitted
+status-probe boundary, safety rules, and rollback boundary are recorded before
+the expanded implementation begins.
 
 ### T43. Make test outcomes truthful and warning-complete
 
