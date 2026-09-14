@@ -5322,6 +5322,39 @@ CP1 status: `[x]` the field-level reference mapping, single state owner,
 provider/failure semantics, test boundary, allowed files, no-live-impact rule,
 and rollback path are recorded before T62 implementation.
 
+Checkpoint 2 — T62 historical provider boundary correction:
+
+- Git history was audited instead of inferring the provider from the current
+  code. The original working automatic implementation in `f6270a1` requested
+  one `https://wttr.in/?format=j1` response, rendered its `current_condition`
+  directly, and exited. It did not require an Open-Meteo request for automatic
+  weather.
+- `576f0fe` changed automatic mode to extract coordinates from wttr and then
+  require Open-Meteo for the displayed current/forecast data. `9f3781d` changed
+  the first request again to the separate `format=%l` location probe, which
+  caused the demonstrated automatic-location regression. `7eb649d` restored
+  the full JSON request but kept the composite Open-Meteo state machine.
+- This explains the user's observation: the earlier Aurelia data path was not
+  the current Omarchy-shaped composite path. When wttr.in itself is unavailable
+  there is no honest automatic coordinate source in either the reference or
+  the historical Aurelia path; a new IP provider or hardcoded location would
+  be a behavioral invention, not a parity fix. Pinned coordinates remain able
+  to use Open-Meteo without an automatic location lookup.
+- Revised implementation invariant: preserve the historical direct wttr
+  automatic current-condition path as the first-class Aurelia automatic
+  provider, add the Omarchy-equivalent composite behavior only where its
+  location/forecast contract is explicitly available, and expose provider
+  state/failure truthfully. No alternate endpoint is added without an
+  authoritative reference and a separately recorded contract.
+- Allowed change remains within T62's frozen Weather scope. Before source edit,
+  tests must distinguish: direct wttr automatic success, wttr failure with no
+  fabricated location, pinned Open-Meteo success, and the Omarchy composite
+  panel/widget behavior. No live weather request or shell restart is allowed.
+
+CP2 status: `[x]` the exact historical provider transitions, outage behavior,
+revised no-invention invariant, test cases, and no-live-impact boundary are
+recorded before the Weather source change.
+
 ### T43. Make test outcomes truthful and warning-complete
 
 Execution status: COMPLETE — CP2 and CP3 passed for repository, static, and
