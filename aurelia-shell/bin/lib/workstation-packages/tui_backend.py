@@ -355,6 +355,37 @@ class PackageBackend:
         output = self._run((str(self.backend_path), "catalog-tui-installed"), timeout=300)
         return installed_keys_from_rows(output), installed_versions_from_rows(output)
 
+    def authorize(self, timeout: float = 60.0) -> None:
+        """Validate sudo credentials through the controlling terminal only."""
+
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return
+        command = ("sudo", "-v")
+        try:
+            # sudo prompts on the real terminal. Never pipe this descriptor or
+            # capture its output: that could hide the prompt or expose input.
+            with open("/dev/tty", "r+b", buffering=0) as terminal:
+                result = subprocess.run(
+                    list(command),
+                    stdin=terminal,
+                    stdout=terminal,
+                    stderr=terminal,
+                    timeout=timeout,
+                    check=False,
+                )
+        except subprocess.TimeoutExpired as error:
+            detail = f"sudo authorization timed out after {timeout:.0f}s."
+            self._emit_diagnostic(f"ERROR: {detail}\n")
+            raise BackendError(command, 124, detail) from error
+        except OSError as error:
+            detail = f"Could not authorize package operation through the terminal: {error}"
+            self._emit_diagnostic(f"ERROR: {detail}\n")
+            raise BackendError(command, 127, detail) from error
+        if result.returncode != 0:
+            detail = f"sudo authorization failed with status {result.returncode}."
+            self._emit_diagnostic(f"ERROR: {detail}\n")
+            raise BackendError(command, result.returncode, detail)
+
     def project_owned(self, row: PackageRow) -> bool:
         output = self._run(
             (

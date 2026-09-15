@@ -577,6 +577,28 @@ class TuiInteractionTests(unittest.TestCase):
             ["catalog-tui-ownership", "--provider", "dnf", "--id", row.identifier],
         )
 
+    def test_sudo_authorization_uses_the_controlling_terminal_without_capture(self) -> None:
+        backend_path = ROOT / "aurelia-shell" / "bin" / "workstation-packages"
+        backend = PackageBackend(backend_path)
+        terminal = mock.MagicMock()
+        terminal.__enter__.return_value = terminal
+        completed = mock.Mock(returncode=0)
+        with mock.patch("tui_backend.os.geteuid", return_value=1000), mock.patch("builtins.open", return_value=terminal) as open_file, mock.patch("tui_backend.subprocess.run", return_value=completed) as run:
+            backend.authorize()
+        open_file.assert_called_once_with("/dev/tty", "r+b", buffering=0)
+        self.assertEqual(run.call_args.args[0], ["sudo", "-v"])
+        self.assertIs(run.call_args.kwargs["stdin"], terminal)
+        self.assertIs(run.call_args.kwargs["stdout"], terminal)
+        self.assertIs(run.call_args.kwargs["stderr"], terminal)
+
+    def test_project_owned_review_keeps_tracking_disabled(self) -> None:
+        app = self._app(installed=True)
+        row = app.selected_row
+        app.project_owned_keys = {row.key}
+        app.installed_versions = {app._group_key(row): {"0.9-1.fc44"}}
+        app._show_install()
+        self.assertEqual(app.modal["track_options"], [False])
+
     def test_source_launch_restores_the_curses_program_mode(self) -> None:
         app = self._app()
         screen = mock.Mock()

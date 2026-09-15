@@ -813,6 +813,47 @@ class PackageManagerTui:
         elif action == "info":
             self._show_info()
 
+    @staticmethod
+    def _requires_privilege(rows: Sequence[PackageRow]) -> bool:
+        return any(row.provider == "dnf" or row.provider == "flatpak" and row.scope == "system" for row in rows)
+
+    def _authorize_for_mutation(self) -> bool:
+        """Let sudo prompt on the real terminal without allowing curses to exit."""
+
+        screen = getattr(self, "screen", None)
+        suspended = False
+        try:
+            if screen is not None:
+                try:
+                    screen.def_prog_mode()
+                    screen.endwin()
+                    suspended = True
+                except curses.error as error:
+                    self._record_error(error)
+            self.backend.authorize()
+            return True
+        except BackendError as error:
+            self._record_error(error)
+            return False
+        except (OSError, ValueError, RuntimeError) as error:
+            self._record_error(error)
+            return False
+        finally:
+            if screen is not None and suspended:
+                try:
+                    screen.reset_prog_mode()
+                except curses.error as error:
+                    self._record_error(error)
+                for operation in (
+                    lambda: screen.keypad(True),
+                    lambda: screen.timeout(100),
+                    lambda: screen.clear(),
+                ):
+                    try:
+                        operation()
+                    except curses.error as error:
+                        self._record_error(error)
+
     def _cycle_focus(self) -> None:
         if self.focus_area == "list":
             self.focus_area = "filters"
@@ -1159,6 +1200,8 @@ class PackageManagerTui:
         if not targets:
             self.modal = None
             return
+        if self._requires_privilege(targets) and not self._authorize_for_mutation():
+            return
         self.modal = None
         exact_version = len(targets) == 1 and self.install_version_override == targets[0].version
         self.install_version_override = None
@@ -1182,6 +1225,8 @@ class PackageManagerTui:
         row = self.remove_target or self.selected_row
         if not row:
             self.modal = None
+            return
+        if self._requires_privilege([row]) and not self._authorize_for_mutation():
             return
         self.modal = None
         self.operation_generation += 1
