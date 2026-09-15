@@ -195,6 +195,7 @@ class PackageManagerTui:
         self.catalog_status_generation = 0
         self.update_generation = 0
         self.operation_generation = 0
+        self.ownership_generation = 0
 
         self.rows: List[PackageRow] = []
         self.filtered_rows: List[PackageRow] = []
@@ -234,6 +235,11 @@ class PackageManagerTui:
         self.info_text = ""
         self.info_fields: Dict[str, str] = {}
         self.pending_source_row: Optional[PackageRow] = None
+        self.project_owned_keys: Set[Tuple[str, str, str, str]] = set()
+        self.ownership_checked_keys: Set[Tuple[str, str, str, str]] = set()
+        self.ownership_row: Optional[PackageRow] = None
+        self.ownership_loading = False
+        self.ownership_error = ""
         self.install_targets: List[PackageRow] = []
         self.install_version_override: Optional[str] = None
         self.remove_target: Optional[PackageRow] = None
@@ -312,6 +318,19 @@ class PackageManagerTui:
         self.info_text = ""
         self.info_fields = {}
         self._submit("info", lambda: self.backend.package_info(row), generation)
+
+    def _start_ownership_load(self, row: PackageRow) -> None:
+        if row.key in self.ownership_checked_keys:
+            self.ownership_row = row
+            self.ownership_loading = False
+            self.ownership_error = ""
+            return
+        self.ownership_generation += 1
+        generation = self.ownership_generation
+        self.ownership_row = row
+        self.ownership_loading = True
+        self.ownership_error = ""
+        self._submit("ownership", lambda: self.backend.project_owned(row), generation)
 
     def _start_versions_load(self, row: PackageRow) -> None:
         self.version_generation += 1
@@ -549,6 +568,26 @@ class PackageManagerTui:
             if pending is not None and pending == self.selected_row:
                 self._open_source()
             return
+        if event.kind == "ownership":
+            if event.generation != self.ownership_generation:
+                return
+            self.ownership_loading = False
+            row = self.ownership_row
+            if event.error:
+                self.ownership_error = str(event.error)
+                self._record_error(event.error)
+                return
+            if row is None or not isinstance(event.value, bool):
+                self.ownership_error = "The backend returned an invalid package ownership state."
+                self._record_error(RuntimeError(self.ownership_error))
+                return
+            self.ownership_checked_keys.add(row.key)
+            if event.value:
+                self.project_owned_keys.add(row.key)
+            else:
+                self.project_owned_keys.discard(row.key)
+            self.ownership_error = ""
+            return
         if event.kind == "versions":
             if event.generation != self.version_generation:
                 return
@@ -726,12 +765,18 @@ class PackageManagerTui:
             return []
         if getattr(self, "installed_loading", False):
             return [("state-loading", "Checking installed state…")]
+        if self.focus_area == "actions" and self.ownership_row == row:
+            if self.ownership_loading:
+                return [("state-loading", "Checking package ownership…")]
+            if self.ownership_error:
+                return [("state-error", "Ownership check failed; return and retry")]
         installed = self._is_installed(row)
         update_available = installed and self._is_update(row)
+        project_owned = row.key in self.project_owned_keys
         first_action = "update" if update_available else ("reinstall" if installed else "install")
         first_label = "Update" if update_available else ("Reinstall" if installed else "Install")
         items = [(first_action, first_label)]
-        if installed:
+        if installed and not project_owned:
             items.append(("uninstall", "Uninstall"))
         if self.active_filter != "Updates":
             version_count = len(self._versions_for(row))
@@ -752,7 +797,9 @@ class PackageManagerTui:
         self.action_index = max(0, min(self.action_index, len(actions) - 1))
         action = actions[self.action_index][0]
         if action == "state-loading":
-            self._set_message("Installed state is still loading", 5.0)
+            self._set_message("Package state is still loading", 5.0)
+        elif action == "state-error":
+            self._set_message("Package ownership could not be checked; return and retry", 6.0)
         elif action in {"install", "reinstall", "update"}:
             self._show_install()
         elif action == "uninstall":
@@ -782,6 +829,7 @@ class PackageManagerTui:
             return
         self.focus_area = "actions"
         self.action_index = 0
+        self._start_ownership_load(self.selected_row)
         self._set_message("Actions focused · ↑/↓ choose · Enter run · Tab/Esc packages")
 
     def _select_all(self) -> None:
@@ -807,12 +855,23 @@ class PackageManagerTui:
             verb = "Downgrade" if current and self._is_installed(current) and current.version != row_override.version else "Install selected version"
         else:
             verb = "Update" if is_update else "Install"
-        label = f"{verb} and track" if len(targets) == 1 else f"Install and track {len(targets)} packages"
-        label_untracked = f"{verb} without tracking" if len(targets) == 1 else f"Install {len(targets)} packages without tracking"
+        project_owned = len(targets) == 1 and targets[0].key in self.project_owned_keys
+        if project_owned:
+            options = [f"{verb} (workstation-managed)", "Cancel"]
+            track_options = [False]
+            ownership_note = "This package is workstation-owned; user-managed.tsv will not be changed."
+        else:
+            label = f"{verb} and track" if len(targets) == 1 else f"Install and track {len(targets)} packages"
+            label_untracked = f"{verb} without tracking" if len(targets) == 1 else f"Install {len(targets)} packages without tracking"
+            options = [label, label_untracked, "Cancel"]
+            track_options = [True, False]
+            ownership_note = ""
         self.modal = {
             "kind": "install",
             "selected": 0,
-            "options": [label, label_untracked, "Cancel"],
+            "options": options,
+            "track_options": track_options,
+            "ownership_note": ownership_note,
         }
 
     def _show_uninstall(self) -> None:
@@ -1205,10 +1264,9 @@ class PackageManagerTui:
                 self.modal["selected"] = (self.modal["selected"] + 1) % len(options)
             elif ch in (10, 13, curses.KEY_ENTER):
                 selected = self.modal["selected"]
-                if selected == 0:
-                    self._begin_install(True)
-                elif selected == 1:
-                    self._begin_install(False)
+                track_options = self.modal.get("track_options", [True, False])
+                if selected < len(track_options):
+                    self._begin_install(bool(track_options[selected]))
                 else:
                     self.modal = None
             return True
@@ -1927,10 +1985,15 @@ class PackageManagerTui:
             if self.install_version_override and len(targets) == 1:
                 summary += f" · version {self.install_version_override}"
             self._add(y + 2, x + 3, summary, modal_width - 6, self._attr(pairs, "text"))
+            note = str(self.modal.get("ownership_note", ""))
+            options_y = y + 4
+            if note:
+                self._add(y + 3, x + 3, note, modal_width - 6, self._attr(pairs, "warning"))
+                options_y = y + 5
             for index, option in enumerate(self.modal["options"]):
                 attr = self._attr(pairs, "selection" if index == self.modal["selected"] else "surface", bold=index == self.modal["selected"])
-                self._fill(y + 4 + index, x + 2, 1, modal_width - 4, attr)
-                self._add(y + 4 + index, x + 4, ("▸ " if index == self.modal["selected"] else "  ") + option, modal_width - 8, attr)
+                self._fill(options_y + index, x + 2, 1, modal_width - 4, attr)
+                self._add(options_y + index, x + 4, ("▸ " if index == self.modal["selected"] else "  ") + option, modal_width - 8, attr)
             self._add(y + modal_height - 2, x + 3, "↑/↓ choose · Enter confirm · Esc cancel", modal_width - 6, self._attr(pairs, "muted"))
             return
         if kind == "uninstall":

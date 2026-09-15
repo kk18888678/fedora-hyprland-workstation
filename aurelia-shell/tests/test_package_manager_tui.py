@@ -259,6 +259,11 @@ class TuiInteractionTests(unittest.TestCase):
         app.installed_versions = {(row.provider, row.identifier, row.scope): {row.version}} if installed else {}
         app.update_dnf_ids = set()
         app.update_flatpak_ids = set()
+        app.project_owned_keys = set()
+        app.ownership_checked_keys = {row.key}
+        app.ownership_row = None
+        app.ownership_loading = False
+        app.ownership_error = ""
         app.queue_rows = []
         app.info_text = ""
         app.info_fields = {}
@@ -416,6 +421,19 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertEqual(installed.modal["kind"], "uninstall")
         self.assertIn("Uninstall and forget tracking", installed.modal["options"])
 
+    def test_project_owned_update_review_never_offers_manifest_tracking(self) -> None:
+        app = self._app(installed=True)
+        row = app.selected_row
+        app.project_owned_keys = {row.key}
+        app.installed_versions = {app._group_key(row): {"0.9-1.fc44"}}
+        app.focus_area = "actions"
+        app.ownership_row = row
+        app._show_install()
+        self.assertEqual(app.modal["options"], ["Update (workstation-managed)", "Cancel"])
+        self.assertEqual(app.modal["track_options"], [False])
+        self.assertIn("user-managed.tsv will not be changed", app.modal["ownership_note"])
+        self.assertNotIn("uninstall", [action for action, _label in app._action_items()])
+
     def test_installed_identity_is_not_lost_when_update_source_differs(self) -> None:
         app = self._app()
         row = app.selected_row
@@ -545,6 +563,19 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertEqual(len(versions), 1)
         self.assertEqual(versions[0].version, "1.0")
         self.assertEqual(popen.call_args.args[0][-6:], ["--provider", "dnf", "--id", row.identifier, "--scope", "system"])
+
+    def test_project_owned_query_uses_the_read_only_backend_boundary(self) -> None:
+        backend_path = ROOT / "aurelia-shell" / "bin" / "workstation-packages"
+        backend = PackageBackend(backend_path)
+        row = self._row()
+        process = mock.Mock(returncode=0, pid=12345)
+        process.communicate.return_value = ("project-owned\n", "")
+        with mock.patch("tui_backend.subprocess.Popen", return_value=process) as popen:
+            self.assertTrue(backend.project_owned(row))
+        self.assertEqual(
+            popen.call_args.args[0][-5:],
+            ["catalog-tui-ownership", "--provider", "dnf", "--id", row.identifier],
+        )
 
     def test_source_launch_restores_the_curses_program_mode(self) -> None:
         app = self._app()

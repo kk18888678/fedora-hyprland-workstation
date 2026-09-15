@@ -244,6 +244,24 @@ else
     fail "TUI installed-state inventory omitted a local provider"
 fi
 
+if [[ "$(env "${test_env[@]}" "$backend" catalog-tui-ownership --provider dnf --id chatgpt)" == "project-owned" ]] &&
+   [[ "$(env "${test_env[@]}" "$backend" catalog-tui-ownership --provider dnf --id mock-dnf)" == "user-trackable" ]]; then
+    pass "TUI ownership discovery distinguishes workstation-owned packages from user-trackable packages"
+else
+    fail "TUI ownership discovery returned an incorrect tracking classification"
+fi
+
+printf '%s\n' $'dnf\tfedora\tchatgpt\tchatgpt\tChatGPT\t1\tsystem\tx86_64\t1 MiB\t1 MiB\tLATEST\t2026-09-01' \
+    >>"$cache/fedora-hyprland-workstation/package-manager/catalog.tsv"
+if env "${test_env[@]}" "$backend" install-catalog-row \
+       --provider dnf --source fedora --id chatgpt --scope system --yes >/dev/null &&
+   grep -Fxq chatgpt "$fixture/rpm-installed" &&
+   ! grep -Fq $'dnf\tfedora\tchatgpt\tsystem\tall' "$repo/packages/user-managed.tsv"; then
+    pass "Project-owned catalog update runs without user-managed tracking"
+else
+    fail "Project-owned catalog update was blocked or polluted user-managed.tsv"
+fi
+
 if env "${test_env[@]}" "$backend" remove-catalog-row \
        --provider dnf --source fedora --id mock-dnf --scope system --forget --yes >/dev/null &&
    ! grep -Fxq mock-dnf "$fixture/rpm-installed" &&

@@ -23,6 +23,7 @@ fi
 if grep -Fq 'remove_catalog_row' "$ROOT/bin/lib/workstation-packages/tui_backend.py" &&
    grep -Fq 'remove-catalog-row' "$ROOT/bin/workstation-packages" &&
    grep -Fq 'catalog-tui-installed' "$ROOT/bin/workstation-packages" &&
+   grep -Fq 'catalog-tui-ownership' "$ROOT/bin/workstation-packages" &&
    grep -Fq 'catalog-tui-versions' "$ROOT/bin/workstation-packages" &&
    grep -Fq 'Uninstall' "$ROOT/bin/lib/workstation-packages/tui.py" &&
    grep -Fq 'install_version_override' "$ROOT/bin/lib/workstation-packages/tui.py"; then

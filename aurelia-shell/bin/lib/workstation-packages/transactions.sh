@@ -101,6 +101,7 @@ wsp_install_row() {
     local target="${8:-}"
     local artifact_url="${9:-}"
     local exact_version="${10:-}"
+    local allow_project_owned="${11:-}"
     local status=0
     local dnf_bin=""
     local install_identifier=""
@@ -112,7 +113,7 @@ wsp_install_row() {
         wsp_error "Invalid install record: $provider/$source/$identifier/$scope"
         return 1
     }
-    if wsp_is_project_owned "$provider" "$identifier"; then
+    if wsp_is_project_owned "$provider" "$identifier" && [[ "$allow_project_owned" != yes ]]; then
         wsp_error "Refusing to duplicate project-owned package in user-managed state: $identifier"
         return 1
     fi

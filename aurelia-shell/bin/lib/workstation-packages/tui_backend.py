@@ -355,6 +355,28 @@ class PackageBackend:
         output = self._run((str(self.backend_path), "catalog-tui-installed"), timeout=300)
         return installed_keys_from_rows(output), installed_versions_from_rows(output)
 
+    def project_owned(self, row: PackageRow) -> bool:
+        output = self._run(
+            (
+                str(self.backend_path),
+                "catalog-tui-ownership",
+                "--provider",
+                row.provider,
+                "--id",
+                row.identifier,
+            ),
+            timeout=30,
+        ).strip()
+        if output == "project-owned":
+            return True
+        if output == "user-trackable":
+            return False
+        raise BackendError(
+            (str(self.backend_path), "catalog-tui-ownership"),
+            1,
+            f"Package ownership returned an invalid state for {row.provider}/{row.identifier}: {output or 'empty result'}",
+        )
+
     def versions_for(self, row: PackageRow) -> List[PackageRow]:
         output = self._run(
             (

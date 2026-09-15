@@ -152,6 +152,8 @@ Read-only:
   catalog status                            Show cache age, schema, row counts, and source health.
   catalog-tui-bootstrap                     Prepare the cache for the dedicated Package Manager TUI.
   catalog-tui-installed                    Enumerate all currently installed app/package identities for the TUI.
+  catalog-tui-ownership --provider P --id ID
+                                            Report project-owned vs user-trackable package state.
   catalog-tui-versions --provider P --id ID --scope S
                                             Show every cached version of one package identity.
   info --provider P --source S --id ID      Show package metadata from the catalog.
@@ -619,7 +621,11 @@ tui_apply_selected_rows() {
         fi
 
         if (( track_selected == 1 )); then
-            if wsp_manifest_contains_identity "$provider" "$source" "$identifier" "$scope"; then
+            if wsp_is_project_owned "$provider" "$identifier"; then
+                wsp_info "Project-owned package selected; installing without user-managed tracking: $provider/$source/$identifier"
+                wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+                    "" "" "" "" "" "" yes || failed=1
+            elif wsp_manifest_contains_identity "$provider" "$source" "$identifier" "$scope"; then
                 if wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
                     wsp_info "Already tracked and installed: $provider/$source/$identifier"
                 elif [[ "$provider" == aurelia ]]; then
@@ -652,7 +658,8 @@ tui_apply_selected_rows() {
                     wsp_install_row "$provider" "$source" "$identifier" "$scope" \
                         "$_catalog_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
                 else
-                    wsp_install_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                    wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+                        "" "" "" "" "" "" yes || failed=1
                 fi
             else
                 wsp_info "Already installed: $provider/$source/$identifier"
@@ -1292,7 +1299,8 @@ dispatch_record_mutation() {
             if [[ "$WSP_TRACK" == 1 ]]; then
                 run_mutation wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" || result=$?
             else
-                run_mutation wsp_install_row "$provider" "$source" "$identifier" "$scope" || result=$?
+                run_mutation wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+                    "" "" "" "" "" "" yes || result=$?
             fi
             ;;
         adopt)
@@ -1367,7 +1375,7 @@ dispatch_catalog_install() {
     else
         confirm "Install $provider/$source/$identifier?" || return 0
         run_mutation wsp_install_row "$provider" "$source" "$identifier" "$scope" \
-            "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" || result=$?
+            "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" yes || result=$?
     fi
     return "$result"
 }
@@ -1480,6 +1488,34 @@ dispatch() {
         catalog-tui-installed)
             [[ $# -eq 0 ]] || { usage >&2; return 2; }
             wsp_installed_rows_for_tui
+            ;;
+        catalog-tui-ownership)
+            local ownership_provider=""
+            local ownership_identifier=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --provider) [[ $# -ge 2 ]] || return 2; ownership_provider="$2"; shift 2 ;;
+                    --id) [[ $# -ge 2 ]] || return 2; ownership_identifier="$2"; shift 2 ;;
+                    *) usage >&2; return 2 ;;
+                esac
+            done
+            [[ -n "$ownership_provider" && -n "$ownership_identifier" ]] || {
+                wsp_error 'TUI ownership query requires provider and ID.'
+                return 2
+            }
+            wsp_valid_provider "$ownership_provider" || { wsp_error 'Provider must be dnf, flatpak, or aurelia.'; return 2; }
+            if [[ "$ownership_provider" == dnf ]]; then
+                wsp_valid_dnf_id "$ownership_identifier" || { wsp_error 'Invalid DNF package ID.'; return 2; }
+            elif [[ "$ownership_provider" == flatpak ]]; then
+                wsp_valid_flatpak_id "$ownership_identifier" || { wsp_error 'Invalid Flatpak application ID.'; return 2; }
+            else
+                wsp_valid_dnf_id "$ownership_identifier" || { wsp_error 'Invalid Aurelia package ID.'; return 2; }
+            fi
+            if wsp_is_project_owned "$ownership_provider" "$ownership_identifier"; then
+                printf '%s\n' 'project-owned'
+            else
+                printf '%s\n' 'user-trackable'
+            fi
             ;;
         catalog-tui-versions)
             local versions_provider=""

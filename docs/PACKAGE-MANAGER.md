@@ -95,6 +95,9 @@ count and version/downgrade action, and displays the installed-to-available
 version change. Installed packages are discovered from the local RPM/Flatpak
 state, so an update row is shown as `Update` rather than a misleading `Install`
 when the repository source differs from the installed origin.
+Packages owned by the workstation configuration cannot be added to
+`user-managed.tsv`; their review dialog offers a workstation-managed update
+without a tracking choice.
 
 The catalog is refreshed by a user-level background timer after boot and at a
 configurable interval. Refresh is metadata-only: it never installs or upgrades
