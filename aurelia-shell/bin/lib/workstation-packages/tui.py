@@ -825,8 +825,8 @@ class PackageManagerTui:
         try:
             if screen is not None:
                 try:
-                    screen.def_prog_mode()
-                    screen.endwin()
+                    curses.def_prog_mode()
+                    curses.endwin()
                     suspended = True
                 except curses.error as error:
                     self._record_error(error)
@@ -838,10 +838,13 @@ class PackageManagerTui:
         except (OSError, ValueError, RuntimeError) as error:
             self._record_error(error)
             return False
+        except Exception as error:
+            self._record_error(error)
+            return False
         finally:
             if screen is not None and suspended:
                 try:
-                    screen.reset_prog_mode()
+                    curses.reset_prog_mode()
                 except curses.error as error:
                     self._record_error(error)
                 for operation in (
@@ -851,7 +854,7 @@ class PackageManagerTui:
                 ):
                     try:
                         operation()
-                    except curses.error as error:
+                    except Exception as error:
                         self._record_error(error)
 
     def _cycle_focus(self) -> None:
@@ -1055,6 +1058,91 @@ class PackageManagerTui:
             commands.append([xdg_open, url])
         return commands
 
+    def _registered_browser_command(self, url: str, failures: List[str], remaining: float) -> Optional[List[str]]:
+        """Resolve and use the desktop's registered HTTPS application."""
+
+        gtk_launch = shutil.which("gtk-launch")
+        xdg_mime = shutil.which("xdg-mime")
+        if not gtk_launch or not xdg_mime or remaining <= 0:
+            return None
+        command = [xdg_mime, "query", "default", "x-scheme-handler/https"]
+        try:
+            result = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=max(0.1, min(5.0, remaining)),
+                check=False,
+            )
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            detail = f"{' '.join(command)} failed: {error}"
+            self._record_backend_diagnostic(f"ERROR: {detail}\n")
+            failures.append(detail)
+            return None
+        if result.stderr:
+            self._record_backend_diagnostic(result.stderr)
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
+            failure = f"{' '.join(command)} failed: {detail}"
+            self._record_backend_diagnostic(f"ERROR: {failure}\n")
+            failures.append(failure)
+            return None
+        desktop_id = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.desktop", desktop_id):
+            detail = f"The default HTTPS desktop entry is invalid: {desktop_id or 'empty result'}"
+            self._record_backend_diagnostic(f"ERROR: {detail}\n")
+            failures.append(detail)
+            return None
+        return [gtk_launch, desktop_id, url]
+
+    def _attempt_browser_command(
+        self,
+        command: List[str],
+        remaining: float,
+        failures: List[str],
+    ) -> Tuple[Optional[subprocess.CompletedProcess[str]], bool]:
+        """Run one launcher; return its result and whether retrying is pointless."""
+
+        command_text = " ".join(command)
+        try:
+            result = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=max(0.1, remaining),
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            detail = f"{command_text} timed out before opening the URL."
+            if error.stderr:
+                detail += f" {error.stderr.strip()}"
+            self._record_backend_diagnostic(f"ERROR: {detail}\n")
+            failures.append(detail)
+            return None, True
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            detail = f"{command_text} failed: {error}"
+            self._record_backend_diagnostic(f"ERROR: {detail}\n")
+            failures.append(detail)
+            return None, False
+
+        if result.stderr:
+            self._record_backend_diagnostic(result.stderr)
+        if result.returncode == 0:
+            return result, True
+        detail = result.stderr.strip() or result.stdout.strip() or "exit status " + str(result.returncode)
+        failure = f"{command_text} failed: {detail}"
+        self._record_backend_diagnostic(f"ERROR: {failure}\n")
+        failures.append(failure)
+        return None, False
+
     def _launch_source_url(self, url: str) -> None:
         commands = self._browser_commands(url)
         if not commands:
@@ -1073,8 +1161,8 @@ class PackageManagerTui:
         try:
             if screen is not None:
                 try:
-                    screen.def_prog_mode()
-                    screen.endwin()
+                    curses.def_prog_mode()
+                    curses.endwin()
                     suspended = True
                 except curses.error as error:
                     # A terminal can be resized or lose its controlling
@@ -1087,45 +1175,23 @@ class PackageManagerTui:
                 if remaining <= 0:
                     failures.append("Browser launcher retry window expired after 15s.")
                     break
-                command_text = " ".join(command)
-                try:
-                    candidate = subprocess.run(
-                        command,
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=max(0.1, remaining),
-                        check=False,
-                    )
-                except subprocess.TimeoutExpired as error:
-                    detail = f"{command_text} timed out before opening the URL."
-                    if error.stderr:
-                        detail += f" {error.stderr.strip()}"
-                    self._record_backend_diagnostic(f"ERROR: {detail}\n")
-                    failures.append(detail)
-                    break
-                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-                    detail = f"{command_text} failed: {error}"
-                    self._record_backend_diagnostic(f"ERROR: {detail}\n")
-                    failures.append(detail)
-                    continue
-
-                if candidate.stderr:
-                    self._record_backend_diagnostic(candidate.stderr)
-                if candidate.returncode == 0:
+                candidate, stop = self._attempt_browser_command(command, remaining, failures)
+                if candidate is not None:
                     result = candidate
                     break
-                detail = candidate.stderr.strip() or candidate.stdout.strip() or f"exit status {candidate.returncode}"
-                failure = f"{command_text} failed: {detail}"
-                self._record_backend_diagnostic(f"ERROR: {failure}\n")
-                failures.append(failure)
+                if stop:
+                    break
+            if result is None:
+                remaining = deadline - time.monotonic()
+                fallback = self._registered_browser_command(url, failures, remaining)
+                if fallback and fallback not in commands and remaining > 0:
+                    candidate, _stop = self._attempt_browser_command(fallback, deadline - time.monotonic(), failures)
+                    if candidate is not None:
+                        result = candidate
         finally:
             if screen is not None and suspended:
                 try:
-                    screen.reset_prog_mode()
+                    curses.reset_prog_mode()
                 except curses.error as error:
                     self._record_error(error)
                 for operation in (
@@ -2218,10 +2284,20 @@ class PackageManagerTui:
         self._pairs = self._init_colors()
         try:
             while self.running:
-                self._drain_events()
-                self._maybe_submit_query()
-                self.render()
-                self._handle_key(screen.getch())
+                try:
+                    self._drain_events()
+                    self._maybe_submit_query()
+                    self.render()
+                    self._handle_key(screen.getch())
+                except KeyboardInterrupt:
+                    raise
+                except Exception as error:
+                    self._record_error(error)
+                    self.modal = {
+                        "kind": "message",
+                        "title": "Package Manager error",
+                        "lines": [str(error).strip() or error.__class__.__name__, "The TUI is still running; press Enter to continue."],
+                    }
         finally:
             self.backend.cancel_active()
             self.executor.shutdown(wait=True, cancel_futures=True)

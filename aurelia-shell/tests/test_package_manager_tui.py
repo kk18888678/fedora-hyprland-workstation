@@ -533,7 +533,8 @@ class TuiInteractionTests(unittest.TestCase):
         row = self._row()
         process = mock.Mock(returncode=0, pid=12345)
         process.communicate.return_value = ("", "")
-        with mock.patch("tui_backend.subprocess.Popen", return_value=process) as popen:
+        terminal = mock.Mock()
+        with mock.patch("builtins.open", return_value=terminal), mock.patch("tui_backend.subprocess.Popen", return_value=process) as popen:
             backend.remove_catalog_row(row, forget=True)
         command = popen.call_args.args[0]
         self.assertIn("remove-catalog-row", command)
@@ -545,12 +546,27 @@ class TuiInteractionTests(unittest.TestCase):
         row = self._row()
         process = mock.Mock(returncode=0, pid=12345)
         process.communicate.return_value = ("", "")
-        with mock.patch("tui_backend.subprocess.Popen", return_value=process) as popen:
+        terminal = mock.Mock()
+        with mock.patch("builtins.open", return_value=terminal), mock.patch("tui_backend.subprocess.Popen", return_value=process) as popen:
             backend.install_catalog_row(row, track=False, exact_version=True)
         command = popen.call_args.args[0]
         self.assertIn("--version", command)
         self.assertIn(row.version, command)
         self.assertIn("--arch", command)
+
+    def test_mutation_backend_passes_the_controlling_terminal_as_stdin(self) -> None:
+        backend_path = ROOT / "aurelia-shell" / "bin" / "workstation-packages"
+        backend = PackageBackend(backend_path)
+        row = self._row()
+        process = mock.Mock(returncode=0, pid=12345)
+        process.communicate.return_value = ("", "")
+        terminal = mock.Mock()
+        with mock.patch("builtins.open", return_value=terminal) as open_file, mock.patch("tui_backend.subprocess.Popen", return_value=process) as popen:
+            backend.install_catalog_row(row, track=False)
+        open_file.assert_called_once_with("/dev/tty", "rb", buffering=0)
+        self.assertIs(popen.call_args.kwargs["stdin"], terminal)
+        self.assertEqual(popen.call_args.kwargs["env"]["WORKSTATION_PACKAGE_TTY_AUTHORIZED"], "yes")
+        terminal.close.assert_called_once()
 
     def test_versions_for_uses_the_dedicated_full_history_backend_command(self) -> None:
         backend_path = ROOT / "aurelia-shell" / "bin" / "workstation-packages"
@@ -591,6 +607,18 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertIs(run.call_args.kwargs["stdout"], terminal)
         self.assertIs(run.call_args.kwargs["stderr"], terminal)
 
+    def test_tui_authorization_failure_keeps_the_review_open(self) -> None:
+        app = self._app(installed=True)
+        app.diagnostics = []
+        app.messages = []
+        app.backend = mock.Mock()
+        app.backend.authorize.side_effect = RuntimeError("unexpected terminal failure")
+        app.modal = {"kind": "install", "options": ["Update", "Cancel"], "selected": 0}
+        self.assertFalse(app._authorize_for_mutation())
+        self.assertTrue(app.running)
+        self.assertEqual(app.modal["kind"], "install")
+        self.assertIn("unexpected terminal failure", app.transient_message)
+
     def test_project_owned_review_keeps_tracking_disabled(self) -> None:
         app = self._app(installed=True)
         row = app.selected_row
@@ -607,12 +635,12 @@ class TuiInteractionTests(unittest.TestCase):
         def which(name: str) -> str | None:
             return "/usr/bin/xdg-open" if name == "xdg-open" else None
 
-        with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", return_value=completed) as run:
+        with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", return_value=completed) as run, mock.patch("tui.curses.def_prog_mode") as def_prog_mode, mock.patch("tui.curses.endwin") as endwin, mock.patch("tui.curses.reset_prog_mode") as reset_prog_mode:
             app._launch_source_url("https://example.invalid/source")
         run.assert_called_once()
-        screen.def_prog_mode.assert_called_once()
-        screen.endwin.assert_called_once()
-        screen.reset_prog_mode.assert_called_once()
+        def_prog_mode.assert_called_once()
+        endwin.assert_called_once()
+        reset_prog_mode.assert_called_once()
         screen.clear.assert_called_once()
         self.assertIsNone(app.modal)
 
@@ -621,28 +649,28 @@ class TuiInteractionTests(unittest.TestCase):
         app.diagnostics = []
         app.messages = []
         screen = mock.Mock()
-        screen.def_prog_mode.side_effect = curses.error("terminal is not initialized")
         app.screen = screen
         completed = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch("tui.shutil.which", return_value="/usr/bin/xdg-open"), mock.patch("tui.subprocess.run", return_value=completed):
+        with mock.patch("tui.shutil.which", return_value="/usr/bin/xdg-open"), mock.patch("tui.subprocess.run", return_value=completed), mock.patch("tui.curses.def_prog_mode", side_effect=curses.error("terminal is not initialized")) as def_prog_mode, mock.patch("tui.curses.endwin") as endwin, mock.patch("tui.curses.reset_prog_mode") as reset_prog_mode:
             app._launch_source_url("https://example.invalid/source")
         self.assertTrue(app.running)
         self.assertTrue(any("terminal is not initialized" in line for line in app.diagnostics))
-        screen.endwin.assert_not_called()
-        screen.reset_prog_mode.assert_not_called()
+        def_prog_mode.assert_called_once()
+        endwin.assert_not_called()
+        reset_prog_mode.assert_not_called()
 
     def test_source_launch_survives_curses_restore_failure(self) -> None:
         app = self._app()
         app.diagnostics = []
         app.messages = []
         screen = mock.Mock()
-        screen.reset_prog_mode.side_effect = curses.error("terminal restore failed")
         app.screen = screen
         completed = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch("tui.shutil.which", return_value="/usr/bin/xdg-open"), mock.patch("tui.subprocess.run", return_value=completed):
+        with mock.patch("tui.shutil.which", return_value="/usr/bin/xdg-open"), mock.patch("tui.subprocess.run", return_value=completed), mock.patch("tui.curses.def_prog_mode"), mock.patch("tui.curses.endwin"), mock.patch("tui.curses.reset_prog_mode", side_effect=curses.error("terminal restore failed")) as reset_prog_mode:
             app._launch_source_url("https://example.invalid/source")
         self.assertTrue(app.running)
         self.assertTrue(any("terminal restore failed" in line for line in app.diagnostics))
+        reset_prog_mode.assert_called_once()
 
     def test_source_launch_uses_gio_when_xdg_open_is_unavailable(self) -> None:
         app = self._app()
@@ -688,6 +716,32 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertEqual(app.modal["kind"], "message")
         self.assertIn("gio: no handler", " ".join(app.modal["lines"]))
         self.assertIn("xdg-open: no method", " ".join(app.modal["lines"]))
+
+    def test_source_launch_uses_the_registered_https_desktop_entry_as_final_fallback(self) -> None:
+        app = self._app()
+        app.diagnostics = []
+        app.messages = []
+        gio_failure = mock.Mock(returncode=1, stdout="", stderr="gio: no handler\n")
+        xdg_failure = mock.Mock(returncode=3, stdout="", stderr="xdg-open: no method\n")
+        mime_result = mock.Mock(returncode=0, stdout="chromium-browser.desktop\n", stderr="")
+        gtk_success = mock.Mock(returncode=0, stdout="", stderr="")
+
+        def which(name: str) -> str | None:
+            return {
+                "gio": "/usr/bin/gio",
+                "xdg-open": "/usr/bin/xdg-open",
+                "gtk-launch": "/usr/bin/gtk-launch",
+                "xdg-mime": "/usr/bin/xdg-mime",
+            }.get(name)
+
+        with mock.patch("tui.shutil.which", side_effect=which), mock.patch(
+            "tui.subprocess.run", side_effect=[gio_failure, xdg_failure, mime_result, gtk_success]
+        ) as run:
+            app._launch_source_url("https://example.invalid/source")
+        self.assertEqual(run.call_count, 4)
+        self.assertEqual(run.call_args_list[-1].args[0], ["/usr/bin/gtk-launch", "chromium-browser.desktop", "https://example.invalid/source"])
+        self.assertIsNone(app.modal)
+        self.assertTrue(any("gio: no handler" in line for line in app.diagnostics))
 
     def test_backend_cancellation_terminates_only_registered_children(self) -> None:
         backend = PackageBackend(ROOT / "aurelia-shell" / "bin" / "workstation-packages")
