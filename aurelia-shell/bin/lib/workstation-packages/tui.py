@@ -232,6 +232,7 @@ class PackageManagerTui:
         self.queue_rows: List[PackageRow] = []
         self.info_text = ""
         self.info_fields: Dict[str, str] = {}
+        self.pending_source_row: Optional[PackageRow] = None
         self.install_targets: List[PackageRow] = []
         self.install_version_override: Optional[str] = None
         self.remove_target: Optional[PackageRow] = None
@@ -538,9 +539,14 @@ class PackageManagerTui:
                 return
             self.info_loading = False
             if event.error:
+                self.pending_source_row = None
                 self._record_error(event.error)
                 return
             self.info_text, self.info_fields = event.value
+            pending = self.pending_source_row
+            self.pending_source_row = None
+            if pending is not None and pending == self.selected_row:
+                self._open_source()
             return
         if event.kind == "versions":
             if event.generation != self.version_generation:
@@ -663,6 +669,7 @@ class PackageManagerTui:
         visible_rows = visible_rows or max(1, self.visible_list_rows)
         self.selected_index = max(0, min(len(self.filtered_rows) - 1, self.selected_index + delta))
         self.detail_scroll = 0
+        self.pending_source_row = None
         self._keep_selection_visible(visible_rows)
         self._start_info_load(self.selected_row)
 
@@ -673,6 +680,7 @@ class PackageManagerTui:
         self.selected_index = 0
         self.top_index = 0
         self.detail_scroll = 0
+        self.pending_source_row = None
         self._apply_filter()
         if self.active_filter == "Updates":
             self._start_updates_load()
@@ -773,8 +781,7 @@ class PackageManagerTui:
             return
         self.focus_area = "actions"
         self.action_index = 0
-        self.modal = {"kind": "actions", "row": self.selected_row, "selected": 0, "scroll": 0}
-        self._set_message("Actions opened · ↑/↓ choose · Enter run · Tab/Esc packages")
+        self._set_message("Actions focused · ↑/↓ choose · Enter run · Tab/Esc packages")
 
     def _select_all(self) -> None:
         if len(self.filtered_rows) > self.MAX_QUEUE:
@@ -906,6 +913,7 @@ class PackageManagerTui:
     def _show_info(self) -> None:
         if not self.selected_row:
             return
+        self.pending_source_row = None
         if self.info_loading or not self.info_text:
             self._start_info_load(self.selected_row)
         self.modal = {"kind": "info", "scroll": 0}
@@ -915,12 +923,15 @@ class PackageManagerTui:
         if not row:
             return
         if self.info_loading:
+            self.pending_source_row = row
             self._set_message("Loading source metadata…", 5.0)
             return
         if not self.info_text:
+            self.pending_source_row = row
             self._start_info_load(row)
             self._set_message("Loading source metadata…", 5.0)
             return
+        self.pending_source_row = None
         url = self.backend.source_url(self.info_fields)
         if not url:
             self.modal = {"kind": "message", "title": "Source unavailable", "lines": ["This provider did not publish a browser source URL.", f"Source: {row.source}"]}
@@ -931,25 +942,33 @@ class PackageManagerTui:
 
         self.modal = {"kind": "source", "url": url, "selected": 0}
 
+    def _browser_commands(self, url: str) -> List[List[str]]:
+        """Build desktop launchers in reliable order without shell parsing."""
+
+        commands: List[List[str]] = []
+        gio = shutil.which("gio")
+        if gio:
+            commands.append([gio, "open", url])
+        xdg_open = shutil.which("xdg-open")
+        if xdg_open:
+            commands.append([xdg_open, url])
+        return commands
+
     def _launch_source_url(self, url: str) -> None:
-        opener = shutil.which("xdg-open")
-        command: List[str]
-        if opener:
-            command = [opener, url]
-        else:
-            gio = shutil.which("gio")
-            if not gio:
-                self.modal = {
-                    "kind": "message",
-                    "title": "Browser launcher unavailable",
-                    "lines": [url, "Neither xdg-open nor gio was found. Use Copy URL and open it manually."],
-                }
-                return
-            command = [gio, "open", url]
+        commands = self._browser_commands(url)
+        if not commands:
+            self.modal = {
+                "kind": "message",
+                "title": "Browser launcher unavailable",
+                "lines": [url, "Neither gio nor xdg-open was found. Use Copy URL and open it manually."],
+            }
+            return
         self.modal = None
         result: Optional[subprocess.CompletedProcess[str]] = None
+        failures: List[str] = []
         suspended = False
         screen = getattr(self, "screen", None)
+        deadline = time.monotonic() + 15.0
         try:
             if screen is not None:
                 try:
@@ -962,34 +981,46 @@ class PackageManagerTui:
                     # request is still safe to attempt, but this must never
                     # escape and tear down the package manager.
                     self._record_error(error)
-            result = subprocess.run(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=15,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as error:
-            detail = f"Browser launcher timed out after 15s: {' '.join(command)}"
-            if error.stderr:
-                detail += f"\n{error.stderr.strip()}"
-            self._record_backend_diagnostic(f"ERROR: {detail}\n")
-            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, detail]}
-            return
-        except OSError as error:
-            self._record_error(error)
-            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, str(error)]}
-            return
-        except (ValueError, RuntimeError) as error:
-            # Keep integration/terminal errors visible in the TUI instead of
-            # allowing an unexpected launcher failure to abort curses.wrapper.
-            self._record_error(error)
-            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, str(error)]}
-            return
+            for command in commands:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    failures.append("Browser launcher retry window expired after 15s.")
+                    break
+                command_text = " ".join(command)
+                try:
+                    candidate = subprocess.run(
+                        command,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=max(0.1, remaining),
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as error:
+                    detail = f"{command_text} timed out before opening the URL."
+                    if error.stderr:
+                        detail += f" {error.stderr.strip()}"
+                    self._record_backend_diagnostic(f"ERROR: {detail}\n")
+                    failures.append(detail)
+                    break
+                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                    detail = f"{command_text} failed: {error}"
+                    self._record_backend_diagnostic(f"ERROR: {detail}\n")
+                    failures.append(detail)
+                    continue
+
+                if candidate.stderr:
+                    self._record_backend_diagnostic(candidate.stderr)
+                if candidate.returncode == 0:
+                    result = candidate
+                    break
+                detail = candidate.stderr.strip() or candidate.stdout.strip() or f"exit status {candidate.returncode}"
+                failure = f"{command_text} failed: {detail}"
+                self._record_backend_diagnostic(f"ERROR: {failure}\n")
+                failures.append(failure)
         finally:
             if screen is not None and suspended:
                 try:
@@ -1006,15 +1037,12 @@ class PackageManagerTui:
                     except curses.error as error:
                         self._record_error(error)
 
-        if result is None:
+        if result is not None:
+            self._set_message("Opened source URL in the browser", 5.0)
             return
-        if result.stderr:
-            self._record_backend_diagnostic(result.stderr)
-        if result.returncode != 0:
-            detail = result.stderr.strip() or result.stdout.strip() or f"Browser launcher exited with status {result.returncode}."
-            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, detail]}
-            return
-        self._set_message("Opened source URL in the browser", 5.0)
+        lines = [url, "No browser launcher could open this URL."]
+        lines.extend(failures or ["The available launchers returned no diagnostic."])
+        self.modal = {"kind": "message", "title": "Could not open source", "lines": lines}
 
     def _copy_source_url(self, url: str) -> None:
         clipboard_commands = (
@@ -1119,46 +1147,6 @@ class PackageManagerTui:
                 if len(value) < 512:
                     self.modal["value"] = value + chr(ch)
                     self.modal["error"] = ""
-            return True
-        if kind == "actions":
-            row = self.modal.get("row")
-            if not isinstance(row, PackageRow):
-                row = self.selected_row
-            actions = self._action_items(row)
-            if not actions:
-                self.modal = None
-                self.focus_area = "list"
-                self._set_message("No actions are available for this package")
-                return True
-            selected = max(0, min(self.modal.get("selected", 0), len(actions) - 1))
-            self.modal["selected"] = selected
-            self.action_index = selected
-            if ch == 27 or ch == 9 or key_pressed(ch, self.config.key("cancel")) or key_pressed(ch, self.config.key("select")):
-                self.modal = None
-                self.focus_area = "list"
-                self._set_message("Package list focused")
-            elif ch in (curses.KEY_UP, ord("k")):
-                selected = (selected - 1) % len(actions)
-                self.modal["selected"] = selected
-                self.action_index = selected
-            elif ch in (curses.KEY_DOWN, ord("j")):
-                selected = (selected + 1) % len(actions)
-                self.modal["selected"] = selected
-                self.action_index = selected
-            elif key_pressed(ch, self.config.key("help")):
-                self._show_help()
-            elif key_pressed(ch, self.config.key("quit")):
-                self.modal = None
-                self.running = False
-            elif ch in (10, 13, curses.KEY_ENTER):
-                self._run_action()
-                if self.modal and self.modal.get("kind") == "actions":
-                    refreshed = self._action_items(row)
-                    if refreshed:
-                        self.modal["selected"] = max(0, min(self.action_index, len(refreshed) - 1))
-                        self.modal["scroll"] = _selection_window(
-                            self.modal["selected"], len(refreshed), 1, self.modal.get("scroll", 0)
-                        )
             return True
         if kind == "versions":
             row = self.modal.get("row")
@@ -1708,12 +1696,10 @@ class PackageManagerTui:
             lines.append((line, self._attr(pairs, "secondary")))
         lines.append(("", 0))
         lines.append(("Actions", self._attr(pairs, "accent_alt", bold=True)))
-        action_lines = []
         for index, (_action, label) in enumerate(self._action_items(row)):
             selected = self.focus_area == "actions" and index == self.action_index
             prefix = "▸  " if selected else "   "
-            action_lines.append((prefix + label, self._attr(pairs, "selection" if selected else "secondary", bold=selected)))
-        lines.extend(action_lines)
+            lines.append((prefix + label, self._attr(pairs, "selection" if selected else "secondary", bold=selected)))
         return lines
 
     def _draw_detail(self, pairs: Dict[str, int], y: int, x: int, height: int, width: int) -> None:
@@ -1734,7 +1720,7 @@ class PackageManagerTui:
         # values appear truncated or concatenated while the backend loaded.
         available = max(0, height - 4) if self.info_loading else max(1, height - 3)
         if self.focus_area == "actions":
-            action_start = next((index for index, (line, _attr) in enumerate(detail_lines) if line.startswith("Actions")), len(detail_lines))
+            action_start = next((index for index, (line, _attr) in enumerate(detail_lines) if line == "Actions"), len(detail_lines))
             action_line = min(len(detail_lines) - 1, action_start + 1 + min(self.action_index, max(0, len(self._action_items(row)) - 1)))
             viewport = max(1, available)
             if action_line < self.detail_scroll:
@@ -1817,40 +1803,6 @@ class PackageManagerTui:
         if not self.modal:
             return
         kind = self.modal.get("kind")
-        if kind == "actions":
-            row = self.modal.get("row")
-            if not isinstance(row, PackageRow):
-                row = self.selected_row
-            actions = self._action_items(row)
-            if not actions:
-                return
-            modal_width = min(width - 4, 78)
-            visible_options = max(1, min(len(actions), max(1, height - 8)))
-            modal_height = min(height - 4, max(10, 7 + visible_options))
-            x = max(1, (width - modal_width) // 2)
-            y = max(1, (height - modal_height) // 2)
-            title = f"Actions · {self._display_name(row)}" if row else "Package actions"
-            self._box(y, x, modal_height, modal_width, pairs, title, self._attr(pairs, "accent_alt", bold=True))
-            provider = row.provider_label if row else "Package"
-            self._add(y + 2, x + 3, f"{provider} · choose an action for the selected package", modal_width - 6, self._attr(pairs, "secondary"))
-            selected = max(0, min(self.modal.get("selected", 0), len(actions) - 1))
-            self.modal["selected"] = selected
-            self.action_index = selected
-            top = _selection_window(selected, len(actions), visible_options, self.modal.get("scroll", 0))
-            self.modal["scroll"] = top
-            for offset, index in enumerate(range(top, min(len(actions), top + visible_options))):
-                _action, label = actions[index]
-                selected_row = index == selected
-                attr = self._attr(pairs, "selection" if selected_row else "surface", bold=selected_row)
-                self._fill(y + 4 + offset, x + 2, 1, modal_width - 4, attr)
-                self._add(y + 4 + offset, x + 4, ("▸ " if selected_row else "  ") + label, modal_width - 8, attr)
-            footer = (
-                f"{_display_key(self.config.key('up'))}/{_display_key(self.config.key('down'))} choose · "
-                f"{_display_key(self.config.key('accept'))} run · "
-                f"{_display_key(self.config.key('select'))}/{_display_key(self.config.key('cancel'))} back"
-            )
-            self._add(y + modal_height - 2, x + 3, footer, modal_width - 6, self._attr(pairs, "muted"))
-            return
         if kind == "versions":
             row = self.modal.get("row")
             if not isinstance(row, PackageRow):

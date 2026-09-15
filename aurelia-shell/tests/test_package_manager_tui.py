@@ -31,7 +31,7 @@ from tui_backend import (  # noqa: E402
 )
 from tui_config import TuiConfig, key_code, key_pressed, load_config  # noqa: E402
 from tui_theme import load_theme, nearest_xterm  # noqa: E402
-from tui import PackageManagerTui, _contrast_ratio, _pack_footer_lines, _readable_color, _selection_window, _truncate, _wrap  # noqa: E402
+from tui import Event, PackageManagerTui, _contrast_ratio, _pack_footer_lines, _readable_color, _selection_window, _truncate, _wrap  # noqa: E402
 
 
 class PackageRowTests(unittest.TestCase):
@@ -298,7 +298,7 @@ class TuiInteractionTests(unittest.TestCase):
         app = self._app()
         app._handle_key(10)
         self.assertEqual(app.focus_area, "actions")
-        self.assertEqual(app.modal["kind"], "actions")
+        self.assertIsNone(app.modal)
 
     def test_help_is_a_compact_dynamic_shortcut_reference(self) -> None:
         app = self._app()
@@ -309,13 +309,20 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertTrue(any("Ctrl-R" in line and "Refresh metadata" in line for line in lines))
         self.assertLessEqual(len(lines), 30)
 
-    def test_actions_popup_navigates_to_conditional_uninstall_action(self) -> None:
+    def test_inline_actions_navigate_to_conditional_uninstall_action(self) -> None:
         app = self._app(installed=True)
         app._handle_key(10)
-        self.assertEqual(app.modal["kind"], "actions")
-        app._handle_modal_key(curses.KEY_DOWN)
-        app._handle_modal_key(10)
+        app._handle_key(curses.KEY_DOWN)
+        app._handle_key(10)
         self.assertEqual(app.modal["kind"], "uninstall")
+
+    def test_detail_pane_contains_one_inline_action_list(self) -> None:
+        app = self._app(installed=True)
+        app._pairs = {"base": 0, "text": 0}
+        with mock.patch("tui.curses.color_pair", return_value=0):
+            lines = [line for line, _attr in app._detail_lines(app.selected_row, 60)]
+        self.assertEqual(lines.count("Actions"), 1)
+        self.assertEqual(sum(line.strip() == "Uninstall" for line in lines), 1)
 
     def test_updates_view_is_current_only_and_disallows_version_downgrades(self) -> None:
         app = self._app(installed=True)
@@ -466,6 +473,18 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertEqual(app.modal["kind"], "message")
         self.assertIn("Only HTTPS", " ".join(app.modal["lines"]))
 
+    def test_view_source_waits_for_metadata_then_opens_automatically(self) -> None:
+        app = self._app()
+        row = app.selected_row
+        app.info_generation = 1
+        app.info_loading = True
+        app.pending_source_row = row
+        app.backend = mock.Mock()
+        app.backend.source_url.return_value = "https://example.invalid/source"
+        app._handle_event(Event("info", 1, value=("URL: https://example.invalid/source", {"URL": "https://example.invalid/source"})))
+        self.assertEqual(app.modal["kind"], "source")
+        self.assertIsNone(app.pending_source_row)
+
     def test_add_source_modal_keeps_q_as_input_until_escape(self) -> None:
         app = self._app()
         app._show_add_source()
@@ -516,7 +535,10 @@ class TuiInteractionTests(unittest.TestCase):
         screen = mock.Mock()
         app.screen = screen
         completed = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch("tui.shutil.which", return_value="/usr/bin/xdg-open"), mock.patch("tui.subprocess.run", return_value=completed) as run:
+        def which(name: str) -> str | None:
+            return "/usr/bin/xdg-open" if name == "xdg-open" else None
+
+        with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", return_value=completed) as run:
             app._launch_source_url("https://example.invalid/source")
         run.assert_called_once()
         screen.def_prog_mode.assert_called_once()
@@ -563,6 +585,40 @@ class TuiInteractionTests(unittest.TestCase):
         with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", return_value=completed) as run:
             app._launch_source_url("https://example.invalid/source")
         self.assertEqual(run.call_args.args[0], ["/usr/bin/gio", "open", "https://example.invalid/source"])
+
+    def test_source_launch_retries_xdg_after_gio_reports_an_error(self) -> None:
+        app = self._app()
+        app.diagnostics = []
+        app.messages = []
+        gio_failure = mock.Mock(returncode=1, stdout="", stderr="gio: no handler\n")
+        xdg_success = mock.Mock(returncode=0, stdout="", stderr="")
+
+        def which(name: str) -> str | None:
+            return {"gio": "/usr/bin/gio", "xdg-open": "/usr/bin/xdg-open"}.get(name)
+
+        with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", side_effect=[gio_failure, xdg_success]) as run:
+            app._launch_source_url("https://example.invalid/source")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[1].args[0], ["/usr/bin/xdg-open", "https://example.invalid/source"])
+        self.assertIsNone(app.modal)
+        self.assertTrue(any("gio: no handler" in line for line in app.diagnostics))
+
+    def test_source_launch_keeps_both_launcher_errors_in_the_tui(self) -> None:
+        app = self._app()
+        app.diagnostics = []
+        app.messages = []
+        gio_failure = mock.Mock(returncode=1, stdout="", stderr="gio: no handler\n")
+        xdg_failure = mock.Mock(returncode=3, stdout="", stderr="xdg-open: no method\n")
+
+        def which(name: str) -> str | None:
+            return {"gio": "/usr/bin/gio", "xdg-open": "/usr/bin/xdg-open"}.get(name)
+
+        with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", side_effect=[gio_failure, xdg_failure]):
+            app._launch_source_url("https://example.invalid/source")
+        self.assertTrue(app.running)
+        self.assertEqual(app.modal["kind"], "message")
+        self.assertIn("gio: no handler", " ".join(app.modal["lines"]))
+        self.assertIn("xdg-open: no method", " ".join(app.modal["lines"]))
 
     def test_backend_cancellation_terminates_only_registered_children(self) -> None:
         backend = PackageBackend(ROOT / "aurelia-shell" / "bin" / "workstation-packages")
