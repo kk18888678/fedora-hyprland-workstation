@@ -62,6 +62,20 @@ def _wrap(value: str, width: int) -> List[str]:
     return textwrap.wrap(value, width=width, break_long_words=True, break_on_hyphens=False) or [""]
 
 
+def _selection_window(selected: int, total: int, visible: int, top: int = 0) -> int:
+    """Return a scroll offset based on the actual rendered row capacity."""
+
+    if total <= 0 or visible <= 0:
+        return 0
+    selected = max(0, min(selected, total - 1))
+    top = max(0, top)
+    if selected < top:
+        top = selected
+    elif selected >= top + visible:
+        top = selected - visible + 1
+    return max(0, min(top, max(0, total - visible)))
+
+
 def _display_key(value: str) -> str:
     return {
         "up": "↑",
@@ -110,6 +124,7 @@ class PackageManagerTui:
         self.filtered_rows: List[PackageRow] = []
         self.selected_index = 0
         self.top_index = 0
+        self.visible_list_rows = 8
         self.filters: List[str] = ["All", "Installed", "Updates"]
         self.active_filter = "All"
         self.installed_keys: Set[Tuple[str, str, str, str]] = set()
@@ -229,7 +244,7 @@ class PackageManagerTui:
             rows = [row for row in self.rows if row.provider_label == active]
         self.filtered_rows = rows
         self.selected_index = max(0, min(self.selected_index, max(0, len(rows) - 1)))
-        self._keep_selection_visible(8)
+        self._keep_selection_visible(self.visible_list_rows)
 
     def _handle_event(self, event: Event) -> None:
         if event.kind == "bootstrap":
@@ -333,9 +348,10 @@ class PackageManagerTui:
         max_top = max(0, len(self.filtered_rows) - visible_rows)
         self.top_index = max(0, min(self.top_index, max_top))
 
-    def _move_selection(self, delta: int, visible_rows: int = 8) -> None:
+    def _move_selection(self, delta: int, visible_rows: Optional[int] = None) -> None:
         if not self.filtered_rows:
             return
+        visible_rows = visible_rows or self.visible_list_rows
         self.selected_index = max(0, min(len(self.filtered_rows) - 1, self.selected_index + delta))
         self.detail_scroll = 0
         self._keep_selection_visible(visible_rows)
@@ -552,9 +568,9 @@ class PackageManagerTui:
         elif key_pressed(ch, self.config.key("down")) or ch in (ord("j"),):
             self._move_selection(1)
         elif key_pressed(ch, self.config.key("page_up")):
-            self._move_selection(-8, 8)
+            self._move_selection(-self.visible_list_rows, self.visible_list_rows)
         elif key_pressed(ch, self.config.key("page_down")):
-            self._move_selection(8, 8)
+            self._move_selection(self.visible_list_rows, self.visible_list_rows)
         elif key_pressed(ch, self.config.key("filter_previous")):
             self._cycle_filter(-1)
         elif key_pressed(ch, self.config.key("filter_next")) or ch == 9:
@@ -740,7 +756,10 @@ class PackageManagerTui:
         return self._attr(pairs, f"provider_{provider}", bold=bold)
 
     def _draw_list(self, pairs: Dict[str, int], y: int, x: int, height: int, width: int) -> int:
-        end = min(len(self.filtered_rows), self.top_index + max(1, (height - 2) // 2))
+        visible_rows = max(1, (height - 2) // 2)
+        self.visible_list_rows = visible_rows
+        self.top_index = _selection_window(self.selected_index, len(self.filtered_rows), visible_rows, self.top_index)
+        end = min(len(self.filtered_rows), self.top_index + visible_rows)
         title = f"{self.config.label('list')}  {self.top_index + 1 if self.filtered_rows else 0}-{end}/{len(self.filtered_rows)}"
         self._box(y, x, height, width, pairs, title, self._attr(pairs, "accent"))
         inner_width = max(1, width - 4)
@@ -748,11 +767,11 @@ class PackageManagerTui:
             message = "Loading catalog…" if self.catalog_loading or self.query_loading else "No packages match this search or filter."
             self._add(y + 2, x + 2, message, inner_width, self._attr(pairs, "secondary"))
             return max(1, (height - 2) // 2)
-        visible_rows = max(1, (height - 2) // 2)
-        name_width = min(30, max(16, inner_width // 3))
-        provider_width = 9
-        version_width = min(18, max(10, inner_width // 5))
-        size_width = min(15, max(9, inner_width // 6))
+        provider_width = 8
+        version_width = min(16, max(10, inner_width // 5))
+        size_width = min(13, max(9, inner_width // 6))
+        fixed_width = 2 + 4 + 2 + 1 + provider_width + 1 + version_width + 1 + size_width + 2
+        name_width = min(26, max(12, inner_width - fixed_width))
         for offset, index in enumerate(range(self.top_index, min(end, self.top_index + visible_rows))):
             row = self.filtered_rows[index]
             row_y = y + 1 + offset * 2
@@ -764,12 +783,23 @@ class PackageManagerTui:
             installed = "✓" if self._is_installed(row) else " "
             update = "↑" if self._is_update(row) else " "
             name = f"{installed}{update} {row.name}"
-            line = f"{pointer} {index + 1:>3} {name:<{name_width}} {row.provider_label:<{provider_width}} {row.version:<{version_width}} {self._row_size(row):>{size_width}} {queued}"
-            self._add(row_y, x + 2, line, inner_width, self._attr(pairs, "text", bold=selected))
+            start_x = x + 2
+            name_x = start_x + 8
+            provider_x = name_x + name_width + 1
+            version_x = provider_x + provider_width + 1
+            size_x = version_x + version_width + 1
+            queue_x = size_x + size_width + 1
+            text_attr = self._attr(pairs, "text", bold=selected)
+            self._add(row_y, start_x, pointer, 1, self._attr(pairs, "accent", bold=selected))
+            self._add(row_y, start_x + 2, f"{index + 1:>3}", 3, text_attr)
+            self._add(row_y, start_x + 6, row.icon, 1, self._provider_attr(pairs, row.provider, bold=False))
+            self._add(row_y, name_x, name, name_width, text_attr)
+            self._add(row_y, provider_x, row.provider_label, provider_width, self._provider_attr(pairs, row.provider))
+            self._add(row_y, version_x, row.version, version_width, text_attr)
+            self._add(row_y, size_x, self._row_size(row), size_width, text_attr)
+            self._add(row_y, queue_x, queued, 1, self._attr(pairs, "success", bold=True))
             summary_attr = self._attr(pairs, "secondary" if not selected else "text")
             self._add(row_y + 1, x + 7, row.summary, inner_width - 5, summary_attr)
-            provider_start = x + 2 + 2 + 3 + 1 + name_width + 1
-            self._add(row_y, provider_start, row.provider_label, provider_width, self._provider_attr(pairs, row.provider))
         return visible_rows
 
     def _detail_lines(self, row: PackageRow, width: int) -> List[Tuple[str, int]]:

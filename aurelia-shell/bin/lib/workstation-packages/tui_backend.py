@@ -66,6 +66,37 @@ class PackageRow:
     def provider_label(self) -> str:
         return {"dnf": "DNF", "flatpak": "Flatpak", "aurelia": "Aurelia"}.get(self.provider, self.provider)
 
+    @property
+    def icon(self) -> str:
+        return infer_package_icon(self.provider, self.identifier, self.name, self.summary)
+
+
+def infer_package_icon(provider: str, identifier: str, name: str, summary: str) -> str:
+    """Choose a small visual hint without requiring remote artwork.
+
+    RPM metadata does not carry application artwork and Flatpak artwork is not
+    guaranteed to be available for every remote row. These semantic glyphs are
+    therefore derived from searchable metadata and remain useful offline.
+    """
+
+    text = f"{identifier} {name} {summary}".lower()
+    categories = (
+        (("browser", "web", "firefox", "chromium"), "◉"),
+        (("terminal", "shell", "console"), "⌁"),
+        (("editor", "ide", "code", "vim", "neovim"), "✎"),
+        (("office", "spreadsheet", "word processor", "presentation"), "▤"),
+        (("music", "audio", "sound", "player"), "♫"),
+        (("video", "media", "movie", "film"), "▶"),
+        (("image", "photo", "graphics", "paint"), "▧"),
+        (("font", "typeface"), "A"),
+        (("library", "runtime", "development", "-devel", "-libs"), "λ"),
+        (("settings", "system", "utility", "tools"), "⚙"),
+    )
+    for tokens, glyph in categories:
+        if any(token in text for token in tokens):
+            return glyph
+    return {"dnf": "◆", "flatpak": "●", "aurelia": "✦"}.get(provider, "•")
+
 
 @dataclass
 class CatalogStatus:

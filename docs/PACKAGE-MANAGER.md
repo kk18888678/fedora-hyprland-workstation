@@ -142,6 +142,11 @@ wide terminals and a stacked view on narrow terminals. The Bash
 `workstation-packages` backend remains the only owner of package transactions,
 tracking, cache preparation, and diagnostics. The frontend reads Aurelia's
 active semantic theme files and never copies a fixed palette.
+Package rows also receive a lightweight metadata-derived visual glyph. The
+frontend does not download artwork for tens of thousands of rows: DNF does not
+reliably publish application icons in repository metadata, and Flatpak remote
+listings do not guarantee them. Provider-specific artwork can therefore be
+added later as a bounded optional cache without making search depend on it.
 
 To add an upstream GitHub source from the command line:
 

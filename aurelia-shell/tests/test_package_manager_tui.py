@@ -17,6 +17,7 @@ sys.path.insert(0, str(MODULE_DIR))
 
 from tui_backend import (  # noqa: E402
     PackageRow,
+    infer_package_icon,
     installed_keys_from_status,
     parse_catalog_rows,
     parse_catalog_status,
@@ -25,7 +26,7 @@ from tui_backend import (  # noqa: E402
 )
 from tui_config import key_code, key_pressed, load_config  # noqa: E402
 from tui_theme import load_theme, nearest_xterm  # noqa: E402
-from tui import _truncate, _wrap  # noqa: E402
+from tui import _selection_window, _truncate, _wrap  # noqa: E402
 
 
 class PackageRowTests(unittest.TestCase):
@@ -174,6 +175,16 @@ class ThemeAndConfigTests(unittest.TestCase):
         self.assertEqual(_truncate("abcdef", 4), "abc…")
         self.assertEqual(_wrap("one two three", 7), ["one two", "three"])
         self.assertGreaterEqual(nearest_xterm((255, 0, 0)), 0)
+
+    def test_selection_window_uses_rendered_capacity_instead_of_fixed_eight_rows(self) -> None:
+        self.assertEqual(_selection_window(7, 100, 11, 0), 0)
+        self.assertEqual(_selection_window(10, 100, 11, 0), 0)
+        self.assertEqual(_selection_window(11, 100, 11, 0), 1)
+        self.assertEqual(_selection_window(99, 100, 11, 88), 89)
+
+    def test_package_icon_is_derived_from_metadata_and_has_provider_fallback(self) -> None:
+        self.assertEqual(infer_package_icon("dnf", "example-browser", "example", "Web browser"), "◉")
+        self.assertEqual(infer_package_icon("flatpak", "org.example.App", "App", "Unclassified application"), "●")
 
 
 if __name__ == "__main__":
