@@ -566,6 +566,8 @@ class TuiInteractionTests(unittest.TestCase):
         open_file.assert_called_once_with("/dev/tty", "rb", buffering=0)
         self.assertIs(popen.call_args.kwargs["stdin"], terminal)
         self.assertEqual(popen.call_args.kwargs["env"]["WORKSTATION_PACKAGE_TTY_AUTHORIZED"], "yes")
+        self.assertFalse(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(popen.call_args.kwargs["process_group"], 0)
         terminal.close.assert_called_once()
 
     def test_versions_for_uses_the_dedicated_full_history_backend_command(self) -> None:

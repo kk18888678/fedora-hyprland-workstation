@@ -270,7 +270,11 @@ class PackageBackend:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                start_new_session=True,
+                # Keep a transaction child in the caller's terminal session
+                # so sudo's tty-scoped credential timestamp is reusable, while
+                # giving it a private process group for cancellation.
+                start_new_session=not stdin_tty,
+                process_group=0 if stdin_tty else None,
                 env=process_env,
             )
         except OSError as error:
