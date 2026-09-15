@@ -88,11 +88,13 @@ already present.
 
 The TUI groups historical rows for the same provider/package identity into one
 entry such as `brave-browser (N)`, where `N` is the dynamically discovered
-version count. Press `v` to inspect versions newest-first;
-an exact version can also be searched alongside the package name. Installed
-packages are discovered from the local RPM/Flatpak state, so an update row is
-shown as `Update` rather than a misleading `Install` when the repository source
-differs from the installed origin.
+version count. Press `v` to inspect versions newest-first; an exact version can
+also be searched alongside the package name. The `Updates` tab is intentionally
+simpler: it shows one current row per installed package, omits the historical
+count and version/downgrade action, and displays the installed-to-available
+version change. Installed packages are discovered from the local RPM/Flatpak
+state, so an update row is shown as `Update` rather than a misleading `Install`
+when the repository source differs from the installed origin.
 
 The catalog is refreshed by a user-level background timer after boot and at a
 configurable interval. Refresh is metadata-only: it never installs or upgrades

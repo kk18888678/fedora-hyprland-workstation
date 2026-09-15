@@ -346,17 +346,14 @@ class PackageManagerTui:
         self.installed_identity_keys = {(key[0], key[2], key[3]) for key in self.installed_keys}
 
     def _is_update(self, row: PackageRow) -> bool:
-        if row.provider == "dnf":
-            if row.identifier in self.update_dnf_ids:
-                return True
-        elif row.provider == "flatpak":
-            if row.identifier in self.update_flatpak_ids:
-                return True
-        else:
+        if row.provider not in {"dnf", "flatpak"}:
             return False
         installed_versions = self.installed_versions.get(self._group_key(row), set())
         if not installed_versions:
             return False
+        # Provider update status can be stale or unqualified.  The catalog
+        # candidate must still be strictly newer; otherwise it can label an
+        # identical installed/candidate EVR as an update.
         return any(_version_value(row.version) > _version_value(version) for version in installed_versions if version != "unknown")
 
     @staticmethod
@@ -386,6 +383,8 @@ class PackageManagerTui:
         return list(self.version_groups.get(self._group_key(row), [row]))
 
     def _display_name(self, row: PackageRow) -> str:
+        if self.active_filter == "Updates":
+            return row.name
         count = len(self._versions_for(row))
         return f"{row.name} ({count})" if count > 1 else row.name
 
@@ -398,7 +397,7 @@ class PackageManagerTui:
         elif active == "Installed":
             rows = [row for row in self.all_group_rows if self._is_installed(row)]
         elif active == "Updates":
-            rows = [row for row in self.all_group_rows if self._is_update(row)]
+            rows = [row for row in self.all_group_rows if self._is_installed(row) and self._is_update(row)]
         else:
             rows = [row for row in self.all_group_rows if row.provider_label == active]
         self.version_groups = {
@@ -725,8 +724,9 @@ class PackageManagerTui:
         items = [(first_action, first_label)]
         if installed:
             items.append(("uninstall", "Uninstall"))
-        version_count = len(self._versions_for(row))
-        items.append(("versions", f"View versions ({version_count})" if version_count > 1 else "View versions"))
+        if self.active_filter != "Updates":
+            version_count = len(self._versions_for(row))
+            items.append(("versions", f"View versions ({version_count})" if version_count > 1 else "View versions"))
         items.extend(
             [
                 ("queue", "Remove from queue" if row in self.queue_rows else "Add to queue"),
@@ -865,6 +865,9 @@ class PackageManagerTui:
     def _show_versions(self) -> None:
         row = self.selected_row
         if not row:
+            return
+        if self.active_filter == "Updates":
+            self._set_message("Updates applies the latest installed package; use All or DNF for version history", 6.0)
             return
         available = self._versions_for(row)
         self.modal = {"kind": "versions", "row": row, "query": "", "selected": 0, "search_focus": False, "scroll": 0, "error": ""}
@@ -1625,7 +1628,7 @@ class PackageManagerTui:
                 message = "Loading catalog…"
             elif self.active_filter == "Installed" and (self.status_loading or self.installed_loading):
                 message = "Loading installed package state…"
-            elif self.active_filter == "Updates" and (self.status_loading or self.updates_loading):
+            elif self.active_filter == "Updates" and (self.status_loading or self.installed_loading or self.updates_loading):
                 message = "Loading update information…"
             else:
                 message = "No packages match this search or filter."
@@ -1670,9 +1673,16 @@ class PackageManagerTui:
         pairs = self._pairs
         lines: List[Tuple[str, int]] = []
         installed = self._is_installed(row)
+        # The selected catalog row is the available candidate.  A provider
+        # metadata query such as `dnf info quickshell` can report the already
+        # installed EVR when it is not qualified by a version, so never let
+        # that preview overwrite the candidate shown by the list.
+        target_version = row.version if row.version not in {"", "n/a"} else self.info_fields.get("Version", row.version)
+        installed_versions = sorted(self.installed_versions.get(self._group_key(row), set()), key=_version_value, reverse=True)
+        installed_version = ", ".join(installed_versions) if installed_versions else "not available"
         install_size = self.info_fields.get("Installed size", row.installed_size) if installed else row.installed_size
         fields = [
-            ("Version", self.info_fields.get("Version", row.version)),
+            ("Available version" if self.active_filter == "Updates" else "Version", target_version),
             ("Status", "Update available" if self._is_update(row) else ("Installed" if self._is_installed(row) else "Available")),
             ("Architecture", self.info_fields.get("Architecture", row.architecture)),
             ("Installed size" if installed else "Install size", install_size),
@@ -1681,14 +1691,17 @@ class PackageManagerTui:
             ("Release date", self.info_fields.get("Release date", row.release_date)),
         ]
         version_count = len(self._versions_for(row))
-        if version_count > 1:
+        if version_count > 1 and self.active_filter != "Updates":
             fields.insert(2, ("Versions", f"{version_count} · press {_display_key(self.config.key('versions'))} for history"))
         if installed:
-            installed_versions = sorted(self.installed_versions.get(self._group_key(row), set()), key=_version_value, reverse=True)
-            if installed_versions:
-                fields.insert(1, ("Installed version", ", ".join(installed_versions)))
+            fields.insert(1, ("Installed version", installed_version))
+            if self._is_update(row):
+                fields.insert(2, ("Change", f"{installed_version} → {target_version}"))
         for label, value in fields:
-            lines.append((f"{label:<16} : {value}", self._attr(pairs, "text")))
+            prefix = f"{label:<16} : "
+            value_lines = _wrap(str(value), max(1, width - len(prefix)))
+            for index, value_line in enumerate(value_lines):
+                lines.append(((prefix if index == 0 else " " * len(prefix)) + value_line, self._attr(pairs, "text")))
         lines.append(("", 0))
         description = self.info_fields.get("Description", row.summary)
         for line in _wrap(description, max(1, width - 4)):
@@ -1759,10 +1772,11 @@ class PackageManagerTui:
             "PACKAGE",
             shortcut(key("queue"), "Toggle queue"),
             shortcut(key("select_all"), "Queue visible results"),
-            shortcut(key("versions"), "Versions / exact downgrade"),
+            shortcut(key("versions"), "Versions / exact downgrade (not Updates)"),
             shortcut(key("source"), "Open source URL"),
             shortcut(key("info"), "Full metadata"),
             shortcut(key("preview_toggle"), "Toggle details"),
+            shortcut(f"{key('preview_up')}/{key('preview_down')}", "Scroll metadata"),
             shortcut(key("sort"), "Choose sort order"),
             shortcut(key("sort_reverse"), "Reverse sort"),
             shortcut(key("add_source"), "Add Aurelia source (All/Aurelia)"),
@@ -2003,9 +2017,10 @@ class PackageManagerTui:
             f"{_display_key(self.config.key('accept'))} actions",
             f"{_display_key(self.config.key('search'))} search",
             f"{_display_key(self.config.key('queue'))} queue",
-            f"{_display_key(self.config.key('versions'))} versions",
             f"{_display_key(self.config.key('sort'))} sort",
         ]
+        if self.active_filter != "Updates":
+            controls.insert(5, f"{_display_key(self.config.key('versions'))} versions")
         if self._can_add_source():
             controls.append(f"{_display_key(self.config.key('add_source'))} Aurelia source")
         controls.extend(

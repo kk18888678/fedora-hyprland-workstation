@@ -317,6 +317,55 @@ class TuiInteractionTests(unittest.TestCase):
         app._handle_modal_key(10)
         self.assertEqual(app.modal["kind"], "uninstall")
 
+    def test_updates_view_is_current_only_and_disallows_version_downgrades(self) -> None:
+        app = self._app(installed=True)
+        current = app.selected_row
+        older = replace(current, version="0.9-1.fc44", release_date="2025-09-01")
+        app.version_groups[app._group_key(current)] = [current, older]
+        app.active_filter = "Updates"
+        app.update_dnf_ids = {current.identifier}
+        self.assertEqual(app._display_name(current), current.name)
+        self.assertNotIn("versions", [action for action, _label in app._action_items()])
+        app._show_versions()
+        self.assertIsNone(app.modal)
+        self.assertIn("use All or DNF", app.transient_message)
+
+    def test_updates_filter_excludes_packages_not_in_installed_inventory(self) -> None:
+        app = self._app(installed=False)
+        app.active_filter = "Updates"
+        app.update_dnf_ids = {app.selected_row.identifier}
+        app._apply_filter()
+        self.assertEqual(app.filtered_rows, [])
+
+    def test_equal_installed_and_candidate_evrs_are_not_reported_as_updates(self) -> None:
+        app = self._app(installed=True)
+        app.update_dnf_ids = {app.selected_row.identifier}
+        self.assertFalse(app._is_update(app.selected_row))
+
+    def test_detail_versions_wrap_without_losing_the_full_evrs_or_change(self) -> None:
+        app = self._app(installed=True)
+        app._pairs = {"base": 0, "text": 0}
+        installed_version = "1:1.2.3-4.fc44.20260915.longbuild"
+        available_version = "1:1.2.4-1.fc44.20260916.longbuild"
+        row = replace(app.selected_row, version=available_version)
+        app.rows = [row]
+        app.filtered_rows = [row]
+        app.installed_versions = {app._group_key(row): {installed_version}}
+        # Unqualified provider info may expose the installed EVR; the catalog
+        # row remains authoritative for the available/update EVR.
+        app.info_fields = {"Version": installed_version}
+        app.update_dnf_ids = {row.identifier}
+        app.active_filter = "Updates"
+        with mock.patch("tui.curses.color_pair", return_value=0):
+            lines = [line for line, _attr in app._detail_lines(row, 36)]
+        rendered = "\n".join(lines)
+        compact = "".join(rendered.split())
+        self.assertNotIn("…", rendered)
+        self.assertIn("Available version", rendered)
+        self.assertIn("Change", rendered)
+        self.assertIn(installed_version.replace(" ", ""), compact)
+        self.assertIn(available_version.replace(" ", ""), compact)
+
     def test_add_source_is_available_only_from_all_or_aurelia_contexts(self) -> None:
         app = self._app()
         app.active_filter = "DNF"
