@@ -8,6 +8,10 @@
 # visible, desired state lives in one tracked TSV, and the UI delegates every
 # mutation to this backend.
 
+# This file intentionally publishes state variables to the sourced backend
+# modules; ShellCheck cannot infer that cross-file ownership boundary.
+# shellcheck disable=SC2034
+
 set -Eeuo pipefail
 
 script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -46,8 +50,9 @@ resolve_repo_root() {
 source "$script_dir/lib/workstation-packages/common.sh"
 
 WSP_SCRIPT_PATH="$script_path"
-WSP_REPO_ROOT="$(resolve_repo_root  || true)"
-if [[ -z "$WSP_REPO_ROOT" ]]; then
+if WSP_REPO_ROOT="$(resolve_repo_root)"; then
+    :
+else
     printf '%s\n' 'ERROR: Could not locate the Fedora workstation repository. Set WORKSTATION_PACKAGE_REPO to its absolute path.' >&2
     exit 1
 fi
@@ -57,16 +62,24 @@ WSP_CACHE_DIR="${WORKSTATION_PACKAGE_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/
 WSP_CATALOG_FILE="$WSP_CACHE_DIR/catalog.tsv"
 WSP_CATALOG_META="$WSP_CACHE_DIR/catalog.meta"
 WSP_CATALOG_ERRORS="$WSP_CACHE_DIR/catalog.errors"
+WSP_CATALOG_DISPLAY_FILE="$WSP_CACHE_DIR/catalog.display.tsv"
+WSP_CATALOG_INDEX_FILE="$WSP_CACHE_DIR/catalog.index.tsv"
+WSP_CONFIG_FILE="${WORKSTATION_PACKAGE_CONFIG:-$WSP_REPO_ROOT/config/package-manager.conf}"
+WSP_USER_CONFIG_FILE="${WORKSTATION_PACKAGE_USER_CONFIG:-}"
 WSP_LOCK_FD=""
-WSP_REFRESH_PID=""
+WSP_TUI_INPUT_FD=""
+WSP_TUI_OUTPUT_FD=""
 
-[[ "$WSP_MANIFEST" == /* && "$WSP_SOURCES" == /* && "$WSP_CACHE_DIR" == /* ]] || {
+[[ "$WSP_MANIFEST" == /* && "$WSP_SOURCES" == /* && "$WSP_CACHE_DIR" == /* &&
+   "$WSP_CONFIG_FILE" == /* ]] || {
     printf '%s\n' 'ERROR: Package-manager paths must be absolute.' >&2
     exit 1
 }
 
 # shellcheck source=/dev/null
 source "$script_dir/lib/workstation-packages/aurelia.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/workstation-packages/config.sh"
 # shellcheck source=/dev/null
 source "$script_dir/lib/workstation-packages/manifest.sh"
 # shellcheck source=/dev/null
@@ -78,26 +91,35 @@ source "$script_dir/lib/workstation-packages/transactions.sh"
 # shellcheck source=/dev/null
 source "$script_dir/lib/workstation-packages/schedule.sh"
 
+wsp_config_load || exit 1
+
 cleanup() {
     local package_temp
+    local derived_temp
 
-    if [[ -n "${WSP_REFRESH_PID:-}" ]] && kill -0 "$WSP_REFRESH_PID" ; then
-        kill -TERM "$WSP_REFRESH_PID"  || true
-        wait "$WSP_REFRESH_PID"  || true
+    if ! wsp_lock_stop; then
+        wsp_warn 'Package operation lock cleanup reported an error.'
     fi
-    WSP_REFRESH_PID=""
-    wsp_lock_stop
     if [[ -n "${WSP_CATALOG_ROWS:-}" ]]; then
         rm -f -- "$WSP_CATALOG_ROWS"
     fi
     if [[ -n "${WSP_REFRESH_ERRORS:-}" ]]; then
         rm -f -- "$WSP_REFRESH_ERRORS"
     fi
+    for derived_temp in "${WSP_CATALOG_DISPLAY_STAGED:-}" "${WSP_CATALOG_INDEX_STAGED:-}"; do
+        [[ -n "$derived_temp" && "$derived_temp" == /* && ! -L "$derived_temp" ]] || continue
+        if ! rm -f -- "$derived_temp"; then
+            wsp_warn "Could not clean package catalog staging file: $derived_temp"
+        fi
+    done
+    WSP_CATALOG_DISPLAY_STAGED=''
+    WSP_CATALOG_INDEX_STAGED=''
     for package_temp in "${WSP_AURELIA_TEMP_FILES[@]}"; do
         [[ -n "$package_temp" && "$package_temp" == /* && ! -L "$package_temp" ]] || continue
         rm -f -- "$package_temp"
     done
     WSP_AURELIA_TEMP_FILES=()
+    tui_close_terminal_fds
 }
 
 on_signal() {
@@ -124,11 +146,14 @@ Read-only:
   open                                      Open the interactive package manager terminal.
   tui                                       Run the interactive package manager in this terminal.
   refresh [--scheduled]                     Refresh Fedora, Flatpak, and Aurelia catalogs only.
-  search [query]                            Search the cached multi-source catalog.
+  search [query]                            Search latest rows in the cached catalog.
+  search --all-versions [query]             Include every cached version/build.
+  latest [query]                             Search only the newest row per package identity.
+  catalog status                            Show cache age, schema, row counts, and source health.
   info --provider P --source S --id ID      Show package metadata from the catalog.
   status [--json]                           Show tracked, missing, drifted, and unmanaged packages.
   source list                               Show configured and discovered sources.
-  daily status                             Show the daily refresh timer state.
+  daily status                             Show the background refresh timer state.
 
 Explicit mutations:
   install P S ID [scope] [--track] [--yes]   Install, optionally track in user-managed.tsv.
@@ -139,7 +164,7 @@ Explicit mutations:
   source remove flatpak NAME [scope] [--yes] Stop tracking a Flatpak source.
   source remove aurelia SOURCE [--yes]      Stop tracking an Aurelia GitHub source.
   restore --aurelia                         Restore tracked Aurelia binaries.
-  daily enable|disable                       Enable or disable daily catalog refresh.
+  daily enable|disable                     Enable or disable boot/interval catalog refresh.
 
 P is dnf, flatpak, or aurelia. Flatpak scope is system or user; DNF uses
 system; Aurelia installs verified binaries into ~/.local/bin as the user.
@@ -165,16 +190,111 @@ require_tty() {
     }
 }
 
-confirm() {
+tui_open_terminal_fds() {
+    local tty_fd=""
+    local terminal_path=""
+
+    [[ -n "${WSP_TUI_INPUT_FD:-}" && -n "${WSP_TUI_OUTPUT_FD:-}" ]] && return 0
+    if [[ -t 0 && -t 1 ]] &&
+       terminal_path="$(tty)" &&
+       [[ "$terminal_path" == /dev/tty || "$terminal_path" == /dev/pts/* ]] &&
+       exec {tty_fd}<>"$terminal_path"; then
+        WSP_TUI_INPUT_FD="$tty_fd"
+        WSP_TUI_OUTPUT_FD="$tty_fd"
+        return 0
+    fi
+    if [[ -t 0 && -t 1 ]] &&
+       exec {WSP_TUI_INPUT_FD}<&0 &&
+       exec {WSP_TUI_OUTPUT_FD}>&1; then
+        return 0
+    fi
+    if [[ "${WSP_TUI_INPUT_FD:-}" =~ ^[0-9]+$ && "$WSP_TUI_INPUT_FD" -gt 2 ]]; then
+        exec {WSP_TUI_INPUT_FD}>&-
+    fi
+    WSP_TUI_INPUT_FD=""
+    WSP_TUI_OUTPUT_FD=""
+    wsp_error 'The package-manager terminal descriptors could not be initialized.'
+    return 1
+}
+
+tui_close_terminal_fds() {
+    local input_fd="${WSP_TUI_INPUT_FD:-}"
+    local output_fd="${WSP_TUI_OUTPUT_FD:-}"
+
+    if [[ "$output_fd" =~ ^[0-9]+$ && "$output_fd" -gt 2 ]]; then
+        exec {WSP_TUI_OUTPUT_FD}>&-
+    fi
+    if [[ "$input_fd" =~ ^[0-9]+$ && "$input_fd" -gt 2 && "$input_fd" != "$output_fd" ]]; then
+        exec {WSP_TUI_INPUT_FD}>&-
+    fi
+    WSP_TUI_INPUT_FD=""
+    WSP_TUI_OUTPUT_FD=""
+}
+
+tui_read_line() {
     local prompt="$1"
+    local answer
+    local tty_fd="${WSP_TUI_INPUT_FD:-}"
+    local output_fd="${WSP_TUI_OUTPUT_FD:-}"
+    local owns_fd=0
+
+    if [[ -z "$tty_fd" || -z "$output_fd" ]]; then
+        local tty_path="/dev/tty"
+        [[ -r "$tty_path" && -w "$tty_path" ]] || {
+            wsp_error 'The package-manager input device is unavailable.'
+            return 1
+        }
+        if exec {tty_fd}<>"$tty_path"; then
+            output_fd="$tty_fd"
+            owns_fd=1
+        else
+            wsp_error 'The package-manager input device could not be opened.'
+            return 1
+        fi
+    fi
+    if [[ ! -t "$tty_fd" ]]; then
+        (( owns_fd == 1 )) && exec {tty_fd}>&-
+        wsp_error 'The package-manager input device is not a terminal.'
+        return 1
+    fi
+    printf '%s ' "$prompt" >&"$output_fd"
+    if ! IFS= read -r answer <&"$tty_fd"; then
+        (( owns_fd == 1 )) && exec {tty_fd}>&-
+        return 1
+    fi
+    (( owns_fd == 1 )) && exec {tty_fd}>&-
+    printf '%s' "$answer"
+}
+
+tui_confirm_with_default() {
+    local prompt="$1"
+    local default="$2"
     local answer
 
     if [[ "${WSP_ASSUME_YES:-0}" == 1 ]]; then
         return 0
     fi
-    require_tty || return 1
-    read -r -p "$prompt [y/N] " answer || return 1
-    [[ "$answer" == y || "$answer" == Y || "$answer" == yes || "$answer" == YES ]]
+    require_tty || return 2
+    if answer="$(tui_read_line "$prompt [$([[ "$default" == yes ]] && printf 'Y/n' || printf 'y/N')]")"; then
+        :
+    else
+        wsp_error "Could not read the confirmation prompt: $prompt"
+        return 2
+    fi
+    answer="${answer,,}"
+    if [[ -z "$answer" ]]; then
+        [[ "$default" == yes ]]
+    else
+        [[ "$answer" == y || "$answer" == yes ]]
+    fi
+}
+
+confirm() {
+    tui_confirm_with_default "$1" no
+}
+
+confirm_default_yes() {
+    tui_confirm_with_default "$1" yes
 }
 
 read_terminal_preference() {
@@ -262,27 +382,16 @@ open_terminal() {
         launch_argv=(uwsm-app -- "${launch_argv[@]}")
     fi
     if command -v setsid >/dev/null; then
-        setsid -f "${launch_argv[@]}" >/dev/null
+        setsid -f "${launch_argv[@]}"
     else
-        ("${launch_argv[@]}" >/dev/null &)
+        ("${launch_argv[@]}" &)
     fi
 }
 
-start_background_catalog_refresh() {
-    [[ -z "${WSP_LOCK_FD:-}" ]] || return 1
-    [[ -n "${WSP_REFRESH_PID:-}" ]] && return 0
-    wsp_catalog_needs_refresh || return 1
-
-    (
-        WSP_QUIET_REFRESH=1 "$script_path" refresh --scheduled >/dev/null || true
-    ) &
-    WSP_REFRESH_PID=$!
-    return 0
-}
-
 open_package_manager() {
-    # Match Omarchy's launch boundary: open the selector immediately. The
-    # terminal-owned search surface quietly prepares or reuses its catalog.
+    # Open the selector immediately. The terminal-owned search surface uses
+    # the last-known-good catalog; refresh is handled by the background timer
+    # or by an explicit in-TUI refresh command.
     open_terminal
 }
 
@@ -311,36 +420,67 @@ parse_scope() {
 
 run_mutation() {
     local function_name="$1"
+    local acquired_lock=0
+    local status=0
     shift
-    wsp_lock_start || return 1
-    "$function_name" "$@"
+    if [[ -z "${WSP_LOCK_FD:-}" ]]; then
+        wsp_lock_start || return 1
+        acquired_lock=1
+    fi
+    if "$function_name" "$@"; then
+        status=0
+    else
+        status=$?
+    fi
+    if (( acquired_lock == 1 )); then
+        wsp_lock_stop
+    fi
+    return "$status"
 }
 
 format_catalog_rows_for_fzf() {
-    local provider
-    local source
-    local identifier
-    local name
-    local summary
-    local version
-    local scope
-    local state
-    local asset
-    local checksum
-    local target
-    local artifact_url
-
-    while IFS=$'\t' read -r provider source identifier name summary version scope asset checksum target artifact_url; do
-        [[ -n "$identifier" ]] || continue
-        # Omarchy's selector renders the complete sync database first and
-        # performs state-changing/presence checks only after selection. Do not
-        # fork DNF/RPM/Flatpak once per row; that makes the selector appear
-        # blank on a catalog with thousands of entries.
-        state="available"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$provider" "$source" "$identifier" "$name" "$version" "$state" "$scope" "$summary" \
-            "$asset" "$checksum" "$target" "$artifact_url"
-    done
+    # awk preserves empty TSV fields. Bash read with tab IFS collapses adjacent
+    # whitespace delimiters, which would shift rich metadata columns left.
+    awk -F '\t' -v OFS='\t' '
+        NF == 11 {
+            if ($4 == $3) $4 = "-"
+            print
+            next
+        }
+        NF == 12 {
+            if ($4 == $3) $4 = "-"
+            print
+            next
+        }
+        function human_size(value, number, unit) {
+            if (value == "" || value == "-" || value == "0") return "n/a"
+            if (value !~ /^[0-9]+$/) return value
+            number = value + 0
+            unit = "B"
+            if (number >= 1024) { number /= 1024; unit = "KiB" }
+            if (number >= 1024) { number /= 1024; unit = "MiB" }
+            if (number >= 1024) { number /= 1024; unit = "GiB" }
+            if (number >= 1024) { number /= 1024; unit = "TiB" }
+            return sprintf("%.1f %s", number, unit)
+        }
+        function human_date(value) {
+            if (value ~ /^[0-9]+$/ && value > 0) return strftime("%Y-%m-%d", value)
+            return "-"
+        }
+        $3 != "" {
+            name = ($4 == "" ? $3 : $4)
+            version = ($6 == "" ? "unknown" : $6)
+            scope = ($7 == "" ? "system" : $7)
+            arch = ($12 == "" ? "unknown" : $12)
+            install_size = human_size($13)
+            download_size = human_size($14)
+            reason = ($32 == "" ? "catalog" : $32)
+            release_date = human_date($31)
+            summary = ($5 == "" ? "(no summary)" : $5)
+            printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", \
+                $1, $2, $3, name, version, scope, arch, install_size, download_size, reason, release_date, summary
+        }
+    '
 }
 
 wsp_manifest_record_for_identity() {
@@ -368,134 +508,370 @@ wsp_profile_applies() {
 }
 
 tui_pause() {
-    read -r -p 'Press Enter to continue... ' _ || true
+    local ignored_answer
+
+    require_tty || return 1
+    if ignored_answer="$(tui_read_line 'Press Enter to continue...')"; then
+        return 0
+    fi
+    wsp_warn 'Could not read the package-manager pause prompt.'
+    return 1
+}
+
+tui_selector_status() {
+    local status="$1"
+    local context="$2"
+
+    if [[ "$status" -eq 1 || "$status" -eq 130 ]]; then
+        return 0
+    fi
+    wsp_error "Package-manager selector '$context' failed with status $status."
+    return "$status"
 }
 
 tui_show_done() {
     local message="${1:-Done!}"
     local tty_path="/dev/tty"
-    local tty_fd=""
-    local ignored_input
+    local tty_fd="${WSP_TUI_INPUT_FD:-}"
+    local output_fd="${WSP_TUI_OUTPUT_FD:-}"
+    local owns_fd=0
 
     # Keep the result visible after the transaction and close only after the
     # user acknowledges it.  Use one tty descriptor for the drain, prompt, and
     # acknowledgement so a pending Enter from the preceding selector cannot
     # re-enter the package-manager menu.
-    if ! exec {tty_fd}<>"$tty_path"; then
-        tui_pause
-        return 0
+    if [[ -z "$tty_fd" || -z "$output_fd" ]]; then
+        if ! exec {tty_fd}<>"$tty_path"; then
+            if [[ -t 0 && -t 1 ]]; then
+                tty_fd=0
+                output_fd=1
+            else
+                tui_pause
+                return 0
+            fi
+        else
+            output_fd="$tty_fd"
+            owns_fd=1
+        fi
     fi
-    while IFS= read -r -s -n 1 -t 0.1 ignored_input <&"$tty_fd"; do
+    while IFS= read -r -s -n 1 -t 0.1 <&"$tty_fd"; do
         :
     done
-    printf '\n\033[32m●\033[0m %s Press any key to close...' "$message" >&"$tty_fd"
-    IFS= read -r -s -n 1 <&"$tty_fd" || true
-    printf '\n' >&"$tty_fd"
-    exec {tty_fd}>&-
+    printf '\n\033[32m●\033[0m %s Press any key to close...' "$message" >&"$output_fd"
+    if ! IFS= read -r -s -n 1 <&"$tty_fd"; then
+        wsp_warn 'Package-manager completion prompt reached end-of-input before acknowledgement.'
+    fi
+    printf '\n' >&"$output_fd"
+    (( owns_fd == 1 )) && exec {tty_fd}>&-
+    return 0
 }
 
-tui_search_install() {
-    local selected
-    local line
+tui_apply_selected_rows() {
+    local selected="$1"
+    local track_selected="$2"
     local provider
     local source
     local identifier
     local scope
-    local asset
-    local checksum
-    local target
-    local artifact_url
+    local catalog_row
     local tracked_row
     local tracked_version
     local tracked_asset
     local tracked_checksum
     local tracked_target
     local tracked_artifact_url
+    local asset
+    local checksum
+    local target
+    local artifact_url
     local count=0
     local failed=0
-    local track_selected=1
+
+    while IFS=$'\t' read -r provider source identifier _ _ scope _ _ _ _ _; do
+        [[ -n "$identifier" ]] || continue
+        count=$((count + 1))
+
+        # Catalog metadata is descriptive. Only Aurelia's verified release
+        # fields are valid installation arguments; DNF/Flatpak versions must
+        # never leak into the tracked manifest as pinned metadata.
+        if [[ "$provider" == aurelia ]]; then
+            catalog_row="$(wsp_catalog_row_for_identity "$provider" "$source" "$identifier" "$scope")" || {
+                wsp_error "Selected Aurelia catalog row disappeared before installation: $identifier"
+                failed=1
+                continue
+            }
+            IFS=$'\t' read -r _catalog_provider _catalog_source _catalog_identifier _catalog_name _catalog_summary \
+                _catalog_version _catalog_scope asset checksum target artifact_url _catalog_metadata <<< "$catalog_row"
+        fi
+
+        if (( track_selected == 1 )); then
+            if wsp_manifest_contains_identity "$provider" "$source" "$identifier" "$scope"; then
+                if wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
+                    wsp_info "Already tracked and installed: $provider/$source/$identifier"
+                elif [[ "$provider" == aurelia ]]; then
+                    # Never replace a tracked upstream pin with a newer catalog
+                    # candidate merely because it was selected.
+                    tracked_row="$(wsp_manifest_record_for_identity "$provider" "$source" "$identifier" "$scope")"
+                    IFS=$'\t' read -r _tracked_provider _tracked_source _tracked_identifier _tracked_scope _tracked_profiles \
+                        tracked_version tracked_asset tracked_checksum tracked_target tracked_artifact_url <<< "$tracked_row"
+                    wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+                        "$tracked_version" "$tracked_asset" "$tracked_checksum" "$tracked_target" "$tracked_artifact_url" || failed=1
+                else
+                    wsp_install_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                fi
+            elif wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
+                if [[ "$provider" == aurelia ]]; then
+                    wsp_adopt_row "$provider" "$source" "$identifier" "$scope" \
+                        "$_catalog_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
+                else
+                    run_mutation wsp_adopt_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                fi
+            elif [[ "$provider" == aurelia ]]; then
+                wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" \
+                    "$_catalog_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
+            else
+                wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" || failed=1
+            fi
+        else
+            if ! wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
+                if [[ "$provider" == aurelia ]]; then
+                    wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+                        "$_catalog_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
+                else
+                    wsp_install_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                fi
+            else
+                wsp_info "Already installed: $provider/$source/$identifier"
+            fi
+        fi
+    done <<< "$selected"
+    wsp_info "Processed $count package selection(s)."
+    (( failed == 0 ))
+}
+
+tui_search_install() {
+    local selected
     local track_answer=""
-    local reload_command=""
+    local track_selected=1
+    local header
+    local footer
+    local search_command
+    local refresh_command
+    local help_command
     local -a fzf_args=()
 
-    # The selector must render immediately. A stale/missing catalog is
-    # refreshed in the background and the fzf input is atomically reloaded
-    # when that bounded refresh finishes.
-    start_background_catalog_refresh || true
     command -v fzf >/dev/null || {
         wsp_error "fzf is required for package search."
         return 1
     }
+    wsp_catalog_prepare_for_tui || return 1
+    header="$(wsp_catalog_cache_summary)"
+    header+=$'\nSearch: IDs · names · descriptions · commands · capabilities · cached'
+    header+=$'\nColumns: provider source id name version scope arch size match date'
+    header+=$'\n         summary follows date · sizes are installed then download'
+    footer="${WSP_CFG_KEY_UP}/${WSP_CFG_KEY_DOWN} move · ${WSP_CFG_KEY_PAGE_UP}/${WSP_CFG_KEY_PAGE_DOWN} page · ${WSP_CFG_KEY_SELECT} pick · ${WSP_CFG_KEY_ACCEPT} install"
+    footer+=$'\n'
+    footer+="${WSP_CFG_KEY_REFRESH} reload · ${WSP_CFG_KEY_HELP} help · ${WSP_CFG_KEY_CANCEL} close · ${WSP_CFG_KEY_PREVIEW_TOGGLE} pane · ${WSP_CFG_KEY_PREVIEW_UP},${WSP_CFG_KEY_PREVIEW_DOWN} scroll"
+
+    printf -v search_command '%q catalog-tui-search --query {q}' "$script_path"
+    printf -v refresh_command '%q catalog-tui-refresh --query {q}' "$script_path"
+    printf -v help_command '%q tui-help' "$script_path"
     fzf_args=(
         --multi
+        --disabled
+        --no-sort
         --delimiter=$'\t'
-        --with-nth=1,2,3,4,5,6,7
-        --header='TAB select · ENTER install · source is shown explicitly'
-        --prompt='Search Fedora, Flatpak, and Aurelia > '
-        --preview="$script_path info --provider {1} --source {2} --id {3}"
-        --preview-label='alt-p: toggle preview, alt-j/k: scroll, tab: multi-select'
-        --preview-label-pos='bottom'
-        --preview-window='down:65%:wrap'
-        --bind='alt-p:toggle-preview'
-        --bind='alt-d:preview-half-page-down,alt-u:preview-half-page-up'
-        --bind='alt-k:preview-up,alt-j:preview-down'
-        --color='pointer:green,marker:green'
+        --with-nth='1,2,3,4,5,6,7,8,9,10,11,12'
+        --header="$header"
+        --header-first
+        --border-label="${WSP_CFG_TUI_TITLE:-Package Manager}"
+        --border-label-pos=2
+        --header-border="${WSP_CFG_TUI_BORDER:-rounded}"
+        --header-label="${WSP_CFG_TUI_HEADER_LABEL:-Catalog}"
+        --header-label-pos=2
+        --input-border="${WSP_CFG_TUI_BORDER:-rounded}"
+        --input-label="${WSP_CFG_TUI_INPUT_LABEL:-Search}"
+        --input-label-pos=2
+        --list-label-pos=2
+        --list-label="${WSP_CFG_TUI_LIST_LABEL:-Packages}"
+        --footer="$footer"
+        --footer-border=rounded
+        --footer-label="${WSP_CFG_TUI_FOOTER_LABEL:-Keys}"
+        --footer-label-pos=2
+        --prompt="${WSP_CFG_TUI_PROMPT:-Search > }"
+        --height="${WSP_CFG_TUI_HEIGHT:-100%}"
+        --layout=reverse
+        --border="${WSP_CFG_TUI_BORDER:-rounded}"
+        --list-border="${WSP_CFG_TUI_BORDER:-rounded}"
+        --preview-border="${WSP_CFG_TUI_BORDER:-rounded}"
+        --padding="${WSP_CFG_TUI_PADDING:-0,1}"
+        --margin="${WSP_CFG_TUI_MARGIN:-1,2}"
+        --info="${WSP_CFG_TUI_INFO:-inline-right}"
+        --tabstop="${WSP_CFG_TUI_TABSTOP:-2}"
+        --track
+        --cycle
+        --scroll-off="${WSP_CFG_TUI_SCROLL_OFF:-0}"
+        --no-hscroll
+        --pointer="${WSP_CFG_TUI_POINTER:-▌}"
+        --marker="${WSP_CFG_TUI_MARKER:-┃}"
+        --preview="$script_path info --provider {1} --source {2} --id {3} --scope {6}"
+        --preview-label="${WSP_CFG_TUI_PREVIEW_LABEL:-Selected package · metadata}"
+        --preview-label-pos=2
+        --preview-window="${WSP_CFG_TUI_PREVIEW_WINDOW:-right:55%:wrap}"
+        --bind="change:reload($search_command)+first"
+        --bind="${WSP_CFG_KEY_REFRESH:-ctrl-r}:reload($refresh_command)+first"
+        --bind="${WSP_CFG_KEY_HELP:-?}:execute($help_command)"
+        --bind="${WSP_CFG_KEY_PREVIEW_TOGGLE:-alt-p}:toggle-preview"
+        --bind="${WSP_CFG_KEY_PREVIEW_UP:-alt-k}:preview-up"
+        --bind="${WSP_CFG_KEY_PREVIEW_DOWN:-alt-j}:preview-down"
+        --bind="${WSP_CFG_KEY_SELECT_ALL:-ctrl-a}:select-all"
+        --color="${WSP_CFG_TUI_COLOR:-fg:#cdd6f4,bg:#1e1e2e,fg+:#f5e0e6,bg+:#313244,hl:#f38ba8,hl+:#f38ba8,pointer:#89b4fa,marker:#a6e3a1,info:#89b4fa,prompt:#89b4fa,spinner:#f9e2af,header:#f5c2e7:bold,footer:#89dceb,label:#cba6f7,border:#89b4fa}"
     )
-    printf -v reload_command '%q catalog-tui-rows' "$script_path"
-    fzf_args+=("--bind=ctrl-r:reload($reload_command)")
-    selected="$(wsp_catalog_rows_for_tui | format_catalog_rows_for_fzf | fzf "${fzf_args[@]}")" || return 0
+    if [[ "${WSP_CFG_KEY_ACCEPT:-enter}" != enter ]]; then
+        fzf_args+=("--bind=${WSP_CFG_KEY_ACCEPT}:accept")
+    fi
+    if [[ "${WSP_CFG_KEY_CANCEL:-esc}" != esc ]]; then
+        fzf_args+=("--bind=${WSP_CFG_KEY_CANCEL}:abort")
+    fi
+    if [[ "${WSP_CFG_KEY_UP:-up}" != up ]]; then
+        fzf_args+=("--bind=${WSP_CFG_KEY_UP}:up")
+    fi
+    if [[ "${WSP_CFG_KEY_DOWN:-down}" != down ]]; then
+        fzf_args+=("--bind=${WSP_CFG_KEY_DOWN}:down")
+    fi
+    if [[ "${WSP_CFG_KEY_PAGE_UP:-pgup}" != pgup ]]; then
+        fzf_args+=("--bind=${WSP_CFG_KEY_PAGE_UP}:page-up")
+    fi
+    if [[ "${WSP_CFG_KEY_PAGE_DOWN:-pgdn}" != pgdn ]]; then
+        fzf_args+=("--bind=${WSP_CFG_KEY_PAGE_DOWN}:page-down")
+    fi
+    if [[ "${WSP_CFG_KEY_SELECT:-tab}" != tab ]]; then
+        fzf_args+=("--bind=${WSP_CFG_KEY_SELECT}:toggle-down")
+    fi
+
+    if selected="$(wsp_catalog_initial_rows_for_tui | format_catalog_rows_for_fzf | fzf "${fzf_args[@]}")"; then
+        :
+    else
+        local selector_status=$?
+        tui_selector_status "$selector_status" 'package search' || return "$selector_status"
+        return 0
+    fi
     [[ -n "$selected" ]] || return 0
 
     if [[ "${WSP_ASSUME_YES:-0}" != 1 ]]; then
-        read -r -p 'Track selected packages in user-managed.tsv? [Y/n] ' track_answer || return 0
-        case "$track_answer" in
-            n|N|no|NO) track_selected=0 ;;
-            ''|y|Y|yes|YES) ;;
+        if track_answer="$(tui_read_line 'Track selected packages in user-managed.tsv? [Y/n]')"; then
+            :
+        else
+            wsp_error 'Could not read the tracking choice; installation was cancelled before mutation.'
+            return 1
+        fi
+        case "${track_answer,,}" in
+            n|no)
+                track_selected=0
+                wsp_info 'Selected packages will be installed without tracking.'
+                ;;
+            ''|y|yes) ;;
             *) wsp_info 'Cancelled.'; return 0 ;;
         esac
     fi
-    if ! confirm "Install the selected package(s) now?"; then
+    confirm "Install the selected package(s) now?" || {
         wsp_info 'Cancelled.'
         return 0
-    fi
-    [[ -n "${WSP_LOCK_FD:-}" ]] || wsp_lock_start || return 1
+    }
+    run_mutation tui_apply_selected_rows "$selected" "$track_selected"
+}
 
-    while IFS=$'\t' read -r provider source identifier _name _version _state scope _summary asset checksum target artifact_url; do
-        [[ -n "$identifier" ]] || continue
-        count=$((count + 1))
-        if (( track_selected == 1 )); then
-                if wsp_manifest_contains_identity "$provider" "$source" "$identifier" "$scope"; then
-                    if wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
-                        wsp_info "Already tracked and installed: $provider/$source/$identifier"
-                    elif [[ "$provider" == aurelia ]]; then
-                        # Never replace a tracked upstream pin with a newer
-                        # catalog candidate merely because it was selected.
-                        tracked_row="$(wsp_manifest_record_for_identity "$provider" "$source" "$identifier" "$scope")"
-                        IFS=$'\t' read -r _tracked_provider _tracked_source _tracked_identifier _tracked_scope _tracked_profiles \
-                            tracked_version tracked_asset tracked_checksum tracked_target tracked_artifact_url <<< "$tracked_row"
-                        wsp_install_row "$provider" "$source" "$identifier" "$scope" \
-                            "$tracked_version" "$tracked_asset" "$tracked_checksum" "$tracked_target" "$tracked_artifact_url" || failed=1
-                    else
-                        wsp_install_row "$provider" "$source" "$identifier" "$scope" || failed=1
-                    fi
-                elif wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
-                    wsp_adopt_row "$provider" "$source" "$identifier" "$scope" \
-                        "$_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
-                else
-                    wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" \
-                        "$_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
-                fi
-        else
-                if ! wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
-                    wsp_install_row "$provider" "$source" "$identifier" "$scope" \
-                        "$_version" "$asset" "$checksum" "$target" "$artifact_url" || failed=1
-                else
-                    wsp_info "Already installed: $provider/$source/$identifier"
-                fi
+catalog_tui_search() {
+    local query="${1:-}"
+
+    if [[ -z "$query" ]]; then
+        wsp_catalog_initial_rows_for_tui | format_catalog_rows_for_fzf
+    else
+        wsp_catalog_search_tui_ranked "$query" | format_catalog_rows_for_fzf
+    fi
+}
+
+catalog_tui_refresh() {
+    local query="${1:-}"
+    local refresh_status=0
+
+    # Refresh is explicit in the TUI. Refresh progress and all diagnostics stay
+    # on the terminal's diagnostic stream; only the final catalog rows go to
+    # fzf's reload pipe.
+    if run_mutation wsp_catalog_refresh; then
+        :
+    else
+        refresh_status=$?
+        wsp_warn "Interactive catalog refresh returned status $refresh_status; showing the published catalog."
+    fi
+    catalog_tui_search "$query"
+}
+
+tui_help() {
+    local status
+    local footer="${WSP_CFG_KEY_UP}/${WSP_CFG_KEY_DOWN}:scroll · ${WSP_CFG_KEY_PAGE_UP}/${WSP_CFG_KEY_PAGE_DOWN}:page · ${WSP_CFG_KEY_ACCEPT}/${WSP_CFG_KEY_CANCEL}:close"
+
+    if printf '%s\n' \
+        'SEARCH' \
+        '  Case, spaces, hyphens, and underscores are normalized.' \
+        '  Search package IDs, names, summaries, descriptions, and capabilities.' \
+        '  Commands such as edid-decode resolve through DNF whatprovides metadata.' \
+        '  Search shows the newest available build as LATEST.' \
+        '  Use: workstation-packages search --all-versions <query> for history.' \
+        '' \
+        'SELECT AND INSTALL' \
+        "  ${WSP_CFG_KEY_SELECT}: toggle a package" \
+        "  ${WSP_CFG_KEY_SELECT_ALL}: select all visible results" \
+        "  ${WSP_CFG_KEY_ACCEPT}: review, confirm, and install" \
+        '  Tracking writes only canonical provider/source/ID/scope state.' \
+        '' \
+        'METADATA AND REFRESH' \
+        '  The lower pane shows the selected package metadata.' \
+        '  DNF release dates are shown when build metadata provides them.' \
+        '  Flatpak remotes do not expose a release date in remote-ls.' \
+        "  ${WSP_CFG_KEY_REFRESH}: refresh metadata only; it never installs packages." \
+        '' \
+        'NAVIGATION' \
+        "  ${WSP_CFG_KEY_UP}/${WSP_CFG_KEY_DOWN}: move" \
+        "  ${WSP_CFG_KEY_PAGE_UP}/${WSP_CFG_KEY_PAGE_DOWN}: page" \
+        "  ${WSP_CFG_KEY_PREVIEW_TOGGLE}: show/hide metadata pane" \
+        "  ${WSP_CFG_KEY_PREVIEW_UP}/${WSP_CFG_KEY_PREVIEW_DOWN}: scroll metadata" \
+        "  ${WSP_CFG_KEY_CANCEL}: close or cancel" |
+        fzf --no-input --no-multi --no-sort --layout=reverse \
+            --height=80% --border="${WSP_CFG_TUI_BORDER:-rounded}" \
+            --border-label="${WSP_CFG_TUI_TITLE:-Package Manager}" --border-label-pos=2 \
+            --list-border="${WSP_CFG_TUI_BORDER:-rounded}" \
+            --padding="${WSP_CFG_TUI_PADDING:-0,1}" \
+            --margin="${WSP_CFG_TUI_MARGIN:-1,2}" \
+            --header='Package Manager Help' --header-first \
+            --header-border="${WSP_CFG_TUI_BORDER:-rounded}" --header-label='Help' --header-label-pos=2 \
+            --footer="$footer" --footer-border=rounded \
+            --footer-label="${WSP_CFG_TUI_FOOTER_LABEL:-Keys}" --footer-label-pos=2 \
+            --pointer="${WSP_CFG_TUI_POINTER:-▌}" --no-hscroll \
+            --color="${WSP_CFG_TUI_COLOR:-fg:#cdd6f4,bg:#1e1e2e,fg+:#f5e0e6,bg+:#313244,hl:#f38ba8,hl+:#f38ba8,pointer:#89b4fa,marker:#a6e3a1,info:#89b4fa,prompt:#89b4fa,spinner:#f9e2af,header:#f5c2e7:bold,footer:#89dceb,label:#cba6f7,border:#89b4fa}" \
+            --cycle --bind="${WSP_CFG_KEY_ACCEPT}:abort,${WSP_CFG_KEY_CANCEL}:abort,q:abort"; then
+        return 0
+    else
+        status=$?
+        if [[ "$status" -eq 1 || "$status" -eq 130 ]]; then
+            return 0
         fi
-    done <<< "$selected"
-    wsp_info "Processed $count package selection(s)."
-    (( failed == 0 )) || return 1
+        wsp_error "Package-manager help popup failed with status $status."
+        return "$status"
+    fi
+}
+
+tui_run_action() {
+    local action="$1"
+    local status
+    shift
+
+    if "$action" "$@"; then
+        return 0
+    fi
+    status=$?
+    wsp_error "Package-manager action '$action' failed with status $status; no further mutation was attempted by that action."
+    return 0
 }
 
 tui_review_inventory() {
@@ -516,15 +892,27 @@ tui_review_inventory() {
         tui_pause
         return 0
     fi
-    selected="$(printf '%s\n' "$rows" | fzf --multi --height=16 --layout=reverse --border=rounded \
+    if selected="$(printf '%s\n' "$rows" | fzf --multi --height=16 --layout=reverse --border=rounded \
         --delimiter=$'\t' --with-nth=1,2,3,4,5,6 \
-        --header='Select packages to adopt or remove')" || return 0
+        --header='Select packages to adopt or remove')"; then
+        :
+    else
+        local selector_status=$?
+        tui_selector_status "$selector_status" 'unmanaged package review' || return "$selector_status"
+        return 0
+    fi
     [[ -n "$selected" ]] || return 0
-    action="$(printf '%s\n' 'Adopt selected' 'Remove selected without tracking' 'Cancel' |
-        fzf --height=8 --layout=reverse --border=rounded --header='Choose the action')" || return 0
+    if action="$(printf '%s\n' 'Adopt selected' 'Remove selected without tracking' 'Cancel' |
+        fzf --height=8 --layout=reverse --border=rounded --header='Choose the action')"; then
+        :
+    else
+        local selector_status=$?
+        tui_selector_status "$selector_status" 'unmanaged package action' || return "$selector_status"
+        return 0
+    fi
     [[ "$action" != Cancel && -n "$action" ]] || return 0
     confirm "Apply '$action'?" || return 0
-    while IFS=$'\t' read -r provider source identifier scope name version; do
+    while IFS=$'\t' read -r provider source identifier scope _ _; do
         [[ -n "$identifier" ]] || continue
         case "$action" in
             'Adopt selected')
@@ -532,11 +920,11 @@ tui_review_inventory() {
                     wsp_error "Cannot adopt $identifier because its source is unknown."
                     failed=1
                 else
-                    wsp_adopt_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                    run_mutation wsp_adopt_row "$provider" "$source" "$identifier" "$scope" || failed=1
                 fi
                 ;;
             'Remove selected without tracking')
-                wsp_remove_row "$provider" "$source" "$identifier" "$scope" || failed=1
+                run_mutation wsp_remove_row "$provider" "$source" "$identifier" "$scope" || failed=1
                 ;;
         esac
     done <<< "$selected"
@@ -561,22 +949,34 @@ tui_review_tracked() {
         tui_pause
         return 0
     fi
-    selected="$(printf '%s\n' "$rows" | fzf --multi --height=16 --layout=reverse --border=rounded \
+    if selected="$(printf '%s\n' "$rows" | fzf --multi --height=16 --layout=reverse --border=rounded \
         --delimiter=$'\t' --with-nth=1,2,3,4,5,6 \
-        --header='Select tracked packages to remove or forget')" || return 0
+        --header='Select tracked packages to remove or forget')"; then
+        :
+    else
+        local selector_status=$?
+        tui_selector_status "$selector_status" 'tracked package review' || return "$selector_status"
+        return 0
+    fi
     [[ -n "$selected" ]] || return 0
-    action="$(printf '%s\n' 'Remove and forget selected' 'Forget declaration only' 'Cancel' |
-        fzf --height=8 --layout=reverse --border=rounded --header='Choose the action')" || return 0
+    if action="$(printf '%s\n' 'Remove and forget selected' 'Forget declaration only' 'Cancel' |
+        fzf --height=8 --layout=reverse --border=rounded --header='Choose the action')"; then
+        :
+    else
+        local selector_status=$?
+        tui_selector_status "$selector_status" 'tracked package action' || return "$selector_status"
+        return 0
+    fi
     [[ "$action" != Cancel && -n "$action" ]] || return 0
     confirm "Apply '$action'?" || return 0
-    while IFS=$'\t' read -r provider source identifier scope profiles state; do
+    while IFS=$'\t' read -r provider source identifier scope profiles _; do
         [[ -n "$identifier" ]] || continue
         case "$action" in
             'Remove and forget selected')
-                wsp_remove_and_forget_row "$provider" "$source" "$identifier" "$scope" "$profiles" || failed=1
+                run_mutation wsp_remove_and_forget_row "$provider" "$source" "$identifier" "$scope" "$profiles" || failed=1
                 ;;
             'Forget declaration only')
-                wsp_manifest_remove "$provider" "$source" "$identifier" "$scope" "$profiles" || failed=1
+                run_mutation wsp_manifest_remove "$provider" "$source" "$identifier" "$scope" "$profiles" || failed=1
                 ;;
         esac
     done <<< "$selected"
@@ -594,7 +994,7 @@ configure_flatpak_source() {
     else
         command_argv=(flatpak remote-add --if-not-exists --user "$source" "$url")
     fi
-    wsp_run_timeout 120 "${command_argv[@]}"
+    wsp_run_timeout "${WSP_CFG_FLATPAK_METADATA_TIMEOUT:-180}" "${command_argv[@]}"
 }
 
 add_flatpak_source_mutation() {
@@ -625,16 +1025,15 @@ tui_add_flatpak_source() {
     local scope
 
     require_tty || return 1
-    read -r -p 'Flatpak source name: ' source
-    read -r -p 'HTTPS .flatpakrepo URL: ' url
-    read -r -p 'Scope (system/user) [system]: ' scope
+    source="$(tui_read_line 'Flatpak source name:')" || return 1
+    url="$(tui_read_line 'HTTPS .flatpakrepo URL:')" || return 1
+    scope="$(tui_read_line 'Scope (system/user) [system]:')" || return 1
     scope="${scope:-system}"
     wsp_valid_source "$source" || { wsp_error 'Invalid source name.'; return 1; }
     wsp_validate_url "$url" || { wsp_error 'Only HTTPS source URLs are accepted.'; return 1; }
     wsp_valid_scope "$scope" || { wsp_error 'Scope must be system or user.'; return 1; }
     confirm "Add Flatpak source '$source' from '$url' to $scope scope?" || return 0
-    configure_flatpak_source "$source" "$url" "$scope" || return 1
-    wsp_source_add flatpak "$source" "$url" "$scope"
+    run_mutation add_flatpak_source_mutation "$source" "$url" "$scope"
 }
 
 tui_add_aurelia_source() {
@@ -642,8 +1041,12 @@ tui_add_aurelia_source() {
     local source
 
     require_tty || return 1
-    read -r -p 'GitHub repository URL (https://github.com/OWNER/REPOSITORY): ' url
-    source="$(wsp_aurelia_source_from_url "$url"  || true)"
+    url="$(tui_read_line 'GitHub repository URL (https://github.com/OWNER/REPOSITORY):')" || return 1
+    if source="$(wsp_aurelia_source_from_url "$url")"; then
+        :
+    else
+        source=''
+    fi
     [[ -n "$source" ]] || {
         wsp_error 'Only exact official GitHub repository URLs are accepted.'
         return 1
@@ -660,7 +1063,7 @@ tui_add_aurelia_source() {
     printf '  Target     : ~/%s\n' "$WSP_AURELIA_DISCOVERY_TARGET"
     printf '  URL        : %s\n\n' "$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
     confirm "Track Aurelia source '$source' for stable release discovery?" || return 0
-    add_aurelia_source_mutation "$source" "$url" all
+    run_mutation add_aurelia_source_mutation "$source" "$url" all
 }
 
 tui_sources() {
@@ -675,14 +1078,20 @@ tui_sources() {
     done
     printf '\nEnabled DNF repositories:\n'
     if command -v dnf >/dev/null; then
-        wsp_run_timeout 45 dnf repolist --enabled  || wsp_warn 'Could not enumerate enabled DNF repositories.'
+        wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" dnf repolist --enabled  || wsp_warn 'Could not enumerate enabled DNF repositories.'
     else
         printf '  DNF unavailable\n'
     fi
     printf '\n'
     local source_action
-    source_action="$(printf '%s\n' 'Add Flatpak source' 'Add Aurelia GitHub source' 'Back' |
-        fzf --height=8 --layout=reverse --border=rounded --header='Add a source')" || return 0
+    if source_action="$(printf '%s\n' 'Add Flatpak source' 'Add Aurelia GitHub source' 'Back' |
+        fzf --height=8 --layout=reverse --border=rounded --header='Add a source')"; then
+        :
+    else
+        local selector_status=$?
+        tui_selector_status "$selector_status" 'source management' || return "$selector_status"
+        return 0
+    fi
     case "$source_action" in
         'Add Flatpak source') tui_add_flatpak_source ;;
         'Add Aurelia GitHub source') tui_add_aurelia_source ;;
@@ -694,12 +1103,18 @@ tui_sources() {
 tui_daily() {
     local choice
 
-    choice="$(printf '%s\n' 'Enable daily catalog refresh' 'Disable daily catalog refresh' 'Show daily refresh status' 'Back' |
-        fzf --height=10 --layout=reverse --border=rounded --header='Catalog refresh never installs packages')" || return 0
+    if choice="$(printf '%s\n' 'Enable background catalog refresh' 'Disable background catalog refresh' 'Show catalog refresh status' 'Back' |
+        fzf --height=10 --layout=reverse --border=rounded --header='Refresh updates metadata only; it never installs packages')"; then
+        :
+    else
+        local selector_status=$?
+        tui_selector_status "$selector_status" 'background refresh' || return "$selector_status"
+        return 0
+    fi
     case "$choice" in
-        'Enable daily catalog refresh') wsp_daily_enable ;;
-        'Disable daily catalog refresh') wsp_daily_disable ;;
-        'Show daily refresh status') wsp_daily_status ;;
+        'Enable background catalog refresh') run_mutation wsp_daily_enable ;;
+        'Disable background catalog refresh') run_mutation wsp_daily_disable ;;
+        'Show catalog refresh status') wsp_daily_status; wsp_catalog_status_text ;;
         *) return 0 ;;
     esac
     tui_pause
@@ -708,8 +1123,11 @@ tui_daily() {
 tui() {
     local mode="${1:-menu}"
     local choice
+    local header
+    local help_command
 
     require_tty || return 1
+    tui_open_terminal_fds || return 1
     command -v fzf >/dev/null || {
         wsp_error 'fzf is required for the Package Manager TUI.'
         return 1
@@ -720,7 +1138,11 @@ tui() {
 
     if [[ "$mode" == search ]]; then
         local search_status=0
-        tui_search_install || search_status=$?
+        if tui_search_install; then
+            search_status=0
+        else
+            search_status=$?
+        fi
         if (( search_status == 0 )); then
             tui_show_done 'Done!'
         else
@@ -732,26 +1154,38 @@ tui() {
         return "$search_status"
     fi
 
-    wsp_lock_start || return 1
+    printf -v help_command '%q tui-help' "$script_path"
     while true; do
-        choice="$(printf '%s\n' \
+        header="Fedora Package Manager · DNF, Flatpak, Aurelia · source-aware desired state"
+        header+=$'\n'
+        header+="$(wsp_catalog_cache_summary)"
+        if choice="$(printf '%s\n' \
             'Search and install packages' \
             'Review unmanaged installed packages' \
             'Review tracked packages' \
             'Refresh all package sources' \
             'Manage package sources' \
-            'Daily catalog refresh' \
+            'Background catalog refresh' \
+            'Show catalog status' \
             'Show package status' \
             'Exit' | fzf --height=14 --layout=reverse --border=rounded \
-                --header='Fedora Package Manager · DNF, Flatpak, Aurelia · source-aware desired state' \
-                --prompt='Package Manager > ' )" || break
+                --header="$header" --header-first \
+                --prompt='Package Manager > ' \
+                --bind="${WSP_CFG_KEY_HELP:-?}:execute($help_command)" )"; then
+            :
+        else
+            local selector_status=$?
+            tui_selector_status "$selector_status" 'package manager menu' || return "$selector_status"
+            break
+        fi
         case "$choice" in
-            'Search and install packages') tui_search_install || true ;;
-            'Review unmanaged installed packages') tui_review_inventory || true ;;
-            'Review tracked packages') tui_review_tracked || true ;;
-            'Refresh all package sources') wsp_catalog_refresh || true; tui_pause ;;
-            'Manage package sources') tui_sources || true ;;
-            'Daily catalog refresh') tui_daily || true ;;
+            'Search and install packages') tui_run_action tui_search_install ;;
+            'Review unmanaged installed packages') tui_run_action tui_review_inventory ;;
+            'Review tracked packages') tui_run_action tui_review_tracked ;;
+            'Refresh all package sources') tui_run_action run_mutation wsp_catalog_refresh; tui_pause ;;
+            'Manage package sources') tui_run_action tui_sources ;;
+            'Background catalog refresh') tui_run_action tui_daily ;;
+            'Show catalog status') wsp_catalog_status_text; tui_pause ;;
             'Show package status') wsp_status_text; tui_pause ;;
             'Exit'|'') break ;;
         esac
@@ -862,7 +1296,9 @@ dispatch_record_mutation() {
 
 dispatch() {
     local command="${1:-help}"
-    shift || true
+    if (( $# > 0 )); then
+        shift
+    fi
 
     if [[ "$command" != help && "$command" != -h && "$command" != --help ]]; then
         require_manifest_files || return 1
@@ -877,27 +1313,68 @@ dispatch() {
             wsp_catalog_refresh
             ;;
         search)
-            wsp_catalog_ensure || return 1
-            wsp_catalog_search "${1:-}"
+            local search_query="${1:-}"
+            local search_all_versions=0
+
+            if [[ "$search_query" == --all-versions ]]; then
+                [[ $# -eq 2 ]] || { usage >&2; return 2; }
+                search_query="$2"
+                search_all_versions=1
+            else
+                [[ $# -le 1 ]] || { usage >&2; return 2; }
+            fi
+            wsp_catalog_paths_safe || return 1
+            [[ -s "$WSP_CATALOG_FILE" ]] || {
+                wsp_error 'Package catalog is unavailable. Run workstation-packages refresh first.'
+                return 1
+            }
+            wsp_catalog_search_ranked "$search_query" "${WSP_CFG_CATALOG_RESULT_LIMIT:-250}" "$search_all_versions"
+            ;;
+        latest)
+            [[ $# -le 1 ]] || { usage >&2; return 2; }
+            wsp_catalog_paths_safe || return 1
+            [[ -s "$WSP_CATALOG_FILE" ]] || {
+                wsp_error 'Package catalog is unavailable. Run workstation-packages refresh first.'
+                return 1
+            }
+            wsp_catalog_search_ranked "${1:-}" "${WSP_CFG_CATALOG_RESULT_LIMIT:-250}" 0
+            ;;
+        catalog)
+            [[ "${1:-}" == status && $# -eq 1 ]] || { usage >&2; return 2; }
+            wsp_catalog_status_text
             ;;
         catalog-tui-rows)
             [[ $# -eq 0 ]] || return 2
             wsp_catalog_rows_for_tui
             ;;
+        catalog-tui-search)
+            [[ "${1:-}" == --query && $# -eq 2 ]] || { usage >&2; return 2; }
+            catalog_tui_search "$2"
+            ;;
+        catalog-tui-refresh)
+            [[ "${1:-}" == --query && $# -eq 2 ]] || { usage >&2; return 2; }
+            catalog_tui_refresh "$2"
+            ;;
+        tui-help)
+            [[ $# -eq 0 ]] || { usage >&2; return 2; }
+            tui_help
+            ;;
         info)
             local provider=""
             local source=""
             local identifier=""
+            local scope=""
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     --provider) provider="$2"; shift 2 ;;
                     --source) source="$2"; shift 2 ;;
                     --id) identifier="$2"; shift 2 ;;
+                    --scope) scope="$2"; shift 2 ;;
                     *) usage >&2; return 2 ;;
                 esac
             done
             [[ -s "$WSP_CATALOG_FILE" ]] || return 1
-            wsp_catalog_info "$provider" "$source" "$identifier"
+            wsp_catalog_info "$provider" "$source" "$identifier" "$scope"
             ;;
         status)
             if [[ "${1:-}" == --json ]]; then
@@ -916,7 +1393,9 @@ dispatch() {
             ;;
         source)
             local source_action="${1:-list}"
-            shift || true
+            if (( $# > 0 )); then
+                shift
+            fi
             case "$source_action" in
                 list)
                     wsp_validate_sources || return 1
@@ -926,7 +1405,9 @@ dispatch() {
                     wsp_aurelia_sources_rows
                     if command -v dnf >/dev/null; then
                         printf '\nEnabled DNF repositories:\n'
-                        wsp_run_timeout 45 dnf repolist --enabled  || true
+                        if ! wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" dnf repolist --enabled; then
+                            wsp_error 'Could not enumerate enabled DNF repositories.'
+                        fi
                     fi
                     ;;
                 add)
@@ -940,7 +1421,11 @@ dispatch() {
                         url="$2"
                         shift 2
                         parse_mutation_options "$@" || return 2
-                        source="$(wsp_aurelia_source_from_url "$url"  || true)"
+                        if source="$(wsp_aurelia_source_from_url "$url")"; then
+                            :
+                        else
+                            source=''
+                        fi
                         [[ -n "$source" ]] || {
                             wsp_error 'Aurelia source must be an exact official GitHub repository URL.'
                             return 2
@@ -1028,4 +1513,6 @@ dispatch() {
     esac
 }
 
-dispatch "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    dispatch "$@"
+fi

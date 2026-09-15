@@ -8,6 +8,9 @@
 # a fully pinned record.  Discovery never changes the tracked manifest; only an
 # explicit install/adopt operation does that.
 
+# Parsed source fields are shared with the package-manager and test callers.
+# shellcheck disable=SC2034
+
 WSP_AURELIA_DISCOVERY_SOURCE=""
 WSP_AURELIA_DISCOVERY_IDENTIFIER=""
 WSP_AURELIA_DISCOVERY_NAME=""
@@ -18,6 +21,8 @@ WSP_AURELIA_DISCOVERY_ASSET=""
 WSP_AURELIA_DISCOVERY_CHECKSUM=""
 WSP_AURELIA_DISCOVERY_TARGET=""
 WSP_AURELIA_DISCOVERY_ARTIFACT_URL=""
+WSP_AURELIA_DISCOVERY_DOWNLOAD_SIZE=""
+WSP_AURELIA_DISCOVERY_RELEASE_TIME=""
 WSP_AURELIA_LAST_ERROR=""
 WSP_AURELIA_TEMP_FILES=()
 
@@ -339,8 +344,11 @@ wsp_aurelia_discover_source() {
     local tag
     local body
     local asset
+    local asset_size
     local artifact_url
     local digest
+    local published_at
+    local release_time
     local sidecar_url
     local identifier
     local checksum=""
@@ -356,6 +364,8 @@ wsp_aurelia_discover_source() {
     WSP_AURELIA_DISCOVERY_CHECKSUM=""
     WSP_AURELIA_DISCOVERY_TARGET=""
     WSP_AURELIA_DISCOVERY_ARTIFACT_URL=""
+    WSP_AURELIA_DISCOVERY_DOWNLOAD_SIZE=""
+    WSP_AURELIA_DISCOVERY_RELEASE_TIME=""
 
     if [[ "$source_or_url" == https://* ]]; then
         if ! wsp_aurelia_parse_github_url "$source_or_url"; then
@@ -427,6 +437,7 @@ wsp_aurelia_discover_source() {
               body: (.body // ""),
               published_at: (.published_at // .created_at // ""),
               asset: $matches[0].name,
+              asset_size: ($matches[0].size // 0),
               artifact_url: $matches[0].browser_download_url,
               digest: ($matches[0].digest // ""),
               checksum_asset: ([($release.assets // [])[]?
@@ -448,8 +459,26 @@ wsp_aurelia_discover_source() {
     tag="$(jq -r '.tag // empty' <<< "$candidate_json")"
     body="$(jq -r '.body // empty' <<< "$candidate_json")"
     asset="$(jq -r '.asset // empty' <<< "$candidate_json")"
+    asset_size="$(jq -r '.asset_size // empty' <<< "$candidate_json")"
     artifact_url="$(jq -r '.artifact_url // empty' <<< "$candidate_json")"
     digest="$(jq -r '.digest // empty' <<< "$candidate_json")"
+    published_at="$(jq -r '.published_at // empty' <<< "$candidate_json")"
+    if [[ "$asset_size" =~ ^[0-9]+$ ]]; then
+        :
+    else
+        wsp_warn "GitHub release metadata did not provide a valid asset size for $source/$asset."
+        asset_size=""
+    fi
+    if [[ -n "$published_at" ]]; then
+        if release_time="$(date --date="$published_at" +%s)" && [[ "$release_time" =~ ^[0-9]+$ ]]; then
+            :
+        else
+            wsp_warn "GitHub release date could not be normalized for $source/$tag; the catalog will show n/a."
+            release_time=""
+        fi
+    else
+        release_time=""
+    fi
     sidecar_url="$(jq -r '.checksum_asset.browser_download_url // empty' <<< "$candidate_json")"
     rm -f -- "$releases_file"
 
@@ -491,6 +520,8 @@ wsp_aurelia_discover_source() {
     WSP_AURELIA_DISCOVERY_CHECKSUM="$checksum"
     WSP_AURELIA_DISCOVERY_TARGET=".local/bin/$identifier"
     WSP_AURELIA_DISCOVERY_ARTIFACT_URL="$artifact_url"
+    WSP_AURELIA_DISCOVERY_DOWNLOAD_SIZE="$asset_size"
+    WSP_AURELIA_DISCOVERY_RELEASE_TIME="$release_time"
 }
 
 wsp_aurelia_discovery_row() {
@@ -505,6 +536,76 @@ wsp_aurelia_discovery_row() {
         "$WSP_AURELIA_DISCOVERY_CHECKSUM" \
         "$WSP_AURELIA_DISCOVERY_TARGET" \
         "$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
+}
+
+wsp_aurelia_catalog_row() {
+    local target_path
+    local installed_size=""
+    local arch
+    local index
+    local -a row=()
+
+    case "$(uname -m)" in
+        x86_64) arch=x86_64 ;;
+        aarch64|arm64) arch=aarch64 ;;
+        *) arch=unknown ;;
+    esac
+
+    if target_path="$(wsp_aurelia_target_path \
+        "$WSP_AURELIA_DISCOVERY_IDENTIFIER" "$WSP_AURELIA_DISCOVERY_TARGET")"; then
+        if [[ -f "$target_path" && ! -L "$target_path" ]]; then
+            if installed_size="$(stat -c '%s' "$target_path")" &&
+               [[ "$installed_size" =~ ^[0-9]+$ ]]; then
+                :
+            else
+                wsp_warn "Could not read the installed size for Aurelia binary: $target_path"
+                installed_size=""
+            fi
+        fi
+    fi
+
+    # Keep the identity and Aurelia verification fields in their historic
+    # positions, while publishing provider metadata in the same 31-column
+    # schema as DNF and Flatpak. This lets the preview show asset size, local
+    # installed size, source URL, and release date without special casing the
+    # display index.
+    row[1]='aurelia'
+    row[2]="$WSP_AURELIA_DISCOVERY_SOURCE"
+    row[3]="$WSP_AURELIA_DISCOVERY_IDENTIFIER"
+    row[4]="$WSP_AURELIA_DISCOVERY_NAME"
+    row[5]="$WSP_AURELIA_DISCOVERY_SUMMARY"
+    row[6]="$WSP_AURELIA_DISCOVERY_VERSION"
+    row[7]="$WSP_AURELIA_DISCOVERY_SCOPE"
+    row[8]="$WSP_AURELIA_DISCOVERY_ASSET"
+    row[9]="$WSP_AURELIA_DISCOVERY_CHECKSUM"
+    row[10]="$WSP_AURELIA_DISCOVERY_TARGET"
+    row[11]="$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
+    row[12]="$arch"
+    row[13]="$installed_size"
+    row[14]="${WSP_AURELIA_DISCOVERY_DOWNLOAD_SIZE:-}"
+    row[15]=''
+    row[16]="https://${WSP_AURELIA_DISCOVERY_SOURCE}"
+    row[17]="$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
+    row[18]=''
+    row[19]=''
+    row[20]=''
+    row[21]=''
+    row[22]=''
+    row[23]=''
+    row[24]=''
+    row[25]=''
+    row[26]=''
+    row[27]='Aurelia / GitHub'
+    row[28]="$WSP_AURELIA_DISCOVERY_SUMMARY"
+    row[29]="${WSP_AURELIA_DISCOVERY_SOURCE} ${WSP_AURELIA_DISCOVERY_IDENTIFIER} ${WSP_AURELIA_DISCOVERY_NAME} ${WSP_AURELIA_DISCOVERY_SUMMARY} ${WSP_AURELIA_DISCOVERY_ASSET} ${WSP_AURELIA_DISCOVERY_ARTIFACT_URL}"
+    row[30]="$WSP_AURELIA_DISCOVERY_VERSION"
+    row[31]="${WSP_AURELIA_DISCOVERY_RELEASE_TIME:-}"
+
+    for ((index = 1; index <= 31; index++)); do
+        (( index > 1 )) && printf '\t'
+        printf '%s' "${row[index]}"
+    done
+    printf '\n'
 }
 
 wsp_aurelia_catalog_rows() {
@@ -525,17 +626,7 @@ wsp_aurelia_catalog_rows() {
             status=1
             continue
         fi
-        printf 'aurelia\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$WSP_AURELIA_DISCOVERY_SOURCE" \
-            "$WSP_AURELIA_DISCOVERY_IDENTIFIER" \
-            "$WSP_AURELIA_DISCOVERY_NAME" \
-            "$WSP_AURELIA_DISCOVERY_SUMMARY" \
-            "$WSP_AURELIA_DISCOVERY_VERSION" \
-            "$WSP_AURELIA_DISCOVERY_SCOPE" \
-            "$WSP_AURELIA_DISCOVERY_ASSET" \
-            "$WSP_AURELIA_DISCOVERY_CHECKSUM" \
-            "$WSP_AURELIA_DISCOVERY_TARGET" \
-            "$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
+        wsp_aurelia_catalog_row
     done <<< "$rows"
     return "$status"
 }
@@ -579,6 +670,8 @@ wsp_aurelia_resolve_record() {
         WSP_AURELIA_DISCOVERY_CHECKSUM="$checksum"
         WSP_AURELIA_DISCOVERY_TARGET="$target"
         WSP_AURELIA_DISCOVERY_ARTIFACT_URL="$artifact_url"
+        WSP_AURELIA_DISCOVERY_DOWNLOAD_SIZE=""
+        WSP_AURELIA_DISCOVERY_RELEASE_TIME=""
         return 0
     fi
     source_url="$(wsp_aurelia_source_url_for "$source"  || true)"

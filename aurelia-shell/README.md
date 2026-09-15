@@ -225,7 +225,14 @@ source-aware Fedora/Flatpak/Aurelia package browser. It searches configured DNF
 repositories, Flatpak remotes, and explicitly added official GitHub release
 sources, shows provenance, and lets the user explicitly install, adopt, remove,
 or forget packages through the tracked `packages/user-managed.tsv` desired
-state. Daily catalog refresh is optional and never installs package updates.
+state. A user-level background catalog refresh starts after boot and the
+network is available; it only updates metadata and never installs package
+updates. The interactive list exposes the complete published catalog, uses a
+fast derived search index, marks the newest package build as `LATEST`, and
+shows selected-package metadata below the list. Catalog refresh and package
+updates remain separate explicit actions. DNF download sizes come from DNF5
+metadata; Aurelia shows the GitHub asset size and the current local binary size
+when available, with `n/a` reserved for data the provider does not publish.
 
 Plugins may expose their own target. The Keybindings plugin is
 `aurelia.keybindings`; the legacy `keybindings` and `hotkeys` targets remain

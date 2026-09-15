@@ -242,6 +242,7 @@ wsp_runtime_directory() {
 wsp_lock_start() {
     local runtime_dir
     local lock_path
+    local wait_seconds="${WSP_CFG_LOCK_WAIT_SECONDS:-0}"
 
     command -v flock >/dev/null || {
         wsp_error "flock is required; refusing concurrent package operations."
@@ -260,21 +261,34 @@ wsp_lock_start() {
         wsp_error "Could not open the package operation lock: $lock_path"
         return 1
     }
-    if ! flock -n "$WSP_LOCK_FD"; then
+    [[ "$wait_seconds" =~ ^[0-9]+$ ]] || wait_seconds=0
+    if ! flock -w "$wait_seconds" "$WSP_LOCK_FD"; then
         exec {WSP_LOCK_FD}>&-
         WSP_LOCK_FD=""
-        wsp_error "Another workstation package operation is already running."
+        wsp_error "Another workstation package operation remained active for ${wait_seconds}s."
         return 1
     fi
-    WSP_LOCK_PATH="$lock_path"
 }
 
 wsp_lock_stop() {
+    local status=0
+
     if [[ -n "${WSP_LOCK_FD:-}" ]]; then
-        flock -u "$WSP_LOCK_FD"  || true
-        exec {WSP_LOCK_FD}>&-  || true
+        if flock -u "$WSP_LOCK_FD"; then
+            :
+        else
+            status=$?
+            wsp_warn "Could not release the package operation lock (status $status)."
+        fi
+        if exec {WSP_LOCK_FD}>&-; then
+            :
+        else
+            status=$?
+            wsp_warn "Could not close the package operation lock descriptor (status $status)."
+        fi
         WSP_LOCK_FD=""
     fi
+    return "$status"
 }
 
 wsp_trim_line() {

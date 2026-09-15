@@ -2,8 +2,9 @@
 
 The workstation package manager is a Fedora-native package browser and
 desired-state synchronizer. It uses the Omarchy reference only for the
-interaction pattern: an `fzf` search list, multi-selection, and metadata
-preview.
+interaction pattern: a compact keyboard-driven selector, multi-selection, and
+metadata preview. The TUI reads a last-known-good local catalog and does not
+make network access part of opening the selector.
 
 ## Ownership
 
@@ -53,6 +54,45 @@ repositories allowed for stable release discovery. Adding a source performs a
 bounded discovery first and refuses repositories without a stable,
 architecture-matching raw binary and SHA-256 checksum.
 
+## Catalog and search
+
+The generated catalog is stored outside Git under the user's XDG cache
+directory. Catalog schema 6 includes the package identity plus provider
+metadata such as description, architecture, installed/download size where the
+provider exposes it, license, URL, location/ref, runtime/source RPM,
+capabilities, dependency metadata, release/build time, and NEVRA/commit
+information. Multiline provider data is flattened only at the TSV serialization
+boundary so it cannot corrupt records. Two generated sidecars keep the rich
+catalog authoritative while providing a compact complete display and a fast
+normalized search index.
+
+DNF searches use normalized, case-insensitive package metadata and also index
+DNF capabilities. This means searches such as `LibreOffice`, `libreOffice`,
+`libre office`, and `libre_office` reach the same package rows. A command query
+such as `edid-decode` resolves to the DNF package that provides that capability
+(`v4l-utils`) instead of presenting an unrelated fuzzy match. If a capability
+is not in the local index, a bounded cache-only DNF `whatprovides` lookup is
+used as a fallback.
+
+Search results collapse historical builds to the newest available build for
+each provider/package identity and label it `LATEST`; use
+`search --all-versions <query>` when historical builds are needed. DNF release
+dates come from package build metadata. Flatpak's remote listing does not
+expose a release date, so the UI explicitly shows that it is unavailable.
+Provider size fields are rendered as human-readable values; when a provider
+truly does not publish one, the UI says `n/a` (or `not provided` in the
+metadata pane) instead of using a placeholder-looking dash.
+For Aurelia, the GitHub release asset size is cached as download size, and the
+metadata pane refreshes the installed size from the local binary when it is
+already present.
+
+The catalog is refreshed by a user-level background timer after boot and at a
+configurable interval. Refresh is metadata-only: it never installs or upgrades
+packages. Opening the TUI uses a valid current cache immediately; a stale,
+schema-old, or provider-incomplete cache is refreshed in the foreground with
+visible progress before search opens. `Ctrl-R` (or the configured refresh key)
+performs an explicit refresh.
+
 ## Package states
 
 The backend distinguishes:
@@ -81,6 +121,9 @@ Flatpak `--delete-data` and does not purge personal files.
 workstation-packages open
 workstation-packages status
 workstation-packages refresh
+workstation-packages catalog status
+workstation-packages latest [query]
+workstation-packages search --all-versions [query]
 workstation-packages source list
 workstation-packages daily enable
 ```
@@ -88,7 +131,10 @@ workstation-packages daily enable
 The Command Center exposes the same workflow as **Package Manager**. `open`
 launches the terminal-owned TUI, which can search DNF, Flatpak, and Aurelia
 sources, preview metadata, install packages, adopt existing packages, remove
-packages, manage sources, and enable or disable daily catalog refresh.
+packages, manage sources, and enable or disable background catalog refresh.
+The main search surface uses one full-width package list with the selected
+package's metadata in a lower pane; navigation and action keys are shown in a
+footer rather than consuming the result header.
 
 To add an upstream GitHub source from the command line:
 
@@ -103,9 +149,29 @@ its source. Selecting it and choosing to track it installs the verified binary
 to `~/.local/bin/<repository-name>` and writes the complete Aurelia row to
 `packages/user-managed.tsv`.
 
-Daily refresh only updates package metadata/catalog cache. It never installs or
-upgrades packages. Cache and inventory state live outside Git under the user's
-XDG cache/state directories.
+Background refresh only updates package metadata/catalog cache. It never
+installs or upgrades packages. Cache and inventory state live outside Git under
+the user's XDG cache/state directories. The timer is enabled automatically by
+the installer as optional user-level workstation setup; it can also be enabled
+or disabled from the TUI or with `daily enable`/`daily disable`.
+
+## Configuration and key commands
+
+Repository defaults live in `config/package-manager.conf`. A user may override
+them at `~/.config/workstation/package-manager.conf`. The file is parsed as
+data rather than sourced as shell, and malformed values fail closed.
+
+The configuration controls catalog age/refresh policy, bounded DNF/Flatpak and
+transaction timeouts, result limits, preview layout, colors, visual labels, and
+all TUI keys:
+movement, paging, selection, acceptance, cancellation, refresh, help, preview
+scrolling, preview toggle, and select-all. The default TUI exposes the active
+keys in its header and help overlay.
+
+The catalog refresh lock is acquired only for the bounded refresh or mutation
+itself. The interactive selector does not hold it while idle, so an invisible
+refresh cannot make an installation fail with an unexplained concurrent-task
+message.
 
 ## Reinstall behavior
 

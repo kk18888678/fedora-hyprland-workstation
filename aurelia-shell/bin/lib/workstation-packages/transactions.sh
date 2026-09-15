@@ -24,6 +24,7 @@ wsp_require_source_available() {
     local dnf_bin
     local output
     local native_arch
+    local source_url
     local status=0
 
     case "$provider" in
@@ -36,7 +37,7 @@ wsp_require_source_available() {
                 wsp_error "Unsupported host architecture for DNF package installation."
                 return 1
             }
-            output="$(wsp_run_timeout 90 "$dnf_bin" -q repoquery --available \
+            output="$(wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" "$dnf_bin" -q repoquery --available \
                 --repoid "$source" --qf $'%{name}\t%{arch}\n' "$identifier" )" || status=$?
             if (( status != 0 )); then
                 if (( status == 124 )); then
@@ -58,7 +59,7 @@ wsp_require_source_available() {
                 return 1
             }
             local flatpak_remotes
-            flatpak_remotes="$(wsp_run_timeout 60 flatpak remotes "--$scope" --columns=name )" || {
+            flatpak_remotes="$(wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" flatpak remotes "--$scope" --columns=name )" || {
                 wsp_error "Could not enumerate Flatpak sources for $scope scope within the timeout."
                 return 1
             }
@@ -72,10 +73,15 @@ wsp_require_source_available() {
                 wsp_error "Aurelia packages use user scope."
                 return 1
             }
-            wsp_aurelia_source_url_for "$source" >/dev/null || {
+            if source_url="$(wsp_aurelia_source_url_for "$source")"; then
+                [[ -n "$source_url" ]] || {
+                    wsp_error "Aurelia source '$source' resolved to an empty URL."
+                    return 1
+                }
+            else
                 wsp_error "Aurelia source '$source' is not tracked. Add the GitHub source before installing packages from it."
                 return 1
-            }
+            fi
             ;;
         *)
             wsp_error "Unknown package provider: $provider"
@@ -122,7 +128,7 @@ wsp_install_row() {
                 command_argv=(sudo "$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
             fi
             wsp_info "Installing DNF package $identifier from $source."
-            wsp_run_timeout 1800 "${command_argv[@]}" || status=$?
+            wsp_run_timeout "${WSP_CFG_TRANSACTION_TIMEOUT:-1800}" "${command_argv[@]}" || status=$?
             ;;
         flatpak)
             if [[ "$scope" == system ]]; then
@@ -131,7 +137,7 @@ wsp_install_row() {
                 command_argv=(flatpak install -y --user "$source" "$identifier")
             fi
             wsp_info "Installing Flatpak $identifier from $source ($scope)."
-            wsp_run_timeout 1800 "${command_argv[@]}" || status=$?
+            wsp_run_timeout "${WSP_CFG_TRANSACTION_TIMEOUT:-1800}" "${command_argv[@]}" || status=$?
             ;;
         aurelia)
             if ! wsp_aurelia_resolve_record "$source" "$identifier" "$version" "$asset" "$checksum" "$target" "$artifact_url"; then
@@ -200,7 +206,7 @@ wsp_remove_row() {
                 command_argv=(sudo "$dnf_bin" remove -y "$identifier")
             fi
             wsp_info "Removing DNF package $identifier."
-            wsp_run_timeout 1800 "${command_argv[@]}" || status=$?
+            wsp_run_timeout "${WSP_CFG_TRANSACTION_TIMEOUT:-1800}" "${command_argv[@]}" || status=$?
             ;;
         flatpak)
             if [[ "$scope" == system ]]; then
@@ -209,7 +215,7 @@ wsp_remove_row() {
                 command_argv=(flatpak uninstall -y --user "$identifier")
             fi
             wsp_info "Removing Flatpak $identifier ($scope). Personal Flatpak data is preserved."
-            wsp_run_timeout 1800 "${command_argv[@]}" || status=$?
+            wsp_run_timeout "${WSP_CFG_TRANSACTION_TIMEOUT:-1800}" "${command_argv[@]}" || status=$?
             ;;
     esac
     if (( status != 0 )); then
@@ -275,6 +281,17 @@ wsp_install_and_track_row() {
     local target="${8:-}"
     local artifact_url="${9:-}"
 
+    if [[ "$provider" != aurelia ]]; then
+        # DNF/Flatpak catalog versions and descriptions are not pins. Clear
+        # every optional upstream field before either the transaction or the
+        # manifest write so callers cannot accidentally cross the ownership
+        # boundary.
+        version=""
+        asset=""
+        checksum=""
+        target=""
+        artifact_url=""
+    fi
     if [[ "$provider" == aurelia ]]; then
         if ! wsp_aurelia_resolve_record "$source" "$identifier" "$version" "$asset" "$checksum" "$target" "$artifact_url"; then
             wsp_error "${WSP_AURELIA_LAST_ERROR:-Could not resolve Aurelia release metadata for $source/$identifier.}"

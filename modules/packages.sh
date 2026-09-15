@@ -383,6 +383,24 @@ install_user_managed_dnf_packages() {
     return 0
 }
 
+configure_package_manager_catalog_refresh() {
+    local backend="$SCRIPT_DIR/aurelia-shell/bin/workstation-packages"
+
+    [[ -x "$backend" ]] || {
+        record_deferred "packages" "catalog-refresh" "The package-manager backend is unavailable; background catalog refresh was not configured."
+        return 0
+    }
+    # This is a user-level metadata refresh only. It never installs packages,
+    # never changes repositories, and must not block graphical activation when
+    # a user systemd manager is unavailable during installation.
+    if ! run_as_target_user env WORKSTATION_PACKAGE_REPO="$SCRIPT_DIR" \
+        "$backend" daily enable; then
+        record_deferred "packages" "catalog-refresh" "Could not enable the user-level boot/interval package catalog refresh."
+        return 0
+    fi
+    info "Background package catalog refresh configured."
+}
+
 install_user_managed_aurelia_packages() {
     local backend="$SCRIPT_DIR/aurelia-shell/bin/workstation-packages"
     local rows

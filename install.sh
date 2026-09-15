@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# The installer deliberately exports lifecycle state to sourced modules.
+# shellcheck disable=SC2034
 set -Eeuo pipefail
 
 export LC_MESSAGES=C
@@ -267,6 +269,7 @@ run_classified_step abort "Preparing Fedora" prepare_system
 run_classified_step workstation "Configuring repositories" configure_repositories
 run_classified_step workstation "Installing host packages" install_packages
 run_classified_step optional "Installing tracked user Fedora packages" install_user_managed_dnf_packages
+run_classified_step optional "Configuring package catalog refresh" configure_package_manager_catalog_refresh
 run_classified_step optional "Restoring tracked Aurelia binaries" install_user_managed_aurelia_packages
 run_classified_step workstation "Reconciling configured components" execute_plan "$INSTALLER_PLAN"
 run_classified_step workstation "Configuring Zsh environment" configure_shell

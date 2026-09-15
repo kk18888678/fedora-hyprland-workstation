@@ -59,7 +59,7 @@ if [[ "$args" == *"repoquery"* && "$args" == *"--available"* ]]; then
     fi
     exit 0
 fi
-if [[ "$args" == *"repoquery"* && "$args" == *"--installed"* && "$args" == *"--userinstalled"* ]]; then
+if [[ "$args" == *"repoquery"* && "$args" == *"--userinstalled"* ]]; then
     printf '%s\t%s\t%s\t%s\n' fedora mock-dnf 1 x86_64
     exit 0
 fi
@@ -297,7 +297,7 @@ else
     fail "Aurelia package-manager symlink guards are incomplete: $path_guard_output"
 fi
 
-if grep -q 'wsp_run_timeout 60 flatpak remotes' "$ROOT/bin/lib/workstation-packages/transactions.sh"; then
+if grep -Eq 'wsp_run_timeout .*flatpak remotes' "$ROOT/bin/lib/workstation-packages/transactions.sh"; then
     pass "Aurelia package source checks bound Flatpak remote enumeration"
 else
     fail "Aurelia package source checks can run an unbounded Flatpak remote query"

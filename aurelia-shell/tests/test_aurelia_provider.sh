@@ -46,7 +46,7 @@ cat >"$fixture/releases.json" <<EOF_RELEASES
     "published_at": "2099-02-01T00:00:00Z",
     "body": "",
     "assets": [
-      {"name":"cliamp-linux-amd64","browser_download_url":"https://github.com/example/cliamp/releases/download/v2.1.0-beta/cliamp-linux-amd64","digest":"sha256:${payload_checksum}"}
+      {"name":"cliamp-linux-amd64","size":123456,"browser_download_url":"https://github.com/example/cliamp/releases/download/v2.1.0-beta/cliamp-linux-amd64","digest":"sha256:${payload_checksum}"}
     ]
   },
   {
@@ -57,7 +57,7 @@ cat >"$fixture/releases.json" <<EOF_RELEASES
     "published_at": "2099-01-01T00:00:00Z",
     "body": "SHA256: ${payload_checksum}  cliamp-linux-amd64",
     "assets": [
-      {"name":"cliamp-linux-amd64","browser_download_url":"https://github.com/example/cliamp/releases/download/v2.0.1/cliamp-linux-amd64","digest":""}
+      {"name":"cliamp-linux-amd64","size":123456,"browser_download_url":"https://github.com/example/cliamp/releases/download/v2.0.1/cliamp-linux-amd64","digest":""}
     ]
   }
 ]
@@ -123,12 +123,24 @@ bad_payload_env=(
     "MOCK_PAYLOAD=tampered-payload"
 )
 
+source_add_status=0
 if env "${test_env[@]}" "$backend" source add aurelia \
-    https://github.com/example/cliamp --yes >/dev/null &&
+    https://github.com/example/cliamp --yes >/dev/null; then
+    :
+else
+    source_add_status=$?
+fi
+source_catalog_status=0
+if source_catalog_result="$(env "${test_env[@]}" "$backend" search cliamp)"; then
+    :
+else
+    source_catalog_status=$?
+fi
+if [[ "$source_add_status" -eq 0 && "$source_catalog_status" -eq 0 ]] &&
    grep -Fxq $'github.com/example/cliamp\thttps://github.com/example/cliamp\tall' \
        "$repo/packages/aurelia-sources.tsv" &&
    ! grep -Fq $'aurelia\t' "$repo/packages/user-managed.tsv" &&
-   env "${test_env[@]}" "$backend" search cliamp | grep -Fq $'aurelia\tgithub.com/example/cliamp\tcliamp'; then
+   awk -F '\t' 'NR == 1 && NF == 32 && $1 == "aurelia" && $3 == "cliamp" && $14 == 123456 && $31 ~ /^[0-9]+$/ { found=1 } END { exit(found ? 0 : 1) }' <<<"$source_catalog_result"; then
     pass "Aurelia source registration discovers a stable checked GitHub release without adopting it"
 else
     fail "Aurelia source registration did not validate and track the GitHub source"
@@ -143,11 +155,20 @@ else
 fi
 
 expected_row="$(printf 'aurelia\tgithub.com/example/cliamp\tcliamp\tuser\tall\tv2.0.1\tcliamp-linux-amd64\tsha256:%s\t.local/bin/cliamp\thttps://github.com/example/cliamp/releases/download/v2.0.1/cliamp-linux-amd64' "$payload_checksum")"
-if env "${test_env[@]}" "$backend" install aurelia github.com/example/cliamp cliamp user --track --yes >/dev/null &&
+install_status=0
+if env "${test_env[@]}" "$backend" install aurelia github.com/example/cliamp cliamp user --track --yes >/dev/null; then
+    :
+else
+    install_status=$?
+fi
+installed_info="$(env "${test_env[@]}" "$backend" info --provider aurelia --source github.com/example/cliamp --id cliamp --scope user)"
+if [[ "$install_status" -eq 0 ]] &&
    grep -Fxq "$expected_row" "$repo/packages/user-managed.tsv" &&
    [[ -x "$home/.local/bin/cliamp" ]] &&
    [[ "$(cat -- "$home/.local/bin/cliamp")" == "$payload" ]] &&
-   [[ "$(cat -- "$home/state/fedora-hyprland-workstation/package-manager/aurelia/cliamp.owner")" == *'source=github.com/example/cliamp'* ]]; then
+   [[ "$(cat -- "$home/state/fedora-hyprland-workstation/package-manager/aurelia/cliamp.owner")" == *'source=github.com/example/cliamp'* ]] &&
+   grep -Fq 'Installed size  : 18.0 B (18 bytes)' <<<"$installed_info" &&
+   grep -Fq 'Download size   : 120.6 KiB (123456 bytes)' <<<"$installed_info"; then
     pass "Aurelia downloads the pinned architecture asset, verifies SHA-256, installs to ~/.local/bin, and records metadata"
 else
     fail "Aurelia install-and-track did not produce the verified binary and pinned manifest row"

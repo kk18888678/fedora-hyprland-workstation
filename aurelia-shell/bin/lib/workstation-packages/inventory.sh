@@ -44,12 +44,11 @@ wsp_dnf_installed_rows() {
     local repo
     local identifier
     local evr
-    local arch
 
     dnf_bin="$(wsp_dnf_binary)" || return 1
-    raw="$(wsp_run_timeout 90 "$dnf_bin" -q repoquery --installed --userinstalled \
-        --qf $'%{repoid}\t%{name}\t%{evr}\t%{arch}\n' )" || return 1
-    while IFS=$'\t' read -r repo identifier evr arch || [[ -n "$identifier" ]]; do
+    raw="$(wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" "$dnf_bin" -q repoquery --userinstalled \
+        --qf $'%{from_repo}\t%{name}\t%{evr}\t%{arch}\n' )" || return 1
+    while IFS=$'\t' read -r repo identifier evr _ || [[ -n "$identifier" ]]; do
         [[ -n "$identifier" ]] || continue
         repo="${repo:-unknown}"
         evr="${evr:-unknown}"
@@ -68,7 +67,7 @@ wsp_flatpak_installed_rows_for_scope() {
     local branch
 
     command -v flatpak >/dev/null || return 1
-    raw="$(wsp_run_timeout 60 flatpak list "--$scope" --app \
+    raw="$(wsp_run_timeout "${WSP_CFG_FLATPAK_METADATA_TIMEOUT:-180}" flatpak list "--$scope" --app \
         --columns=application,origin,name,version,branch )" || return 1
     while IFS=$'\t' read -r identifier origin name version branch || [[ -n "$identifier" ]]; do
         [[ -n "$identifier" ]] || continue
@@ -83,9 +82,27 @@ wsp_flatpak_installed_rows_for_scope() {
 }
 
 wsp_inventory_rows() {
-    wsp_dnf_installed_rows || true
-    wsp_flatpak_installed_rows_for_scope system || true
-    wsp_flatpak_installed_rows_for_scope user || true
+    local status=0
+
+    if wsp_dnf_installed_rows; then
+        :
+    else
+        wsp_warn 'DNF installed-package inventory is unavailable; status will be partial.'
+        status=1
+    fi
+    if wsp_flatpak_installed_rows_for_scope system; then
+        :
+    else
+        wsp_warn 'System Flatpak installed-package inventory is unavailable; status will be partial.'
+        status=1
+    fi
+    if wsp_flatpak_installed_rows_for_scope user; then
+        :
+    else
+        wsp_warn 'User Flatpak installed-package inventory is unavailable; status will be partial.'
+        status=1
+    fi
+    return "$status"
 }
 
 wsp_entry_installed() {
@@ -102,7 +119,7 @@ wsp_entry_installed() {
             ;;
         flatpak)
             command -v flatpak >/dev/null || return 1
-            installed="$(wsp_run_timeout 60 flatpak list "--$scope" --app --columns=application )" || return 1
+            installed="$(wsp_run_timeout "${WSP_CFG_FLATPAK_METADATA_TIMEOUT:-180}" flatpak list "--$scope" --app --columns=application )" || return 1
             grep -Fxq -- "$identifier" <<< "$installed"
             ;;
         aurelia)
@@ -121,16 +138,25 @@ wsp_entry_origin() {
     local scope="$4"
     local dnf_bin
     local origin
-    local line
+    local installed_rows
+    local status
 
     case "$provider" in
         flatpak)
+            if installed_rows="$(wsp_flatpak_installed_rows_for_scope "$scope")"; then
+                :
+            else
+                status=$?
+                wsp_warn "Could not determine the Flatpak origin for $identifier ($scope); status is partial (status $status)."
+                printf '%s\n' unknown
+                return 0
+            fi
             while IFS=$'\t' read -r _origin _id _scope _name _version; do
                 if [[ "$_id" == "$identifier" && "$_scope" == "$scope" ]]; then
                     printf '%s\n' "${_origin:-unknown}"
                     return 0
                 fi
-            done < <(wsp_flatpak_installed_rows_for_scope "$scope" || true)
+            done <<< "$installed_rows"
             printf '%s\n' unknown
             ;;
         dnf)
@@ -138,13 +164,25 @@ wsp_entry_origin() {
                 printf '%s\n' unknown
                 return 0
             }
-            origin="$(wsp_run_timeout 60 "$dnf_bin" -q repoquery --installed \
-                --qf $'%{repoid}\n' "$identifier"  | awk 'NF { print; exit }' || true)"
+            if origin="$(wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" "$dnf_bin" -q repoquery --installed \
+                --qf $'%{from_repo}\n' "$identifier" | awk 'NF { print; exit }')"; then
+                :
+            else
+                status=$?
+                wsp_warn "Could not determine the DNF origin for $identifier; status is partial (status $status)."
+                origin=''
+            fi
             printf '%s\n' "${origin:-unknown}"
             ;;
         aurelia)
             local target_path
-            target_path="$(wsp_aurelia_target_path "$identifier"  || true)"
+            if target_path="$(wsp_aurelia_target_path "$identifier")"; then
+                :
+            else
+                status=$?
+                wsp_warn "Could not resolve the Aurelia target for $identifier; status is partial (status $status)."
+                target_path=''
+            fi
             if [[ -n "$target_path" ]] && wsp_aurelia_marker_matches_target "$identifier" "$target_path"; then
                 printf '%s\n' "$WSP_AURELIA_MARKER_SOURCE"
             else
@@ -172,7 +210,6 @@ wsp_json_escape_stream() {
 wsp_status_json() {
     local entries_file
     local inventory_file
-    local line
     local provider
     local source
     local identifier
@@ -202,7 +239,13 @@ wsp_status_json() {
         rm -f -- "$entries_file" "$inventory_file"
         return 1
     }
-    wsp_inventory_rows > "$inventory_file"
+    local inventory_status=0
+    if wsp_inventory_rows > "$inventory_file"; then
+        :
+    else
+        inventory_status=$?
+        wsp_warn "Package inventory completed with partial provider status $inventory_status."
+    fi
 
     tracked_json='[]'
     while IFS=$'\t' read -r provider source identifier scope profiles version asset checksum target artifact_url; do
@@ -264,17 +307,21 @@ wsp_status_json() {
     jq -cn \
         --arg manifest "$WSP_MANIFEST" \
         --arg catalog "$WSP_CATALOG_FILE" \
+        --argjson inventory_status "$inventory_status" \
         --argjson tracked "$tracked_json" \
         --argjson unmanaged "$unmanaged_json" \
         --argjson sources "$source_json" \
         --argjson catalog_age "$(wsp_catalog_cache_age)" \
-        '{schema:1,manifest:$manifest,catalog:$catalog,catalog_age_seconds:$catalog_age,tracked:$tracked,unmanaged:$unmanaged,sources:$sources}'
+        '{schema:1,manifest:$manifest,catalog:$catalog,catalog_age_seconds:$catalog_age,inventory_status:$inventory_status,tracked:$tracked,unmanaged:$unmanaged,sources:$sources}'
 
     rm -f -- "$entries_file" "$inventory_file"
 }
 
 wsp_status_text() {
-    wsp_status_json | jq -r '
+    local catalog_age
+
+    catalog_age="$(wsp_catalog_human_age "$(wsp_catalog_cache_age)")"
+    wsp_status_json | jq -r --arg age "$catalog_age" '
         "Tracked packages:",
         (if (.tracked | length) == 0 then "  (none)" else
             (.tracked[] | "  [" + .state + "] " + .provider + "/" + .source + "/" + .identifier + " (" + .scope + ")")
@@ -283,6 +330,6 @@ wsp_status_text() {
         (if (.unmanaged | length) == 0 then "  (none)" else
             (.unmanaged[] | "  [unmanaged] " + .provider + "/" + .source + "/" + .identifier + " (" + .scope + ")")
          end),
-        "Catalog age: " + (.catalog_age_seconds | tostring) + "s"
+        "Catalog age: " + $age
     '
 }
