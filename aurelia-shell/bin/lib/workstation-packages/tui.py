@@ -1153,19 +1153,21 @@ class PackageManagerTui:
 
     def _launch_source_url(self, url: str) -> None:
         commands = self._browser_commands(url)
-        if not commands:
+        failures: List[str] = []
+        deadline = time.monotonic() + 15.0
+        preferred = self._registered_browser_command(url, failures, deadline - time.monotonic())
+        launch_commands = ([preferred] if preferred else []) + commands
+        if not launch_commands:
             self.modal = {
                 "kind": "message",
                 "title": "Browser launcher unavailable",
-                "lines": [url, "Neither gio nor xdg-open was found. Use Copy URL and open it manually."],
+                "lines": [url, "No HTTPS desktop handler or supported browser launcher was found. Use Copy URL and open it manually."],
             }
             return
         self.modal = None
         result: Optional[subprocess.CompletedProcess[str]] = None
-        failures: List[str] = []
         suspended = False
         screen = getattr(self, "screen", None)
-        deadline = time.monotonic() + 15.0
         try:
             if screen is not None:
                 try:
@@ -1178,7 +1180,7 @@ class PackageManagerTui:
                     # request is still safe to attempt, but this must never
                     # escape and tear down the package manager.
                     self._record_error(error)
-            for command in commands:
+            for command in launch_commands:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     failures.append("Browser launcher retry window expired after 15s.")
@@ -1189,13 +1191,6 @@ class PackageManagerTui:
                     break
                 if stop:
                     break
-            if result is None:
-                remaining = deadline - time.monotonic()
-                fallback = self._registered_browser_command(url, failures, remaining)
-                if fallback and fallback not in commands and remaining > 0:
-                    candidate, _stop = self._attempt_browser_command(fallback, deadline - time.monotonic(), failures)
-                    if candidate is not None:
-                        result = candidate
         finally:
             if screen is not None and suspended:
                 try:

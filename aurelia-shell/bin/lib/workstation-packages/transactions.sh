@@ -158,11 +158,11 @@ wsp_install_row() {
                 }
             fi
             if [[ "$EUID" -eq 0 ]]; then
-                command_argv=("$dnf_bin" "$dnf_action" "--from-repo=$source" -y "$install_identifier")
+                command_argv=("$dnf_bin" "$dnf_action" --refresh "--from-repo=$source" -y "$install_identifier")
             elif [[ "${WORKSTATION_PACKAGE_TTY_AUTHORIZED:-}" == yes ]]; then
-                command_argv=(sudo -n "$dnf_bin" "$dnf_action" "--from-repo=$source" -y "$install_identifier")
+                command_argv=(sudo -n "$dnf_bin" "$dnf_action" --refresh "--from-repo=$source" -y "$install_identifier")
             else
-                command_argv=(sudo "$dnf_bin" "$dnf_action" "--from-repo=$source" -y "$install_identifier")
+                command_argv=(sudo "$dnf_bin" "$dnf_action" --refresh "--from-repo=$source" -y "$install_identifier")
             fi
             if [[ -n "$exact_version" ]]; then
                 wsp_info "Installing DNF package $identifier-$exact_version from $source."

@@ -720,31 +720,24 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertIn("gio: no handler", " ".join(app.modal["lines"]))
         self.assertIn("xdg-open: no method", " ".join(app.modal["lines"]))
 
-    def test_source_launch_uses_the_registered_https_desktop_entry_as_final_fallback(self) -> None:
+    def test_source_launch_prefers_the_registered_https_desktop_entry(self) -> None:
         app = self._app()
         app.diagnostics = []
         app.messages = []
-        gio_failure = mock.Mock(returncode=1, stdout="", stderr="gio: no handler\n")
-        xdg_failure = mock.Mock(returncode=3, stdout="", stderr="xdg-open: no method\n")
         mime_result = mock.Mock(returncode=0, stdout="chromium-browser.desktop\n", stderr="")
         gtk_success = mock.Mock(returncode=0, stdout="", stderr="")
 
         def which(name: str) -> str | None:
             return {
-                "gio": "/usr/bin/gio",
-                "xdg-open": "/usr/bin/xdg-open",
                 "gtk-launch": "/usr/bin/gtk-launch",
                 "xdg-mime": "/usr/bin/xdg-mime",
             }.get(name)
 
-        with mock.patch("tui.shutil.which", side_effect=which), mock.patch(
-            "tui.subprocess.run", side_effect=[gio_failure, xdg_failure, mime_result, gtk_success]
-        ) as run:
+        with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", side_effect=[mime_result, gtk_success]) as run:
             app._launch_source_url("https://example.invalid/source")
-        self.assertEqual(run.call_count, 4)
+        self.assertEqual(run.call_count, 2)
         self.assertEqual(run.call_args_list[-1].args[0], ["/usr/bin/gtk-launch", "chromium-browser.desktop", "https://example.invalid/source"])
         self.assertIsNone(app.modal)
-        self.assertTrue(any("gio: no handler" in line for line in app.diagnostics))
 
     def test_backend_cancellation_terminates_only_registered_children(self) -> None:
         backend = PackageBackend(ROOT / "aurelia-shell" / "bin" / "workstation-packages")

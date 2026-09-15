@@ -82,7 +82,8 @@ if [[ "$args" == *"repoquery"* && "$args" == *"--installed"* ]]; then
     printf '%s\n' fedora
     exit 0
 fi
-if [[ ("$1" == "install" || "$1" == "upgrade" || "$1" == "reinstall") && "$2" == --from-repo=* ]]; then
+if [[ ("$1" == "install" || "$1" == "upgrade" || "$1" == "reinstall") && "$args" == *--from-repo=* ]]; then
+    printf '%s\n' "$*" >>"${MOCK_DNF_TRANSACTION_LOG:?}"
     package="${@: -1}"
     package="${package%.x86_64}"
     [[ "$package" == mock-dnf-1 ]] && package=mock-dnf
@@ -165,6 +166,7 @@ test_env=(
     "MOCK_RPM_STATE=$fixture/rpm-installed"
     "MOCK_FLATPAK_STATE=$fixture/flatpak-installed"
     "MOCK_OPEN_LOG=$fixture/open.log"
+    "MOCK_DNF_TRANSACTION_LOG=$fixture/dnf-transactions.log"
 )
 
 if env "${test_env[@]}" "$backend" adopt dnf fedora mock-dnf system --yes >/dev/null &&
@@ -271,7 +273,8 @@ printf '%s\n' $'dnf\tfedora\tstale-dnf\tstale-dnf\tStale DNF fixture\t2\tsystem\
 stale_update_output="$(env "${test_env[@]}" "$backend" install-catalog-row \
     --provider dnf --source fedora --id stale-dnf --scope system --yes 2>&1 || true)"
 if grep -Fq "Updating DNF package stale-dnf" <<<"$stale_update_output" &&
-   grep -Fq "expected catalog version '2'" <<<"$stale_update_output"; then
+   grep -Fq "expected catalog version '2'" <<<"$stale_update_output" &&
+   grep -Fq 'upgrade --refresh --from-repo=fedora' "$fixture/dnf-transactions.log"; then
     pass "DNF catalog update rejects a transaction that leaves the installed EVR unchanged"
 else
     fail "DNF catalog update reported success without verifying the installed EVR"

@@ -163,7 +163,7 @@ if [[ "$args" == *repoquery* && "$args" == *--installed* ]]; then
     exit 0
 fi
 
-if [[ "${1:-}" == install && "${2:-}" == --from-repo=* ]]; then
+if [[ "${1:-}" == install && "$args" == *--from-repo=* ]]; then
     package="${@: -1}"
     package="${package%.x86_64}"
     [[ "$package" == mock-dnf-1 ]] && package=mock-dnf
