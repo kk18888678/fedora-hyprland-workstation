@@ -6,6 +6,23 @@ package.path = table.concat({
     package.path,
 }, ";")
 
+-- QEMU/KVM virtio-gpu hardware cursor planes can render a small square
+-- artifact when Chromium hides the pointer during fullscreen video. Detect an
+-- attached virtio-gpu device narrowly so bare-metal systems and VMs with a
+-- passed-through physical GPU retain the normal hardware-cursor path.
+local function has_virtio_gpu_device()
+    local handle = io.popen(
+        "find /sys/bus/virtio/drivers/virtio_gpu " ..
+        "-mindepth 1 -maxdepth 1 -type l -name 'virtio*' " ..
+        "-print -quit 2>/dev/null"
+    )
+    if not handle then return false end
+
+    local device = handle:read("*l") or ""
+    handle:close()
+    return device ~= ""
+end
+
 -- Clear locally managed modules when Hyprland reloads.
 -- This ensures bindings, rules and other configuration are re-registered.
 for _, module in ipairs({
@@ -47,6 +64,18 @@ if aurelia_provider_file then
 end
 
 local colors = require("noctalia.noctalia-colors")
+
+if has_virtio_gpu_device() then
+    -- Keep the workaround in the compositor's desired state so it survives
+    -- Hyprland reloads and applies to the logged-in VM session, not just the
+    -- greeter. The detection above is intentionally fail-closed.
+    hl.config({
+        cursor = {
+            no_hardware_cursors = 1,
+        },
+    })
+    print("[COMPAT] confirmed virtio-gpu; hardware cursors disabled")
+end
 
 hl.config({
     dwindle = {

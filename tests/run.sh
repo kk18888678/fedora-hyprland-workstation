@@ -25,6 +25,7 @@ run_suite "$ROOT/tests/test_config_architecture.sh"
 
 run_suite "$ROOT/tests/test_xdg.sh"
 run_suite "$ROOT/tests/test_desktop.sh"
+run_suite "$ROOT/tests/test_hyprland_cursor.sh"
 run_suite "$ROOT/tests/test_network_authorization.sh"
 run_suite "$ROOT/tests/test_validation.sh"
 run_suite "$ROOT/tests/test_resilience.sh"

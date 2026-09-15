@@ -161,6 +161,7 @@ reports the failure without enabling a competing Noctalia session shell.
 - **Verified Workaround**:
   - Setting `command = "env WLR_NO_HARDWARE_CURSORS=1 ..."` in `/etc/greetd/config.toml` forces Noctalia's wlroots compositor to render the cursor via software buffer in the primary scene pass, reliably presenting an upright pointer graphic.
   - Setting `[output] scale = 1.0` in `/var/lib/noctalia-greeter/greeter.toml` eliminates fractional scaling calculation (~1.04) derived from QEMU's default virtual EDID (`650x330mm`), eliminating the `-ERANGE` atomic test failure.
+  - In the logged-in Hyprland session, a confirmed virtio-gpu device now selects software cursor compositing. This prevents the black-square cursor artifact exposed when Chromium hides the pointer during fullscreen video.
 - **Upstream Evidence & Hypotheses**:
   - Upstream QEMU and VirGL issue trackers document coordinate origin convention mismatches (`Y_0_TOP` vs OpenGL/DRM scanout buffer conventions) when 3D acceleration is enabled for virtio-gpu cursor planes.
   - The `-ERANGE` error from the Linux DRM atomic check reflects plane bounds or scaling ratio limits enforced by the kernel driver.
