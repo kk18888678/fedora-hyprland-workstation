@@ -142,6 +142,8 @@ wsp_install_row() {
             fi
             if [[ "$EUID" -eq 0 ]]; then
                 command_argv=("$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
+            elif [[ "${WORKSTATION_PACKAGE_TTY_AUTHORIZED:-}" == yes ]]; then
+                command_argv=(sudo -n "$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
             else
                 command_argv=(sudo "$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
             fi
@@ -158,7 +160,11 @@ wsp_install_row() {
                 return 1
             }
             if [[ "$scope" == system ]]; then
-                command_argv=(sudo flatpak install -y --system "$source" "$identifier")
+                if [[ "${WORKSTATION_PACKAGE_TTY_AUTHORIZED:-}" == yes ]]; then
+                    command_argv=(sudo -n flatpak install -y --system "$source" "$identifier")
+                else
+                    command_argv=(sudo flatpak install -y --system "$source" "$identifier")
+                fi
             else
                 command_argv=(flatpak install -y --user "$source" "$identifier")
             fi
@@ -234,6 +240,8 @@ wsp_remove_row() {
             dnf_bin="$(wsp_dnf_binary)" || return 1
             if [[ "$EUID" -eq 0 ]]; then
                 command_argv=("$dnf_bin" remove -y "$identifier")
+            elif [[ "${WORKSTATION_PACKAGE_TTY_AUTHORIZED:-}" == yes ]]; then
+                command_argv=(sudo -n "$dnf_bin" remove -y "$identifier")
             else
                 command_argv=(sudo "$dnf_bin" remove -y "$identifier")
             fi
@@ -242,7 +250,11 @@ wsp_remove_row() {
             ;;
         flatpak)
             if [[ "$scope" == system ]]; then
-                command_argv=(sudo flatpak uninstall -y --system "$identifier")
+                if [[ "${WORKSTATION_PACKAGE_TTY_AUTHORIZED:-}" == yes ]]; then
+                    command_argv=(sudo -n flatpak uninstall -y --system "$identifier")
+                else
+                    command_argv=(sudo flatpak uninstall -y --system "$identifier")
+                fi
             else
                 command_argv=(flatpak uninstall -y --user "$identifier")
             fi

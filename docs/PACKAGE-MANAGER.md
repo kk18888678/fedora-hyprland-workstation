@@ -157,6 +157,9 @@ wide terminals and a stacked view on narrow terminals. The Bash
 `workstation-packages` backend remains the only owner of package transactions,
 tracking, cache preparation, and diagnostics. The frontend reads Aurelia's
 active semantic theme files and never copies a fixed palette.
+System package transactions briefly hand the controlling terminal to `sudo` for
+credential authorization; password input is never captured, and the following
+transaction uses non-interactive sudo so a second prompt cannot corrupt the TUI.
 Package rows also receive a lightweight metadata-derived visual glyph. The
 frontend does not download artwork for tens of thousands of rows: DNF does not
 reliably publish application icons in repository metadata, and Flatpak remote

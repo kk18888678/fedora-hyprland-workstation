@@ -246,23 +246,40 @@ class PackageBackend:
         for process in processes:
             self._terminate_process(process)
 
-    def _run(self, command: Sequence[str], timeout: float) -> str:
+    def _run(self, command: Sequence[str], timeout: float, stdin_tty: bool = False) -> str:
         process: Optional[subprocess.Popen] = None
+        terminal = None
+        stdin = subprocess.DEVNULL
+        process_env = None
+        if stdin_tty:
+            try:
+                terminal = open("/dev/tty", "rb", buffering=0)
+            except OSError as error:
+                detail = f"Could not open the controlling terminal for package operation: {error}"
+                self._emit_diagnostic(f"ERROR: {detail}\n")
+                raise BackendError(command, 127, detail) from error
+            stdin = terminal
+            process_env = os.environ.copy()
+            process_env["WORKSTATION_PACKAGE_TTY_AUTHORIZED"] = "yes"
         try:
             process = subprocess.Popen(
                 list(command),
-                stdin=subprocess.DEVNULL,
+                stdin=stdin,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 start_new_session=True,
+                env=process_env,
             )
         except OSError as error:
             detail = f"Could not execute package-manager command: {error}"
             self._emit_diagnostic(f"ERROR: {detail}\n")
             raise BackendError(command, 127, detail) from error
+        finally:
+            if terminal is not None:
+                terminal.close()
 
         with self._active_processes_lock:
             self._active_processes.add(process)
@@ -377,7 +394,7 @@ class PackageBackend:
             detail = f"sudo authorization timed out after {timeout:.0f}s."
             self._emit_diagnostic(f"ERROR: {detail}\n")
             raise BackendError(command, 124, detail) from error
-        except OSError as error:
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
             detail = f"Could not authorize package operation through the terminal: {error}"
             self._emit_diagnostic(f"ERROR: {detail}\n")
             raise BackendError(command, 127, detail) from error
@@ -454,7 +471,7 @@ class PackageBackend:
         if track:
             command.append("--track")
         command.append("--yes")
-        return self._run(command, timeout=3600)
+        return self._run(command, timeout=3600, stdin_tty=True)
 
     def remove_catalog_row(self, row: PackageRow, forget: bool = False) -> str:
         command: List[str] = [
@@ -472,7 +489,7 @@ class PackageBackend:
         if forget:
             command.append("--forget")
         command.append("--yes")
-        return self._run(command, timeout=3600)
+        return self._run(command, timeout=3600, stdin_tty=True)
 
     def add_aurelia_source(self, url: str) -> str:
         return self._run(
