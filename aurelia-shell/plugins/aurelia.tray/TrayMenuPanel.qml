@@ -13,6 +13,7 @@ AureliaKeyboardPanel {
 
     property var trayItem: null
     property var rootMenuOpener: null
+    property var applicationRouteStarter: null
     property var submenuStack: []
 
     readonly property var currentOpener: submenuStack.length > 0 ? submenuStack[submenuStack.length - 1].opener : rootMenuOpener
@@ -57,12 +58,13 @@ AureliaKeyboardPanel {
         }
     }
 
-    function openForItem(item, opener, itemAnchor) {
+    function openForItem(item, opener, itemAnchor, routeStarter) {
         if (!item || !item.menu || !opener || !itemAnchor) return
         submenuCleanupTimer.stop()
         resetSubmenus()
         trayItem = item
         rootMenuOpener = opener
+        applicationRouteStarter = routeStarter || null
         anchorItem = itemAnchor
         shown = true
     }
@@ -78,6 +80,7 @@ AureliaKeyboardPanel {
         resetSubmenus()
         trayItem = null
         rootMenuOpener = null
+        applicationRouteStarter = null
     }
 
     function resetSubmenus() {
@@ -115,7 +118,10 @@ AureliaKeyboardPanel {
         // Keep the submenu opener alive until the D-Bus action has had an
         // event-loop turn to dispatch. Omarchy retains its opener through the
         // popup fade for the same reason.
+        var item = panelRoot.trayItem
         entry.triggered()
+        if (panelRoot.applicationRouteStarter && typeof panelRoot.applicationRouteStarter === "function")
+            panelRoot.applicationRouteStarter(item)
         close()
     }
 

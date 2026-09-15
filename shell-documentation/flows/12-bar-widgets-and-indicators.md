@@ -263,11 +263,21 @@ Each item MouseArea accepts left, right, and middle buttons:
 
 ~~~text
 right click  -> display item menu
-middle click -> modelData.secondaryActivate()
+middle click -> modelData.secondaryActivate(), then bounded application-workspace route
 left + onlyMenu -> display item menu
-left otherwise -> modelData.activate()
+left otherwise -> modelData.activate(), then bounded application-workspace route
 wheel        -> modelData.scroll(angleDelta.y, false)
 ~~~
+
+After a direct application tray action is sent, or after a tray-menu entry is
+triggered, Aurelia builds a bounded identity route from the tray item's
+id/title metadata. The shared window activation controller follows the same
+sequence as notification Open: refresh toplevels, locate the matching window,
+activate its workspace, wait for focused-workspace state, then activate the
+toplevel. The controller retries for at most 30 attempts at 80 ms intervals.
+If no matching window appears, the tray action remains successful without
+changing workspace; this keeps launching a hidden or not-yet-created
+application on the current workspace.
 
 If the item has a QsMenuEntry menu, the tray owns and renders the menu. If it
 has no menu object, it calls the item's native display method at the mapped
@@ -312,3 +322,7 @@ refresh/status to all monitor instances when their source contract requires it.
 6. Pin, hide, reveal, secondary-activate, open submenus, rapidly switch tray
    items, and close tray menus; verify 250 ms settling and deepest-first
    destruction.
+7. With ChatGPT open on a different workspace, activate its tray item and
+   verify the existing workspace is eventually focused and the matching
+   window is activated; verify a tray item without a matching toplevel does
+   not switch workspaces.

@@ -11,6 +11,7 @@ AureliaKeyboardPanel {
     id: panelRoot
 
     property var windowTarget: null
+    property var activationController: null
 
     readonly property string windowTitle: windowTarget ? String(windowTarget.title || "Application") : "Application"
 
@@ -39,7 +40,16 @@ AureliaKeyboardPanel {
     function closeForPopoutSwitch() { close() }
 
     function activateWindow() {
-        if (windowTarget && windowTarget.handle) windowTarget.handle.activate()
+        if (windowTarget && windowTarget.handle) {
+            if (panelRoot.activationController &&
+                typeof panelRoot.activationController.activate === "function") {
+                panelRoot.activationController.activate(windowTarget)
+            } else {
+                var workspace = windowTarget.workspace
+                if (workspace && typeof workspace.activate === "function") workspace.activate()
+                windowTarget.handle.activate()
+            }
+        }
         close()
     }
 

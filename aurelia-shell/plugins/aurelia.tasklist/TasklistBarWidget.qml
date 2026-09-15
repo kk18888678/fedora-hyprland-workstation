@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Hyprland
 import "../../theme"
 import "../../ui"
+import "../../services/WindowRouting.js" as WindowRouting
 
 // Running windows are not StatusNotifier tray items. Keep this widget
 // separate from aurelia.tray so right-click behavior has an explicit window
@@ -30,6 +31,7 @@ Item {
         if (!target) return
         if ("bar" in target) target.bar = root.bar
         if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
+        if ("activationController" in target) target.activationController = windowActivationLoader.item
     }
 
     function openWindowMenu(windowTarget, anchorItem) {
@@ -37,27 +39,26 @@ Item {
     }
 
     function openMatchingWindowMenu(identity) {
-        var requested = String(identity || "").toLowerCase().split("|")
         var values = Hyprland.toplevels ? Hyprland.toplevels.values : []
-        for (var i = 0; i < values.length; i++) {
-            var candidate = values[i]
-            var handle = candidate ? candidate.handle : null
-            var appId = handle && handle.appId ? String(handle.appId).toLowerCase() : ""
-            var title = candidate && candidate.title ? String(candidate.title).toLowerCase() : ""
-            var matched = false
-            for (var r = 0; r < requested.length; r++) {
-                var needle = requested[r].trim()
-                if (needle !== "" && (appId === needle || title === needle || appId.indexOf(needle) !== -1 || title.indexOf(needle) !== -1)) {
-                    matched = true
-                    break
-                }
-            }
-            if (matched && handle) {
-                openWindowMenu(candidate, root)
-                return "ok"
-            }
+        var route = WindowRouting.workspaceRouteDataForTrayIdentity(identity)
+        var match = WindowRouting.matchingWorkspaceToplevel(route, values)
+        if (match && match.toplevel && match.toplevel.handle) {
+            openWindowMenu(match.toplevel, root)
+            return "ok"
         }
         return "not-found"
+    }
+
+    function activateWindow(windowTarget) {
+        return windowActivationLoader.item && typeof windowActivationLoader.item.activate === "function"
+            ? windowActivationLoader.item.activate(windowTarget) : "not-loaded"
+    }
+
+    Loader {
+        id: windowActivationLoader
+        active: true
+        source: Qt.resolvedUrl("../../services/WindowActivation.qml")
+        onLoaded: root.configureMenu(menuLoader.item)
     }
 
     function iconSourceFor(windowTarget, appEntry) {
@@ -122,7 +123,7 @@ Item {
                     onClicked: function(mouse) {
                         mouse.accepted = true
                         if (mouse.button === Qt.RightButton) root.openWindowMenu(modelData, taskDelegate)
-                        else if (mouse.button === Qt.LeftButton && modelData.handle) modelData.handle.activate()
+                        else if (mouse.button === Qt.LeftButton && modelData.handle) root.activateWindow(modelData)
                     }
                 }
             }

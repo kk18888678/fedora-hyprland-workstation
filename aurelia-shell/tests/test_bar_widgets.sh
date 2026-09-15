@@ -220,6 +220,81 @@ else
     fail "Tasklist plugin or window context menu is incomplete"
 fi
 
+window_routing="$ROOT/services/WindowRouting.js"
+window_activation="$ROOT/services/WindowActivation.qml"
+if [[ -f "$window_routing" && -f "$window_activation" ]] &&
+   grep -Fq 'import "../../services/WindowRouting.js" as WindowRouting' "$tray_root/TrayBarWidget.qml" &&
+   grep -Fq 'workspaceRouteDataForTrayItem' "$tray_root/TrayBarWidget.qml" &&
+   grep -Fq 'windowActivationLoader.item.start(route)' "$tray_root/TrayBarWidget.qml" &&
+   grep -Fq 'source: Qt.resolvedUrl("../../services/WindowActivation.qml")' "$tray_root/TrayBarWidget.qml" &&
+   grep -Fq 'windowActivationLoader.item' "$tray_root/TrayBarWidget.qml" &&
+   grep -Fq 'applicationRouteStarter' "$tray_root/TrayMenuPanel.qml" &&
+   grep -Fq 'entry.triggered()' "$tray_root/TrayMenuPanel.qml" &&
+   grep -Fq 'import "../../services/WindowRouting.js" as WindowRouting' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -Fq 'workspaceRouteDataForTrayIdentity' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -Fq 'activationController' "$tasklist_root/TasklistMenuPanel.qml" &&
+   grep -Fq 'workspace.activate' "$tasklist_root/TasklistMenuPanel.qml" &&
+   grep -Fq 'workspaceRouteMaxAttempts: 30' "$window_activation" &&
+   grep -Fq 'Hyprland.refreshToplevels' "$window_activation" &&
+   grep -Fq 'Hyprland.refreshWorkspaces' "$window_activation" &&
+   grep -Fq 'workspaceRouteTimer.restart' "$window_activation" &&
+   grep -Fq 'handle.activate' "$window_activation"; then
+    pass "Tray and tasklist window actions use the notification-style workspace-first activation controller"
+else
+    fail "Tray/tasklist workspace routing does not share the bounded notification-style activation contract"
+fi
+
+if command -v node >/dev/null; then
+    window_routing_status=0
+    node - "$window_routing" <<'NODE_WINDOW_ROUTING' || window_routing_status=$?
+const routing = require(process.argv[2])
+const assert = (value, message) => { if (!value) throw new Error(message) }
+
+const chatItem = { id: 'org.openai.chatgpt', title: 'ChatGPT', icon: 'chatgpt' }
+const chatWindow = {
+  workspace: { id: 4 },
+  handle: { appId: 'chatgpt', activated: false },
+  title: 'ChatGPT',
+  lastIpcObject: {
+    desktopEntry: 'chatgpt.desktop',
+    class: 'chatgpt',
+    initialClass: 'chatgpt'
+  },
+  activated: false
+}
+const route = routing.workspaceRouteDataForTrayItem(chatItem)
+const match = routing.matchingWorkspaceToplevel(route, [chatWindow])
+assert(route.enabled, 'ChatGPT tray identity should produce a route')
+assert(match && match.toplevel === chatWindow, 'ChatGPT window should be located')
+assert(match.workspaceId === 4, 'ChatGPT workspace should be preserved')
+const arrayLikeMatch = routing.matchingWorkspaceToplevel(route, { 0: chatWindow, length: 1 })
+assert(arrayLikeMatch && arrayLikeMatch.toplevel === chatWindow, 'array-like Hyprland values should be supported')
+const xwaylandChatWindow = {
+  workspace: { id: 1 },
+  class: 'Chatgpt',
+  initialClass: 'Chatgpt',
+  title: 'ChatGPT',
+  initialTitle: 'ChatGPT'
+}
+const xwaylandMatch = routing.matchingWorkspaceToplevel(route, [xwaylandChatWindow])
+assert(xwaylandMatch && xwaylandMatch.toplevel === xwaylandChatWindow, 'XWayland class/title metadata should locate ChatGPT')
+
+const serialized = routing.workspaceRouteDataForTrayIdentity('org.openai.chatgpt|ChatGPT||')
+assert(routing.matchingWorkspaceToplevel(serialized, [chatWindow]), 'serialized tray identity should locate ChatGPT')
+assert(!routing.matchingWorkspaceToplevel(
+  routing.workspaceRouteDataForTrayItem({ id: 'chat', title: 'Chat' }),
+  [{ workspace: { id: 4 }, handle: { appId: 'chatgpt' }, title: 'ChatGPT' }]
+), 'generic chat identity must not route to ChatGPT')
+NODE_WINDOW_ROUTING
+    if (( window_routing_status == 0 )); then
+        pass "[isolated-runtime] Tray identity matching locates ChatGPT's workspace and rejects generic false matches"
+    else
+        fail "[isolated-runtime] Tray identity matching failed"
+    fi
+else
+    skip "[isolated-runtime] Tray identity matching matrix (node unavailable)"
+fi
+
 if [[ -f "$power_root/manifest.json" && -f "$power_root/PowerBarWidget.qml" && -f "$power_root/PowerPanel.qml" &&
       -f "$session_actions_root/manifest.json" && -f "$session_actions_root/SessionActionsBarWidget.qml" ]] &&
    jq -e '.schemaVersion == 1 and .id == "aurelia.power" and (.kinds == ["bar-widget"])' "$power_root/manifest.json" >/dev/null &&

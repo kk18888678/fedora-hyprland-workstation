@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Services.SystemTray
 import "../../theme"
 import "../../ui"
+import "../../services/WindowRouting.js" as WindowRouting
 
 // Quickshell's SystemTray singleton tracks StatusNotifier applications. This
 // is deliberately a bar widget; it does not become a second tray process.
@@ -53,10 +54,28 @@ Item {
         if ("barSize" in target) target.barSize = root.bar ? root.bar.barSize : 26
     }
 
+    function startTrayRoute(item) {
+        var route = WindowRouting.workspaceRouteDataForTrayItem(item)
+        return route.enabled && windowActivationLoader.item
+            ? windowActivationLoader.item.start(route) : "unavailable"
+    }
+
+    function activateTrayItem(item) {
+        try {
+            item.activate()
+            root.startTrayRoute(item)
+            return "ok"
+        } catch (error) {
+            console.warn("[TRAY] item_activation_failed")
+            return "error"
+        }
+    }
+
     function openTrayMenu(item, anchorItem) {
         if (trayMenuPanel && typeof trayMenuPanel.openForItem === "function") {
             activeTrayItem = item
-            trayMenuPanel.openForItem(item, trayMenuOpener, anchorItem)
+            trayMenuPanel.openForItem(item, trayMenuOpener, anchorItem,
+                function(menuItem) { return root.startTrayRoute(menuItem) })
         }
     }
 
@@ -71,6 +90,12 @@ Item {
             ? root.bar.callWidget("aurelia.tasklist", "openMatchingWindowMenu", identity)
             : "not-loaded"
         if (taskResult !== "ok" && item && item.hasMenu) root.openTrayMenu(item, anchorItem)
+    }
+
+    Loader {
+        id: windowActivationLoader
+        active: true
+        source: Qt.resolvedUrl("../../services/WindowActivation.qml")
     }
 
     Loader {
@@ -133,9 +158,10 @@ Item {
                             root.openApplicationContextMenu(modelData, trayDelegate)
                         } else if (mouse.button === Qt.LeftButton) {
                             if (modelData.onlyMenu && modelData.hasMenu) root.openTrayMenu(modelData, trayDelegate)
-                            else modelData.activate()
+                            else root.activateTrayItem(modelData)
                         } else if (mouse.button === Qt.MiddleButton) {
                             modelData.secondaryActivate()
+                            root.startTrayRoute(modelData)
                         }
                     }
                 }
