@@ -193,7 +193,7 @@ wsp_install_row() {
         wsp_error "Package was not present after installation: $provider/$source/$identifier"
         return 1
     elif [[ "$provider" == dnf && -n "$exact_version" ]]; then
-        installed_version="$(rpm -q --qf '%{EVR}\n' "$identifier" 2>/dev/null | head -n 1)" || installed_version=""
+        installed_version="$(rpm -q --qf '%{EVR}\n' "$identifier" | head -n 1)" || installed_version=""
         [[ "$installed_version" == "$exact_version" ]] || {
             wsp_error "DNF installed $identifier at '$installed_version', not the requested exact version '$exact_version'."
             return 1
