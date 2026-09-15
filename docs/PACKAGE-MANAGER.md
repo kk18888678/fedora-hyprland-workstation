@@ -158,13 +158,15 @@ reliably publish application icons in repository metadata, and Flatpak remote
 listings do not guarantee them. Provider-specific artwork can therefore be
 added later as a bounded optional cache without making search depend on it.
 
-Press `+` in the package list to add an official Aurelia GitHub source. The
-backend verifies the source and its stable, architecture-matching release
-before it is recorded and the catalog is refreshed. A Microsoft VS Code yum
-repository is a DNF source, not an Aurelia source; once configured with its
-official signed repository, it appears under DNF (the package ID is `code`) and
-is managed by DNF for installation and updates. The TUI does not import
-arbitrary repository keys or write `/etc/yum.repos.d` from an unreviewed URL.
+Press `+` from the `All` or `Aurelia` tab to add an official Aurelia GitHub
+source. The backend verifies the source and its stable, architecture-matching
+release before it is recorded and the catalog is refreshed. The action is
+intentionally hidden on `Installed`, `Updates`, `DNF`, and `Flatpak`, where it
+would be misleading. A Microsoft VS Code yum repository is a DNF source, not
+an Aurelia source; once configured with its official signed repository, it
+appears under DNF (the package ID is `code`) and is managed by DNF for
+installation and updates. The TUI does not import arbitrary repository keys
+or write `/etc/yum.repos.d` from an unreviewed URL.
 
 To add an upstream GitHub source from the command line:
 

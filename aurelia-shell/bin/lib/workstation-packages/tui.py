@@ -669,6 +669,17 @@ class PackageManagerTui:
             index = 0
         self._set_filter(index + delta)
 
+    def _can_add_source(self) -> bool:
+        """Return whether the global source-add action is relevant here.
+
+        The current source-add workflow is deliberately limited to verified
+        Aurelia GitHub sources.  It must not look like a generic DNF/Flatpak
+        repository writer, so keep the action visible only where that intent
+        is understandable.
+        """
+
+        return self.active_filter in {"All", "Aurelia"}
+
     def _toggle_queue(self, row: Optional[PackageRow] = None) -> None:
         row = row or self.selected_row
         if not row:
@@ -744,7 +755,8 @@ class PackageManagerTui:
             return
         self.focus_area = "actions"
         self.action_index = 0
-        self._set_message("Actions focused · ↑/↓ choose · Enter run · Tab packages")
+        self.modal = {"kind": "actions", "row": self.selected_row, "selected": 0, "scroll": 0}
+        self._set_message("Actions opened · ↑/↓ choose · Enter run · Tab/Esc packages")
 
     def _select_all(self) -> None:
         if len(self.filtered_rows) > self.MAX_QUEUE:
@@ -842,6 +854,9 @@ class PackageManagerTui:
             self._start_versions_load(row)
 
     def _show_add_source(self) -> None:
+        if not self._can_add_source():
+            self._set_message("Aurelia source add is available from All or Aurelia", 5.0)
+            return
         if self.operation_loading:
             self._set_message("An operation is already running", 5.0)
             return
@@ -897,17 +912,37 @@ class PackageManagerTui:
 
     def _launch_source_url(self, url: str) -> None:
         opener = shutil.which("xdg-open")
-        if not opener:
-            self.modal = {"kind": "message", "title": "Browser launcher unavailable", "lines": [url, "xdg-open was not found. Use Copy URL and open it in a browser manually."]}
-            return
+        command: List[str]
+        if opener:
+            command = [opener, url]
+        else:
+            gio = shutil.which("gio")
+            if not gio:
+                self.modal = {
+                    "kind": "message",
+                    "title": "Browser launcher unavailable",
+                    "lines": [url, "Neither xdg-open nor gio was found. Use Copy URL and open it manually."],
+                }
+                return
+            command = [gio, "open", url]
         self.modal = None
         result: Optional[subprocess.CompletedProcess[str]] = None
+        suspended = False
+        screen = getattr(self, "screen", None)
         try:
-            if self.screen is not None:
-                self.screen.def_prog_mode()
-                self.screen.endwin()
+            if screen is not None:
+                try:
+                    screen.def_prog_mode()
+                    screen.endwin()
+                    suspended = True
+                except curses.error as error:
+                    # A terminal can be resized or lose its controlling
+                    # session while the source dialog is active.  The browser
+                    # request is still safe to attempt, but this must never
+                    # escape and tear down the package manager.
+                    self._record_error(error)
             result = subprocess.run(
-                [opener, url],
+                command,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -918,7 +953,7 @@ class PackageManagerTui:
                 check=False,
             )
         except subprocess.TimeoutExpired as error:
-            detail = f"Browser launcher timed out after 15s: {opener}"
+            detail = f"Browser launcher timed out after 15s: {' '.join(command)}"
             if error.stderr:
                 detail += f"\n{error.stderr.strip()}"
             self._record_backend_diagnostic(f"ERROR: {detail}\n")
@@ -928,15 +963,27 @@ class PackageManagerTui:
             self._record_error(error)
             self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, str(error)]}
             return
+        except (ValueError, RuntimeError) as error:
+            # Keep integration/terminal errors visible in the TUI instead of
+            # allowing an unexpected launcher failure to abort curses.wrapper.
+            self._record_error(error)
+            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, str(error)]}
+            return
         finally:
-            if self.screen is not None:
+            if screen is not None and suspended:
                 try:
-                    self.screen.reset_prog_mode()
-                    self.screen.keypad(True)
-                    self.screen.timeout(100)
-                    self.screen.clear()
+                    screen.reset_prog_mode()
                 except curses.error as error:
                     self._record_error(error)
+                for operation in (
+                    lambda: screen.keypad(True),
+                    lambda: screen.timeout(100),
+                    lambda: screen.clear(),
+                ):
+                    try:
+                        operation()
+                    except curses.error as error:
+                        self._record_error(error)
 
         if result is None:
             return
@@ -1051,6 +1098,46 @@ class PackageManagerTui:
                 if len(value) < 512:
                     self.modal["value"] = value + chr(ch)
                     self.modal["error"] = ""
+            return True
+        if kind == "actions":
+            row = self.modal.get("row")
+            if not isinstance(row, PackageRow):
+                row = self.selected_row
+            actions = self._action_items(row)
+            if not actions:
+                self.modal = None
+                self.focus_area = "list"
+                self._set_message("No actions are available for this package")
+                return True
+            selected = max(0, min(self.modal.get("selected", 0), len(actions) - 1))
+            self.modal["selected"] = selected
+            self.action_index = selected
+            if ch == 27 or ch == 9 or key_pressed(ch, self.config.key("cancel")) or key_pressed(ch, self.config.key("select")):
+                self.modal = None
+                self.focus_area = "list"
+                self._set_message("Package list focused")
+            elif ch in (curses.KEY_UP, ord("k")):
+                selected = (selected - 1) % len(actions)
+                self.modal["selected"] = selected
+                self.action_index = selected
+            elif ch in (curses.KEY_DOWN, ord("j")):
+                selected = (selected + 1) % len(actions)
+                self.modal["selected"] = selected
+                self.action_index = selected
+            elif key_pressed(ch, self.config.key("help")):
+                self._show_help()
+            elif key_pressed(ch, self.config.key("quit")):
+                self.modal = None
+                self.running = False
+            elif ch in (10, 13, curses.KEY_ENTER):
+                self._run_action()
+                if self.modal and self.modal.get("kind") == "actions":
+                    refreshed = self._action_items(row)
+                    if refreshed:
+                        self.modal["selected"] = max(0, min(self.action_index, len(refreshed) - 1))
+                        self.modal["scroll"] = _selection_window(
+                            self.modal["selected"], len(refreshed), 1, self.modal.get("scroll", 0)
+                        )
             return True
         if kind == "versions":
             row = self.modal.get("row")
@@ -1589,7 +1676,7 @@ class PackageManagerTui:
         for line in _wrap(description, max(1, width - 4)):
             lines.append((line, self._attr(pairs, "secondary")))
         lines.append(("", 0))
-        lines.append(("Actions · Tab to focus", self._attr(pairs, "accent_alt", bold=True)))
+        lines.append(("Actions · Enter to open", self._attr(pairs, "accent_alt", bold=True)))
         action_lines = []
         for index, (_action, label) in enumerate(self._action_items(row)):
             selected = self.focus_area == "actions" and index == self.action_index
@@ -1646,7 +1733,8 @@ class PackageManagerTui:
             f"  {_display_key(self.config.key('search'))} focus search   {_display_key(self.config.key('accept'))} package actions   {_display_key(self.config.key('preview_toggle'))} show/hide details",
             f"  {_display_key(self.config.key('sort'))} opens sort options: relevance, name, size, date, provider   {_display_key(self.config.key('sort_reverse'))} reverse sort",
             f"  {_display_key(self.config.key('versions'))} opens the selected package's versions, newest release first.",
-            f"  {_display_key(self.config.key('add_source'))} adds an official Aurelia GitHub source and refreshes the catalog.",
+            f"  {_display_key(self.config.key('add_source'))} adds an official Aurelia GitHub source from the All or Aurelia tab and refreshes the catalog.",
+            "  DNF repositories (including Microsoft VS Code) stay under DNF ownership and are not added by this Aurelia-source action.",
             "  In Actions, ↑/↓ chooses an action and Enter runs it; Tab or Esc returns to packages.",
             "",
             "INSTALLATION",
@@ -1695,6 +1783,40 @@ class PackageManagerTui:
         if not self.modal:
             return
         kind = self.modal.get("kind")
+        if kind == "actions":
+            row = self.modal.get("row")
+            if not isinstance(row, PackageRow):
+                row = self.selected_row
+            actions = self._action_items(row)
+            if not actions:
+                return
+            modal_width = min(width - 4, 78)
+            visible_options = max(1, min(len(actions), max(1, height - 8)))
+            modal_height = min(height - 4, max(10, 7 + visible_options))
+            x = max(1, (width - modal_width) // 2)
+            y = max(1, (height - modal_height) // 2)
+            title = f"Actions · {self._display_name(row)}" if row else "Package actions"
+            self._box(y, x, modal_height, modal_width, pairs, title, self._attr(pairs, "accent_alt", bold=True))
+            provider = row.provider_label if row else "Package"
+            self._add(y + 2, x + 3, f"{provider} · choose an action for the selected package", modal_width - 6, self._attr(pairs, "secondary"))
+            selected = max(0, min(self.modal.get("selected", 0), len(actions) - 1))
+            self.modal["selected"] = selected
+            self.action_index = selected
+            top = _selection_window(selected, len(actions), visible_options, self.modal.get("scroll", 0))
+            self.modal["scroll"] = top
+            for offset, index in enumerate(range(top, min(len(actions), top + visible_options))):
+                _action, label = actions[index]
+                selected_row = index == selected
+                attr = self._attr(pairs, "selection" if selected_row else "surface", bold=selected_row)
+                self._fill(y + 4 + offset, x + 2, 1, modal_width - 4, attr)
+                self._add(y + 4 + offset, x + 4, ("▸ " if selected_row else "  ") + label, modal_width - 8, attr)
+            footer = (
+                f"{_display_key(self.config.key('up'))}/{_display_key(self.config.key('down'))} choose · "
+                f"{_display_key(self.config.key('accept'))} run · "
+                f"{_display_key(self.config.key('select'))}/{_display_key(self.config.key('cancel'))} back"
+            )
+            self._add(y + modal_height - 2, x + 3, footer, modal_width - 6, self._attr(pairs, "muted"))
+            return
         if kind == "versions":
             row = self.modal.get("row")
             if not isinstance(row, PackageRow):
@@ -1743,12 +1865,13 @@ class PackageManagerTui:
             self._box(y, x, modal_height, modal_width, pairs, "Add Aurelia source", self._attr(pairs, "accent_alt", bold=True))
             self._add(y + 2, x + 3, "Official GitHub repository URL", modal_width - 6, self._attr(pairs, "text", bold=True))
             self._add(y + 3, x + 3, "https://github.com/owner/repository", modal_width - 6, self._attr(pairs, "muted"))
+            self._add(y + 4, x + 3, "Verified Aurelia source only; DNF repositories stay under DNF.", modal_width - 6, self._attr(pairs, "secondary"))
             value = str(self.modal.get("value", ""))
-            self._fill(y + 5, x + 2, 1, modal_width - 4, self._attr(pairs, "input"))
-            self._add(y + 5, x + 4, "› " + value, modal_width - 8, self._attr(pairs, "input", bold=True))
+            self._fill(y + 6, x + 2, 1, modal_width - 4, self._attr(pairs, "input"))
+            self._add(y + 6, x + 4, "› " + value, modal_width - 8, self._attr(pairs, "input", bold=True))
             error = str(self.modal.get("error", ""))
             if error:
-                self._add(y + 7, x + 3, error, modal_width - 6, self._attr(pairs, "error"))
+                self._add(y + 8, x + 3, error, modal_width - 6, self._attr(pairs, "error"))
             self._add(y + modal_height - 2, x + 3, "Type URL · Enter verify/add · Esc cancel", modal_width - 6, self._attr(pairs, "muted"))
             return
         if kind == "sort":
@@ -1856,13 +1979,24 @@ class PackageManagerTui:
                 f"{_display_key(self.config.key('help'))} help"
             )
         else:
-            left = (
-                f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} move  ·  "
-                f"{_display_key(self.config.key('select'))} tabs  ·  {_display_key(self.config.key('accept'))} actions  ·  "
-                f"{_display_key(self.config.key('search'))} search  ·  {_display_key(self.config.key('queue'))} queue  ·  "
-                f"{_display_key(self.config.key('versions'))} versions  ·  {_display_key(self.config.key('sort'))} sort  ·  {_display_key(self.config.key('add_source'))} source  ·  {_display_key(self.config.key('refresh'))} refresh  ·  "
-                f"{_display_key(self.config.key('help'))} help"
+            controls = [
+                f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} move",
+                f"{_display_key(self.config.key('select'))} tabs",
+                f"{_display_key(self.config.key('accept'))} actions",
+                f"{_display_key(self.config.key('search'))} search",
+                f"{_display_key(self.config.key('queue'))} queue",
+                f"{_display_key(self.config.key('versions'))} versions",
+                f"{_display_key(self.config.key('sort'))} sort",
+            ]
+            if self._can_add_source():
+                controls.append(f"{_display_key(self.config.key('add_source'))} Aurelia source")
+            controls.extend(
+                [
+                    f"{_display_key(self.config.key('refresh'))} refresh",
+                    f"{_display_key(self.config.key('help'))} help",
+                ]
             )
+            left = "  ·  ".join(controls)
         right = f"{_display_key(self.config.key('cancel'))} Quit"
         right_x = max(2, width - len(right) - 2)
         self._add(height - 2, 2, left, max(1, right_x - 3), self._attr(pairs, "secondary"))

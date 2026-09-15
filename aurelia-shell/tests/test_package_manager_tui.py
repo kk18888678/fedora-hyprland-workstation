@@ -291,7 +291,25 @@ class TuiInteractionTests(unittest.TestCase):
         app = self._app()
         app._handle_key(10)
         self.assertEqual(app.focus_area, "actions")
+        self.assertEqual(app.modal["kind"], "actions")
+
+    def test_actions_popup_navigates_to_conditional_uninstall_action(self) -> None:
+        app = self._app(installed=True)
+        app._handle_key(10)
+        self.assertEqual(app.modal["kind"], "actions")
+        app._handle_modal_key(curses.KEY_DOWN)
+        app._handle_modal_key(10)
+        self.assertEqual(app.modal["kind"], "uninstall")
+
+    def test_add_source_is_available_only_from_all_or_aurelia_contexts(self) -> None:
+        app = self._app()
+        app.active_filter = "DNF"
+        app._handle_key(ord("+"))
         self.assertIsNone(app.modal)
+        self.assertIn("All or Aurelia", app.transient_message)
+        app.active_filter = "Aurelia"
+        app._handle_key(ord("+"))
+        self.assertEqual(app.modal["kind"], "source-add")
 
     def test_quit_binding_remains_available_in_each_focus_zone(self) -> None:
         for focus_area in ("list", "filters", "actions"):
@@ -441,6 +459,45 @@ class TuiInteractionTests(unittest.TestCase):
         screen.reset_prog_mode.assert_called_once()
         screen.clear.assert_called_once()
         self.assertIsNone(app.modal)
+
+    def test_source_launch_survives_curses_suspend_failure(self) -> None:
+        app = self._app()
+        app.diagnostics = []
+        app.messages = []
+        screen = mock.Mock()
+        screen.def_prog_mode.side_effect = curses.error("terminal is not initialized")
+        app.screen = screen
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch("tui.shutil.which", return_value="/usr/bin/xdg-open"), mock.patch("tui.subprocess.run", return_value=completed):
+            app._launch_source_url("https://example.invalid/source")
+        self.assertTrue(app.running)
+        self.assertTrue(any("terminal is not initialized" in line for line in app.diagnostics))
+        screen.endwin.assert_not_called()
+        screen.reset_prog_mode.assert_not_called()
+
+    def test_source_launch_survives_curses_restore_failure(self) -> None:
+        app = self._app()
+        app.diagnostics = []
+        app.messages = []
+        screen = mock.Mock()
+        screen.reset_prog_mode.side_effect = curses.error("terminal restore failed")
+        app.screen = screen
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch("tui.shutil.which", return_value="/usr/bin/xdg-open"), mock.patch("tui.subprocess.run", return_value=completed):
+            app._launch_source_url("https://example.invalid/source")
+        self.assertTrue(app.running)
+        self.assertTrue(any("terminal restore failed" in line for line in app.diagnostics))
+
+    def test_source_launch_uses_gio_when_xdg_open_is_unavailable(self) -> None:
+        app = self._app()
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+
+        def which(name: str) -> str | None:
+            return "/usr/bin/gio" if name == "gio" else None
+
+        with mock.patch("tui.shutil.which", side_effect=which), mock.patch("tui.subprocess.run", return_value=completed) as run:
+            app._launch_source_url("https://example.invalid/source")
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/gio", "open", "https://example.invalid/source"])
 
     def test_backend_cancellation_terminates_only_registered_children(self) -> None:
         backend = PackageBackend(ROOT / "aurelia-shell" / "bin" / "workstation-packages")
