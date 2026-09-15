@@ -94,6 +94,18 @@ def _parse_rgb(value: str, background: RGB) -> Optional[RGB]:
     return None
 
 
+def _parse_alpha(value: str) -> Optional[float]:
+    try:
+        alpha = float(value.strip())
+    except ValueError:
+        return None
+    return alpha if 0 <= alpha <= 1 else None
+
+
+def _blend(foreground: RGB, background: RGB, alpha: float) -> RGB:
+    return tuple(round(foreground[index] * alpha + background[index] * (1 - alpha)) for index in range(3))  # type: ignore[return-value]
+
+
 _NEUTRAL_FALLBACK: Dict[str, RGB] = {
     "background": (12, 18, 22),
     "surface": (20, 28, 34),
@@ -206,6 +218,10 @@ def load_theme(backend_path: Path) -> ThemePalette:
     for semantic, key in shell_aliases.items():
         parsed = _parse_rgb(shell_raw.get(key, ""), colors["background"])
         if parsed:
+            alpha_key = f"{key}-alpha"
+            alpha = _parse_alpha(shell_raw.get(alpha_key, ""))
+            if alpha is not None:
+                parsed = _blend(parsed, colors["background"], alpha)
             colors[semantic] = parsed
 
     colors["dnf"] = colors.get("accent", colors["dnf"])

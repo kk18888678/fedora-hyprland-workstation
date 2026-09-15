@@ -100,9 +100,12 @@ wsp_install_row() {
     local checksum="${7:-}"
     local target="${8:-}"
     local artifact_url="${9:-}"
+    local exact_version="${10:-}"
     local status=0
     local dnf_bin=""
     local install_identifier=""
+    local installed_version=""
+    local native_arch=""
     local -a command_argv=()
 
     wsp_validate_record "$provider" "$source" "$identifier" "$scope" all || {
@@ -118,19 +121,41 @@ wsp_install_row() {
     case "$provider" in
         dnf)
             dnf_bin="$(wsp_dnf_binary)" || return 1
-            install_identifier="$(wsp_dnf_install_identifier "$identifier")" || {
-                wsp_error "Unsupported host architecture for DNF package installation."
-                return 1
-            }
+            if [[ -n "$exact_version" ]]; then
+                [[ "$exact_version" =~ ^[A-Za-z0-9][A-Za-z0-9+._:~^-]{0,127}$ ]] || {
+                    wsp_error "Invalid exact DNF version for $identifier."
+                    return 1
+                }
+                native_arch="$(wsp_dnf_native_arch)" || {
+                    wsp_error "Unsupported host architecture for DNF package installation."
+                    return 1
+                }
+                install_identifier="$identifier-$exact_version"
+                [[ "$install_identifier" == *."$native_arch" || "$install_identifier" == *.noarch ]] ||
+                    install_identifier+=".$native_arch"
+            else
+                install_identifier="$(wsp_dnf_install_identifier "$identifier")" || {
+                    wsp_error "Unsupported host architecture for DNF package installation."
+                    return 1
+                }
+            fi
             if [[ "$EUID" -eq 0 ]]; then
                 command_argv=("$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
             else
                 command_argv=(sudo "$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
             fi
-            wsp_info "Installing DNF package $identifier from $source."
+            if [[ -n "$exact_version" ]]; then
+                wsp_info "Installing DNF package $identifier-$exact_version from $source."
+            else
+                wsp_info "Installing DNF package $identifier from $source."
+            fi
             wsp_run_timeout "${WSP_CFG_TRANSACTION_TIMEOUT:-1800}" "${command_argv[@]}" || status=$?
             ;;
         flatpak)
+            [[ -z "$exact_version" ]] || {
+                wsp_error "Version-specific installation is not supported for Flatpak package $identifier; the remote controls its available version."
+                return 1
+            }
             if [[ "$scope" == system ]]; then
                 command_argv=(sudo flatpak install -y --system "$source" "$identifier")
             else
@@ -167,6 +192,12 @@ wsp_install_row() {
     elif ! wsp_entry_installed "$provider" "$source" "$identifier" "$scope"; then
         wsp_error "Package was not present after installation: $provider/$source/$identifier"
         return 1
+    elif [[ "$provider" == dnf && -n "$exact_version" ]]; then
+        installed_version="$(rpm -q --qf '%{EVR}\n' "$identifier" 2>/dev/null | head -n 1)" || installed_version=""
+        [[ "$installed_version" == "$exact_version" ]] || {
+            wsp_error "DNF installed $identifier at '$installed_version', not the requested exact version '$exact_version'."
+            return 1
+        }
     fi
 }
 
@@ -280,6 +311,12 @@ wsp_install_and_track_row() {
     local checksum="${7:-}"
     local target="${8:-}"
     local artifact_url="${9:-}"
+    local exact_version="${10:-}"
+    local requested_version=""
+
+    if [[ "$provider" != aurelia && -n "$exact_version" ]]; then
+        requested_version="$version"
+    fi
 
     if [[ "$provider" != aurelia ]]; then
         # DNF/Flatpak catalog versions and descriptions are not pins. Clear
@@ -304,7 +341,7 @@ wsp_install_and_track_row() {
         artifact_url="$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
     fi
     wsp_install_row "$provider" "$source" "$identifier" "$scope" \
-        "$version" "$asset" "$checksum" "$target" "$artifact_url" || return 1
+        "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" || return 1
     if ! wsp_manifest_add "$provider" "$source" "$identifier" "$scope" all \
         "$version" "$asset" "$checksum" "$target" "$artifact_url"; then
         wsp_error "Package is installed but could not be added to user-managed.tsv: $identifier"

@@ -86,12 +86,20 @@ For Aurelia, the GitHub release asset size is cached as download size, and the
 metadata pane refreshes the installed size from the local binary when it is
 already present.
 
+The TUI groups historical rows for the same provider/package identity into one
+entry such as `brave-browser (N)`, where `N` is the dynamically discovered
+version count. Press `v` to inspect versions newest-first;
+an exact version can also be searched alongside the package name. Installed
+packages are discovered from the local RPM/Flatpak state, so an update row is
+shown as `Update` rather than a misleading `Install` when the repository source
+differs from the installed origin.
+
 The catalog is refreshed by a user-level background timer after boot and at a
 configurable interval. Refresh is metadata-only: it never installs or upgrades
-packages. Opening the TUI uses a valid current cache immediately; a stale,
-schema-old, or provider-incomplete cache is refreshed in the foreground with
-visible progress before search opens. `Ctrl-R` (or the configured refresh key)
-performs an explicit refresh.
+packages. Opening the TUI uses the last-known-good cache immediately, including
+when that cache is stale; the header reports its age and source health. A
+completely missing cache is populated during first bootstrap. `Ctrl-R` (or the
+configured refresh key) performs an explicit refresh on demand.
 
 ## Package states
 
@@ -112,8 +120,9 @@ conflict with a newer Qt or system stack; in that case choose the newer source
 row instead of allowing a downgrade.
 
 Unmanaged packages are reported but are never silently adopted or removed.
-The TUI offers explicit Adopt and Remove actions. Normal removal does not use
-Flatpak `--delete-data` and does not purge personal files.
+The backend retains explicit adopt/remove commands, while the dedicated TUI
+requires an action-menu choice for every install or uninstall. Normal removal
+does not use Flatpak `--delete-data` and does not purge personal files.
 
 ## Commands
 
@@ -130,11 +139,12 @@ workstation-packages daily enable
 
 The Command Center exposes the same workflow as **Package Manager**. `open`
 launches the dedicated terminal TUI, which can search DNF, Flatpak, and Aurelia
-sources, preview metadata, install packages, adopt existing packages, remove
-packages, manage sources, and enable or disable background catalog refresh.
-The main search surface uses one full-width package list with the selected
-package's metadata in a lower pane; navigation and action keys are shown in a
-footer rather than consuming the result header.
+sources, preview metadata, install packages, queue selections, reinstall or
+uninstall installed packages, manage sources, and enable or disable background
+catalog refresh. The main search surface uses a responsive split view on wide
+terminals and a stacked package/metadata view on narrow terminals; navigation,
+filter-tab, and action keys are shown contextually in the footer and in a help
+popup.
 
 The dedicated frontend is `aurelia-shell/bin/workstation-packages-tui`. It is a
 standard-library Python terminal application with a responsive split view on
@@ -147,6 +157,14 @@ frontend does not download artwork for tens of thousands of rows: DNF does not
 reliably publish application icons in repository metadata, and Flatpak remote
 listings do not guarantee them. Provider-specific artwork can therefore be
 added later as a bounded optional cache without making search depend on it.
+
+Press `+` in the package list to add an official Aurelia GitHub source. The
+backend verifies the source and its stable, architecture-matching release
+before it is recorded and the catalog is refreshed. A Microsoft VS Code yum
+repository is a DNF source, not an Aurelia source; once configured with its
+official signed repository, it appears under DNF (the package ID is `code`) and
+is managed by DNF for installation and updates. The TUI does not import
+arbitrary repository keys or write `/etc/yum.repos.d` from an unreviewed URL.
 
 To add an upstream GitHub source from the command line:
 
@@ -175,10 +193,10 @@ data rather than sourced as shell, and malformed values fail closed.
 
 The configuration controls catalog age/refresh policy, bounded DNF/Flatpak and
 transaction timeouts, result limits, preview layout, colors, visual labels, and
-all TUI keys:
-movement, paging, selection, acceptance, cancellation, refresh, help, preview
-scrolling, preview toggle, and select-all. The default TUI exposes the active
-keys in its header and help overlay.
+all TUI keys: movement, paging, filter-tab focus, package/action focus,
+acceptance, cancellation, refresh, help, search, queue, source, metadata,
+sorting, preview scrolling, preview toggle, and select-all. The default TUI
+exposes the active keys contextually in its footer and help overlay.
 
 The catalog refresh lock is acquired only for the bounded refresh or mutation
 itself. The interactive selector does not hold it while idle, so an invisible
@@ -206,7 +224,10 @@ Aurelia GitHub raw-binary contract remain outside this catalog. They require
 the repository's separate verified-artifact workflow with explicit version,
 provenance, architecture, and checksum/signature.
 
-Removing an Aurelia package removes only the owned `~/.local/bin` binary and its
-private ownership marker. It does not purge personal data. Removing a source
-is blocked while tracked packages still depend on it. Changes to either tracked
-TSV are ordinary Git changes; the installer does not auto-commit or push them.
+The installed-package action menu provides `Reinstall` and `Uninstall`.
+Uninstall review explicitly chooses whether to keep the desired-state tracking
+row or forget it; either choice preserves personal data and never uses a purge
+operation. Removing an Aurelia package removes only the owned `~/.local/bin`
+binary and its private ownership marker. Removing a source is blocked while
+tracked packages still depend on it. Changes to either tracked TSV are ordinary
+Git changes; the installer does not auto-commit or push them.

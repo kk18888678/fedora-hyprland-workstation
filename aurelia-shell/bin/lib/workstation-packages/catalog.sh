@@ -1225,7 +1225,7 @@ wsp_catalog_index_ranked() {
     wsp_catalog_ensure_derived_indexes || return 1
     [[ "$limit" =~ ^[0-9]+$ && "$limit" -gt 0 ]] || return 2
     query_compact="$(printf '%s' "${query,,}" | tr -cd '[:alnum:]')"
-    if [[ ${#query_compact} -ge 3 ]]; then
+    if [[ ${#query_compact} -ge 3 && "$query" != *[[:space:]]* ]]; then
         candidate_file="$(mktemp)" || return 1
         if LC_ALL=C grep -F -- "$query_compact" "$WSP_CATALOG_INDEX_FILE" > "$candidate_file"; then
             search_file="$candidate_file"
@@ -1247,6 +1247,14 @@ wsp_catalog_index_ranked() {
             }
             return 1
         }
+        function token_matches(compact_value, spaced_value, i) {
+            for (i = 1; i <= raw_word_count; i++) {
+                if (compact_words[i] == "") continue
+                if (index(compact_value, compact_words[i]) == 0 &&
+                    index(" " spaced_value " ", " " spaced_words[i] " ") == 0) return 0
+            }
+            return 1
+        }
         function emit_score(score, reason) {
             group = compact_fields[1] separator compact_fields[3]
             printf "%09d\t%s\t%s\t%s\t%s\t%s\n", 999999 - score, group, $5, $6, $1, reason
@@ -1259,10 +1267,23 @@ wsp_catalog_index_ranked() {
             word_count = split(normalized, words, / +/)
             query_compact = tolower(q)
             gsub(/[^[:alnum:]]/, "", query_compact)
+            raw_word_count = split(q, raw_words, /[[:space:]]+/)
+            for (word_index = 1; word_index <= raw_word_count; word_index++) {
+                compact_words[word_index] = tolower(raw_words[word_index])
+                gsub(/[^[:alnum:]]/, "", compact_words[word_index])
+                spaced_words[word_index] = tolower(raw_words[word_index])
+                gsub(/[^[:alnum:]]+/, " ", spaced_words[word_index])
+            }
         }
         {
             split($2, compact_fields, separator)
             split($3, spaced_fields, separator)
+            all_compact = ""
+            all_spaced = ""
+            for (field_index = 1; field_index <= 16; field_index++) {
+                all_compact = all_compact compact_fields[field_index]
+                all_spaced = all_spaced " " spaced_fields[field_index]
+            }
             if (query_compact == "") {
                 emit_score(1, "catalog")
                 next
@@ -1274,6 +1295,7 @@ wsp_catalog_index_ranked() {
                     break
                 }
             }
+            if (!matched && token_matches(all_compact, all_spaced)) matched = 1
             provided = index($4, query_compact) > 0
             if (!matched && provided) matched = 1
             if (!matched) next
@@ -1517,6 +1539,23 @@ wsp_catalog_row_for_identity() {
     ' "$WSP_CATALOG_FILE"
 }
 
+wsp_catalog_row_for_version() {
+    local provider="$1"
+    local source="$2"
+    local identifier="$3"
+    local scope="$4"
+    local version="$5"
+    local architecture="${6:-}"
+
+    wsp_catalog_paths_safe || return 1
+    [[ -f "$WSP_CATALOG_FILE" && ! -L "$WSP_CATALOG_FILE" ]] || return 1
+    awk -F '\t' -v p="$provider" -v s="$source" -v i="$identifier" \
+        -v c="$scope" -v v="$version" -v a="$architecture" '
+        $1 == p && $2 == s && $3 == i && $6 == v &&
+            (c == "" || $7 == c) && (a == "" || $12 == a) { print; exit }
+    ' "$WSP_CATALOG_FILE"
+}
+
 wsp_catalog_info() {
     local provider="$1"
     local source="$2"
@@ -1604,16 +1643,19 @@ wsp_catalog_prepare_for_tui() {
     wsp_catalog_paths_safe || return 1
     if [[ -s "$WSP_CATALOG_FILE" && ! -L "$WSP_CATALOG_FILE" ]]; then
         if wsp_catalog_needs_refresh; then
-            wsp_catalog_progress 'The package catalog is stale or incomplete; refreshing before opening search.'
+            freshness_status=0
         else
             freshness_status=$?
-            if (( freshness_status == 2 )); then
-                wsp_error 'The package catalog path is unsafe; refusing to open package search.'
-                return 1
-            fi
-            wsp_catalog_ensure_derived_indexes || return 1
-            return 0
         fi
+        if (( freshness_status == 2 )); then
+            wsp_error 'The package catalog path is unsafe; refusing to open package search.'
+            return 1
+        fi
+        # Opening the TUI must be fast and deterministic. A stale or partial
+        # cache remains usable; background refresh or explicit Ctrl-R owns
+        # freshness. Only a missing cache takes the initial-refresh path below.
+        wsp_catalog_ensure_derived_indexes || return 1
+        return 0
     fi
     wsp_lock_start || return 1
     if wsp_catalog_refresh; then

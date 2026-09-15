@@ -12,14 +12,14 @@ import argparse
 import curses
 import curses.ascii
 import locale
-import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
 import textwrap
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -76,6 +76,60 @@ def _selection_window(selected: int, total: int, visible: int, top: int = 0) -> 
     return max(0, min(top, max(0, total - visible)))
 
 
+def _size_value(value: str) -> Tuple[int, int]:
+    match = re.match(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?i?B)\b", value or "", re.IGNORECASE)
+    if not match:
+        return 0, 0
+    try:
+        number = float(match.group(1))
+    except ValueError:
+        return 0, 0
+    unit = match.group(2).lower()
+    multiplier = {"b": 1, "kb": 1000, "kib": 1024, "mb": 1000**2, "mib": 1024**2, "gb": 1000**3, "gib": 1024**3, "tb": 1000**4, "tib": 1024**4}.get(unit, 1)
+    return 1, int(number * multiplier)
+
+
+def _date_value(value: str) -> Tuple[int, str]:
+    return (1, value) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value or "") else (0, "")
+
+
+def _version_value(value: str) -> Tuple[Tuple[int, object], ...]:
+    """Provide a deterministic natural-order fallback for version lists."""
+
+    tokens = re.findall(r"[0-9]+|[A-Za-z]+", (value or "").lower())
+    result: List[Tuple[int, object]] = []
+    for token in tokens:
+        if token.isdigit():
+            result.append((0, int(token)))
+        else:
+            result.append((1, token))
+    return tuple(result)
+
+
+def _relative_luminance(rgb: Tuple[int, int, int]) -> float:
+    channels = []
+    for channel in rgb:
+        value = channel / 255
+        channels.append(value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _contrast_ratio(first: Tuple[int, int, int], second: Tuple[int, int, int]) -> float:
+    lighter = max(_relative_luminance(first), _relative_luminance(second))
+    darker = min(_relative_luminance(first), _relative_luminance(second))
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _readable_color(foreground: Tuple[int, int, int], background: Tuple[int, int, int], fallback: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    candidates = [
+        foreground,
+        fallback,
+        tuple(round(channel * 0.55) for channel in foreground),
+        tuple(round(channel + (255 - channel) * 0.45) for channel in foreground),
+    ]
+    return max(candidates, key=lambda candidate: _contrast_ratio(candidate, background))
+
+
 def _display_key(value: str) -> str:
     return {
         "up": "↑",
@@ -101,7 +155,8 @@ class PackageManagerTui:
     MAX_QUEUE = 500
 
     def __init__(self, backend_path: Path, initial_query: str = "") -> None:
-        self.backend = PackageBackend(backend_path)
+        self.diagnostics: List[str] = []
+        self.backend = PackageBackend(backend_path, self._record_backend_diagnostic)
         self.config: TuiConfig = load_config(self.backend.backend_path)
         self.theme: ThemePalette = load_theme(self.backend.backend_path)
         self.initial_query = initial_query
@@ -115,19 +170,33 @@ class PackageManagerTui:
         self.query_changed_at = time.monotonic() if initial_query else 0.0
         self.catalog_generation = 0
         self.info_generation = 0
+        self.version_generation = 0
         self.status_generation = 0
+        self.installed_generation = 0
         self.catalog_status_generation = 0
         self.update_generation = 0
         self.operation_generation = 0
 
         self.rows: List[PackageRow] = []
         self.filtered_rows: List[PackageRow] = []
+        self.version_groups: Dict[Tuple[str, str, str], List[PackageRow]] = {}
+        self.all_version_groups: Dict[Tuple[str, str, str], List[PackageRow]] = {}
+        self.all_group_rows: List[PackageRow] = []
+        self.grouped_row_count = -1
         self.selected_index = 0
         self.top_index = 0
-        self.visible_list_rows = 8
+        self.visible_list_rows = 0
         self.filters: List[str] = ["All", "Installed", "Updates"]
         self.active_filter = "All"
+        self.sort_mode = "relevance"
+        self.sort_reverse = False
+        self.focus_area = "list"
+        self.action_index = 0
         self.installed_keys: Set[Tuple[str, str, str, str]] = set()
+        self.installed_identity_keys: Set[Tuple[str, str, str]] = set()
+        self.installed_versions: Dict[Tuple[str, str, str], Set[str]] = {}
+        self.status_installed_keys: Set[Tuple[str, str, str, str]] = set()
+        self.discovered_installed_keys: Set[Tuple[str, str, str, str]] = set()
         self.update_dnf_ids: Set[str] = set()
         self.update_flatpak_ids: Set[str] = set()
 
@@ -135,14 +204,19 @@ class PackageManagerTui:
         self.catalog_loading = True
         self.query_loading = False
         self.status_loading = False
+        self.installed_loading = False
         self.updates_loading = False
         self.info_loading = False
+        self.versions_loading = False
         self.operation_loading = False
         self.show_details = True
         self.detail_scroll = 0
         self.queue_rows: List[PackageRow] = []
         self.info_text = ""
         self.info_fields: Dict[str, str] = {}
+        self.install_targets: List[PackageRow] = []
+        self.install_version_override: Optional[str] = None
+        self.remove_target: Optional[PackageRow] = None
         self.messages: List[str] = []
         self.transient_message = ""
         self.transient_until = 0.0
@@ -150,6 +224,13 @@ class PackageManagerTui:
         self.alt_prefix = False
 
         self._submit("bootstrap", self.backend.bootstrap, 1)
+
+    def _record_backend_diagnostic(self, text: str) -> None:
+        for line in text.splitlines():
+            if line.strip():
+                self.diagnostics.append(line.strip())
+        if hasattr(self, "transient_until") and self.diagnostics:
+            self._set_message(f"Diagnostic: {_truncate(self.diagnostics[-1], 100)}", 6.0)
 
     def _submit(self, kind: str, function: Callable[[], Any], generation: int) -> None:
         def worker() -> None:
@@ -167,6 +248,7 @@ class PackageManagerTui:
 
     def _record_error(self, error: BaseException) -> None:
         detail = str(error).strip() or error.__class__.__name__
+        self.diagnostics.extend(f"ERROR: {line.strip()}" for line in detail.splitlines() if line.strip())
         self.messages.append(detail)
         self.messages = self.messages[-8:]
         self._set_message(f"Error: {_truncate(detail.splitlines()[0], 100)}", 8.0)
@@ -183,6 +265,11 @@ class PackageManagerTui:
         self.status_generation += 1
         self.status_loading = True
         self._submit("status", self.backend.status_json, self.status_generation)
+
+    def _start_installed_load(self) -> None:
+        self.installed_generation += 1
+        self.installed_loading = True
+        self._submit("installed", self.backend.installed_snapshot, self.installed_generation)
 
     def _start_catalog_status_load(self) -> None:
         self.catalog_status_generation += 1
@@ -202,7 +289,15 @@ class PackageManagerTui:
         self.info_generation += 1
         generation = self.info_generation
         self.info_loading = True
+        self.info_text = ""
+        self.info_fields = {}
         self._submit("info", lambda: self.backend.package_info(row), generation)
+
+    def _start_versions_load(self, row: PackageRow) -> None:
+        self.version_generation += 1
+        generation = self.version_generation
+        self.versions_loading = True
+        self._submit("versions", lambda: self.backend.versions_for(row), generation)
 
     @property
     def selected_row(self) -> Optional[PackageRow]:
@@ -223,28 +318,128 @@ class PackageManagerTui:
             self.active_filter = "All"
 
     def _is_installed(self, row: PackageRow) -> bool:
-        return row.key in self.installed_keys
+        if row.key in self.installed_keys:
+            return True
+        if row.provider == "aurelia":
+            return False
+        return (row.provider, row.identifier, row.scope) in self.installed_identity_keys
+
+    def _rebuild_installed_identity_index(self) -> None:
+        self.installed_identity_keys = {(key[0], key[2], key[3]) for key in self.installed_keys}
 
     def _is_update(self, row: PackageRow) -> bool:
         if row.provider == "dnf":
-            return row.identifier in self.update_dnf_ids
-        if row.provider == "flatpak":
-            return row.identifier in self.update_flatpak_ids
-        return False
+            if row.identifier in self.update_dnf_ids:
+                return True
+        elif row.provider == "flatpak":
+            if row.identifier in self.update_flatpak_ids:
+                return True
+        else:
+            return False
+        installed_versions = self.installed_versions.get(self._group_key(row), set())
+        if not installed_versions:
+            return False
+        return any(_version_value(row.version) > _version_value(version) for version in installed_versions if version != "unknown")
+
+    @staticmethod
+    def _group_key(row: PackageRow) -> Tuple[str, str, str]:
+        return row.provider, row.identifier, row.scope
+
+    @staticmethod
+    def _latest_row(rows: Sequence[PackageRow]) -> PackageRow:
+        return max(rows, key=lambda row: (_date_value(row.release_date), _version_value(row.version), row.source.lower()))
+
+    def _group_rows(self, rows: Iterable[PackageRow]) -> List[PackageRow]:
+        groups: Dict[Tuple[str, str, str], List[PackageRow]] = {}
+        for row in rows:
+            groups.setdefault(self._group_key(row), []).append(row)
+        self.version_groups = groups
+        return [self._latest_row(group) for group in groups.values()]
+
+    def _rebuild_catalog_groups(self) -> None:
+        groups: Dict[Tuple[str, str, str], List[PackageRow]] = {}
+        for row in self.rows:
+            groups.setdefault(self._group_key(row), []).append(row)
+        self.all_version_groups = groups
+        self.all_group_rows = [self._latest_row(group) for group in groups.values()]
+        self.grouped_row_count = len(self.rows)
+
+    def _versions_for(self, row: PackageRow) -> List[PackageRow]:
+        return list(self.version_groups.get(self._group_key(row), [row]))
+
+    def _display_name(self, row: PackageRow) -> str:
+        count = len(self._versions_for(row))
+        return f"{row.name} ({count})" if count > 1 else row.name
 
     def _apply_filter(self) -> None:
+        if self.grouped_row_count != len(self.rows):
+            self._rebuild_catalog_groups()
         active = self.active_filter
         if active == "All":
-            rows = self.rows
+            rows = self.all_group_rows
         elif active == "Installed":
-            rows = [row for row in self.rows if self._is_installed(row)]
+            rows = [row for row in self.all_group_rows if self._is_installed(row)]
         elif active == "Updates":
-            rows = [row for row in self.rows if self._is_update(row)]
+            rows = [row for row in self.all_group_rows if self._is_update(row)]
         else:
-            rows = [row for row in self.rows if row.provider_label == active]
-        self.filtered_rows = rows
-        self.selected_index = max(0, min(self.selected_index, max(0, len(rows) - 1)))
-        self._keep_selection_visible(self.visible_list_rows)
+            rows = [row for row in self.all_group_rows if row.provider_label == active]
+        self.version_groups = {
+            self._group_key(row): self.all_version_groups[self._group_key(row)]
+            for row in rows
+            if self._group_key(row) in self.all_version_groups
+        }
+        self.filtered_rows = self._sort_rows(rows)
+        self.selected_index = max(0, min(self.selected_index, max(0, len(self.filtered_rows) - 1)))
+        self._keep_selection_visible(max(1, self.visible_list_rows))
+
+    def _sort_rows(self, rows: Iterable[PackageRow]) -> List[PackageRow]:
+        result = list(rows)
+        mode = self.sort_mode
+        if mode == "relevance":
+            if self.sort_reverse:
+                result.reverse()
+            return result
+        if mode == "name":
+            key = lambda row: (row.name.lower(), row.provider_label.lower(), row.identifier.lower())
+            default_descending = False
+        elif mode == "size":
+            key = lambda row: (_size_value(row.installed_size if row.installed_size != "n/a" else row.download_size), row.name.lower())
+            default_descending = True
+        elif mode == "date":
+            key = lambda row: (_date_value(row.release_date), row.name.lower())
+            default_descending = True
+        else:
+            key = lambda row: (row.provider_label.lower(), row.name.lower(), row.version.lower())
+            default_descending = False
+        return sorted(result, key=key, reverse=default_descending ^ self.sort_reverse)
+
+    def _cycle_sort(self) -> None:
+        modes = ("relevance", "name", "size", "date", "provider")
+        self._set_sort_mode(modes[(modes.index(self.sort_mode) + 1) % len(modes)])
+
+    def _set_sort_mode(self, mode: str) -> None:
+        modes = ("relevance", "name", "size", "date", "provider")
+        if mode not in modes:
+            return
+        selected_key = self._group_key(self.selected_row) if self.selected_row else None
+        self.sort_mode = mode
+        self._apply_filter()
+        if selected_key:
+            for index, row in enumerate(self.filtered_rows):
+                if self._group_key(row) == selected_key:
+                    self.selected_index = index
+                    break
+        self._keep_selection_visible(max(1, self.visible_list_rows))
+        self._set_message(f"Sort: {self.sort_mode}")
+
+    def _show_sort(self) -> None:
+        modes = ("relevance", "name", "size", "date", "provider")
+        self.modal = {"kind": "sort", "selected": modes.index(self.sort_mode), "options": modes}
+
+    def _toggle_sort_direction(self) -> None:
+        self.sort_reverse = not self.sort_reverse
+        self._apply_filter()
+        self._set_message(f"Sort direction: {'reverse' if self.sort_reverse else 'default'}")
 
     def _handle_event(self, event: Event) -> None:
         if event.kind == "bootstrap":
@@ -254,6 +449,7 @@ class PackageManagerTui:
             self._start_catalog_load()
             self._start_catalog_status_load()
             self._start_status_load()
+            self._start_installed_load()
             return
         if event.kind == "catalog":
             if event.generation != self.catalog_generation:
@@ -264,6 +460,7 @@ class PackageManagerTui:
                 self._record_error(event.error)
                 return
             self.rows = list(event.value or [])
+            self._rebuild_catalog_groups()
             self._rebuild_filters()
             self._apply_filter()
             self.detail_scroll = 0
@@ -277,7 +474,27 @@ class PackageManagerTui:
             if event.error:
                 self._record_error(event.error)
                 return
-            self.installed_keys = installed_keys_from_status(event.value or {})
+            self.status_installed_keys = installed_keys_from_status(event.value or {})
+            self.installed_keys = self.status_installed_keys | self.discovered_installed_keys
+            self._rebuild_installed_identity_index()
+            self._apply_filter()
+            return
+        if event.kind == "installed":
+            if event.generation != self.installed_generation:
+                return
+            self.installed_loading = False
+            if event.error:
+                self._record_error(event.error)
+                self._apply_filter()
+                return
+            if isinstance(event.value, tuple) and len(event.value) == 2:
+                self.discovered_installed_keys = set(event.value[0] or set())
+                self.installed_versions = dict(event.value[1] or {})
+            else:
+                self.discovered_installed_keys = set(event.value or set())
+                self.installed_versions = {}
+            self.installed_keys = self.status_installed_keys | self.discovered_installed_keys
+            self._rebuild_installed_identity_index()
             self._apply_filter()
             return
         if event.kind == "catalog-status":
@@ -308,6 +525,37 @@ class PackageManagerTui:
                 return
             self.info_text, self.info_fields = event.value
             return
+        if event.kind == "versions":
+            if event.generation != self.version_generation:
+                return
+            self.versions_loading = False
+            if event.error:
+                self._record_error(event.error)
+                if self.modal and self.modal.get("kind") == "versions":
+                    self.modal["error"] = str(event.error)
+                return
+            rows = list(event.value or [])
+            if self.modal and isinstance(self.modal.get("row"), PackageRow):
+                row = self.modal["row"]
+            elif rows:
+                row = rows[0]
+            else:
+                row = None
+            if row and rows:
+                group_key = self._group_key(row)
+                self.all_version_groups[group_key] = rows
+                representative = self._latest_row(rows)
+                self.all_group_rows = [
+                    representative if self._group_key(candidate) == group_key else candidate
+                    for candidate in self.all_group_rows
+                ]
+                if not any(self._group_key(candidate) == group_key for candidate in self.all_group_rows):
+                    self.all_group_rows.append(representative)
+                self.version_groups[group_key] = rows
+            if self.modal and self.modal.get("kind") == "versions":
+                self.modal["selected"] = 0
+                self.modal["scroll"] = 0
+            return
         if event.kind == "refresh":
             self.operation_loading = False
             if event.error:
@@ -315,11 +563,13 @@ class PackageManagerTui:
                 self._start_catalog_load()
                 self._start_catalog_status_load()
                 self._start_status_load()
+                self._start_installed_load()
                 return
             self._set_message("Catalog refreshed", 5.0)
             self._start_catalog_load()
             self._start_catalog_status_load()
             self._start_status_load()
+            self._start_installed_load()
             return
         if event.kind == "install":
             self.operation_loading = False
@@ -330,6 +580,48 @@ class PackageManagerTui:
             self.queue_rows = [row for row in self.queue_rows if row not in self.install_targets]
             self._set_message(f"Installed {count} package{'s' if count != 1 else ''}", 8.0)
             self._start_status_load()
+            self._start_installed_load()
+            return
+        if event.kind == "source-add":
+            self.operation_loading = False
+            if event.error:
+                self._record_error(event.error)
+                return
+            self._set_message("Aurelia source added; refreshing catalog…", 30.0)
+            self._begin_refresh()
+            return
+        if event.kind == "uninstall":
+            self.operation_loading = False
+            if event.error:
+                self.remove_target = None
+                self._record_error(event.error)
+                return
+            row = self.remove_target
+            if row:
+                self.installed_keys = {
+                    key
+                    for key in self.installed_keys
+                    if not (key[0] == row.provider and key[2] == row.identifier and key[3] == row.scope)
+                }
+                self.status_installed_keys = {
+                    key
+                    for key in self.status_installed_keys
+                    if not (key[0] == row.provider and key[2] == row.identifier and key[3] == row.scope)
+                }
+                self.discovered_installed_keys = {
+                    key
+                    for key in self.discovered_installed_keys
+                    if not (key[0] == row.provider and key[2] == row.identifier and key[3] == row.scope)
+                }
+                self.installed_versions.pop(self._group_key(row), None)
+                self._rebuild_installed_identity_index()
+            self.remove_target = None
+            self._apply_filter()
+            self._set_message("Package uninstalled; personal data was preserved", 8.0)
+            self._start_status_load()
+            self._start_installed_load()
+            if self.selected_row:
+                self._start_info_load(self.selected_row)
             return
 
     def _drain_events(self) -> None:
@@ -351,7 +643,7 @@ class PackageManagerTui:
     def _move_selection(self, delta: int, visible_rows: Optional[int] = None) -> None:
         if not self.filtered_rows:
             return
-        visible_rows = visible_rows or self.visible_list_rows
+        visible_rows = visible_rows or max(1, self.visible_list_rows)
         self.selected_index = max(0, min(len(self.filtered_rows) - 1, self.selected_index + delta))
         self.detail_scroll = 0
         self._keep_selection_visible(visible_rows)
@@ -391,6 +683,69 @@ class PackageManagerTui:
         self.queue_rows.append(row)
         self._set_message(f"Queued {row.identifier}")
 
+    def _action_items(self, row: Optional[PackageRow] = None) -> List[Tuple[str, str]]:
+        row = row or self.selected_row
+        if not row:
+            return []
+        if getattr(self, "installed_loading", False):
+            return [("state-loading", "Checking installed state…")]
+        installed = self._is_installed(row)
+        update_available = installed and self._is_update(row)
+        first_action = "update" if update_available else ("reinstall" if installed else "install")
+        first_label = "Update" if update_available else ("Reinstall" if installed else "Install")
+        items = [(first_action, first_label)]
+        if installed:
+            items.append(("uninstall", "Uninstall"))
+        version_count = len(self._versions_for(row))
+        items.append(("versions", f"View versions ({version_count})" if version_count > 1 else "View versions"))
+        items.extend(
+            [
+                ("queue", "Remove from queue" if row in self.queue_rows else "Add to queue"),
+                ("source", "View source"),
+                ("info", "More information"),
+            ]
+        )
+        return items
+
+    def _run_action(self) -> None:
+        actions = self._action_items()
+        if not actions:
+            return
+        self.action_index = max(0, min(self.action_index, len(actions) - 1))
+        action = actions[self.action_index][0]
+        if action == "state-loading":
+            self._set_message("Installed state is still loading", 5.0)
+        elif action in {"install", "reinstall", "update"}:
+            self._show_install()
+        elif action == "uninstall":
+            self._show_uninstall()
+        elif action == "versions":
+            self._show_versions()
+        elif action == "queue":
+            self._toggle_queue()
+        elif action == "source":
+            self._open_source()
+        elif action == "info":
+            self._show_info()
+
+    def _cycle_focus(self) -> None:
+        if self.focus_area == "list":
+            self.focus_area = "filters"
+            self._set_message("Filter tabs focused · ←/→ change · Tab next · Enter packages")
+        elif self.focus_area == "filters":
+            self._cycle_filter(1)
+        else:
+            self.focus_area = "list"
+            self._set_message("Package list focused")
+
+    def _focus_actions(self) -> None:
+        if not self.selected_row:
+            self._set_message("No package is selected")
+            return
+        self.focus_area = "actions"
+        self.action_index = 0
+        self._set_message("Actions focused · ↑/↓ choose · Enter run · Tab packages")
+
     def _select_all(self) -> None:
         if len(self.filtered_rows) > self.MAX_QUEUE:
             self._set_message(f"Select-all limited to {self.MAX_QUEUE} visible results", 6.0)
@@ -400,20 +755,117 @@ class PackageManagerTui:
     def _show_help(self) -> None:
         self.modal = {"kind": "help", "scroll": 0}
 
-    def _show_install(self) -> None:
-        row = self.selected_row
-        targets = list(self.queue_rows) if self.queue_rows else ([row] if row else [])
+    def _show_install(self, row_override: Optional[PackageRow] = None, exact_version: bool = False) -> None:
+        row = row_override or self.selected_row
+        targets = [row_override] if row_override else (list(self.queue_rows) if self.queue_rows else ([row] if row else []))
         if not targets:
             self._set_message("No package is selected")
             return
         self.install_targets = targets
-        label = "Install and track" if len(targets) == 1 else f"Install and track {len(targets)} packages"
-        label_untracked = "Install without tracking" if len(targets) == 1 else f"Install {len(targets)} packages without tracking"
+        self.install_version_override = row_override.version if row_override and exact_version else None
+        is_update = len(targets) == 1 and self._is_installed(targets[0]) and self._is_update(targets[0])
+        if row_override and exact_version:
+            current = self.selected_row
+            verb = "Downgrade" if current and self._is_installed(current) and current.version != row_override.version else "Install selected version"
+        else:
+            verb = "Update" if is_update else "Install"
+        label = f"{verb} and track" if len(targets) == 1 else f"Install and track {len(targets)} packages"
+        label_untracked = f"{verb} without tracking" if len(targets) == 1 else f"Install {len(targets)} packages without tracking"
         self.modal = {
             "kind": "install",
             "selected": 0,
             "options": [label, label_untracked, "Cancel"],
         }
+
+    def _show_uninstall(self) -> None:
+        row = self.selected_row
+        if not row or not self._is_installed(row):
+            self._set_message("This package is not installed")
+            return
+        self.remove_target = row
+        self.modal = {
+            "kind": "uninstall",
+            "selected": 0,
+            "options": ["Uninstall and keep tracking", "Uninstall and forget tracking", "Cancel"],
+        }
+
+    def _version_rows_for(self, row: PackageRow, query: str = "") -> List[PackageRow]:
+        versions = sorted(
+            self._versions_for(row),
+            key=lambda candidate: (_date_value(candidate.release_date), _version_value(candidate.version), candidate.source.lower()),
+            reverse=True,
+        )
+        if not query:
+            return versions
+        normalized = re.sub(r"[^a-z0-9]+", " ", query.lower()).split()
+        return [
+            candidate
+            for candidate in versions
+            if all(
+                token in re.sub(
+                    r"[^a-z0-9]+",
+                    " ",
+                    f"{candidate.version} {candidate.release_date} {candidate.source} {candidate.provider_label}".lower(),
+                ).split()
+                or token.replace(" ", "") in re.sub(r"[^a-z0-9]+", "", candidate.version.lower())
+                for token in normalized
+            )
+        ]
+
+    def _version_lines(self, row: PackageRow) -> List[str]:
+        versions = self._version_rows_for(row)
+        latest = versions[0] if versions else row
+        lines = [
+            f"{len(versions)} available version{'s' if len(versions) != 1 else ''} · newest first",
+            "The ★ marker identifies the version selected by default for installation.",
+            "",
+        ]
+        for candidate in versions:
+            marker = "★" if (
+                candidate.source == latest.source
+                and candidate.identifier == latest.identifier
+                and candidate.scope == latest.scope
+                and candidate.version == latest.version
+                and candidate.release_date == latest.release_date
+            ) else " "
+            release_date = candidate.release_date if candidate.release_date != "n/a" else "date not provided"
+            lines.append(f"{marker} {candidate.version} · {release_date} · {candidate.provider_label} · {candidate.source}")
+        return lines
+
+    def _show_versions(self) -> None:
+        row = self.selected_row
+        if not row:
+            return
+        available = self._versions_for(row)
+        self.modal = {"kind": "versions", "row": row, "query": "", "selected": 0, "search_focus": False, "scroll": 0, "error": ""}
+        if len(available) <= 1:
+            self._start_versions_load(row)
+
+    def _show_add_source(self) -> None:
+        if self.operation_loading:
+            self._set_message("An operation is already running", 5.0)
+            return
+        self.modal = {"kind": "source-add", "value": "", "error": ""}
+
+    def _begin_source_add(self) -> None:
+        if self.operation_loading:
+            self._set_message("An operation is already running", 5.0)
+            return
+        url = str(self.modal.get("value", "")).strip() if self.modal else ""
+        if not url:
+            if self.modal:
+                self.modal["error"] = "Enter an official GitHub repository URL."
+            return
+        if len(url) > 512 or any(char.isspace() for char in url) or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?", url):
+            if self.modal:
+                self.modal["error"] = "Use an exact HTTPS URL such as https://github.com/owner/repository."
+            return
+        self.modal = None
+        self.operation_generation += 1
+        generation = self.operation_generation
+        self.operation_loading = True
+        self._set_message("Adding and verifying Aurelia source…", 60.0)
+        self._submit("source-add", lambda: self.backend.add_aurelia_source(url), generation)
 
     def _show_info(self) -> None:
         if not self.selected_row:
@@ -426,6 +878,9 @@ class PackageManagerTui:
         row = self.selected_row
         if not row:
             return
+        if self.info_loading:
+            self._set_message("Loading source metadata…", 5.0)
+            return
         if not self.info_text:
             self._start_info_load(row)
             self._set_message("Loading source metadata…", 5.0)
@@ -435,17 +890,101 @@ class PackageManagerTui:
             self.modal = {"kind": "message", "title": "Source unavailable", "lines": ["This provider did not publish a browser source URL.", f"Source: {row.source}"]}
             return
         if not url.startswith("https://"):
-            self._set_message("Refused a non-HTTPS source URL", 6.0)
+            self.modal = {"kind": "message", "title": "Source refused", "lines": ["Only HTTPS source URLs are opened.", f"Source: {url}"]}
             return
+
+        self.modal = {"kind": "source", "url": url, "selected": 0}
+
+    def _launch_source_url(self, url: str) -> None:
         opener = shutil.which("xdg-open")
         if not opener:
-            self.modal = {"kind": "message", "title": "Source URL", "lines": [url, "xdg-open is unavailable; copy the URL manually."]}
+            self.modal = {"kind": "message", "title": "Browser launcher unavailable", "lines": [url, "xdg-open was not found. Use Copy URL and open it in a browser manually."]}
             return
+        self.modal = None
+        result: Optional[subprocess.CompletedProcess[str]] = None
         try:
-            subprocess.Popen([opener, url], stdin=subprocess.DEVNULL, stdout=None, stderr=None)
-            self._set_message("Opened source URL", 4.0)
+            if self.screen is not None:
+                self.screen.def_prog_mode()
+                self.screen.endwin()
+            result = subprocess.run(
+                [opener, url],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            detail = f"Browser launcher timed out after 15s: {opener}"
+            if error.stderr:
+                detail += f"\n{error.stderr.strip()}"
+            self._record_backend_diagnostic(f"ERROR: {detail}\n")
+            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, detail]}
+            return
         except OSError as error:
             self._record_error(error)
+            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, str(error)]}
+            return
+        finally:
+            if self.screen is not None:
+                try:
+                    self.screen.reset_prog_mode()
+                    self.screen.keypad(True)
+                    self.screen.timeout(100)
+                    self.screen.clear()
+                except curses.error as error:
+                    self._record_error(error)
+
+        if result is None:
+            return
+        if result.stderr:
+            self._record_backend_diagnostic(result.stderr)
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or f"Browser launcher exited with status {result.returncode}."
+            self.modal = {"kind": "message", "title": "Could not open source", "lines": [url, detail]}
+            return
+        self._set_message("Opened source URL in the browser", 5.0)
+
+    def _copy_source_url(self, url: str) -> None:
+        clipboard_commands = (
+            ("wl-copy", ["{program}"]),
+            ("xclip", ["{program}", "-selection", "clipboard"]),
+            ("xsel", ["{program}", "--clipboard", "--input"]),
+        )
+        failures: List[str] = []
+        for program_name, arguments in clipboard_commands:
+            program = shutil.which(program_name)
+            if not program:
+                continue
+            command = [program if argument == "{program}" else argument for argument in arguments]
+            try:
+                result = subprocess.run(
+                    command,
+                    input=url,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=10,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                failures.append(f"{program_name}: {error}")
+                continue
+            if result.stderr:
+                self._record_backend_diagnostic(result.stderr)
+            if result.returncode == 0:
+                self.modal = None
+                self._set_message("Source URL copied to the clipboard", 5.0)
+                return
+            detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
+            failures.append(f"{program_name}: {detail}")
+        detail = failures[-1] if failures else "No supported clipboard utility was found (wl-copy, xclip, or xsel)."
+        self.modal = {"kind": "message", "title": "Could not copy source URL", "lines": [url, detail]}
 
     def _begin_refresh(self) -> None:
         if self.operation_loading:
@@ -465,6 +1004,8 @@ class PackageManagerTui:
             self.modal = None
             return
         self.modal = None
+        exact_version = len(targets) == 1 and self.install_version_override == targets[0].version
+        self.install_version_override = None
         self.operation_generation += 1
         generation = self.operation_generation
         self.operation_loading = True
@@ -473,15 +1014,89 @@ class PackageManagerTui:
         def install_all() -> str:
             output: List[str] = []
             for row in targets:
-                output.append(self.backend.install_catalog_row(row, track))
+                output.append(self.backend.install_catalog_row(row, track, exact_version=exact_version))
             return "\n".join(part for part in output if part)
 
         self._submit("install", install_all, generation)
+
+    def _begin_uninstall(self, forget: bool) -> None:
+        if self.operation_loading:
+            self._set_message("An operation is already running", 5.0)
+            return
+        row = self.remove_target or self.selected_row
+        if not row:
+            self.modal = None
+            return
+        self.modal = None
+        self.operation_generation += 1
+        generation = self.operation_generation
+        self.operation_loading = True
+        self._set_message(f"Uninstalling {row.identifier}…", 60.0)
+        self._submit("uninstall", lambda: self.backend.remove_catalog_row(row, forget), generation)
 
     def _handle_modal_key(self, ch: int) -> bool:
         if not self.modal:
             return False
         kind = self.modal.get("kind")
+        if kind == "source-add":
+            if ch == 27:
+                self.modal = None
+            elif ch in (curses.KEY_BACKSPACE, 127, 8):
+                self.modal["value"] = str(self.modal.get("value", ""))[:-1]
+                self.modal["error"] = ""
+            elif ch in (10, 13, curses.KEY_ENTER):
+                self._begin_source_add()
+            elif 0 <= ch <= 255 and curses.ascii.isprint(ch):
+                value = str(self.modal.get("value", ""))
+                if len(value) < 512:
+                    self.modal["value"] = value + chr(ch)
+                    self.modal["error"] = ""
+            return True
+        if kind == "versions":
+            row = self.modal.get("row")
+            if not isinstance(row, PackageRow):
+                self.modal = None
+                return True
+            if self.versions_loading:
+                if ch == ord("q"):
+                    self.modal = None
+                return True
+            if ch == 27:
+                if self.modal.get("search_focus"):
+                    self.modal["search_focus"] = False
+                else:
+                    self.modal = None
+                return True
+            if self.modal.get("search_focus"):
+                if ch in (10, 13, curses.KEY_ENTER):
+                    self.modal["search_focus"] = False
+                elif ch in (curses.KEY_BACKSPACE, 127, 8):
+                    self.modal["query"] = str(self.modal.get("query", ""))[:-1]
+                    self.modal["selected"] = 0
+                elif 0 <= ch <= 255 and curses.ascii.isprint(ch):
+                    query = str(self.modal.get("query", ""))
+                    if len(query) < 128:
+                        self.modal["query"] = query + chr(ch)
+                        self.modal["selected"] = 0
+                return True
+            if ch == ord("q"):
+                self.modal = None
+            elif key_pressed(ch, self.config.key("search")):
+                self.modal["search_focus"] = True
+            else:
+                versions = self._version_rows_for(row, str(self.modal.get("query", "")))
+                if ch in (curses.KEY_UP, ord("k")) and versions:
+                    self.modal["selected"] = max(0, self.modal.get("selected", 0) - 1)
+                elif ch in (curses.KEY_DOWN, ord("j")) and versions:
+                    self.modal["selected"] = min(len(versions) - 1, self.modal.get("selected", 0) + 1)
+                elif ch in (10, 13, curses.KEY_ENTER):
+                    if not versions:
+                        self._set_message("No versions match this search")
+                    else:
+                        selected = max(0, min(self.modal.get("selected", 0), len(versions) - 1))
+                        self.modal = None
+                        self._show_install(versions[selected], exact_version=True)
+            return True
         if ch in (27, ord("q")):
             self.modal = None
             return True
@@ -497,6 +1112,48 @@ class PackageManagerTui:
                     self._begin_install(True)
                 elif selected == 1:
                     self._begin_install(False)
+                else:
+                    self.modal = None
+            return True
+        if kind == "sort":
+            options = self.modal["options"]
+            if ch in (curses.KEY_UP, ord("k")):
+                self.modal["selected"] = (self.modal["selected"] - 1) % len(options)
+            elif ch in (curses.KEY_DOWN, ord("j")):
+                self.modal["selected"] = (self.modal["selected"] + 1) % len(options)
+            elif ch in (10, 13, curses.KEY_ENTER):
+                self._set_sort_mode(options[self.modal["selected"]])
+                self.modal = None
+            return True
+        if kind == "uninstall":
+            options = self.modal["options"]
+            if ch in (curses.KEY_UP, ord("k")):
+                self.modal["selected"] = (self.modal["selected"] - 1) % len(options)
+            elif ch in (curses.KEY_DOWN, ord("j")):
+                self.modal["selected"] = (self.modal["selected"] + 1) % len(options)
+            elif ch in (10, 13, curses.KEY_ENTER):
+                selected = self.modal["selected"]
+                if selected == 0:
+                    self._begin_uninstall(False)
+                elif selected == 1:
+                    self._begin_uninstall(True)
+                else:
+                    self.remove_target = None
+                    self.modal = None
+            return True
+        if kind == "source":
+            options = ("Open in browser", "Copy URL", "Close")
+            if ch in (curses.KEY_UP, ord("k")):
+                self.modal["selected"] = (self.modal.get("selected", 0) - 1) % len(options)
+            elif ch in (curses.KEY_DOWN, ord("j")):
+                self.modal["selected"] = (self.modal.get("selected", 0) + 1) % len(options)
+            elif ch in (10, 13, curses.KEY_ENTER):
+                selected = self.modal.get("selected", 0)
+                url = str(self.modal.get("url", ""))
+                if selected == 0:
+                    self._launch_source_url(url)
+                elif selected == 1:
+                    self._copy_source_url(url)
                 else:
                     self.modal = None
             return True
@@ -533,6 +1190,38 @@ class PackageManagerTui:
         self.query_changed_at = time.monotonic()
         return True
 
+    def _handle_escape_sequence(self) -> bool:
+        """Decode delayed arrow and Alt-letter sequences before plain Escape."""
+
+        if self.screen is None:
+            return False
+        self.screen.timeout(30)
+        follow = self.screen.getch()
+        if follow == ord("["):
+            sequence_end = self.screen.getch()
+            arrow_keys = {
+                ord("A"): curses.KEY_UP,
+                ord("B"): curses.KEY_DOWN,
+                ord("C"): curses.KEY_RIGHT,
+                ord("D"): curses.KEY_LEFT,
+            }
+            self.screen.timeout(100)
+            if sequence_end in arrow_keys:
+                self._handle_key(arrow_keys[sequence_end])
+                return True
+        self.screen.timeout(100)
+        if follow != -1:
+            for name in ("preview_toggle", "preview_up", "preview_down"):
+                if key_pressed(follow, self.config.key(name)):
+                    if name == "preview_toggle":
+                        self.show_details = not self.show_details
+                    elif name == "preview_up":
+                        self.detail_scroll = max(0, self.detail_scroll - 1)
+                    else:
+                        self.detail_scroll += 1
+                    return True
+        return False
+
     def _handle_key(self, ch: int) -> None:
         if self.modal and self._handle_modal_key(ch):
             return
@@ -541,27 +1230,44 @@ class PackageManagerTui:
         if ch == -1:
             return
         if ch == 27:
-            # Decode the common ESC + key representation used for Alt-letter
-            # bindings without making plain Escape ambiguous.
-            self.screen.timeout(30)
-            follow = self.screen.getch() if self.screen else -1
-            if self.screen:
-                self.screen.timeout(100)
-            if follow != -1:
-                for name in ("preview_toggle", "preview_up", "preview_down"):
-                    if key_pressed(follow, self.config.key(name)):
-                        if name == "preview_toggle":
-                            self.show_details = not self.show_details
-                        elif name == "preview_up":
-                            self.detail_scroll = max(0, self.detail_scroll - 1)
-                        else:
-                            self.detail_scroll += 1
-                        return
-            self.running = False
+            if self._handle_escape_sequence():
+                return
+            if self.focus_area in {"actions", "filters"}:
+                self.focus_area = "list"
+                self._set_message("Package list focused")
+            else:
+                self.running = False
             return
         if key_pressed(ch, self.config.key("quit")):
             self.running = False
-        elif key_pressed(ch, self.config.key("search")):
+            return
+        if self.focus_area == "filters":
+            if key_pressed(ch, self.config.key("select")) or ch == 9:
+                self._cycle_focus()
+            elif key_pressed(ch, self.config.key("filter_previous")):
+                self._cycle_filter(-1)
+            elif key_pressed(ch, self.config.key("filter_next")):
+                self._cycle_filter(1)
+            elif key_pressed(ch, self.config.key("accept")):
+                self.focus_area = "list"
+                self._set_message("Package list focused")
+            elif key_pressed(ch, self.config.key("help")):
+                self._show_help()
+            return
+        if self.focus_area == "actions":
+            if key_pressed(ch, self.config.key("select")) or ch == 9:
+                self.focus_area = "list"
+                self._set_message("Package list focused")
+            elif key_pressed(ch, self.config.key("up")) or ch == ord("k"):
+                self.action_index = (self.action_index - 1) % max(1, len(self._action_items()))
+            elif key_pressed(ch, self.config.key("down")) or ch == ord("j"):
+                self.action_index = (self.action_index + 1) % max(1, len(self._action_items()))
+            elif key_pressed(ch, self.config.key("accept")):
+                self._run_action()
+            elif key_pressed(ch, self.config.key("help")):
+                self._show_help()
+            return
+        if key_pressed(ch, self.config.key("search")):
             self.query_focus = True
         elif key_pressed(ch, self.config.key("up")) or ch in (ord("k"),):
             self._move_selection(-1)
@@ -571,20 +1277,30 @@ class PackageManagerTui:
             self._move_selection(-self.visible_list_rows, self.visible_list_rows)
         elif key_pressed(ch, self.config.key("page_down")):
             self._move_selection(self.visible_list_rows, self.visible_list_rows)
+        elif key_pressed(ch, self.config.key("select")) or ch == 9:
+            self._cycle_focus()
         elif key_pressed(ch, self.config.key("filter_previous")):
             self._cycle_filter(-1)
-        elif key_pressed(ch, self.config.key("filter_next")) or ch == 9:
+        elif key_pressed(ch, self.config.key("filter_next")):
             self._cycle_filter(1)
         elif key_pressed(ch, self.config.key("queue")):
             self._toggle_queue()
         elif key_pressed(ch, self.config.key("select_all")):
             self._select_all()
         elif key_pressed(ch, self.config.key("accept")):
-            self._show_install()
+            self._focus_actions()
         elif key_pressed(ch, self.config.key("refresh")) or ch == ord("r"):
             self._begin_refresh()
+        elif key_pressed(ch, self.config.key("sort")):
+            self._show_sort()
+        elif key_pressed(ch, self.config.key("sort_reverse")):
+            self._toggle_sort_direction()
         elif key_pressed(ch, self.config.key("help")):
             self._show_help()
+        elif key_pressed(ch, self.config.key("versions")):
+            self._show_versions()
+        elif key_pressed(ch, self.config.key("add_source")):
+            self._show_add_source()
         elif key_pressed(ch, self.config.key("source")):
             self._open_source()
         elif key_pressed(ch, self.config.key("info")):
@@ -622,6 +1338,16 @@ class PackageManagerTui:
             "flatpak": self.theme.color("flatpak"),
             "aurelia": self.theme.color("aurelia"),
         }
+        for provider_name in ("dnf", "flatpak", "aurelia"):
+            roles[provider_name] = _readable_color(roles[provider_name], roles["surface"], roles["text"])
+        selection_foreground = max(
+            ("text", "accent", "accent_alt", "background"),
+            key=lambda name: abs(
+                sum(roles[name][channel] for channel in range(3))
+                - sum(roles["selection"][channel] for channel in range(3))
+            ),
+        )
+        roles["selection_text"] = roles[selection_foreground]
         indices = {name: nearest_xterm(rgb, color_count) for name, rgb in roles.items()}
         pairs: Dict[str, int] = {}
         pair_number = 1
@@ -640,7 +1366,8 @@ class PackageManagerTui:
 
         create("base", "text", "background")
         create("surface", "text", "surface")
-        create("selection", "text", "selection")
+        create("selection", "selection_text", "selection")
+        create("text_selected", "selection_text", "selection")
         for name in ("secondary", "muted", "accent", "accent_alt", "success", "warning", "error", "border", "border_active", "dnf", "flatpak", "aurelia"):
             create(name, name, "background")
         create("input", "text", "surface")
@@ -648,6 +1375,9 @@ class PackageManagerTui:
         create("provider_dnf", "dnf", "surface")
         create("provider_flatpak", "flatpak", "surface")
         create("provider_aurelia", "aurelia", "surface")
+        create("provider_dnf_selected", "dnf", "selection")
+        create("provider_flatpak_selected", "flatpak", "selection")
+        create("provider_aurelia_selected", "aurelia", "selection")
         screen.bkgd(" ", curses.color_pair(pairs.get("base", 0)))
         return pairs
 
@@ -732,18 +1462,39 @@ class PackageManagerTui:
         return y + 4
 
     def _draw_filters(self, pairs: Dict[str, int], y: int, width: int) -> int:
-        x = 2
-        for filter_name in self.filters:
-            label = f"[ {filter_name} ]" if filter_name == self.active_filter else filter_name
-            attr = self._attr(pairs, "accent_alt", bold=True, reverse=filter_name == self.active_filter)
-            if filter_name != self.active_filter:
-                attr = self._attr(pairs, "secondary")
-            if x < width - 20:
-                self._add(y, x, label, min(len(label) + 1, width - x - 1), attr)
-            x += len(label) + 3
-        sort_text = "Sort: relevance"
-        self._add(y, max(x + 1, width - len(sort_text) - 3), sort_text, len(sort_text) + 2, self._attr(pairs, "secondary"))
-        return y + 2
+        sort_text = f"Sort: {self.sort_mode} [{_display_key(self.config.key('sort'))}/{_display_key(self.config.key('sort_reverse'))}]"
+        labels = [
+            (filter_name, f"[ {filter_name} ]" if filter_name == self.active_filter else filter_name)
+            for filter_name in self.filters
+        ]
+        tab_total = sum(len(label) + 3 for _filter_name, label in labels)
+        same_line = tab_total + len(sort_text) + 4 <= width - 2
+        max_tab_width = max(1, width - 4)
+        tab_rows: List[List[Tuple[str, str]]] = [[]]
+        row_width = 0
+        for filter_name, label in labels:
+            token_width = len(label) + 3
+            if tab_rows[-1] and row_width + token_width > max_tab_width:
+                tab_rows.append([])
+                row_width = 0
+            tab_rows[-1].append((filter_name, label))
+            row_width += token_width
+
+        for row_index, row in enumerate(tab_rows):
+            x = 2
+            for filter_name, label in row:
+                if filter_name == self.active_filter:
+                    attr = self._attr(pairs, "selection" if self.focus_area == "filters" else "accent_alt", bold=True)
+                else:
+                    attr = self._attr(pairs, "secondary")
+                if x < width - 1:
+                    self._add(y + row_index, x, label, min(len(label) + 1, width - x - 1), attr)
+                x += len(label) + 3
+
+        sort_y = y if same_line and len(tab_rows) == 1 else y + len(tab_rows)
+        sort_x = max(2, width - len(sort_text) - 3)
+        self._add(sort_y, sort_x, sort_text, len(sort_text) + 2, self._attr(pairs, "secondary"))
+        return sort_y + 2
 
     def _row_size(self, row: PackageRow) -> str:
         if row.installed_size != "n/a":
@@ -752,8 +1503,9 @@ class PackageManagerTui:
             return "↓ " + row.download_size
         return "n/a"
 
-    def _provider_attr(self, pairs: Dict[str, int], provider: str, bold: bool = True) -> int:
-        return self._attr(pairs, f"provider_{provider}", bold=bold)
+    def _provider_attr(self, pairs: Dict[str, int], provider: str, bold: bool = True, selected: bool = False) -> int:
+        suffix = "_selected" if selected else ""
+        return self._attr(pairs, f"provider_{provider}{suffix}", bold=bold)
 
     def _draw_list(self, pairs: Dict[str, int], y: int, x: int, height: int, width: int) -> int:
         visible_rows = max(1, (height - 2) // 2)
@@ -764,7 +1516,14 @@ class PackageManagerTui:
         self._box(y, x, height, width, pairs, title, self._attr(pairs, "accent"))
         inner_width = max(1, width - 4)
         if not self.filtered_rows:
-            message = "Loading catalog…" if self.catalog_loading or self.query_loading else "No packages match this search or filter."
+            if self.catalog_loading or self.query_loading:
+                message = "Loading catalog…"
+            elif self.active_filter == "Installed" and (self.status_loading or self.installed_loading):
+                message = "Loading installed package state…"
+            elif self.active_filter == "Updates" and (self.status_loading or self.updates_loading):
+                message = "Loading update information…"
+            else:
+                message = "No packages match this search or filter."
             self._add(y + 2, x + 2, message, inner_width, self._attr(pairs, "secondary"))
             return max(1, (height - 2) // 2)
         provider_width = 8
@@ -777,42 +1536,52 @@ class PackageManagerTui:
             row_y = y + 1 + offset * 2
             selected = index == self.selected_index
             row_attr = self._attr(pairs, "selection" if selected else "surface")
-            self._fill(row_y, x + 1, 2, width - 2, row_attr)
             pointer = "▸" if selected else " "
             queued = "+" if row in self.queue_rows else " "
             installed = "✓" if self._is_installed(row) else " "
             update = "↑" if self._is_update(row) else " "
-            name = f"{installed}{update} {row.name}"
+            name = f"{installed}{update} {self._display_name(row)}"
             start_x = x + 2
             name_x = start_x + 8
             provider_x = name_x + name_width + 1
             version_x = provider_x + provider_width + 1
             size_x = version_x + version_width + 1
             queue_x = size_x + size_width + 1
-            text_attr = self._attr(pairs, "text", bold=selected)
+            text_attr = self._attr(pairs, "text_selected" if selected else "text", bold=selected)
+            self._fill(row_y, x + 1, 1, width - 2, row_attr)
             self._add(row_y, start_x, pointer, 1, self._attr(pairs, "accent", bold=selected))
             self._add(row_y, start_x + 2, f"{index + 1:>3}", 3, text_attr)
-            self._add(row_y, start_x + 6, row.icon, 1, self._provider_attr(pairs, row.provider, bold=False))
+            self._add(row_y, start_x + 6, row.icon, 1, self._provider_attr(pairs, row.provider, bold=False, selected=selected))
             self._add(row_y, name_x, name, name_width, text_attr)
-            self._add(row_y, provider_x, row.provider_label, provider_width, self._provider_attr(pairs, row.provider))
+            self._add(row_y, provider_x, row.provider_label, provider_width, self._provider_attr(pairs, row.provider, selected=selected))
             self._add(row_y, version_x, row.version, version_width, text_attr)
             self._add(row_y, size_x, self._row_size(row), size_width, text_attr)
-            self._add(row_y, queue_x, queued, 1, self._attr(pairs, "success", bold=True))
-            summary_attr = self._attr(pairs, "secondary" if not selected else "text")
+            self._add(row_y, queue_x, queued, 1, self._attr(pairs, "success" if not selected else "text_selected", bold=True))
+            summary_attr = self._attr(pairs, "secondary")
             self._add(row_y + 1, x + 7, row.summary, inner_width - 5, summary_attr)
         return visible_rows
 
     def _detail_lines(self, row: PackageRow, width: int) -> List[Tuple[str, int]]:
         pairs = self._pairs
         lines: List[Tuple[str, int]] = []
+        installed = self._is_installed(row)
+        install_size = self.info_fields.get("Installed size", row.installed_size) if installed else row.installed_size
         fields = [
             ("Version", self.info_fields.get("Version", row.version)),
+            ("Status", "Update available" if self._is_update(row) else ("Installed" if self._is_installed(row) else "Available")),
             ("Architecture", self.info_fields.get("Architecture", row.architecture)),
-            ("Installed size", self.info_fields.get("Installed size", row.installed_size)),
+            ("Installed size" if installed else "Install size", install_size),
             ("Download size", self.info_fields.get("Download size", row.download_size)),
             ("Repository", self.info_fields.get("Source", row.source)),
             ("Release date", self.info_fields.get("Release date", row.release_date)),
         ]
+        version_count = len(self._versions_for(row))
+        if version_count > 1:
+            fields.insert(2, ("Versions", f"{version_count} · press {_display_key(self.config.key('versions'))} for history"))
+        if installed:
+            installed_versions = sorted(self.installed_versions.get(self._group_key(row), set()), key=_version_value, reverse=True)
+            if installed_versions:
+                fields.insert(1, ("Installed version", ", ".join(installed_versions)))
         for label, value in fields:
             lines.append((f"{label:<16} : {value}", self._attr(pairs, "text")))
         lines.append(("", 0))
@@ -820,14 +1589,12 @@ class PackageManagerTui:
         for line in _wrap(description, max(1, width - 4)):
             lines.append((line, self._attr(pairs, "secondary")))
         lines.append(("", 0))
-        lines.append(("Actions", self._attr(pairs, "accent_alt", bold=True)))
-        installed = self._is_installed(row)
-        action_lines = [
-            ("▸  Reinstall" if installed else "▸  Install", self._attr(pairs, "accent_alt", bold=True)),
-            ("   Remove from queue" if row in self.queue_rows else "   Add to queue", self._attr(pairs, "secondary")),
-            ("   View source", self._attr(pairs, "secondary")),
-            ("   More information", self._attr(pairs, "secondary")),
-        ]
+        lines.append(("Actions · Tab to focus", self._attr(pairs, "accent_alt", bold=True)))
+        action_lines = []
+        for index, (_action, label) in enumerate(self._action_items(row)):
+            selected = self.focus_area == "actions" and index == self.action_index
+            prefix = "▸  " if selected else "   "
+            action_lines.append((prefix + label, self._attr(pairs, "selection" if selected else "secondary", bold=selected)))
         lines.extend(action_lines)
         return lines
 
@@ -839,13 +1606,24 @@ class PackageManagerTui:
             return
         inner_width = max(1, width - 4)
         title_attr = self._attr(pairs, "accent_alt", bold=True)
-        self._add(y + 1, x + 2, row.name, max(1, width - 18), title_attr)
+        self._add(y + 1, x + 2, self._display_name(row), max(1, width - 18), title_attr)
         badge = f" {row.provider_label} "
         self._add(y + 1, x + width - len(badge) - 3, badge, len(badge) + 1, self._provider_attr(pairs, row.provider))
         detail_lines = self._detail_lines(row, inner_width)
         content_y = y + 2
-        available = max(1, height - 3)
-        start = min(self.detail_scroll, max(0, len(detail_lines) - available))
+        # Keep the asynchronous status line separate from metadata. On a
+        # short stacked layout, drawing it over the last visible field made
+        # values appear truncated or concatenated while the backend loaded.
+        available = max(0, height - 4) if self.info_loading else max(1, height - 3)
+        if self.focus_area == "actions":
+            action_start = next((index for index, (line, _attr) in enumerate(detail_lines) if line.startswith("Actions")), len(detail_lines))
+            action_line = min(len(detail_lines) - 1, action_start + 1 + min(self.action_index, max(0, len(self._action_items(row)) - 1)))
+            viewport = max(1, available)
+            if action_line < self.detail_scroll:
+                self.detail_scroll = action_line
+            elif action_line >= self.detail_scroll + viewport:
+                self.detail_scroll = action_line - viewport + 1
+        start = min(self.detail_scroll, max(0, len(detail_lines) - max(1, available)))
         for offset, (line, attr) in enumerate(detail_lines[start : start + available]):
             if content_y + offset >= y + height - 1:
                 break
@@ -856,7 +1634,7 @@ class PackageManagerTui:
             self._add(y + height - 2, x + 2, "Loading metadata…", inner_width, self._attr(pairs, "warning"))
 
     def _help_lines(self) -> List[str]:
-        return [
+        lines = [
             "SEARCH",
             "  Search IDs, names, summaries, descriptions, and provider capabilities.",
             "  Case, spaces, hyphens, and underscores are normalized by the backend.",
@@ -864,11 +1642,16 @@ class PackageManagerTui:
             "",
             "NAVIGATION",
             f"  {_display_key(self.config.key('up'))}/{_display_key(self.config.key('down'))} move   {_display_key(self.config.key('page_up'))}/{_display_key(self.config.key('page_down'))} page",
-            f"  {_display_key(self.config.key('filter_previous'))}/{_display_key(self.config.key('filter_next'))} change provider/status filter",
-            f"  {_display_key(self.config.key('search'))} focus search   Tab cycle filters   {_display_key(self.config.key('preview_toggle'))} show/hide details",
+            f"  Tab moves through All, Installed, Updates, DNF, Flatpak, and Aurelia tabs; {_display_key(self.config.key('filter_previous'))}/{_display_key(self.config.key('filter_next'))} changes the active tab",
+            f"  {_display_key(self.config.key('search'))} focus search   {_display_key(self.config.key('accept'))} package actions   {_display_key(self.config.key('preview_toggle'))} show/hide details",
+            f"  {_display_key(self.config.key('sort'))} opens sort options: relevance, name, size, date, provider   {_display_key(self.config.key('sort_reverse'))} reverse sort",
+            f"  {_display_key(self.config.key('versions'))} opens the selected package's versions, newest release first.",
+            f"  {_display_key(self.config.key('add_source'))} adds an official Aurelia GitHub source and refreshes the catalog.",
+            "  In Actions, ↑/↓ chooses an action and Enter runs it; Tab or Esc returns to packages.",
             "",
             "INSTALLATION",
-            f"  {_display_key(self.config.key('accept'))} opens the install review dialog.",
+            f"  {_display_key(self.config.key('accept'))} on a package opens its Actions; choose Install, Update, or Reinstall there to review.",
+            "  Installed packages also expose Uninstall; it can preserve or explicitly forget tracking.",
             f"  {_display_key(self.config.key('queue'))} adds or removes the selected package from the queue.",
             f"  {_display_key(self.config.key('select_all'))} queues the visible results (bounded for safety).",
             "  The review dialog explicitly chooses tracking or no tracking.",
@@ -885,6 +1668,10 @@ class PackageManagerTui:
             "  Backend stderr remains visible in the terminal and errors remain available here.",
             "  A failed refresh keeps the last-known-good catalog available for review.",
         ]
+        if self.diagnostics:
+            lines.extend(["", "RECENT DIAGNOSTICS"])
+            lines.extend(f"  {line}" for line in self.diagnostics[-8:])
+        return lines
 
     def _modal_content(self, width: int, height: int) -> Tuple[str, List[str], int]:
         if not self.modal:
@@ -895,6 +1682,11 @@ class PackageManagerTui:
         if kind == "info":
             lines = self.info_text.splitlines() if self.info_text else ["Loading complete package metadata…"]
             return "Complete Package Metadata", lines, self.modal.get("scroll", 0)
+        if kind == "versions":
+            row = self.modal.get("row")
+            if not isinstance(row, PackageRow):
+                return "Package Versions", ["Version metadata is unavailable."], self.modal.get("scroll", 0)
+            return f"Versions · {self._display_name(row)}", self._version_lines(row), self.modal.get("scroll", 0)
         if kind == "message":
             return str(self.modal.get("title", "Message")), list(self.modal.get("lines", [])), 0
         return "", [], 0
@@ -903,6 +1695,76 @@ class PackageManagerTui:
         if not self.modal:
             return
         kind = self.modal.get("kind")
+        if kind == "versions":
+            row = self.modal.get("row")
+            if not isinstance(row, PackageRow):
+                return
+            query = str(self.modal.get("query", ""))
+            versions = self._version_rows_for(row, query)
+            modal_width = min(width - 4, 96)
+            modal_height = min(height - 4, max(12, height - 4))
+            x = max(1, (width - modal_width) // 2)
+            y = max(1, (height - modal_height) // 2)
+            self._box(y, x, modal_height, modal_width, pairs, f"Versions · {self._display_name(row)}", self._attr(pairs, "accent_alt", bold=True))
+            self._add(y + 2, x + 3, f"{len(versions)} match{'es' if len(versions) != 1 else ''} · newest release first", modal_width - 6, self._attr(pairs, "secondary"))
+            search_attr = self._attr(pairs, "input", bold=bool(self.modal.get("search_focus")))
+            self._fill(y + 3, x + 2, 1, modal_width - 4, search_attr)
+            self._add(y + 3, x + 4, f"/ {query}", modal_width - 8, search_attr)
+            visible_rows = max(1, modal_height - 7)
+            selected = max(0, min(self.modal.get("selected", 0), max(0, len(versions) - 1)))
+            self.modal["selected"] = selected
+            top = _selection_window(selected, len(versions), visible_rows, self.modal.get("scroll", 0))
+            self.modal["scroll"] = top
+            if self.versions_loading:
+                self._add(y + 5, x + 3, "Loading version history…", modal_width - 6, self._attr(pairs, "warning"))
+            elif self.modal.get("error"):
+                self._add(y + 5, x + 3, str(self.modal["error"]), modal_width - 6, self._attr(pairs, "error"))
+            elif not versions:
+                self._add(y + 5, x + 3, "No versions match this search.", modal_width - 6, self._attr(pairs, "warning"))
+            else:
+                latest = versions[0]
+                for offset, index in enumerate(range(top, min(len(versions), top + visible_rows))):
+                    candidate = versions[index]
+                    selected_row = index == selected
+                    row_attr = self._attr(pairs, "selection" if selected_row else "surface")
+                    self._fill(y + 5 + offset, x + 1, 1, modal_width - 2, row_attr)
+                    marker = "★" if candidate.version == latest.version and candidate.source == latest.source and candidate.release_date == latest.release_date else " "
+                    release_date = candidate.release_date if candidate.release_date != "n/a" else "date n/a"
+                    line = f"{marker} {candidate.version} · {release_date} · {candidate.provider_label} · {candidate.source}"
+                    self._add(y + 5 + offset, x + 3, line, modal_width - 6, self._attr(pairs, "text_selected" if selected_row else "text", bold=selected_row))
+            footer = "Type version/source · Enter list · Esc back" if self.modal.get("search_focus") else "↑/↓ choose · Enter install selected · / search · Esc close"
+            self._add(y + modal_height - 2, x + 3, footer, modal_width - 6, self._attr(pairs, "muted"))
+            return
+        if kind == "source-add":
+            modal_width = min(width - 4, 84)
+            modal_height = min(height - 4, 12)
+            x = max(1, (width - modal_width) // 2)
+            y = max(1, (height - modal_height) // 2)
+            self._box(y, x, modal_height, modal_width, pairs, "Add Aurelia source", self._attr(pairs, "accent_alt", bold=True))
+            self._add(y + 2, x + 3, "Official GitHub repository URL", modal_width - 6, self._attr(pairs, "text", bold=True))
+            self._add(y + 3, x + 3, "https://github.com/owner/repository", modal_width - 6, self._attr(pairs, "muted"))
+            value = str(self.modal.get("value", ""))
+            self._fill(y + 5, x + 2, 1, modal_width - 4, self._attr(pairs, "input"))
+            self._add(y + 5, x + 4, "› " + value, modal_width - 8, self._attr(pairs, "input", bold=True))
+            error = str(self.modal.get("error", ""))
+            if error:
+                self._add(y + 7, x + 3, error, modal_width - 6, self._attr(pairs, "error"))
+            self._add(y + modal_height - 2, x + 3, "Type URL · Enter verify/add · Esc cancel", modal_width - 6, self._attr(pairs, "muted"))
+            return
+        if kind == "sort":
+            options = self.modal["options"]
+            modal_width = min(width - 4, 64)
+            modal_height = min(height - 4, max(10, 7 + len(options)))
+            x = max(1, (width - modal_width) // 2)
+            y = max(1, (height - modal_height) // 2)
+            self._box(y, x, modal_height, modal_width, pairs, "Sort packages", self._attr(pairs, "accent_alt", bold=True))
+            self._add(y + 2, x + 3, "Choose the ordering for the package list.", modal_width - 6, self._attr(pairs, "secondary"))
+            for index, option in enumerate(options):
+                attr = self._attr(pairs, "selection" if index == self.modal["selected"] else "surface", bold=index == self.modal["selected"])
+                self._fill(y + 4 + index, x + 2, 1, modal_width - 4, attr)
+                self._add(y + 4 + index, x + 4, ("▸ " if index == self.modal["selected"] else "  ") + option, modal_width - 8, attr)
+            self._add(y + modal_height - 2, x + 3, "↑/↓ choose · Enter apply · Esc cancel", modal_width - 6, self._attr(pairs, "muted"))
+            return
         if kind == "install":
             modal_width = min(width - 4, 72)
             modal_height = min(height - 4, 10)
@@ -911,12 +1773,50 @@ class PackageManagerTui:
             self._box(y, x, modal_height, modal_width, pairs, "Review installation", self._attr(pairs, "accent_alt", bold=True))
             targets = self.install_targets
             summary = f"{len(targets)} package{'s' if len(targets) != 1 else ''} selected"
+            if self.install_version_override and len(targets) == 1:
+                summary += f" · version {self.install_version_override}"
             self._add(y + 2, x + 3, summary, modal_width - 6, self._attr(pairs, "text"))
             for index, option in enumerate(self.modal["options"]):
                 attr = self._attr(pairs, "selection" if index == self.modal["selected"] else "surface", bold=index == self.modal["selected"])
                 self._fill(y + 4 + index, x + 2, 1, modal_width - 4, attr)
                 self._add(y + 4 + index, x + 4, ("▸ " if index == self.modal["selected"] else "  ") + option, modal_width - 8, attr)
             self._add(y + modal_height - 2, x + 3, "↑/↓ choose · Enter confirm · Esc cancel", modal_width - 6, self._attr(pairs, "muted"))
+            return
+        if kind == "uninstall":
+            modal_width = min(width - 4, 76)
+            modal_height = min(height - 4, 12)
+            x = max(1, (width - modal_width) // 2)
+            y = max(1, (height - modal_height) // 2)
+            self._box(y, x, modal_height, modal_width, pairs, "Review uninstall", self._attr(pairs, "accent_alt", bold=True))
+            row = self.remove_target or self.selected_row
+            package_name = row.identifier if row else "selected package"
+            self._add(y + 2, x + 3, f"Uninstall {package_name}", modal_width - 6, self._attr(pairs, "text", bold=True))
+            self._add(y + 3, x + 3, "Personal files and application data will not be purged.", modal_width - 6, self._attr(pairs, "warning"))
+            for index, option in enumerate(self.modal["options"]):
+                attr = self._attr(pairs, "selection" if index == self.modal["selected"] else "surface", bold=index == self.modal["selected"])
+                self._fill(y + 5 + index, x + 2, 1, modal_width - 4, attr)
+                self._add(y + 5 + index, x + 4, ("▸ " if index == self.modal["selected"] else "  ") + option, modal_width - 8, attr)
+            self._add(y + modal_height - 2, x + 3, "↑/↓ choose · Enter confirm · Esc cancel", modal_width - 6, self._attr(pairs, "muted"))
+            return
+        if kind == "source":
+            modal_width = min(width - 4, 76)
+            url = str(self.modal.get("url", ""))
+            url_lines = _wrap(url, max(1, modal_width - 8))
+            modal_height = min(height - 4, max(10, 7 + len(url_lines)))
+            x = max(1, (width - modal_width) // 2)
+            y = max(1, (height - modal_height) // 2)
+            self._box(y, x, modal_height, modal_width, pairs, "Package source", self._attr(pairs, "accent_alt", bold=True))
+            self._add(y + 2, x + 3, "URL", modal_width - 6, self._attr(pairs, "accent", bold=True))
+            for offset, line in enumerate(url_lines):
+                self._add(y + 3 + offset, x + 3, line, modal_width - 6, self._attr(pairs, "text"))
+            options_y = y + 4 + len(url_lines)
+            options = ("Open in browser", "Copy URL", "Close")
+            selected = self.modal.get("selected", 0)
+            for index, option in enumerate(options):
+                attr = self._attr(pairs, "selection" if index == selected else "surface", bold=index == selected)
+                self._fill(options_y + index, x + 2, 1, modal_width - 4, attr)
+                self._add(options_y + index, x + 4, ("▸ " if index == selected else "  ") + option, modal_width - 8, attr)
+            self._add(y + modal_height - 2, x + 3, "↑/↓ choose · Enter confirm · Esc close", modal_width - 6, self._attr(pairs, "muted"))
             return
         title, raw_lines, scroll = self._modal_content(width, height)
         modal_width = min(width - 4, max(60, int(width * 0.84)))
@@ -943,17 +1843,33 @@ class PackageManagerTui:
             self.transient_message = ""
         if self.transient_message:
             self._add(height - 3, 2, self.transient_message, width - 4, self._attr(pairs, "error" if self.transient_message.startswith("Error") else "warning"))
-        left = (
-            f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} move  ·  "
-            f"{_display_key(self.config.key('accept'))} install  ·  {_display_key(self.config.key('search'))} search  ·  "
-            f"{_display_key(self.config.key('queue'))} queue  ·  {_display_key(self.config.key('refresh'))} refresh  ·  "
-            f"{_display_key(self.config.key('help'))} help"
-        )
+        if self.focus_area == "actions":
+            left = (
+                f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} action  ·  "
+                f"{_display_key(self.config.key('accept'))} choose  ·  {_display_key(self.config.key('select'))} packages  ·  "
+                f"{_display_key(self.config.key('cancel'))} back  ·  {_display_key(self.config.key('help'))} help"
+            )
+        elif self.focus_area == "filters":
+            left = (
+                f"{_display_key(self.config.key('filter_previous'))}{_display_key(self.config.key('filter_next'))} tabs  ·  "
+                f"{_display_key(self.config.key('select'))} next  ·  {_display_key(self.config.key('accept'))} packages  ·  "
+                f"{_display_key(self.config.key('help'))} help"
+            )
+        else:
+            left = (
+                f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} move  ·  "
+                f"{_display_key(self.config.key('select'))} tabs  ·  {_display_key(self.config.key('accept'))} actions  ·  "
+                f"{_display_key(self.config.key('search'))} search  ·  {_display_key(self.config.key('queue'))} queue  ·  "
+                f"{_display_key(self.config.key('versions'))} versions  ·  {_display_key(self.config.key('sort'))} sort  ·  {_display_key(self.config.key('add_source'))} source  ·  {_display_key(self.config.key('refresh'))} refresh  ·  "
+                f"{_display_key(self.config.key('help'))} help"
+            )
         right = f"{_display_key(self.config.key('cancel'))} Quit"
         right_x = max(2, width - len(right) - 2)
         self._add(height - 2, 2, left, max(1, right_x - 3), self._attr(pairs, "secondary"))
         self._add(height - 2, right_x, right, width - right_x - 1, self._attr(pairs, "accent_alt", bold=True))
         queue_text = f"Queue: {len(self.queue_rows)}"
+        if self.diagnostics:
+            queue_text += f"  ·  Diagnostics: {len(self.diagnostics)} (see ?)"
         self._add(height - 1, 2, queue_text, width - 4, self._attr(pairs, "muted"))
 
     def render(self) -> None:
@@ -1000,12 +1916,15 @@ class PackageManagerTui:
         screen.keypad(True)
         screen.timeout(100)
         self._pairs = self._init_colors()
-        while self.running:
-            self._drain_events()
-            self._maybe_submit_query()
-            self.render()
-            self._handle_key(screen.getch())
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        try:
+            while self.running:
+                self._drain_events()
+                self._maybe_submit_query()
+                self.render()
+                self._handle_key(screen.getch())
+        finally:
+            self.backend.cancel_active()
+            self.executor.shutdown(wait=True, cancel_futures=True)
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -1024,11 +1943,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except (BackendError, ValueError, OSError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
+    status = 0
     try:
         curses.wrapper(app.run)
     except KeyboardInterrupt:
-        return 130
-    return 0
+        status = 130
+    finally:
+        if app.diagnostics:
+            print("Package Manager diagnostics:", file=sys.stderr)
+            for line in app.diagnostics:
+                print(line, file=sys.stderr)
+    return status
 
 
 if __name__ == "__main__":

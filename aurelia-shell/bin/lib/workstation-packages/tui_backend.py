@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 
 class BackendError(RuntimeError):
@@ -169,16 +172,84 @@ def parse_info_fields(output: str) -> Dict[str, str]:
     return fields
 
 
+def installed_keys_from_rows(output: str) -> Set[Tuple[str, str, str, str]]:
+    keys: Set[Tuple[str, str, str, str]] = set()
+    for line in output.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 4 or not all(fields[index] for index in range(4)):
+            continue
+        keys.add((fields[0], fields[1], fields[2], fields[3]))
+    return keys
+
+
+def installed_versions_from_rows(output: str) -> Dict[Tuple[str, str, str], Set[str]]:
+    versions: Dict[Tuple[str, str, str], Set[str]] = {}
+    for line in output.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 6 or not all(fields[index] for index in (0, 2, 3)):
+            continue
+        version = fields[5] or "unknown"
+        versions.setdefault((fields[0], fields[2], fields[3]), set()).add(version)
+    return versions
+
+
 class PackageBackend:
-    def __init__(self, backend_path: Path) -> None:
+    def __init__(self, backend_path: Path, diagnostic_sink: Optional[Callable[[str], None]] = None) -> None:
         self.backend_path = backend_path.resolve()
         if not self.backend_path.is_file() or not os.access(self.backend_path, os.X_OK):
             raise ValueError(f"Package-manager backend is not executable: {self.backend_path}")
         self.updates_path = self.backend_path.with_name("workstation-updates")
+        self.diagnostic_sink = diagnostic_sink
+        self._active_processes: Set[subprocess.Popen] = set()
+        self._active_processes_lock = threading.Lock()
+        self._cancel_event = threading.Event()
+
+    def _emit_diagnostic(self, text: str) -> None:
+        if not text:
+            return
+        if self.diagnostic_sink:
+            self.diagnostic_sink(text)
+        else:
+            sys.stderr.write(text)
+            sys.stderr.flush()
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            try:
+                process.terminate()
+            except OSError:
+                return
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                try:
+                    process.kill()
+                except OSError:
+                    return
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+
+    def cancel_active(self) -> None:
+        self._cancel_event.set()
+        with self._active_processes_lock:
+            processes = list(self._active_processes)
+        for process in processes:
+            self._terminate_process(process)
 
     def _run(self, command: Sequence[str], timeout: float) -> str:
+        process: Optional[subprocess.Popen] = None
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 list(command),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
@@ -186,29 +257,55 @@ class PackageBackend:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout,
-                check=False,
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired as error:
-            detail = f"Command timed out after {timeout:.0f}s: {' '.join(command)}"
-            if error.stderr:
-                detail += f"\n{error.stderr.strip()}"
-            print(f"ERROR: {detail}", file=sys.stderr)
-            raise BackendError(command, 124, detail) from error
         except OSError as error:
             detail = f"Could not execute package-manager command: {error}"
-            print(f"ERROR: {detail}", file=sys.stderr)
+            self._emit_diagnostic(f"ERROR: {detail}\n")
             raise BackendError(command, 127, detail) from error
 
-        if result.stderr:
-            # Preserve backend diagnostics in the terminal log. The same text
-            # is also returned to the UI on failure; nothing is discarded.
-            sys.stderr.write(result.stderr)
-            sys.stderr.flush()
-        if result.returncode != 0:
-            detail = result.stderr.strip() or result.stdout.strip() or f"Command exited with status {result.returncode}."
-            raise BackendError(command, result.returncode, detail)
-        return result.stdout
+        with self._active_processes_lock:
+            self._active_processes.add(process)
+        stdout = ""
+        stderr = ""
+        try:
+            deadline = time.monotonic() + timeout
+            while True:
+                if self._cancel_event.is_set():
+                    self._terminate_process(process)
+                    stdout, stderr = process.communicate()
+                    detail = f"Command cancelled: {' '.join(command)}"
+                    if stderr.strip():
+                        detail += f"\n{stderr.strip()}"
+                    self._emit_diagnostic(f"ERROR: {detail}\n")
+                    raise BackendError(command, 130, detail)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._terminate_process(process)
+                    stdout, stderr = process.communicate()
+                    detail = f"Command timed out after {timeout:.0f}s: {' '.join(command)}"
+                    if stderr.strip():
+                        detail += f"\n{stderr.strip()}"
+                    self._emit_diagnostic(f"ERROR: {detail}\n")
+                    raise BackendError(command, 124, detail)
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.25, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            with self._active_processes_lock:
+                self._active_processes.discard(process)
+
+        if stderr:
+            # Preserve every backend diagnostic through the caller-owned
+            # channel. The TUI displays it without corrupting its curses
+            # surface and prints it after exit; nothing is discarded.
+            self._emit_diagnostic(stderr)
+        if process.returncode != 0:
+            detail = stderr.strip() or stdout.strip() or f"Command exited with status {process.returncode}."
+            raise BackendError(command, process.returncode, detail)
+        return stdout
 
     def bootstrap(self) -> None:
         self._run((str(self.backend_path), "catalog-tui-bootstrap"), timeout=900)
@@ -250,6 +347,30 @@ class PackageBackend:
             raise BackendError((str(self.backend_path), "status", "--json"), 1, "Package status returned a non-object JSON value.")
         return value
 
+    def installed_keys(self) -> Set[Tuple[str, str, str, str]]:
+        output = self._run((str(self.backend_path), "catalog-tui-installed"), timeout=300)
+        return installed_keys_from_rows(output)
+
+    def installed_snapshot(self) -> Tuple[Set[Tuple[str, str, str, str]], Dict[Tuple[str, str, str], Set[str]]]:
+        output = self._run((str(self.backend_path), "catalog-tui-installed"), timeout=300)
+        return installed_keys_from_rows(output), installed_versions_from_rows(output)
+
+    def versions_for(self, row: PackageRow) -> List[PackageRow]:
+        output = self._run(
+            (
+                str(self.backend_path),
+                "catalog-tui-versions",
+                "--provider",
+                row.provider,
+                "--id",
+                row.identifier,
+                "--scope",
+                row.scope,
+            ),
+            timeout=120,
+        )
+        return parse_catalog_rows(output)
+
     def updates_json(self) -> Dict[str, object]:
         if not self.updates_path.is_file() or not os.access(self.updates_path, os.X_OK):
             raise BackendError((str(self.updates_path), "status", "--json"), 127, "The existing Update Manager backend is unavailable.")
@@ -262,7 +383,7 @@ class PackageBackend:
             raise BackendError((str(self.updates_path), "status", "--json"), 1, "Update status returned a non-object JSON value.")
         return value
 
-    def install_catalog_row(self, row: PackageRow, track: bool) -> str:
+    def install_catalog_row(self, row: PackageRow, track: bool, exact_version: bool = False) -> str:
         command: List[str] = [
             str(self.backend_path),
             "install-catalog-row",
@@ -275,10 +396,36 @@ class PackageBackend:
             "--scope",
             row.scope,
         ]
+        if exact_version:
+            command.extend(("--version", row.version, "--arch", row.architecture))
         if track:
             command.append("--track")
         command.append("--yes")
         return self._run(command, timeout=3600)
+
+    def remove_catalog_row(self, row: PackageRow, forget: bool = False) -> str:
+        command: List[str] = [
+            str(self.backend_path),
+            "remove-catalog-row",
+            "--provider",
+            row.provider,
+            "--source",
+            row.source,
+            "--id",
+            row.identifier,
+            "--scope",
+            row.scope,
+        ]
+        if forget:
+            command.append("--forget")
+        command.append("--yes")
+        return self._run(command, timeout=3600)
+
+    def add_aurelia_source(self, url: str) -> str:
+        return self._run(
+            (str(self.backend_path), "source", "add", "aurelia", url, "--yes"),
+            timeout=900,
+        )
 
     @staticmethod
     def source_url(info: Dict[str, str]) -> str:

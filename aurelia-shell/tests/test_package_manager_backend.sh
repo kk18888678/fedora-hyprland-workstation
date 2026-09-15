@@ -35,9 +35,24 @@ printf '%s\n' org.example.App >"$fixture/flatpak-installed"
 
 cat >"$mock_bin/rpm" <<'EOF_RPM'
 #!/usr/bin/env bash
+if [[ "${1:-}" == -q && "${2:-}" == --qf ]]; then
+    package="${@: -1}"
+    if grep -Fxq -- "$package" "${MOCK_RPM_STATE:?}"; then
+        printf '%s\n' 1
+        exit 0
+    fi
+    exit 1
+fi
 if [[ "$1" == "-q" ]]; then
     grep -Fxq -- "$2" "${MOCK_RPM_STATE:?}"
     exit $?
+fi
+if [[ "$1" == "-qa" ]]; then
+    while IFS= read -r package; do
+        [[ -n "$package" ]] || continue
+        printf 'unknown\t%s\t1\tx86_64\n' "$package"
+    done <"${MOCK_RPM_STATE:?}"
+    exit 0
 fi
 exit 2
 EOF_RPM
@@ -70,6 +85,7 @@ fi
 if [[ "$1" == "install" && "$2" == --from-repo=* ]]; then
     package="${@: -1}"
     package="${package%.x86_64}"
+    [[ "$package" == mock-dnf-1 ]] && package=mock-dnf
     printf '%s\n' "$package" >>"${MOCK_RPM_STATE:?}"
     exit 0
 fi
@@ -210,6 +226,31 @@ if env "${test_env[@]}" "$backend" install-catalog-row \
     pass "Dedicated TUI install boundary re-reads the selected catalog identity in the backend"
 else
     fail "Dedicated catalog-row install boundary did not preserve provider-aware tracking"
+fi
+
+exact_install_output="$(env "${test_env[@]}" "$backend" install-catalog-row \
+    --provider dnf --source fedora --id mock-dnf --scope system --version 1 --arch x86_64 --yes 2>&1 || true)"
+if grep -Fq 'Installing DNF package mock-dnf-1 from fedora' <<<"$exact_install_output"; then
+    pass "Version history installation revalidates and requests the exact DNF build"
+else
+    fail "Exact DNF version installation did not reach the provider-aware transaction boundary"
+fi
+
+installed_tui_output="$(env "${test_env[@]}" "$backend" catalog-tui-installed 2>&1)"
+if grep -Fq $'dnf\tunknown\tmock-dnf\tsystem' <<<"$installed_tui_output" &&
+   grep -Fq $'flatpak\tflathub\torg.example.App\tsystem' <<<"$installed_tui_output"; then
+    pass "TUI installed-state inventory includes all local RPM and Flatpak applications"
+else
+    fail "TUI installed-state inventory omitted a local provider"
+fi
+
+if env "${test_env[@]}" "$backend" remove-catalog-row \
+       --provider dnf --source fedora --id mock-dnf --scope system --forget --yes >/dev/null &&
+   ! grep -Fxq mock-dnf "$fixture/rpm-installed" &&
+   ! grep -Fq $'dnf\tfedora\tmock-dnf\tsystem\tall' "$repo/packages/user-managed.tsv"; then
+    pass "Dedicated TUI uninstall boundary removes the package and explicitly forgets tracking"
+else
+    fail "Dedicated catalog-row uninstall boundary did not remove the package or declaration"
 fi
 
 if env "${test_env[@]}" "$backend" open >/dev/null &&

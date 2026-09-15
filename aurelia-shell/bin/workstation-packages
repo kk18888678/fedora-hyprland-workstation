@@ -151,6 +151,9 @@ Read-only:
   latest [query]                             Search only the newest row per package identity.
   catalog status                            Show cache age, schema, row counts, and source health.
   catalog-tui-bootstrap                     Prepare the cache for the dedicated Package Manager TUI.
+  catalog-tui-installed                    Enumerate all currently installed app/package identities for the TUI.
+  catalog-tui-versions --provider P --id ID --scope S
+                                            Show every cached version of one package identity.
   info --provider P --source S --id ID      Show package metadata from the catalog.
   status [--json]                           Show tracked, missing, drifted, and unmanaged packages.
   source list                               Show configured and discovered sources.
@@ -160,8 +163,10 @@ Explicit mutations:
   install P S ID [scope] [--track] [--yes]   Install, optionally track in user-managed.tsv.
   adopt P S ID [scope] [--yes]               Track an already-installed package.
   remove P S ID [scope] [--forget] [--yes]   Remove without purging data; optionally forget it.
-  install-catalog-row --provider P --source S --id ID --scope S [--track] [--yes]
+  install-catalog-row --provider P --source S --id ID --scope S [--version V] [--arch A] [--track] [--yes]
                                             Install the current catalog row selected by a frontend.
+  remove-catalog-row --provider P --source S --id ID --scope S [--forget] [--yes]
+                                            Uninstall the current catalog row selected by a frontend.
   source add flatpak NAME URL [scope] [--yes] Add an HTTPS Flatpak remote and track it.
   source add aurelia GITHUB_URL [--yes]     Add an official GitHub release source.
   source remove flatpak NAME [scope] [--yes] Stop tracking a Flatpak source.
@@ -1313,6 +1318,8 @@ dispatch_catalog_install() {
     local scope=""
     local catalog_row=""
     local version=""
+    local requested_version=""
+    local requested_architecture=""
     local asset=""
     local checksum=""
     local target=""
@@ -1327,6 +1334,8 @@ dispatch_catalog_install() {
             --source) [[ $# -ge 2 ]] || return 2; source="$2"; shift 2 ;;
             --id) [[ $# -ge 2 ]] || return 2; identifier="$2"; shift 2 ;;
             --scope) [[ $# -ge 2 ]] || return 2; scope="$2"; shift 2 ;;
+            --version) [[ $# -ge 2 ]] || return 2; requested_version="$2"; shift 2 ;;
+            --arch|--architecture) [[ $# -ge 2 ]] || return 2; requested_architecture="$2"; shift 2 ;;
             --yes) WSP_ASSUME_YES=1; shift ;;
             --track) WSP_TRACK=1; shift ;;
             *) wsp_error "Unknown catalog install option: $1"; return 2 ;;
@@ -1340,10 +1349,11 @@ dispatch_catalog_install() {
     wsp_valid_provider "$provider" || { wsp_error 'Provider must be dnf, flatpak, or aurelia.'; return 2; }
     wsp_valid_source "$source" || { wsp_error 'Invalid package source.'; return 2; }
     wsp_valid_scope "$scope" || { wsp_error 'Invalid package scope.'; return 2; }
-    catalog_row="$(wsp_catalog_row_for_identity "$provider" "$source" "$identifier" "$scope")" || {
-        wsp_error "The selected catalog row is no longer available: $provider/$source/$identifier/$scope"
-        return 1
-    }
+    if [[ -n "$requested_version" ]]; then
+        catalog_row="$(wsp_catalog_row_for_version "$provider" "$source" "$identifier" "$scope" "$requested_version" "$requested_architecture")"
+    else
+        catalog_row="$(wsp_catalog_row_for_identity "$provider" "$source" "$identifier" "$scope")"
+    fi
     [[ -n "$catalog_row" ]] || {
         wsp_error "The selected catalog row is no longer available: $provider/$source/$identifier/$scope"
         return 1
@@ -1353,12 +1363,56 @@ dispatch_catalog_install() {
     if [[ "$WSP_TRACK" == 1 ]]; then
         confirm "Install and track $provider/$source/$identifier?" || return 0
         run_mutation wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" \
-            "$version" "$asset" "$checksum" "$target" "$artifact_url" || result=$?
+            "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" || result=$?
     else
         confirm "Install $provider/$source/$identifier?" || return 0
         run_mutation wsp_install_row "$provider" "$source" "$identifier" "$scope" \
-            "$version" "$asset" "$checksum" "$target" "$artifact_url" || result=$?
+            "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" || result=$?
     fi
+    return "$result"
+}
+
+dispatch_catalog_remove() {
+    local provider=""
+    local source=""
+    local identifier=""
+    local scope=""
+    local catalog_row=""
+    local assume_yes=0
+    local forget=0
+    local -a options=()
+    local result=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --provider) [[ $# -ge 2 ]] || return 2; provider="$2"; shift 2 ;;
+            --source) [[ $# -ge 2 ]] || return 2; source="$2"; shift 2 ;;
+            --id) [[ $# -ge 2 ]] || return 2; identifier="$2"; shift 2 ;;
+            --scope) [[ $# -ge 2 ]] || return 2; scope="$2"; shift 2 ;;
+            --forget) forget=1; shift ;;
+            --yes) assume_yes=1; shift ;;
+            *) wsp_error "Unknown catalog removal option: $1"; return 2 ;;
+        esac
+    done
+
+    [[ -n "$provider" && -n "$source" && -n "$identifier" && -n "$scope" ]] || {
+        wsp_error 'Catalog removal requires provider, source, ID, and scope.'
+        return 2
+    }
+    wsp_valid_provider "$provider" || { wsp_error 'Provider must be dnf, flatpak, or aurelia.'; return 2; }
+    wsp_valid_source "$source" || { wsp_error 'Invalid package source.'; return 2; }
+    wsp_valid_scope "$scope" || { wsp_error 'Invalid package scope.'; return 2; }
+    catalog_row="$(wsp_catalog_row_for_identity "$provider" "$source" "$identifier" "$scope")" || {
+        wsp_error "The selected catalog row is no longer available: $provider/$source/$identifier/$scope"
+        return 1
+    }
+    [[ -n "$catalog_row" ]] || {
+        wsp_error "The selected catalog row is no longer available: $provider/$source/$identifier/$scope"
+        return 1
+    }
+    (( assume_yes == 1 )) && options+=(--yes)
+    (( forget == 1 )) && options+=(--forget)
+    dispatch_record_mutation remove "$provider" "$source" "$identifier" "$scope" "${options[@]}" || result=$?
     return "$result"
 }
 
@@ -1423,12 +1477,42 @@ dispatch() {
             [[ "${1:-}" == --query && $# -eq 2 ]] || { usage >&2; return 2; }
             catalog_tui_search "$2"
             ;;
+        catalog-tui-installed)
+            [[ $# -eq 0 ]] || { usage >&2; return 2; }
+            wsp_installed_rows_for_tui
+            ;;
+        catalog-tui-versions)
+            local versions_provider=""
+            local versions_identifier=""
+            local versions_scope=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --provider) [[ $# -ge 2 ]] || return 2; versions_provider="$2"; shift 2 ;;
+                    --id) [[ $# -ge 2 ]] || return 2; versions_identifier="$2"; shift 2 ;;
+                    --scope) [[ $# -ge 2 ]] || return 2; versions_scope="$2"; shift 2 ;;
+                    *) usage >&2; return 2 ;;
+                esac
+            done
+            [[ -n "$versions_provider" && -n "$versions_identifier" && -n "$versions_scope" ]] || {
+                wsp_error 'TUI version history requires provider, ID, and scope.'
+                return 2
+            }
+            wsp_valid_provider "$versions_provider" || { wsp_error 'Provider must be dnf, flatpak, or aurelia.'; return 2; }
+            wsp_valid_scope "$versions_scope" || { wsp_error 'Invalid package scope.'; return 2; }
+            [[ -s "$WSP_CATALOG_FILE" ]] || { wsp_error 'Package catalog is unavailable.'; return 1; }
+            awk -F '\t' -v p="$versions_provider" -v i="$versions_identifier" -v c="$versions_scope" \
+                '$1 == p && $3 == i && $7 == c { print }' "$WSP_CATALOG_FILE" |
+                format_catalog_rows_for_fzf
+            ;;
         catalog-tui-refresh)
             [[ "${1:-}" == --query && $# -eq 2 ]] || { usage >&2; return 2; }
             catalog_tui_refresh "$2"
             ;;
         install-catalog-row)
             dispatch_catalog_install "$@"
+            ;;
+        remove-catalog-row)
+            dispatch_catalog_remove "$@"
             ;;
         tui-help)
             [[ $# -eq 0 ]] || { usage >&2; return 2; }

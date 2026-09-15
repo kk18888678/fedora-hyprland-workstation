@@ -55,6 +55,33 @@ wsp_dnf_installed_rows() {
         printf 'dnf\t%s\t%s\tsystem\t%s\t%s\n' \
             "$repo" "$identifier" "$identifier" "$evr"
     done <<< "$raw"
+    return 0
+}
+
+wsp_dnf_all_installed_rows() {
+    local raw
+    local repo
+    local identifier
+    local evr
+
+    if command -v rpm >/dev/null &&
+       raw="$(wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" rpm -qa \
+           --qf $'unknown\t%{NAME}\t%{EVR}\t%{ARCH}\n' )"; then
+        :
+    else
+        local dnf_bin
+        dnf_bin="$(wsp_dnf_binary)" || return 1
+        raw="$(wsp_run_timeout "${WSP_CFG_DNF_RESOLVE_TIMEOUT:-30}" "$dnf_bin" -q repoquery --installed \
+            --qf $'%{from_repo}\t%{name}\t%{evr}\t%{arch}\n' )" || return 1
+    fi
+    while IFS=$'\t' read -r repo identifier evr _ || [[ -n "$identifier" ]]; do
+        [[ -n "$identifier" ]] || continue
+        repo="${repo:-unknown}"
+        evr="${evr:-unknown}"
+        printf 'dnf\t%s\t%s\tsystem\t%s\t%s\n' \
+            "$repo" "$identifier" "$identifier" "$evr"
+    done <<< "$raw"
+    return 0
 }
 
 wsp_flatpak_installed_rows_for_scope() {
@@ -79,6 +106,47 @@ wsp_flatpak_installed_rows_for_scope() {
         printf 'flatpak\t%s\t%s\t%s\t%s\t%s\n' \
             "$origin" "$identifier" "$scope" "$name" "$version"
     done <<< "$raw"
+    return 0
+}
+
+wsp_installed_rows_for_tui() {
+    local scope
+    local provider
+    local source
+    local identifier
+    local package_scope
+    local name
+    local version
+    local profiles
+    local tracked_version
+    local asset
+    local checksum
+    local target
+    local artifact_url
+
+    if wsp_dnf_all_installed_rows; then
+        :
+    else
+        wsp_warn 'Complete DNF installed-package inventory is unavailable for the Package Manager TUI.'
+    fi
+    for scope in system user; do
+        if wsp_flatpak_installed_rows_for_scope "$scope"; then
+            :
+        else
+            wsp_warn "Flatpak installed-package inventory is unavailable for $scope scope in the Package Manager TUI."
+        fi
+    done
+    while IFS=$'\t' read -r provider source identifier package_scope profiles tracked_version asset checksum target artifact_url; do
+        [[ "$provider" == aurelia && -n "$identifier" ]] || continue
+        if wsp_aurelia_entry_installed "$source" "$identifier" "${target:-.local/bin/$identifier}"; then
+            printf 'aurelia\t%s\t%s\t%s\t%s\t%s\n' \
+                "$source" "$identifier" "$package_scope" "$identifier" "${tracked_version:-unknown}"
+        fi
+    done < <(wsp_manifest_rows)
+    # This is a best-effort read-only enrichment. Preserve rows from healthy
+    # providers while routing partial-provider warnings to the TUI diagnostic
+    # channel instead of replacing a usable catalog with an empty failure.
+    return 0
 }
 
 wsp_inventory_rows() {

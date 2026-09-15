@@ -29,9 +29,13 @@ DEFAULT_KEYS = {
     "queue": "a",
     "source": "s",
     "info": "i",
+    "versions": "v",
+    "add_source": "+",
     "quit": "q",
     "filter_next": "right",
     "filter_previous": "left",
+    "sort": "o",
+    "sort_reverse": "O",
 }
 
 DEFAULT_LABELS = {

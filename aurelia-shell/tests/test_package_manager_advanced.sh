@@ -44,6 +44,14 @@ EOF_AURELIA
 
 cat >"$mock_bin/rpm" <<'EOF_RPM'
 #!/usr/bin/env bash
+if [[ "${1:-}" == -q && "${2:-}" == --qf ]]; then
+    package="${@: -1}"
+    if grep -Fxq -- "$package" "${MOCK_RPM_STATE:?}"; then
+        printf '%s\n' 1
+        exit 0
+    fi
+    exit 1
+fi
 if [[ "${1:-}" == -q ]]; then
     grep -Fxq -- "${2:-}" "${MOCK_RPM_STATE:?}"
     exit $?
@@ -158,6 +166,7 @@ fi
 if [[ "${1:-}" == install && "${2:-}" == --from-repo=* ]]; then
     package="${@: -1}"
     package="${package%.x86_64}"
+    [[ "$package" == mock-dnf-1 ]] && package=mock-dnf
     printf '%s\n' "$package" >>"${MOCK_RPM_STATE:?}"
     exit 0
 fi
@@ -326,6 +335,14 @@ else
     fail "Latest/all-version package selection did not distinguish historical builds"
 fi
 
+version_query_result="$(env "${test_env[@]}" "$backend" search 'libreoffice 26.2.6.3' 2>>"$diagnostic_log" || true)"
+if grep -Fq $'dnf\tupdates\tlibreoffice' <<<"$version_query_result" &&
+   ! grep -Fq $'dnf\tfedora\tlibreoffice' <<<"$version_query_result"; then
+    pass "Multi-term search can target a package by its specific version"
+else
+    fail "Specific package-version search did not isolate the requested build"
+fi
+
 tui_result_status=0
 if tui_result="$(env "${test_env[@]}" "$backend" catalog-tui-search --query edid-decode 2>>"$diagnostic_log")"; then
     :
@@ -340,6 +357,16 @@ if awk -F '\t' '
     pass "TUI result stream contains only semantic capability matches, not arbitrary fuzzy candidates"
 else
     fail "TUI result stream still exposes unrelated fuzzy candidates (status $tui_result_status)"
+fi
+
+version_history="$(env "${test_env[@]}" "$backend" catalog-tui-versions \
+    --provider dnf --id libreoffice --scope system 2>>"$diagnostic_log" || true)"
+if [[ "$(wc -l <<<"$version_history" | tr -d '[:space:]')" -eq 2 ]] &&
+   grep -Fq $'dnf\tupdates\tlibreoffice' <<<"$version_history" &&
+   grep -Fq $'dnf\tfedora\tlibreoffice' <<<"$version_history"; then
+    pass "TUI version history loads every cached source/version row for selection"
+else
+    fail "TUI version history did not return the complete cached package history"
 fi
 
 tui_all_file="$fixture/tui-all.tsv"
@@ -384,6 +411,21 @@ if grep -Fq 'schema 6' <<<"$cache_summary" &&
     pass "Catalog status uses human-readable age and schema/source diagnostics"
 else
     fail "Catalog status remains machine-oriented or incomplete"
+fi
+
+# Opening the dedicated TUI must not turn a usable stale cache into a blocking
+# network refresh. The background timer and explicit Ctrl-R own freshness.
+touch -d '2 days ago' "$catalog_dir/catalog.tsv"
+stale_bootstrap_status=0
+stale_bootstrap_stderr="$fixture/stale-bootstrap.stderr"
+env "${test_env[@]}" MOCK_DNF_FAILURE=1 "$backend" catalog-tui-bootstrap \
+    >"$command_output" 2>"$stale_bootstrap_stderr" || stale_bootstrap_status=$?
+if [[ "$stale_bootstrap_status" -eq 0 ]] &&
+   ! grep -Fq 'Refreshing Fedora package sources' "$stale_bootstrap_stderr" &&
+   ! grep -Fq 'mock dnf metadata failure' "$stale_bootstrap_stderr"; then
+    pass "Dedicated TUI opens from the last-known-good stale cache without an implicit refresh"
+else
+    fail "Dedicated TUI still performs a blocking refresh when a usable cache is stale"
 fi
 
 user_config="$fixture/user-package-manager.conf"
