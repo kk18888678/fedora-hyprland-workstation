@@ -39,7 +39,14 @@ AureliaKeyboardPanel {
     readonly property var resolutionValues: {
         for (var i = 0; i < displays.length; i++) {
             var display = displays[i]
-            if (display && display.focused) return Model.resolutionModes(display)
+            if (display && display.focused) return Model.resolutionChoices(display)
+        }
+        return []
+    }
+    readonly property var refreshValues: {
+        for (var i = 0; i < displays.length; i++) {
+            var display = displays[i]
+            if (display && display.focused) return Model.refreshChoices(display)
         }
         return []
     }
@@ -66,6 +73,166 @@ AureliaKeyboardPanel {
     property bool cursorActive: false
     property int textSizePreviewIndex: -1
     property bool reflowingText: false
+    property bool scaleExpanded: false
+    property bool resolutionExpanded: false
+    property bool refreshExpanded: false
+    property bool displayManagementExpanded: false
+    property bool advancedOpen: false
+    property bool identifyingDisplay: false
+    property string dropdownKind: ""
+    property var dropdownModel: []
+    property var dropdownAnchorItem: null
+
+    // The display panel follows the light, spacious control-card language of
+    // the reference UI. These tokens intentionally stay local to this panel:
+    // the rest of the shell remains theme-owned while this hardware surface
+    // keeps a predictable presentation across desktop themes.
+    readonly property color displayCard: Theme.popups.background
+    readonly property color displayInk: Theme.popups.text
+    readonly property color displaySecondary: Theme.textSecondary
+    readonly property color displayMuted: Theme.textMuted
+    readonly property color displayDivider: Theme.border
+    readonly property color displayControl: Theme.surface
+    readonly property color displayControlBorder: Theme.border
+    readonly property color displayTrack: Theme.border
+    readonly property color displayAccent: Theme.accent
+    readonly property color displayOnAccent: Theme.bgBase
+    readonly property color displayKnob: Theme.text
+    readonly property color displayOff: Theme.surfaceElevated
+    readonly property string displayFont: Theme.fontFamilyProse
+    readonly property real displayScale: Math.max(0.68, Math.min(1.0, root.popupWidth / 565.0)) * Theme.fontScale
+
+    function ui(value) {
+        return Math.max(1, Math.round(Number(value) * root.displayScale))
+    }
+
+    function activeDisplay() {
+        for (var i = 0; i < root.displays.length; i++) {
+            if (root.displays[i] && root.displays[i].focused) return root.displays[i]
+        }
+        return root.displays.length > 0 ? root.displays[0] : null
+    }
+
+    function numberLabel(value) {
+        var number = Number(value)
+        if (!isFinite(number) || number <= 0) return ""
+        return String(Math.round(number * 100) / 100)
+    }
+
+    function resolutionLabel(display) {
+        if (!display || Number(display.width) <= 0 || Number(display.height) <= 0)
+            return "Resolution unavailable"
+        return Number(display.width) + "×" + Number(display.height)
+    }
+
+    function refreshLabel(display) {
+        if (!display || Number(display.refreshRate) <= 0) return "Refresh rate unavailable"
+        return numberLabel(display.refreshRate) + " Hz"
+    }
+
+    function displaySubtitle(display) {
+        if (!display) return "No display detected"
+        var parts = []
+        if (String(display.name || "") !== "") parts.push(String(display.name))
+        var resolution = resolutionLabel(display)
+        if (resolution !== "Resolution unavailable") parts.push(resolution)
+        var refresh = refreshLabel(display)
+        if (refresh !== "Refresh rate unavailable") parts.push(refresh)
+        if (display.focused === true) parts.push("Primary")
+        return parts.join(" · ")
+    }
+
+    function resolutionOptionLabel(mode) {
+        if (!mode) return "Resolution unavailable"
+        if (mode.label) return mode.label
+        var label = Number(mode.width) + " × " + Number(mode.height)
+        if (mode.mode !== root.currentResolution && Number(mode.refresh) > 0)
+            label += " @ " + numberLabel(mode.refresh) + " Hz"
+        else if (mode.mode === root.currentResolution)
+            label += " (Native)"
+        return label
+    }
+
+    function currentScaleLabel() {
+        var index = root.activeScaleIndex()
+        if (index >= 0 && index < root.scaleValues.length)
+            return root.effectiveScale(root.scaleValues[index]) + "×"
+        return root.monitorScale !== "" ? root.monitorScale + "×" : "—"
+    }
+
+    function currentResolutionIndex() {
+        for (var i = 0; i < root.resolutionValues.length; i++) {
+            if (root.resolutionValues[i].mode === root.currentResolution) return i
+        }
+        return root.resolutionValues.length > 0 ? 0 : -1
+    }
+
+    function currentResolutionMode() {
+        var index = root.currentResolutionIndex()
+        return index >= 0 ? root.resolutionValues[index] : null
+    }
+
+    function toggleScaleSelector() {
+        root.toggleDropdown("scale", scaleCombo, root.scaleValues)
+    }
+
+    function toggleResolutionSelector() {
+        root.toggleDropdown("resolution", resolutionCombo, root.resolutionValues)
+    }
+
+    function toggleRefreshSelector() {
+        root.toggleDropdown("refresh", refreshCombo, root.refreshValues)
+    }
+
+    function toggleDropdown(kind, anchor, model) {
+        keyScope.forceActiveFocus()
+        if (dropdownPopup.visible && root.dropdownKind === kind) {
+            dropdownPopup.close()
+            return
+        }
+        root.dropdownKind = kind
+        root.dropdownAnchorItem = anchor
+        root.dropdownModel = model || []
+        root.cursorActive = true
+        root.focusSection = kind === "scale" ? "scale" : "resolution"
+        root.scaleExpanded = kind === "scale"
+        root.resolutionExpanded = kind === "resolution"
+        root.refreshExpanded = kind === "refresh"
+        dropdownPopup.open()
+    }
+
+    function selectDropdown(index, value) {
+        if (root.dropdownKind === "scale") {
+            root.setScale(String(value || ""))
+        } else if (root.dropdownKind === "resolution" || root.dropdownKind === "refresh") {
+            root.setResolution(value && value.mode ? value.mode : "")
+        }
+        dropdownPopup.close()
+    }
+
+    function dropdownLabel(value) {
+        if (root.dropdownKind === "scale") return root.effectiveScale(value) + "×"
+        if (value && value.label) return value.label
+        return String(value || "")
+    }
+
+    function dropdownSelected(value, index) {
+        if (root.dropdownKind === "scale") return root.activeScaleIndex() === index
+        return !!value && value.mode === root.currentResolution
+    }
+
+    function adaptiveSyncEnabled() {
+        var display = root.activeDisplay()
+        return !!display && display.vrr === true
+    }
+
+    function identifyDisplay() {
+        if (!root.activeDisplay()) return
+        dropdownPopup.close()
+        root.identifyingDisplay = true
+        identifyTimer.restart()
+        root.refresh()
+    }
 
     readonly property string stateBin: backendRoot + "/aurelia-monitor-state"
     readonly property string brightnessBin: backendRoot + "/aurelia-brightness-display"
@@ -83,13 +250,60 @@ AureliaKeyboardPanel {
     bar: null
     anchorItem: null
     ownerId: "aurelia.monitor"
-    contentPadding: Theme.popupPadding
+    contentPadding: root.ui(28)
     popupWidth: 380
-    popupHeight: 560
+    popupHeight: 720
     fitHeightToContent: true
-    contentSizingItem: contentColumn
+    contentSizingItem: root.advancedOpen ? advancedLoader.item : contentColumn
     minPopupHeight: 220
-    maxPopupHeight: 560
+    maxPopupHeight: root.screenH > 0 ? Math.max(220, root.screenH - root.margin * 2) : 720
+    panelBackground: root.displayCard
+    panelBorder: "transparent"
+    panelBorderWidth: 0
+    panelRadius: root.ui(15)
+    cardVisible: !root.identifyingDisplay
+    overlayComponent: Component {
+        Item {
+            anchors.fill: parent
+            visible: root.identifyingDisplay
+
+            Text {
+                anchors.centerIn: parent
+                width: parent.width - root.ui(48)
+                text: root.activeDisplay() && root.activeDisplay().name
+                    ? String(root.activeDisplay().name) : "Display"
+                color: root.displayInk
+                font.family: root.displayFont
+                font.pixelSize: root.ui(150)
+                font.weight: Font.Bold
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                style: Text.Outline
+                styleColor: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.verticalCenter
+                anchors.topMargin: root.ui(72)
+                text: root.activeDisplay()
+                    ? root.resolutionLabel(root.activeDisplay()) + " · " + root.refreshLabel(root.activeDisplay())
+                    : "No display detected"
+                color: root.displaySecondary
+                font.family: root.displayFont
+                font.pixelSize: root.ui(28)
+                horizontalAlignment: Text.AlignHCenter
+                style: Text.Outline
+                styleColor: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                onClicked: root.identifyingDisplay = false
+            }
+        }
+    }
     focusTarget: keyScope
     shown: false
 
@@ -104,6 +318,13 @@ AureliaKeyboardPanel {
             focusSection = "textsize"
             selectedIndex = -1
         }
+        scaleExpanded = false
+        resolutionExpanded = false
+        refreshExpanded = false
+        displayManagementExpanded = false
+        advancedOpen = false
+        identifyingDisplay = false
+        dropdownPopup.close()
     }
 
     function close() { shown = false }
@@ -197,8 +418,12 @@ AureliaKeyboardPanel {
     function activateCursor() {
         if (focusSection === "scale" && selectedIndex >= 0 && selectedIndex < scaleValues.length) {
             setScale(scaleValues[selectedIndex])
+        } else if (focusSection === "scale") {
+            scaleExpanded = !scaleExpanded
         } else if (focusSection === "resolution" && selectedIndex >= 0 && selectedIndex < resolutionValues.length) {
             setResolution(resolutionValues[selectedIndex].mode)
+        } else if (focusSection === "resolution") {
+            resolutionExpanded = !resolutionExpanded
         } else if (focusSection === "monitors" && selectedIndex >= 0 && selectedIndex < displays.length) {
             var display = displays[selectedIndex]
             if (display) toggleDisplay(display.name, display.enabled === true)
@@ -383,6 +608,13 @@ AureliaKeyboardPanel {
             onTriggered: root.reflowingText = false
         }
 
+        Timer {
+            id: identifyTimer
+            interval: 3000
+            repeat: false
+            onTriggered: root.identifyingDisplay = false
+        }
+
         Process {
             id: stateProcess
             command: ["/bin/bash", root.stateBin]
@@ -501,11 +733,21 @@ AureliaKeyboardPanel {
         refresh()
     }
     onBrightnessAvailableChanged: clampCursor()
-    onDisplaysChanged: clampCursor()
     onScaleValuesChanged: clampCursor()
     onResolutionValuesChanged: clampCursor()
     onVisibleSectionsChanged: clampCursor()
     onBackendRootChanged: root.refresh()
+    onAdvancedOpenChanged: {
+        if (advancedLoader.item) advancedLoader.item.display = root.activeDisplay()
+        if (root.advancedOpen) {
+            root.scaleExpanded = false
+            root.resolutionExpanded = false
+        }
+    }
+    onDisplaysChanged: {
+        clampCursor()
+        if (advancedLoader.item) advancedLoader.item.display = root.activeDisplay()
+    }
 
     FocusScope {
         id: keyScope
@@ -518,126 +760,95 @@ AureliaKeyboardPanel {
             id: scrollView
             anchors.fill: parent
             clip: true
+            visible: !root.advancedOpen
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
             Column {
                 id: contentColumn
                 width: scrollView.availableWidth
-                spacing: Theme.spacingMd
+                spacing: 0
 
                 Item {
                     width: parent.width
-                    height: 54
+                    height: root.ui(116)
 
-                    RowLayout {
-                        anchors.fill: parent
-                        spacing: Theme.spacingMd
+                    DisplayIcon {
+                        anchors.left: parent.left
+                        anchors.leftMargin: root.ui(3)
+                        anchors.top: parent.top
+                        anchors.topMargin: root.ui(18)
+                        width: root.ui(54)
+                        height: root.ui(54)
+                        kind: "monitor"
+                        color: root.displayInk
+                    }
+
+                    Column {
+                        anchors.left: parent.left
+                        anchors.leftMargin: root.ui(94)
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: root.ui(8)
+                        spacing: root.ui(3)
 
                         Text {
-                            Layout.preferredWidth: 42
-                            Layout.preferredHeight: 42
-                            text: root.displays.length > 1 ? "󰍺" : "󰍹"
-                            color: Theme.accent
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 42
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                            width: parent.width
+                            text: "Display"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(28)
+                            font.weight: Font.Bold
                         }
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingXs
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: "Display"
-                                color: Theme.text
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeXl
-                                font.weight: Theme.fontWeightBold
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: root.brightnessAvailable
-                                    ? root.brightnessName(brightnessSlider.value).toUpperCase()
-                                    : "FIXED BRIGHTNESS"
-                                color: Theme.textSecondary
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeXs
-                                font.weight: Theme.fontWeightBold
-                                font.letterSpacing: 1
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: root.currentResolution !== ""
-                                    ? "CURRENT " + root.currentResolution
-                                    : "RESOLUTION UNAVAILABLE"
-                                color: Theme.textSubtle
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeXs
-                                elide: Text.ElideRight
-                            }
+                        Text {
+                            width: parent.width
+                            text: root.displaySubtitle(root.activeDisplay())
+                            color: root.displaySecondary
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(18)
+                            elide: Text.ElideRight
                         }
                     }
+
                 }
 
                 Rectangle {
                     width: parent.width
-                    height: 1
-                    visible: root.brightnessAvailable
-                    color: Theme.border
-                    opacity: 0.6
+                    height: root.ui(1)
+                    color: root.displayDivider
                 }
 
-                Column {
+                Item { width: parent.width; height: root.ui(29) }
+
+                Item {
                     width: parent.width
-                    visible: root.brightnessAvailable
-                    spacing: Theme.spacingXs
+                    height: root.ui(86)
+                    visible: true
 
                     RowLayout {
-                        width: parent.width
-                        height: 22
+                        anchors.fill: parent
+                        spacing: root.ui(16)
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: "BRIGHTNESS"
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
-                            font.letterSpacing: 0.8
+                        DisplayIcon {
+                            Layout.preferredWidth: root.ui(42)
+                            Layout.preferredHeight: root.ui(42)
+                            kind: "brightness"
+                            color: root.displayInk
                         }
 
                         Text {
-                            text: Math.round(brightnessSlider.value) + "%"
-                            color: Theme.textSecondary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
+                            Layout.preferredWidth: root.ui(124)
+                            text: "Brightness"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
                         }
-                    }
-
-                    Rectangle {
-                        width: parent.width
-                        height: 42
-                        radius: Theme.radiusSm
-                        color: root.cursorActive && root.focusSection === "brightness"
-                            ? Theme.selection
-                            : Theme.surface
-                        border.color: root.cursorActive && root.focusSection === "brightness"
-                            ? Theme.borderActive
-                            : Theme.border
-                        border.width: Theme.borderWidthDefault
 
                         Slider {
                             id: brightnessSlider
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.spacingSm
-                            anchors.rightMargin: Theme.spacingSm
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: root.ui(36)
                             from: 1
                             to: 100
                             stepSize: 1
@@ -645,13 +856,46 @@ AureliaKeyboardPanel {
                             enabled: root.brightnessAvailable
                             onMoved: root.previewBrightness(value)
                             onPressedChanged: if (!pressed) root.setBrightness(value)
+
+                            background: Rectangle {
+                                x: brightnessSlider.leftPadding
+                                y: brightnessSlider.topPadding + brightnessSlider.availableHeight / 2 - height / 2
+                                width: brightnessSlider.availableWidth
+                                height: root.ui(6)
+                                radius: height / 2
+                                color: root.displayTrack
+
+                                Rectangle {
+                                    width: brightnessSlider.visualPosition * parent.width
+                                    height: parent.height
+                                    radius: height / 2
+                                    color: root.displayAccent
+                                }
+                            }
+
+                            handle: Rectangle {
+                                x: brightnessSlider.leftPadding + brightnessSlider.visualPosition * (brightnessSlider.availableWidth - width)
+                                y: brightnessSlider.topPadding + brightnessSlider.availableHeight / 2 - height / 2
+                                width: root.ui(29)
+                                height: width
+                                radius: width / 2
+                                color: root.displayKnob
+                                border.color: root.displayControlBorder
+                                border.width: root.ui(1)
+                            }
                         }
 
-                        MouseArea {
-                            anchors.fill: parent
-                            acceptedButtons: Qt.NoButton
-                            hoverEnabled: true
-                            onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
+                        Text {
+                            Layout.preferredWidth: root.ui(54)
+                            text: root.brightnessAvailable ? Math.round(brightnessSlider.value) + "%" : "Fixed"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
+                            horizontalAlignment: Text.AlignRight
+                        }
+
+                        HoverHandler {
+                            onHoveredChanged: if (hovered && !root.reflowingText) {
                                 root.cursorActive = true
                                 root.focusSection = "brightness"
                                 root.selectedIndex = -1
@@ -660,70 +904,83 @@ AureliaKeyboardPanel {
                     }
                 }
 
-                Rectangle {
+                Item {
                     width: parent.width
-                    height: 1
-                    color: Theme.border
-                    opacity: 0.6
-                }
-
-                Column {
-                    width: parent.width
-                    spacing: Theme.spacingXs
+                    height: root.ui(86)
 
                     RowLayout {
-                        width: parent.width
-                        height: 22
+                        anchors.fill: parent
+                        spacing: root.ui(16)
 
                         Text {
-                            Layout.fillWidth: true
-                            text: "TEXT SIZE"
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
-                            font.letterSpacing: 0.8
+                            Layout.preferredWidth: root.ui(42)
+                            text: "Aᴬ"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(30)
+                            font.weight: Font.Medium
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
 
                         Text {
-                            text: root.displayedTextSize() + "px"
-                            color: Theme.textSecondary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
+                            Layout.preferredWidth: root.ui(124)
+                            text: "Text size"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
                         }
-                    }
-
-                    Rectangle {
-                        width: parent.width
-                        height: 42
-                        radius: Theme.radiusSm
-                        color: root.cursorActive && root.focusSection === "textsize"
-                            ? Theme.selection
-                            : Theme.surface
-                        border.color: root.cursorActive && root.focusSection === "textsize"
-                            ? Theme.borderActive
-                            : Theme.border
-                        border.width: Theme.borderWidthDefault
 
                         Slider {
                             id: textSizeSlider
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.spacingSm
-                            anchors.rightMargin: Theme.spacingSm
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: root.ui(36)
                             from: 0
                             to: root.textSizeStops.length - 1
                             stepSize: 1
                             value: root.currentTextIndex()
                             onMoved: root.textSizePreviewIndex = Math.round(value)
                             onPressedChanged: if (!pressed) root.setTextSize(root.textSizeStops[Math.round(value)])
+
+                            background: Rectangle {
+                                x: textSizeSlider.leftPadding
+                                y: textSizeSlider.topPadding + textSizeSlider.availableHeight / 2 - height / 2
+                                width: textSizeSlider.availableWidth
+                                height: root.ui(6)
+                                radius: height / 2
+                                color: root.displayTrack
+
+                                Rectangle {
+                                    width: textSizeSlider.visualPosition * parent.width
+                                    height: parent.height
+                                    radius: height / 2
+                                    color: root.displayAccent
+                                }
+                            }
+
+                            handle: Rectangle {
+                                x: textSizeSlider.leftPadding + textSizeSlider.visualPosition * (textSizeSlider.availableWidth - width)
+                                y: textSizeSlider.topPadding + textSizeSlider.availableHeight / 2 - height / 2
+                                width: root.ui(29)
+                                height: width
+                                radius: width / 2
+                                color: root.displayKnob
+                                border.color: root.displayControlBorder
+                                border.width: root.ui(1)
+                            }
                         }
 
-                        MouseArea {
-                            anchors.fill: parent
-                            acceptedButtons: Qt.NoButton
-                            hoverEnabled: true
-                            onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
+                        Text {
+                            Layout.preferredWidth: root.ui(54)
+                            text: root.displayedTextSize() + " px"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
+                            horizontalAlignment: Text.AlignRight
+                        }
+
+                        HoverHandler {
+                            onHoveredChanged: if (hovered && !root.reflowingText) {
                                 root.cursorActive = true
                                 root.focusSection = "textsize"
                                 root.selectedIndex = -1
@@ -732,184 +989,467 @@ AureliaKeyboardPanel {
                     }
                 }
 
-                Rectangle {
+                Item {
                     width: parent.width
-                    height: 1
-                    color: Theme.border
-                    opacity: 0.6
-                }
-
-                Column {
-                    width: parent.width
-                    spacing: Theme.spacingSm
+                    height: root.ui(86)
 
                     RowLayout {
-                        width: parent.width
-                        height: 22
+                        anchors.fill: parent
+                        spacing: root.ui(16)
+
+                        DisplayIcon {
+                            Layout.preferredWidth: root.ui(42)
+                            Layout.preferredHeight: root.ui(42)
+                            kind: "monitor"
+                            color: root.displayInk
+                        }
 
                         Text {
                             Layout.fillWidth: true
-                            text: "SCALE"
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
-                            font.letterSpacing: 0.8
+                            text: "Scale (UI)"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
                         }
 
-                        Text {
-                            text: root.focusedMonitor
-                            visible: root.focusedMonitor !== "" && root.enabledDisplayCount > 1
-                            color: Theme.textSecondary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
-                            elide: Text.ElideLeft
+                        Rectangle {
+                            id: scaleCombo
+                            Layout.preferredWidth: root.ui(282)
+                            Layout.minimumWidth: root.ui(190)
+                            Layout.preferredHeight: root.ui(52)
+                            radius: root.ui(12)
+                            color: root.displayControl
+                            border.color: root.scaleExpanded || (root.cursorActive && root.focusSection === "scale")
+                                ? root.displayAccent : root.displayControlBorder
+                            border.width: root.ui(1)
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: root.ui(18)
+                                anchors.right: chevron.left
+                                anchors.rightMargin: root.ui(8)
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.currentScaleLabel()
+                                color: root.displayInk
+                                font.family: root.displayFont
+                                font.pixelSize: root.ui(20)
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                id: chevron
+                                anchors.right: parent.right
+                                anchors.rightMargin: root.ui(15)
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.scaleExpanded ? "⌃" : "⌄"
+                                color: root.displayInk
+                                font.family: root.displayFont
+                                font.pixelSize: root.ui(25)
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                z: 10
+                                hoverEnabled: true
+                                preventStealing: true
+                                acceptedButtons: Qt.LeftButton
+                                cursorShape: Qt.PointingHandCursor
+                                onEntered: {
+                                    root.cursorActive = true
+                                    root.focusSection = "scale"
+                                    root.selectedIndex = -1
+                                }
+                                onClicked: root.toggleScaleSelector()
+                            }
                         }
                     }
 
+                    MouseArea {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: root.ui(282)
+                        height: root.ui(52)
+                        z: 100
+                        hoverEnabled: true
+                        preventStealing: true
+                        acceptedButtons: Qt.LeftButton
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.toggleScaleSelector()
+                    }
+                }
+
+                Item {
+                    width: parent.width
+                    height: root.resolutionValues.length > 0 ? root.ui(86) : 0
+                    visible: root.resolutionValues.length > 0
+
                     RowLayout {
-                        width: parent.width
-                        spacing: Theme.spacingXs
+                        anchors.fill: parent
+                        spacing: root.ui(16)
 
-                        Repeater {
-                            model: root.scaleValues
+                        DisplayIcon {
+                            Layout.preferredWidth: root.ui(42)
+                            Layout.preferredHeight: root.ui(42)
+                            kind: "monitor"
+                            color: root.displayInk
+                        }
 
-                            Rectangle {
-                                required property string modelData
-                                required property int index
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 34
-                                radius: Theme.radiusSm
-                                color: root.cursorActive && root.focusSection === "scale" && root.selectedIndex === index
-                                    ? Theme.selectionActive
-                                    : (root.activeScaleIndex() === index ? Theme.selection : Theme.surface)
-                                border.color: root.activeScaleIndex() === index ? Theme.borderActive : Theme.border
-                                border.width: Theme.borderWidthDefault
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Resolution"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
+                        }
 
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: root.effectiveScale(modelData) + "x"
-                                    color: Theme.text
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeXs
-                                    font.weight: Theme.fontWeightMedium
+                        Rectangle {
+                            id: resolutionCombo
+                            Layout.preferredWidth: root.ui(282)
+                            Layout.minimumWidth: root.ui(190)
+                            Layout.preferredHeight: root.ui(52)
+                            radius: root.ui(12)
+                            color: root.displayControl
+                            border.color: root.resolutionExpanded || (root.cursorActive && root.focusSection === "resolution")
+                                ? root.displayAccent : root.displayControlBorder
+                            border.width: root.ui(1)
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: root.ui(18)
+                                anchors.right: resolutionChevron.left
+                                anchors.rightMargin: root.ui(8)
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.resolutionOptionLabel(root.currentResolutionMode())
+                                color: root.displayInk
+                                font.family: root.displayFont
+                                font.pixelSize: root.ui(18)
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                id: resolutionChevron
+                                anchors.right: parent.right
+                                anchors.rightMargin: root.ui(15)
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.resolutionExpanded ? "⌃" : "⌄"
+                                color: root.displayInk
+                                font.family: root.displayFont
+                                font.pixelSize: root.ui(25)
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                preventStealing: true
+                                acceptedButtons: Qt.LeftButton
+                                cursorShape: Qt.PointingHandCursor
+                                onEntered: {
+                                    root.cursorActive = true
+                                    root.focusSection = "resolution"
+                                    root.selectedIndex = root.currentResolutionIndex()
                                 }
+                                onClicked: root.toggleResolutionSelector()
+                            }
+                        }
+                    }
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
-                                        root.cursorActive = true
-                                        root.focusSection = "scale"
-                                        root.selectedIndex = index
-                                    }
-                                    onClicked: root.setScale(modelData)
-                                }
+                    MouseArea {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: root.ui(282)
+                        height: root.ui(52)
+                        z: 100
+                        hoverEnabled: true
+                        preventStealing: true
+                        acceptedButtons: Qt.LeftButton
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.toggleResolutionSelector()
+                    }
+                }
+
+                Item {
+                    width: parent.width
+                    height: root.activeDisplay() !== null ? root.ui(86) : 0
+                    visible: root.activeDisplay() !== null
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: root.ui(16)
+
+                        DisplayIcon {
+                            Layout.preferredWidth: root.ui(42)
+                            Layout.preferredHeight: root.ui(42)
+                            kind: "refresh"
+                            color: root.displayInk
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Refresh rate"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
+                        }
+
+                        Rectangle {
+                            id: refreshCombo
+                            Layout.preferredWidth: root.ui(282)
+                            Layout.minimumWidth: root.ui(190)
+                            Layout.preferredHeight: root.ui(52)
+                            radius: root.ui(12)
+                            color: root.displayControl
+                            border.color: root.refreshExpanded || (root.cursorActive && root.focusSection === "resolution")
+                                ? root.displayAccent : root.displayControlBorder
+                            border.width: root.ui(1)
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: root.ui(18)
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.refreshLabel(root.activeDisplay())
+                                color: root.displayInk
+                                font.family: root.displayFont
+                                font.pixelSize: root.ui(18)
+                            }
+
+                            Text {
+                                anchors.right: parent.right
+                                anchors.rightMargin: root.ui(15)
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "⌄"
+                                color: root.displayInk
+                                font.family: root.displayFont
+                                font.pixelSize: root.ui(25)
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                preventStealing: true
+                                acceptedButtons: Qt.LeftButton
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.toggleRefreshSelector()
                             }
                         }
                     }
                 }
 
+                Item { width: parent.width; height: root.ui(26) }
+
                 Rectangle {
                     width: parent.width
-                    height: 1
-                    visible: root.resolutionValues.length > 0
-                    color: Theme.border
-                    opacity: 0.6
+                    height: root.ui(1)
+                    color: root.displayDivider
                 }
 
-                Column {
+                Item { width: parent.width; height: root.ui(22) }
+
+                Item {
                     width: parent.width
-                    visible: root.resolutionValues.length > 0
-                    spacing: Theme.spacingXs
+                    height: root.ui(76)
 
                     RowLayout {
-                        width: parent.width
-                        height: 22
+                        anchors.fill: parent
+                        spacing: root.ui(16)
+
+                        DisplayIcon {
+                            Layout.preferredWidth: root.ui(42)
+                            Layout.preferredHeight: root.ui(42)
+                            kind: "adaptive"
+                            color: root.displayInk
+                        }
 
                         Text {
                             Layout.fillWidth: true
-                            text: "RESOLUTION"
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
-                            font.letterSpacing: 0.8
+                            text: "Adaptive sync (VRR)"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: root.ui(64)
+                            Layout.preferredHeight: root.ui(36)
+                            radius: height / 2
+                            color: root.adaptiveSyncEnabled() ? root.displayAccent : root.displayOff
+
+                            Rectangle {
+                                width: root.ui(28)
+                                height: width
+                                radius: width / 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: root.adaptiveSyncEnabled()
+                                    ? parent.width - width - root.ui(4) : root.ui(4)
+                                color: root.displayKnob
+                            }
+                        }
+                    }
+                }
+
+                Item { width: parent.width; height: root.ui(22) }
+
+                Rectangle {
+                    width: parent.width
+                    height: root.ui(1)
+                    color: root.displayDivider
+                }
+
+                Item { width: parent.width; height: root.ui(20) }
+
+                Item {
+                    width: parent.width
+                    height: root.ui(76)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: root.ui(16)
+
+                        DisplayIcon {
+                            Layout.preferredWidth: root.ui(42)
+                            Layout.preferredHeight: root.ui(42)
+                            kind: "gear"
+                            color: root.displayInk
                         }
 
                         Text {
-                            text: root.currentResolution
-                            color: Theme.textSecondary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeXs
-                            font.weight: Theme.fontWeightBold
+                            Layout.fillWidth: true
+                            text: "Advanced"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(20)
+                        }
+
+                        Text {
+                            Layout.preferredWidth: root.ui(26)
+                            text: "›"
+                            color: root.displayInk
+                            font.family: root.displayFont
+                            font.pixelSize: root.ui(34)
+                            horizontalAlignment: Text.AlignRight
+                            verticalAlignment: Text.AlignVCenter
                         }
                     }
 
-                    Repeater {
-                        model: root.resolutionValues
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: {
+                            root.cursorActive = true
+                        }
+                        onClicked: root.advancedOpen = true
+                    }
+                }
 
-                        Rectangle {
-                            required property var modelData
-                            required property int index
-                            width: parent.width
-                            height: 34
-                            radius: Theme.radiusSm
-                            color: root.cursorActive && root.focusSection === "resolution" && root.selectedIndex === index
-                                ? Theme.selectionActive
-                                : (modelData.mode === root.currentResolution ? Theme.selection : Theme.surface)
-                            border.color: modelData.mode === root.currentResolution ? Theme.borderActive : Theme.border
-                            border.width: Theme.borderWidthDefault
+                Item { width: parent.width; height: root.ui(22) }
 
-                            Text {
-                                anchors.left: parent.left
-                                anchors.leftMargin: Theme.spacingSm
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: modelData.label
-                                color: Theme.text
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeSm
-                                font.weight: Theme.fontWeightMedium
+                Rectangle {
+                    width: parent.width
+                    height: root.ui(1)
+                    color: root.displayDivider
+                }
+
+                Item {
+                    width: parent.width
+                    height: root.ui(94)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 0
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: root.ui(16)
+
+                                DisplayIcon {
+                                    Layout.preferredWidth: root.ui(34)
+                                    Layout.preferredHeight: root.ui(34)
+                                    kind: "identify"
+                                    color: root.identifyingDisplay ? root.displayAccent : root.displayInk
+                                }
+
+                                Text {
+                                    text: root.identifyingDisplay ? "Identifying…" : "Identify display"
+                                    color: root.identifyingDisplay ? root.displayAccent : root.displayInk
+                                    font.family: root.displayFont
+                                    font.pixelSize: root.ui(19)
+                                }
                             }
 
                             MouseArea {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
-                                    root.cursorActive = true
-                                    root.focusSection = "resolution"
-                                    root.selectedIndex = index
+                                onClicked: root.identifyDisplay()
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: root.ui(1)
+                            Layout.preferredHeight: root.ui(50)
+                            color: root.displayDivider
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: root.ui(16)
+
+                                DisplayIcon {
+                                    Layout.preferredWidth: root.ui(34)
+                                    Layout.preferredHeight: root.ui(34)
+                                    kind: "arrange"
+                                    color: root.displayInk
                                 }
-                                onClicked: root.setResolution(modelData.mode)
+
+                                Text {
+                                    text: "Arrange displays"
+                                    color: root.displayInk
+                                    font.family: root.displayFont
+                                    font.pixelSize: root.ui(19)
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.displayManagementExpanded = !root.displayManagementExpanded
                             }
                         }
                     }
                 }
 
-                Rectangle {
-                    width: parent.width
-                    height: 1
-                    visible: root.displays.length > 1
-                    color: Theme.border
-                    opacity: 0.6
-                }
-
                 Column {
                     width: parent.width
-                    visible: root.displays.length > 1
-                    spacing: Theme.spacingXs
+                    visible: root.displayManagementExpanded
+                    height: visible ? implicitHeight : 0
+                    spacing: root.ui(10)
 
                     Text {
                         width: parent.width
-                        text: "DISPLAYS"
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeXs
-                        font.weight: Theme.fontWeightBold
-                        font.letterSpacing: 0.8
+                        text: "ADDITIONAL DISPLAYS"
+                        color: root.displaySecondary
+                        font.family: root.displayFont
+                        font.pixelSize: root.ui(13)
+                        font.weight: Font.Bold
+                        font.letterSpacing: root.ui(1)
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: root.displays.length <= 1
+                        text: "No additional displays detected"
+                        color: root.displayMuted
+                        font.family: root.displayFont
+                        font.pixelSize: root.ui(15)
                     }
 
                     Repeater {
@@ -919,30 +1459,24 @@ AureliaKeyboardPanel {
                             required property var modelData
                             required property int index
                             width: parent.width
-                            height: 42
-                            radius: Theme.radiusSm
+                            height: root.ui(56)
+                            radius: root.ui(12)
                             opacity: modelData.enabled || root.enabledDisplayCount > 1 ? 1 : 0.5
-                            color: root.cursorActive && root.focusSection === "monitors" && root.selectedIndex === index
-                                ? Theme.selectionActive
-                                : (modelData.focused ? Theme.selection : Theme.surface)
-                            border.color: modelData.focused ? Theme.borderActive : Theme.border
-                            border.width: Theme.borderWidthDefault
+                            color: modelData.focused ? root.displayAccent : root.displayControl
+                            border.color: modelData.focused ? root.displayAccent : root.displayControlBorder
+                            border.width: root.ui(1)
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.leftMargin: Theme.spacingSm
-                                anchors.rightMargin: Theme.spacingSm
-                                spacing: Theme.spacingSm
+                                anchors.leftMargin: root.ui(16)
+                                anchors.rightMargin: root.ui(16)
+                                spacing: root.ui(12)
 
-                                Text {
-                                    Layout.preferredWidth: 18
-                                    Layout.preferredHeight: 18
-                                    text: "󰍹"
-                                    color: Theme.textSecondary
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 18
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
+                                DisplayIcon {
+                                    Layout.preferredWidth: root.ui(28)
+                                    Layout.preferredHeight: root.ui(28)
+                                    kind: "monitor"
+                                    color: modelData.focused ? root.displayOnAccent : root.displaySecondary
                                 }
 
                                 Text {
@@ -950,20 +1484,19 @@ AureliaKeyboardPanel {
                                     text: String(modelData.name || "Display") +
                                         (modelData.width > 0 && modelData.height > 0
                                             ? " · " + modelData.width + "×" + modelData.height
-                                            : "") +
-                                        (modelData.focused ? " · focused" : "")
-                                    color: Theme.text
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeSm
+                                            : "")
+                                    color: modelData.focused ? root.displayOnAccent : root.displayInk
+                                    font.family: root.displayFont
+                                    font.pixelSize: root.ui(17)
                                     elide: Text.ElideRight
                                 }
 
                                 Text {
                                     text: modelData.enabled ? "✓" : ""
-                                    color: Theme.accent
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeMd
-                                    font.weight: Theme.fontWeightBold
+                                    color: modelData.focused ? root.displayOnAccent : root.displayAccent
+                                    font.family: root.displayFont
+                                    font.pixelSize: root.ui(20)
+                                    font.weight: Font.Bold
                                 }
                             }
 
@@ -971,9 +1504,8 @@ AureliaKeyboardPanel {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: modelData.enabled && root.enabledDisplayCount <= 1
-                                    ? Qt.ArrowCursor
-                                    : Qt.PointingHandCursor
-                                onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
+                                    ? Qt.ArrowCursor : Qt.PointingHandCursor
+                                onEntered: {
                                     root.cursorActive = true
                                     root.focusSection = "monitors"
                                     root.selectedIndex = index
@@ -985,7 +1517,173 @@ AureliaKeyboardPanel {
                     }
                 }
 
-                Item { width: parent.width; height: Theme.spacingXs }
+                Item { width: parent.width; height: root.ui(10) }
+            }
+        }
+
+        ScrollView {
+            id: advancedScrollView
+            anchors.fill: parent
+            clip: true
+            visible: root.advancedOpen
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+            Loader {
+                id: advancedLoader
+                width: advancedScrollView.availableWidth
+                height: item ? item.implicitHeight : 0
+                source: Qt.resolvedUrl("DisplayAdvancedContent.qml")
+                onLoaded: {
+                    item.scaleFactor = root.displayScale
+                    item.display = root.activeDisplay()
+                }
+            }
+        }
+
+        Connections {
+            target: advancedLoader.item
+            function onBackRequested() { root.advancedOpen = false }
+        }
+
+        Popup {
+            id: dropdownPopup
+            parent: keyScope
+            modal: false
+            focus: true
+            padding: root.ui(5)
+            width: root.ui(282)
+            height: Math.min(
+                root.ui(4 * 44) + padding * 2 + root.ui(6) * 3,
+                Math.max(root.ui(54), root.dropdownModel.length * root.ui(44) + padding * 2 +
+                    Math.max(0, root.dropdownModel.length - 1) * root.ui(6)))
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            x: root.dropdownAnchorItem && typeof root.dropdownAnchorItem.mapToItem === "function"
+                ? root.dropdownAnchorItem.mapToItem(keyScope, 0, 0).x : 0
+            y: root.dropdownAnchorItem && typeof root.dropdownAnchorItem.mapToItem === "function"
+                ? root.dropdownAnchorItem.mapToItem(keyScope, 0, root.dropdownAnchorItem.height).y + root.ui(5) : 0
+
+            background: Rectangle {
+                radius: root.ui(12)
+                color: root.displayCard
+                border.color: root.displayAccent
+                border.width: root.ui(1)
+            }
+
+            contentItem: ListView {
+                id: dropdownList
+                clip: true
+                model: root.dropdownModel
+                spacing: root.ui(6)
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                delegate: Rectangle {
+                    required property var modelData
+                    required property int index
+                    width: dropdownList.width
+                    height: root.ui(44)
+                    radius: root.ui(9)
+                    color: root.dropdownSelected(modelData, index)
+                        ? root.displayAccent : root.displayControl
+                    border.color: root.dropdownSelected(modelData, index)
+                        ? root.displayAccent : root.displayControlBorder
+                    border.width: root.ui(1)
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: root.ui(14)
+                        anchors.right: parent.right
+                        anchors.rightMargin: root.ui(12)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.dropdownLabel(modelData)
+                        color: root.dropdownSelected(modelData, index) ? root.displayOnAccent : root.displayInk
+                        font.family: root.displayFont
+                        font.pixelSize: root.ui(16)
+                        elide: Text.ElideRight
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        preventStealing: true
+                        acceptedButtons: Qt.LeftButton
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.selectDropdown(index, modelData)
+                    }
+                }
+            }
+
+            onClosed: {
+                root.dropdownKind = ""
+                root.dropdownAnchorItem = null
+                root.dropdownModel = []
+                root.scaleExpanded = false
+                root.resolutionExpanded = false
+                root.refreshExpanded = false
+            }
+        }
+
+        Rectangle {
+            visible: root.identifyingDisplay && !root.advancedOpen
+            anchors.centerIn: parent
+            width: Math.min(parent.width - root.ui(24), root.ui(300))
+            height: root.ui(148)
+            z: 200
+            radius: root.ui(16)
+            color: root.displayAccent
+            border.color: root.displayOnAccent
+            border.width: root.ui(1)
+
+            Column {
+                anchors.centerIn: parent
+                spacing: root.ui(5)
+
+                DisplayIcon {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: root.ui(34)
+                    height: root.ui(34)
+                    kind: "identify"
+                    color: root.displayOnAccent
+                }
+
+                Text {
+                    width: root.ui(260)
+                    text: "DISPLAY IDENTIFICATION"
+                    color: root.displayOnAccent
+                    font.family: root.displayFont
+                    font.pixelSize: root.ui(13)
+                    font.weight: Font.Bold
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                Text {
+                    width: root.ui(260)
+                    text: root.activeDisplay() && root.activeDisplay().name
+                        ? String(root.activeDisplay().name) : "Display"
+                    color: root.displayOnAccent
+                    font.family: root.displayFont
+                    font.pixelSize: root.ui(20)
+                    font.weight: Font.Bold
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    width: root.ui(260)
+                    text: root.activeDisplay()
+                        ? root.resolutionLabel(root.activeDisplay()) + " · " + root.refreshLabel(root.activeDisplay())
+                        : "No display detected"
+                    color: root.displayOnAccent
+                    font.family: root.displayFont
+                    font.pixelSize: root.ui(14)
+                    horizontalAlignment: Text.AlignHCenter
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                onClicked: root.identifyingDisplay = false
             }
         }
     }

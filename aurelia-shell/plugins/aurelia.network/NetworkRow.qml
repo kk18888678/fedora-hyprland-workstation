@@ -105,7 +105,7 @@ Item {
             Text {
                 width: parent.width
                 text: row.net && row.net.ssid !== "" ? row.net.ssid : "Hidden network"
-                color: Theme.text
+                color: Theme.popups.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: Theme.fontWeightMedium

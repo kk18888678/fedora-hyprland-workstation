@@ -164,6 +164,65 @@ function resolutionModes(display) {
   return result
 }
 
+// The resolution selector chooses a resolution family. Refresh rate is a
+// separate selector, so do not expose every mode as a resolution row.
+function resolutionChoices(display) {
+  var modes = resolutionModes(display)
+  var choices = []
+  var byResolution = {}
+  var current = currentMode(display)
+
+  for (var i = 0; i < modes.length; i++) {
+    var mode = modes[i]
+    var key = mode.width + "x" + mode.height
+    var choice = byResolution[key]
+    if (!choice) {
+      choice = {
+        mode: mode.mode,
+        width: mode.width,
+        height: mode.height,
+        native: mode.mode === current
+      }
+      byResolution[key] = choice
+      choices.push(choice)
+    } else if (mode.mode === current) {
+      choice.mode = mode.mode
+      choice.native = true
+    }
+  }
+
+  for (var j = 0; j < choices.length; j++) {
+    var selected = choices[j]
+    selected.label = selected.width + " × " + selected.height +
+      (selected.native ? " (Native)" : "")
+  }
+  return choices
+}
+
+function refreshChoices(display) {
+  if (!display) return []
+  var current = currentMode(display)
+  var currentMatch = current.match(/^([0-9]+)x([0-9]+)@([0-9]+(?:\.[0-9]+)?)$/)
+  if (!currentMatch) return []
+
+  var width = Number(currentMatch[1])
+  var height = Number(currentMatch[2])
+  var modes = resolutionModes(display)
+  var choices = []
+  var seen = {}
+  for (var i = 0; i < modes.length; i++) {
+    var mode = modes[i]
+    if (mode.width !== width || mode.height !== height || seen[mode.refresh]) continue
+    seen[mode.refresh] = true
+    choices.push({
+      mode: mode.mode,
+      refresh: mode.refresh,
+      label: String(mode.refresh) + " Hz"
+    })
+  }
+  return choices
+}
+
 function currentMode(display) {
   if (!display) return ""
   var width = Number(display.width)
@@ -185,6 +244,8 @@ if (typeof module !== "undefined") {
     parseDisplays: parseDisplays,
     normalizedMode: normalizedMode,
     resolutionModes: resolutionModes,
+    resolutionChoices: resolutionChoices,
+    refreshChoices: refreshChoices,
     currentMode: currentMode
   }
 }

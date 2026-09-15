@@ -45,6 +45,32 @@ else
     fail "Display panel lifecycle, action routing, or last-display guard is incomplete"
 fi
 
+if [[ -f "$plugin_root/DisplayIcon.qml" ]] &&
+   [[ -f "$plugin_root/DisplayAdvancedContent.qml" ]] &&
+   grep -Fq 'DisplayIcon' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'source: Qt.resolvedUrl("DisplayAdvancedContent.qml")' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'advancedOpen' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'Popup {' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'resolutionChoices' "$plugin_root/Model.js" &&
+   grep -Fq 'refreshChoices' "$plugin_root/Model.js" &&
+   grep -Fq 'colorTemperature' "$plugin_root/DisplayAdvancedContent.qml" &&
+   grep -Fq 'extraView' "$plugin_root/DisplayAdvancedContent.qml" &&
+   grep -Fq 'EDID information' "$plugin_root/DisplayAdvancedContent.qml" &&
+   grep -Fq 'function identifyDisplay' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'No additional displays detected' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'overlayComponent: Component' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'cardVisible: !root.identifyingDisplay' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'Theme.popups.background' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'Theme.popups.text' "$plugin_root/DisplayAdvancedContent.qml" &&
+   ! grep -Eq '"#[0-9A-Fa-f]{6}' "$plugin_root/DisplayPanel.qml" "$plugin_root/DisplayAdvancedContent.qml" "$plugin_root/DisplayIcon.qml" &&
+   grep -Fq 'panelBackground: root.displayCard' "$plugin_root/DisplayPanel.qml" &&
+   grep -Fq 'Adaptive sync (VRR)' "$plugin_root/DisplayPanel.qml" &&
+   ! grep -Fq 'control.' "$plugin_root/DisplayPanel.qml"; then
+    pass "Display card uses the reference presentation primitives without unresolved slider bindings"
+else
+    fail "Display card presentation or slider bindings are incomplete"
+fi
+
 if grep -Fq 'onWheel' "$plugin_root/DisplayBarWidget.qml" &&
    grep -Fq 'wheelBrightness' "$plugin_root/DisplayBarWidget.qml" &&
    grep -Fq 'barAnchorItem' "$plugin_root/DisplayBarWidget.qml" &&
@@ -92,6 +118,20 @@ const modes = model.resolutionModes({
   availableModes: ["5120x2880@60Hz", "1920x1080@60.00Hz", "1280x720@60Hz"]
 })
 assert(modes.length === 3 && modes[0].mode === "5120x2880@60", "available resolutions")
+const resolutionChoices = model.resolutionChoices({
+  width: 1920,
+  height: 1080,
+  refreshRate: 60,
+  availableModes: ["5120x2880@60Hz", "1920x1080@60.00Hz", "1920x1080@75Hz", "1280x720@60Hz"]
+})
+assert(resolutionChoices.length === 3 && resolutionChoices[1].label === "1920 × 1080 (Native)", "resolution choices omit refresh duplicates")
+const refreshChoices = model.refreshChoices({
+  width: 1920,
+  height: 1080,
+  refreshRate: 60,
+  availableModes: ["1920x1080@60.00Hz", "1920x1080@75Hz", "1280x720@60Hz"]
+})
+assert(refreshChoices.length === 2 && refreshChoices[1].label === "75 Hz", "refresh choices are separate")
 const parsed = model.parseDisplays(JSON.stringify([
   { name: "eDP-1", enabled: true },
   { name: "DP-1", enabled: false },
@@ -167,7 +207,7 @@ state_output="$(PATH="$display_bin:$PATH" \
     "$ROOT/bin/aurelia-monitor-state")"
 if [[ "$(sed -n '1p' <<<"$state_output")" == "42" &&
       "$(sed -n '6p' <<<"$state_output")" == "eDP-1" &&
-      "$(sed -n '8p' <<<"$state_output")" == '[{"name":"eDP-1","enabled":true,"focused":true,"width":1920,"height":1080,"refreshRate":60.0,"availableModes":["1920x1080@60.00Hz","1280x720@60.00Hz"]},{"name":"DP-1","enabled":true,"focused":false,"width":2560,"height":1440,"refreshRate":60.0,"availableModes":["2560x1440@60.00Hz"]}]' ]]; then
+      "$(sed -n '8p' <<<"$state_output")" == '[{"name":"eDP-1","enabled":true,"focused":true,"width":1920,"height":1080,"refreshRate":60.0,"vrr":false,"availableModes":["1920x1080@60.00Hz","1280x720@60.00Hz"]},{"name":"DP-1","enabled":true,"focused":false,"width":2560,"height":1440,"refreshRate":60.0,"vrr":false,"availableModes":["2560x1440@60.00Hz"]}]' ]]; then
     pass "monitor-state keeps the eight-line record aligned and preserves display fields"
 else
     fail "monitor-state output contract drifted: $state_output"

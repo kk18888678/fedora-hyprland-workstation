@@ -77,6 +77,7 @@ display_json="$("$jq_bin" -c '[.[] | {
     width: (.width // 0),
     height: (.height // 0),
     refreshRate: (.refreshRate // 0),
+    vrr: (.vrr == true),
     availableModes: (if ((.availableModes // []) | type) == "array" then .availableModes else [] end)
 }]' <<<"$monitors_json")" || exit 1
 

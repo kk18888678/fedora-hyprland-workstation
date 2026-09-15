@@ -28,7 +28,7 @@ Item {
         Text {
             width: parent.width
             text: "SERVERS  " + (root.panelRoot ? root.panelRoot.dnsServers : "DHCP")
-            color: Theme.textSecondary
+            color: Theme.popups.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeXs
             elide: Text.ElideRight
@@ -40,7 +40,7 @@ Item {
             text: root.panelRoot && root.panelRoot.dnsError !== ""
                 ? root.panelRoot.dnsError
                 : "Applying " + (root.panelRoot ? root.panelRoot.pendingDnsProvider : "") + " DNS…"
-            color: root.panelRoot && root.panelRoot.dnsError !== "" ? Theme.error : Theme.textMuted
+            color: root.panelRoot && root.panelRoot.dnsError !== "" ? Theme.error : Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeXs
             wrapMode: Text.Wrap

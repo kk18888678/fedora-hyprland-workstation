@@ -28,6 +28,14 @@ PanelWindow {
     property var dismissHandler: null
     property var focusTarget: null
     property bool focusPrimed: false
+    // Panels can opt into a product-specific card treatment without changing
+    // the layer-shell, focus, or anchoring contract shared by every popup.
+    property color panelBackground: Theme.popups.background
+    property color panelBorder: Theme.popups.border
+    property int panelBorderWidth: Theme.borderWidthDefault
+    property int panelRadius: Theme.radiusLg
+    property bool cardVisible: true
+    property Component overlayComponent: null
     property bool surfaceReady: false
     property int surfaceX: 0
     property int surfaceY: 0
@@ -196,11 +204,11 @@ PanelWindow {
         width: root.resolvedPopupWidth
         height: root.resolvedPopupHeight
         z: 1
-        radius: Theme.radiusLg
-        color: Theme.popups.background
-        border.color: Theme.popups.border
-        border.width: Theme.borderWidthDefault
-        visible: root.shown
+        radius: root.panelRadius
+        color: root.panelBackground
+        border.color: root.panelBorder
+        border.width: root.panelBorderWidth
+        visible: root.shown && root.cardVisible
 
         MouseArea {
             anchors.fill: parent
@@ -229,5 +237,13 @@ PanelWindow {
                 anchors.fill: parent
             }
         }
+    }
+
+    Loader {
+        id: overlayLoader
+        anchors.fill: parent
+        z: 10
+        active: root.shown && root.overlayComponent !== null
+        sourceComponent: root.overlayComponent
     }
 }

@@ -26,7 +26,7 @@ Item {
         DetailLabel { text: "Packet Loss" }
         DetailValue {
             text: root.panelRoot ? root.panelRoot.formatLoss(root.panelRoot.internetPingPacketLoss) : "--"
-            valueColor: root.panelRoot && root.panelRoot.internetPingPacketLoss > 0 ? Theme.warning : Theme.textSecondary
+            valueColor: root.panelRoot && root.panelRoot.internetPingPacketLoss > 0 ? Theme.warning : Theme.popups.text
         }
 
         DetailLabel { text: "Receiving" }
@@ -54,14 +54,14 @@ Item {
     }
 
     component DetailLabel: Text {
-        color: Theme.textMuted
+        color: Theme.popups.text
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontSizeXs
     }
 
     component DetailValue: Text {
         property bool copyable: false
-        property color valueColor: Theme.textSecondary
+        property color valueColor: Theme.popups.text
         property string tooltipText: "Copy value"
 
         Layout.fillWidth: true

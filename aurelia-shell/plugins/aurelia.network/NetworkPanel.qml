@@ -732,7 +732,7 @@ AureliaKeyboardPanel {
                             : (root.restricted ? "LIMITED INTERNET ACCESS"
                                 : (root.kind === "ethernet" || root.kind === "wifi"
                                     ? root.connectionPhrase.toUpperCase() : "NOT CONNECTED"))
-                        color: root.restricted ? Theme.warning : Theme.textMuted
+                        color: root.restricted ? Theme.warning : Theme.popups.text
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
