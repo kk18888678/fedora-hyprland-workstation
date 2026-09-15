@@ -90,6 +90,13 @@ wsp_config_defaults() {
     WSP_CFG_KEY_PREVIEW_UP=alt-k
     WSP_CFG_KEY_PREVIEW_DOWN=alt-j
     WSP_CFG_KEY_SELECT_ALL=ctrl-a
+    WSP_CFG_KEY_SEARCH=/
+    WSP_CFG_KEY_QUEUE=a
+    WSP_CFG_KEY_SOURCE=s
+    WSP_CFG_KEY_INFO=i
+    WSP_CFG_KEY_QUIT=q
+    WSP_CFG_KEY_FILTER_NEXT=right
+    WSP_CFG_KEY_FILTER_PREVIOUS=left
 
     WSP_CFG_TUI_PREVIEW_WINDOW=down:40%:wrap
     WSP_CFG_TUI_HEIGHT=100%
@@ -332,7 +339,8 @@ wsp_config_validate_keys() {
 
     for key_name in \
         UP DOWN PAGE_UP PAGE_DOWN SELECT ACCEPT CANCEL REFRESH HELP \
-        PREVIEW_TOGGLE PREVIEW_UP PREVIEW_DOWN SELECT_ALL; do
+        PREVIEW_TOGGLE PREVIEW_UP PREVIEW_DOWN SELECT_ALL SEARCH QUEUE SOURCE \
+        INFO QUIT FILTER_NEXT FILTER_PREVIOUS; do
         variable="WSP_CFG_KEY_$key_name"
         value="${!variable}"
         if [[ -n "${seen[$value]+present}" ]]; then

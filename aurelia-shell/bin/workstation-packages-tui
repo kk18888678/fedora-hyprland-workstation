@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# Dedicated Package Manager TUI launcher. Package ownership and transactions
+# remain in workstation-packages; this entry point owns only presentation.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+python_bin="$(command -v python3)" || {
+    printf '%s\n' 'ERROR: python3 is required for the Package Manager TUI.' >&2
+    exit 1
+}
+
+exec "$python_bin" "$script_dir/lib/workstation-packages/tui.py" "$@"

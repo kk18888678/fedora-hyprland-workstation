@@ -204,8 +204,16 @@ else
     fail "Refresh did not make both DNF and Flatpak catalog rows searchable"
 fi
 
+if env "${test_env[@]}" "$backend" install-catalog-row \
+       --provider dnf --source fedora --id mock-dnf --scope system --track --yes >/dev/null &&
+   grep -Fxq $'dnf\tfedora\tmock-dnf\tsystem\tall' "$repo/packages/user-managed.tsv"; then
+    pass "Dedicated TUI install boundary re-reads the selected catalog identity in the backend"
+else
+    fail "Dedicated catalog-row install boundary did not preserve provider-aware tracking"
+fi
+
 if env "${test_env[@]}" "$backend" open >/dev/null &&
-   tr '\0' ' ' <"$fixture/open.log" | grep -Fq 'tui search'; then
+   tr '\0' ' ' <"$fixture/open.log" | grep -Fq 'workstation-packages-tui'; then
     pass "Opening Package Manager enters the ready package search directly"
 else
     fail "Opening Package Manager did not launch the direct search surface"

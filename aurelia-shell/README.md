@@ -233,6 +233,8 @@ shows selected-package metadata below the list. Catalog refresh and package
 updates remain separate explicit actions. DNF download sizes come from DNF5
 metadata; Aurelia shows the GitHub asset size and the current local binary size
 when available, with `n/a` reserved for data the provider does not publish.
+The dedicated `workstation-packages-tui` frontend owns presentation only and
+inherits Aurelia's active semantic theme at launch.
 
 Plugins may expose their own target. The Keybindings plugin is
 `aurelia.keybindings`; the legacy `keybindings` and `hotkeys` targets remain

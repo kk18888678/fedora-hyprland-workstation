@@ -150,6 +150,7 @@ Read-only:
   search --all-versions [query]             Include every cached version/build.
   latest [query]                             Search only the newest row per package identity.
   catalog status                            Show cache age, schema, row counts, and source health.
+  catalog-tui-bootstrap                     Prepare the cache for the dedicated Package Manager TUI.
   info --provider P --source S --id ID      Show package metadata from the catalog.
   status [--json]                           Show tracked, missing, drifted, and unmanaged packages.
   source list                               Show configured and discovered sources.
@@ -159,6 +160,8 @@ Explicit mutations:
   install P S ID [scope] [--track] [--yes]   Install, optionally track in user-managed.tsv.
   adopt P S ID [scope] [--yes]               Track an already-installed package.
   remove P S ID [scope] [--forget] [--yes]   Remove without purging data; optionally forget it.
+  install-catalog-row --provider P --source S --id ID --scope S [--track] [--yes]
+                                            Install the current catalog row selected by a frontend.
   source add flatpak NAME URL [scope] [--yes] Add an HTTPS Flatpak remote and track it.
   source add aurelia GITHUB_URL [--yes]     Add an official GitHub release source.
   source remove flatpak NAME [scope] [--yes] Stop tracking a Flatpak source.
@@ -320,9 +323,15 @@ read_terminal_preference() {
 resolve_terminal_argv() {
     local preferred
     local candidate
+    local -a package_tui_argv=()
 
     preferred="$(read_terminal_preference)"
     TERMINAL_ARGV=()
+    if [[ -x "$script_dir/workstation-packages-tui" ]] && command -v python3 >/dev/null; then
+        package_tui_argv=("$script_dir/workstation-packages-tui" --backend "$script_path")
+    else
+        package_tui_argv=("$script_path" tui search)
+    fi
     [[ -n "$preferred" ]] && TERMINAL_CANDIDATES=("$preferred") || TERMINAL_CANDIDATES=()
     TERMINAL_CANDIDATES+=(kitty foot ghostty alacritty gnome-terminal konsole xterm)
 
@@ -330,37 +339,37 @@ resolve_terminal_argv() {
         case "$candidate" in
             kitty)
                 command -v kitty >/dev/null || continue
-                TERMINAL_ARGV=(kitty --class org.aurelia.packages --title "Fedora Package Manager" "$script_path" tui search)
+                TERMINAL_ARGV=(kitty --class org.aurelia.packages --title "Fedora Package Manager" "${package_tui_argv[@]}")
                 return 0
                 ;;
             foot)
                 command -v foot >/dev/null || continue
-                TERMINAL_ARGV=(foot --app-id org.aurelia.packages --title "Fedora Package Manager" "$script_path" tui search)
+                TERMINAL_ARGV=(foot --app-id org.aurelia.packages --title "Fedora Package Manager" "${package_tui_argv[@]}")
                 return 0
                 ;;
             ghostty)
                 command -v ghostty >/dev/null || continue
-                TERMINAL_ARGV=(ghostty --class=org.aurelia.packages --title="Fedora Package Manager" -e "$script_path" tui search)
+                TERMINAL_ARGV=(ghostty --class=org.aurelia.packages --title="Fedora Package Manager" -e "${package_tui_argv[@]}")
                 return 0
                 ;;
             alacritty)
                 command -v alacritty >/dev/null || continue
-                TERMINAL_ARGV=(alacritty --class org.aurelia.packages --title "Fedora Package Manager" -e "$script_path" tui search)
+                TERMINAL_ARGV=(alacritty --class org.aurelia.packages --title "Fedora Package Manager" -e "${package_tui_argv[@]}")
                 return 0
                 ;;
             gnome-terminal)
                 command -v gnome-terminal >/dev/null || continue
-                TERMINAL_ARGV=(gnome-terminal --title="Fedora Package Manager" -- "$script_path" tui search)
+                TERMINAL_ARGV=(gnome-terminal --title="Fedora Package Manager" -- "${package_tui_argv[@]}")
                 return 0
                 ;;
             konsole)
                 command -v konsole >/dev/null || continue
-                TERMINAL_ARGV=(konsole --name org.aurelia.packages --title "Fedora Package Manager" -e "$script_path" tui search)
+                TERMINAL_ARGV=(konsole --name org.aurelia.packages --title "Fedora Package Manager" -e "${package_tui_argv[@]}")
                 return 0
                 ;;
             xterm)
                 command -v xterm >/dev/null || continue
-                TERMINAL_ARGV=(xterm -class org.aurelia.packages -title "Fedora Package Manager" -e "$script_path" tui search)
+                TERMINAL_ARGV=(xterm -class org.aurelia.packages -title "Fedora Package Manager" -e "${package_tui_argv[@]}")
                 return 0
                 ;;
         esac
@@ -1128,6 +1137,9 @@ tui() {
 
     require_tty || return 1
     tui_open_terminal_fds || return 1
+    if [[ "$mode" == search && -x "$script_dir/workstation-packages-tui" ]]; then
+        exec "$script_dir/workstation-packages-tui" --backend "$script_path"
+    fi
     command -v fzf >/dev/null || {
         wsp_error 'fzf is required for the Package Manager TUI.'
         return 1
@@ -1294,6 +1306,62 @@ dispatch_record_mutation() {
     return "$result"
 }
 
+dispatch_catalog_install() {
+    local provider=""
+    local source=""
+    local identifier=""
+    local scope=""
+    local catalog_row=""
+    local version=""
+    local asset=""
+    local checksum=""
+    local target=""
+    local artifact_url=""
+    local result=0
+
+    WSP_ASSUME_YES=0
+    WSP_TRACK=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --provider) [[ $# -ge 2 ]] || return 2; provider="$2"; shift 2 ;;
+            --source) [[ $# -ge 2 ]] || return 2; source="$2"; shift 2 ;;
+            --id) [[ $# -ge 2 ]] || return 2; identifier="$2"; shift 2 ;;
+            --scope) [[ $# -ge 2 ]] || return 2; scope="$2"; shift 2 ;;
+            --yes) WSP_ASSUME_YES=1; shift ;;
+            --track) WSP_TRACK=1; shift ;;
+            *) wsp_error "Unknown catalog install option: $1"; return 2 ;;
+        esac
+    done
+
+    [[ -n "$provider" && -n "$source" && -n "$identifier" && -n "$scope" ]] || {
+        wsp_error 'Catalog install requires provider, source, ID, and scope.'
+        return 2
+    }
+    wsp_valid_provider "$provider" || { wsp_error 'Provider must be dnf, flatpak, or aurelia.'; return 2; }
+    wsp_valid_source "$source" || { wsp_error 'Invalid package source.'; return 2; }
+    wsp_valid_scope "$scope" || { wsp_error 'Invalid package scope.'; return 2; }
+    catalog_row="$(wsp_catalog_row_for_identity "$provider" "$source" "$identifier" "$scope")" || {
+        wsp_error "The selected catalog row is no longer available: $provider/$source/$identifier/$scope"
+        return 1
+    }
+    [[ -n "$catalog_row" ]] || {
+        wsp_error "The selected catalog row is no longer available: $provider/$source/$identifier/$scope"
+        return 1
+    }
+    IFS=$'\t' read -r _catalog_provider _catalog_source _catalog_identifier _catalog_name _catalog_summary \
+        version _catalog_scope asset checksum target artifact_url <<< "$catalog_row"
+    if [[ "$WSP_TRACK" == 1 ]]; then
+        confirm "Install and track $provider/$source/$identifier?" || return 0
+        run_mutation wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" \
+            "$version" "$asset" "$checksum" "$target" "$artifact_url" || result=$?
+    else
+        confirm "Install $provider/$source/$identifier?" || return 0
+        run_mutation wsp_install_row "$provider" "$source" "$identifier" "$scope" \
+            "$version" "$asset" "$checksum" "$target" "$artifact_url" || result=$?
+    fi
+    return "$result"
+}
+
 dispatch() {
     local command="${1:-help}"
     if (( $# > 0 )); then
@@ -1343,6 +1411,10 @@ dispatch() {
             [[ "${1:-}" == status && $# -eq 1 ]] || { usage >&2; return 2; }
             wsp_catalog_status_text
             ;;
+        catalog-tui-bootstrap)
+            [[ $# -eq 0 ]] || { usage >&2; return 2; }
+            wsp_catalog_prepare_for_tui
+            ;;
         catalog-tui-rows)
             [[ $# -eq 0 ]] || return 2
             wsp_catalog_rows_for_tui
@@ -1354,6 +1426,9 @@ dispatch() {
         catalog-tui-refresh)
             [[ "${1:-}" == --query && $# -eq 2 ]] || { usage >&2; return 2; }
             catalog_tui_refresh "$2"
+            ;;
+        install-catalog-row)
+            dispatch_catalog_install "$@"
             ;;
         tui-help)
             [[ $# -eq 0 ]] || { usage >&2; return 2; }

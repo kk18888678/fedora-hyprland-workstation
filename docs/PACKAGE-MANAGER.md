@@ -129,12 +129,19 @@ workstation-packages daily enable
 ```
 
 The Command Center exposes the same workflow as **Package Manager**. `open`
-launches the terminal-owned TUI, which can search DNF, Flatpak, and Aurelia
+launches the dedicated terminal TUI, which can search DNF, Flatpak, and Aurelia
 sources, preview metadata, install packages, adopt existing packages, remove
 packages, manage sources, and enable or disable background catalog refresh.
 The main search surface uses one full-width package list with the selected
 package's metadata in a lower pane; navigation and action keys are shown in a
 footer rather than consuming the result header.
+
+The dedicated frontend is `aurelia-shell/bin/workstation-packages-tui`. It is a
+standard-library Python terminal application with a responsive split view on
+wide terminals and a stacked view on narrow terminals. The Bash
+`workstation-packages` backend remains the only owner of package transactions,
+tracking, cache preparation, and diagnostics. The frontend reads Aurelia's
+active semantic theme files and never copies a fixed palette.
 
 To add an upstream GitHub source from the command line:
 
