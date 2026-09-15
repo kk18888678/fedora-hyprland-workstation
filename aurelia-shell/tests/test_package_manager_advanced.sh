@@ -403,6 +403,26 @@ else
     fail "Metadata preview omitted rich package information"
 fi
 
+identity_cache="$fixture/identity-cache"
+mkdir -p "$identity_cache"
+older_identity_row=$'dnf\tcursor\tcursor\tcursor\tOlder Cursor\t1\tsystem\t\t\t\t\tx86_64\t100\t50\tMIT\thttps://example.invalid/cursor'
+newer_identity_row=$'dnf\tcursor\tcursor\tcursor\tNewer Cursor\t2\tsystem\t\t\t\t\tx86_64\t200\t75\tMIT\thttps://example.invalid/cursor'
+for _ in {1..15}; do
+    older_identity_row+=$'\t'
+    newer_identity_row+=$'\t'
+done
+printf '%s\n' "${older_identity_row}100" "${newer_identity_row}200" >"$identity_cache/catalog.tsv"
+latest_identity_row="$(env "${test_env[@]}" WORKSTATION_PACKAGE_CACHE_DIR="$identity_cache" bash -c \
+    "source \"\$1\"; wsp_catalog_row_for_identity dnf cursor cursor system" _ "$backend")"
+latest_identity_info="$(env "${test_env[@]}" WORKSTATION_PACKAGE_CACHE_DIR="$identity_cache" "$backend" \
+    info --provider dnf --source cursor --id cursor --scope system 2>>"$diagnostic_log" || true)"
+if awk -F '\t' 'NR == 1 && $6 == "2" && $31 == "200" { found=1 } END { exit(found ? 0 : 1) }' <<<"$latest_identity_row" &&
+   grep -Fq 'Version         : 2' <<<"$latest_identity_info"; then
+    pass "Backend identity and metadata selection use the newest cached package version"
+else
+    fail "Backend identity or metadata selection still chooses an older cached package version"
+fi
+
 cache_summary="$(env "${test_env[@]}" "$backend" catalog status 2>>"$diagnostic_log" || true)"
 if grep -Fq 'schema 6' <<<"$cache_summary" &&
    grep -Fq 'Catalog:' <<<"$cache_summary" &&

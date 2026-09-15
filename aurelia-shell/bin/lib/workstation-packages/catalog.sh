@@ -1531,12 +1531,37 @@ wsp_catalog_row_for_identity() {
     local source="$2"
     local identifier="$3"
     local scope="${4:-}"
+    local matching_file
+    local sorted_file
 
     wsp_catalog_paths_safe || return 1
     [[ -f "$WSP_CATALOG_FILE" && ! -L "$WSP_CATALOG_FILE" ]] || return 1
-    awk -F '\t' -v p="$provider" -v s="$source" -v i="$identifier" -v c="$scope" '
-        $1 == p && $2 == s && $3 == i && (c == "" || $7 == c) { print; exit }
-    ' "$WSP_CATALOG_FILE"
+    matching_file="$(mktemp)" || return 1
+    sorted_file="$(mktemp)" || {
+        rm -f -- "$matching_file"
+        return 1
+    }
+    if ! awk -F '\t' -v p="$provider" -v s="$source" -v i="$identifier" -v c="$scope" \
+        '$1 == p && $2 == s && $3 == i && (c == "" || $7 == c) { print }' \
+        "$WSP_CATALOG_FILE" > "$matching_file"; then
+        rm -f -- "$matching_file" "$sorted_file"
+        return 1
+    fi
+    if [[ -s "$matching_file" ]] &&
+       ! LC_ALL=C sort -t $'\t' -k31,31nr -k6,6Vr -k2,2 "$matching_file" > "$sorted_file"; then
+        rm -f -- "$matching_file" "$sorted_file"
+        return 1
+    fi
+    if [[ -s "$sorted_file" ]]; then
+        if sed -n '1p' "$sorted_file"; then
+            :
+        else
+            local status=$?
+            rm -f -- "$matching_file" "$sorted_file"
+            return "$status"
+        fi
+    fi
+    rm -f -- "$matching_file" "$sorted_file"
 }
 
 wsp_catalog_row_for_version() {
@@ -1563,6 +1588,7 @@ wsp_catalog_info() {
     local scope="${4:-}"
     local installed_size_override=""
     local target_path=""
+    local selected_row=""
 
     wsp_catalog_paths_safe || return 1
     [[ -f "$WSP_CATALOG_FILE" && ! -L "$WSP_CATALOG_FILE" ]] || return 1
@@ -1577,8 +1603,9 @@ wsp_catalog_info() {
             installed_size_override=""
         fi
     fi
-    awk -F '\t' -v p="$provider" -v s="$source" -v i="$identifier" -v c="$scope" \
-        -v installed_override="$installed_size_override" '
+    selected_row="$(wsp_catalog_row_for_identity "$provider" "$source" "$identifier" "$scope")" || return 1
+    [[ -n "$selected_row" ]] || return 1
+    awk -F '\t' -v installed_override="$installed_size_override" '
         function human_size(value, number, unit) {
             if (value == "" || value == "-" || value == "0") return "not provided"
             if (value !~ /^[0-9]+$/) return value
@@ -1593,7 +1620,7 @@ wsp_catalog_info() {
         function show(label, value) {
             if (value != "") printf "%-16s: %s\n", label, value
         }
-        $1 == p && $2 == s && $3 == i && (c == "" || $7 == c) {
+        {
             printf "Provider         : %s\nSource           : %s\nID               : %s\nName             : %s\n", $1, $2, $3, $4
             show("Summary", $5)
             show("Version", $6)
@@ -1633,7 +1660,7 @@ wsp_catalog_info() {
             exit
         }
         END { exit(found ? 0 : 1) }
-    ' "$WSP_CATALOG_FILE"
+    ' <<< "$selected_row"
 }
 
 wsp_catalog_prepare_for_tui() {

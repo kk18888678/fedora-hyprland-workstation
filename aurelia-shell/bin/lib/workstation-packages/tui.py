@@ -11,12 +11,16 @@ from __future__ import annotations
 import argparse
 import curses
 import curses.ascii
+from datetime import datetime
 import locale
+import os
 import queue
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -167,6 +171,39 @@ def _pack_footer_lines(tokens: Sequence[str], width: int) -> List[str]:
     return lines or [""]
 
 
+def _diagnostic_log_path() -> Optional[Path]:
+    """Resolve the user-owned TUI diagnostic log without following links."""
+
+    home = Path(os.environ.get("HOME", str(Path.home())))
+    configured_state = os.environ.get("XDG_STATE_HOME", "")
+    state_home = Path(configured_state) if configured_state else home / ".local" / "state"
+    if not state_home.is_absolute() or str(state_home) == "/":
+        return None
+    return state_home / "fedora-hyprland-workstation" / "package-manager" / "tui.log"
+
+
+def _redact_log_urls(value: str) -> str:
+    """Remove URL credentials, queries, and fragments from persisted logs."""
+
+    def redact(match: re.Match[str]) -> str:
+        raw = match.group(0)
+        try:
+            from urllib.parse import urlsplit, urlunsplit
+
+            parsed = urlsplit(raw)
+            hostname = parsed.hostname or ""
+            if not hostname:
+                return raw
+            netloc = hostname
+            if parsed.port:
+                netloc = f"{netloc}:{parsed.port}"
+            return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+        except (ValueError, UnicodeError):
+            return "<url>"
+
+    return re.sub(r"https?://[^\s]+", redact, value)
+
+
 class PackageManagerTui:
     MIN_WIDTH = 72
     MIN_HEIGHT = 18
@@ -174,6 +211,9 @@ class PackageManagerTui:
 
     def __init__(self, backend_path: Path, initial_query: str = "") -> None:
         self.diagnostics: List[str] = []
+        self.diagnostic_log_path = _diagnostic_log_path()
+        self._diagnostic_log_lock = threading.Lock()
+        self._append_diagnostic_log("INFO: Package Manager TUI session started")
         self.backend = PackageBackend(backend_path, self._record_backend_diagnostic)
         self.config: TuiConfig = load_config(self.backend.backend_path)
         self.theme: ThemePalette = load_theme(self.backend.backend_path)
@@ -255,8 +295,51 @@ class PackageManagerTui:
         for line in text.splitlines():
             if line.strip():
                 self.diagnostics.append(line.strip())
+                self._append_diagnostic_log(line.strip())
         if hasattr(self, "transient_until") and self.diagnostics:
             self._set_message(f"Diagnostic: {_truncate(self.diagnostics[-1], 100)}", 6.0)
+
+    def _append_diagnostic_log(self, text: str) -> None:
+        path = getattr(self, "diagnostic_log_path", None)
+        lock = getattr(self, "_diagnostic_log_lock", None)
+        if not isinstance(path, Path) or lock is None:
+            return
+        lines = [line.strip() for line in str(text).splitlines() if line.strip()]
+        if not lines:
+            return
+        try:
+            with lock:
+                parent = path.parent
+                current = Path(path.anchor)
+                for component in parent.parts[1:]:
+                    current /= component
+                    if current.is_symlink():
+                        return
+                parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                parent_stat = parent.stat()
+                if parent_stat.st_uid != os.geteuid() or parent_stat.st_mode & 0o022:
+                    return
+                if path.is_symlink() or (path.exists() and not path.is_file()):
+                    return
+                if path.exists():
+                    log_stat = path.stat()
+                    if log_stat.st_uid != os.geteuid() or log_stat.st_mode & 0o077:
+                        return
+                flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+                flags |= getattr(os, "O_NOFOLLOW", 0)
+                descriptor = os.open(path, flags, 0o600)
+                with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
+                    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+                    for line in lines:
+                        stream.write(f"{timestamp} {_redact_log_urls(line)}\n")
+        except (OSError, ValueError, UnicodeError):
+            # Diagnostics must never make the package manager unusable. The
+            # in-memory diagnostics and provider output remain authoritative
+            # when a safe persistent state path is unavailable.
+            return
+
+    def _log_event(self, message: str) -> None:
+        self._append_diagnostic_log(message)
 
     def _submit(self, kind: str, function: Callable[[], Any], generation: int) -> None:
         def worker() -> None:
@@ -275,6 +358,7 @@ class PackageManagerTui:
     def _record_error(self, error: BaseException, *, show_modal: bool = False, title: str = "Package Manager error") -> None:
         detail = str(error).strip() or error.__class__.__name__
         self.diagnostics.extend(f"ERROR: {line.strip()}" for line in detail.splitlines() if line.strip())
+        self._append_diagnostic_log(f"ERROR: {detail}")
         self.messages.append(detail)
         self.messages = self.messages[-8:]
         if show_modal:
@@ -1058,20 +1142,34 @@ class PackageManagerTui:
         """Build desktop launchers in reliable order without shell parsing."""
 
         commands: List[List[str]] = []
+        prefix = self._desktop_launch_prefix()
         gio = shutil.which("gio")
         if gio:
-            commands.append([gio, "open", url])
+            commands.append(prefix + [gio, "open", url])
         xdg_open = shutil.which("xdg-open")
         if xdg_open:
-            commands.append([xdg_open, url])
+            commands.append(prefix + [xdg_open, url])
         return commands
+
+    @staticmethod
+    def _desktop_launch_prefix() -> List[str]:
+        """Use the active UWSM app scope when the TUI is in one."""
+
+        if not any(
+            os.environ.get(name)
+            for name in ("UWSM_FINALIZE_VARNAMES", "UWSM_WAIT_VARNAMES", "IN_UWSM_ENV_PRELOADER")
+        ):
+            return []
+        uwsm = shutil.which("uwsm-app")
+        return [uwsm, "--"] if uwsm else []
 
     def _registered_browser_command(self, url: str, failures: List[str], remaining: float) -> Optional[List[str]]:
         """Resolve and use the desktop's registered HTTPS application."""
 
+        gio = shutil.which("gio")
         gtk_launch = shutil.which("gtk-launch")
         xdg_mime = shutil.which("xdg-mime")
-        if not gtk_launch or not xdg_mime or remaining <= 0:
+        if not (gio or gtk_launch) or not xdg_mime or remaining <= 0:
             return None
         command = [xdg_mime, "query", "default", "x-scheme-handler/https"]
         try:
@@ -1105,7 +1203,11 @@ class PackageManagerTui:
             self._record_backend_diagnostic(f"ERROR: {detail}\n")
             failures.append(detail)
             return None
-        return [gtk_launch, desktop_id, url]
+        self._log_event(f"INFO: HTTPS desktop handler selected: {desktop_id}")
+        prefix = self._desktop_launch_prefix()
+        if gio:
+            return prefix + [gio, "launch", desktop_id, url]
+        return prefix + [gtk_launch, desktop_id, url]
 
     def _attempt_browser_command(
         self,
@@ -1116,6 +1218,7 @@ class PackageManagerTui:
         """Run one launcher; return its result and whether retrying is pointless."""
 
         command_text = " ".join(command)
+        self._log_event(f"INFO: Browser launcher attempt: {shlex.join(command[:-1])} <url>")
         try:
             result = subprocess.run(
                 command,
@@ -1144,6 +1247,7 @@ class PackageManagerTui:
         if result.stderr:
             self._record_backend_diagnostic(result.stderr)
         if result.returncode == 0:
+            self._log_event(f"INFO: Browser launcher accepted request: {shlex.join(command[:-1])} <url>")
             return result, True
         detail = result.stderr.strip() or result.stdout.strip() or "exit status " + str(result.returncode)
         failure = f"{command_text} failed: {detail}"
@@ -1155,14 +1259,16 @@ class PackageManagerTui:
         commands = self._browser_commands(url)
         failures: List[str] = []
         deadline = time.monotonic() + 15.0
+        self._log_event("INFO: Browser source launch requested")
         preferred = self._registered_browser_command(url, failures, deadline - time.monotonic())
         launch_commands = ([preferred] if preferred else []) + commands
         if not launch_commands:
             self.modal = {
                 "kind": "message",
                 "title": "Browser launcher unavailable",
-                "lines": [url, "No HTTPS desktop handler or supported browser launcher was found. Use Copy URL and open it manually."],
+                "lines": [url, "No HTTPS desktop handler or supported browser launcher was found. Use Copy URL and open it manually.", f"Diagnostic log: {self._display_diagnostic_log_path()}"],
             }
+            self._log_event("ERROR: No HTTPS desktop handler or supported browser launcher was found")
             return
         self.modal = None
         result: Optional[subprocess.CompletedProcess[str]] = None
@@ -1208,11 +1314,19 @@ class PackageManagerTui:
                         self._record_error(error)
 
         if result is not None:
-            self._set_message("Opened source URL in the browser", 5.0)
+            self._set_message("Browser launch request accepted", 5.0)
             return
         lines = [url, "No browser launcher could open this URL."]
         lines.extend(failures or ["The available launchers returned no diagnostic."])
+        lines.append(f"Diagnostic log: {self._display_diagnostic_log_path()}")
+        self._log_event("ERROR: No browser launcher accepted the source URL")
         self.modal = {"kind": "message", "title": "Could not open source", "lines": lines}
+
+    def _display_diagnostic_log_path(self) -> str:
+        path = getattr(self, "diagnostic_log_path", None)
+        if isinstance(path, Path):
+            return str(path)
+        return "persistent diagnostic log unavailable"
 
     def _copy_source_url(self, url: str) -> None:
         clipboard_commands = (

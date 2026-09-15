@@ -8,6 +8,7 @@ import curses
 from dataclasses import replace
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -738,6 +739,41 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
         self.assertEqual(run.call_args_list[-1].args[0], ["/usr/bin/gtk-launch", "chromium-browser.desktop", "https://example.invalid/source"])
         self.assertIsNone(app.modal)
+
+    def test_source_launch_uses_the_active_uwsm_scope_and_explicit_gio_launch(self) -> None:
+        app = self._app()
+        mime_result = mock.Mock(returncode=0, stdout="chromium-browser.desktop\n", stderr="")
+        gio_success = mock.Mock(returncode=0, stdout="", stderr="")
+
+        def which(name: str) -> str | None:
+            return {
+                "gio": "/usr/bin/gio",
+                "xdg-mime": "/usr/bin/xdg-mime",
+                "uwsm-app": "/usr/bin/uwsm-app",
+            }.get(name)
+
+        with mock.patch.dict(os.environ, {"UWSM_FINALIZE_VARNAMES": "HYPRLAND_INSTANCE_SIGNATURE"}, clear=False), mock.patch(
+            "tui.shutil.which", side_effect=which
+        ), mock.patch("tui.subprocess.run", side_effect=[mime_result, gio_success]) as run:
+            app._launch_source_url("https://example.invalid/source")
+        self.assertEqual(
+            run.call_args_list[-1].args[0],
+            ["/usr/bin/uwsm-app", "--", "/usr/bin/gio", "launch", "chromium-browser.desktop", "https://example.invalid/source"],
+        )
+        self.assertIsNone(app.modal)
+
+    def test_tui_persists_redacted_browser_diagnostics_for_later_inspection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            app = object.__new__(PackageManagerTui)
+            app.diagnostics = []
+            app.diagnostic_log_path = Path(temporary) / "package-manager" / "tui.log"
+            app._diagnostic_log_lock = threading.Lock()
+            app._log_event("INFO: Browser launcher attempt: /usr/bin/gio launch chromium-browser.desktop <url>")
+            app._record_backend_diagnostic("ERROR: launcher failed for https://example.invalid/path?token=secret")
+            content = app.diagnostic_log_path.read_text(encoding="utf-8")
+        self.assertIn("Browser launcher attempt", content)
+        self.assertIn("https://example.invalid/path", content)
+        self.assertNotIn("token=secret", content)
 
     def test_backend_cancellation_terminates_only_registered_children(self) -> None:
         backend = PackageBackend(ROOT / "aurelia-shell" / "bin" / "workstation-packages")
