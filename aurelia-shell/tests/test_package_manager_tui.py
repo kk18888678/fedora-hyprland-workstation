@@ -18,6 +18,7 @@ MODULE_DIR = ROOT / "aurelia-shell" / "bin" / "lib" / "workstation-packages"
 sys.path.insert(0, str(MODULE_DIR))
 
 from tui_backend import (  # noqa: E402
+    BackendError,
     PackageBackend,
     PackageRow,
     infer_package_icon,
@@ -753,6 +754,34 @@ class TuiInteractionTests(unittest.TestCase):
             backend.cancel_active()
         self.assertTrue(backend._cancel_event.is_set())
         terminate.assert_called_once_with(process)
+
+    def test_backend_failure_preserves_stdout_and_stderr_diagnostics(self) -> None:
+        backend = PackageBackend(ROOT / "aurelia-shell" / "bin" / "workstation-packages")
+        process = mock.Mock(returncode=1, pid=12345)
+        process.communicate.return_value = (
+            "Updating and loading repositories:\n",
+            "Failed to download metadata for repo 'broken': network unavailable\n",
+        )
+        with mock.patch("tui_backend.subprocess.Popen", return_value=process):
+            with self.assertRaises(BackendError) as raised:
+                backend._run(("dnf5", "upgrade"), timeout=5)
+        self.assertIn("Updating and loading repositories:", raised.exception.detail)
+        self.assertIn("Failed to download metadata for repo 'broken'", raised.exception.detail)
+
+    def test_operation_failure_opens_the_complete_provider_diagnostic(self) -> None:
+        app = self._app()
+        app.diagnostics = []
+        app.messages = []
+        error = BackendError(
+            ("dnf5", "upgrade", "chatgpt"),
+            1,
+            "Updating and loading repositories:\nFailed to download metadata for repo 'broken'.",
+        )
+        app._handle_event(Event("install", 1, error=error))
+        self.assertEqual(app.modal["kind"], "message")
+        self.assertEqual(app.modal["title"], "Package operation failed")
+        self.assertIn("Failed to download metadata for repo 'broken'.", app.modal["lines"])
+        self.assertIn("full diagnostics are open", app.transient_message)
 
     def test_add_aurelia_source_uses_structured_backend_argv(self) -> None:
         backend_path = ROOT / "aurelia-shell" / "bin" / "workstation-packages"

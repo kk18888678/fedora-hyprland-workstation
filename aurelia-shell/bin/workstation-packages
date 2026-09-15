@@ -1371,7 +1371,7 @@ dispatch_catalog_install() {
     if [[ "$WSP_TRACK" == 1 ]]; then
         confirm "Install and track $provider/$source/$identifier?" || return 0
         run_mutation wsp_install_and_track_row "$provider" "$source" "$identifier" "$scope" \
-            "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" || result=$?
+            "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" "$version" || result=$?
     else
         confirm "Install $provider/$source/$identifier?" || return 0
         run_mutation wsp_install_row "$provider" "$source" "$identifier" "$scope" \

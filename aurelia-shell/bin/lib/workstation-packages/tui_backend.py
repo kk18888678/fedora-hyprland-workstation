@@ -239,6 +239,28 @@ class PackageBackend:
             except subprocess.TimeoutExpired:
                 pass
 
+    @staticmethod
+    def _command_failure_detail(
+        stdout: str,
+        stderr: str,
+        fallback: str,
+    ) -> str:
+        """Keep both command streams when a provider reports a failure.
+
+        DNF5 can write its operation heading and the actionable repository
+        diagnostic to different streams. Selecting only stderr (or only
+        stdout) turns a useful failure into the unhelpful single line
+        ``Updating and loading repositories:``. Preserve each non-empty
+        stream, while avoiding a duplicate when a wrapper echoed the same
+        text to both.
+        """
+
+        parts: List[str] = []
+        for output in (stdout.strip(), stderr.strip()):
+            if output and output not in parts:
+                parts.append(output)
+        return "\n".join(parts) or fallback
+
     def cancel_active(self) -> None:
         self._cancel_event.set()
         with self._active_processes_lock:
@@ -296,8 +318,9 @@ class PackageBackend:
                     self._terminate_process(process)
                     stdout, stderr = process.communicate()
                     detail = f"Command cancelled: {' '.join(command)}"
-                    if stderr.strip():
-                        detail += f"\n{stderr.strip()}"
+                    output = self._command_failure_detail(stdout, stderr, "")
+                    if output:
+                        detail += f"\n{output}"
                     self._emit_diagnostic(f"ERROR: {detail}\n")
                     raise BackendError(command, 130, detail)
                 remaining = deadline - time.monotonic()
@@ -305,8 +328,9 @@ class PackageBackend:
                     self._terminate_process(process)
                     stdout, stderr = process.communicate()
                     detail = f"Command timed out after {timeout:.0f}s: {' '.join(command)}"
-                    if stderr.strip():
-                        detail += f"\n{stderr.strip()}"
+                    output = self._command_failure_detail(stdout, stderr, "")
+                    if output:
+                        detail += f"\n{output}"
                     self._emit_diagnostic(f"ERROR: {detail}\n")
                     raise BackendError(command, 124, detail)
                 try:
@@ -324,7 +348,11 @@ class PackageBackend:
             # surface and prints it after exit; nothing is discarded.
             self._emit_diagnostic(stderr)
         if process.returncode != 0:
-            detail = stderr.strip() or stdout.strip() or f"Command exited with status {process.returncode}."
+            detail = self._command_failure_detail(
+                stdout,
+                stderr,
+                f"Command exited with status {process.returncode}.",
+            )
             raise BackendError(command, process.returncode, detail)
         return stdout
 

@@ -272,12 +272,20 @@ class PackageManagerTui:
         self.transient_message = message
         self.transient_until = time.monotonic() + seconds
 
-    def _record_error(self, error: BaseException) -> None:
+    def _record_error(self, error: BaseException, *, show_modal: bool = False, title: str = "Package Manager error") -> None:
         detail = str(error).strip() or error.__class__.__name__
         self.diagnostics.extend(f"ERROR: {line.strip()}" for line in detail.splitlines() if line.strip())
         self.messages.append(detail)
         self.messages = self.messages[-8:]
-        self._set_message(f"Error: {_truncate(detail.splitlines()[0], 100)}", 8.0)
+        if show_modal:
+            self.modal = {
+                "kind": "message",
+                "title": title,
+                "lines": detail.splitlines() or [detail],
+            }
+            self._set_message("Operation failed; full diagnostics are open", 8.0)
+        else:
+            self._set_message(f"Error: {_truncate(detail.splitlines()[0], 100)}", 8.0)
 
     def _start_catalog_load(self) -> None:
         self.catalog_generation += 1
@@ -593,7 +601,7 @@ class PackageManagerTui:
                 return
             self.versions_loading = False
             if event.error:
-                self._record_error(event.error)
+                self._record_error(event.error, show_modal=True, title="Could not load package versions")
                 if self.modal and self.modal.get("kind") == "versions":
                     self.modal["error"] = str(event.error)
                 return
@@ -622,7 +630,7 @@ class PackageManagerTui:
         if event.kind == "refresh":
             self.operation_loading = False
             if event.error:
-                self._record_error(event.error)
+                self._record_error(event.error, show_modal=True, title="Catalog refresh failed")
                 self._start_catalog_load()
                 self._start_catalog_status_load()
                 self._start_status_load()
@@ -637,7 +645,7 @@ class PackageManagerTui:
         if event.kind == "install":
             self.operation_loading = False
             if event.error:
-                self._record_error(event.error)
+                self._record_error(event.error, show_modal=True, title="Package operation failed")
                 return
             count = len(self.install_targets)
             self.queue_rows = [row for row in self.queue_rows if row not in self.install_targets]
@@ -648,7 +656,7 @@ class PackageManagerTui:
         if event.kind == "source-add":
             self.operation_loading = False
             if event.error:
-                self._record_error(event.error)
+                self._record_error(event.error, show_modal=True, title="Could not add package source")
                 return
             self._set_message("Aurelia source added; refreshing catalog…", 30.0)
             self._begin_refresh()
@@ -657,7 +665,7 @@ class PackageManagerTui:
             self.operation_loading = False
             if event.error:
                 self.remove_target = None
-                self._record_error(event.error)
+                self._record_error(event.error, show_modal=True, title="Package removal failed")
                 return
             row = self.remove_target
             if row:

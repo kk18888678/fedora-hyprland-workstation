@@ -102,11 +102,14 @@ wsp_install_row() {
     local artifact_url="${9:-}"
     local exact_version="${10:-}"
     local allow_project_owned="${11:-}"
+    local expected_version="${12:-}"
     local status=0
     local dnf_bin=""
     local install_identifier=""
     local installed_version=""
+    local installed_before_version=""
     local native_arch=""
+    local dnf_action="install"
     local -a command_argv=()
 
     wsp_validate_record "$provider" "$source" "$identifier" "$scope" all || {
@@ -116,6 +119,20 @@ wsp_install_row() {
     if wsp_is_project_owned "$provider" "$identifier" && [[ "$allow_project_owned" != yes ]]; then
         wsp_error "Refusing to duplicate project-owned package in user-managed state: $identifier"
         return 1
+    fi
+    if [[ "$provider" == dnf && -z "$exact_version" ]]; then
+        if installed_before_version="$(rpm -q --qf '%{EVR}\n' "$identifier" | head -n 1)"; then
+            if [[ -z "$expected_version" && -n "$version" ]]; then
+                expected_version="$version"
+            fi
+            if [[ -n "$expected_version" && "$installed_before_version" == "$expected_version" ]]; then
+                dnf_action="reinstall"
+            elif [[ -n "$expected_version" ]]; then
+                dnf_action="upgrade"
+            fi
+        elif [[ -z "$expected_version" ]]; then
+            installed_before_version=""
+        fi
     fi
     wsp_require_source_available "$provider" "$source" "$identifier" "$scope" || return 1
 
@@ -141,14 +158,18 @@ wsp_install_row() {
                 }
             fi
             if [[ "$EUID" -eq 0 ]]; then
-                command_argv=("$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
+                command_argv=("$dnf_bin" "$dnf_action" "--from-repo=$source" -y "$install_identifier")
             elif [[ "${WORKSTATION_PACKAGE_TTY_AUTHORIZED:-}" == yes ]]; then
-                command_argv=(sudo -n "$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
+                command_argv=(sudo -n "$dnf_bin" "$dnf_action" "--from-repo=$source" -y "$install_identifier")
             else
-                command_argv=(sudo "$dnf_bin" install "--from-repo=$source" -y "$install_identifier")
+                command_argv=(sudo "$dnf_bin" "$dnf_action" "--from-repo=$source" -y "$install_identifier")
             fi
             if [[ -n "$exact_version" ]]; then
                 wsp_info "Installing DNF package $identifier-$exact_version from $source."
+            elif [[ "$dnf_action" == upgrade ]]; then
+                wsp_info "Updating DNF package $identifier from $source."
+            elif [[ "$dnf_action" == reinstall ]]; then
+                wsp_info "Reinstalling DNF package $identifier from $source."
             else
                 wsp_info "Installing DNF package $identifier from $source."
             fi
@@ -205,6 +226,17 @@ wsp_install_row() {
             wsp_error "DNF installed $identifier at '$installed_version', not the requested exact version '$exact_version'."
             return 1
         }
+    elif [[ "$provider" == dnf && -z "$exact_version" ]]; then
+        if [[ -z "$expected_version" && -n "$version" ]]; then
+            expected_version="$version"
+        fi
+        if [[ -n "$expected_version" ]]; then
+            installed_version="$(rpm -q --qf '%{EVR}\n' "$identifier" | head -n 1)" || installed_version=""
+            [[ "$installed_version" == "$expected_version" ]] || {
+                wsp_error "DNF transaction completed but $identifier is '$installed_version'; expected catalog version '$expected_version'."
+                return 1
+            }
+        fi
     fi
 }
 
@@ -325,6 +357,7 @@ wsp_install_and_track_row() {
     local target="${8:-}"
     local artifact_url="${9:-}"
     local exact_version="${10:-}"
+    local expected_version="${11:-}"
     local requested_version=""
 
     if [[ "$provider" != aurelia && -n "$exact_version" ]]; then
@@ -354,7 +387,7 @@ wsp_install_and_track_row() {
         artifact_url="$WSP_AURELIA_DISCOVERY_ARTIFACT_URL"
     fi
     wsp_install_row "$provider" "$source" "$identifier" "$scope" \
-        "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" || return 1
+        "$version" "$asset" "$checksum" "$target" "$artifact_url" "$requested_version" "" "$expected_version" || return 1
     if ! wsp_manifest_add "$provider" "$source" "$identifier" "$scope" all \
         "$version" "$asset" "$checksum" "$target" "$artifact_url"; then
         wsp_error "Package is installed but could not be added to user-managed.tsv: $identifier"

@@ -82,7 +82,7 @@ if [[ "$args" == *"repoquery"* && "$args" == *"--installed"* ]]; then
     printf '%s\n' fedora
     exit 0
 fi
-if [[ "$1" == "install" && "$2" == --from-repo=* ]]; then
+if [[ ("$1" == "install" || "$1" == "upgrade" || "$1" == "reinstall") && "$2" == --from-repo=* ]]; then
     package="${@: -1}"
     package="${package%.x86_64}"
     [[ "$package" == mock-dnf-1 ]] && package=mock-dnf
@@ -130,6 +130,9 @@ EOF_FLATPAK
 
 cat >"$mock_bin/sudo" <<'EOF_SUDO'
 #!/usr/bin/env bash
+if [[ "${1:-}" == -n ]]; then
+    shift
+fi
 exec "$@"
 EOF_SUDO
 
@@ -253,13 +256,25 @@ fi
 
 printf '%s\n' $'dnf\tfedora\tchatgpt\tchatgpt\tChatGPT\t1\tsystem\tx86_64\t1 MiB\t1 MiB\tLATEST\t2026-09-01' \
     >>"$cache/fedora-hyprland-workstation/package-manager/catalog.tsv"
-if env "${test_env[@]}" "$backend" install-catalog-row \
+if env "${test_env[@]}" WORKSTATION_PACKAGE_TTY_AUTHORIZED=yes "$backend" install-catalog-row \
        --provider dnf --source fedora --id chatgpt --scope system --yes >/dev/null &&
    grep -Fxq chatgpt "$fixture/rpm-installed" &&
    ! grep -Fq $'dnf\tfedora\tchatgpt\tsystem\tall' "$repo/packages/user-managed.tsv"; then
     pass "Project-owned catalog update runs without user-managed tracking"
 else
     fail "Project-owned catalog update was blocked or polluted user-managed.tsv"
+fi
+
+printf '%s\n' stale-dnf >>"$fixture/rpm-installed"
+printf '%s\n' $'dnf\tfedora\tstale-dnf\tstale-dnf\tStale DNF fixture\t2\tsystem\tx86_64\t1 MiB\t1 MiB\tLATEST\t2026-09-01' \
+    >>"$cache/fedora-hyprland-workstation/package-manager/catalog.tsv"
+stale_update_output="$(env "${test_env[@]}" "$backend" install-catalog-row \
+    --provider dnf --source fedora --id stale-dnf --scope system --yes 2>&1 || true)"
+if grep -Fq "Updating DNF package stale-dnf" <<<"$stale_update_output" &&
+   grep -Fq "expected catalog version '2'" <<<"$stale_update_output"; then
+    pass "DNF catalog update rejects a transaction that leaves the installed EVR unchanged"
+else
+    fail "DNF catalog update reported success without verifying the installed EVR"
 fi
 
 if env "${test_env[@]}" "$backend" remove-catalog-row \
@@ -293,8 +308,8 @@ fi
 if grep -q 'tui_show_done' "$backend" &&
    grep -q 'Press any key to close' "$backend" &&
    grep -q 'tui_show_done.*Package operation finished' "$backend" &&
-   grep -q 'exec {tty_fd}<>"\$tty_path"' "$backend" &&
-   grep -q 'return "\$search_status"' "$backend"; then
+   grep -q "exec {tty_fd}<>\"\$tty_path\"" "$backend" &&
+   grep -q "return \"\$search_status\"" "$backend"; then
     pass "Terminal-owned package search acknowledges the result and exits after the keypress"
 else
     fail "Package Manager result acknowledgement does not have a clean terminal-exit boundary"
