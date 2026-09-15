@@ -498,4 +498,3 @@ These are required tests for a faithful implementation:
 9. Repeat while forecast requests return empty/invalid data and verify the card
    still opens, shows the loading state or last-good data, retries as defined,
    and leaves no focus/popout ownership after Escape.
-
