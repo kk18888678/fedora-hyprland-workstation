@@ -1,8 +1,7 @@
 -- Hyprland window rules.
 --
--- Keep this file focused on generic workstation behaviour.
--- Application-specific rules can be added when those applications
--- become part of the workstation manifest.
+-- Keep this file focused on generic workstation behaviour plus small,
+-- manifest-backed rules for applications that need compositor integration.
 
 -- Audio control
 
@@ -42,6 +41,20 @@ hl.window_rule({
         class = "^org\\.pulseaudio\\.pavucontrol$",
     },
     float = true,
+})
+
+-- Electron's native ChatGPT quit confirmation is a separate XWayland
+-- toplevel. It uses a different class from the main window (`ChatGPT` vs
+-- `Chatgpt`) and can otherwise be mapped at the monitor's top-left corner.
+-- Match both identity fields so the main ChatGPT window keeps its normal
+-- layout and only this confirmation is centered.
+hl.window_rule({
+    match = {
+        class = "^ChatGPT$",
+        title = "^Quit ChatGPT[?]$",
+    },
+    float = true,
+    center = true,
 })
 
 -- Prevent the display from sleeping while fullscreen media is playing.

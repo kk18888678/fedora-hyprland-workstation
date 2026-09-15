@@ -112,6 +112,21 @@ else
     fail "GTK theme provisioning lacks a safe user theme directory boundary"
 fi
 
+chatgpt_quit_rule="$ROOT/dotfiles/hypr/windowrules.lua"
+chatgpt_quit_rule_block="$(
+    sed -n '/Electron.s native ChatGPT quit confirmation/,/Prevent the display from sleeping/p' \
+        "$chatgpt_quit_rule"
+)"
+if grep -Fq 'class = "^ChatGPT$"' <<< "$chatgpt_quit_rule_block" &&
+    grep -Fq 'title = "^Quit ChatGPT[?]$"' <<< "$chatgpt_quit_rule_block" &&
+    ! grep -q 'modal = true' <<< "$chatgpt_quit_rule_block" &&
+    grep -q 'float = true' <<< "$chatgpt_quit_rule_block" &&
+    grep -q 'center = true' <<< "$chatgpt_quit_rule_block"; then
+    pass "ChatGPT native quit confirmation is modal-only, floating, and centered"
+else
+    fail "ChatGPT native quit confirmation lacks a scoped centered window rule"
+fi
+
 greeter_matrix_test="$(
     bash -s -- "$ROOT" <<'EOS'
 set -Eeuo pipefail
