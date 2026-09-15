@@ -285,6 +285,22 @@ class TuiInteractionTests(unittest.TestCase):
         self.assertEqual(app.active_filter, "Installed")
         self.assertEqual(app.focus_area, "filters")
 
+    def test_search_cursor_allows_in_place_typo_correction(self) -> None:
+        app = self._app()
+        app.query = "libreofice"
+        app.query_cursor = len(app.query)
+        app.query_focus = True
+        for _ in range(3):
+            app._handle_search_key(curses.KEY_LEFT)
+        app._handle_search_key(ord("f"))
+        self.assertEqual(app.query, "libreoffice")
+        app._handle_search_key(curses.KEY_HOME)
+        app._handle_search_key(curses.KEY_RIGHT)
+        app._handle_search_key(curses.KEY_DC)
+        self.assertEqual(app.query, "lbreoffice")
+        app._handle_search_key(curses.KEY_BACKSPACE)
+        self.assertEqual(app.query, "breoffice")
+
     def test_sort_key_opens_options_and_applies_selected_order(self) -> None:
         app = self._app()
         app._handle_key(ord("o"))

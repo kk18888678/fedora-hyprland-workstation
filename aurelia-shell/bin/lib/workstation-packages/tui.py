@@ -184,6 +184,7 @@ class PackageManagerTui:
         self.screen: Optional[Any] = None
         self.running = True
         self.query = initial_query
+        self.query_cursor = len(initial_query)
         self.query_focus = False
         self.query_changed_at = time.monotonic() if initial_query else 0.0
         self.catalog_generation = 0
@@ -1277,13 +1278,38 @@ class PackageManagerTui:
         if ch in (27, 10, 13, curses.KEY_ENTER):
             self.query_focus = False
             return True
+        cursor = max(0, min(getattr(self, "query_cursor", len(self.query)), len(self.query)))
+        if ch == curses.KEY_LEFT:
+            self.query_cursor = max(0, cursor - 1)
+            return True
+        if ch == curses.KEY_RIGHT:
+            self.query_cursor = min(len(self.query), cursor + 1)
+            return True
+        if ch == curses.KEY_HOME:
+            self.query_cursor = 0
+            return True
+        if ch == curses.KEY_END:
+            self.query_cursor = len(self.query)
+            return True
+        changed = False
         if ch in (curses.KEY_BACKSPACE, 127, 8):
-            self.query = self.query[:-1]
+            if cursor > 0:
+                self.query = self.query[: cursor - 1] + self.query[cursor:]
+                self.query_cursor = cursor - 1
+                changed = True
+        elif ch == curses.KEY_DC:
+            if cursor < len(self.query):
+                self.query = self.query[:cursor] + self.query[cursor + 1 :]
+                self.query_cursor = cursor
+                changed = True
         elif 0 <= ch <= 255 and curses.ascii.isprint(ch):
-            self.query += chr(ch)
+            self.query = self.query[:cursor] + chr(ch) + self.query[cursor:]
+            self.query_cursor = cursor + 1
+            changed = True
         else:
             return True
-        self.query_changed_at = time.monotonic()
+        if changed:
+            self.query_changed_at = time.monotonic()
         return True
 
     def _handle_escape_sequence(self) -> bool:
@@ -1549,9 +1575,25 @@ class PackageManagerTui:
 
     def _draw_search(self, pairs: Dict[str, int], y: int, width: int) -> int:
         self._box(y, 1, 3, width - 2, pairs, self.config.label("input"), self._attr(pairs, "accent"))
-        prompt = "▶ " + self.query
-        if not self.query:
+        prompt_width = max(1, width - 8)
+        if not self.query and not self.query_focus:
             prompt = "▶ Search package IDs, names, descriptions, commands, or capabilities"
+        elif not self.query_focus:
+            prompt = "▶ " + self.query
+        else:
+            cursor = max(0, min(getattr(self, "query_cursor", len(self.query)), len(self.query)))
+            raw = self.query[:cursor] + "▏" + self.query[cursor:]
+            available = max(1, prompt_width - 2)
+            if len(raw) > available:
+                start = max(0, min(cursor - available // 2, len(raw) - available))
+                end = start + available
+                view = raw[start:end]
+                if start > 0:
+                    view = "…" + view[1:]
+                if end < len(raw):
+                    view = view[:-1] + "…"
+                raw = view
+            prompt = "▶ " + raw
         self._add(y + 1, 3, prompt, width - 8, self._attr(pairs, "text", bold=self.query_focus))
         if not self.query_focus:
             self._add(y + 1, max(3, width - 22), f"Press {_display_key(self.config.key('search'))} to focus", 18, self._attr(pairs, "muted", dim=True))
