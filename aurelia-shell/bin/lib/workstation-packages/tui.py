@@ -149,6 +149,24 @@ def _display_key(value: str) -> str:
     }.get(value, value)
 
 
+def _pack_footer_lines(tokens: Sequence[str], width: int) -> List[str]:
+    """Pack complete shortcut tokens into as many readable footer lines as needed."""
+
+    available = max(1, width)
+    lines: List[str] = []
+    current = ""
+    for token in tokens:
+        candidate = token if not current else f"{current}  ·  {token}"
+        if current and len(candidate) > available:
+            lines.append(current)
+            current = token
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
 class PackageManagerTui:
     MIN_WIDTH = 72
     MIN_HEIGHT = 18
@@ -1676,7 +1694,7 @@ class PackageManagerTui:
         for line in _wrap(description, max(1, width - 4)):
             lines.append((line, self._attr(pairs, "secondary")))
         lines.append(("", 0))
-        lines.append(("Actions · Enter to open", self._attr(pairs, "accent_alt", bold=True)))
+        lines.append(("Actions", self._attr(pairs, "accent_alt", bold=True)))
         action_lines = []
         for index, (_action, label) in enumerate(self._action_items(row)):
             selected = self.focus_area == "actions" and index == self.action_index
@@ -1721,40 +1739,42 @@ class PackageManagerTui:
             self._add(y + height - 2, x + 2, "Loading metadata…", inner_width, self._attr(pairs, "warning"))
 
     def _help_lines(self) -> List[str]:
+        def key(name: str) -> str:
+            return _display_key(self.config.key(name))
+
+        def shortcut(keys: str, action: str) -> str:
+            return f"  {keys:<18} {action}"
+
         lines = [
-            "SEARCH",
-            "  Search IDs, names, summaries, descriptions, and provider capabilities.",
-            "  Case, spaces, hyphens, and underscores are normalized by the backend.",
-            "  The catalog is cached locally; opening search does not install anything.",
+            "SHORTCUTS",
+            shortcut(f"{key('up')}/{key('down')}", "Move"),
+            shortcut(f"{key('page_up')}/{key('page_down')}", "Page"),
+            shortcut(key("select"), "Tabs / packages"),
+            shortcut(f"{key('filter_previous')}/{key('filter_next')}", "Change tab"),
+            shortcut(key("search"), "Search package metadata"),
+            shortcut(key("accept"), "Open / run Actions"),
+            shortcut(key("cancel"), "Back / close"),
+            shortcut(key("quit"), "Quit"),
             "",
-            "NAVIGATION",
-            f"  {_display_key(self.config.key('up'))}/{_display_key(self.config.key('down'))} move   {_display_key(self.config.key('page_up'))}/{_display_key(self.config.key('page_down'))} page",
-            f"  Tab moves through All, Installed, Updates, DNF, Flatpak, and Aurelia tabs; {_display_key(self.config.key('filter_previous'))}/{_display_key(self.config.key('filter_next'))} changes the active tab",
-            f"  {_display_key(self.config.key('search'))} focus search   {_display_key(self.config.key('accept'))} package actions   {_display_key(self.config.key('preview_toggle'))} show/hide details",
-            f"  {_display_key(self.config.key('sort'))} opens sort options: relevance, name, size, date, provider   {_display_key(self.config.key('sort_reverse'))} reverse sort",
-            f"  {_display_key(self.config.key('versions'))} opens the selected package's versions, newest release first.",
-            f"  {_display_key(self.config.key('add_source'))} adds an official Aurelia GitHub source from the All or Aurelia tab and refreshes the catalog.",
-            "  DNF repositories (including Microsoft VS Code) stay under DNF ownership and are not added by this Aurelia-source action.",
-            "  In Actions, ↑/↓ chooses an action and Enter runs it; Tab or Esc returns to packages.",
+            "PACKAGE",
+            shortcut(key("queue"), "Toggle queue"),
+            shortcut(key("select_all"), "Queue visible results"),
+            shortcut(key("versions"), "Versions / exact downgrade"),
+            shortcut(key("source"), "Open source URL"),
+            shortcut(key("info"), "Full metadata"),
+            shortcut(key("preview_toggle"), "Toggle details"),
+            shortcut(key("sort"), "Choose sort order"),
+            shortcut(key("sort_reverse"), "Reverse sort"),
+            shortcut(key("add_source"), "Add Aurelia source (All/Aurelia)"),
             "",
-            "INSTALLATION",
-            f"  {_display_key(self.config.key('accept'))} on a package opens its Actions; choose Install, Update, or Reinstall there to review.",
-            "  Installed packages also expose Uninstall; it can preserve or explicitly forget tracking.",
-            f"  {_display_key(self.config.key('queue'))} adds or removes the selected package from the queue.",
-            f"  {_display_key(self.config.key('select_all'))} queues the visible results (bounded for safety).",
-            "  The review dialog explicitly chooses tracking or no tracking.",
-            "  All mutations are delegated to the existing package-manager backend.",
+            "DIALOGS",
+            shortcut(f"{key('up')}/{key('down')}", "Choose"),
+            shortcut(key("accept"), "Confirm"),
+            shortcut(key("cancel"), "Cancel"),
             "",
-            "METADATA AND REFRESH",
-            f"  {_display_key(self.config.key('refresh'))} refreshes metadata only; it never upgrades packages.",
-            f"  {_display_key(self.config.key('source'))} opens an HTTPS source URL when the provider publishes one.",
-            f"  {_display_key(self.config.key('info'))} opens the complete metadata view.",
-            "  DNF release dates and download sizes are shown when available.",
-            "  Aurelia shows the GitHub asset size and local binary size when present.",
-            "",
-            "DIAGNOSTICS",
-            "  Backend stderr remains visible in the terminal and errors remain available here.",
-            "  A failed refresh keeps the last-known-good catalog available for review.",
+            "STATUS",
+            shortcut(key("refresh"), "Refresh metadata only"),
+            "  Errors stay visible; failed refresh keeps the last catalog.",
         ]
         if self.diagnostics:
             lines.extend(["", "RECENT DIAGNOSTICS"])
@@ -1961,50 +1981,72 @@ class PackageManagerTui:
             self._add(y + 2 + offset, x + 3, line, inner_width, attr)
         self._add(y + modal_height - 2, x + 3, "↑/↓ scroll · Enter/Esc close", inner_width, self._attr(pairs, "muted"))
 
-    def _draw_footer(self, pairs: Dict[str, int], height: int, width: int) -> None:
+    def _footer_tokens(self) -> List[str]:
+        if self.focus_area == "actions":
+            return [
+                f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} action",
+                f"{_display_key(self.config.key('accept'))} choose",
+                f"{_display_key(self.config.key('select'))} packages",
+                f"{_display_key(self.config.key('cancel'))} back",
+                f"{_display_key(self.config.key('help'))} help",
+            ]
+        if self.focus_area == "filters":
+            return [
+                f"{_display_key(self.config.key('filter_previous'))}{_display_key(self.config.key('filter_next'))} tabs",
+                f"{_display_key(self.config.key('select'))} next",
+                f"{_display_key(self.config.key('accept'))} packages",
+                f"{_display_key(self.config.key('help'))} help",
+            ]
+        controls = [
+            f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} move",
+            f"{_display_key(self.config.key('select'))} tabs",
+            f"{_display_key(self.config.key('accept'))} actions",
+            f"{_display_key(self.config.key('search'))} search",
+            f"{_display_key(self.config.key('queue'))} queue",
+            f"{_display_key(self.config.key('versions'))} versions",
+            f"{_display_key(self.config.key('sort'))} sort",
+        ]
+        if self._can_add_source():
+            controls.append(f"{_display_key(self.config.key('add_source'))} Aurelia source")
+        controls.extend(
+            [
+                f"{_display_key(self.config.key('refresh'))} refresh",
+                f"{_display_key(self.config.key('help'))} help",
+            ]
+        )
+        return controls
+
+    def _footer_lines(self, width: int) -> List[str]:
+        return _pack_footer_lines(self._footer_tokens(), max(1, width - 4))
+
+    def _footer_height(self, width: int) -> int:
         if time.monotonic() > self.transient_until:
             self.transient_message = ""
-        if self.transient_message:
-            self._add(height - 3, 2, self.transient_message, width - 4, self._attr(pairs, "error" if self.transient_message.startswith("Error") else "warning"))
-        if self.focus_area == "actions":
-            left = (
-                f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} action  ·  "
-                f"{_display_key(self.config.key('accept'))} choose  ·  {_display_key(self.config.key('select'))} packages  ·  "
-                f"{_display_key(self.config.key('cancel'))} back  ·  {_display_key(self.config.key('help'))} help"
-            )
-        elif self.focus_area == "filters":
-            left = (
-                f"{_display_key(self.config.key('filter_previous'))}{_display_key(self.config.key('filter_next'))} tabs  ·  "
-                f"{_display_key(self.config.key('select'))} next  ·  {_display_key(self.config.key('accept'))} packages  ·  "
-                f"{_display_key(self.config.key('help'))} help"
-            )
+        return len(self._footer_lines(width)) + 1 + (1 if self.transient_message else 0)
+
+    def _draw_footer(self, pairs: Dict[str, int], height: int, width: int) -> None:
+        footer_lines = self._footer_lines(width)
+        transient = ""
+        if time.monotonic() <= self.transient_until:
+            transient = self.transient_message
         else:
-            controls = [
-                f"{_display_key(self.config.key('up'))}{_display_key(self.config.key('down'))} move",
-                f"{_display_key(self.config.key('select'))} tabs",
-                f"{_display_key(self.config.key('accept'))} actions",
-                f"{_display_key(self.config.key('search'))} search",
-                f"{_display_key(self.config.key('queue'))} queue",
-                f"{_display_key(self.config.key('versions'))} versions",
-                f"{_display_key(self.config.key('sort'))} sort",
-            ]
-            if self._can_add_source():
-                controls.append(f"{_display_key(self.config.key('add_source'))} Aurelia source")
-            controls.extend(
-                [
-                    f"{_display_key(self.config.key('refresh'))} refresh",
-                    f"{_display_key(self.config.key('help'))} help",
-                ]
-            )
-            left = "  ·  ".join(controls)
-        right = f"{_display_key(self.config.key('cancel'))} Quit"
-        right_x = max(2, width - len(right) - 2)
-        self._add(height - 2, 2, left, max(1, right_x - 3), self._attr(pairs, "secondary"))
-        self._add(height - 2, right_x, right, width - right_x - 1, self._attr(pairs, "accent_alt", bold=True))
+            self.transient_message = ""
+        footer_height = len(footer_lines) + 1 + (1 if transient else 0)
+        cursor_y = height - footer_height
+        if transient:
+            self._add(cursor_y, 2, transient, width - 4, self._attr(pairs, "error" if transient.startswith("Error") else "warning"))
+            cursor_y += 1
+        for line in footer_lines:
+            self._add(cursor_y, 2, line, width - 4, self._attr(pairs, "secondary"))
+            cursor_y += 1
         queue_text = f"Queue: {len(self.queue_rows)}"
         if self.diagnostics:
             queue_text += f"  ·  Diagnostics: {len(self.diagnostics)} (see ?)"
-        self._add(height - 1, 2, queue_text, width - 4, self._attr(pairs, "muted"))
+        status_y = height - 1
+        right = f"{_display_key(self.config.key('cancel'))} Quit"
+        right_x = max(2, width - len(right) - 2)
+        self._add(status_y, 2, queue_text, max(1, right_x - 3), self._attr(pairs, "muted"))
+        self._add(status_y, right_x, right, width - right_x - 1, self._attr(pairs, "accent_alt", bold=True))
 
     def render(self) -> None:
         if self.screen is None:
@@ -2023,16 +2065,23 @@ class PackageManagerTui:
         y = self._draw_search(pairs, y, width)
         y = self._draw_filters(pairs, y, width)
         body_y = y
-        body_height = max(6, height - body_y - 4)
+        body_height = max(1, height - body_y - self._footer_height(width))
         if self.show_details and width >= 106 and body_height >= 12:
             left_width = max(42, int((width - 3) * 0.62))
             right_width = width - left_width - 3
             self._draw_list(pairs, body_y, 1, body_height, left_width)
             self._draw_detail(pairs, body_y, left_width + 2, body_height, right_width)
         elif self.show_details:
-            list_height = max(7, int(body_height * 0.56))
-            self._draw_list(pairs, body_y, 1, list_height, width - 2)
-            self._draw_detail(pairs, body_y + list_height, 1, body_height - list_height, width - 2)
+            # A stacked split needs room for two readable boxes.  At the
+            # smallest supported heights, keep the list inside the body and
+            # let Alt-P/details be the explicit way to trade list space for
+            # metadata; never draw a fixed seven-row list into the footer.
+            if body_height < 14:
+                self._draw_list(pairs, body_y, 1, body_height, width - 2)
+            else:
+                list_height = min(max(7, int(body_height * 0.56)), body_height - 7)
+                self._draw_list(pairs, body_y, 1, list_height, width - 2)
+                self._draw_detail(pairs, body_y + list_height, 1, body_height - list_height, width - 2)
         else:
             self._draw_list(pairs, body_y, 1, body_height, width - 2)
         self._draw_footer(pairs, height, width)

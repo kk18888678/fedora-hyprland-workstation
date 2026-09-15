@@ -31,7 +31,7 @@ from tui_backend import (  # noqa: E402
 )
 from tui_config import TuiConfig, key_code, key_pressed, load_config  # noqa: E402
 from tui_theme import load_theme, nearest_xterm  # noqa: E402
-from tui import PackageManagerTui, _contrast_ratio, _readable_color, _selection_window, _truncate, _wrap  # noqa: E402
+from tui import PackageManagerTui, _contrast_ratio, _pack_footer_lines, _readable_color, _selection_window, _truncate, _wrap  # noqa: E402
 
 
 class PackageRowTests(unittest.TestCase):
@@ -207,6 +207,13 @@ class ThemeAndConfigTests(unittest.TestCase):
         self.assertEqual(_selection_window(11, 100, 11, 0), 1)
         self.assertEqual(_selection_window(99, 100, 11, 88), 89)
 
+    def test_footer_wraps_complete_shortcut_tokens_without_truncation(self) -> None:
+        lines = _pack_footer_lines(["↑↓ move", "Tab tabs", "Enter actions", "/ search", "+ Aurelia source", "Ctrl-R refresh", "? help"], 34)
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(len(line) <= 34 for line in lines))
+        self.assertTrue(all("…" not in line for line in lines))
+        self.assertIn("+ Aurelia source", lines)
+
     def test_package_icon_is_derived_from_metadata_and_has_provider_fallback(self) -> None:
         self.assertEqual(infer_package_icon("dnf", "example-browser", "example", "Web browser"), "◉")
         self.assertEqual(infer_package_icon("flatpak", "org.example.App", "App", "Unclassified application"), "●")
@@ -292,6 +299,15 @@ class TuiInteractionTests(unittest.TestCase):
         app._handle_key(10)
         self.assertEqual(app.focus_area, "actions")
         self.assertEqual(app.modal["kind"], "actions")
+
+    def test_help_is_a_compact_dynamic_shortcut_reference(self) -> None:
+        app = self._app()
+        app.diagnostics = []
+        lines = app._help_lines()
+        self.assertIn("SHORTCUTS", lines)
+        self.assertIn("PACKAGE", lines)
+        self.assertTrue(any("Ctrl-R" in line and "Refresh metadata" in line for line in lines))
+        self.assertLessEqual(len(lines), 30)
 
     def test_actions_popup_navigates_to_conditional_uninstall_action(self) -> None:
         app = self._app(installed=True)
