@@ -103,6 +103,7 @@ runtime_log_line_is_environment_only() {
     if [[ "$backend_failure_seen" == "1" ]] &&
        [[ "$line" == *"Type AureliaKeyboardPanel unavailable"* ||
           "$line" == *"Type CommandCenterPanel unavailable"* ||
+          "$line" == *"Type WallpapersPanel unavailable"* ||
           "$line" == *"Type BarPanel unavailable"* ||
           "$line" == *"Type ScreenMoveRemap unavailable"* ||
           "$line" == *"ERROR: Failed to load configuration"* ||

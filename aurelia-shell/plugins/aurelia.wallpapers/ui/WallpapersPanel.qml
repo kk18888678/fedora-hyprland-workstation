@@ -3,8 +3,9 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import "../../theme"
-import "../../services/SourceUrl.js" as SourceUrl
+import "../../../ui"
+import "../../../theme"
+import "../../../services/SourceUrl.js" as SourceUrl
 import "../WallpapersModel.js" as WallpapersModel
 
 // Wallpaper library panel. Keyboard-first, one grid, three sources (local

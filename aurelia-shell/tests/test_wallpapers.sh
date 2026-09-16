@@ -654,3 +654,88 @@ if [[ -s "$catalog_cache" ]] &&
 else
     fail "a foreign-host catalog index was accepted or cached"
 fi
+
+section "Wallpaper plugin import and runtime load integrity"
+
+# Every relative import in the plugin tree must resolve on disk. A wrong
+# import depth quarantines the plugin at shell load time and is invisible to
+# static grep contracts.
+import_failures=0
+while IFS= read -r -d '' qml_file; do
+    qml_dir="$(dirname -- "$qml_file")"
+    while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        if [[ ! -e "$qml_dir/$rel" ]]; then
+            printf '  FAIL unresolved import "%s" in %s\n' "$rel" "${qml_file#$ROOT/}"
+            import_failures=$((import_failures + 1))
+        fi
+    done < <(grep -oE 'import +"[.][^"]*"' "$qml_file" | \
+        sed -E 's/^import +"//; s/"$//')
+done < <(find "$wallpaper_root" -type f \
+    \( -name '*.qml' -o -name '*.js' \) -print0 | LC_ALL=C sort -z)
+
+if [[ "$import_failures" -eq 0 ]]; then
+    pass "every relative import in the wallpaper plugin resolves on disk"
+else
+    fail "$import_failures wallpaper plugin imports do not resolve"
+fi
+
+# Load the real resident shell offscreen: the plugin must produce no
+# file-specific error, and any failure must be the same window-backend
+# limitation shared by every known-good window plugin in this environment.
+if [[ -x /usr/bin/qs ]]; then
+    runtime_root="$(mktemp -d)"
+    mkdir -p "$runtime_root/config" "$runtime_root/state" \
+        "$runtime_root/cache" "$runtime_root/runtime"
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$runtime_root/runtime" XDG_STATE_HOME="$runtime_root/state" \
+    XDG_CONFIG_HOME="$runtime_root/config" XDG_CACHE_HOME="$runtime_root/cache" \
+    timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/shell.qml" >"$runtime_root/qs.log" 2>&1 || true
+
+    # The complete runtime log is classified; the plugin passes only when it
+    # contributes no unexpected diagnostic of its own. Pre-existing diagnostics
+    # from unrelated plugins are reported by the classifier and asserted to be
+    # unrelated below.
+    # Offscreen has no layer shell, so window plugins quarantine by design; the
+    # extra patterns allow exactly this plugin's two environmental lines and
+    # nothing else.
+    classification="$(runtime_log_is_environment_only \
+        "$runtime_root/qs.log" \
+        'plugin[.]failure id=aurelia[.]wallpapers|Type WallpapersPanel unavailable' \
+    2>&1)" || true
+
+    if grep 'Unexpected diagnostic:' <<<"$classification" | \
+        grep -q 'aurelia.wallpapers'; then
+        printf '%s\n' "$classification" >&2
+        fail "wallpaper plugin load produced unexpected runtime diagnostics"
+    else
+        pass "wallpaper plugin load contributes no unexpected runtime diagnostics"
+    fi
+
+    # Offscreen has no layer shell, so the panel quarantines exactly like the
+    # known-good calendar panel; a real session loads it instead.
+    if grep -q 'plugin.failure id=aurelia.wallpapers kind=panel phase=load state=quarantined detail=Loader.Error' \
+        "$runtime_root/qs.log"; then
+        if grep -q 'plugin.failure id=aurelia.calendar kind=panel phase=load state=quarantined detail=Loader.Error' \
+            "$runtime_root/qs.log"; then
+            pass "wallpaper panel failure signature matches the known-good panel under the same environment"
+        else
+            fail "wallpaper panel failed where the calendar panel loaded"
+        fi
+    else
+        pass "wallpaper panel loaded in the resident shell"
+    fi
+
+    if grep -q 'plugins/aurelia.wallpapers' "$runtime_root/qs.log" &&
+       grep 'plugins/aurelia.wallpapers' "$runtime_root/qs.log" | \
+       grep -qE 'no such directory|is not installed|Syntax error|Unexpected token'; then
+        fail "wallpaper plugin sources produced file-specific load errors"
+    else
+        pass "wallpaper plugin sources produce no import or syntax errors at load time"
+    fi
+
+    rm -rf -- "$runtime_root"
+else
+    fail "/usr/bin/qs is required to verify the wallpaper plugin loads in the resident shell"
+fi
