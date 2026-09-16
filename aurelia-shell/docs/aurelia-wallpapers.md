@@ -15,6 +15,7 @@ has no Wails/Go/Node dependency, and does not write Omarchy paths.
   - local source discovery over XDG Pictures/Wallpapers and configured roots,
   - library imports,
   - wallhaven search, thumbnails, and downloads,
+  - the pinned bjarneo wallpaper catalog (search, thumbnails, downloads),
   - palette (`colors.toml`) generation from a wallpaper image.
 - `aurelia-theme-bg set <path>` stays the only writer of the active wallpaper.
 - `aurelia-theme set <slug>` stays the only writer of the active palette.
@@ -36,6 +37,8 @@ aurelia-wallpaper import <path> [--to <source>]
 aurelia-wallpaper wallhaven key --status|--set
 aurelia-wallpaper wallhaven search [--query <text>] [--rows|--json] [--thumbs]
 aurelia-wallpaper wallhaven download <id> [--to <source>]
+aurelia-wallpaper catalog list [--query <text>] [--live] [--refresh] [--rows|--json] [--thumbs]
+aurelia-wallpaper catalog download <key> [--to <source>]
 aurelia-wallpaper theme generate <path> [--name <slug>] [--light|--dark] [--json]
 aurelia-wallpaper theme apply <path> [--name <slug>] [--light|--dark]
 aurelia-wallpaper theme list [--json]
@@ -50,6 +53,7 @@ Search also accepts `--categories 111`, `--purity 100`, `--sorting <s>`,
 ~~~text
 local rows:     path, thumbnail, label, source, current
 wallhaven rows: id, thumbnail, resolution, purity, page URL
+catalog rows:   id, thumbnail, label, resolution, purity, page URL
 ~~~
 
 ## Files and state
@@ -90,6 +94,32 @@ A malformed configuration file is reported and refuses to run; it is never
 silently replaced by defaults. The optional wallhaven API key is read from
 stdin (`wallhaven key --set`), never from argv, and is stored with 0600
 permissions. It is never printed or logged.
+
+## The bjarneo wallpaper catalog
+
+`catalog` searches the pinned wallpaper catalog published at
+`https://bjarneo.github.io/wallpapers/` (the same catalog used by upstream
+Aether's author). The index is a static JavaScript document, fetched once into
+`~/.cache/aurelia/wallpapers/catalog/` and reused for 7 days (`--refresh`
+forces a re-fetch; a failed refresh keeps serving the cached copy with a
+warning). Search is client-side over storage key, title, description, tags,
+color, and theme, so no query ever leaves the machine.
+
+~~~bash
+aurelia-wallpaper catalog list --query aurora --rows --thumbs
+aurelia-wallpaper catalog list --live --rows          # animated wallpapers
+aurelia-wallpaper catalog download 'dark/blue/3840x2160_omarchy_nebula__01-nebula.jpg'
+~~~
+
+- The index host (`bjarneo.github.io`) and the storage host it declares
+  (`wallpapers.hel1.your-objectstorage.com`) are pinned in the repository. An
+  index that declares any other storage host fails closed, and media paths from
+  the index may not carry a scheme or `..` traversal.
+- Downloads land in `<source>/catalog/` with the key's separators folded
+  (`dark/blue/x.jpg` becomes `dark_blue_x.jpg`), are signature-checked, and are
+  skipped when the stored file already matches the size declared by the index.
+- The index is ~35 MB; it is cached, size-capped, and fetched under a
+  dedicated timeout (`AURELIA_WALLPAPER_CATALOG_TIMEOUT`, default 240 s).
 
 ## Safety model
 
@@ -140,9 +170,9 @@ and merged into the authoritative keybinding manifest) or with:
 aurelia-shell shell toggle aurelia.wallpapers '{}'
 ~~~
 
-Keyboard model: arrows move through the grid, `Tab` switches between the local
-library and the wallhaven browser, typing filters (or searches, in wallhaven
-mode), `Enter` applies (in wallhaven mode it downloads first, then applies),
+Keyboard model: arrows move through the grid, `Tab` cycles local library →
+wallhaven → catalog, typing filters (or searches, in remote modes), `Enter`
+applies (in wallhaven and catalog modes it downloads first, then applies),
 `T` toggles "derive a theme from this wallpaper", `Esc` closes.
 
 ## Tests

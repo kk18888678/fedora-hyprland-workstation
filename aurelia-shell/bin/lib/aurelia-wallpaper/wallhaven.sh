@@ -270,34 +270,6 @@ aurelia_wallpaper_wallhaven_detail() {
     jq -c '{meta:{current_page:1,last_page:1,total:1,per_page:1}, data:[.data]}' <<<"$response"
 }
 
-aurelia_wallpaper_wallhaven_record_download() {
-    local wallpaper_id="$1"
-    local source_url="$2"
-    local destination="$3"
-    local digest="$4"
-    local page_url="$5"
-    local document="[]"
-
-    [[ -f "$AW_DOWNLOAD_LOG" && ! -L "$AW_DOWNLOAD_LOG" ]] &&
-        document="$(jq -c 'if type == "array" then . else [] end' "$AW_DOWNLOAD_LOG" || printf '[]')"
-
-    document="$(jq -c \
-        --arg id "$wallpaper_id" \
-        --arg source "$source_url" \
-        --arg destination "$destination" \
-        --arg sha256 "$digest" \
-        --arg page "$page_url" \
-        --argjson limit "$AW_WALLHAVEN_LOG_LIMIT" \
-        '. + [{id:$id,source:$source,destination:$destination,sha256:$sha256,page:$page}]
-         | if length > $limit then .[(length - $limit):] else . end' \
-        <<<"$document" || true)"
-    [[ -n "$document" ]] ||
-        aurelia_wallpaper_fail "Could not record the wallhaven download provenance."
-
-    aurelia_wallpaper_atomic_text "$document" "$AW_DOWNLOAD_LOG" ||
-        aurelia_wallpaper_fail "Could not write the wallhaven download provenance log."
-}
-
 aurelia_wallpaper_wallhaven_download() {
     local wallpaper_id="$1"
     local target_source="${2:-library}"
@@ -350,7 +322,8 @@ aurelia_wallpaper_wallhaven_download() {
     fi
 
     aurelia_wallpaper_fetch_image "$path_url" "$destination" || return 1
-    aurelia_wallpaper_wallhaven_record_download \
-        "$wallpaper_id" "$path_url" "$destination" "$AW_FETCHED_SHA256" "$page_url" || true
+    aurelia_wallpaper_record_download \
+        "wallhaven" "$wallpaper_id" "$path_url" "$destination" \
+        "$AW_FETCHED_SHA256" "$page_url" || true
     printf '%s\n' "$destination"
 }

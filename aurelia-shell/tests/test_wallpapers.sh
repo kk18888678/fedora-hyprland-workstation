@@ -189,6 +189,58 @@ cat >"$wp_tmp/fixtures/detail-nsfw.json" <<'EOF'
  "path":"https://w.wallhaven.cc/full/xx/wallhaven-3333333.jpg","url":"https://wallhaven.cc/w/3333333",
  "thumbs":{"small":"https://th.wallhaven.cc/small/xx/3333333.jpg"}}}
 EOF
+cat >"$wp_tmp/fixtures/catalog.js" <<'EOF'
+window.WALLPAPERS_BASE_URL = "https://wallpapers.hel1.your-objectstorage.com"\;
+window.WALLPAPERS = {
+  "dark/blue/3840x2160_test_nebula__01-nebula.jpg": {
+    "color": "blue",
+    "description": "Nebula 01 Nebula. Dark blue wallpaper, omarchy theme.",
+    "dimensions": "3840x2160",
+    "medium_path": "cache/medium/dark/blue/3840x2160_test_nebula__01-nebula.jpg",
+    "size_bytes": 12345,
+    "tags": ["dark", "blue", "nebula"],
+    "theme": "omarchy"
+  },
+  "dark/red/3840x2160_test_canyon__01-canyon.jpg": {
+    "color": "red",
+    "description": "Canyon 01 Canyon. Dark red wallpaper, omarchy theme.",
+    "dimensions": "3840x2160",
+    "medium_path": "cache/medium/dark/red/3840x2160_test_canyon__01-canyon.jpg",
+    "size_bytes": 12345,
+    "tags": ["dark", "red", "canyon"],
+    "theme": "omarchy"
+  },
+  "light/green/3840x2160_test_meadow__01-meadow.jpg": {
+    "color": "green",
+    "description": "Meadow 01 Meadow. Light green wallpaper, omarchy theme.",
+    "dimensions": "3840x2160",
+    "medium_path": "https://evil.example.com/steal.jpg",
+    "size_bytes": 12345,
+    "tags": ["light", "green", "meadow"],
+    "theme": "omarchy"
+  }
+};
+EOF
+cat >"$wp_tmp/fixtures/catalog-badhost.js" <<'EOF'
+window.WALLPAPERS_BASE_URL = "https://evil.example.com/storage"\;
+window.WALLPAPERS = {
+  "dark/blue/x.jpg": { "description": "x", "medium_path": "m.jpg" }
+};
+EOF
+cat >"$wp_tmp/fixtures/catalog-live.js" <<'EOF'
+window.LIVE = {
+  "live/1920x1080_test_retro2_live.gif": {
+    "color": "live",
+    "description": "Retro2. Live wallpaper.",
+    "kind": "image",
+    "tags": ["live", "aesthetic", "retro2"],
+    "theme": "aesthetic",
+    "title": "Retro2",
+    "tone": "live"
+  }
+};
+EOF
+magick -size 32x32 gradient:blue-red "$wp_tmp/fixtures/catalog-live.gif"
 
 cat >"$wp_tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -206,6 +258,10 @@ case "$url" in
     *api/v1/search*) payload="$WP_FIXTURE_SEARCH" ;;
     *api/v1/w/1111111*) payload="$WP_FIXTURE_DETAIL" ;;
     *api/v1/w/3333333*) payload="$WP_FIXTURE_DETAIL_NSFW" ;;
+    *wallpapers.js*) payload="$WP_FIXTURE_CATALOG_JS" ;;
+    *live.js*) payload="$WP_FIXTURE_CATALOG_LIVE" ;;
+    *your-objectstorage.com*.gif) payload="$WP_FIXTURE_CATALOG_GIF" ;;
+    *your-objectstorage.com*) payload="$WP_FIXTURE_IMAGE" ;;
     *th.wallhaven.cc*|*w.wallhaven.cc*) payload="$WP_FIXTURE_IMAGE" ;;
     *)
         printf 'stub-curl: unexpected url %s\n' "$url" >&2
@@ -240,6 +296,9 @@ wp_env=(
     "WP_FIXTURE_DETAIL=$wp_tmp/fixtures/detail.json"
     "WP_FIXTURE_DETAIL_NSFW=$wp_tmp/fixtures/detail-nsfw.json"
     "WP_FIXTURE_IMAGE=$wp_tmp/fixtures/wallhaven-fake.jpg"
+    "WP_FIXTURE_CATALOG_JS=$wp_tmp/fixtures/catalog.js"
+    "WP_FIXTURE_CATALOG_LIVE=$wp_tmp/fixtures/catalog-live.js"
+    "WP_FIXTURE_CATALOG_GIF=$wp_tmp/fixtures/catalog-live.gif"
 )
 
 run_wp() {
@@ -512,4 +571,86 @@ if run_wp wallhaven download '../etc/passwd' >/dev/null; then
     fail "wallhaven accepted an invalid wallpaper id"
 else
     pass "wallhaven rejects malformed wallpaper ids"
+fi
+
+section "Remote wallpaper catalog (isolated, stubbed network)"
+
+catalog_json="$(run_wp catalog list --json)"
+if jq -e '.provider == "bjarneo-catalog" and (.results | length == 2)' \
+    <<<"$catalog_json" >/dev/null &&
+   ! grep -q 'evil.example.com' <<<"$catalog_json"; then
+    pass "catalog list drops entries whose media path is not allowlisted"
+else
+    fail "catalog list filtering failed: $catalog_json"
+fi
+
+catalog_rows="$(run_wp catalog list --rows --thumbs)"
+if [[ "$(grep -c . <<<"$catalog_rows")" == "2" ]] &&
+   grep -q $'^dark/blue/3840x2160_test_nebula__01-nebula\.jpg\t/.*/thumbs/catalog-dark_blue_3840x2160_test_nebula__01-nebula\.jpg\.jpg\tNebula 01 Nebula\. Dark blue wallpaper, omarchy theme\.\t3840x2160\tsfw\thttps://wallpapers\.hel1\.your-objectstorage\.com/dark/blue/' \
+       <<<"$catalog_rows"; then
+    pass "catalog list emits six-field rows with cached local previews"
+else
+    fail "catalog rows did not use the documented shape or cached thumbnails: $catalog_rows"
+fi
+
+catalog_query="$(run_wp catalog list --query canyon --rows)"
+if [[ "$(grep -c . <<<"$catalog_query")" == "1" ]] &&
+   grep -q 'canyon' <<<"$catalog_query"; then
+    pass "catalog search filters client-side by key, description, and tags"
+else
+    fail "catalog search filtering failed: $catalog_query"
+fi
+
+catalog_downloaded="$(run_wp catalog download 'dark/blue/3840x2160_test_nebula__01-nebula.jpg')"
+if [[ "$catalog_downloaded" == "$wp_tmp/home/Pictures/Wallpapers/catalog/dark_blue_3840x2160_test_nebula__01-nebula.jpg" ]] &&
+   [[ -f "$catalog_downloaded" ]]; then
+    pass "catalog download publishes a validated image into the library"
+else
+    fail "catalog download failed: $catalog_downloaded"
+fi
+
+if [[ "$(run_wp catalog download 'dark/blue/3840x2160_test_nebula__01-nebula.jpg')" == "$catalog_downloaded" ]]; then
+    pass "catalog download is idempotent when the stored size matches the index"
+else
+    fail "catalog download re-downloaded an unchanged wallpaper"
+fi
+
+if run_wp catalog download '../../etc/passwd' >/dev/null 2>&1; then
+    fail "catalog accepted an unsafe storage key"
+else
+    pass "catalog rejects storage keys with traversal"
+fi
+
+if run_wp catalog download 'dark/blue/missing.jpg' >/dev/null 2>&1; then
+    fail "catalog downloaded a key that is not in the index"
+else
+    pass "catalog refuses keys that are not in the index"
+fi
+
+live_rows="$(run_wp catalog list --live --rows)"
+if grep -q $'^live/1920x1080_test_retro2_live\.gif\t' <<<"$live_rows"; then
+    pass "catalog exposes the live wallpaper index"
+else
+    fail "live wallpaper rows are missing: $live_rows"
+fi
+
+live_downloaded="$(run_wp catalog download 'live/1920x1080_test_retro2_live.gif')"
+if [[ "$live_downloaded" == "$wp_tmp/home/Pictures/Wallpapers/catalog/live_1920x1080_test_retro2_live.gif" ]] &&
+   [[ -f "$live_downloaded" ]]; then
+    pass "catalog downloads animated wallpapers through the same bounded pipeline"
+else
+    fail "live wallpaper download failed: $live_downloaded"
+fi
+
+# A refresh that returns a foreign-host index must fail closed: the rejected
+# index never enters the cache and the session keeps serving the cached copy.
+env "${wp_env[@]}" WP_FIXTURE_CATALOG_JS="$wp_tmp/fixtures/catalog-badhost.js" \
+    "$wallpaper_bin" catalog list --refresh --rows >/dev/null 2>&1 || true
+catalog_cache="$wp_tmp/cache/aurelia/wallpapers/catalog/wallpapers.js"
+if [[ -s "$catalog_cache" ]] &&
+   grep -Fq 'window.WALLPAPERS_BASE_URL = "https://wallpapers.hel1.your-objectstorage.com"' \
+       "$catalog_cache"; then
+    pass "an index declaring a foreign storage host fails closed and keeps the cached catalog"
+else
+    fail "a foreign-host catalog index was accepted or cached"
 fi

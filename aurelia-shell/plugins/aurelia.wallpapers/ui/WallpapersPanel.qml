@@ -7,14 +7,15 @@ import "../../theme"
 import "../../services/SourceUrl.js" as SourceUrl
 import "../WallpapersModel.js" as WallpapersModel
 
-// Wallpaper library panel. Keyboard-first, one grid, two sources.
-// This surface never mutates wallpaper or theme state itself: it only builds
-// argv for the aurelia-wallpaper command and reports its result.
+// Wallpaper library panel. Keyboard-first, one grid, three sources (local
+// library, wallhaven, and the pinned bjarneo catalog). This surface never
+// mutates wallpaper or theme state itself: it only builds argv for the
+// aurelia-wallpaper command and reports its result.
 Item {
     id: root
 
     property bool opened: false
-    property string mode: "local" // "local" | "wallhaven"
+    property string mode: "local" // "local" | "wallhaven" | "catalog"
     property var entries: []
     property int selectedIndex: 0
     property string filterText: ""
@@ -33,7 +34,9 @@ Item {
         root.selectedIndex >= 0 && root.selectedIndex < root.filteredEntries.length
         ? root.filteredEntries[root.selectedIndex]
         : null
-    readonly property string modeLabel: root.mode === "wallhaven" ? "Wallhaven" : "Local sources"
+    readonly property string modeLabel: root.mode === "wallhaven" ? "Wallhaven"
+        : (root.mode === "catalog" ? "Wallpaper catalog" : "Local sources")
+    readonly property bool remoteMode: root.mode === "wallhaven" || root.mode === "catalog"
     readonly property int gridColumns: 5
     readonly property var targetScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
 
@@ -46,7 +49,8 @@ Item {
     }
 
     function setMode(nextMode) {
-        root.mode = nextMode === "wallhaven" ? "wallhaven" : "local"
+        if (nextMode === "wallhaven" || nextMode === "catalog") root.mode = nextMode
+        else root.mode = "local"
         root.entries = []
         root.selectedIndex = 0
         root.filterText = ""
@@ -62,7 +66,8 @@ Item {
             console.warn("[WALLPAPERS] payload_invalid reason=invalid_json")
             payload = {}
         }
-        root.setMode(payload.mode === "wallhaven" ? "wallhaven" : "local")
+        root.setMode(payload.mode === "wallhaven" || payload.mode === "catalog"
+            ? payload.mode : "local")
         root.errorMessage = ""
         root.opened = true
         root.refresh()
@@ -88,13 +93,21 @@ Item {
         root.errorMessage = ""
         if (dataProcess.running) dataProcess.running = false
 
+        var query = String(root.filterText || "").trim()
         if (root.mode === "wallhaven") {
-            var query = String(root.filterText || "").trim()
             if (query === "") {
                 dataProcess.command = [root.wallpaperBin, "wallhaven", "search",
                     "--sorting", "toplist", "--rows", "--thumbs"]
             } else {
                 dataProcess.command = [root.wallpaperBin, "wallhaven", "search",
+                    "--query", query, "--rows", "--thumbs"]
+            }
+        } else if (root.mode === "catalog") {
+            if (query === "") {
+                dataProcess.command = [root.wallpaperBin, "catalog", "list",
+                    "--rows", "--thumbs"]
+            } else {
+                dataProcess.command = [root.wallpaperBin, "catalog", "list",
                     "--query", query, "--rows", "--thumbs"]
             }
         } else {
@@ -106,9 +119,10 @@ Item {
 
     function loadRows(raw, serial) {
         if (serial !== root.requestSerial) return
-        var loaded = root.mode === "wallhaven"
-            ? WallpapersModel.loadWallhavenRows(raw)
-            : WallpapersModel.loadLocalRows(raw)
+        var loaded
+        if (root.mode === "wallhaven") loaded = WallpapersModel.loadWallhavenRows(raw)
+        else if (root.mode === "catalog") loaded = WallpapersModel.loadCatalogRows(raw)
+        else loaded = WallpapersModel.loadLocalRows(raw)
         root.entries = loaded
         root.selectedIndex = WallpapersModel.indexForCurrent(loaded)
         if (root.selectedIndex >= loaded.length) root.selectedIndex = Math.max(0, loaded.length - 1)
@@ -137,16 +151,21 @@ Item {
         }
         if (root.selectedIndex >= root.filteredEntries.length)
             root.selectedIndex = root.filteredEntries.length - 1
-        // A changed wallhaven query is a remote search, not a local filter.
-        if (root.mode === "wallhaven") root.debouncedSearch.restart()
+        // A changed remote query is a search, not a local filter.
+        if (root.remoteMode) root.debouncedSearch.restart()
     }
+
     function applySelected() {
         var entry = root.selectedEntry
         if (!entry || root.applying) return
 
-        if (root.mode === "wallhaven") {
+        if (root.remoteMode) {
             root.applyStage = "download"
-            applyProcess.command = [root.wallpaperBin, "wallhaven", "download", String(entry.id)]
+            if (root.mode === "catalog") {
+                applyProcess.command = [root.wallpaperBin, "catalog", "download", String(entry.id)]
+            } else {
+                applyProcess.command = [root.wallpaperBin, "wallhaven", "download", String(entry.id)]
+            }
         } else if (root.themeFromWallpaper) {
             root.applyStage = "activate"
             applyProcess.command = [root.wallpaperBin, "theme", "apply", String(entry.filePath)]
@@ -213,7 +232,7 @@ Item {
             }
 
             if (root.applyStage === "download") {
-                // The download command prints the published library path.
+                // The download commands print the published library path.
                 var lines = String(applyOutput.text || "").trim().split("\n")
                 var published = lines.length > 0 ? lines[lines.length - 1] : ""
                 if (String(published).charAt(0) !== "/") {
@@ -232,6 +251,8 @@ Item {
             root.applyStage = "idle"
             root.refresh()
         }
+    }
+
     PanelWindow {
         id: overlay
 
@@ -294,7 +315,9 @@ Item {
                         return
                     }
                     if (event.key === Qt.Key_Tab) {
-                        root.setMode(root.mode === "wallhaven" ? "local" : "wallhaven")
+                        if (root.mode === "local") root.setMode("wallhaven")
+                        else if (root.mode === "wallhaven") root.setMode("catalog")
+                        else root.setMode("local")
                         root.refresh()
                         event.accepted = true
                         return
@@ -324,19 +347,32 @@ Item {
                         root.updateFilter(root.filterText + event.text)
                         event.accepted = true
                     }
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: Theme.spacingSm
 
-                    Text {
+                    RowLayout {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 30
-                        text: "Wallpapers"
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeLg
-                        font.weight: Theme.fontWeightBold
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Wallpapers"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeLg
+                            font.weight: Theme.fontWeightBold
+                        }
+
+                        Text {
+                            text: root.modeLabel + "  (Tab)"
+                            color: Theme.accent
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            font.weight: Theme.fontWeightBold
+                        }
                     }
 
                     Text {
@@ -347,9 +383,9 @@ Item {
                             : (root.applying
                                 ? (root.applyStage === "download" ? "Downloading wallpaper…" : "Applying…")
                                 : (root.loading ? "Loading…" :
-                                    (root.mode === "wallhaven"
+                                    (root.remoteMode
                                         ? (root.filterText === ""
-                                            ? "Wallhaven top list"
+                                            ? root.modeLabel
                                             : "Search: " + root.filterText)
                                         : (root.filterText === ""
                                             ? root.modeLabel + ": " + root.filteredEntries.length
@@ -358,6 +394,8 @@ Item {
                         font.family: Theme.fontFamilyProse
                         font.pixelSize: Theme.fontSizeSm
                         elide: Text.ElideRight
+                    }
+
                     GridView {
                         id: wallpaperGrid
                         Layout.fillWidth: true
@@ -440,9 +478,9 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 24
-                        text: root.mode === "wallhaven"
-                            ? "← → ↑ ↓ select   Enter download & apply   Tab local   Esc close"
-                            : "← → ↑ ↓ select   Enter apply   T theme from wallpaper   Tab wallhaven   Esc close"
+                        text: root.remoteMode
+                            ? "← → ↑ ↓ select   Enter download & apply   Tab next source   Esc close"
+                            : "← → ↑ ↓ select   Enter apply   T theme from wallpaper   Tab next source   Esc close"
                         color: Theme.textSecondary
                         font.family: Theme.fontFamilyProse
                         font.pixelSize: Theme.fontSizeSm

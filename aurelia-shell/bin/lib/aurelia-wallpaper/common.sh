@@ -62,6 +62,17 @@ aurelia_wallpaper_init_paths() {
     # Authoritative wallhaven endpoints. Redirects are restricted to HTTPS and
     # the effective URL host is re-validated after every request.
     AW_WALLHAVEN_ALLOWED_HOSTS="wallhaven.cc api.wallhaven.cc w.wallhaven.cc th.wallhaven.cc"
+    # Pinned remote catalog: the bjarneo wallpapers index and its storage host.
+    # Both are declared here so neither the index nor the media it points at can
+    # redirect a download to an arbitrary machine.
+    AW_CATALOG_ALLOWED_HOSTS="bjarneo.github.io wallpapers.hel1.your-objectstorage.com"
+    AW_CATALOG_INDEX_URL="https://bjarneo.github.io/wallpapers/wallpapers.js"
+    AW_CATALOG_LIVE_URL="https://bjarneo.github.io/wallpapers/live.js"
+    AW_CATALOG_DEFAULT_BASE_URL="https://wallpapers.hel1.your-objectstorage.com"
+    AW_CATALOG_INDEX_ROOT="$AW_CACHE_ROOT/catalog"
+    AW_CATALOG_INDEX_TIMEOUT="${AURELIA_WALLPAPER_CATALOG_TIMEOUT:-240}"
+    AW_CATALOG_INDEX_MAX_BYTES="${AURELIA_WALLPAPER_CATALOG_MAX_BYTES:-134217728}"
+    AW_CATALOG_INDEX_TTL="${AURELIA_WALLPAPER_CATALOG_TTL:-604800}"
     AW_USER_AGENT="aurelia-wallpaper/1.0"
     AW_CURL_BIN="${AURELIA_WALLPAPER_CURL:-curl}"
     AW_SHUFFLE_BIN="${AURELIA_WALLPAPER_SHUFFLE:-shuf}"
@@ -94,6 +105,10 @@ Sources and library:
   next [<source>]                    Activate the next wallpaper cyclically.
   current [--json]                   Show the active wallpaper.
   import <path> [--to <source>]      Copy an image into a library source.
+
+Remote catalog (bjarneo wallpapers, pinned index and storage hosts):
+  catalog list [--query <text>] [--live] [--refresh] [--rows|--json] [--thumbs]
+  catalog download <key> [--to <source>]
 
 Wallhaven:
   wallhaven key [--status|--set]     Report or store the optional API key.
@@ -293,6 +308,7 @@ aurelia_wallpaper_label_for() {
 
 aurelia_wallpaper_host_allowed() {
     local url="$1"
+    local hosts="${2:-$AW_WALLHAVEN_ALLOWED_HOSTS}"
     local host=""
     local allowed=""
 
@@ -304,7 +320,7 @@ aurelia_wallpaper_host_allowed() {
     host="${host%%:*}"
     [[ -n "$host" ]] || return 1
 
-    for allowed in $AW_WALLHAVEN_ALLOWED_HOSTS; do
+    for allowed in $hosts; do
         if [[ "$host" == "$allowed" ]]; then
             return 0
         fi
@@ -465,6 +481,7 @@ aurelia_wallpaper_source_rows() {
     done
 
     printf '%s\t%s\t%s\t%s\n' "wallhaven" "remote" "https://wallhaven.cc" "1"
+    printf '%s\t%s\t%s\t%s\n' "catalog" "remote" "https://bjarneo.github.io/wallpapers" "1"
 }
 
 aurelia_wallpaper_source_record() {
@@ -494,7 +511,7 @@ aurelia_wallpaper_source_enabled() {
     local requested="$1"
     local index
 
-    if [[ "$requested" == "library" || "$requested" == "wallhaven" ]]; then
+    if [[ "$requested" == "library" || "$requested" == "wallhaven" || "$requested" == "catalog" ]]; then
         return 0
     fi
     for index in ${AW_CFG_SOURCE_IDS[@]+"${!AW_CFG_SOURCE_IDS[@]}"}; do
@@ -505,6 +522,38 @@ aurelia_wallpaper_source_enabled() {
     done
     return 1
 }
+# Append a bounded provenance record for a published remote download. The log
+# lives in the regenerable cache and is capped so it can never grow unbounded.
+aurelia_wallpaper_record_download() {
+    local provider="$1"
+    local remote_id="$2"
+    local source_url="$3"
+    local destination="$4"
+    local digest="$5"
+    local page_url="$6"
+    local document="[]"
+
+    [[ -f "$AW_DOWNLOAD_LOG" && ! -L "$AW_DOWNLOAD_LOG" ]] &&
+        document="$(jq -c 'if type == "array" then . else [] end' "$AW_DOWNLOAD_LOG" || printf '[]')"
+
+    document="$(jq -c \
+        --arg provider "$provider" \
+        --arg id "$remote_id" \
+        --arg source "$source_url" \
+        --arg destination "$destination" \
+        --arg sha256 "$digest" \
+        --arg page "$page_url" \
+        --argjson limit "$AW_WALLHAVEN_LOG_LIMIT" \
+        '. + [{provider:$provider,id:$id,source:$source,destination:$destination,sha256:$sha256,page:$page}]
+         | if length > $limit then .[(length - $limit):] else . end' \
+        <<<"$document" || true)"
+    [[ -n "$document" ]] ||
+        aurelia_wallpaper_fail "Could not record the download provenance."
+
+    aurelia_wallpaper_atomic_text "$document" "$AW_DOWNLOAD_LOG" ||
+        aurelia_wallpaper_fail "Could not write the download provenance log."
+}
+
 aurelia_wallpaper_config_write() {
     local document="$1"
 
@@ -522,6 +571,7 @@ aurelia_wallpaper_http_fetch() {
     local destination="$2"
     local request_timeout="$3"
     local max_bytes="$4"
+    local allowed_hosts="${5:-$AW_WALLHAVEN_ALLOWED_HOSTS}"
     local error_file="${destination}.err"
     local effective=""
     local rc=0
@@ -584,7 +634,7 @@ aurelia_wallpaper_http_fetch() {
     rm -f -- "$error_file"
     AW_HTTP_EFFECTIVE_URL="$effective"
 
-    if ! aurelia_wallpaper_host_allowed "$effective"; then
+    if ! aurelia_wallpaper_host_allowed "$effective" "$allowed_hosts"; then
         AW_HTTP_FAILURE_CLASS="unexpected-host"
         AW_HTTP_FAILURE_MESSAGE="Response came from a non-allowlisted host: $effective"
         return 1
@@ -612,13 +662,14 @@ aurelia_wallpaper_url_extension() {
 aurelia_wallpaper_fetch_image() {
     local url="$1"
     local destination="$2"
+    local allowed_hosts="${3:-$AW_WALLHAVEN_ALLOWED_HOSTS}"
     local extension=""
     local staging=""
     local size="0"
 
     AW_FETCHED_SHA256=""
 
-    aurelia_wallpaper_host_allowed "$url" ||
+    aurelia_wallpaper_host_allowed "$url" "$allowed_hosts" ||
         aurelia_wallpaper_fail "Refusing to download from a non-allowlisted host: $url"
     extension="$(aurelia_wallpaper_url_extension "$url"  || true)"
     [[ -n "$extension" ]] ||
@@ -629,7 +680,7 @@ aurelia_wallpaper_fetch_image() {
         aurelia_wallpaper_fail "Could not create wallpaper download staging file."
 
     if ! aurelia_wallpaper_http_fetch "$url" "$staging" \
-        "$AW_DOWNLOAD_TIMEOUT" "$AW_MAX_DOWNLOAD_BYTES"; then
+        "$AW_DOWNLOAD_TIMEOUT" "$AW_MAX_DOWNLOAD_BYTES" "$allowed_hosts"; then
         # A refused or partial download is never published.
         local failure_message="${AW_HTTP_FAILURE_MESSAGE:-Request failed: $url}"
         rm -f -- "$staging"

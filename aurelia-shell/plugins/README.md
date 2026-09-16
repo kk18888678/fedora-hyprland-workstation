@@ -157,7 +157,8 @@ an in-bar controls overlay.
 - aurelia.wallpapers: resident Wallpaper Library panel opened with
   `SUPER + SHIFT + W`. It browses local wallpaper sources
   (`~/Pictures/Wallpapers` plus user-configured roots), searches and downloads
-  SFW wallpapers from wallhaven.cc, and can derive a data-only theme
+  SFW wallpapers from wallhaven.cc and the pinned bjarneo catalog, and can
+  derive a data-only theme
   (`colors.toml`) from any wallpaper. Discovery and selection only: every
   mutation is delegated to the `aurelia-wallpaper` command, which delegates
   activation to `aurelia-theme-bg` / `aurelia-theme`. See

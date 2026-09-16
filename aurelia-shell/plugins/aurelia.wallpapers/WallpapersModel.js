@@ -76,6 +76,36 @@ function loadWallhavenRows(raw) {
     return rows
 }
 
+// Catalog rows: id (storage key), thumbnail, label, resolution, purity, page URL.
+function loadCatalogRows(raw) {
+    var rows = []
+    var seen = {}
+    var lines = String(raw || "").split("\n")
+
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i]
+        if (!line) continue
+        var columns = line.split("\t")
+        if (columns.length < 6 || !columns[0]) continue
+        if (!safeRowFields(columns)) continue
+        if (seen[columns[0]]) continue
+        seen[columns[0]] = true
+        rows.push({
+            id: columns[0],
+            label: columns[2] || columns[0],
+            thumb: columns[1] || "",
+            resolution: columns[3] || "",
+            purity: columns[4] || "",
+            page: columns[5] || "",
+            filePath: "",
+            source: "catalog",
+            current: false,
+            kind: "catalog"
+        })
+    }
+    return rows
+}
+
 function itemMatches(entry, filterText) {
     if (!entry) return false
     var needle = String(filterText || "").toLowerCase()
@@ -110,6 +140,7 @@ if (typeof module !== "undefined") {
         loadLocalRows: loadLocalRows,
         loadWallhavenRows: loadWallhavenRows,
         itemMatches: itemMatches,
+        loadCatalogRows: loadCatalogRows,
         filteredRows: filteredRows,
         indexForCurrent: indexForCurrent
     }

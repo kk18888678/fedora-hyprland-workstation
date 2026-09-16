@@ -32,6 +32,8 @@ source "$script_dir/lib/aurelia-wallpaper/library.sh"
 source "$script_dir/lib/aurelia-wallpaper/wallhaven.sh"
 # shellcheck source=/dev/null
 source "$script_dir/lib/aurelia-wallpaper/palette.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-wallpaper/catalog.sh"
 
 aurelia_theme_init_paths "$shell_root"
 aurelia_wallpaper_init_paths "$shell_root"
@@ -460,6 +462,78 @@ case "$command_name" in
                     esac
                 done
                 aurelia_wallpaper_cmd_theme_remove "$slug_argument" "$confirmed"
+                ;;
+            *)
+                usage_exit
+                ;;
+        esac
+        ;;
+
+    catalog)
+        action="${1:-}"
+        [[ -n "$action" ]] || usage_exit
+        shift
+        case "$action" in
+            list)
+                query=""
+                list_mode="plain"
+                thumbs="0"
+                refresh="0"
+                live="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --query)
+                            require_argument "${2:-}" "--query"
+                            query="$2"
+                            shift 2
+                            ;;
+                        --rows)
+                            list_mode="rows"
+                            shift
+                            ;;
+                        --json)
+                            list_mode="json"
+                            shift
+                            ;;
+                        --thumbs)
+                            thumbs="1"
+                            shift
+                            ;;
+                        --refresh)
+                            refresh="1"
+                            shift
+                            ;;
+                        --live)
+                            live="1"
+                            shift
+                            ;;
+                        *)
+                            printf 'Error: unknown catalog list option: %s\n' "$1" >&2
+                            usage_exit
+                            ;;
+                    esac
+                done
+                aurelia_wallpaper_catalog_search \
+                    "$query" "$list_mode" "$thumbs" "$refresh" "$live"
+                ;;
+            download)
+                wallpaper_key="${1:-}"
+                require_argument "$wallpaper_key" "catalog download <key>"
+                shift
+                target_source="library"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --to)
+                            require_argument "${2:-}" "--to"
+                            target_source="$2"
+                            shift 2
+                            ;;
+                        *)
+                            usage_exit
+                            ;;
+                    esac
+                done
+                aurelia_wallpaper_catalog_download "$wallpaper_key" "$target_source"
                 ;;
             *)
                 usage_exit
