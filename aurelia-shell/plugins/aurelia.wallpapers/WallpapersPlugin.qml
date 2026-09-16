@@ -26,12 +26,12 @@ Item {
     }
 
     function toggle(payloadJson) {
-        if (wallpapersPanel.visible) return close()
+        if (wallpapersPanel.opened) return close()
         return open(payloadJson || "{}")
     }
 
     function isVisible() {
-        return wallpapersPanel.visible
+        return wallpapersPanel.opened
     }
 
     function refresh() {
