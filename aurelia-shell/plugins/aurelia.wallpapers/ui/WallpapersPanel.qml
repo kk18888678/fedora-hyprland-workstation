@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -8,10 +9,11 @@ import "../../../theme"
 import "../../../services/SourceUrl.js" as SourceUrl
 import "../WallpapersModel.js" as WallpapersModel
 
-// Wallpaper library panel. Keyboard-first, one grid, three sources (local
-// library, wallhaven, and the pinned bjarneo catalog). This surface never
-// mutates wallpaper or theme state itself: it only builds argv for the
-// aurelia-wallpaper command and reports its result.
+// Wallpaper library GUI. Three sources (local library, wallhaven, and the
+// pinned bjarneo catalog) with a thumbnail grid, a live preview pane, and
+// click/keyboard apply. This surface never mutates wallpaper or theme state
+// itself: it only builds argv for the aurelia-wallpaper command and reports
+// its result.
 Item {
     id: root
 
@@ -38,7 +40,11 @@ Item {
     readonly property string modeLabel: root.mode === "wallhaven" ? "Wallhaven"
         : (root.mode === "catalog" ? "Wallpaper catalog" : "Local sources")
     readonly property bool remoteMode: root.mode === "wallhaven" || root.mode === "catalog"
-    readonly property int gridColumns: 5
+    readonly property string searchPlaceholder: root.mode === "wallhaven"
+        ? "Search wallhaven…"
+        : (root.mode === "catalog" ? "Search catalog…" : "Filter wallpapers…")
+    readonly property string applyLabel: root.remoteMode ? "Download & apply"
+        : (root.themeFromWallpaper ? "Apply as theme" : "Set wallpaper")
     readonly property var targetScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
 
     function fileUrl(value) {
@@ -180,6 +186,15 @@ Item {
         applyProcess.running = true
     }
 
+    function applyRandom() {
+        if (root.applying || root.remoteMode) return
+        root.applyStage = "activate"
+        root.errorMessage = ""
+        root.applying = true
+        applyProcess.command = [root.wallpaperBin, "random"]
+        applyProcess.running = true
+    }
+
     onOpenedChanged: {
         if (root.opened) Qt.callLater(root.focusSurface)
     }
@@ -283,8 +298,8 @@ Item {
         Item {
             id: selectorSurface
             anchors.centerIn: parent
-            width: Math.min(Math.max(640, parent.width - Theme.spacingXxl * 2), 1240)
-            height: Math.min(Math.max(460, parent.height - Theme.spacingXxl * 2), 700)
+            width: Math.min(Math.max(760, parent.width - Theme.spacingXxl * 2), 1280)
+            height: Math.min(Math.max(520, parent.height - Theme.spacingXxl * 2), 760)
             z: 1
 
             MouseArea {
@@ -293,9 +308,18 @@ Item {
                 onClicked: function(mouse) { mouse.accepted = true }
             }
 
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.radiusLg
+                color: Theme.bgBase
+                border.color: Theme.border
+                border.width: Theme.borderWidthDefault
+            }
+
             FocusScope {
                 id: surfaceFocus
                 anchors.fill: parent
+                anchors.margins: Theme.spacingMd
                 focus: root.opened
                 Keys.priority: Keys.BeforeItem
 
@@ -335,12 +359,12 @@ Item {
                     }
                     if (event.key === Qt.Key_Left || event.key === Qt.Key_Up ||
                         event.key === Qt.Key_Backtab) {
-                        root.selectAdjacent(event.key === Qt.Key_Up ? -root.gridColumns : -1)
+                        root.selectAdjacent(event.key === Qt.Key_Up ? -wallpaperGrid.columns : -1)
                         event.accepted = true
                         return
                     }
                     if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
-                        root.selectAdjacent(event.key === Qt.Key_Down ? root.gridColumns : 1)
+                        root.selectAdjacent(event.key === Qt.Key_Down ? wallpaperGrid.columns : 1)
                         event.accepted = true
                         return
                     }
@@ -356,10 +380,10 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 30
+                        Layout.preferredHeight: 36
+                        spacing: Theme.spacingSm
 
                         Text {
-                            Layout.fillWidth: true
                             text: "Wallpapers"
                             color: Theme.text
                             font.family: Theme.fontFamily
@@ -367,12 +391,113 @@ Item {
                             font.weight: Theme.fontWeightBold
                         }
 
-                        Text {
-                            text: root.modeLabel + "  (Tab)"
-                            color: Theme.accent
+                        Repeater {
+                            model: ["Local", "Wallhaven", "Catalog"]
+
+                            delegate: Rectangle {
+                                required property int index
+                                required property string modelData
+                                readonly property bool active: (index === 0 && root.mode === "local") ||
+                                    (index === 1 && root.mode === "wallhaven") ||
+                                    (index === 2 && root.mode === "catalog")
+
+                                width: tabLabel.width + Theme.spacingMd * 2
+                                height: 28
+                                radius: Theme.radiusSm
+                                color: active
+                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.20)
+                                    : Theme.controls.normalFill
+                                border.color: active ? Theme.accent : Theme.controls.normalBorder
+                                border.width: active
+                                    ? Theme.borderWidthFocus
+                                    : Theme.borderWidthDefault
+
+                                Text {
+                                    id: tabLabel
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    color: active ? Theme.accent : Theme.textSecondary
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSm
+                                    font.weight: active
+                                        ? Theme.fontWeightBold
+                                        : Theme.fontWeightMedium
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: !root.applying
+                                    onClicked: function(mouse) {
+                                        mouse.accepted = true
+                                        var next = index === 0 ? "local"
+                                            : (index === 1 ? "wallhaven" : "catalog")
+                                        if (next !== root.mode) {
+                                            root.setMode(next)
+                                            root.refresh()
+                                        }
+                                        surfaceFocus.forceActiveFocus()
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        TextField {
+                            id: searchField
+                            property bool syncing: false
+
+                            Layout.preferredWidth: 240
+                            Layout.preferredHeight: 32
+                            placeholderText: root.searchPlaceholder
+                            text: root.filterText
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightBold
+                            color: Theme.inputText
+                            placeholderTextColor: Theme.inputPlaceholder
+                            selectionColor: Theme.inputSelection
+                            background: Rectangle {
+                                color: Theme.inputBg
+                                border.color: searchField.activeFocus
+                                    ? Theme.inputBorderFocused
+                                    : Theme.inputBorder
+                                border.width: Theme.borderWidthDefault
+                                radius: Theme.radiusSm
+                            }
+                            onTextChanged: {
+                                if (!searchField.syncing && text !== root.filterText)
+                                    root.updateFilter(text)
+                            }
+                            onAccepted: root.applySelected()
+                            Keys.onPressed: function(event) {
+                                if (event.key === Qt.Key_Escape) {
+                                    if (root.filterText !== "") root.updateFilter("")
+                                    else root.close()
+                                    event.accepted = true
+                                    return
+                                }
+                                if (event.key === Qt.Key_Down || event.key === Qt.Key_Tab) {
+                                    surfaceFocus.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                            }
+                        }
+
+                        Connections {
+                            target: root
+                            function onFilterTextChanged() {
+                                if (searchField.text !== root.filterText) {
+                                    searchField.syncing = true
+                                    searchField.text = root.filterText
+                                    searchField.syncing = false
+                                }
+                            }
+                            function onModeChanged() {
+                                searchField.syncing = true
+                                searchField.text = root.filterText
+                                searchField.syncing = false
+                            }
                         }
                     }
 
@@ -397,80 +522,249 @@ Item {
                         elide: Text.ElideRight
                     }
 
-                    GridView {
-                        id: wallpaperGrid
+                    RowLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        clip: true
-                        cellWidth: Math.floor(wallpaperGrid.width / root.gridColumns)
-                        cellHeight: Math.floor(wallpaperGrid.cellWidth * 0.62)
-                        model: root.filteredEntries
-                        currentIndex: root.selectedIndex
-                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: Theme.spacingMd
 
-                        delegate: Item {
-                            required property var modelData
-                            required property int index
+                        GridView {
+                            id: wallpaperGrid
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            readonly property int columns: Math.max(2,
+                                Math.floor(wallpaperGrid.width / 220))
+                            cellWidth: Math.floor(wallpaperGrid.width / wallpaperGrid.columns)
+                            cellHeight: Math.floor(wallpaperGrid.cellWidth * 0.64)
+                            model: root.filteredEntries
+                            currentIndex: root.selectedIndex
+                            boundsBehavior: Flickable.StopAtBounds
 
-                            width: wallpaperGrid.cellWidth
-                            height: wallpaperGrid.cellHeight
+                            delegate: Item {
+                                required property var modelData
+                                required property int index
+
+                                width: wallpaperGrid.cellWidth
+                                height: wallpaperGrid.cellHeight
+
+                                Rectangle {
+                                    id: card
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.spacingXs
+                                    radius: Theme.radiusMd
+                                    color: index === root.selectedIndex
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.20)
+                                        : cardHover.hovered
+                                            ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.06)
+                                            : Theme.controls.normalFill
+                                    border.color: index === root.selectedIndex
+                                        ? Theme.accent
+                                        : (cardHover.hovered ? Theme.controls.hoverBorder : Theme.border)
+                                    border.width: index === root.selectedIndex
+                                        ? Theme.borderWidthFocus
+                                        : Theme.borderWidthDefault
+
+                                    HoverHandler { id: cardHover }
+
+                                    Image {
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.spacingXs
+                                        source: root.fileUrl(String(modelData.thumb || ""))
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: true
+                                        smooth: true
+                                        visible: String(modelData.thumb || "") !== ""
+                                    }
+
+                                    AureliaMark {
+                                        anchors.centerIn: parent
+                                        width: 40
+                                        height: width
+                                        visible: String(modelData.thumb || "") === ""
+                                        color: Theme.accent
+                                        coreColor: Theme.gold
+                                    }
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.margins: Theme.spacingXs
+                                        width: currentBadge.width + Theme.spacingXs * 2
+                                        height: 18
+                                        radius: Theme.radiusSm
+                                        visible: modelData.current === true
+                                        color: Qt.rgba(Theme.accent.r, Theme.accent.g,
+                                            Theme.accent.b, 0.85)
+
+                                        Text {
+                                            id: currentBadge
+                                            anchors.centerIn: parent
+                                            text: "ACTIVE"
+                                            color: Theme.bgBase
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.fontSizeXs - 1
+                                            font.weight: Theme.fontWeightBold
+                                        }
+                                    }
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.margins: Theme.spacingXs
+                                        text: String(modelData.label || "")
+                                        color: Theme.text
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.fontSizeXs
+                                        horizontalAlignment: Text.AlignHCenter
+                                        elide: Text.ElideMiddle
+                                        style: Text.Outline
+                                        styleColor: Theme.bgBase
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: !root.applying
+                                    onClicked: function(mouse) {
+                                        mouse.accepted = true
+                                        if (index === root.selectedIndex) root.applySelected()
+                                        else root.select(index)
+                                        surfaceFocus.forceActiveFocus()
+                                    }
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            id: previewPane
+                            Layout.preferredWidth: 300
+                            Layout.fillHeight: true
+                            spacing: Theme.spacingSm
 
                             Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacingXs
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 190
                                 radius: Theme.radiusMd
-                                color: index === root.selectedIndex
-                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.20)
-                                    : Qt.rgba(Theme.bgBase.r, Theme.bgBase.g, Theme.bgBase.b, 0.35)
-                                border.color: index === root.selectedIndex ? Theme.accent : Theme.border
-                                border.width: index === root.selectedIndex
-                                    ? Theme.borderWidthFocus
-                                    : Theme.borderWidthDefault
+                                color: Theme.controls.normalFill
+                                border.color: Theme.controls.normalBorder
+                                border.width: Theme.borderWidthDefault
+                                clip: true
 
                                 Image {
                                     anchors.fill: parent
                                     anchors.margins: Theme.spacingXs
-                                    source: root.fileUrl(String(modelData.thumb || ""))
-                                    fillMode: Image.PreserveAspectCrop
+                                    source: root.selectedEntry
+                                        ? root.fileUrl(String(root.selectedEntry.thumb || ""))
+                                        : ""
+                                    fillMode: Image.PreserveAspectFit
                                     asynchronous: true
                                     cache: true
                                     smooth: true
-                                    visible: String(modelData.thumb || "") !== ""
+                                    visible: root.selectedEntry !== null &&
+                                        String(root.selectedEntry.thumb || "") !== ""
                                 }
 
                                 AureliaMark {
                                     anchors.centerIn: parent
-                                    width: 40
+                                    width: 64
                                     height: width
-                                    visible: String(modelData.thumb || "") === ""
+                                    visible: root.selectedEntry === null ||
+                                        String(root.selectedEntry.thumb || "") === ""
                                     color: Theme.accent
                                     coreColor: Theme.gold
                                 }
+                            }
 
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    anchors.margins: Theme.spacingXs
-                                    text: String(modelData.label || "")
-                                    color: Theme.text
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeXs
-                                    horizontalAlignment: Text.AlignHCenter
-                                    elide: Text.ElideMiddle
-                                    style: Text.Outline
-                                    styleColor: Theme.bgBase
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.selectedEntry
+                                    ? String(root.selectedEntry.label || "")
+                                    : "Nothing selected"
+                                color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightBold
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: {
+                                    if (root.selectedEntry === null) return "Select a wallpaper."
+                                    if (root.remoteMode) {
+                                        var bits = []
+                                        if (String(root.selectedEntry.resolution || "") !== "")
+                                            bits.push(String(root.selectedEntry.resolution))
+                                        if (String(root.selectedEntry.purity || "") !== "")
+                                            bits.push(String(root.selectedEntry.purity).toUpperCase())
+                                        return bits.length > 0 ? bits.join("  •  ")
+                                            : "Remote wallpaper"
+                                    }
+                                    var localBits = [String(root.selectedEntry.source || "local")]
+                                    if (root.selectedEntry.current === true)
+                                        localBits.push("active wallpaper")
+                                    return localBits.join("  •  ")
+                                }
+                                color: Theme.textMuted
+                                font.family: Theme.fontFamilyProse
+                                font.pixelSize: Theme.fontSizeXs
+                                wrapMode: Text.Wrap
+                            }
+
+                            Item { Layout.fillHeight: true }
+
+                            AureliaActionButton {
+                                Layout.fillWidth: true
+                                primary: true
+                                compact: true
+                                centerLabel: true
+                                label: root.applyLabel
+                                detail: root.remoteMode ? "into the library" : ""
+                                enabled: root.selectedEntry !== null && !root.applying && !root.loading
+                                onTriggered: root.applySelected()
+                            }
+
+                            AureliaActionButton {
+                                Layout.fillWidth: true
+                                compact: true
+                                centerLabel: true
+                                label: "Theme from wallpaper"
+                                detail: root.themeFromWallpaper ? "enabled" : "local only"
+                                primary: root.themeFromWallpaper
+                                visible: root.mode === "local"
+                                enabled: root.selectedEntry !== null && !root.applying && !root.loading
+                                onTriggered: {
+                                    root.themeFromWallpaper = !root.themeFromWallpaper
+                                    surfaceFocus.forceActiveFocus()
                                 }
                             }
 
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                enabled: !root.applying
-                                onClicked: function(mouse) {
-                                    mouse.accepted = true
-                                    if (index === root.selectedIndex) root.applySelected()
-                                    else root.select(index)
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingSm
+
+                                AureliaActionButton {
+                                    Layout.fillWidth: true
+                                    compact: true
+                                    centerLabel: true
+                                    label: "Random"
+                                    visible: root.mode === "local"
+                                    enabled: !root.applying && !root.loading
+                                    onTriggered: root.applyRandom()
+                                }
+
+                                AureliaActionButton {
+                                    Layout.fillWidth: true
+                                    compact: true
+                                    centerLabel: true
+                                    label: "Refresh"
+                                    enabled: !root.applying
+                                    onTriggered: root.refresh()
                                 }
                             }
                         }
@@ -478,13 +772,13 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 24
+                        Layout.preferredHeight: 22
                         text: root.remoteMode
-                            ? "← → ↑ ↓ select   Enter download & apply   Tab next source   Esc close"
-                            : "← → ↑ ↓ select   Enter apply   T theme from wallpaper   Tab next source   Esc close"
-                        color: Theme.textSecondary
+                            ? "Click a thumbnail to select, again or Enter to download & apply   •   Tab next source   •   Esc close"
+                            : "Click a thumbnail to select, again or Enter to apply   •   T theme from wallpaper   •   Tab next source   •   Esc close"
+                        color: Theme.textMuted
                         font.family: Theme.fontFamilyProse
-                        font.pixelSize: Theme.fontSizeSm
+                        font.pixelSize: Theme.fontSizeXs
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                     }

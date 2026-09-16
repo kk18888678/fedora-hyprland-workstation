@@ -118,6 +118,9 @@ aurelia-wallpaper catalog download 'dark/blue/3840x2160_omarchy_nebula__01-nebul
 - Downloads land in `<source>/catalog/` with the key's separators folded
   (`dark/blue/x.jpg` becomes `dark_blue_x.jpg`), are signature-checked, and are
   skipped when the stored file already matches the size declared by the index.
+- Remote previews for one page (up to 48, tunable with
+  `AURELIA_WALLPAPER_THUMB_LIMIT`) are downloaded into the thumbnail cache so
+  the grid never loads the network itself.
 - The index is ~35 MB; it is cached, size-capped, and fetched under a
   dedicated timeout (`AURELIA_WALLPAPER_CATALOG_TIMEOUT`, default 240 s).
 
@@ -160,6 +163,31 @@ aurelia-wallpaper catalog download 'dark/blue/3840x2160_omarchy_nebula__01-nebul
 A failed download may leave a staging file in `~/.cache/aurelia/wallpapers/`;
 that directory is regenerable cache and can be deleted safely at any time.
 
+## The GUI
+
+The panel is a full wallpaper browser, not just a picker:
+
+- **Source tabs** — Local, Wallhaven, and Catalog are clickable buttons at the
+  top (the active one is accent-highlighted); `Tab` cycles them too.
+- **Search field** — a real text field next to the tabs. Locally it filters the
+  grid as you type; remotely it runs the search (debounced).
+- **Thumbnail grid** — a scrolling grid of previews with labels; the active
+  wallpaper carries an `ACTIVE` badge; hover and selection are accent-bordered.
+- **Preview pane** — the selected wallpaper is shown large, with its name,
+  source, resolution, and purity, plus the action buttons:
+  - **Set wallpaper / Download & apply** — activates the selection (remote
+    sources download into the library first, then apply).
+  - **Theme from wallpaper** (local source) — generate and apply a data-only
+    `colors.toml` theme from the selected image.
+  - **Random** (local source) — activate a random wallpaper.
+  - **Refresh** — re-read the source.
+- The keyboard model still works everywhere: arrows move through the grid,
+  `Enter` applies, `T` toggles theme derivation, `Esc` closes, and typing
+  filters while the grid has focus.
+
+Every action still goes through the `aurelia-wallpaper` CLI; the GUI owns
+discovery and selection only.
+
 ## Shell integration
 
 The panel plugin is a resident `panel` kind plugin. It is summoned with
@@ -169,11 +197,6 @@ and merged into the authoritative keybinding manifest) or with:
 ~~~bash
 aurelia-shell shell toggle aurelia.wallpapers '{}'
 ~~~
-
-Keyboard model: arrows move through the grid, `Tab` cycles local library →
-wallhaven → catalog, typing filters (or searches, in remote modes), `Enter`
-applies (in wallhaven and catalog modes it downloads first, then applies),
-`T` toggles "derive a theme from this wallpaper", `Esc` closes.
 
 ## Tests
 
