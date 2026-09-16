@@ -165,6 +165,60 @@ aurelia_wallpaper_theme_marker() {
         '{generator:$generator,slug:$slug,source:$source,sha256:$sha256,background:$background,removable:true}'
 }
 
+# Publish a data-only user theme from a ready-made colors.toml document and
+# an optional wallpaper. This is the single write path shared by wallpaper
+# palette generation, base16 imports, and blueprint application.
+aurelia_wallpaper_theme_publish() {
+    local slug="$1"
+    local palette_file="$2"
+    local wallpaper="${3:-}"
+    local digest="${4:-}"
+    local theme_dir="$AW_THEME_ROOT/$slug"
+    local marker="$theme_dir/.generated.json"
+    local extension=""
+    local background=""
+
+    [[ ! -L "$theme_dir" ]] ||
+        aurelia_wallpaper_fail "Refusing to write through a symlinked theme directory: $theme_dir"
+    if [[ -e "$theme_dir" ]]; then
+        aurelia_wallpaper_theme_is_managed "$theme_dir" ||
+            aurelia_wallpaper_fail "Refusing to overwrite a theme this capability did not generate: $theme_dir"
+    fi
+
+    if [[ -n "$wallpaper" ]]; then
+        extension="${wallpaper##*.}"
+        extension="$(LC_ALL=C printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$extension" == "jpeg" ]]; then
+            extension="jpg"
+        fi
+        background="backgrounds/1-wallpaper.$extension"
+    fi
+
+    aurelia_wallpaper_mkdir "$theme_dir" "Generated theme directory" || return 1
+    aurelia_wallpaper_mkdir "$theme_dir/backgrounds" "Generated theme background directory" ||
+        return 1
+
+    # Replace only this capability's own generated artifacts.
+    local stale=""
+    while IFS= read -r -d '' stale; do
+        rm -f -- "$stale"
+    done < <(find -P "$theme_dir/backgrounds" -mindepth 1 -maxdepth 1 -type f \
+        -name '1-wallpaper.*' -print0)
+
+    aurelia_theme_atomic_copy "$palette_file" "$theme_dir/colors.toml" || return 1
+    if [[ -n "$wallpaper" ]]; then
+        cp -- "$wallpaper" "$theme_dir/$background" ||
+            aurelia_wallpaper_fail "Could not copy the wallpaper into the generated theme."
+        chmod 0600 -- "$theme_dir/$background"
+    fi
+
+    # The marker is written last so an interrupted run is never mistaken for a
+    # complete generated theme.
+    aurelia_wallpaper_atomic_text \
+        "$(aurelia_wallpaper_theme_marker "$slug" "${wallpaper:-$slug}" "$digest" "${background:-}")" \
+        "$marker" || return 1
+}
+
 aurelia_wallpaper_cmd_theme_generate() {
     local image="$1"
     local requested_name="${2:-}"
@@ -172,7 +226,6 @@ aurelia_wallpaper_cmd_theme_generate() {
     local wants_json="${4:-0}"
     local slug=""
     local theme_dir=""
-    local marker=""
     local digest=""
     local extension=""
     local document=""
@@ -225,27 +278,8 @@ aurelia_wallpaper_cmd_theme_generate() {
     document="$(aurelia_wallpaper_palette_document "$image" "$slug" "$mode" "$digest")" ||
         return 1
 
-    aurelia_wallpaper_mkdir "$theme_dir" "Generated theme directory" || return 1
-    aurelia_wallpaper_mkdir "$theme_dir/backgrounds" "Generated theme background directory" ||
-        return 1
-
-    # Replace only this capability's own generated artifacts.
-    local stale=""
-    while IFS= read -r -d '' stale; do
-        rm -f -- "$stale"
-    done < <(find -P "$theme_dir/backgrounds" -mindepth 1 -maxdepth 1 -type f \
-        -name '1-wallpaper.*' -print0)
-
-    aurelia_wallpaper_atomic_text "$document" "$theme_dir/colors.toml" || return 1
-    cp -- "$image" "$theme_dir/$background" ||
-        aurelia_wallpaper_fail "Could not copy the wallpaper into the generated theme."
-    chmod 0600 -- "$theme_dir/$background" || true
-
-    # The marker is written last so an interrupted run is never mistaken for a
-    # complete generated theme.
-    aurelia_wallpaper_atomic_text \
-        "$(aurelia_wallpaper_theme_marker "$slug" "$image" "$digest" "$background")" \
-        "$marker" || return 1
+        aurelia_wallpaper_theme_publish "$slug" \
+        <(printf '%s\n' "$document") "$image" "$digest" || return 1
 
     if aurelia_wallpaper_setting_is_true "$wants_json"; then
         jq -n \
@@ -283,6 +317,13 @@ aurelia_wallpaper_cmd_theme_apply() {
         return 1
     aurelia_wallpaper_lock || return 1
     "$AW_THEME_BIN" set "$slug" || return 1
+
+    # Custom app templates render against the freshly activated palette.
+    # A render failure is reported but never undoes the theme activation.
+    if declare -F aurelia_wallpaper_apps_render_all >/dev/null; then
+        aurelia_wallpaper_apps_render_all || true
+    fi
+
     printf '%s\n' "$slug"
 }
 

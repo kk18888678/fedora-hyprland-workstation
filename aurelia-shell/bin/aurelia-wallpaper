@@ -34,6 +34,10 @@ source "$script_dir/lib/aurelia-wallpaper/wallhaven.sh"
 source "$script_dir/lib/aurelia-wallpaper/palette.sh"
 # shellcheck source=/dev/null
 source "$script_dir/lib/aurelia-wallpaper/catalog.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-wallpaper/base16.sh"
+source "$script_dir/lib/aurelia-wallpaper/blueprint.sh"
+source "$script_dir/lib/aurelia-wallpaper/apps.sh"
 
 aurelia_theme_init_paths "$shell_root"
 aurelia_wallpaper_init_paths "$shell_root"
@@ -62,6 +66,16 @@ case "$command_name" in
         ;;
 esac
 shift
+
+# Aether CLI compatibility aliases.
+case "$command_name" in
+    --generate) command_name="theme"; set -- "apply" "$@" ;;
+    --apply-blueprint) command_name="blueprint"; set -- "apply" "$@" ;;
+    --list-blueprints) command_name="blueprint"; set -- "list" ;;
+    --import-base16) command_name="base16"; set -- "import" "$@" ;;
+    --list-wallpapers) command_name="list" ;;
+    --random-wallpaper) command_name="random" ;;
+esac
 
 aurelia_wallpaper_require_tools || exit 1
 aurelia_wallpaper_config_load || exit 1
@@ -256,6 +270,10 @@ case "$command_name" in
                             key_mode="set"
                             shift
                             ;;
+                        --clear)
+                            key_mode="clear"
+                            shift
+                            ;;
                         *)
                             usage_exit
                             ;;
@@ -263,6 +281,8 @@ case "$command_name" in
                 done
                 if [[ "$key_mode" == "set" ]]; then
                     aurelia_wallpaper_wallhaven_key_set
+                elif [[ "$key_mode" == "clear" ]]; then
+                    aurelia_wallpaper_wallhaven_key_clear
                 else
                     aurelia_wallpaper_wallhaven_key_status
                 fi
@@ -342,7 +362,7 @@ case "$command_name" in
                     aurelia_wallpaper_fail "categories must be three 0/1 digits."
                 [[ "$purity" =~ ^[01]{3}$ ]] ||
                     aurelia_wallpaper_fail "purity must be three 0/1 digits."
-                [[ "$sorting" =~ ^(relevance|date_added|views|favorites|random)$ ]] ||
+                [[ "$sorting" =~ ^(relevance|date_added|views|favorites|toplist|hot|random)$ ]] ||
                     aurelia_wallpaper_fail "Unsupported sorting value: $sorting"
                 [[ "$order" =~ ^(desc|asc)$ ]] ||
                     aurelia_wallpaper_fail "Unsupported order value: $order"
@@ -534,6 +554,144 @@ case "$command_name" in
                     esac
                 done
                 aurelia_wallpaper_catalog_download "$wallpaper_key" "$target_source"
+                ;;
+            *)
+                usage_exit
+                ;;
+        esac
+        ;;
+
+    base16)
+        action="${1:-}"
+        [[ -n "$action" ]] || usage_exit
+        shift
+        case "$action" in
+            import)
+                scheme_file=""
+                theme_name=""
+                light="0"
+                do_apply="0"
+                json_flag="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --name)
+                            require_argument "${2:-}" "--name"
+                            theme_name="$2"
+                            shift 2
+                            ;;
+                        --light) light="1"; shift ;;
+                        --apply) do_apply="1"; shift ;;
+                        --json) json_flag="1"; shift ;;
+                        -*)
+                            printf 'Error: unknown base16 import option: %s\n' "$1" >&2
+                            usage_exit
+                            ;;
+                        *)
+                            [[ -z "$scheme_file" ]] || usage_exit
+                            scheme_file="$1"
+                            shift
+                            ;;
+                    esac
+                done
+                [[ -n "$scheme_file" ]] || usage_exit
+                base16_args=("$scheme_file" --name "$theme_name")
+                [[ "$light" == "1" ]] && base16_args+=("--light")
+                [[ "$do_apply" == "1" ]] && base16_args+=("--apply")
+                [[ "$json_flag" == "1" ]] && base16_args+=("--json")
+                aurelia_wallpaper_base16_import "${base16_args[@]}"
+                ;;
+            *)
+                usage_exit
+                ;;
+        esac
+        ;;
+
+    blueprint)
+        action="${1:-}"
+        [[ -n "$action" ]] || usage_exit
+        shift
+        case "$action" in
+            save)
+                blueprint_name=""
+                blueprint_wallpaper=""
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --wallpaper)
+                            require_argument "${2:-}" "--wallpaper"
+                            blueprint_wallpaper="$2"
+                            shift 2
+                            ;;
+                        *)
+                            [[ -z "$blueprint_name" ]] || usage_exit
+                            blueprint_name="$1"
+                            shift
+                            ;;
+                    esac
+                done
+                [[ -n "$blueprint_name" ]] || usage_exit
+                aurelia_wallpaper_blueprint_save "$blueprint_name" "$blueprint_wallpaper"
+                ;;
+            list)
+                json_flag="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --json) json_flag="1"; shift ;;
+                        *) usage_exit ;;
+                    esac
+                done
+                aurelia_wallpaper_blueprint_list "$json_flag"
+                ;;
+            apply)
+                blueprint_name="${1:-}"
+                require_argument "$blueprint_name" "blueprint apply <name>"
+                shift
+                (( $# == 0 )) || usage_exit
+                aurelia_wallpaper_blueprint_apply "$blueprint_name"
+                ;;
+            remove)
+                blueprint_name="${1:-}"
+                require_argument "$blueprint_name" "blueprint remove <name>"
+                shift
+                confirmed="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --yes) confirmed="1"; shift ;;
+                        *) usage_exit ;;
+                    esac
+                done
+                aurelia_wallpaper_blueprint_remove "$blueprint_name" "$confirmed"
+                ;;
+            *)
+                usage_exit
+                ;;
+        esac
+        ;;
+
+    apps)
+        action="${1:-}"
+        [[ -n "$action" ]] || usage_exit
+        shift
+        case "$action" in
+            list)
+                json_flag="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --json) json_flag="1"; shift ;;
+                        *) usage_exit ;;
+                    esac
+                done
+                aurelia_wallpaper_apps_list "$json_flag"
+                ;;
+            render)
+                app_name="${1:-}"
+                require_argument "$app_name" "apps render <name>"
+                shift
+                (( $# == 0 )) || usage_exit
+                aurelia_wallpaper_apps_render "$app_name"
+                ;;
+            render-all)
+                (( $# == 0 )) || usage_exit
+                aurelia_wallpaper_apps_render_all
                 ;;
             *)
                 usage_exit

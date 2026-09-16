@@ -24,6 +24,18 @@ aurelia_wallpaper_wallhaven_key_status() {
     fi
 }
 
+aurelia_wallpaper_wallhaven_key_clear() {
+    if [[ ! -f "$AW_WALLHAVEN_KEY_FILE" ]]; then
+        printf No wallhaven API key is configured.\n
+        return 0
+    fi
+    [[ ! -L "$AW_WALLHAVEN_KEY_FILE" ]] ||
+        aurelia_wallpaper_fail "Refusing to remove a symlinked key file."
+    aurelia_wallpaper_lock || return 1
+    rm -f -- "$AW_WALLHAVEN_KEY_FILE"
+    printf Wallhaven API key removed.\n
+}
+
 aurelia_wallpaper_wallhaven_key_read() {
     local raw_key=""
 
@@ -180,6 +192,12 @@ aurelia_wallpaper_wallhaven_search() {
     if ! jq -e '(.data | type) == "array"' <<<"$response" >/dev/null; then
         local api_error=""
         api_error="$(jq -r '.error // empty' <<<"$response" || true)"
+        if [[ "$api_error" == "Unauthorized" ]]; then
+            if aurelia_wallpaper_wallhaven_key_read >/dev/null 2>&1; then
+                aurelia_wallpaper_fail "Wallhaven rejected the configured API key. Fix it with 'wallhaven key --set' or remove it with 'wallhaven key --clear'."
+            fi
+            aurelia_wallpaper_fail "Wallhaven rejected the request as unauthorized."
+        fi
         aurelia_wallpaper_fail "Wallhaven search failed${api_error:+: $api_error}"
     fi
 

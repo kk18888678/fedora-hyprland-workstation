@@ -73,6 +73,10 @@ aurelia_wallpaper_init_paths() {
     AW_CATALOG_INDEX_TIMEOUT="${AURELIA_WALLPAPER_CATALOG_TIMEOUT:-240}"
     AW_CATALOG_INDEX_MAX_BYTES="${AURELIA_WALLPAPER_CATALOG_MAX_BYTES:-134217728}"
     AW_CATALOG_INDEX_TTL="${AURELIA_WALLPAPER_CATALOG_TTL:-604800}"
+    AW_BLUEPRINT_ROOT="$config_home/aurelia/blueprints"
+    AW_APPS_ROOT="$config_home/aurelia/custom-apps"
+    AW_ACTIVE_COLORS_PATH="$state_home/aurelia/current/colors.toml"
+    AW_ACTIVE_BACKGROUND_PATH="$state_home/aurelia/current/background.path"
     AW_USER_AGENT="aurelia-wallpaper/1.0"
     AW_CURL_BIN="${AURELIA_WALLPAPER_CURL:-curl}"
     AW_SHUFFLE_BIN="${AURELIA_WALLPAPER_SHUFFLE:-shuf}"
@@ -113,7 +117,7 @@ Remote catalog (bjarneo wallpapers, pinned index and storage hosts):
 Wallhaven:
   wallhaven key [--status|--set]     Report or store the optional API key.
   wallhaven search [--query <text>] [--categories <111>] [--purity <100>]
-                   [--sorting <relevance|date_added|views|favorites|random>]
+                   [--sorting <relevance|date_added|views|favorites|toplist|hot|random>]
                    [--order <desc|asc>] [--atleast <WxH>] [--page <n>]
                    [--seed <text>] [--rows] [--json]
   wallhaven download <id> [--to <source>]
@@ -126,6 +130,24 @@ Palette (extract a data-only theme from a wallpaper):
                                      Generate the theme and activate it.
   theme list [--json]                List generated wallpaper themes.
   theme remove <slug> --yes          Remove a generated theme.
+
+Base16 schemes (tinted-theming):
+  base16 import <scheme.yaml> [--name <slug>] [--light] [--apply] [--json]
+  Parses plain scheme: / base00-base0F key: value lines (no YAML lib).
+
+Blueprints (save and restore complete looks):
+  blueprint save <name> [--wallpaper <path>]
+  blueprint list [--json] | apply <name> | remove <name> --yes
+
+Custom app theming (render your templates with the active palette):
+  apps list [--json] | render <name> | render-all
+  Variables: {background} {foreground} {accent} {red}..{magenta},
+  {bright_*}, {theme_type}, {wallpaper}; modifiers .strip .rgb .rgba[:a]
+  Reload hooks are intentionally not executed (safety).
+
+Aether CLI compatibility: --generate <path>, --list-wallpapers,
+--random-wallpaper, --import-base16 <file>, --list-blueprints,
+--apply-blueprint <name>
 
 Wallpapers are never installed software: downloads are user media, validated
 as images, and are never executed.
@@ -304,6 +326,40 @@ aurelia_wallpaper_label_for() {
     printf '%s\n' "$name" |
         LC_ALL=C sed -E 's/[-_]+/ /g' |
         awk '{ for (i = 1; i <= NF; i++) { $i = toupper(substr($i, 1, 1)) substr($i, 2) } } 1'
+}
+
+# Hex color helpers shared by base16 imports and app template rendering.
+aurelia_wallpaper_hex_rgb() {
+    local hex="${1#\#}"
+    local r=$((16#${hex:0:2}))
+    local g=$((16#${hex:2:2}))
+    local b=$((16#${hex:4:2}))
+    printf '%d,%d,%d' "$r" "$g" "$b"
+}
+
+aurelia_wallpaper_hex_rgba() {
+    local hex="${1#\#}"
+    local alpha="${2:-1}"
+    local r=$((16#${hex:0:2}))
+    local g=$((16#${hex:2:2}))
+    local b=$((16#${hex:4:2}))
+    printf 'rgba(%d,%d,%d,%s)' "$r" "$g" "$b" "$alpha"
+}
+
+# Mix two hex colors; amount is the weight of the second color (0..1).
+aurelia_wallpaper_mix_hex() {
+    local start="${1#\#}"
+    local end="${2#\#}"
+    local amount="$3"
+    [[ "$start" =~ ^[0-9A-Fa-f]{6}$ && "$end" =~ ^[0-9A-Fa-f]{6}$ ]] || return 1
+    awk -v s="$start" -v e="$end" -v t="$amount" '
+        function hv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+        function pv(h, i) { return hv(substr(h, i, 1)) * 16 + hv(substr(h, i + 1, 1)) }
+        BEGIN {
+        r = pv(s, 1); g = pv(s, 3); b = pv(s, 5)
+        r2 = pv(e, 1); g2 = pv(e, 3); b2 = pv(e, 5)
+        printf "#%02x%02x%02x", int(r + (r2 - r) * t + 0.5), int(g + (g2 - g) * t + 0.5), int(b + (b2 - b) * t + 0.5)
+        }'
 }
 
 aurelia_wallpaper_host_allowed() {
