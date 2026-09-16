@@ -22,6 +22,7 @@
     {"id":"aurelia.theme","kinds":["panel"],"entryPoints":{"panel":"ThemePanel.qml"},"keepLoaded":false,"barWidget":null},
     {"id":"aurelia.tray","kinds":["bar-widget"],"entryPoints":{"barWidget":"TrayBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"System Tray","description":"StatusNotifier system tray widget for the Aurelia bar.","category":"System","allowMultiple":false,"defaultSection":"center"}},
     {"id":"aurelia.weather","kinds":["bar-widget"],"entryPoints":{"barWidget":"WeatherBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Weather","description":"Automatic weather bar widget with city and coordinate overrides.","category":"Weather","allowMultiple":false,"defaultSection":"center"}},
+    {"id":"aurelia.wallpapers","kinds":["panel"],"entryPoints":{"panel":"WallpapersPlugin.qml"},"keepLoaded":true,"barWidget":null},
     {"id":"aurelia.wifiqr","kinds":["panel"],"entryPoints":{"panel":"WifiQrPlugin.qml"},"keepLoaded":false,"barWidget":null},
     {"id":"aurelia.workspace-switcher","kinds":["overlay"],"entryPoints":{"overlay":"WorkspaceSwitcher.qml"},"keepLoaded":true,"barWidget":null},
     {"id":"aurelia.workspaces","kinds":["bar-widget"],"entryPoints":{"barWidget":"WorkspacesBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Workspaces","description":"Hyprland workspace switcher for the Aurelia bar.","category":"Workspace","allowMultiple":false}}
@@ -29,9 +30,50 @@
   "defaultBar": {
     "id": "aurelia.bar",
     "layout": {
-      "left": [{"id":"aurelia.workspaces"}],
-      "center": [{"id":"aurelia.notifications"}, {"id":"aurelia.clock", "format":"MMM d, dddd HH:mm"}, {"id":"aurelia.weather", "location":"auto"}],
-      "right": [{"id":"aurelia.tray"}, {"id":"aurelia.network"}, {"id":"aurelia.audio"}, {"id":"aurelia.bluetooth"}, {"id":"aurelia.monitor"}, {"id":"aurelia.screenshot"}, {"id":"aurelia.session-actions"}, {"id":"aurelia.power"}]
+      "left": [
+        {
+          "id": "aurelia.workspaces"
+        }
+      ],
+      "center": [
+        {
+          "id": "aurelia.notifications"
+        },
+        {
+          "id": "aurelia.clock",
+          "format": "MMM d, dddd HH:mm"
+        },
+        {
+          "id": "aurelia.weather",
+          "location": "auto"
+        }
+      ],
+      "right": [
+        {
+          "id": "aurelia.tray"
+        },
+        {
+          "id": "aurelia.network"
+        },
+        {
+          "id": "aurelia.audio"
+        },
+        {
+          "id": "aurelia.bluetooth"
+        },
+        {
+          "id": "aurelia.monitor"
+        },
+        {
+          "id": "aurelia.screenshot"
+        },
+        {
+          "id": "aurelia.session-actions"
+        },
+        {
+          "id": "aurelia.power"
+        }
+      ]
     }
   },
   "requiredFiles": [

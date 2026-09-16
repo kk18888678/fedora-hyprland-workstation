@@ -17,10 +17,10 @@ mapfile -d '' matrix_manifests < <(
 )
 matrix_manifest_count="$(find -P "$plugins_root" -mindepth 2 -maxdepth 2 -type f -name manifest.json | wc -l)"
 
-if [[ "$matrix_manifest_count" -eq 25 ]]; then
-    pass "[static] first-party manifest enumeration finds all 25 Aurelia plugins"
+if [[ "$matrix_manifest_count" -eq 26 ]]; then
+    pass "[static] first-party manifest enumeration finds all 26 Aurelia plugins"
 else
-    fail "[static] first-party manifest enumeration expected 25 plugins, found $matrix_manifest_count"
+    fail "[static] first-party manifest enumeration expected 26 plugins, found $matrix_manifest_count"
 fi
 
 matrix_manifest_failures=0

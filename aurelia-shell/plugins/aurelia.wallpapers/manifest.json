@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.wallpapers",
+  "name": "Wallpaper Library",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Browse local wallpaper sources and wallhaven, and derive themes from wallpapers.",
+  "icon": "preferences-desktop-wallpaper",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "WallpapersPlugin.qml"
+  }
+}

@@ -154,6 +154,14 @@ an in-bar controls overlay.
   `bar-widget`; the keyboard surface is an internal popup owned by the bar
   widget, not a standalone panel plugin. The bar slot collapses when no BlueZ
   adapter is available.
+- aurelia.wallpapers: resident Wallpaper Library panel opened with
+  `SUPER + SHIFT + W`. It browses local wallpaper sources
+  (`~/Pictures/Wallpapers` plus user-configured roots), searches and downloads
+  SFW wallpapers from wallhaven.cc, and can derive a data-only theme
+  (`colors.toml`) from any wallpaper. Discovery and selection only: every
+  mutation is delegated to the `aurelia-wallpaper` command, which delegates
+  activation to `aurelia-theme-bg` / `aurelia-theme`. See
+  [aurelia-wallpapers.md](../docs/aurelia-wallpapers.md).
 - aurelia.weather: lightweight weather bar widget following Omarchy's default
   automatic IP-based location flow through `wttr.in`. Set `location` to a
   city, or set `latitude`/`longitude` for exact coordinates; `units` and

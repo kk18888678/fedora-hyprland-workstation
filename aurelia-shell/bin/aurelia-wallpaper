@@ -1,0 +1,473 @@
+#!/usr/bin/env bash
+
+# aurelia-wallpaper — Fedora wallpaper library and palette capability.
+#
+# This command is the single owner of wallpaper *sourcing*:
+#   - local source discovery over XDG Pictures/Wallpapers and configured roots,
+#   - library imports,
+#   - wallhaven search and downloads,
+#   - palette (colors.toml) generation from a wallpaper image.
+#
+# It deliberately does NOT activate anything itself. The existing commands stay
+# the single mutation owners for live state:
+#   aurelia-theme-bg set <path>   active wallpaper
+#   aurelia-theme set <slug>      active palette/theme
+#
+# Downloaded media is user content, never installed software: it is bounded in
+# size and time, validated as an image, and never executed.
+
+set -Eeuo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+shell_root="$(cd -- "$script_dir/.." && pwd -P)"
+
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-theme/common.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-wallpaper/common.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-wallpaper/library.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-wallpaper/wallhaven.sh"
+# shellcheck source=/dev/null
+source "$script_dir/lib/aurelia-wallpaper/palette.sh"
+
+aurelia_theme_init_paths "$shell_root"
+aurelia_wallpaper_init_paths "$shell_root"
+aurelia_wallpaper_pictures_dir
+
+usage_exit() {
+    aurelia_wallpaper_usage
+    exit 2
+}
+
+require_argument() {
+    local value="${1:-}"
+    local label="$2"
+
+    [[ -n "$value" ]] || {
+        printf 'Error: %s requires a value.\n' "$label" >&2
+        usage_exit
+    }
+}
+
+command_name="${1:-}"
+case "$command_name" in
+    ""|-h|--help)
+        aurelia_wallpaper_usage
+        exit 0
+        ;;
+esac
+shift
+
+aurelia_wallpaper_require_tools || exit 1
+aurelia_wallpaper_config_load || exit 1
+
+case "$command_name" in
+    sources)
+        action="${1:-}"
+        case "$action" in
+            ""|--json)
+                aurelia_wallpaper_cmd_sources \
+                    "$([[ "$action" == "--json" ]] && printf '1' || printf '0')"
+                ;;
+            add)
+                shift
+                source_path=""
+                source_id=""
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --id)
+                            require_argument "${2:-}" "--id"
+                            source_id="$2"
+                            shift 2
+                            ;;
+                        -*)
+                            printf 'Error: unknown sources add option: %s\n' "$1" >&2
+                            usage_exit
+                            ;;
+                        *)
+                            [[ -z "$source_path" ]] || usage_exit
+                            source_path="$1"
+                            shift
+                            ;;
+                    esac
+                done
+                [[ -n "$source_path" ]] || usage_exit
+                aurelia_wallpaper_cmd_sources_add "$source_path" "$source_id"
+                ;;
+            remove|enable|disable)
+                shift
+                require_argument "${1:-}" "sources $action"
+                (( $# == 1 )) || usage_exit
+                case "$action" in
+                    remove) aurelia_wallpaper_cmd_sources_remove "$1" ;;
+                    enable) aurelia_wallpaper_cmd_sources_toggle "$1" true ;;
+                    disable) aurelia_wallpaper_cmd_sources_toggle "$1" false ;;
+                esac
+                ;;
+            *)
+                usage_exit
+                ;;
+        esac
+        ;;
+
+    list)
+        source_id="all"
+        list_mode="plain"
+        while (( $# > 0 )); do
+            case "$1" in
+                --json)
+                    list_mode="json"
+                    shift
+                    ;;
+                --rows)
+                    list_mode="rows"
+                    shift
+                    ;;
+                -*)
+                    printf 'Error: unknown list option: %s\n' "$1" >&2
+                    usage_exit
+                    ;;
+                *)
+                    source_id="$1"
+                    shift
+                    ;;
+            esac
+        done
+        aurelia_wallpaper_cmd_list "$source_id" "$list_mode"
+        ;;
+
+    current)
+        json_flag="0"
+        while (( $# > 0 )); do
+            case "$1" in
+                --json) json_flag="1" ;;
+                *) usage_exit ;;
+            esac
+            shift
+        done
+        aurelia_wallpaper_cmd_current "$json_flag"
+        ;;
+
+    apply)
+        target_path=""
+        apply_source="all"
+        selector=""
+        while (( $# > 0 )); do
+            case "$1" in
+                --source)
+                    require_argument "${2:-}" "--source"
+                    apply_source="$2"
+                    shift 2
+                    ;;
+                --index)
+                    require_argument "${2:-}" "--index"
+                    selector="index:$2"
+                    shift 2
+                    ;;
+                --next)
+                    selector="next"
+                    shift
+                    ;;
+                --random)
+                    selector="random"
+                    shift
+                    ;;
+                -*)
+                    printf 'Error: unknown apply option: %s\n' "$1" >&2
+                    usage_exit
+                    ;;
+                *)
+                    [[ -z "$target_path" ]] || usage_exit
+                    target_path="$1"
+                    shift
+                    ;;
+            esac
+        done
+        if [[ -n "$target_path" && -n "$selector" ]]; then
+            usage_exit
+        fi
+        if [[ -n "$target_path" ]]; then
+            aurelia_wallpaper_apply_path "$target_path"
+        elif [[ -n "$selector" ]]; then
+            aurelia_wallpaper_apply_selection "$apply_source" "$selector"
+        else
+            usage_exit
+        fi
+        ;;
+
+    random|next)
+        source_id="all"
+        if (( $# > 0 )); then
+            source_id="$1"
+            shift
+        fi
+        (( $# == 0 )) || usage_exit
+        if [[ "$command_name" == "next" ]]; then
+            aurelia_wallpaper_apply_selection "$source_id" "next"
+        else
+            aurelia_wallpaper_apply_selection "$source_id" "random"
+        fi
+        ;;
+
+    import)
+        source_path=""
+        target_source="library"
+        while (( $# > 0 )); do
+            case "$1" in
+                --to)
+                    require_argument "${2:-}" "--to"
+                    target_source="$2"
+                    shift 2
+                    ;;
+                -*)
+                    printf 'Error: unknown import option: %s\n' "$1" >&2
+                    usage_exit
+                    ;;
+                *)
+                    [[ -z "$source_path" ]] || usage_exit
+                    source_path="$1"
+                    shift
+                    ;;
+            esac
+        done
+        [[ -n "$source_path" ]] || usage_exit
+        aurelia_wallpaper_cmd_import "$source_path" "$target_source"
+        ;;
+
+    wallhaven)
+        action="${1:-}"
+        [[ -n "$action" ]] || usage_exit
+        shift
+        case "$action" in
+            key)
+                key_mode="status"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --status)
+                            key_mode="status"
+                            shift
+                            ;;
+                        --set)
+                            key_mode="set"
+                            shift
+                            ;;
+                        *)
+                            usage_exit
+                            ;;
+                    esac
+                done
+                if [[ "$key_mode" == "set" ]]; then
+                    aurelia_wallpaper_wallhaven_key_set
+                else
+                    aurelia_wallpaper_wallhaven_key_status
+                fi
+                ;;
+            search)
+                query=""
+                categories="$AW_CFG_WALLHAVEN_CATEGORIES"
+                purity="$AW_CFG_WALLHAVEN_PURITY"
+                sorting="$AW_CFG_WALLHAVEN_SORTING"
+                order="$AW_CFG_WALLHAVEN_ORDER"
+                atleast="$AW_CFG_WALLHAVEN_ATLEAST"
+                page="1"
+                seed=""
+                search_mode="plain"
+                thumbs="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --query)
+                            require_argument "${2:-}" "--query"
+                            query="$2"
+                            shift 2
+                            ;;
+                        --categories)
+                            require_argument "${2:-}" "--categories"
+                            categories="$2"
+                            shift 2
+                            ;;
+                        --purity)
+                            require_argument "${2:-}" "--purity"
+                            purity="$2"
+                            shift 2
+                            ;;
+                        --sorting)
+                            require_argument "${2:-}" "--sorting"
+                            sorting="$2"
+                            shift 2
+                            ;;
+                        --order)
+                            require_argument "${2:-}" "--order"
+                            order="$2"
+                            shift 2
+                            ;;
+                        --atleast)
+                            require_argument "${2:-}" "--atleast"
+                            atleast="$2"
+                            shift 2
+                            ;;
+                        --page)
+                            require_argument "${2:-}" "--page"
+                            page="$2"
+                            shift 2
+                            ;;
+                        --seed)
+                            require_argument "${2:-}" "--seed"
+                            seed="$2"
+                            shift 2
+                            ;;
+                        --rows)
+                            search_mode="rows"
+                            shift
+                            ;;
+                        --json)
+                            search_mode="json"
+                            shift
+                            ;;
+                        --thumbs)
+                            thumbs="1"
+                            shift
+                            ;;
+                        *)
+                            printf 'Error: unknown wallhaven search option: %s\n' "$1" >&2
+                            usage_exit
+                            ;;
+                    esac
+                done
+                [[ "$categories" =~ ^[01]{3}$ ]] ||
+                    aurelia_wallpaper_fail "categories must be three 0/1 digits."
+                [[ "$purity" =~ ^[01]{3}$ ]] ||
+                    aurelia_wallpaper_fail "purity must be three 0/1 digits."
+                [[ "$sorting" =~ ^(relevance|date_added|views|favorites|random)$ ]] ||
+                    aurelia_wallpaper_fail "Unsupported sorting value: $sorting"
+                [[ "$order" =~ ^(desc|asc)$ ]] ||
+                    aurelia_wallpaper_fail "Unsupported order value: $order"
+                [[ "$page" =~ ^[0-9]+$ && "$page" -ge 1 ]] ||
+                    aurelia_wallpaper_fail "Page must be a positive integer."
+                [[ -z "$atleast" || "$atleast" =~ ^[0-9]{3,5}x[0-9]{3,5}$ ]] ||
+                    aurelia_wallpaper_fail "atleast must look like 1920x1080."
+                aurelia_wallpaper_wallhaven_search \
+                    "$query" "$categories" "$purity" "$sorting" "$order" \
+                    "$atleast" "$page" "$seed" "$search_mode" "$thumbs"
+                ;;
+            download)
+                wallpaper_id="${1:-}"
+                require_argument "$wallpaper_id" "wallhaven download <id>"
+                shift
+                target_source="library"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --to)
+                            require_argument "${2:-}" "--to"
+                            target_source="$2"
+                            shift 2
+                            ;;
+                        *)
+                            usage_exit
+                            ;;
+                    esac
+                done
+                aurelia_wallpaper_wallhaven_download "$wallpaper_id" "$target_source"
+                ;;
+            *)
+                usage_exit
+                ;;
+        esac
+        ;;
+
+    theme)
+        action="${1:-}"
+        [[ -n "$action" ]] || usage_exit
+        shift
+        case "$action" in
+            generate|apply)
+                image_argument=""
+                theme_name=""
+                theme_mode=""
+                json_flag="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --name)
+                            require_argument "${2:-}" "--name"
+                            theme_name="$2"
+                            shift 2
+                            ;;
+                        --light)
+                            theme_mode="light"
+                            shift
+                            ;;
+                        --dark)
+                            theme_mode="dark"
+                            shift
+                            ;;
+                        --json)
+                            json_flag="1"
+                            shift
+                            ;;
+                        -*)
+                            printf 'Error: unknown theme %s option: %s\n' "$action" "$1" >&2
+                            usage_exit
+                            ;;
+                        *)
+                            [[ -z "$image_argument" ]] || usage_exit
+                            image_argument="$1"
+                            shift
+                            ;;
+                    esac
+                done
+                [[ -n "$image_argument" ]] ||
+                    usage_exit
+                resolved_image="$(aurelia_wallpaper_resolve_apply_target "$image_argument")" ||
+                    exit 1
+                if [[ "$action" == "generate" ]]; then
+                    aurelia_wallpaper_cmd_theme_generate \
+                        "$resolved_image" "$theme_name" "$theme_mode" "$json_flag"
+                else
+                    aurelia_wallpaper_cmd_theme_apply "$resolved_image" "$theme_name" "$theme_mode"
+                fi
+                ;;
+            list)
+                json_flag="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --json)
+                            json_flag="1"
+                            shift
+                            ;;
+                        *)
+                            usage_exit
+                            ;;
+                    esac
+                done
+                aurelia_wallpaper_cmd_theme_list "$json_flag"
+                ;;
+            remove)
+                slug_argument="${1:-}"
+                require_argument "$slug_argument" "theme remove <slug>"
+                shift
+                confirmed="0"
+                while (( $# > 0 )); do
+                    case "$1" in
+                        --yes)
+                            confirmed="1"
+                            shift
+                            ;;
+                        *)
+                            usage_exit
+                            ;;
+                    esac
+                done
+                aurelia_wallpaper_cmd_theme_remove "$slug_argument" "$confirmed"
+                ;;
+            *)
+                usage_exit
+                ;;
+        esac
+        ;;
+
+    *)
+        usage_exit
+        ;;
+esac
