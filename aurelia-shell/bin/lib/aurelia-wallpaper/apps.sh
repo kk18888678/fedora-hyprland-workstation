@@ -37,7 +37,9 @@ aurelia_wallpaper_apps_resolve_token() {
     case "$key" in
         theme_type) value="${AW_PAL[mode]:-dark}" ;;
         wallpaper) value="$(aurelia_wallpaper_current_path  || true)" ;;
-        *) value="${AW_PAL[$key]:-}" ;;
+        *)
+            [[ -n "${AW_PAL[$key]:-}" ]] || return 1
+            value="${AW_PAL[$key]}" ;;
     esac
 
     case "$modifier" in
@@ -137,7 +139,7 @@ aurelia_wallpaper_apps_list() {
     local wants_json="${1:-0}"
     [[ -d "$AW_APPS_ROOT" && ! -L "$AW_APPS_ROOT" ]] || return 0
     local app dir=""
-    while IFS= read -r dir; do
+    while IFS= read -r -d '' dir; do
         app="${dir##*/}"
         [[ -f "$dir/config.json" && ! -L "$dir/config.json" ]] || continue
         if aurelia_wallpaper_setting_is_true "$wants_json"; then

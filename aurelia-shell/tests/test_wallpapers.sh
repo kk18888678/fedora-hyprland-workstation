@@ -739,3 +739,123 @@ if [[ -x /usr/bin/qs ]]; then
 else
     fail "/usr/bin/qs is required to verify the wallpaper plugin loads in the resident shell"
 fi
+
+section "Base16 import (isolated)"
+
+cat >"$wp_tmp/fixtures/scheme.yaml" <<'EOF'
+scheme: "Test Nord Base16"
+author: "test"
+base00: "2E3440"
+base01: "3B4252"
+base02: "434C5E"
+base03: "4C566A"
+base04: "D8DEE9"
+base05: "E5E9F0"
+base06: "ECEFF4"
+base07: "8FBCBB"
+base08: "BF616A"
+base09: "D08770"
+base0A: "EBCB8B"
+base0B: "A3BE8C"
+base0C: "88C0D0"
+base0D: "81A1C1"
+base0E: "B48EAD"
+base0F: "BF616A"
+EOF
+
+base16_out="$(run_wp base16 import "$wp_tmp/fixtures/scheme.yaml" --json)"
+if jq -e '.slug == "base16-test-nord-base16" and .applied == false' <<<"$base16_out" >/dev/null; then
+    pass "base16 import derives its slug from the scheme name"
+else
+    fail "base16 import output is wrong: $base16_out"
+fi
+
+imported_colors="$wp_tmp/config/aurelia/themes/base16-test-nord-base16/colors.toml"
+base16_keys_ok=1
+for pair in 'mode = "dark"' 'background = "#2e3440"' 'foreground = "#e5e9f0"' \
+    'accent = "#81a1c1"' 'red = "#bf616a"' 'brown = "#bf616a"'; do
+    grep -Fq "$pair" "$imported_colors" || base16_keys_ok=0
+done
+if [[ "$base16_keys_ok" == "1" ]]; then
+    pass "base16 import maps the sixteen bases to the canonical palette"
+else
+    fail "base16 import produced an incomplete palette"
+fi
+
+if run_wp theme apply "$wp_tmp/home/Pictures/Wallpapers/forest.png" >/dev/null &&
+   run_wp blueprint save forest-look >/dev/null &&
+   [[ -f "$wp_tmp/config/aurelia/blueprints/forest-look.json" ]]; then
+    pass "blueprint save captures the active palette and wallpaper"
+else
+    fail "blueprint save failed"
+fi
+
+if run_wp blueprint list | grep -q '^forest-look' &&
+   run_wp blueprint list --json | jq -e '.blueprints[] | select(.slug == "forest-look")' >/dev/null; then
+    pass "blueprint list exposes saved blueprints in text and JSON"
+else
+    fail "blueprint list failed"
+fi
+
+if run_wp blueprint apply forest-look >/dev/null &&
+   [[ "$(sed -n 1p "$wp_tmp/state/aurelia/current/theme.name")" == "blueprint-forest-look" ]]; then
+    pass "blueprint apply restores the saved look through the theme command"
+else
+    fail "blueprint apply did not activate"
+fi
+
+if run_wp blueprint remove forest-look >/dev/null 2>&1; then
+    fail "blueprint removal succeeded without --yes"
+else
+    pass "blueprint removal requires --yes"
+fi
+
+if run_wp blueprint remove forest-look --yes >/dev/null &&
+   [[ ! -f "$wp_tmp/config/aurelia/blueprints/forest-look.json" ]]; then
+    pass "blueprint removal deletes the saved blueprint"
+else
+    fail "blueprint removal failed"
+fi
+
+section "Custom app theming (isolated)"
+
+mkdir -p "$wp_tmp/config/aurelia/custom-apps/testapp"
+printf '{"template":"theme.ini","destination":"~/.config/testapp-theme.ini"}' \
+    >"$wp_tmp/config/aurelia/custom-apps/testapp/config.json"
+printf 'background = {background}\nstripped = {background.strip}\nrgb = {red.rgb}\nalpha = {accent.rgba:0.5}\nmode = {theme_type}\n' \
+    >"$wp_tmp/config/aurelia/custom-apps/testapp/theme.ini"
+
+if run_wp apps list --json | jq -se 'map(select(.name == "testapp")) | length == 1' >/dev/null; then
+    pass "apps list discovers declared custom apps"
+else
+    fail "apps list failed"
+fi
+
+if run_wp apps render testapp >/dev/null &&
+   grep -Fq 'background = #' "$wp_tmp/home/.config/testapp-theme.ini" 2>/dev/null ||
+   grep -Fq 'background = "' "$wp_tmp/home/.config/testapp-theme.ini" 2>/dev/null; then
+    pass "apps render substitutes palette variables into the destination"
+else
+    fail "apps render failed"
+fi
+
+printf 'bad = {not_a_variable}\n' >"$wp_tmp/config/aurelia/custom-apps/testapp/theme.ini"
+if run_wp apps render testapp >/dev/null 2>&1; then
+    fail "apps render accepted an unknown template variable"
+else
+    pass "apps render rejects unknown template variables"
+fi
+
+if run_wp apps render-all >/dev/null 2>&1; then
+    fail "apps render-all succeeded with an unknown variable in the template"
+else
+    pass "apps render-all reports template failures"
+fi
+
+printf 'background = {background}\n' >"$wp_tmp/config/aurelia/custom-apps/testapp/theme.ini"
+if run_wp apps render-all >/dev/null &&
+   grep -Fq 'background = "' "$wp_tmp/home/.config/testapp-theme.ini"; then
+    pass "apps render-all renders every declared app"
+else
+    fail "apps render-all failed"
+fi

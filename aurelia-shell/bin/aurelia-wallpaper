@@ -594,8 +594,9 @@ case "$command_name" in
                     esac
                 done
                 [[ -n "$scheme_file" ]] || usage_exit
-                base16_args=("$scheme_file" --name "$theme_name")
-                [[ "$light" == "1" ]] && base16_args+=("--light")
+                base16_args=("$scheme_file")
+                if [[ -n "$theme_name" ]]; then base16_args+=("--name" "$theme_name"); fi
+                if [[ "$light" == "1" ]]; then base16_args+=("--light"); fi
                 [[ "$do_apply" == "1" ]] && base16_args+=("--apply")
                 [[ "$json_flag" == "1" ]] && base16_args+=("--json")
                 aurelia_wallpaper_base16_import "${base16_args[@]}"
