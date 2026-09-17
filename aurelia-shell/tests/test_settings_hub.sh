@@ -80,6 +80,16 @@ else
     fail "[static] settings row projection or backend delegation contract is incomplete"
 fi
 
+# Window close must be self-contained (like the keybindings window): plugin
+# close() -> requestClose() must not re-enter the plugin (no signal roundtrip).
+if grep -q 'function requestClose(reason)' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'requestClose("plugin-close")' "$plugin_dir/SettingsPlugin.qml" &&
+   ! grep -q 'onRequestClose: function' "$plugin_dir/SettingsPlugin.qml"; then
+    pass "[static] settings window close is self-contained (no plugin close recursion)"
+else
+    fail "[static] settings window close lifecycle can recurse through the plugin"
+fi
+
 for row_file in SettingToggle SettingSlider SettingCombo SettingColor SettingText \
     SettingHeading SettingInfo SettingAction SettingsNav SettingsPage SettingsWindow; do
     if [[ ! -f "$plugin_dir/ui/$row_file.qml" ]]; then

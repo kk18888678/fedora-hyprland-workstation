@@ -31,8 +31,10 @@ Item {
             id: column
             width: parent.width
             spacing: Theme.spacingSm
-            topPadding: Theme.spacingMd
-            bottomPadding: Theme.spacingLg
+
+            Item {
+                Layout.preferredHeight: Theme.spacingMd
+            }
 
             Repeater {
                 id: repeater
@@ -74,6 +76,10 @@ Item {
                         }
                     }
                 }
+            }
+
+            Item {
+                Layout.preferredHeight: Theme.spacingLg
             }
         }
     }

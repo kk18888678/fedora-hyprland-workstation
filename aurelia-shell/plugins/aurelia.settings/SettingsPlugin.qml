@@ -31,13 +31,13 @@ Item {
     }
 
     function close() {
-        if (settingsWindowLoader.item && settingsWindowLoader.item.visible &&
+        // requestClose is a self-contained window function (visible=false +
+        // popout release); it never re-enters this plugin, so the IPC toggle
+        // close path cannot recurse.
+        if (settingsWindowLoader.item &&
             typeof settingsWindowLoader.item.requestClose === "function") {
             settingsWindowLoader.item.requestClose("plugin-close")
-        } else if (settingsWindowLoader.item) {
-            settingsWindowLoader.item.visible = false
         }
-        if (bar && typeof bar.releasePopout === "function") bar.releasePopout(settingsWindowLoader.item)
         return "ok"
     }
 
@@ -85,9 +85,6 @@ Item {
         active: pluginRoot.configured
         sourceComponent: SettingsWindow {
             pluginRoot: pluginRoot
-            onRequestClose: function() {
-                pluginRoot.close()
-            }
         }
     }
 }

@@ -20,10 +20,19 @@ PanelWindow {
     id: root
 
     property var pluginRoot: null
-    signal requestClose()
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "aurelia-settings"
+
+    // Self-contained close (mirrors the keybindings window lifecycle).
+    // Never round-trips through the plugin, so plugin.close() -> requestClose()
+    // cannot recurse.
+    function requestClose(reason) {
+        root.visible = false
+        if (pluginRoot && pluginRoot.bar && typeof pluginRoot.bar.releasePopout === "function") {
+            pluginRoot.bar.releasePopout(root)
+        }
+    }
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     anchors {
         top: true

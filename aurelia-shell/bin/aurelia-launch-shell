@@ -94,4 +94,8 @@ fi
 # trees in development mode; core shell files still use aurelia-restart-shell.
 # Disable Quickshell's broad file watcher so a package/source write cannot
 # create a second engine generation while a tree is being updated.
-exec env QS_DISABLE_FILE_WATCHER=1 "$qs_bin" --no-duplicate --path "$shell_root/shell.qml"
+# The resident process is the quickshell runtime. Rename argv[0] so process
+# listings and system monitors identify the shell as aurelia-shell instead of
+# the generic runtime name (kernel comm may still read `qs`).
+export QS_DISABLE_FILE_WATCHER=1
+exec -a aurelia-shell "$qs_bin" --no-duplicate --path "$shell_root/shell.qml"
