@@ -633,9 +633,9 @@ PanelWindow {
                 }
 
                 Rectangle {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.maximumWidth: 1
                     Layout.fillHeight: true
-                    width: 1
                     color: Theme.border
                 }
 

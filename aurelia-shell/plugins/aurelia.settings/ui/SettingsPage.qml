@@ -71,6 +71,12 @@ Item {
 
                 onLoaded: {
                     item.descriptor = modelData
+                    // Pin the loaded row to the Loader's full size. The row
+                    // components otherwise rely on parent width hints that
+                    // do not propagate reliably through a generic Loader,
+                    // leaving content right-shifted with an empty card body.
+                    item.width = Qt.binding(function() { return rowLoader.width })
+                    item.height = Qt.binding(function() { return rowLoader.height })
                     if (typeof item.changed === "function") {
                         item.changed.connect(function(value) {
                             pageRoot.changed(String(modelData.id || ""), value)
