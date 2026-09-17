@@ -540,12 +540,12 @@ aurelia_theme_render_shell() {
         '' \
         '[launcher]' \
         "background = \"$background\"" \
-        'background-alpha = 0.99' \
+        'background-alpha = 0.95' \
         "text = \"$foreground\"" \
         "border = \"$accent\"" \
         'border-alpha = 1.0' \
         "scrim = \"$background\"" \
-        'scrim-alpha = 0.6' \
+        'scrim-alpha = 0.5' \
         "selected-background = \"$foreground\"" \
         'selected-background-alpha = 0.08' \
         "selected-text = \"$accent\"" \
