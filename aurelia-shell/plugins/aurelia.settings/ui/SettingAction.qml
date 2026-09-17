@@ -46,6 +46,7 @@ RowLayout {
     }
 
     SettingButton {
+        Layout.rightMargin: Theme.spacingSm
         Layout.alignment: Qt.AlignVCenter
         label: root.label
         primary: !!descriptor && descriptor.primary === true

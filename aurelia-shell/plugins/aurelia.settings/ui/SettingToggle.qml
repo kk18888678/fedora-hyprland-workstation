@@ -47,6 +47,7 @@ RowLayout {
     }
 
     SwitchControl {
+        Layout.rightMargin: Theme.spacingSm
         id: switchControl
         Layout.alignment: Qt.AlignVCenter
         checked: root.effective

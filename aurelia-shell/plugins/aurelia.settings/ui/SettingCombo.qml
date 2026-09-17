@@ -49,6 +49,7 @@ RowLayout {
     }
 
     ComboControl {
+        Layout.rightMargin: Theme.spacingSm
         id: combo
         Layout.alignment: Qt.AlignVCenter
         Layout.minimumWidth: 190

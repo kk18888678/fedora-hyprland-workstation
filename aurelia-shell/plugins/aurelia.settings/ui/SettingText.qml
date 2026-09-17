@@ -47,6 +47,7 @@ RowLayout {
     }
 
     TextControl {
+        Layout.rightMargin: Theme.spacingSm
         Layout.alignment: Qt.AlignVCenter
         Layout.minimumWidth: 170
         text: root.effective

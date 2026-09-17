@@ -99,6 +99,7 @@ RowLayout {
     }
 
     TextControl {
+        Layout.rightMargin: Theme.spacingSm
         id: colorField
         Layout.alignment: Qt.AlignVCenter
         Layout.minimumWidth: 150

@@ -64,6 +64,7 @@ RowLayout {
     }
 
     SliderControl {
+        Layout.rightMargin: Theme.spacingSm
         id: slider
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignVCenter
