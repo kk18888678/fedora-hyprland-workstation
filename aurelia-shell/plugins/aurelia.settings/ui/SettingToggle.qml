@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../../theme"
+import "."
 
 // Toggle row: title + description on the left, switch on the right.
 RowLayout {
@@ -43,7 +44,7 @@ RowLayout {
         }
     }
 
-    Switch {
+    SwitchControl {
         id: switchControl
         Layout.alignment: Qt.AlignVCenter
         checked: root.effective

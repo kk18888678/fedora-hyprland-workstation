@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../../theme"
+import "."
 
 // Color row: current color swatch, a text field (rgba(...) or #RRGGBB[AA]),
 // and a few quick presets drawn from the active theme palette. Applies on
@@ -95,15 +96,11 @@ RowLayout {
         }
     }
 
-    TextField {
+    TextControl {
         id: colorField
         Layout.alignment: Qt.AlignVCenter
-        Layout.minimumWidth: 170
+        Layout.minimumWidth: 150
         text: root.effective
-        color: Theme.text
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSm
-        selectByMouse: true
         onAccepted: root.changed(text.trim())
     }
 }

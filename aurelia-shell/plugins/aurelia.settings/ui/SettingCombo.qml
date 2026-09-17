@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../../theme"
+import "."
 
 // Combo (enum) row.
 RowLayout {
@@ -45,7 +46,7 @@ RowLayout {
         }
     }
 
-    ComboBox {
+    ComboControl {
         id: combo
         Layout.alignment: Qt.AlignVCenter
         Layout.minimumWidth: 190

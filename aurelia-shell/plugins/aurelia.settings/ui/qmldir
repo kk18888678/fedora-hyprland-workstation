@@ -7,6 +7,11 @@ SettingText 1.0 SettingText.qml
 SettingHeading 1.0 SettingHeading.qml
 SettingInfo 1.0 SettingInfo.qml
 SettingAction 1.0 SettingAction.qml
+SettingButton 1.0 SettingButton.qml
+SwitchControl 1.0 SwitchControl.qml
+SliderControl 1.0 SliderControl.qml
+ComboControl 1.0 ComboControl.qml
+TextControl 1.0 TextControl.qml
 SettingsNav 1.0 SettingsNav.qml
 SettingsPage 1.0 SettingsPage.qml
 SettingsWindow 1.0 SettingsWindow.qml

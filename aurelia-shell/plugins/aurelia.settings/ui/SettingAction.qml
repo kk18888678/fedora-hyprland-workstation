@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../../theme"
+import "."
 
 // Action row: labeled button that forwards a bounded CLI/IPC action.
 RowLayout {
@@ -44,9 +45,10 @@ RowLayout {
         }
     }
 
-    Button {
+    SettingButton {
         Layout.alignment: Qt.AlignVCenter
-        text: root.label
+        label: root.label
+        primary: !!descriptor && descriptor.primary === true
         onClicked: root.action()
     }
 }

@@ -6,6 +6,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import "SettingsRows.js" as SettingsRows
 import "../../../theme"
+import "."
 
 // Settings hub window: one screen for Hyprland and (when the resident shell
 // is Aurelia) Aurelia Shell settings.
@@ -64,23 +65,22 @@ PanelWindow {
     property bool pendingClearConfirm: false
 
     readonly property string aureliaRoot: pluginRoot && pluginRoot.aureliaPath ? pluginRoot.aureliaPath : ""
-    readonly property string checkoutBackendPath: aureliaRoot.indexOf("/") === 0
-        ? aureliaRoot + "/../bin/workstation-hypr-settings" : "/nonexistent-checkout-bin"
+    // Mutable probe targets, computed from pluginRoot.aureliaPath at runtime
+    // (Component.onCompleted). Derived readonly bindings are evaluated once,
+    // at window construction — before the host injects aureliaPath — and would
+    // bake in the dead fallback paths forever.
+    property string checkoutBackendPath: "/nonexistent-checkout-bin"
+    property string candidateAureliaBin: "/nonexistent-aurelia-bin"
     readonly property string installedBackendPath: "/usr/local/bin/workstation-hypr-settings"
-    readonly property string candidateAureliaBin: aureliaRoot.indexOf("/") === 0
-        ? aureliaRoot + "/bin" : "/nonexistent-aurelia-bin"
 
     property bool checkoutBackendAvailable: false
     property bool installedBackendAvailable: false
-    readonly property string backendBin: {
-        var override = Quickshell.env("WORKSTATION_HYPR_SETTINGS_BIN") || ""
-        if (override.indexOf("/") === 0) return override
-        if (checkoutBackendAvailable) return checkoutBackendPath
-        if (installedBackendAvailable) return installedBackendPath
-        return installedBackendPath
-    }
+    // Mutable, set explicitly by the resolution probes. (A readonly JS-block
+    // property would be evaluated once at creation — before the probes finish
+    // — and could bake in a dead fallback path forever.)
+    property string backendBin: "/usr/local/bin/workstation-hypr-settings"
     property bool checkoutAureliaAvailable: false
-    readonly property string aureliaBinDir: checkoutAureliaAvailable ? candidateAureliaBin : "/usr/local/bin"
+    property string aureliaBinDir: "/usr/local/bin"
 
     function helperBin(name) {
         return aureliaBinDir + "/" + name
@@ -101,9 +101,22 @@ PanelWindow {
     // ------------------------------------------------------------------
     Process {
         id: checkoutProbe
-        command: ["/usr/bin/test", "-x", root.checkoutBackendPath]
+        command: [] // set at runtime in Component.onCompleted with resolved paths
         onExited: function(code) {
             root.checkoutBackendAvailable = (code === 0)
+            var override = Quickshell.env("WORKSTATION_HYPR_SETTINGS_BIN") || ""
+            if (override.indexOf("/") === 0) {
+                root.backendBin = override
+                aureliaBinProbe.command = ["/usr/bin/test", "-d", root.candidateAureliaBin]
+                aureliaBinProbe.running = true
+                return
+            }
+            if (code === 0) {
+                root.backendBin = root.checkoutBackendPath
+                aureliaBinProbe.command = ["/usr/bin/test", "-d", root.candidateAureliaBin]
+                aureliaBinProbe.running = true
+                return
+            }
             installedProbe.command = ["/usr/bin/test", "-x", root.installedBackendPath]
             installedProbe.running = true
         }
@@ -114,6 +127,7 @@ PanelWindow {
         command: []
         onExited: function(code) {
             root.installedBackendAvailable = (code === 0)
+            if (code === 0) root.backendBin = root.installedBackendPath
             aureliaBinProbe.command = ["/usr/bin/test", "-d", root.candidateAureliaBin]
             aureliaBinProbe.running = true
         }
@@ -124,6 +138,7 @@ PanelWindow {
         command: []
         onExited: function(code) {
             root.checkoutAureliaAvailable = (code === 0)
+            if (code === 0) root.aureliaBinDir = root.candidateAureliaBin
             root.start()
         }
     }
@@ -334,9 +349,27 @@ PanelWindow {
     // ------------------------------------------------------------------
     // Lifecycle
     // ------------------------------------------------------------------
-    Component.onCompleted: {
-        checkoutProbe.command = ["/usr/bin/test", "-x", root.checkoutBackendPath]
+    property bool probeStarted: false
+
+    // Recompute probe targets from the injected plugin root and start the
+    // probe chain. Called on construction and whenever the window is opened,
+    // so resolution self-heals regardless of host injection timing.
+    function resolveNow() {
+        var shellRoot = (pluginRoot && pluginRoot.aureliaPath) ? pluginRoot.aureliaPath : ""
+        console.warn("[SETTINGS] resolveNow shellRoot=" + (shellRoot !== "" ? shellRoot : "<empty>") +
+                     " pluginRoot=" + (pluginRoot ? "set" : "null"))
+        if (shellRoot.indexOf("/") === 0) {
+            checkoutBackendPath = shellRoot + "/../bin/workstation-hypr-settings"
+            candidateAureliaBin = shellRoot + "/bin"
+        }
+        if (probeStarted || checkoutBackendPath === "/nonexistent-checkout-bin") return
+        probeStarted = true
+        checkoutProbe.command = ["/usr/bin/test", "-x", checkoutBackendPath]
         checkoutProbe.running = true
+    }
+
+    Component.onCompleted: {
+        resolveNow()
     }
 
     function start() {
@@ -470,6 +503,7 @@ PanelWindow {
     // ------------------------------------------------------------------
     // UI
     // ------------------------------------------------------------------
+    // PanelWindow is not an Item, so Keys must live on the chrome Item.
     Rectangle {
         id: chrome
         anchors.fill: parent
@@ -478,6 +512,19 @@ PanelWindow {
         color: Theme.popups.background
         border.width: Theme.borderWidthDefault
         border.color: Theme.popups.border
+        focus: true
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape) {
+                if (root.pendingClearConfirm) {
+                    root.pendingClearConfirm = false
+                    root.footerText = "Cancelled."
+                } else {
+                    root.requestClose()
+                }
+                event.accepted = true
+            }
+        }
 
         ColumnLayout {
             anchors.fill: parent
@@ -540,9 +587,9 @@ PanelWindow {
                     font.pixelSize: Theme.fontSizeXs
                 }
 
-                Button {
-                    Layout.alignment: Qt.AlignVCenter
-                    text: "\u2715"
+                SettingButton {
+                    compact: true
+                    label: "\u2715"
                     onClicked: root.requestClose()
                 }
             }
@@ -629,21 +676,11 @@ PanelWindow {
         }
     }
 
-    Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Escape) {
-            if (root.pendingClearConfirm) {
-                root.pendingClearConfirm = false
-                root.footerText = "Cancelled."
-            } else {
-                root.requestClose()
-            }
-            event.accepted = true
-        }
-    }
-
     onVisibleChanged: {
         if (visible) {
             pendingClearConfirm = false
+            resolveNow()
+            chrome.forceActiveFocus()
             refreshStatus()
         }
     }

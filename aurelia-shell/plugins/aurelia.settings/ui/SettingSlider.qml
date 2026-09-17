@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../../theme"
+import "."
 
 // Slider row with a live value label and a short debounce so dragging a
 // slider does not spam the backend process per pixel.
@@ -60,7 +61,7 @@ RowLayout {
         }
     }
 
-    Slider {
+    SliderControl {
         id: slider
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignVCenter

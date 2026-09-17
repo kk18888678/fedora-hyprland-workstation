@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../../theme"
+import "."
 
 // Plain text entry row (e.g. keyboard layout).
 RowLayout {
@@ -43,14 +44,10 @@ RowLayout {
         }
     }
 
-    TextField {
+    TextControl {
         Layout.alignment: Qt.AlignVCenter
         Layout.minimumWidth: 170
         text: root.effective
-        color: Theme.text
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSm
-        selectByMouse: true
         onAccepted: root.changed(text.trim())
     }
 }

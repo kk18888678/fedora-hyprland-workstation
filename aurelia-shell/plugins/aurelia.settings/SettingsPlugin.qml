@@ -23,10 +23,10 @@ Item {
     readonly property bool configured: shell !== null && pluginRegistry !== null
 
     function open(payloadJson) {
-        if (bar && typeof bar.requestPopout === "function" && settingsWindowLoader.item) {
-            bar.requestPopout(settingsWindowLoader.item, "aurelia.settings")
+        if (bar && typeof bar.requestPopout === "function" && settingsWindow) {
+            bar.requestPopout(settingsWindow, "aurelia.settings")
         }
-        if (settingsWindowLoader.item) settingsWindowLoader.item.visible = true
+        if (settingsWindow) settingsWindow.visible = true
         return "ok"
     }
 
@@ -34,9 +34,9 @@ Item {
         // requestClose is a self-contained window function (visible=false +
         // popout release); it never re-enters this plugin, so the IPC toggle
         // close path cannot recurse.
-        if (settingsWindowLoader.item &&
-            typeof settingsWindowLoader.item.requestClose === "function") {
-            settingsWindowLoader.item.requestClose("plugin-close")
+        if (settingsWindow &&
+            typeof settingsWindow.requestClose === "function") {
+            settingsWindow.requestClose("plugin-close")
         }
         return "ok"
     }
@@ -47,7 +47,7 @@ Item {
     }
 
     function isVisible() {
-        return settingsWindowLoader.item ? settingsWindowLoader.item.visible : false
+        return settingsWindow ? settingsWindow.visible : false
     }
 
     // Plugin-owned IPC target. `aurelia-shell shell toggle aurelia.settings`
@@ -56,7 +56,7 @@ Item {
         target: "aurelia.settings"
 
         function ping(): bool {
-            return settingsWindowLoader.item !== null
+            return settingsWindow !== null
         }
 
         function open(): void {
@@ -76,15 +76,42 @@ Item {
         }
 
         function activeSection(): string {
-            return settingsWindowLoader.item ? settingsWindowLoader.item.activeSection : ""
+            return settingsWindow ? settingsWindow.activeSection : ""
+        }
+
+        function resolve(): string {
+            if (settingsWindow && typeof settingsWindow.resolveNow === "function") {
+                settingsWindow.resolveNow()
+                return "ok"
+            }
+            return "no-window"
+        }
+
+        function debugInfo(): string {
+            if (!settingsWindow) return '{"windowReady":false}'
+            var w = settingsWindow
+            return JSON.stringify({
+                windowReady: true,
+                aureliaPath: pluginRoot && pluginRoot.aureliaPath ? pluginRoot.aureliaPath : "",
+                checkoutBackendPath: w.checkoutBackendPath || "",
+                candidateAureliaBin: w.candidateAureliaBin || "",
+                checkoutBackendAvailable: !!w.checkoutBackendAvailable,
+                installedBackendAvailable: !!w.installedBackendAvailable,
+                checkoutAureliaAvailable: !!w.checkoutAureliaAvailable,
+                backendBin: w.backendBin || "",
+                aureliaBinDir: w.aureliaBinDir || "",
+                schemaReady: !!w.schemaReady,
+                statusReady: !!w.statusReady,
+                rowCount: Array.isArray(w.pageRows) ? w.pageRows.length : -1,
+                activeSection: w.activeSection || "",
+                footerText: w.footerText || ""
+            })
         }
     }
 
-    Loader {
-        id: settingsWindowLoader
-        active: pluginRoot.configured
-        sourceComponent: SettingsWindow {
-            pluginRoot: pluginRoot
-        }
+    SettingsWindow {
+        id: settingsWindow
+        pluginRoot: pluginRoot
+        visible: false
     }
 }
