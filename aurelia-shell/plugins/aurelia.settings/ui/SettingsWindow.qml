@@ -540,6 +540,17 @@ PanelWindow {
         focus: true
         clip: true
 
+        // Click shield: blocks every click on the card (empty areas, rows)
+        // from falling through to the close-on-outside scrim; real controls
+        // (switches, combos, text fields) sit above this shield.
+        MouseArea {
+            anchors.fill: parent
+            z: 0
+            acceptedButtons: Qt.AllButtons
+            preventStealing: true
+            onClicked: {}
+        }
+
         Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Escape) {
                 if (root.pendingClearConfirm) {
@@ -556,6 +567,7 @@ PanelWindow {
             anchors.fill: parent
             anchors.margins: Theme.spacingLg
             spacing: 0
+            z: 1 // above the click shield
 
             // Header
             RowLayout {

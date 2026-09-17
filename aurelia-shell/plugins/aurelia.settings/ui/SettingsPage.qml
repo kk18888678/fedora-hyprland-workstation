@@ -75,13 +75,12 @@ Item {
 
                 onLoaded: {
                     item.descriptor = modelData
-                    // Pin the loaded row to the Loader's width; keep its natural
-                    // height and center it vertically so content sits mid-card
-                    // instead of top-aligned with empty space below.
+                    // Pin the loaded row to the Loader's full size so the card
+                    // stays fully covered (no empty click-through zones) and
+                    // headings are never clipped. Content centers vertically
+                    // via each row's internal AlignVCenter.
                     item.width = Qt.binding(function() { return rowLoader.width })
-                    item.y = Qt.binding(function() {
-                        return Math.max(0, Math.round((rowLoader.height - item.implicitHeight) / 2))
-                    })
+                    item.height = Qt.binding(function() { return rowLoader.height })
                     if (typeof item.changed === "function") {
                         item.changed.connect(function(value) {
                             pageRoot.changed(String(modelData.id || ""), value)
