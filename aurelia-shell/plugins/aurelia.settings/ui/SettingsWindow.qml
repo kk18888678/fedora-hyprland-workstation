@@ -503,7 +503,18 @@ PanelWindow {
     // ------------------------------------------------------------------
     // UI
     // ------------------------------------------------------------------
-    // PanelWindow is not an Item, so Keys must live on the chrome Item.
+    // Fullscreen opaque base: the panel must never render see-through, even
+    // during plugin hot-reload churn or a temporary layer-shell fallback.
+    // bgBase always resolves (with a hard-coded final fallback), unlike the
+    // popups token which can momentarily be unset while the theme reloads.
+    Rectangle {
+        id: panelBase
+        anchors.fill: parent
+        color: Theme.bgBase
+        z: 0
+    }
+
+    // Chrome card on top of the opaque base.
     Rectangle {
         id: chrome
         anchors.fill: parent
@@ -512,6 +523,7 @@ PanelWindow {
         color: Theme.popups.background
         border.width: Theme.borderWidthDefault
         border.color: Theme.popups.border
+        z: 1
         focus: true
 
         Keys.onPressed: function(event) {
