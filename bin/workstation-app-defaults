@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# workstation-app-defaults — inspect and set workstation application defaults.
+#
+# Roles: terminal, file-manager, browser, editor, email-client.
+#
+# The authoritative store is ~/.config/workstation/desktop.conf (keys
+# <role>.default). Roles resolve through the workstation application registry
+# (effective_bindings.resolve_role_default) with the same precedence the
+# keybindings/launcher use:
+#   1. explicit desktop.conf value
+#   2. XDG default (xdg-mime query default)
+#   3. recommended fallback
+#
+# Safety: reads are bounded; the only mutation is an atomic write of the
+# user-owned desktop.conf (0600), validated role ids and app ids only.
+
+set -Eeuo pipefail
+
+PROG="${0##*/}"
+MARKER="WORKSTATION_APP_DEFAULTS_MANAGED_V1"
+
+fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+
+home="${HOME:-}"
+if [[ "$home" != /* || "$home" == "/" || ! -d "$home" || -L "$home" ]]; then
+    fail "HOME is missing or unsafe"
+fi
+config_home="${XDG_CONFIG_HOME:-$home/.config}"
+[[ "$config_home" == /* && "$config_home" != "/" ]] || fail "XDG_CONFIG_HOME must be absolute"
+conf_path="${WORKSTATION_APP_DEFAULTS_CONF:-$config_home/workstation/desktop.conf}"
+[[ "$conf_path" == "$config_home/workstation/desktop.conf" || "$conf_path" == /* ]] || fail "conf path must be absolute"
+[[ "$conf_path" == *"/../"* ]] && fail "conf path traversal"
+
+README_CONF_TEMPLATE() {
+    cat <<'EOF'
+# Workstation application defaults (managed by workstation-app-defaults).
+# Keys: <role>.default = <desktop-id> (e.g. browser.default=chromium-browser.desktop)
+# Roles: terminal, file-manager, browser, editor, email-client
+EOF
+}
+
+ROLES=(terminal file-manager browser editor email-client)
+APP_ROLE_LABELS=(
+    "terminal:Terminal"
+    "file-manager:File Manager"
+    "browser:Browser"
+    "editor:Editor"
+    "email-client:Email Client"
+)
+
+resolve_current() {
+    local role="$1"
+    local lua_bin="${WORKSTATION_APP_DEFAULTS_LUA:-$(command -v luajit || command -v lua || true)}"
+    [[ -n "$lua_bin" ]] || fail "a Lua runtime (luajit or lua) is required"
+    local manifest_dir="$SCRIPT_DIR/../aurelia-shell/dotfiles/hypr"
+    AURELIA_TEST_MODE=0 "$lua_bin" - "$manifest_dir" "$role" <<'LUA'
+local dir = arg[1]
+local role = arg[2]
+package.path = dir .. "/?.lua;" .. package.path
+local eff = require("effective_bindings")
+local canon, info = eff.resolve_role_default(role)
+if canon then
+    print(canon)
+else
+    print("")
+end
+LUA
+}
+
+list_choices() {
+    local role="$1" filter
+    case "$role" in
+        terminal) filter="Terminal=true" ;;
+        browser) filter="StartupWMClass%|WebBrowser|Browser" ;;
+        file-manager) filter="FileManager" ;;
+        editor) filter="TextEditor|Editor" ;;
+        email-client) filter="Email|Mail" ;;
+        *) return 0 ;;
+    esac
+    # Basic list of .desktop files that mention the role category. Bounded.
+    local dirs=(/usr/share/applications "$config_home/../local/share/applications"/) 2>/dev/null
+    dirs=("/usr/share/applications")
+    [[ -d "$config_home/../share/applications" ]] && dirs+=("$config_home/../share/applications")
+    [[ -d "$home/.local/share/applications" ]] && dirs+=("$home/.local/share/applications")
+    local seen=() entry
+    local d
+    for d in "${dirs[@]}"; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        local f
+        for f in "$d"/*.desktop; do
+            [[ -f "$f" && ! -L "$f" ]] || continue
+            case "$role" in
+                terminal)
+                    grep -qi '^Terminal=true$' "$f" || continue ;;
+                browser)
+                    grep -qiE '^Categories=.*(WebBrowser|Network)' "$f" || continue ;;
+                file-manager)
+                    grep -qiE '^Categories=.*(FileManager|FileTools)' "$f" || continue ;;
+                editor)
+                    grep -qiE '^Categories=.*(TextEditor|Development|Utility)' "$f" || continue ;;
+                email-client)
+                    grep -qiE '^Categories=.*(Network|Office)' "$f" || continue ;;
+            esac
+            entry="$(basename "$f")"
+            local found=0
+            for x in "${seen[@]}"; do [[ "$x" == "$entry" ]] && found=1 && break; done
+            (( found )) || seen+=("$entry")
+        done
+    done
+    printf '%s\n' "${seen[@]}"
+}
+
+set_default() {
+    local role="$1" app="$2" valid=0 r
+    for r in "${ROLES[@]}"; do [[ "$r" == "$role" ]] && valid=1 && break; done
+    (( valid == 1 )) || fail "unknown role: $role (expected: ${ROLES[*]})"
+    [[ "$app" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.desktop$ ]] || fail "app must be a .desktop id, got: $app"
+    # The app must exist in the current desktop-file search path.
+    local found=0 d f
+    for d in /usr/share/applications "$home/.local/share/applications" \
+        "$config_home/../share/applications"; do
+        if [[ -f "$d/$app" && ! -L "$d/$app" ]]; then found=1; break; fi
+    done
+    (( found == 1 )) || fail "desktop id not found in applications dirs: $app"
+
+    local dir
+    dir="$(dirname -- "$conf_path")"
+    mkdir -p -m 0700 -- "$dir" || fail "cannot create config dir"
+    local tmp
+    tmp="$(mktemp "$dir/.desktop.conf.XXXXXX")" || fail "cannot stage config"
+    trap 'rm -f -- "$tmp"' RETURN
+
+    local repo=0
+    if [[ -e "$conf_path" ]]; then
+        grep -q "$MARKER" "$conf_path" || repo=0
+        # preserve managed marker only; rewrite full contents deterministically
+    fi
+    {
+        printf '%s\n' "# $MARKER"
+        local r
+        for r in "${ROLES[@]}"; do
+        local cur=""
+        if [[ "$r" == "$role" ]]; then
+            printf '%s.default=%s\n' "$r" "$app"
+        else
+            cur="$(awk -F= -v k="$r.default" '$1==k{print $2}' "$conf_path" 2>/dev/null | head -n1)"
+            if [[ "$cur" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.desktop$ ]]; then
+                printf '%s.default=%s\n' "$r" "$cur"
+            fi
+        fi
+        done
+    } >"$tmp"
+    chmod 0600 -- "$tmp"
+    mv -f -- "$tmp" "$conf_path"
+    printf '%s\n' "Set $role default -> $app"
+}
+
+reset_default() {
+    local role="$1" valid=0 r
+    for r in "${ROLES[@]}"; do [[ "$r" == "$role" ]] && valid=1 && break; done
+    (( valid == 1 )) || fail "unknown role: $role"
+    local tmp
+    [[ -e "$conf_path" ]] || { printf '%s\n' "$role: no explicit default (XDG default applies)"; return 0; }
+    tmp="$(mktemp "$(dirname -- "$conf_path")/.desktop.conf.XXXXXX")" || fail "cannot stage config"
+    trap 'rm -f -- "$tmp"' RETURN
+    local r cur wrote=0
+    {
+        printf '%s\n' "# $MARKER"
+        for r in "${ROLES[@]}"; do
+            [[ "$r" == "$role" ]] && continue
+            cur="$(awk -F= -v k="$r.default" '$1==k{print $2}' "$conf_path" | head -n1)"
+            if [[ "$cur" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.desktop$ ]]; then
+                printf '%s.default=%s\n' "$r" "$cur"
+                wrote=1
+            fi
+        done
+    } >"$tmp"
+    chmod 0600 -- "$tmp"
+    mv -f -- "$tmp" "$conf_path"
+    (( wrote == 1 )) && : >/dev/null
+    printf '%s\n' "Reset $role (XDG default applies)"
+}
+
+cmd_status() {
+    local role cur label
+    printf '{\n  "roles": [\n'
+    local first=1
+    for spec in "${APP_ROLE_LABELS[@]}"; do
+        role="${spec%%:*}"
+        label="${spec#*:}"
+        cur="$(resolve_current "$role")"
+        if (( first )); then first=0; else printf ',\n'; fi
+        printf '    { "role": "%s", "label": "%s", "current": "%s" }' "$role" "$label" "$cur"
+    done
+    printf '\n  ]\n}\n'
+}
+
+cmd_current() {
+    local role="$1"
+    resolve_current "$role"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage: workstation-app-defaults <command> [args]
+
+  status                Show every role's current default (JSON).
+  list <role>           List candidate .desktop ids for a role.
+  current <role>        Print the resolved default for one role.
+  set <role> <app>      Persist <role>.default=<app> in desktop.conf.
+  reset <role>          Remove the explicit default (XDG default reapplies).
+
+Roles: terminal, file-manager, browser, editor, email-client.
+USAGE
+}
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd -P)"
+
+cmd="${1:-help}"
+shift || true
+case "$cmd" in
+    help|-h|--help) usage ;;
+    status) cmd_status ;;
+    list) [[ $# -eq 1 ]] || fail "usage: $PROG list <role>"; list_choices "$1" ;;
+    current) [[ $# -eq 1 ]] || fail "usage: $PROG current <role>"; cmd_current "$1" ;;
+    set) [[ $# -eq 2 ]] || fail "usage: $PROG set <role> <app>"; set_default "$1" "$2" ;;
+    reset) [[ $# -eq 1 ]] || fail "usage: $PROG reset <role>"; reset_default "$1" ;;
+    *) usage; exit 2 ;;
+esac

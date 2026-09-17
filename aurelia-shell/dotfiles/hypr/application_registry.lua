@@ -995,6 +995,58 @@ function M.resolve_role(role)
 
         -- 4. Recommended fallback
         recommended_target = "chromium-browser.desktop"
+
+    elseif r == "editor" or r == "editor.default" then
+        local cfg_val = conf["editor.default"] or conf["editor_default"] or conf["editor"]
+        if cfg_val and cfg_val ~= "" then
+            explicit_target = cfg_val
+        end
+
+        if not explicit_target and is_test_mode then
+            local test_val = os.getenv("DEFAULT_EDITOR") or os.getenv("EDITOR")
+            if test_val and test_val ~= "" then
+                explicit_target = test_val
+            end
+        end
+
+        if not explicit_target then
+            local ok, p = pcall(io.popen, "xdg-mime query default text/plain ")
+            if ok and p then
+                local res = trim(p:read("*l") or "")
+                pcall(function() p:close() end)
+                if res ~= "" then
+                    mime_target = res
+                end
+            end
+        end
+
+        recommended_target = "nvim.desktop"
+
+    elseif r == "email-client" or r == "email-client.default" or r == "mail" then
+        local cfg_val = conf["email-client.default"] or conf["email_client.default"] or conf["email.client"] or conf["mail.default"]
+        if cfg_val and cfg_val ~= "" then
+            explicit_target = cfg_val
+        end
+
+        if not explicit_target and is_test_mode then
+            local test_val = os.getenv("DEFAULT_EMAIL_CLIENT") or os.getenv("MAILER")
+            if test_val and test_val ~= "" then
+                explicit_target = test_val
+            end
+        end
+
+        if not explicit_target then
+            local ok, p = pcall(io.popen, "xdg-mime query default x-scheme-handler/mailto ")
+            if ok and p then
+                local res = trim(p:read("*l") or "")
+                pcall(function() p:close() end)
+                if res ~= "" then
+                    mime_target = res
+                end
+            end
+        end
+
+        recommended_target = ""
     else
         return nil, "Unknown workstation role: " .. tostring(role)
     end

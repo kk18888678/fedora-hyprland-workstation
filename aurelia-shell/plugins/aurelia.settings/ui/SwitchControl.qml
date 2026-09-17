@@ -7,12 +7,15 @@ import "../../../theme"
 Switch {
     id: control
 
-    
+    // Generous hit area: the padded control surface makes toggles easy to
+    // click even beside the small track.
+    implicitWidth: 64
+    implicitHeight: 28
 
     indicator: Rectangle {
-        implicitWidth: 42
-        implicitHeight: 24
-        x: control.leftPadding
+        implicitWidth: 40
+        implicitHeight: 22
+        x: control.leftPadding + 4
         y: control.topPadding + (control.availableHeight - height) / 2
         radius: Math.round(height / 2)
         color: control.checked ? Theme.accent : Theme.surface
@@ -36,5 +39,6 @@ Switch {
     contentItem: Text {
         text: ""
         visible: false
+        width: 18
     }
 }

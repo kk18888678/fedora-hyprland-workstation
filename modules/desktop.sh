@@ -77,6 +77,10 @@ install_aurelia_cli() {
         "$SCRIPT_DIR/aurelia-shell/bin/aurelia-shell" \
         "/usr/local/bin/aurelia-shell" \
         "aurelia-shell-ipc"
+    install_root_cli_file \
+        "$SCRIPT_DIR/bin/workstation-app-defaults" \
+        "/usr/local/bin/workstation-app-defaults" \
+        "workstation-app-defaults"
 }
 
 deploy_noctalia_config() {

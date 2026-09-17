@@ -111,6 +111,8 @@ function sections() {
           categories: ["input"], schema: true },
         { id: "hypr-workspaces", name: "Workspaces", icon: "preferences-desktop-wallpaper",
           categories: ["workspaces"], schema: true },
+        { id: "defaults", name: "Defaults", icon: "preferences-desktop-apps",
+          categories: [], schema: false, defaults: true },
         { id: "aurelia", name: "Aurelia Shell", icon: "display",
           categories: [], schema: false, aurelia: true },
         { id: "about", name: "About & Reset", icon: "help-about",
@@ -159,6 +161,39 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
                 rows.push(schemaRow(schemas[i], statuses ? statuses[schemas[i].id] : {}))
             }
         }
+        return rows
+    }
+
+    if (sectionId === "defaults") {
+        rows.push({
+            kind: "heading",
+            title: "Application Defaults"
+        })
+        var defRoles = [
+            { role: "terminal", name: "Terminal", desc: "Opened by Super+Enter and all terminal workflows." },
+            { role: "file-manager", name: "File Manager", desc: "Opened by Super+E and file actions." },
+            { role: "browser", name: "Browser", desc: "Default web browser for URLs and https links." },
+            { role: "editor", name: "Editor", desc: "Default text editor for editing actions." },
+            { role: "email-client", name: "Email Client", desc: "Default mail client for mailto: links." }
+        ]
+        for (var d = 0; d < defRoles.length; d++) {
+            var role = defRoles[d].role
+            var current = (aurelia && aurelia.defaults && aurelia.defaults.currents)
+                ? (aurelia.defaults.currents[role] || "Not set") : "…"
+            rows.push({
+                kind: "info",
+                id: role,
+                title: defRoles[d].name,
+                value: current,
+                description: defRoles[d].desc
+            })
+        }
+        rows.push({
+            kind: "info",
+            title: "Change a default",
+            value: "terminal",
+            description: "Edit ~/.config/workstation/desktop.conf with <role>.default=<desktop-id> (e.g. browser.default=firefox.desktop), or run: workstation-app-defaults set <role> <app>. Resolved order: desktop.conf, then the XDG default."
+        })
         return rows
     }
 

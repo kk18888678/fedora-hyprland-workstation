@@ -86,6 +86,18 @@ PanelWindow {
         return aureliaBinDir + "/" + name
     }
 
+    // Resolve the app-defaults CLI: checkout sibling when running from the
+    // repository, otherwise /usr/local/bin, otherwise PATH.
+    function resolveDefaultsCli() {
+        var override = Quickshell.env("WORKSTATION_APP_DEFAULTS_BIN") || ""
+        if (override.indexOf("/") === 0) return override
+        var shellRoot = pluginRoot && pluginRoot.aureliaPath ? pluginRoot.aureliaPath : ""
+        if (shellRoot.indexOf("/") === 0) {
+            return shellRoot + "/../bin/workstation-app-defaults"
+        }
+        return "/usr/local/bin/workstation-app-defaults"
+    }
+
     readonly property var backendEnvironment: makeEnvironment()
     function makeEnvironment() {
         var env = {
@@ -331,18 +343,24 @@ PanelWindow {
     }
 
     Process {
-        id: barProcess
+        id: defaultsStatusProcess
         command: []
         environment: root.backendEnvironment
         clearEnvironment: false
-        stdout: StdioCollector { id: barStdout }
+        stdout: StdioCollector { id: defaultsStatusStdout }
         onExited: function(code) {
-            var hidden = false
+            var currents = {}
             if (code === 0) {
-                var text = (barStdout.text || "").trim()
-                hidden = (text === "hidden")
+                try {
+                    var parsed = JSON.parse(defaultsStatusStdout.text || "{\"roles\":[]}")
+                    if (parsed && Array.isArray(parsed.roles)) {
+                        for (var i = 0; i < parsed.roles.length; i++) {
+                            currents[parsed.roles[i].role] = String(parsed.roles[i].current || "")
+                        }
+                    }
+                } catch (error) { console.warn("[SETTINGS] defaults_status_parse_failed") }
             }
-            root.applyAureliaPatch({ barHidden: hidden })
+            root.applyAureliaDefaults({ currents: currents })
         }
     }
 
@@ -395,6 +413,7 @@ PanelWindow {
     }
 
     function refreshAurelia() {
+        refreshDefaults()
         loadAureliaThemes()
         motionProcess.command = [root.helperBin("workstation-aurelia"), "motion", "status"]
         motionProcess.running = true
@@ -417,6 +436,28 @@ PanelWindow {
             next[keys[i]] = keys[i] in patch ? patch[keys[i]] : root.aureliaState[keys[i]]
         }
         root.aureliaState = next // new object so onAureliaStateChanged fires
+    }
+
+    // Defaults (workstation-app-defaults CLI; bounded single status query).
+    property var defaultsState: ({ currents: {}, ready: false })
+
+    function refreshDefaults() {
+        defaultsStatusProcess.command = [root.resolveDefaultsCli(), "status"]
+        defaultsStatusProcess.running = true
+    }
+
+    function applyAureliaDefaults(patch) {
+        // keep rows reactive: new objects all the way down
+        var next = { currents: {}, ready: true }
+        var src = patch.currents
+        for (var k in src) next.currents[k] = src[k]
+        root.defaultsState = next
+        var nextState = {}
+        var keys = ["ipcOnline", "themes", "currentTheme", "motionEnabled", "motionScale",
+                    "textSize", "barHidden", "settingsPath"]
+        for (var i = 0; i < keys.length; i++) nextState[keys[i]] = root.aureliaState[keys[i]]
+        nextState.defaults = root.defaultsState
+        root.aureliaState = nextState
     }
 
     // ------------------------------------------------------------------
