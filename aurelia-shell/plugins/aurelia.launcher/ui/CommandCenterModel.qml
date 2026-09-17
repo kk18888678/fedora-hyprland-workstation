@@ -194,6 +194,25 @@ QtObject {
         return Search.sortRows(rows, queryValue)
     }
 
+    function settingsRows(queryValue) {
+        if (!root.providerEnabled("settings")) return []
+        var rows = [
+            {
+                id: "settings:open",
+                kind: "shell-action",
+                moduleId: "settings",
+                shellAction: "open-settings",
+                label: "Open Settings",
+                subtitle: "Hyprland + Aurelia Shell settings hub",
+                detail: "Super + T",
+                icon: "preferences-system",
+                order: 10,
+                keywords: "settings preferences configuration hyprland aurelia opacity gaps animations input workspaces theme background"
+            }
+        ]
+        return Search.sortRows(rows, queryValue)
+    }
+
     function pluginRows(queryValue) {
         if (!root.moduleEnabled("plugins") || !root.pluginManagement) return []
         return root.pluginManagement.pluginRows(queryValue)
@@ -244,6 +263,7 @@ QtObject {
         rows = rows.concat(root.appRows(queryValue))
             .concat(root.actionRows(queryValue))
             .concat(root.shellRows(queryValue))
+            .concat(root.settingsRows(queryValue))
             .concat(root.pluginRows(queryValue))
             .concat(root.calculatorRows(queryValue))
             .concat(root.fileRows(queryValue))
@@ -266,6 +286,8 @@ QtObject {
             rows = root.actionRows(queryValue)
         } else if (root.moduleProvider(root.activeModule) === "aurelia-shell") {
             rows = root.shellRows(queryValue)
+        } else if (root.moduleProvider(root.activeModule) === "settings") {
+            rows = root.settingsRows(queryValue)
         } else if (root.moduleProvider(root.activeModule) === "plugins") {
             rows = root.pluginRows(queryValue)
         } else if (root.moduleProvider(root.activeModule) === "files") {
@@ -417,6 +439,17 @@ QtObject {
             root.activeLaunchLabel = "Hot Reload Aurelia Plugins"
             root.statusMessage = "Requesting plugin reload..."
             shellActionProcess.command = [root.shellClientBin, "shell", "rescanPlugins"]
+            shellActionProcess.running = true
+            return true
+        }
+        if (row.shellAction === "open-settings") {
+            if (!root.shellClientBin) {
+                root.errorMessage = "Aurelia Shell IPC client is unavailable."
+                return false
+            }
+            root.activeLaunchLabel = "Open Settings"
+            root.statusMessage = "Opening the Settings hub..."
+            shellActionProcess.command = [root.shellClientBin, "shell", "toggle", "aurelia.settings", "{}"]
             shellActionProcess.running = true
             return true
         }

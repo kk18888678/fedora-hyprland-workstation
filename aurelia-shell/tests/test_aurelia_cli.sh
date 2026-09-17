@@ -38,7 +38,7 @@ fi
 
 if grep -q 'resolve_shell_ipc' "$keybind_lua" &&
    grep -q 'desktop_settings' "$keybind_lua" &&
-   grep -q 'ipc .. " shell toggle aurelia.settings"' "$keybind_lua" &&
+   grep -q 'cmd = ipc .. " shell toggle aurelia.settings '"'"'{}'"'"'"' "$keybind_lua" &&
    grep -q 'action_id == "desktop_settings"' "$effective_lua" &&
    grep -q 'toggle", "aurelia.settings"' "$effective_lua"; then
     pass "[static] desktop_settings resolves the shell IPC client absolutely (no PATH dependence)"

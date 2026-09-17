@@ -47,7 +47,7 @@ countdown = "#9ccfd8"
 
 [launcher]
 background = "#232136"
-background-alpha = 0.95
+background-alpha = 0.99
 text = "#e0def4"
 border = "#9ccfd8"
 border-alpha = 1.0

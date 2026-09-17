@@ -134,12 +134,14 @@ local function register_binding(item)
             elseif item.id == "desktop_settings" then
                 -- Settings hub toggle must not depend on PATH: resolve the
                 -- Aurelia Shell IPC client absolutely (checkout or installed).
+                -- The shell `toggle(pluginId, payloadJson)` IPC requires both
+                -- arguments; the payload defaults to the empty settings object.
                 local ipc = resolve_shell_ipc()
                 if not ipc then
                     print("[BIND] desktop_settings: aurelia-shell IPC client not found; binding skipped")
                     return
                 end
-                cmd = ipc .. " shell toggle aurelia.settings"
+                cmd = ipc .. " shell toggle aurelia.settings '{}'"
             else
                 cmd = keybindings_bin .. " run " .. item.id
             end

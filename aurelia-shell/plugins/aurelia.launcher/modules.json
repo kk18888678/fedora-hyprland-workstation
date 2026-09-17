@@ -56,6 +56,15 @@
       "order": 60
     },
     {
+      "id": "settings",
+      "name": "Settings",
+      "icon": "preferences-system",
+      "description": "Hyprland and Aurelia Shell settings hub.",
+      "enabled": true,
+      "implemented": true,
+      "order": 65
+    },
+    {
       "id": "weather",
       "name": "Weather",
       "icon": "weather-clear",

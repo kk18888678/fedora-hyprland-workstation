@@ -577,12 +577,12 @@ QtObject {
     readonly property QtObject launcher: QtObject {
         readonly property color background: themeRoot._withAlpha(
             themeRoot._getShellColor("launcher.background", themeRoot.bgBase),
-            themeRoot._getShellAlpha("launcher.background-alpha", 0.95))
+            themeRoot._getShellAlpha("launcher.background-alpha", 0.99))
         readonly property color text: themeRoot._getShellColor("launcher.text", themeRoot.text)
         readonly property color border: themeRoot._getShellColor("launcher.border", themeRoot.borderActive)
         readonly property color scrim: themeRoot._withAlpha(
             themeRoot._getShellColor("launcher.scrim", themeRoot.bgBase),
-            themeRoot._getShellAlpha("launcher.scrim-alpha", 0.5))
+            themeRoot._getShellAlpha("launcher.scrim-alpha", 0.6))
         readonly property color selectedBackground: themeRoot._withAlpha(
             themeRoot._getShellColor("launcher.selected-background", themeRoot.text),
             themeRoot._getShellAlpha("launcher.selected-background-alpha", 0.08))

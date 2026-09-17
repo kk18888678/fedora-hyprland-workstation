@@ -540,12 +540,12 @@ aurelia_theme_render_shell() {
         '' \
         '[launcher]' \
         "background = \"$background\"" \
-        'background-alpha = 0.95' \
+        'background-alpha = 0.99' \
         "text = \"$foreground\"" \
         "border = \"$accent\"" \
         'border-alpha = 1.0' \
         "scrim = \"$background\"" \
-        'scrim-alpha = 0.5' \
+        'scrim-alpha = 0.6' \
         "selected-background = \"$foreground\"" \
         'selected-background-alpha = 0.08' \
         "selected-text = \"$accent\"" \
@@ -650,8 +650,10 @@ aurelia_theme_atomic_copy() {
     local destination="$2"
     local temporary
 
-    [[ -f "$source" && ! -L "$source" ]] ||
+    [[ -f "$source" && ! -L "$source" ]] || {
         aurelia_theme_fail "Theme source is not a regular file: $source"
+        return 1
+    }
     [[ ! -e "$destination" || ! -L "$destination" ]] ||
         aurelia_theme_fail "Refusing to replace symlinked theme state: $destination"
 

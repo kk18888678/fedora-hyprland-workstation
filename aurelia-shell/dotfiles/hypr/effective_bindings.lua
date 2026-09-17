@@ -2043,7 +2043,7 @@ function M.get_action_argv(action_id, manifest)
     if action_id == "desktop_settings" then
         local ipc = M.resolve_shell_ipc()
         if ipc then
-            return { ipc, "shell", "toggle", "aurelia.settings" }
+            return { ipc, "shell", "toggle", "aurelia.settings", "{}" }
         end
         return nil, "aurelia-shell IPC client is not installed"
     end

@@ -377,7 +377,7 @@ PanelWindow {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: modelData.subtitle || modelData.detail || ""
+                                    text: modelData.subtitle || ""
                                     color: selected ? Theme.text : Theme.textMuted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontSizeXs
@@ -386,7 +386,9 @@ PanelWindow {
                             }
 
                             Text {
-                                Layout.maximumWidth: 220
+                                visible: modelData.detail && modelData.detail !== modelData.subtitle
+                                Layout.preferredWidth: 96
+                                Layout.maximumWidth: 200
                                 text: modelData.detail || ""
                                 color: selected ? Theme.text : Theme.textMuted
                                 font.family: Theme.fontFamily
