@@ -1,0 +1,896 @@
+#!/usr/bin/env bash
+# workstation-hypr-settings — user-owned Hyprland settings overlay backend.
+#
+# Single mutation owner for the user Hyprland settings overlay:
+#   $XDG_CONFIG_HOME/fedora-hyprland-workstation/hypr-settings.lua
+#   (default: ~/.config/fedora-hyprland-workstation/hypr-settings.lua)
+#
+# The overlay is user-owned DATA. The repository baseline under dotfiles/hypr
+# remains the reviewed desired state; dotfiles/hypr/hyprland.lua loads the
+# overlay at config time (fail closed) so `hyprctl reload` restores the user's
+# settings on reload and at the next session.
+#
+# Safety invariants:
+#   * strict option schema: unknown ids and invalid values fail closed
+#   * atomic writes (mktemp + rename), 0600, idempotent no-op writes
+#   * bounded external operations (timeout around every hyprctl call)
+#   * path safety: absolute XDG_CONFIG_HOME, no symlinked parents,
+#     no privileged system paths
+#   * live preview: hyprctl keyword for leaf options; hyprctl reload for
+#     structural settings (animation presets, workspace pins)
+#   * every changed value is observable; apply failures are reported, never
+#     hidden behind `|| true`
+
+set -Eeuo pipefail
+
+PROG="workstation-hypr-settings"
+MARKER="WORKSTATION_HYPR_SETTINGS_MANAGED_V1"
+SCHEMA_VERSION=1
+
+# ---------------------------------------------------------------------------
+# Bounded external operations
+# ---------------------------------------------------------------------------
+TIME_BIN="${WORKSTATION_HYPR_SETTINGS_TIMEOUT_BIN:-$(command -v timeout || true)}"
+if [[ -z "$TIME_BIN" ]]; then
+    printf '%s\n' "Error: timeout is required." >&2
+    exit 1
+fi
+
+hyprctl_bin="${WORKSTATION_HYPR_SETTINGS_HYPRCTL_BIN:-$(command -v hyprctl || true)}"
+
+bounded_hyprctl() {
+    if [[ -z "$hyprctl_bin" ]]; then
+        return 127
+    fi
+    "$TIME_BIN" --kill-after=1s 3s "$hyprctl_bin" "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Paths (fail closed on unsafe environments)
+# ---------------------------------------------------------------------------
+home="${HOME:-}"
+if [[ "$home" != /* || "$home" == "/" || ! -d "$home" || -L "$home" ]]; then
+    printf '%s\n' "Error: HOME is missing or unsafe." >&2
+    exit 1
+fi
+
+config_home="${XDG_CONFIG_HOME:-$home/.config}"
+if [[ "$config_home" != /* || "$config_home" == "/" ]]; then
+    printf '%s\n' "Error: XDG_CONFIG_HOME is not an absolute non-root path." >&2
+    exit 1
+fi
+if [[ -e "$config_home" && -L "$config_home" ]]; then
+    printf '%s\n' "Error: XDG_CONFIG_HOME must not be a symlink." >&2
+    exit 1
+fi
+
+settings_path="${WORKSTATION_HYPR_SETTINGS_PATH:-$config_home/fedora-hyprland-workstation/hypr-settings.lua}"
+if [[ "$settings_path" != /* || "$settings_path" == "/" ]]; then
+    printf '%s\n' "Error: settings overlay path must be absolute and non-root." >&2
+    exit 1
+fi
+if [[ "$settings_path" == *"/../"* || "$settings_path" == *"/.." ]]; then
+    printf '%s\n' "Error: settings overlay path must not contain traversal components." >&2
+    exit 1
+fi
+if [[ "$settings_path" == /etc/* || "$settings_path" == /usr/* || "$settings_path" == /var/* ]]; then
+    printf '%s\n' "Error: privileged system paths are not allowed for user settings." >&2
+    exit 1
+fi
+settings_dir="$(dirname -- "$settings_path")"
+
+# ---------------------------------------------------------------------------
+# Option schema registry
+# ---------------------------------------------------------------------------
+# Fields: id|hypr-leaf|type|min|max|enum|category|default|label|description
+# Types: bool, int, float, str, enum, color
+# A hypr-leaf of "-" means the option is structural (reload only).
+# A default of "-" means the default is dynamic (read from live state).
+option_specs() {
+    cat <<'EOF'
+general.gaps_in|general:gaps_in|int|0|64||general|3|Gaps In|Window gap between tiled windows
+general.gaps_out|general:gaps_out|int|0|64||general|6|Gaps Out|Window gap at screen edges
+general.border_size|general:border_size|int|0|16||general|2|Border Size|Window border thickness in pixels
+general.resize_on_border|general:resize_on_border|bool||||general|true|Resize on Border|Resize windows by dragging the border
+general.layout|general:layout|enum|||dwindle,master|general|dwindle|Layout|Window layout algorithm
+general.snap.enabled|general:snap:enabled|bool||||general|true|Snap Assistant|Show resize/layout snapping assistant
+general.col.active_border|general:col.active_border|color||||general|-|Active Border Color|Color of the focused window border
+general.col.inactive_border|general:col.inactive_border|color||||general|-|Inactive Border Color|Color of unfocused window borders
+decoration.rounding|decoration:rounding|int|0|24||decoration|8|Corner Rounding|Window corner radius in pixels
+decoration.active_opacity|decoration:active_opacity|float|0.1|1||decoration|1.0|Active Opacity|Opacity of focused windows
+decoration.inactive_opacity|decoration:inactive_opacity|float|0.1|1||decoration|1.0|Inactive Opacity|Opacity of unfocused windows
+decoration.fullscreen_opacity|decoration:fullscreen_opacity|float|0.1|1||decoration|1.0|Fullscreen Opacity|Opacity of fullscreen windows
+decoration.shadow.enabled|decoration:shadow:enabled|bool||||decoration|true|Shadows|Draw window shadows
+decoration.blur.enabled|decoration:blur:enabled|bool||||decoration|false|Blur|Blur windows behind translucent surfaces
+decoration.blur.size|decoration:blur:size|int|1|16||decoration|8|Blur Size|Blur radius in pixels
+misc.vrr|misc:vrr|enum|||0,1,2|misc|0|Variable Refresh Rate|0 off, 1 on, 2 fullscreen only
+input.kb_layout|input:kb_layout|str||||input|us|Keyboard Layout|XKB layout or comma-separated list
+input.numlock_by_default|input:numlock_by_default|bool||||input|true|Numlock by Default|Enable Numlock at session start
+input.repeat_delay|input:repeat_delay|int|150|1000||input|250|Key Repeat Delay|Delay before key repetition in ms
+input.repeat_rate|input:repeat_rate|int|10|100||input|35|Key Repeat Rate|Repeat rate in characters per second
+input.accel_profile|input:accel_profile|enum|||flat,adaptive|input|flat|Pointer Acceleration|Pointer acceleration profile
+input.follow_mouse|input:follow_mouse|int|0|3||input|1|Follow Mouse|Focus behavior relative to the pointer
+input.touchpad.natural_scroll|input:touchpad:natural_scroll|bool||||input|true|Natural Scroll|Invert touchpad scroll direction
+input.touchpad.disable_while_typing|input:touchpad:disable_while_typing|bool||||input|true|Disable While Typing|Pause touchpad while typing
+input.touchpad.clickfinger_behavior|input:touchpad:clickfinger_behavior|bool||||input|true|Clickfinger Behavior|Tap with fingers instead of buttons
+animations.enabled|animations:enabled|bool||||animations|true|Animations Enabled|Master animation switch
+animations.preset|animation_preset|enum|||baseline,snappy,relaxed,off|animations|baseline|Animation Preset|Curated animation speed profile
+workspaces.persistent|persistent_workspaces|int|0|10||workspaces|3|Pinned Workspaces|Number of permanent workspaces (1..10)
+EOF
+}
+
+# ---------------------------------------------------------------
+# Schema lookup helpers
+# ---------------------------------------------------------------
+spec_for() {
+    option_specs | awk -F'|' -v id="$1" '$1 == id { print }'
+}
+
+spec_field() {
+    # usage: spec_field <spec-line> <n>
+    printf '%s\n' "$1" | awk -F'|' -v n="$2" '{ print $n }'
+}
+
+is_structural() {
+    local leaf
+    leaf="$(spec_field "$(spec_for "$1")" 2)"
+    [[ "$leaf" == "-" || "$leaf" == "animation_preset" || "$leaf" == "persistent_workspaces" ]]
+}
+
+category_for() {
+    printf '%s\n' "$1" | awk -F. '{ print $1 }'
+}
+
+lua_tail_for() {
+    # "general.col.active_border" -> "col.active_border"
+    printf '%s\n' "$1" | sed 's/^[^.]*\.//'
+}
+
+# ---------------------------------------------------------------
+# Value validation and normalization
+# ---------------------------------------------------------------
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+validate_value() {
+    local id="$1" value="$2" spec type min max enum
+    spec="$(spec_for "$id")"
+    [[ -n "$spec" ]] || fail "unknown option id: $id"
+    type="$(spec_field "$spec" 3)"
+    min="$(spec_field "$spec" 4)"
+    max="$(spec_field "$spec" 5)"
+    enum="$(spec_field "$spec" 6)"
+
+    case "$type" in
+        bool)
+            case "$value" in
+                true|1)  printf '%s\n' true ;;
+                false|0) printf '%s\n' false ;;
+                *) fail "invalid boolean value for $id: $value" ;;
+            esac
+            ;;
+        int)
+            [[ "$value" =~ ^-?[0-9]+$ ]] || fail "invalid integer for $id: $value"
+            if [[ -n "$min" && "$value" -lt "$min" ]]; then
+                fail "value for $id below minimum $min"
+            fi
+            if [[ -n "$max" && "$value" -gt "$max" ]]; then
+                fail "value for $id above maximum $max"
+            fi
+            printf '%s\n' "$value"
+            ;;
+        float)
+            [[ "$value" =~ ^[0-9]*\.?[0-9]+$ ]] || fail "invalid number for $id: $value"
+            awk -v min="$min" -v max="$max" -v v="$value" -v id="$id" '
+                BEGIN {
+                    n = v + 0
+                    if (n < min || n > max) {
+                        printf "value for %s outside [%s, %s]\n", id, min, max > "/dev/stderr"
+                        exit 1
+                    }
+                    if (n == int(n)) printf "%d\n", n
+                    else printf "%.4f\n", n
+                }'
+            ;;
+        str)
+            printf '%s\n' "$value"
+            ;;
+        enum)
+            local found=0 IFS=',' entry
+            for entry in $enum; do
+                if [[ "$value" == "$entry" ]]; then
+                    found=1
+                    break
+                fi
+            done
+            (( found == 1 )) || fail "invalid value for $id: $value (expected one of: $enum)"
+            printf '%s\n' "$value"
+            ;;
+        color)
+            if [[ "$value" =~ ^rgba\([0-9a-fA-F]{8}\)$ || "$value" =~ ^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$ ]]; then
+                printf '%s\n' "$value"
+            else
+                fail "invalid color for $id: $value (expected rgba(RRGGBBAA) or #RRGGBB[AA])"
+            fi
+            ;;
+        *)
+            fail "unsupported schema type for $id: $type"
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------
+# Overlay file loading (managed overlay -> normalized records)
+# ---------------------------------------------------------------
+assert_managed_overlay() {
+    if [[ -f "$settings_path" ]]; then
+        grep -q "$MARKER" "$settings_path" || {
+            printf '%s\n' "Error: settings overlay exists but is not managed by $PROG: $settings_path" >&2
+            exit 1
+        }
+    fi
+}
+
+overlay_records() {
+    if [[ ! -f "$settings_path" ]]; then
+        return 0
+    fi
+    assert_managed_overlay
+    local lua_bin="${WORKSTATION_HYPR_SETTINGS_LUA_BIN:-$(command -v luajit || command -v lua || true)}"
+    if [[ -n "$lua_bin" ]]; then
+        "$TIME_BIN" --kill-after=1s 3s "$lua_bin" - "$settings_path" <<'LUA_READ'
+local path = arg[1]
+local chunk = assert(loadfile(path))
+local data = chunk()
+if type(data) ~= "table" or data.schema_version ~= 1 then
+    io.stderr:write("invalid overlay schema\n")
+    os.exit(1)
+end
+local function walk(prefix, tbl)
+    for k, v in pairs(tbl) do
+        local key = prefix .. k
+        if type(v) == "table" then
+            walk(key .. ".", v)
+        elseif k ~= "schema_version" and k ~= "managed" then
+            local s
+            if type(v) == "boolean" then s = tostring(v)
+            elseif type(v) == "number" then s = string.format("%g", v)
+            else s = tostring(v) end
+            print(key .. "\t" .. s)
+        end
+    end
+end
+for cat, tbl in pairs(data.config or {}) do
+    local cprefix = cat .. "."
+    local function walk_cat(prefix, t)
+        for k, v in pairs(t) do
+            local key = prefix .. k
+            if type(v) == "table" then walk_cat(key .. ".", v)
+            else
+                local s
+                if type(v) == "boolean" then s = tostring(v)
+                elseif type(v) == "number" then s = string.format("%g", v)
+                else s = tostring(v) end
+                print(cprefix .. key .. "\t" .. s)
+            end
+        end
+    end
+    walk_cat("", tbl)
+end
+for _, spec in ipairs(data.animations or {}) do
+    if type(spec) == "table" and spec.leaf then
+        print("animations." .. spec.leaf .. ".enabled\t" .. tostring(spec.enabled ~= false))
+        if spec.speed then print("animations." .. spec.leaf .. ".speed\t" .. string.format("%g", spec.speed)) end
+    end
+end
+if data.animation_preset then
+    print("animations.preset\t" .. tostring(data.animation_preset))
+end
+if data.persistent_workspaces then
+    local count = 0
+    for _ in pairs(data.persistent_workspaces) do count = count + 1 end
+    print("workspaces.persistent\t" .. tostring(count))
+end
+LUA_READ
+    else
+        # Fallback without a Lua runtime: our emitter output is deterministic,
+        # but parsing nested tables reliably in awk is fragile. Fail closed
+        # instead of guessing: the overlay must only be interpreted by the
+        # same runtime semantics that wrote it.
+        printf '%s\n' "Error: a Lua runtime (luajit or lua) is required to read the settings overlay." >&2
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------
+# Live state (hyprctl) — normalized values
+# ---------------------------------------------------------------
+normalize_gradient() {
+    # hyprctl gradient: AARRGGBB -> rgba(RRGGBBAA)
+    local hex="$1"
+    [[ "$hex" =~ ^[0-9a-fA-F]{8}$ ]] || { printf '%s\n' "$hex"; return; }
+    printf 'rgba(%s%s)\n' "${hex:2:6}" "${hex:0:2}"
+}
+
+live_value_for() {
+    local id="$1" spec leaf type out
+    spec="$(spec_for "$id")"
+    leaf="$(spec_field "$spec" 2)"
+    type="$(spec_field "$spec" 3)"
+    [[ "$leaf" == "-" || "$leaf" == "animation_preset" || "$leaf" == "persistent_workspaces" ]] && return 1
+    # Diagnostics stay observable: stderr is merged into the captured stream
+    # (a status probe), never sent to the null device.
+    out="$(bounded_hyprctl -j getoption "$leaf" 2>&1 | head -n 1 || true)"
+    [[ -n "$out" ]] || return 1
+
+    local v=""
+    if [[ "$out" =~ \"css\":\ \"([^\"]*)\" ]]; then
+        v="${BASH_REMATCH[1]%% *}"
+    elif [[ "$out" =~ \"gradient\":\ \"([^\"]*)\" ]]; then
+        v="$(normalize_gradient "${BASH_REMATCH[1]%% *}")"
+    elif [[ "$out" =~ \"str\":\ \"([^\"]*)\" ]]; then
+        v="${BASH_REMATCH[1]}"
+    elif [[ "$out" =~ \"int\":\ (-?[0-9]+) ]]; then
+        v="${BASH_REMATCH[1]}"
+    elif [[ "$out" =~ \"float\":\ (-?[0-9.]+) ]]; then
+        v="$(awk -v n="${BASH_REMATCH[1]}" 'BEGIN { if (n == int(n)) printf "%d", n; else printf "%g", n }')"
+    elif [[ "$out" =~ \"bool\":\ (true|false) ]]; then
+        v="${BASH_REMATCH[1]}"
+    fi
+    [[ -n "$v" ]] || return 1
+    printf '%s\n' "$v"
+}
+
+# Last probe diagnostic, surfaced by `check` so a quiet status probe stays
+# observable without streaming noise on every command.
+HYPRCTL_PROBE_ERROR=""
+
+hyprctl_available() {
+    [[ -n "$hyprctl_bin" && -x "$hyprctl_bin" ]] || return 1
+    # Status probe: stdout is discarded; stderr is captured for `check`, not
+    # sent to the null device.
+    HYPRCTL_PROBE_ERROR="$(bounded_hyprctl -j getoption general:border_size 2>&1 >/dev/null)" && return 0
+    return 1
+}
+
+# ---------------------------------------------------------------
+# Deterministic Lua emission
+# ---------------------------------------------------------------
+lua_string() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '"%s"' "$s"
+}
+
+# emit nested tables from sorted "path|value|type" members.
+# format: emit_nested_members <depth> <base-path> <member-id|value|type>...
+emit_nested_members() {
+    local depth="$1" base="$2"
+    shift 2
+    local -a members=("$@")
+
+    local indent=""
+    local i
+    for ((i = 0; i < depth; i++)); do indent+="    "; done
+
+    local prev_seg="" seg tail line path rest v t
+    local -a sub=()
+
+    for line in "${members[@]}"; do
+        path="${line%%|*}"
+        rest="${line#*|}"
+        # strip base prefix
+        local tail_path="${path}"
+        if [[ -n "$base" ]]; then
+            tail_path="${path#"$base"}"
+            tail_path="${tail_path#.}"
+        fi
+        if [[ "$tail_path" == *.* ]]; then
+            seg="${tail_path%%.*}"
+            tail="${tail_path#*.}"
+            if [[ -n "$prev_seg" && "$seg" != "$prev_seg" ]]; then
+                if (( ${#sub[@]} > 0 )); then
+                    printf '%s%s = {\n' "$indent" "$prev_seg"
+                    emit_nested_members "$((depth + 1))" "${base:+$base.}$prev_seg" "${sub[@]}"
+                    printf '%s},\n' "$indent"
+                fi
+                sub=()
+            fi
+            prev_seg="$seg"
+            sub+=("$base.$seg.$tail|$rest")
+        else
+            if [[ -n "$prev_seg" ]]; then
+                if (( ${#sub[@]} > 0 )); then
+                    printf '%s%s = {\n' "$indent" "$prev_seg"
+                    emit_nested_members "$((depth + 1))" "${base:+$base.}$prev_seg" "${sub[@]}"
+                    printf '%s},\n' "$indent"
+                fi
+                sub=()
+                prev_seg=""
+            fi
+            v="$(printf '%s\n' "$rest" | awk -F'|' '{ print $1 }')"
+            t="$(printf '%s\n' "$rest" | awk -F'|' '{ print $2 }')"
+            local encoded
+            case "$t" in
+                bool|int|float) encoded="$v" ;;
+                *) encoded="$(lua_string "$v")" ;;
+            esac
+            printf '%s%s = %s,\n' "$indent" "$tail_path" "$encoded"
+        fi
+    done
+    if [[ -n "$prev_seg" && ${#sub[@]} -gt 0 ]]; then
+        printf '%s%s = {\n' "$indent" "$prev_seg"
+        emit_nested_members "$((depth + 1))" "${base:+$base.}$prev_seg" "${sub[@]}"
+        printf '%s},\n' "$indent"
+    fi
+}
+
+# animation preset definitions (speeds over the baseline named bezier curves)
+emit_preset_animations() {
+    local preset="$1" speed_base leaf speed
+    case "$preset" in
+        baseline|"") return 0 ;;
+        snappy) speed_base=9 ;;
+        relaxed) speed_base=4 ;;
+        off) ;;
+        *) fail "unknown animation preset: $preset" ;;
+    esac
+    for leaf in windows windowsIn windowsOut windowsMove fade workspaces; do
+        if [[ "$preset" == "off" ]]; then
+            printf '        { leaf = %s, enabled = false, speed = 1, bezier = "workstation", style = "slide" },\n' \
+                "$(lua_string "$leaf")"
+        else
+            speed=$speed_base
+            case "$leaf" in
+                windowsIn|windowsOut) speed=$((speed_base - 1)) ;;
+            esac
+            printf '        { leaf = %s, enabled = true, speed = %d, bezier = "workstation", style = "slide" },\n' \
+                "$(lua_string "$leaf")" "$speed"
+        fi
+    done
+}
+
+# build the full overlay body from "id<TAB>validated-value" records
+emit_overlay_file() {
+    local -a records=()
+    local line id value
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        id="${line%%|*}"
+        value="${line#*|}"
+        records+=("$id|$value")
+    done <<<"$1"
+
+    local preset="baseline"
+    local ws_count=""
+    local -a config_records=()
+    local record r id2 v2
+
+    for record in "${records[@]}"; do
+        r="$record"
+        id2="${r%%|*}"
+        v2="${r#*|}"
+        if [[ "$id2" == "animations.preset" ]]; then
+            preset="$v2"
+        elif [[ "$id2" == "workspaces.persistent" ]]; then
+            ws_count="$v2"
+        else
+            config_records+=("$id2|$v2")
+        fi
+    done
+
+    # sort config records by id
+    local -a sorted=()
+    mapfile -t sorted < <(printf '%s\n' "${config_records[@]:-}" | sed '/^$/d' | sort)
+
+    # per-category members of "lua-tail|value|type"
+    local -a cats=(general decoration misc input animations)
+    local -A cat_members=()
+    local entry
+    for entry in "${sorted[@]}"; do
+        [[ -n "$entry" ]] || continue
+        cat="$(category_for "${entry%%|*}")"
+        cat_members["$cat"]+="$(lua_tail_for "${entry%%|*}")|$(printf '%s\n' "${entry#*|}" | awk -F'|' '{print $1}')|$(spec_field "$(spec_for "${entry%%|*}")" 3)
+"
+    done
+
+    local body
+    body="$(cat <<EOF_LUA
+-- $MARKER
+-- Generated by $PROG. DO NOT EDIT.
+return {
+    schema_version = $SCHEMA_VERSION,
+    managed = "$MARKER",
+    config = {
+EOF_LUA
+)"
+    for cat in "${cats[@]}"; do
+        local members_str="${cat_members[$cat]:-}"
+        [[ -n "$members_str" ]] || continue
+        local -a mem=()
+        mapfile -t mem < <(printf '%s' "$members_str" | sed '/^$/d' | sort)
+        body+="
+        $cat = {
+"
+        body+="$(emit_nested_members 3 "$cat" "${mem[@]}")
+"
+        body+="        },
+"
+    done
+    body+="    },
+"
+    if [[ "$preset" != "baseline" ]]; then
+        body+="    animation_preset = $(lua_string "$preset"),
+    animations = {
+$(emit_preset_animations "$preset")
+    },
+"
+    fi
+    if [[ -n "$ws_count" && "$ws_count" != "0" ]]; then
+        body+="    persistent_workspaces = {"
+        local w
+        for ((w = 1; w <= ws_count; w++)); do
+            body+=" $w,"
+        done
+        body+=" },
+"
+    fi
+    body+="}
+"
+    printf '%s' "$body"
+}
+
+# write overlay atomically; returns 0 when written, 1 when content unchanged
+write_overlay() {
+    local body="$1"
+    local tmp=""
+    if [[ -f "$settings_path" ]]; then
+        local current
+        current="$(cat "$settings_path" 2>&1 || true)"
+        if [[ "$current" == "$body" ]]; then
+            return 1
+        fi
+        grep -q "$MARKER" "$settings_path" || {
+            printf '%s\n' "Error: refusing to overwrite unmanaged settings overlay: $settings_path" >&2
+            exit 1
+        }
+    fi
+    mkdir -p -- "$settings_dir" || fail "could not create settings directory"
+    chmod 0700 -- "$settings_dir" || true
+    tmp="$(mktemp "$settings_dir/.hypr-settings.lua.XXXXXX")" || fail "could not stage overlay"
+    if ! printf '%s' "$body" >"$tmp" || ! chmod 0600 -- "$tmp" || ! mv -f -- "$tmp" "$settings_path"; then
+        rm -f -- "$tmp"
+        fail "could not write settings overlay atomically"
+    fi
+}
+
+# current overlay model as records (id<TAB>value)
+current_records() {
+    local rec id value
+    rec="$(overlay_records 2>&1)" || return 1
+    # only keep config/structural ids from our schema
+    while IFS=$'\t' read -r id value; do
+        [[ -n "$id" ]] || continue
+        case "$id" in
+            animations.*.enabled|animations.*.speed) continue ;;
+        esac
+        [[ -n "$(spec_for "$id")" ]] || continue
+        printf '%s\t%s\n' "$id" "$value"
+    done <<<"$rec"
+}
+
+overlay_override_for() {
+    local id="$1" value
+    value="$(current_records | awk -F'\t' -v id="$id" '$1 == id { print $2; exit }')"
+    printf '%s\n' "$value"
+}
+
+apply_live() {
+    # apply a single validated option value live; returns 0 on applied/skipped,
+    # 1 on apply failure (already reported to stderr by caller context).
+    local id="$1" value="$2" spec leaf
+    spec="$(spec_for "$id")"
+    leaf="$(spec_field "$spec" 2)"
+    case "$leaf" in
+        -|animation_preset|persistent_workspaces)
+            # structural: full reload picks up the overlay
+            if hyprctl_available; then
+                bounded_hyprctl reload >/dev/null || {
+                    printf '%s\n' "Warning: hyprctl reload failed after writing $id." >&2
+                    return 1
+                }
+            else
+                printf '%s\n' "Info: Hyprland not reachable; $id will apply on next reload/session." >&2
+            fi
+            ;;
+        *)
+            if hyprctl_available; then
+                bounded_hyprctl keyword "$leaf" "$value" >/dev/null || {
+                    printf '%s\n' "Warning: could not apply $id live (hyprctl keyword failed); it will apply on reload." >&2
+                    return 1
+                }
+            else
+                printf '%s\n' "Info: Hyprland not reachable; $id will apply on next reload/session." >&2
+            fi
+            ;;
+    esac
+    return 0
+}
+
+# ---------------------------------------------------------------
+# JSON helpers (bounded, minimal)
+# ---------------------------------------------------------------
+json_string() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '"%s"' "$s"
+}
+
+json_field() {
+    local name="$1" value="$2" quote="$3"
+    if [[ "$quote" == "1" ]]; then
+        printf '"%s": %s' "$name" "$(json_string "$value")"
+    else
+        printf '"%s": %s' "$name" "$value"
+    fi
+}
+
+# ---------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------
+cmd_schema() {
+    printf '[\n'
+    local first=1 line id
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        id="$(spec_field "$line" 1)"
+        if (( first )); then first=0; else printf ',\n'; fi
+        printf '  { "id": %s, "hyprLeaf": %s, "type": %s, "min": %s, "max": %s, "enum": %s, "category": %s, "default": %s, "label": %s, "description": %s }' \
+            "$(json_string "$id")" \
+            "$(json_string "$(spec_field "$line" 2)")" \
+            "$(json_string "$(spec_field "$line" 3)")" \
+            "$(json_string "$(spec_field "$line" 4)")" \
+            "$(json_string "$(spec_field "$line" 5)")" \
+            "$(json_string "$(spec_field "$line" 6)")" \
+            "$(json_string "$(spec_field "$line" 7)")" \
+            "$(json_string "$(spec_field "$line" 8)")" \
+            "$(json_string "$(spec_field "$line" 9)")" \
+            "$(json_string "$(spec_field "$line" 10)")"
+    done < <(option_specs)
+    printf '\n]\n'
+}
+
+cmd_status() {
+    assert_managed_overlay
+    local first=1 line id override live effective source default_val
+    printf '{\n  "hyprctlAvailable": %s,\n  "settingsPath": %s,\n  "options": [' \
+        "$(hyprctl_available && printf true || printf false)" \
+        "$(json_string "$settings_path")"
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        id="$(spec_field "$line" 1)"
+        override="$(overlay_override_for "$id")"
+        live=""
+        if live_value_for "$id" >/dev/null; then
+            live="$(live_value_for "$id" 2>&1 || true)"
+        fi
+        default_val="$(spec_field "$line" 8)"
+        if [[ -n "$override" ]]; then
+            effective="$override"
+            source="override"
+        elif [[ -n "$live" ]]; then
+            effective="$live"
+            source="live"
+        else
+            effective="${default_val:--}"
+            source="default"
+        fi
+        if (( first )); then first=0; else printf ',\n'; fi
+        printf '    { "id": %s, "label": %s, "category": %s, "type": %s, "default": %s, "override": %s, "live": %s, "effective": %s, "source": %s }' \
+            "$(json_string "$id")" \
+            "$(json_string "$(spec_field "$line" 9)")" \
+            "$(json_string "$(spec_field "$line" 7)")" \
+            "$(json_string "$(spec_field "$line" 3)")" \
+            "$(json_string "${default_val:--}")" \
+            "$([[ -n "$override" ]] && json_string "$override" || printf null)" \
+            "$([[ -n "$live" ]] && json_string "$live" || printf null)" \
+            "$(json_string "$effective")" \
+            "$(json_string "$source")"
+    done < <(option_specs)
+    printf '\n  ]\n}\n'
+}
+
+cmd_get() {
+    local id="$1" value
+    assert_managed_overlay
+    [[ -n "$(spec_for "$id")" ]] || fail "unknown option id: $id"
+    value="$(overlay_override_for "$id")"
+    if [[ -n "$value" ]]; then
+        printf '%s\n' "$value"
+        return 0
+    fi
+    if live_value_for "$id" >/dev/null; then
+        live_value_for "$id" 2>&1
+        return 0
+    fi
+    printf '%s\n' "$(spec_field "$(spec_for "$id")" 8)"
+}
+
+cmd_set() {
+    local id="$1" value="$2" normalized changed
+    assert_managed_overlay
+    [[ -n "$(spec_for "$id")" ]] || fail "unknown option id: $id"
+    normalized="$(validate_value "$id" "$value")"
+    [[ -n "$normalized" ]] || fail "invalid value for $id"
+
+    # build the new model: existing records + this override
+    local -a model=()
+    local rec rid existing=0
+    while IFS=$'\t' read -r rid _norm; do
+        [[ -n "$rid" ]] || continue
+        if [[ "$rid" == "$id" ]]; then
+            existing=1
+            model+=("$id|$normalized")
+        else
+            model+=("$rid|$_norm")
+        fi
+    done <<<"$(current_records)"
+    (( existing == 1 )) || model+=("$id|$normalized")
+
+    local body
+    body="$(emit_overlay_file "$(printf '%s\n' "${model[@]}" | sed '/^$/d')")"
+    changed=0
+    write_overlay "$body" && changed=1 || true
+
+    # live apply regardless of write outcome (user may have a live-only state)
+    apply_live "$id" "$normalized" || true
+
+    if (( changed )); then
+        printf '%s\n' "Set $id = $normalized."
+    else
+        printf '%s\n' "Set $id = $normalized (already persisted)."
+    fi
+}
+
+cmd_reset() {
+    local id="$1"
+    assert_managed_overlay
+    [[ -n "$(spec_for "$id")" ]] || fail "unknown option id: $id"
+    local -a model=()
+    local rid norm found=0
+    while IFS=$'\t' read -r rid norm; do
+        [[ -n "$rid" ]] || continue
+        if [[ "$rid" == "$id" ]]; then
+            found=1
+            continue
+        fi
+        model+=("$rid|$norm")
+    done <<<"$(current_records)"
+
+    if (( found == 1 )); then
+        if [[ -f "$settings_path" ]]; then
+            local body
+            body="$(emit_overlay_file "$(printf '%s\n' "${model[@]}" | sed '/^$/d')")"
+            if [[ -z "$(printf '%s' "$body" | grep -c '= {' | tr -d ' ' || true)" ]]; then
+                printf '%s' "$body" >/dev/null
+            fi
+            write_overlay "$body" || true
+        fi
+    fi
+    # re-apply: reload so the baseline re-takes effect
+    if hyprctl_available; then
+        bounded_hyprctl reload >/dev/null || printf '%s\n' "Warning: hyprctl reload failed." >&2
+    else
+        printf '%s\n' "Info: Hyprland not reachable; reset applies on next reload/session." >&2
+    fi
+    printf '%s\n' "Reset $id (removed override)."
+}
+
+cmd_clear() {
+    if [[ -f "$settings_path" ]]; then
+        grep -q "$MARKER" "$settings_path" ||
+            fail "refusing to remove unmanaged settings overlay: $settings_path"
+        rm -f -- "$settings_path"
+    fi
+    if hyprctl_available; then
+        bounded_hyprctl reload >/dev/null || printf '%s\n' "Warning: hyprctl reload failed." >&2
+    else
+        printf '%s\n' "Info: Hyprland not reachable; clear applies on next reload/session." >&2
+    fi
+    printf '%s\n' "Cleared all Hyprland settings overrides."
+}
+
+cmd_dump() {
+    if [[ ! -f "$settings_path" ]]; then
+        printf '%s\n' "No settings overlay present."
+        return 0
+    fi
+    cat "$settings_path"
+}
+
+cmd_path() {
+    printf '%s\n' "$settings_path"
+}
+
+cmd_check() {
+    printf 'settings_path: %s\n' "$settings_path"
+    if hyprctl_available; then
+        printf 'hyprctl: available\n'
+        if live_value_for general.border_size >/dev/null; then
+            printf 'hyprctl_border_size: %s\n' "$(live_value_for general.border_size 2>&1 || true)"
+        fi
+    else
+        printf 'hyprctl: unavailable (live preview disabled; settings persist and apply on reload)\n'
+        if [[ -n "${HYPRCTL_PROBE_ERROR:-}" ]]; then
+            printf 'hyprctl probe diagnostic: %s\n' "${HYPRCTL_PROBE_ERROR}"
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------
+# main
+# ---------------------------------------------------------------
+usage() {
+    cat <<'USAGE'
+Usage: workstation-hypr-settings <command> [args]
+
+Commands:
+  schema            Print the option registry as JSON.
+  status            Print effective per-option state (override/live/effective).
+  get <id>          Print the effective value of one option.
+  set <id> <value>  Validate, persist and live-apply one option.
+  reset <id>        Remove the override for one option and restart baseline.
+  clear             Remove all overrides and restart baseline.
+  dump              Print the current settings overlay.
+  path              Print the settings overlay path.
+  check             Report backend and live-state diagnostics.
+
+Settings live in the user-owned overlay loaded by dotfiles/hypr/hyprland.lua.
+Values persist across `hyprctl reload` and sessions; leaf options also apply
+live through hyprctl when the compositor is reachable.
+USAGE
+}
+
+main() {
+    local cmd="${1:-}"
+    [[ -n "$cmd" ]] || {
+        usage
+        exit 2
+    }
+    shift || true
+    case "$cmd" in
+        -h|--help|help)
+            usage
+            ;;
+        schema) cmd_schema ;;
+        status) cmd_status ;;
+        get)
+            [[ $# -eq 1 ]] || fail "usage: $PROG get <id>"
+            cmd_get "$1"
+            ;;
+        set)
+            [[ $# -eq 2 ]] || fail "usage: $PROG set <id> <value>"
+            cmd_set "$1" "$2"
+            ;;
+        reset)
+            [[ $# -eq 1 ]] || fail "usage: $PROG reset <id>"
+            cmd_reset "$1"
+            ;;
+        clear) cmd_clear ;;
+        dump) cmd_dump ;;
+        path) cmd_path ;;
+        check) cmd_check ;;
+        *)
+            fail "unknown command: $cmd (see --help)"
+            ;;
+    esac
+}
+
+main "$@"

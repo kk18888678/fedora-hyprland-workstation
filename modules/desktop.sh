@@ -18,6 +18,45 @@ deploy_hyprland_config() {
     info "Hyprland configuration linked."
 }
 
+# Prepare the shared Hyprland settings backend used by the Aurelia Settings
+# hub and by terminal/CLI workflows in any session. The backend owns the
+# user-level settings overlay (workstation-hypr-settings clear resets it) and
+# is deliberately non-blocking: graphical activation must never depend on a
+# settings tool being present.
+install_workstation_hypr_settings() {
+    local source="$SCRIPT_DIR/bin/workstation-hypr-settings"
+    local target="/usr/local/bin/workstation-hypr-settings"
+
+    [[ -f "$source" && ! -L "$source" ]] || {
+        record_required \
+            "desktop" \
+            "workstation-hypr-settings" \
+            "The Hyprland settings backend source is missing."
+        return 0
+    }
+
+    if declare -F validate_mutation_path >/dev/null &&
+        { ! validate_mutation_path /usr/local/bin; }; then
+        record_required \
+            "desktop" \
+            "workstation-hypr-settings" \
+            "/usr/local/bin contains an unsafe symlinked path component."
+        return 0
+    fi
+
+    if ! install_root_file_atomically \
+        "$source" "$target" 0755 root root; then
+        record_required \
+            "desktop" \
+            "workstation-hypr-settings" \
+            "Could not install the root-owned Hyprland settings backend."
+        return 0
+    fi
+
+    info "Hyprland settings backend installed."
+    record_success "workstation-hypr-settings"
+}
+
 deploy_noctalia_config() {
     local source="$SCRIPT_DIR/config/noctalia"
     local destination="$TARGET_HOME/.config/noctalia"
@@ -1191,6 +1230,7 @@ install_desktop() {
 
     validate_desktop_shell_selection
     deploy_hyprland_config
+    install_workstation_hypr_settings
     deploy_session_shell_selection
     if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]]; then
         deploy_noctalia_config

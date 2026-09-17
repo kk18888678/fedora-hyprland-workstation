@@ -117,3 +117,80 @@ local ok, noctalia = pcall(require, "noctalia")
 if ok and type(noctalia) == "table" and type(noctalia.apply_theme) == "function" then
     pcall(noctalia.apply_theme)
 end
+
+-- ---------------------------------------------------------------------------
+-- Optional user-owned Hyprland settings overlay (workstation-hypr-settings).
+--
+-- The repository dotfiles above are the reviewed baseline. This section
+-- re-applies a user-owned, schema-managed overlay written by
+-- `workstation-hypr-settings` under $XDG_CONFIG_HOME/fedora-hyprland-workstation/
+-- so `hyprctl reload` and the next session restore the user's tweaks.
+-- The overlay is user-owned DATA: it is loaded fail-closed, like the Aurelia
+-- provider bridge, and is never part of the repository desired state.
+-- ---------------------------------------------------------------------------
+local function load_user_settings_overlay()
+    local config_home = os.getenv("XDG_CONFIG_HOME")
+    if not config_home or config_home == "" then
+        config_home = (os.getenv("HOME") or "") .. "/.config"
+    end
+    if config_home:sub(1, 1) ~= "/" or config_home == "/" then
+        print("[SETTINGS] XDG_CONFIG_HOME is invalid; settings overlay skipped")
+        return
+    end
+
+    local path = config_home .. "/fedora-hyprland-workstation/hypr-settings.lua"
+    local handle = io.open(path, "rb")
+    if not handle then
+        -- No overlay: the reviewed baseline applies unchanged.
+        return
+    end
+    handle:close()
+
+    local ok_overlay, overlay = pcall(dofile, path)
+    if not ok_overlay then
+        error("[SETTINGS] user settings overlay failed to load; run `workstation-hypr-settings clear` to reset: " .. tostring(overlay))
+    end
+    if type(overlay) ~= "table" or overlay.schema_version ~= 1 then
+        error("[SETTINGS] user settings overlay has an unsupported schema; run `workstation-hypr-settings clear` to reset")
+    end
+
+    if type(overlay.config) == "table" then
+        for _, category in ipairs({ "general", "decoration", "misc", "input", "animations" }) do
+            local values = overlay.config[category]
+            if type(values) == "table" and next(values) ~= nil then
+                hl.config({ [category] = values })
+            end
+        end
+    end
+
+    if type(overlay.animations) == "table" then
+        for _, spec in ipairs(overlay.animations) do
+            if type(spec) == "table" and type(spec.leaf) == "string" then
+                hl.animation({
+                    leaf = spec.leaf,
+                    enabled = spec.enabled ~= false,
+                    speed = type(spec.speed) == "number" and spec.speed or 1,
+                    bezier = type(spec.bezier) == "string" and spec.bezier or "default",
+                    style = type(spec.style) == "string" and spec.style or "slide",
+                })
+            end
+        end
+    end
+
+    if type(overlay.persistent_workspaces) == "table" then
+        for _, ws in ipairs(overlay.persistent_workspaces) do
+            if type(ws) == "number" and ws >= 1 and ws <= 10 then
+                hl.workspace_rule({
+                    workspace = tostring(ws),
+                    persistent = true,
+                })
+            end
+        end
+    end
+
+    print("[SETTINGS] user settings overlay applied")
+end
+
+load_user_settings_overlay()
+
+return true
