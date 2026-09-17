@@ -10,13 +10,13 @@ Switch {
     
 
     indicator: Rectangle {
-        implicitWidth: 40
-        implicitHeight: 22
+        implicitWidth: 42
+        implicitHeight: 24
         x: control.leftPadding
         y: control.topPadding + (control.availableHeight - height) / 2
         radius: Math.round(height / 2)
-        color: control.checked ? Theme.accent : Theme.controls.normalFill
-        border.width: Theme.borderWidthDefault
+        color: control.checked ? Theme.accent : Theme.surfaceElevated
+        border.width: 1
         border.color: control.checked ? Theme.accent : Theme.controls.normalBorder
 
         Rectangle {
@@ -25,7 +25,7 @@ Switch {
             width: parent.height - 6
             height: parent.height - 6
             radius: Math.round(height / 2)
-            color: control.checked ? Theme.bgBase : Theme.textMuted
+            color: control.checked ? Theme.bgBase : Theme.text
             Behavior on x {
                 NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
             }

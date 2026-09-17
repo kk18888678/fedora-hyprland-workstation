@@ -14,8 +14,8 @@ Slider {
         width: control.availableWidth - control.rightPadding
         height: 8
         radius: Math.round(height / 2)
-        color: Theme.controls.normalFill
-        border.width: Theme.borderWidthDefault
+        color: Theme.surfaceElevated
+        border.width: 1
         border.color: Theme.controls.normalBorder
 
         Rectangle {
@@ -29,11 +29,11 @@ Slider {
     handle: Rectangle {
         x: control.leftPadding + control.visualPosition * (control.availableWidth - width)
         y: control.topPadding + control.availableHeight / 2 - height / 2
-        implicitWidth: 18
-        implicitHeight: 18
+        implicitWidth: 20
+        implicitHeight: 20
         radius: Math.round(height / 2)
         color: control.pressed ? Theme.accentAlt : Theme.text
-        border.width: Theme.borderWidthDefault
+        border.width: 1
         border.color: control.visualFocus ? Theme.controls.focusBorder : Theme.controls.normalBorder
         Behavior on x {
             NumberAnimation { duration: 80; easing.type: Easing.OutQuad }

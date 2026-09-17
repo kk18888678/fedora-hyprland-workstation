@@ -22,8 +22,8 @@ TextField {
         implicitWidth: control.implicitWidth
         implicitHeight: control.implicitHeight
         radius: Theme.radiusMd
-        color: control.activeFocus ? Theme.controls.focusFill : Theme.controls.normalFill
-        border.width: Theme.borderWidthDefault
+        color: control.activeFocus ? Theme.controls.focusFill : Theme.surfaceElevated
+        border.width: 1
         border.color: control.activeFocus ? Theme.controls.focusBorder : Theme.controls.normalBorder
     }
 }

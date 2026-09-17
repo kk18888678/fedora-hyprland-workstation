@@ -39,7 +39,9 @@ RowLayout {
             color: Theme.textMuted
             font.family: Theme.fontFamilyProse
             font.pixelSize: Theme.fontSizeXs
-            wrapMode: Text.WordWrap
+            wrapMode: Text.Wrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
             visible: text !== ""
         }
     }

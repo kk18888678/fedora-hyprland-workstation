@@ -40,40 +40,60 @@ Item {
                 id: repeater
                 model: pageRoot.rows
 
-                delegate: Loader {
-                    id: rowLoader
+                delegate: Item {
+                    id: rowWrap
                     Layout.fillWidth: true
-                    Layout.leftMargin: Theme.spacingSm
-                    Layout.rightMargin: Theme.spacingSm
+                    implicitHeight: rowLoader.implicitHeight + (rowData.kind !== "heading" ? 10 : 0)
 
                     readonly property var rowData: modelData
 
-                    sourceComponent: {
-                        switch (String(rowData.kind)) {
-                        case "toggle": return toggleComp
-                        case "slider": return sliderComp
-                        case "combo": return comboComp
-                        case "color": return colorComp
-                        case "text": return textComp
-                        case "heading": return headingComp
-                        case "action": return actionComp
-                        case "info":
-                        default: return infoComp
+                    Loader {
+                        id: rowLoader
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: Theme.spacingSm
+                        anchors.rightMargin: Theme.spacingSm
+
+                        sourceComponent: {
+                            switch (String(rowData.kind)) {
+                            case "toggle": return toggleComp
+                            case "slider": return sliderComp
+                            case "combo": return comboComp
+                            case "color": return colorComp
+                            case "text": return textComp
+                            case "heading": return headingComp
+                            case "action": return actionComp
+                            case "info":
+                            default: return infoComp
+                            }
+                        }
+
+                        onLoaded: {
+                            item.descriptor = rowData
+                            if (typeof item.changed === "function") {
+                                item.changed.connect(function(value) {
+                                    pageRoot.changed(String(rowData.id || ""), value)
+                                })
+                            }
+                            if (typeof item.action === "function") {
+                                item.action.connect(function() {
+                                    pageRoot.action(String(rowData.actionId || ""))
+                                })
+                            }
                         }
                     }
 
-                    onLoaded: {
-                        item.descriptor = rowData
-                        if (typeof item.changed === "function") {
-                            item.changed.connect(function(value) {
-                                pageRoot.changed(String(rowData.id || ""), value)
-                            })
-                        }
-                        if (typeof item.action === "function") {
-                            item.action.connect(function() {
-                                pageRoot.action(String(rowData.actionId || ""))
-                            })
-                        }
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: Theme.spacingSm
+                        anchors.rightMargin: Theme.spacingSm
+                        height: 1
+                        color: Theme.border
+                        opacity: 0.3
+                        visible: rowData.kind !== "heading"
                     }
                 }
             }
