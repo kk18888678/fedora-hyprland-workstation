@@ -356,8 +356,9 @@ PanelWindow {
     // so resolution self-heals regardless of host injection timing.
     function resolveNow() {
         var shellRoot = (pluginRoot && pluginRoot.aureliaPath) ? pluginRoot.aureliaPath : ""
-        console.warn("[SETTINGS] resolveNow shellRoot=" + (shellRoot !== "" ? shellRoot : "<empty>") +
-                     " pluginRoot=" + (pluginRoot ? "set" : "null"))
+        // At construction the host may not have injected the plugin source
+        // root yet; resolution self-heals on the next open. Only warn when a
+        // VISIBLE attempt cannot resolve the checkout/installed backend.
         if (shellRoot.indexOf("/") === 0) {
             checkoutBackendPath = shellRoot + "/../bin/workstation-hypr-settings"
             candidateAureliaBin = shellRoot + "/bin"

@@ -7,6 +7,10 @@ import "."
 // Generic row renderer. Rows are projected by SettingsRows.js from the
 // backend schema/status; this component only displays them and forwards
 // user intent (changed / action) to the window, which owns all mutation.
+//
+// Layout: headings are section titles; every other row is a rounded card
+// (surfaceElevated) so the page reads as a real settings sheet rather than
+// a sparse dark slab.
 Item {
     id: pageRoot
 
@@ -43,17 +47,30 @@ Item {
                 delegate: Item {
                     id: rowWrap
                     Layout.fillWidth: true
-                    implicitHeight: rowLoader.implicitHeight + (rowData.kind !== "heading" ? 10 : 0)
+                    // cards get breathing room; headings sit flush
+                    implicitHeight: rowLoader.implicitHeight
+                                     + (rowData.kind !== "heading" ? 2 * Theme.spacingSm : 0)
 
                     readonly property var rowData: modelData
+
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.bottomMargin: rowData.kind !== "heading" ? Theme.spacingSm : 0
+                        radius: Theme.radiusMd
+                        color: rowData.kind !== "heading" ? Theme.surfaceElevated : "transparent"
+                        border.width: rowData.kind !== "heading" ? 1 : 0
+                        border.color: Theme.border
+                        opacity: rowData.kind !== "heading" ? 1 : 0
+                    }
 
                     Loader {
                         id: rowLoader
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.leftMargin: Theme.spacingSm
-                        anchors.rightMargin: Theme.spacingSm
+                        anchors.leftMargin: rowData.kind !== "heading" ? Theme.spacingLg : Theme.spacingSm
+                        anchors.rightMargin: rowData.kind !== "heading" ? Theme.spacingLg : Theme.spacingSm
+                        anchors.topMargin: rowData.kind !== "heading" ? Theme.spacingSm : 0
 
                         sourceComponent: {
                             switch (String(rowData.kind)) {
@@ -82,18 +99,6 @@ Item {
                                 })
                             }
                         }
-                    }
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        anchors.leftMargin: Theme.spacingSm
-                        anchors.rightMargin: Theme.spacingSm
-                        height: 1
-                        color: Theme.border
-                        opacity: 0.3
-                        visible: rowData.kind !== "heading"
                     }
                 }
             }
