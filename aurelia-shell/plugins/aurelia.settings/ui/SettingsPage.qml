@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 import "../../../theme"
 import "."
 
@@ -8,9 +7,9 @@ import "."
 // backend schema/status; this component only displays them and forwards
 // user intent (changed / action) to the window, which owns all mutation.
 //
-// Layout: headings are section titles; every other row is a rounded card
-// (surfaceElevated) so the page reads as a real settings sheet rather than
-// a sparse dark slab.
+// A ListView (not a distributing Column+Repeater) renders rows at fixed
+// delegate heights, so headings and cards stay compact instead of
+// stretching apart.
 Item {
     id: pageRoot
 
@@ -20,91 +19,69 @@ Item {
     signal changed(string optionId, var value)
     signal action(string actionId)
 
-    Flickable {
-        id: flick
+    ListView {
+        id: list
         anchors.fill: parent
+        model: pageRoot.rows
+        spacing: Theme.spacingSm
         clip: true
-        contentWidth: width
-        contentHeight: column.implicitHeight
+        topMargin: Theme.spacingMd
+        bottomMargin: Theme.spacingLg
 
         ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AsNeeded
         }
 
-        ColumnLayout {
-            id: column
-            width: parent.width
-            spacing: Theme.spacingSm
+        delegate: Item {
+            required property var modelData
+            width: list.width
+            height: modelData.kind === "heading" ? 34 : 64
 
-            Item {
-                Layout.preferredHeight: Theme.spacingMd
+            // Card surface for non-heading rows.
+            Rectangle {
+                anchors.fill: parent
+                visible: modelData.kind !== "heading"
+                radius: Theme.radiusMd
+                color: Theme.surfaceElevated
+                border.width: 1
+                border.color: Theme.border
             }
 
-            Repeater {
-                id: repeater
-                model: pageRoot.rows
+            Loader {
+                id: rowLoader
+                anchors.fill: parent
+                anchors.leftMargin: modelData.kind === "heading" ? Theme.spacingSm : Theme.spacingLg
+                anchors.rightMargin: modelData.kind === "heading" ? Theme.spacingSm : Theme.spacingLg
+                anchors.topMargin: modelData.kind === "heading" ? 0 : Theme.spacingSm
+                anchors.bottomMargin: modelData.kind === "heading" ? 0 : Theme.spacingSm
 
-                delegate: Item {
-                    id: rowWrap
-                    Layout.fillWidth: true
-                    // cards get breathing room; headings sit flush
-                    implicitHeight: rowLoader.implicitHeight
-                                     + (rowData.kind !== "heading" ? 2 * Theme.spacingSm : 0)
-
-                    readonly property var rowData: modelData
-
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.bottomMargin: rowData.kind !== "heading" ? Theme.spacingSm : 0
-                        radius: Theme.radiusMd
-                        color: rowData.kind !== "heading" ? Theme.surfaceElevated : "transparent"
-                        border.width: rowData.kind !== "heading" ? 1 : 0
-                        border.color: Theme.border
-                        opacity: rowData.kind !== "heading" ? 1 : 0
-                    }
-
-                    Loader {
-                        id: rowLoader
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.leftMargin: rowData.kind !== "heading" ? Theme.spacingLg : Theme.spacingSm
-                        anchors.rightMargin: rowData.kind !== "heading" ? Theme.spacingLg : Theme.spacingSm
-                        anchors.topMargin: rowData.kind !== "heading" ? Theme.spacingSm : 0
-
-                        sourceComponent: {
-                            switch (String(rowData.kind)) {
-                            case "toggle": return toggleComp
-                            case "slider": return sliderComp
-                            case "combo": return comboComp
-                            case "color": return colorComp
-                            case "text": return textComp
-                            case "heading": return headingComp
-                            case "action": return actionComp
-                            case "info":
-                            default: return infoComp
-                            }
-                        }
-
-                        onLoaded: {
-                            item.descriptor = rowData
-                            if (typeof item.changed === "function") {
-                                item.changed.connect(function(value) {
-                                    pageRoot.changed(String(rowData.id || ""), value)
-                                })
-                            }
-                            if (typeof item.action === "function") {
-                                item.action.connect(function() {
-                                    pageRoot.action(String(rowData.actionId || ""))
-                                })
-                            }
-                        }
+                sourceComponent: {
+                    switch (String(modelData.kind)) {
+                    case "toggle": return toggleComp
+                    case "slider": return sliderComp
+                    case "combo": return comboComp
+                    case "color": return colorComp
+                    case "text": return textComp
+                    case "heading": return headingComp
+                    case "action": return actionComp
+                    case "info":
+                    default: return infoComp
                     }
                 }
-            }
 
-            Item {
-                Layout.preferredHeight: Theme.spacingLg
+                onLoaded: {
+                    item.descriptor = modelData
+                    if (typeof item.changed === "function") {
+                        item.changed.connect(function(value) {
+                            pageRoot.changed(String(modelData.id || ""), value)
+                        })
+                    }
+                    if (typeof item.action === "function") {
+                        item.action.connect(function() {
+                            pageRoot.action(String(modelData.actionId || ""))
+                        })
+                    }
+                }
             }
         }
     }
