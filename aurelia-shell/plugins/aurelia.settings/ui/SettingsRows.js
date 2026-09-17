@@ -1,0 +1,288 @@
+// SettingsRows.js — pure row-descriptor builders for the Settings hub.
+//
+// This module contains NO mutation logic. It only projects the option schema
+// (single source of truth: `workstation-hypr-settings schema`) and live
+// status onto declarative row descriptors that the QML renderer displays.
+// Keeping this logic in one place (instead of scattering rows across pages)
+// makes the option set easy to audit and extend.
+
+.pragma library
+
+// Map a schema option to a renderer row descriptor.
+function schemaRow(schema, status) {
+    var descriptor = {
+        id: schema.id,
+        kind: controlKind(schema),
+        title: schema.label,
+        description: schema.description,
+        type: schema.type,
+        min: schema.min !== "" ? Number(schema.min) : 0,
+        max: schema.max !== "" ? Number(schema.max) : 1,
+        enumOptions: splitEnum(schema.enum),
+        defaultValue: schema.default,
+        effective: normalizeStatus(status, schema.type),
+        source: status ? status.source : "default",
+        override: status ? status.override : ""
+    }
+    return descriptor
+}
+
+function normalizeStatus(status, type) {
+    if (!status) return ""
+    switch (type) {
+        case "bool": return status.effective === true || status.effective === "true" ? true : false
+        case "int":
+        case "float": return Number(status.effective)
+        default: return String(status.effective || "")
+    }
+}
+
+function controlKind(schema) {
+    switch (schema.type) {
+        case "bool": return "toggle"
+        case "enum": return "combo"
+        case "color": return "color"
+        case "str": return "text"
+        case "int":
+        case "float":
+        default: return "slider"
+    }
+}
+
+function splitEnum(enumValue) {
+    var options = []
+    if (!enumValue) return options
+    var parts = String(enumValue).split(",")
+    for (var i = 0; i < parts.length; i++) {
+        var part = parts[i]
+        if (part !== "") options.push({ value: part, label: displayEnum(part) })
+    }
+    return options
+}
+
+function displayEnum(value) {
+    switch (String(value)) {
+        case "dwindle": return "Dwindle"
+        case "master": return "Master"
+        case "flat": return "Flat"
+        case "adaptive": return "Adaptive"
+        case "baseline": return "Baseline (repository default)"
+        case "snappy": return "Snappy"
+        case "relaxed": return "Relaxed"
+        case "off": return "Off"
+        default: return String(value)
+    }
+}
+
+// Sections: id, name, icon, schemaCategories.
+function sections() {
+    return [
+        { id: "hypr-general", name: "General & Appearance", icon: "preferences-desktop",
+          categories: ["general", "decoration", "misc"], schema: true },
+        { id: "hypr-animations", name: "Animations", icon: "media-playlist-repeat",
+          categories: ["animations"], schema: true },
+        { id: "hypr-input", name: "Input", icon: "input-keyboard",
+          categories: ["input"], schema: true },
+        { id: "hypr-workspaces", name: "Workspaces", icon: "preferences-desktop-wallpaper",
+          categories: ["workspaces"], schema: true },
+        { id: "aurelia", name: "Aurelia Shell", icon: "display",
+          categories: [], schema: false, aurelia: true },
+        { id: "about", name: "About & Reset", icon: "help-about",
+          categories: [], schema: false }
+    ]
+}
+
+// Build the row list for one section.
+function buildRows(sectionId, schemas, statuses, aurelia) {
+    var section = null
+    var allSections = sections()
+    for (var s = 0; s < allSections.length; s++) {
+        if (allSections[s].id === sectionId) { section = allSections[s]; break }
+    }
+    if (!section) return []
+
+    var rows = []
+
+    if (section.schema) {
+        // categories in a stable display order
+        var order = []
+        for (var s2 = 0; s2 < allSections.length; s2++) {
+            if (allSections[s2].schema) {
+                for (var c = 0; c < allSections[s2].categories.length; c++) {
+                    if (order.indexOf(allSections[s2].categories[c]) === -1) order.push(allSections[s2].categories[c])
+                }
+            }
+        }
+        var categoryOrder = sectionId === "hypr-general"
+            ? ["general", "decoration", "misc"] : section.categories
+        var seen = {}
+        for (var ci = 0; ci < categoryOrder.length; ci++) {
+            var category = categoryOrder[ci]
+            var first = true
+            for (var i = 0; i < schemas.length; i++) {
+                if (schemas[i].category !== category) continue
+                if (seen[schemas[i].id]) continue
+                seen[schemas[i].id] = true
+                if (first) {
+                    rows.push({
+                        kind: "heading",
+                        title: headingName(category)
+                    })
+                    first = false
+                }
+                rows.push(schemaRow(schemas[i], statuses ? statuses[schemas[i].id] : {}))
+            }
+        }
+        return rows
+    }
+
+    if (sectionId === "aurelia") {
+        rows.push({
+            kind: "heading",
+            title: "Shell"
+        })
+        rows.push({
+            kind: "info",
+            title: "Aurelia Shell IPC",
+            value: aurelia && aurelia.ipcOnline ? "Online" : "Unavailable",
+            description: "The settings hub talks to the resident shell through bounded IPC helpers."
+        })
+        rows.push({
+            kind: "combo",
+            id: "aurelia.theme",
+            title: "Theme",
+            description: "Active Aurelia theme (data-only; no theme code is executed).",
+            enumOptions: aurelia ? aurelia.themes : [],
+            effective: aurelia ? aurelia.currentTheme : "",
+            actionId: "setTheme"
+        })
+        rows.push({
+            kind: "action",
+            actionId: "openThemePanel",
+            title: "Theme & Wallpaper panel",
+            description: "Browse themes, backgrounds and the wallpaper library.",
+            label: "Open panel"
+        })
+        rows.push({
+            kind: "toggle",
+            id: "aurelia.motion.enabled",
+            title: "Shell Motion",
+            description: "Master motion switch for Aurelia components.",
+            effective: aurelia ? aurelia.motionEnabled : false,
+            actionId: "setMotion"
+        })
+        rows.push({
+            kind: "slider",
+            id: "aurelia.motion.scale",
+            title: "Motion Scale",
+            description: "Global animation duration multiplier.",
+            min: 0,
+            max: 10,
+            step: 0.1,
+            effective: aurelia ? aurelia.motionScale : 1,
+            actionId: "setMotionScale"
+        })
+        rows.push({
+            kind: "slider",
+            id: "aurelia.display.textSize",
+            title: "Shell Text Size",
+            description: "Aurelia-only text size (9..20 px). Terminal and GTK are untouched.",
+            min: 9,
+            max: 20,
+            step: 1,
+            effective: aurelia ? aurelia.textSize : 12,
+            actionId: "setTextSize"
+        })
+        rows.push({
+            kind: "toggle",
+            id: "aurelia.bar",
+            title: "Bar Hidden",
+            description: "Hide or show the Aurelia bar (persists across re-launches).",
+            effective: aurelia ? aurelia.barHidden : false,
+            actionId: "setBarHidden"
+        })
+        rows.push({
+            kind: "heading",
+            title: "Keybindings"
+        })
+        rows.push({
+            kind: "action",
+            actionId: "openKeybindings",
+            title: "Keybindings editor",
+            description: "Capture and manage Hyprland bindings (Super + K).",
+            label: "Open editor"
+        })
+        rows.push({
+            kind: "info",
+            title: "Shortcuts",
+            value: "Super + K · Super + T",
+            description: "Super + K opens Keybindings; Super + T opens this Settings hub."
+        })
+        return rows
+    }
+
+    if (sectionId === "about") {
+        rows.push({
+            kind: "heading",
+            title: "Configuration"
+        })
+        rows.push({
+            kind: "info",
+            title: "Settings overlay",
+            value: aurelia ? aurelia.settingsPath : "",
+            description: "User-owned overlay loaded by hyprland.lua after the reviewed repository baseline."
+        })
+        rows.push({
+            kind: "info",
+            title: "Hyprland reachable",
+            value: statuses && statuses.hyprctlAvailable ? "Yes — live preview active" : "No — changes apply on reload",
+            description: "Hyprland IPC via bounded hyprctl queries."
+        })
+        rows.push({
+            kind: "heading",
+            title: "Reset"
+        })
+        rows.push({
+            kind: "action",
+            actionId: "resetSection",
+            title: "Clear all overrides",
+            description: "Remove every user setting and restart the reviewed repository baseline.",
+            label: "Clear all"
+        })
+        rows.push({
+            kind: "info",
+            title: "Recovery",
+            value: "workstation-hypr-settings clear",
+            description: "The same reset is available from a terminal in any session."
+        })
+        return rows
+    }
+
+    return rows
+}
+
+function headingName(category) {
+    switch (category) {
+        case "general": return "General"
+        case "decoration": return "Appearance"
+        case "misc": return "Compositor"
+        case "input": return "Input"
+        case "animations": return "Animations"
+        case "workspaces": return "Workspaces"
+        default: return category
+    }
+}
+
+// ---------- Aurelia helper state ----------
+function emptyAureliaState() {
+    return {
+        ipcOnline: false,
+        themes: [],
+        currentTheme: "",
+        motionEnabled: true,
+        motionScale: 1,
+        textSize: 12,
+        barHidden: false,
+        settingsPath: ""
+    }
+}

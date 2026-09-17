@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.settings",
+  "name": "Settings",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Unified Hyprland and Aurelia Shell settings hub.",
+  "icon": "preferences-system",
+  "kinds": ["panel"],
+  "keepLoaded": false,
+  "entryPoints": {
+    "panel": "SettingsPlugin.qml"
+  }
+}

@@ -1,0 +1,12 @@
+# Aurelia Settings Hub UI module.
+SettingToggle 1.0 SettingToggle.qml
+SettingSlider 1.0 SettingSlider.qml
+SettingCombo 1.0 SettingCombo.qml
+SettingColor 1.0 SettingColor.qml
+SettingText 1.0 SettingText.qml
+SettingHeading 1.0 SettingHeading.qml
+SettingInfo 1.0 SettingInfo.qml
+SettingAction 1.0 SettingAction.qml
+SettingsNav 1.0 SettingsNav.qml
+SettingsPage 1.0 SettingsPage.qml
+SettingsWindow 1.0 SettingsWindow.qml
