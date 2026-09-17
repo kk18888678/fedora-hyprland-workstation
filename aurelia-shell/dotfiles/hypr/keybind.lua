@@ -47,6 +47,45 @@ end
 
 local keybindings_bin = resolve_keybindings_bin()
 
+-- Resolve the bounded Aurelia Shell IPC client to an absolute path. PATH
+-- resolution is deliberately avoided: Hyprland keybind execution inherits a
+-- session environment where the checkout bin/ directory is not on PATH.
+local function resolve_shell_ipc()
+    if os.getenv("AURELIA_DEVELOPMENT_MODE") == "1" then
+        local override = os.getenv("AURELIA_SHELL_IPC_BIN") or ""
+        if override:sub(1, 1) == "/" then
+            local handle = io.open(override, "rb")
+            if handle then
+                handle:close()
+                return override
+            end
+        end
+    end
+
+    -- When this provider is sourced directly from the standalone Aurelia
+    -- checkout, use its sibling IPC client.
+    local source = debug.getinfo(1, "S").source or ""
+    source = source:gsub("^@", "")
+    local source_dir = source:match("(.*/)")
+    if source_dir then
+        local candidate = source_dir .. "../../bin/aurelia-shell"
+        local handle = io.open(candidate, "rb")
+        if handle then
+            handle:close()
+            return candidate
+        end
+    end
+
+    -- Installed mode: the reconciler-owned fixed path.
+    local installed = "/usr/local/bin/aurelia-shell"
+    local handle = io.open(installed, "rb")
+    if handle then
+        handle:close()
+        return installed
+    end
+    return nil
+end
+
 local function register_binding(item)
     if item.generator then
         if item.generator == "workspaces_1_10" then
@@ -92,6 +131,15 @@ local function register_binding(item)
         if item.id and (item.id:match("^[a-zA-Z0-9][%w%-%._]*$") or item.id:match("^[a-zA-Z0-9][%w%-%._]*:[a-zA-Z0-9][%w%-%._]*$")) then
             if item.id == "keybindings" or item.id == "hotkeys" then
                 cmd = keybindings_bin .. " toggle"
+            elseif item.id == "desktop_settings" then
+                -- Settings hub toggle must not depend on PATH: resolve the
+                -- Aurelia Shell IPC client absolutely (checkout or installed).
+                local ipc = resolve_shell_ipc()
+                if not ipc then
+                    print("[BIND] desktop_settings: aurelia-shell IPC client not found; binding skipped")
+                    return
+                end
+                cmd = ipc .. " shell toggle aurelia.settings"
             else
                 cmd = keybindings_bin .. " run " .. item.id
             end

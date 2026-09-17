@@ -97,8 +97,49 @@ workstation-hypr-settings set workspaces.persistent 4
 ## Opening the hub
 
 - **Super + T** (`desktop_settings`) toggles the hub in the Aurelia session.
-- From a terminal: `aurelia-shell shell toggle aurelia.settings`.
+  The binding resolves the Aurelia Shell IPC client to an absolute path
+  (checkout or installed), so it works even when `aurelia` is not on the
+  keybind environment PATH.
+- From a terminal: `aurelia settings toggle` (or legacy
+  `aurelia-shell shell toggle aurelia.settings`).
 - The hub appears in the Aurelia plugin registry as **Settings**.
+
+## The unified `aurelia` CLI
+
+`aurelia` is the omarchy-style command center for the workstation shell. It
+re-executes the existing bounded backends — it adds zero duplicate capability
+logic:
+
+```bash
+aurelia bar transparent toggle                 # -> aurelia-bar transparent toggle
+aurelia bar position bottom                    # -> aurelia-bar position bottom
+aurelia bar move aurelia.clock --section center --index 0
+aurelia bar set aurelia.clock format "HH:mm"
+aurelia bar defaults                           # back to the shipped layout
+aurelia plugin disable aurelia.weather
+aurelia plugin enable example.plugin --section center
+
+aurelia settings toggle                        # open/toggle the Settings hub
+aurelia settings hypr set general.gaps_in 6    # forward to the hypr backend
+aurelia settings status
+aurelia theme list | set <name> | bg next
+aurelia shell ping | restart | toggle <plugin>
+aurelia capture screenshot [full|region] [options]
+aurelia display text-size [9..20|reset]
+aurelia keybindings
+
+aurelia commands [--all] [--json] [--check]    # command reference
+```
+
+Backend resolution is deterministic (never PATH-first):
+`$AURELIA_SHELL_ROOT/bin`, the dispatcher's own directory (checkout
+`bin/`), `/usr/local/share/aurelia-shell/bin`, then PATH. The installer
+places the self-contained `aurelia` dispatcher and the `aurelia-shell` IPC
+client in `/usr/local/bin`.
+
+> `aurelia` is the canonical user CLI. `aurelia-shell` remains the internal
+> IPC client name used across the resident shell platform; the dispatcher
+> forwards to it transparently, so you interact with `aurelia` only.
 
 ## Layout
 

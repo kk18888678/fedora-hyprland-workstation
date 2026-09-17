@@ -8,6 +8,41 @@ local M = {}
 -- Require the decoupled Workstation Application Registry
 local app_reg = require("application_registry")
 
+-- Resolve the bounded Aurelia Shell IPC client to an absolute path.
+-- Used by the desktop_settings action so both the physical keybinding and
+-- the `run desktop_settings` surface work without PATH dependence.
+local function resolve_shell_ipc()
+    if os.getenv("AURELIA_DEVELOPMENT_MODE") == "1" then
+        local override = os.getenv("AURELIA_SHELL_IPC_BIN") or ""
+        if override:sub(1, 1) == "/" then
+            local handle = io.open(override, "rb")
+            if handle then
+                handle:close()
+                return override
+            end
+        end
+    end
+    local source = debug.getinfo(1, "S").source or ""
+    source = source:gsub("^@", "")
+    local source_dir = source:match("(.*/)")
+    if source_dir then
+        local candidate = source_dir .. "../../bin/aurelia-shell"
+        local handle = io.open(candidate, "rb")
+        if handle then
+            handle:close()
+            return candidate
+        end
+    end
+    local installed = "/usr/local/bin/aurelia-shell"
+    local handle = io.open(installed, "rb")
+    if handle then
+        handle:close()
+        return installed
+    end
+    return nil
+end
+M.resolve_shell_ipc = resolve_shell_ipc
+
 -- User state belongs to the standalone Aurelia project, never to the Fedora
 -- repository's managed Hyprland checkout. Legacy Hyprland paths are read-only
 -- migration sources when the new state file does not exist.
@@ -2002,6 +2037,16 @@ end
 function M.get_action_argv(action_id, manifest)
     manifest = manifest or require("keybindings_manifest")
     manifest = M.expand_manifest_bindings(manifest)
+
+    -- Settings hub: resolve the bounded Aurelia Shell IPC client absolutely
+    -- (PATH resolution fails under Hyprland-detached keybind execution).
+    if action_id == "desktop_settings" then
+        local ipc = M.resolve_shell_ipc()
+        if ipc then
+            return { ipc, "shell", "toggle", "aurelia.settings" }
+        end
+        return nil, "aurelia-shell IPC client is not installed"
+    end
 
     -- Check direct aliases for role actions
     if action_id == "terminal" or action_id == "terminal.default" then

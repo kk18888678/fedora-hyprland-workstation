@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+# aurelia — unified Aurelia Shell command center CLI.
+#
+# Omarchy-style group dispatcher over the bounded aurelia-* backends. One
+# command, many groups; every group re-executes an existing backend, so this
+# file adds zero duplicate capability logic.
+#
+#   aurelia <group> <command> [args...]
+#   aurelia commands [--all] [--json] [--check]
+#   aurelia <group> --help
+#   aurelia --help | version
+#
+# Backend resolution order (deterministic, never PATH-shadowed first):
+#   1. $AURELIA_SHELL_ROOT/bin/<tool>         explicit override or shell root
+#   2. sibling of this script                 checkout bin/ or bundled install
+#   3. /usr/local/share/aurelia-shell/bin/    installed shell root
+#   4. PATH                                   last resort
+
+set -Eeuo pipefail
+
+PROG="aurelia"
+VERSION="1.0.0"
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------
+# Backend resolution
+# ---------------------------------------------------------------
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd -P)"
+
+resolve_bin() {
+    local name="$1"
+    local shell_root="${AURELIA_SHELL_ROOT:-}"
+    if [[ -n "$shell_root" && "$shell_root" != "/" ]]; then
+        if [[ -x "$shell_root/bin/$name" ]]; then
+            printf '%s\n' "$shell_root/bin/$name"
+            return 0
+        fi
+    fi
+    if [[ -x "$SCRIPT_DIR/$name" ]]; then
+        printf '%s\n' "$SCRIPT_DIR/$name"
+        return 0
+    fi
+    if [[ -x "/usr/local/share/aurelia-shell/bin/$name" ]]; then
+        printf '%s\n' "/usr/local/share/aurelia-shell/bin/$name"
+        return 0
+    fi
+    local found
+    found="$(command -v "$name" || true)"
+    if [[ -n "$found" ]]; then
+        printf '%s\n' "$found"
+        return 0
+    fi
+    return 1
+}
+
+# resolve the shared Hyprland settings backend (lives at repo/bin in a
+# checkout, /usr/local/bin when installed)
+resolve_hypr_bin() {
+    local shell_root="${AURELIA_SHELL_ROOT:-}"
+    if [[ -n "$shell_root" && "$shell_root" != "/" ]]; then
+        if [[ -x "$shell_root/../bin/workstation-hypr-settings" ]]; then
+            printf '%s\n' "$shell_root/../bin/workstation-hypr-settings"
+            return 0
+        fi
+    fi
+    if [[ -x "$SCRIPT_DIR/../bin/workstation-hypr-settings" ]]; then
+        printf '%s\n' "$SCRIPT_DIR/../bin/workstation-hypr-settings"
+        return 0
+    fi
+    if [[ -x "/usr/local/bin/workstation-hypr-settings" ]]; then
+        printf '%s\n' "/usr/local/bin/workstation-hypr-settings"
+        return 0
+    fi
+    local found
+    found="$(command -v workstation-hypr-settings || true)"
+    [[ -n "$found" ]] || return 1
+    printf '%s\n' "$found"
+}
+
+# run <tool> <args...> — resolve and exec the bounded backend in place.
+run_backend() {
+    local tool="$1"
+    shift
+    local resolved
+    resolved="$(resolve_bin "$tool")" || fail "'$tool' backend is not installed"
+    exec "$resolved" "$@"
+}
+
+# ---------------------------------------------------------------
+# Group backends
+# ---------------------------------------------------------------
+cmd_bar() {
+    run_backend aurelia-bar "$@"
+}
+
+cmd_plugin() {
+    run_backend aurelia-plugin "$@"
+}
+
+cmd_theme() {
+    local sub="${1:-help}"
+    shift || true
+    if [[ "$sub" == "bg" ]]; then
+        run_backend aurelia-theme-bg "$@"
+    fi
+    run_backend aurelia-theme "$sub" "$@"
+}
+
+cmd_shell() {
+    local sub="${1:-help}"
+    shift || true
+    case "$sub" in
+        restart)
+            run_backend aurelia-restart-shell "$@"
+            ;;
+        help|-h|--help)
+            run_backend aurelia-shell shell
+            ;;
+        *)
+            # aurelia shell <method> [args...] -> aurelia-shell shell <method> [args...]
+            run_backend aurelia-shell shell "$sub" "$@"
+            ;;
+    esac
+}
+
+cmd_settings() {
+    local sub="${1:-help}"
+    shift || true
+    local hypr_bin
+    case "$sub" in
+        open|toggle)
+            run_backend aurelia-shell shell "$sub" aurelia.settings "{}"
+            ;;
+        hypr)
+            hypr_bin="$(resolve_hypr_bin)" || fail "workstation-hypr-settings backend is not installed"
+            exec "$hypr_bin" "$@"
+            ;;
+        clear|status|path|dump|check)
+            hypr_bin="$(resolve_hypr_bin)" || fail "workstation-hypr-settings backend is not installed"
+            exec "$hypr_bin" "$sub" "$@"
+            ;;
+        *)
+            cat >&2 <<'HELP'
+Usage: aurelia settings <command> [args...]
+
+Commands:
+  open                Open the Settings hub panel
+  toggle              Toggle the Settings hub panel
+  hypr <backend>      Forward to workstation-hypr-settings (set/get/reset/...)
+  clear               Remove all Hyprland settings overrides
+  status              Show effective Hyprland settings state
+HELP
+            return 2
+            ;;
+    esac
+}
+
+cmd_keybindings() {
+    local tool
+    if resolve_bin aurelia-shell-keybindings >/dev/null; then
+        tool="aurelia-shell-keybindings"
+    else
+        tool="workstation-keybindings"
+    fi
+    run_backend "$tool" "$@"
+}
+
+cmd_display() {
+    local sub="${1:-help}"
+    shift || true
+    case "$sub" in
+        text-size|textsize)
+            run_backend aurelia-display-text-size "$@"
+            ;;
+        brightness)
+            run_backend aurelia-brightness-display "$@"
+            ;;
+        scale)
+            run_backend aurelia-hyprland-monitor-scaling "$@"
+            ;;
+        state)
+            run_backend aurelia-monitor-state "$@"
+            ;;
+        *)
+            cat >&2 <<'HELP'
+Usage: aurelia display <command> [args...]
+
+Commands:
+  text-size [9..20|reset]   Aurelia shell text size
+  brightness <get|set>      Display brightness
+  scale <get|set>           Hyprland monitor scale (runtime-only)
+  state                     Bounded monitor state record
+HELP
+            return 2
+            ;;
+    esac
+}
+
+cmd_capture() {
+    local sub="${1:-help}"
+    shift || true
+    case "$sub" in
+        screenshot|full|region)
+            run_backend aurelia-screenshot capture "$@"
+            ;;
+        *)
+            cat >&2 <<'HELP'
+Usage: aurelia capture <command> [args...]
+
+Commands:
+  screenshot [full|region] [options]   Take a screenshot
+HELP
+            return 2
+            ;;
+    esac
+}
+
+cmd_audio() {
+    run_backend aurelia-audio-output-set-default "$@"
+}
+
+cmd_wallpaper() {
+    run_backend aurelia-wallpaper "$@"
+}
+
+cmd_wallpapers() {
+    run_backend aurelia-wallpaper "$@"
+}
+
+# ---------------------------------------------------------------
+# Command reference
+# ---------------------------------------------------------------
+AURELIA_CLI_GROUPS=(bar plugin theme settings shell keybindings display capture audio wallpaper)
+
+# machine-readable command reference helpers
+command_names() {
+    local name
+    for name in "${AURELIA_CLI_GROUPS[@]}" "commands"; do
+        printf '%s\n' "$name"
+    done
+}
+
+group_descriptions() {
+    cat <<'DESC'
+bar           bar layout, position, transparency, and widget settings
+plugin        plugin lifecycle (enable, disable, list, validate, clone, ...)
+theme         theme and background selection
+settings      Hyprland + Aurelia shell settings hub
+shell         shell IPC and lifecycle (ping, toggle, restart, ...)
+keybindings   keyboard shortcuts reference and capture
+display       brightness, text size, and display scale
+capture       screenshots
+audio         audio output controls
+wallpaper     wallpaper library and palette generation
+DESC
+}
+
+cmd_commands() {
+    local all=0 json_flag=0 check_flag=0
+    for arg in "$@"; do
+        case "$arg" in
+            --all) all=1 ;;
+            --json) json_flag=1 ;;
+            --check) check_flag=1 ;;
+            *) fail "unknown commands option: $arg" ;;
+        esac
+    done
+
+    if [[ "$json_flag" -eq 1 ]]; then
+        local -a names=()
+        local name
+        mapfile -t names < <(command_names)
+        printf '[\n'
+        local first=1
+        for name in "${names[@]}"; do
+            if (( first )); then first=0; else printf ',\n'; fi
+            printf '  {"name": "%s"}' "$name"
+        done
+        printf '\n]\n'
+        return 0
+    fi
+
+    if [[ "$check_flag" -eq 1 ]]; then
+        local missing=0
+        local tool
+        for tool in aurelia-bar aurelia-plugin aurelia-theme aurelia-shell \
+            aurelia-screenshot; do
+            if ! resolve_bin "$tool" >/dev/null; then
+                printf '%s\n' "missing: $tool" >&2
+                missing=1
+            fi
+        done
+        if ! resolve_hypr_bin >/dev/null; then
+            printf '%s\n' "missing: workstation-hypr-settings" >&2
+            missing=1
+        fi
+        [[ "$missing" -eq 0 ]] || return 1
+        printf '%s\n' "all first-party backends resolved"
+        return 0
+    fi
+
+    printf '%s\n' "Aurelia command center"
+    printf '\n%s\n' "Usage:"
+    printf '  %s <group> <command> [args...]\n' "$PROG"
+    printf '  %s commands [--all] [--json] [--check]\n' "$PROG"
+    printf '  %s <group> --help\n' "$PROG"
+    printf '\n%s\n' "Groups:"
+    group_descriptions
+    if [[ "$all" -eq 1 ]]; then
+        printf '\n%s\n' "Aliases:"
+        printf '  %s\n' "  wallpapers -> wallpaper"
+    fi
+    printf '\n%s\n' "Examples:"
+    printf '  %s bar transparent toggle\n' "$PROG"
+    printf '  %s bar position bottom\n' "$PROG"
+    printf '  %s bar move aurelia.clock --section center --index 0\n' "$PROG"
+    printf '  %s bar set aurelia.clock format "HH:mm"\n' "$PROG"
+    printf '  %s bar defaults\n' "$PROG"
+    printf '  %s plugin disable aurelia.weather\n' "$PROG"
+    printf '  %s plugin enable example.plugin --section center\n' "$PROG"
+    printf '  %s settings toggle\n' "$PROG"
+}
+
+print_usage() {
+    cat <<'USAGE'
+Aurelia command center
+
+Usage:
+  aurelia <command> [args...]
+  aurelia commands [--all] [--json] [--check]
+  aurelia <group> --help
+
+Common commands:
+  aurelia settings toggle         Open/toggle the Settings hub
+  aurelia theme list              List available themes
+  aurelia theme set <name>        Apply a theme
+  aurelia bar defaults            Restore shipped bar layout
+  aurelia plugin list             List plugins
+  aurelia capture screenshot      Take a screenshot
+
+Groups:
+  bar          bar layout and settings
+  plugin       plugin lifecycle management
+  theme        themes and backgrounds
+  settings     Hyprland + Aurelia shell settings
+  shell        shell IPC and lifecycle
+  keybindings  keyboard shortcuts
+  display      brightness, text size, display scale
+  capture      screenshots
+  audio        audio output controls
+  wallpaper    wallpaper library and palettes
+  commands     command reference (--all | --json | --check)
+USAGE
+}
+
+# ---------------------------------------------------------------
+# main
+# ---------------------------------------------------------------
+main() {
+    local group="${1:-help}"
+    shift || true
+    case "$group" in
+        -h|--help|help)
+            print_usage
+            ;;
+        -V|--version|version)
+            printf '%s %s\n' "$PROG" "$VERSION"
+            ;;
+        commands)
+            cmd_commands "$@"
+            ;;
+        bar) cmd_bar "$@" ;;
+        plugin|plugins) cmd_plugin "$@" ;;
+        theme) cmd_theme "$@" ;;
+        settings) cmd_settings "$@" ;;
+        shell) cmd_shell "$@" ;;
+        keybindings|keys|hotkeys) cmd_keybindings "$@" ;;
+        display) cmd_display "$@" ;;
+        capture) cmd_capture "$@" ;;
+        audio) cmd_audio "$@" ;;
+        wallpaper|wallpapers) cmd_wallpaper "$@" ;;
+        *)
+            fail "unknown group: $group (see 'aurelia --help' or 'aurelia commands')"
+            ;;
+    esac
+}
+
+main "$@"

@@ -23,38 +23,60 @@ deploy_hyprland_config() {
 # user-level settings overlay (workstation-hypr-settings clear resets it) and
 # is deliberately non-blocking: graphical activation must never depend on a
 # settings tool being present.
-install_workstation_hypr_settings() {
-    local source="$SCRIPT_DIR/bin/workstation-hypr-settings"
-    local target="/usr/local/bin/workstation-hypr-settings"
+install_root_cli_file() {
+    local source="$1"
+    local target="$2"
+    local label="$3"
 
     [[ -f "$source" && ! -L "$source" ]] || {
         record_required \
             "desktop" \
-            "workstation-hypr-settings" \
-            "The Hyprland settings backend source is missing."
-        return 0
+            "$label" \
+            "The CLI backend source is missing: $source"
+        return 1
     }
 
     if declare -F validate_mutation_path >/dev/null &&
         { ! validate_mutation_path /usr/local/bin; }; then
         record_required \
             "desktop" \
-            "workstation-hypr-settings" \
+            "$label" \
             "/usr/local/bin contains an unsafe symlinked path component."
-        return 0
+        return 1
     fi
 
     if ! install_root_file_atomically \
         "$source" "$target" 0755 root root; then
         record_required \
             "desktop" \
-            "workstation-hypr-settings" \
-            "Could not install the root-owned Hyprland settings backend."
-        return 0
+            "$label" \
+            "Could not install the root-owned CLI backend $target."
+        return 1
     fi
 
-    info "Hyprland settings backend installed."
-    record_success "workstation-hypr-settings"
+    info "$label installed."
+    record_success "$label"
+}
+
+install_workstation_hypr_settings() {
+    install_root_cli_file \
+        "$SCRIPT_DIR/bin/workstation-hypr-settings" \
+        "/usr/local/bin/workstation-hypr-settings" \
+        "workstation-hypr-settings"
+}
+
+# Unified `aurelia` command center CLI plus the bounded IPC client. Both are
+# self-contained scripts (no lib trees); the dispatcher resolves the remaining
+# aurelia-* backends at runtime from the shell root or installed root.
+install_aurelia_cli() {
+    install_root_cli_file \
+        "$SCRIPT_DIR/aurelia-shell/bin/aurelia" \
+        "/usr/local/bin/aurelia" \
+        "aurelia-cli"
+    install_root_cli_file \
+        "$SCRIPT_DIR/aurelia-shell/bin/aurelia-shell" \
+        "/usr/local/bin/aurelia-shell" \
+        "aurelia-shell-ipc"
 }
 
 deploy_noctalia_config() {
@@ -1231,6 +1253,7 @@ install_desktop() {
     validate_desktop_shell_selection
     deploy_hyprland_config
     install_workstation_hypr_settings
+    install_aurelia_cli
     deploy_session_shell_selection
     if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]]; then
         deploy_noctalia_config
