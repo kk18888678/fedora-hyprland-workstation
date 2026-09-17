@@ -84,6 +84,20 @@ QtObject {
         return true
     }
 
+    // Settings opens directly (not as a submenu): toggle the settings panel
+    // through the bounded shell IPC, same as the settings module action.
+    function openSettings() {
+        if (!root.shellClientBin) {
+            root.errorMessage = "Aurelia Shell IPC client is unavailable."
+            return false
+        }
+        root.activeLaunchLabel = "Open Settings"
+        root.statusMessage = "Opening the Settings hub..."
+        shellActionProcess.command = [root.shellClientBin, "shell", "toggle", "aurelia.settings", "{}"]
+        shellActionProcess.running = true
+        return true
+    }
+
     function openAbout() {
         if (!root.aboutBin) {
             root.errorMessage = "About backend is unavailable."
@@ -398,6 +412,7 @@ QtObject {
             if (moduleProvider === "updates") return root.openUpdates()
             if (moduleProvider === "about") return root.openAbout()
             if (moduleProvider === "package-manager") return root.openPackageManager()
+            if (moduleProvider === "settings") return root.openSettings()
             root.setModule(row.moduleId)
             return true
         }

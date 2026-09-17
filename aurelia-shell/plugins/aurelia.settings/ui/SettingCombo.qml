@@ -56,6 +56,7 @@ RowLayout {
         model: root.enumOptions
         textRole: "label"
         valueRole: "value"
+        placeholderText: root.effective
         currentIndex: {
             var index = -1
             var target = String(root.effective)

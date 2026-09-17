@@ -8,6 +8,8 @@ ComboBox {
     id: control
 
     property int controlHeight: 34
+    // Shown when nothing matches the current value (never display 'undefined').
+    property string placeholderText: ""
 
     
 
@@ -17,10 +19,10 @@ ComboBox {
     contentItem: Text {
         leftPadding: Theme.spacingMd - 2
         rightPadding: control.indicator.width + Theme.spacingSm
-        text: control.displayText
+        text: control.currentIndex >= 0 ? String(control.displayText || "") : control.placeholderText
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontSizeSm
-        color: Theme.controls.normalColor
+        color: control.currentIndex >= 0 ? Theme.controls.normalColor : Theme.textMuted
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }

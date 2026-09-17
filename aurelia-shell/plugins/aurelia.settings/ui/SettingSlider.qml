@@ -28,26 +28,14 @@ RowLayout {
         Layout.alignment: Qt.AlignVCenter
         spacing: 2
 
-        RowLayout {
+        Text {
             Layout.fillWidth: true
-            spacing: Theme.spacingSm
-
-            Text {
-                Layout.fillWidth: true
-                text: descriptor.title || ""
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeMd
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
-            }
-
-            Text {
-                text: String(Number(slider.value).toFixed(2))
-                color: Theme.accent
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSm
-            }
+            text: descriptor.title || ""
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeMd
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
         }
 
         Text {
@@ -63,18 +51,33 @@ RowLayout {
         }
     }
 
-    SliderControl {
-        Layout.rightMargin: Theme.spacingSm
-        id: slider
-        Layout.fillWidth: true
+    // Value + slider grouped on the same horizontal line, right-aligned.
+    RowLayout {
         Layout.alignment: Qt.AlignVCenter
-        Layout.minimumWidth: 180
-        from: root.minValue
-        to: root.maxValue
-        stepSize: root.stepValue
-        value: root.effective
+        spacing: Theme.spacingMd
 
-        onMoved: debounceTimer.restart()
+        Text {
+            text: String(Number(slider.value).toFixed(2))
+            color: Theme.accent
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSm
+            Layout.preferredWidth: 44
+            horizontalAlignment: Text.AlignRight
+        }
+
+        SliderControl {
+            id: slider
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredWidth: 220
+            Layout.maximumWidth: 280
+            Layout.rightMargin: Theme.spacingXs
+            from: root.minValue
+            to: root.maxValue
+            stepSize: root.stepValue
+            value: root.effective
+
+            onMoved: debounceTimer.restart()
+        }
     }
 
     Timer {

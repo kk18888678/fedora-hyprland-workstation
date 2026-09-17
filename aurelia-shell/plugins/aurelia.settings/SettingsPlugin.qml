@@ -103,6 +103,8 @@ Item {
                 schemaReady: !!w.schemaReady,
                 statusReady: !!w.statusReady,
                 rowCount: Array.isArray(w.pageRows) ? w.pageRows.length : -1,
+                themeCount: Array.isArray(w.aureliaState && w.aureliaState.themes) ? w.aureliaState.themes.length : -1,
+                currentTheme: (w.aureliaState && w.aureliaState.currentTheme) || "",
                 activeSection: w.activeSection || "",
                 footerText: w.footerText || ""
             })

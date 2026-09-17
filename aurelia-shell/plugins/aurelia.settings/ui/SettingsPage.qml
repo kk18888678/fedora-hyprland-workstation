@@ -12,6 +12,7 @@ import "."
 // stretching apart.
 Item {
     id: pageRoot
+    clip: true
 
     property var rows: []
     property var windowRoot: null
@@ -29,7 +30,7 @@ Item {
         bottomMargin: Theme.spacingLg
 
         ScrollBar.vertical: ScrollBar {
-            policy: ScrollBar.AsNeeded
+            policy: ScrollBar.AlwaysOff
         }
 
         delegate: Item {

@@ -386,6 +386,10 @@ PanelWindow {
     }
 
     function refreshStatus() {
+        // Never run with the unresolved fallback path: only query once a real
+        // backend is confirmed (probes complete with checkout or installed).
+        if (!(checkoutBackendAvailable || installedBackendAvailable)) return
+        if (backendBin === "/usr/local/bin/workstation-hypr-settings" && !installedBackendAvailable) return
         statusProcess.command = [root.backendBin, "status"]
         statusProcess.running = true
     }
@@ -526,7 +530,7 @@ PanelWindow {
     Rectangle {
         id: chrome
         anchors.centerIn: parent
-        width: Math.round(parent ? parent.width * 0.62 : 1000)
+        width: Math.round(parent ? parent.width * 0.57 : 960)
         height: Math.round(parent ? parent.height * 0.76 : 680)
         radius: Theme.radiusLg
         color: Theme.popups.background
@@ -534,6 +538,7 @@ PanelWindow {
         border.color: Theme.popups.border
         z: 1
         focus: true
+        clip: true
 
         Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Escape) {
