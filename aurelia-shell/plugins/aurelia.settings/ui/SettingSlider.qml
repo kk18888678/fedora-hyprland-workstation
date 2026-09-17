@@ -57,11 +57,19 @@ RowLayout {
         spacing: Theme.spacingMd
 
         Text {
-            text: String(Number(slider.value).toFixed(2))
+            text: {
+                var raw = slider.value
+                var unit = descriptor.unit || ""
+                if (unit === "%") {
+                    return Math.round(raw * 100) + "%"
+                }
+                if (Math.round(raw) === raw) return String(Math.round(raw)) + (unit ? " " + unit : "")
+                return String(Number(raw).toFixed(2)) + (unit ? " " + unit : "")
+            }
             color: Theme.accent
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
-            Layout.preferredWidth: 44
+            Layout.preferredWidth: 64
             horizontalAlignment: Text.AlignRight
         }
 

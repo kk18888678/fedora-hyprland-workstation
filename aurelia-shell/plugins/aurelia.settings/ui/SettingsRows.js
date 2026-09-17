@@ -20,6 +20,7 @@ function schemaRow(schema, status) {
         max: schema.max !== "" ? Number(schema.max) : 1,
         enumOptions: splitEnum(schema.enum),
         defaultValue: schema.default,
+        unit: unitFor(schema.id),
         effective: normalizeStatus(status, schema.type),
         source: status ? status.source : "default",
         override: status ? status.override : ""
@@ -66,11 +67,36 @@ function displayEnum(value) {
         case "master": return "Master"
         case "flat": return "Flat"
         case "adaptive": return "Adaptive"
-        case "baseline": return "Baseline (repository default)"
+        case "0": return "Off"
+        case "1": return "On"
+        case "2": return "Fullscreen only"
+        case "baseline": return "Baseline (default)"
         case "snappy": return "Snappy"
         case "relaxed": return "Relaxed"
         case "off": return "Off"
         default: return String(value)
+    }
+}
+
+// User-friendly unit shown next to slider values.
+function unitFor(id) {
+    switch (String(id || "")) {
+        case "general.gaps_in":
+        case "general.gaps_out":
+        case "general.border_size":
+        case "decoration.rounding":
+        case "decoration.blur.size":
+            return "px"
+        case "input.repeat_rate":
+            return "cps"
+        case "input.repeat_delay":
+            return "ms"
+        case "decoration.active_opacity":
+        case "decoration.inactive_opacity":
+        case "decoration.fullscreen_opacity":
+            return "%"
+        default:
+            return ""
     }
 }
 

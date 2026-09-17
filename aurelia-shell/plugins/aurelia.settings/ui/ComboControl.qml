@@ -77,15 +77,29 @@ ComboBox {
 
     // Themed popup rows (explicit visuals; no palette dependency).
     delegate: ItemDelegate {
+        required property int index
+        required property var modelData
         width: control.width - 8
         height: 32
 
+        // Robust text lookup: javascript object rows (textRole), string rows,
+        // or plain value rows. Never render 'undefined'.
+        readonly property string _label: {
+            var raw = modelData
+            if (control.textRole && typeof raw === "object" && raw !== null && raw !== undefined) {
+                return String(raw[control.textRole] ?? "")
+            }
+            if (raw === null || raw === undefined) return ""
+            if (typeof raw === "object") {
+                // string-only models surface as objects with the value; fall back
+                // to displayText content via currentIndex on activate
+                return String(raw.value ?? "")
+            }
+            return String(raw)
+        }
+
         contentItem: Text {
-            text: control.textRole
-                ? (Array.isArray(control.model)
-                    ? String(modelData[control.textRole])
-                    : String(model[control.textRole]))
-                : String(modelData)
+            text: parent._label
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSm
             color: highlighted ? Theme.bgBase : Theme.text
