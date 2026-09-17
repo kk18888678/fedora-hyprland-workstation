@@ -36,8 +36,10 @@ Item {
             required property var modelData
             width: list.width
             height: modelData.kind === "heading" ? 34 : 64
+            clip: true // contain any stretched control within the row
 
-            // Card surface for non-heading rows.
+            // Card surface for non-heading rows. clip keeps any stretched
+            // control (e.g. full-width slider tracks) inside the rounded card.
             Rectangle {
                 anchors.fill: parent
                 visible: modelData.kind !== "heading"
@@ -45,6 +47,7 @@ Item {
                 color: Theme.surfaceElevated
                 border.width: 1
                 border.color: Theme.border
+                clip: true
             }
 
             Loader {

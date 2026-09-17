@@ -686,6 +686,40 @@ PanelWindow {
                     font.pixelSize: Theme.fontSizeXs
                 }
             }
+
+            // Opening state: show a focused 'Opening Settings…' surface and
+            // reveal the content only once schema + live state are ready.
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.radiusLg
+                color: Theme.popups.background
+                visible: !(root.schemaReady && root.statusReady)
+                z: 20
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingMd
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.busy ? "Opening Settings…" : "Reading current settings…"
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeLg
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.footerText
+                        color: Theme.textMuted
+                        font.family: Theme.fontFamilyProse
+                        font.pixelSize: Theme.fontSizeXs
+                        elide: Text.ElideRight
+                        Layout.maximumWidth: 360
+                    }
+                }
+            }
         }
     }
 

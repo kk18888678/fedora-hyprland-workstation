@@ -24,7 +24,13 @@ Item {
             width: navList.width
             height: 38
             radius: Theme.radiusMd
-            color: modelData.id === root.activeId ? Theme.selection : "transparent"
+
+            // Binding-based (never direct assignment) so the active item always
+            // clears on selection change; hover only tints non-active items.
+            readonly property bool itemHovered: itemMouse.containsMouse
+            color: modelData.id === root.activeId
+                ? Theme.selection
+                : (itemHovered ? Theme.selectionHover : "transparent")
 
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
@@ -49,11 +55,10 @@ Item {
             }
 
             MouseArea {
+                id: itemMouse
                 anchors.fill: parent
                 hoverEnabled: true
                 onClicked: root.selectSection(modelData.id)
-                onEntered: if (modelData.id !== root.activeId) parent.color = Theme.selectionHover
-                onExited: if (modelData.id !== root.activeId) parent.color = "transparent"
             }
         }
     }
