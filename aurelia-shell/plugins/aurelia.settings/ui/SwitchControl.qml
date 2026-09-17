@@ -15,7 +15,7 @@ Switch {
         x: control.leftPadding
         y: control.topPadding + (control.availableHeight - height) / 2
         radius: Math.round(height / 2)
-        color: control.checked ? Theme.accent : Theme.surfaceElevated
+        color: control.checked ? Theme.accent : Theme.surface
         border.width: 1
         border.color: control.checked ? Theme.accent : Theme.controls.normalBorder
 

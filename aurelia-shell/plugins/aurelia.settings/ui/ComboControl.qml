@@ -44,7 +44,7 @@ ComboBox {
         implicitWidth: control.implicitWidth
         implicitHeight: control.implicitHeight
         radius: Theme.radiusMd
-        color: Theme.surfaceElevated
+        color: Theme.surface
         border.width: 1
         border.color: control.visualFocus
             ? Theme.controls.focusBorder

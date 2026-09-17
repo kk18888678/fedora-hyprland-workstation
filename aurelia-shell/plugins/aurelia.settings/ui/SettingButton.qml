@@ -17,7 +17,7 @@ Rectangle {
     radius: Theme.radiusMd
     color: root.primary
         ? (btnHover.hovered ? Theme.accentAlt : Theme.accent)
-        : (btnHover.hovered ? Theme.controls.hoverFill : Theme.surfaceElevated)
+        : (btnHover.hovered ? Theme.controls.hoverFill : Theme.surface)
     border.width: Theme.borderWidthDefault
     border.color: root.primary
         ? Theme.accent

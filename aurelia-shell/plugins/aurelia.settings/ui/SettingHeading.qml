@@ -18,10 +18,10 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         anchors.left: parent.left
         text: root.title || (root.descriptor && root.descriptor.title ? root.descriptor.title : "")
-        color: Theme.accent
+        color: Theme.text
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSm
+        font.pixelSize: Theme.fontSizeMd
         font.weight: Font.DemiBold
-        font.letterSpacing: 0.8
+        font.letterSpacing: 0.6
     }
 }

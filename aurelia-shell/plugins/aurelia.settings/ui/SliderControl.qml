@@ -14,7 +14,7 @@ Slider {
         width: control.availableWidth - control.rightPadding
         height: 8
         radius: Math.round(height / 2)
-        color: Theme.surfaceElevated
+        color: Theme.surface
         border.width: 1
         border.color: Theme.controls.normalBorder
 

@@ -44,7 +44,7 @@ Item {
                 anchors.fill: parent
                 visible: modelData.kind !== "heading"
                 radius: Theme.radiusMd
-                color: Theme.surfaceElevated
+                color: Theme.surface
                 border.width: 1
                 border.color: Theme.border
                 clip: true

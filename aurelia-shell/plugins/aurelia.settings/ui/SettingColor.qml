@@ -56,7 +56,7 @@ RowLayout {
         Text {
             Layout.fillWidth: true
             text: descriptor.description || ""
-            color: Theme.textMuted
+            color: Theme.textSecondary
             font.family: Theme.fontFamilyProse
             font.pixelSize: Theme.fontSizeXs
             wrapMode: Text.Wrap
@@ -81,7 +81,7 @@ RowLayout {
         spacing: 6
 
         Repeater {
-            model: [Theme.accent, Theme.pine, Theme.gold, Theme.love, Theme.iris, Theme.text, Theme.surfaceElevated]
+            model: [Theme.accent, Theme.pine, Theme.gold, Theme.love, Theme.iris, Theme.text, Theme.surface]
             Rectangle {
                 required property color modelData
                 width: 16

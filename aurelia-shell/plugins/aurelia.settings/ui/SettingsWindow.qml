@@ -363,7 +363,11 @@ PanelWindow {
             checkoutBackendPath = shellRoot + "/../bin/workstation-hypr-settings"
             candidateAureliaBin = shellRoot + "/bin"
         }
-        if (probeStarted || checkoutBackendPath === "/nonexistent-checkout-bin") return
+        if (probeStarted || checkoutBackendPath === "/nonexistent-checkout-bin") {
+            // Already resolved in a previous open: refresh live state.
+            if (probeStarted && checkoutBackendPath.indexOf("/") === 0) refreshStatus()
+            return
+        }
         probeStarted = true
         checkoutProbe.command = ["/usr/bin/test", "-x", checkoutBackendPath]
         checkoutProbe.running = true
@@ -504,22 +508,26 @@ PanelWindow {
     // ------------------------------------------------------------------
     // UI
     // ------------------------------------------------------------------
-    // Fullscreen opaque base: the panel must never render see-through, even
-    // during plugin hot-reload churn or a temporary layer-shell fallback.
-    // bgBase always resolves (with a hard-coded final fallback), unlike the
-    // popups token which can momentarily be unset while the theme reloads.
+    // Dimmed backdrop: centered card over the desktop; clicking outside
+    // closes (mirrors the keybindings palette interaction).
     Rectangle {
-        id: panelBase
+        id: scrim
         anchors.fill: parent
-        color: Theme.bgBase
+        color: Qt.rgba(0, 0, 0, 0.45)
         z: 0
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.requestClose()
+        }
     }
 
-    // Chrome card on top of the opaque base.
+    // Centered chrome card (~60% width, ~76% height).
     Rectangle {
         id: chrome
-        anchors.fill: parent
-        anchors.margins: 18
+        anchors.centerIn: parent
+        width: Math.round(parent ? parent.width * 0.62 : 1000)
+        height: Math.round(parent ? parent.height * 0.76 : 680)
         radius: Theme.radiusLg
         color: Theme.popups.background
         border.width: Theme.borderWidthDefault
@@ -574,7 +582,7 @@ PanelWindow {
                         text: root.activeSection === "aurelia"
                             ? "Hyprland + Aurelia Shell desktop settings"
                             : "Hyprland desktop settings"
-                        color: Theme.textMuted
+                        color: Theme.textSecondary
                         font.family: Theme.fontFamilyProse
                         font.pixelSize: Theme.fontSizeSm
                     }
@@ -686,38 +694,40 @@ PanelWindow {
                     font.pixelSize: Theme.fontSizeXs
                 }
             }
+        }
 
-            // Opening state: show a focused 'Opening Settings…' surface and
-            // reveal the content only once schema + live state are ready.
-            Rectangle {
-                anchors.fill: parent
-                radius: Theme.radiusLg
-                color: Theme.popups.background
-                visible: !(root.schemaReady && root.statusReady)
-                z: 20
+        // Opening state: a centered 'Opening Settings…' surface over the
+        // chrome; revealed only until schema + live state are ready. Sibling
+        // of the layout (never a layout-managed item).
+        Rectangle {
+            id: openingSurface
+            anchors.fill: parent
+            radius: Theme.radiusLg
+            color: Theme.popups.background
+            visible: !(root.schemaReady && root.statusReady)
+            z: 20
 
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingMd
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: Theme.spacingMd
 
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: root.busy ? "Opening Settings…" : "Reading current settings…"
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeLg
-                        font.weight: Font.DemiBold
-                    }
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: root.busy ? "Opening Settings…" : "Reading current settings…"
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeLg
+                    font.weight: Font.DemiBold
+                }
 
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: root.footerText
-                        color: Theme.textMuted
-                        font.family: Theme.fontFamilyProse
-                        font.pixelSize: Theme.fontSizeXs
-                        elide: Text.ElideRight
-                        Layout.maximumWidth: 360
-                    }
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: root.footerText
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamilyProse
+                    font.pixelSize: Theme.fontSizeXs
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 360
                 }
             }
         }
@@ -728,7 +738,8 @@ PanelWindow {
             pendingClearConfirm = false
             resolveNow()
             chrome.forceActiveFocus()
-            refreshStatus()
+            // refreshStatus() runs after backend probes finish (start()), so
+            // the status call never races the resolvers.
         }
     }
 }

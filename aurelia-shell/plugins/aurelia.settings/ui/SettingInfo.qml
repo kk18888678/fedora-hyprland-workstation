@@ -47,7 +47,7 @@ RowLayout {
         Text {
             Layout.fillWidth: true
             text: root.description
-            color: Theme.textMuted
+            color: Theme.textSecondary
             font.family: Theme.fontFamilyProse
             font.pixelSize: Theme.fontSizeXs
             wrapMode: Text.Wrap
