@@ -67,7 +67,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$runtime_result" ]] &&
    runtime_log_is_environment_only "$runtime_log" &&
    jq -e --arg root "$ROOT" --argjson expected "$expected_widgets" '
         .scanState == "success" and
-        .pluginCount == 26 and
+        .pluginCount == 27 and
         (.widgetIds | length == $expected) and
         (.widgetIds | index("aurelia.clock")) and
         (.widgetIds | index("aurelia.notifications")) and
