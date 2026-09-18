@@ -191,10 +191,10 @@ PanelWindow {
             try {
                 var parsed = JSON.parse(schemaStdout.text || "[]")
                 root.hyprSchemas = parsed
-                root.mergeSchemas()
                 root.schemaReady = true
-                root.footerText = "Loading live state…"
-                root.refreshStatus()
+                root.mergeSchemas()
+                // Status was already requested in start() (in parallel with the
+                // schema fetch); it owns the footer/readiness text.
             } catch (error) {
                 root.footerText = "Option schema returned invalid data."
                 console.warn("[SETTINGS] schema_parse_failed")
@@ -533,6 +533,9 @@ PanelWindow {
         systemProbe.running = true
         schemaProcess.command = [root.backendBin, "schema"]
         schemaProcess.running = true
+        // Fetch live state in parallel with the schema; both are independent
+        // reads, so the opening surface waits for the slower one, not the sum.
+        refreshStatus()
         pingProcess.command = [root.helperBin("aurelia-shell"), "shell", "ping"]
         pingProcess.running = true
         refreshAurelia()

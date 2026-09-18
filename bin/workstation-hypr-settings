@@ -391,18 +391,18 @@ normalize_gradient() {
     printf 'rgba(%s%s)\n' "${hex:2:6}" "${hex:0:2}"
 }
 
-live_value_for() {
-    local id="$1" spec leaf type out
-    spec="$(spec_for "$id")"
-    leaf="$(spec_field "$spec" 2)"
-    type="$(spec_field "$spec" 3)"
+# Query one option's live value from pre-parsed leaf/type fields (no schema
+# re-parsing), so cmd_status stays fast across the whole registry.
+live_value_for_leaf() {
+    local leaf="$1" type="$2" out v
     [[ "$leaf" == "-" || "$leaf" == "animation_preset" || "$leaf" == "persistent_workspaces" ]] && return 1
     # Diagnostics stay observable: stderr is merged into the captured stream
     # (a status probe), never sent to the null device.
-    out="$(bounded_hyprctl -j getoption "$leaf" 2>&1 | head -n 1 || true)"
+    out="$(bounded_hyprctl -j getoption "$leaf" 2>&1 || true)"
+    out="${out%%$'\n'*}"
     [[ -n "$out" ]] || return 1
 
-    local v=""
+    v=""
     if [[ "$out" =~ \"css\":\ \"([^\"]*)\" ]]; then
         v="${BASH_REMATCH[1]%% *}"
     elif [[ "$out" =~ \"gradient\":\ \"([^\"]*)\" ]]; then
@@ -426,6 +426,26 @@ live_value_for() {
     fi
     [[ -n "$v" ]] || return 1
     printf '%s\n' "$v"
+}
+
+live_value_for() {
+    local spec leaf type
+    spec="$(spec_for "$1")"
+    leaf="$(spec_field "$spec" 2)"
+    type="$(spec_field "$spec" 3)"
+    live_value_for_leaf "$leaf" "$type"
+}
+
+# Load the managed overlay once into an associative array so status does not
+# re-parse the Lua file for every option (that was the dominant load cost).
+declare -A OVERLAY_OVERRIDES=()
+load_overlay_overrides() {
+    OVERLAY_OVERRIDES=()
+    local id value
+    while IFS=$'\t' read -r id value; do
+        [[ -n "$id" ]] || continue
+        OVERLAY_OVERRIDES["$id"]="$value"
+    done < <(current_records 2>/dev/null || true)
 }
 
 # Last probe diagnostic, surfaced by `check` so a quiet status probe stays
@@ -739,42 +759,43 @@ json_field() {
 # ---------------------------------------------------------------
 cmd_schema() {
     printf '[\n'
-    local first=1 line id
+    local first=1 line id leaf type min max enum category default_val label description
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
-        id="$(spec_field "$line" 1)"
+        IFS='|' read -r id leaf type min max enum category default_val label description <<<"$line"
         if (( first )); then first=0; else printf ',\n'; fi
         printf '  { "id": %s, "hyprLeaf": %s, "type": %s, "min": %s, "max": %s, "enum": %s, "category": %s, "default": %s, "label": %s, "description": %s }' \
             "$(json_string "$id")" \
-            "$(json_string "$(spec_field "$line" 2)")" \
-            "$(json_string "$(spec_field "$line" 3)")" \
-            "$(json_string "$(spec_field "$line" 4)")" \
-            "$(json_string "$(spec_field "$line" 5)")" \
-            "$(json_string "$(spec_field "$line" 6)")" \
-            "$(json_string "$(spec_field "$line" 7)")" \
-            "$(json_string "$(spec_field "$line" 8)")" \
-            "$(json_string "$(spec_field "$line" 9)")" \
-            "$(json_string "$(spec_field "$line" 10)")"
+            "$(json_string "$leaf")" \
+            "$(json_string "$type")" \
+            "$(json_string "$min")" \
+            "$(json_string "$max")" \
+            "$(json_string "$enum")" \
+            "$(json_string "$category")" \
+            "$(json_string "$default_val")" \
+            "$(json_string "$label")" \
+            "$(json_string "$description")"
     done < <(option_specs)
     printf '\n]\n'
 }
 
 cmd_status() {
     assert_managed_overlay
-    local first=1 line id override live effective source default_val
+    load_overlay_overrides
+    local first=1 line id leaf type min max enum category default_val label description
+    local override live effective source read_ok
     printf '{\n  "hyprctlAvailable": %s,\n  "settingsPath": %s,\n  "options": [' \
         "$(hyprctl_available && printf true || printf false)" \
         "$(json_string "$settings_path")"
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
-        id="$(spec_field "$line" 1)"
-        override="$(overlay_override_for "$id")"
+        IFS='|' read -r id leaf type min max enum category default_val label description <<<"$line"
+        override="${OVERLAY_OVERRIDES[$id]:-}"
         live=""
-        local read_ok=0
-        if live="$(live_value_for "$id" 2>/dev/null)"; then
+        read_ok=0
+        if live="$(live_value_for_leaf "$leaf" "$type" 2>/dev/null)"; then
             read_ok=1
         fi
-        default_val="$(spec_field "$line" 8)"
         if [[ -n "$override" ]]; then
             effective="$override"
             source="override"
@@ -788,9 +809,9 @@ cmd_status() {
         if (( first )); then first=0; else printf ',\n'; fi
         printf '    { "id": %s, "label": %s, "category": %s, "type": %s, "default": %s, "override": %s, "live": %s, "effective": %s, "source": %s }' \
             "$(json_string "$id")" \
-            "$(json_string "$(spec_field "$line" 9)")" \
-            "$(json_string "$(spec_field "$line" 7)")" \
-            "$(json_string "$(spec_field "$line" 3)")" \
+            "$(json_string "$label")" \
+            "$(json_string "$category")" \
+            "$(json_string "$type")" \
             "$(json_string "${default_val:--}")" \
             "$([[ -n "$override" ]] && json_string "$override" || printf null)" \
             "$([[ -n "$live" ]] && json_string "$live" || printf null)" \

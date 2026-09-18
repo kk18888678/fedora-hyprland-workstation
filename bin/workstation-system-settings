@@ -548,33 +548,33 @@ json_string() {
 # ---------------------------------------------------------------------------
 cmd_schema() {
     printf '[\n'
-    local first=1 line
+    local first=1 line id type min max enum category default_val label description
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
+        IFS='|' read -r id type min max enum category default_val label description <<<"$line"
         (( first )) || printf ',\n'
         first=0
         printf '  { "id": %s, "type": %s, "min": %s, "max": %s, "enum": %s, "category": %s, "default": %s, "label": %s, "description": %s }' \
-            "$(json_string "$(spec_field "$line" 1)")" \
-            "$(json_string "$(spec_field "$line" 2)")" \
-            "$(json_string "$(spec_field "$line" 3)")" \
-            "$(json_string "$(spec_field "$line" 4)")" \
-            "$(json_string "$(spec_field "$line" 5)")" \
-            "$(json_string "$(spec_field "$line" 6)")" \
-            "$(json_string "$(spec_field "$line" 7)")" \
-            "$(json_string "$(spec_field "$line" 8)")" \
-            "$(json_string "$(spec_field "$line" 9)")"
+            "$(json_string "$id")" \
+            "$(json_string "$type")" \
+            "$(json_string "$min")" \
+            "$(json_string "$max")" \
+            "$(json_string "$enum")" \
+            "$(json_string "$category")" \
+            "$(json_string "$default_val")" \
+            "$(json_string "$label")" \
+            "$(json_string "$description")"
     done < <(option_specs)
     printf '\n]\n'
 }
 
 cmd_status() {
-    local first=1 line id live effective source default_val type options_json entry
+    local first=1 line id type min max enum category default_val label description
+    local live effective source options_json entry opt_label
     printf '{\n  "options": ['
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
-        id="$(spec_field "$line" 1)"
-        type="$(spec_field "$line" 2)"
-        default_val="$(spec_field "$line" 7)"
+        IFS='|' read -r id type min max enum category default_val label description <<<"$line"
         live=""
         if live="$(read_value "$id" 2>/dev/null)"; then
             effective="$live"
@@ -600,8 +600,8 @@ cmd_status() {
         first=0
         printf '    { "id": %s, "label": %s, "category": %s, "type": %s, "default": %s, "live": %s, "effective": %s, "source": %s, "options": %s }' \
             "$(json_string "$id")" \
-            "$(json_string "$(spec_field "$line" 8)")" \
-            "$(json_string "$(spec_field "$line" 6)")" \
+            "$(json_string "$label")" \
+            "$(json_string "$category")" \
             "$(json_string "$type")" \
             "$(json_string "$default_val")" \
             "$([[ -n "$live" ]] && json_string "$live" || printf null)" \

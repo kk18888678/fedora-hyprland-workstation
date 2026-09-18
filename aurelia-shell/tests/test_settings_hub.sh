@@ -641,6 +641,7 @@ cat >"$sandbox/bin/hyprctl" <<'MOCK_HYPRCTL'
 case "$1" in
     -j)
         if [[ "$2" == getoption ]]; then
+            printf 'getoption %s\n' "$3" >>"${MOCK_HYPRCTL_LOG:-/dev/null}"
             case "$3" in
                 general:gaps_in)   echo '{"option": "general:gaps_in", "css": "3 3 3 3", "set": true }' ;;
                 general:border_size) echo '{"option": "general:border_size", "int": 2, "set": true }' ;;
@@ -839,6 +840,41 @@ assert "[[EMPTY]]" not in json.dumps(d)
     pass "[sandbox] [[EMPTY]] string options surface as empty values"
 else
     fail "[sandbox] [[EMPTY]] marker leaked into settings state"
+fi
+
+# Performance invariant: status must query each option at most once and parse
+# the managed overlay once. The old code re-parsed the Lua overlay and the
+# schema for every option, which dominated settings load time.
+hypr_calls_log="$sandbox/hypr-calls.log"
+: >"$hypr_calls_log"
+MOCK_HYPRCTL_LOG="$hypr_calls_log" "$backend" status >/dev/null
+option_count="$("$backend" schema | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+call_count="$(grep -c '^getoption ' "$hypr_calls_log" 2>/dev/null || true)"
+if [[ "$call_count" -le $((option_count + 5)) ]]; then
+    pass "[sandbox] status queries each option at most once ($call_count calls for $option_count options)"
+else
+    fail "[sandbox] status made $call_count hyprctl queries for $option_count options"
+fi
+
+real_lua="$(command -v luajit || command -v lua || true)"
+if [[ -n "$real_lua" ]]; then
+    "$backend" set general.border_size 5 >/dev/null
+    lua_log="$sandbox/lua-calls.log"
+    : >"$lua_log"
+    cat >"$sandbox/bin/lua-log" <<EOF_LUA
+#!/usr/bin/env bash
+printf 'lua\\n' >>"$lua_log"
+exec "$real_lua" "\$@"
+EOF_LUA
+    chmod +x "$sandbox/bin/lua-log"
+    WORKSTATION_HYPR_SETTINGS_LUA_BIN="$sandbox/bin/lua-log" "$backend" status >/dev/null
+    lua_count="$(grep -c '^lua$' "$lua_log" 2>/dev/null || true)"
+    if [[ "$lua_count" -le 2 ]]; then
+        pass "[sandbox] status parses the managed overlay once ($lua_count reads)"
+    else
+        fail "[sandbox] status parsed the overlay $lua_count times"
+    fi
+    "$backend" clear >/dev/null || true
 fi
 
 # unmanaged file refusal
