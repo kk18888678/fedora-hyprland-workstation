@@ -317,6 +317,21 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
                 label: "Scan\u2026"
             })
         }
+        // The calendar week start is an Aurelia preference, surfaced beside the
+        // other Date & Time options.
+        if (sectionId === "time") {
+            rows.push({
+                kind: "combo",
+                id: "aurelia.calendar.weekStart",
+                title: "Week Starts On",
+                description: "First day of the week in the Aurelia calendar.",
+                enumOptions: [
+                    { value: "sunday", label: "Sunday" },
+                    { value: "monday", label: "Monday" }
+                ],
+                effective: (aurelia && aurelia.weekStart) ? aurelia.weekStart : "sunday"
+            })
+        }
         return rows
     }
 
@@ -510,6 +525,7 @@ function emptyAureliaState() {
         motionScale: 1,
         textSize: 12,
         barHidden: false,
+        weekStart: "sunday",
         settingsPath: ""
     }
 }

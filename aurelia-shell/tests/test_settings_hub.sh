@@ -274,6 +274,76 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Calendar week start (pure layout math + Date & Time row + preference)
+# ---------------------------------------------------------------------------
+calendar_model="$repo_root/aurelia-shell/plugins/aurelia.calendar/ui/CalendarModel.js"
+calendar_panel="$repo_root/aurelia-shell/plugins/aurelia.calendar/ui/CalendarPanel.qml"
+if command -v node >/dev/null 2>&1; then
+    cal_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$calendar_model" >"$cal_test"
+    cat >>"$cal_test" <<'CAL_EXPORTS'
+module.exports = { weekdayLabels, firstWeekdayOffset };
+CAL_EXPORTS
+    if node -e '
+const M = require(process.argv[1]);
+const sun = M.weekdayLabels(0).join(",");
+const mon = M.weekdayLabels(1).join(",");
+const ok = sun === "SUN,MON,TUE,WED,THU,FRI,SAT" &&
+    mon === "MON,TUE,WED,THU,FRI,SAT,SUN" &&
+    M.firstWeekdayOffset(0, 0) === 0 && M.firstWeekdayOffset(1, 0) === 1 &&
+    M.firstWeekdayOffset(0, 1) === 6 && M.firstWeekdayOffset(1, 1) === 0 &&
+    M.firstWeekdayOffset(6, 1) === 5;
+process.exit(ok ? 0 : 1);
+' "$cal_test" >/dev/null 2>&1; then
+        pass "[unit] calendar week-start rotates weekday labels and offsets"
+    else
+        fail "[unit] calendar week-start math is wrong"
+    fi
+    rm -f -- "$cal_test"
+else
+    skip "[unit] calendar week-start math (node unavailable)"
+fi
+
+# The weekday header must always render: its row has an explicit height, and
+# the panel follows the configured week start through the shared model.
+if grep -q 'CalendarModel.weekdayLabels' "$calendar_panel" &&
+   grep -q 'CalendarModel.firstWeekdayOffset' "$calendar_panel" &&
+   grep -q 'height: parent.height' "$calendar_panel"; then
+    pass "[static] calendar weekday header has a bounded height and follows week start"
+else
+    fail "[static] calendar weekday header can collapse or ignores week start"
+fi
+
+if "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.calendar.week_start 2>/dev/null |
+   grep -qE '^(sunday|monday)$'; then
+    pass "[unit] calendar week_start preference resolves to a valid day"
+else
+    fail "[unit] calendar week_start preference is unavailable"
+fi
+
+if command -v node >/dev/null 2>&1; then
+    time_rows_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$time_rows_test"
+    cat >>"$time_rows_test" <<'TIME_ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState };
+TIME_ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const state = Object.assign({}, SR.emptyAureliaState(), { weekStart: "monday" });
+const rows = SR.buildRows("time", [], {}, state);
+const row = rows.find(r => r.id === "aurelia.calendar.weekStart");
+const ok = row && row.kind === "combo" && row.effective === "monday" &&
+    row.enumOptions.length === 2 && row.enumOptions[1].value === "monday";
+process.exit(ok ? 0 : 1);
+' "$time_rows_test" >/dev/null 2>&1; then
+        pass "[unit] Date & Time exposes a Week Starts On picker"
+    else
+        fail "[unit] Date & Time week-start row is missing"
+    fi
+    rm -f -- "$time_rows_test"
+fi
+
+# ---------------------------------------------------------------------------
 # System settings backend (mock appearance/audio/bluetooth/network/time tools)
 # ---------------------------------------------------------------------------
 system_backend="$repo_root/bin/workstation-system-settings"

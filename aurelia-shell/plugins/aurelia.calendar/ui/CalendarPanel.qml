@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import "../../../ui"
 import "../../../theme"
+import "CalendarModel.js" as CalendarModel
 
 AureliaKeyboardPanel {
     id: panelRoot
@@ -18,7 +19,11 @@ AureliaKeyboardPanel {
     readonly property string todayKey: dateKey(today)
     readonly property bool viewingCurrentMonth: year === today.getFullYear() && month === today.getMonth()
     readonly property var dayCells: buildDayCells()
-    readonly property var weekdays: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+    // Weekday header follows the configured week start and never collapses:
+    // the header row gets an explicit height so its delegates do not depend on
+    // a zero-height parent.
+    readonly property int weekStart: Theme.calendarWeekStart
+    readonly property var weekdays: CalendarModel.weekdayLabels(weekStart)
 
     // Explicit geometry prevents GridLayout from stretching or collapsing
     // cells. The required delegate index below is essential for positioning
@@ -73,7 +78,7 @@ AureliaKeyboardPanel {
     function buildDayCells() {
         var result = []
         var firstDay = new Date(year, month, 1)
-        var firstWeekday = firstDay.getDay()
+        var firstWeekday = CalendarModel.firstWeekdayOffset(firstDay.getDay(), weekStart)
 
         // Keep six rows so the popup height never jumps between months.
         for (var index = 0; index < 42; index++) {
@@ -273,6 +278,7 @@ AureliaKeyboardPanel {
 
                 Row {
                     anchors.centerIn: parent
+                    height: parent.height
                     spacing: panelRoot.gridGap
 
                     Repeater {

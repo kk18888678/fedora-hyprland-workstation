@@ -95,6 +95,15 @@ M.SCHEMA = {
         component = "keybindings",
         description = "Component UI shortcut for Unset binding",
     },
+    ["aurelia.calendar.week_start"] = {
+        canonical_key = "aurelia.calendar.week_start",
+        type = "string",
+        enum = { "sunday", "monday" },
+        default = "sunday",
+        portable = true,
+        scope = "shell",
+        description = "First day of the week shown by the Aurelia calendar",
+    },
 }
 
 -- Shipped Defaults derived authoritatively from the schema registry

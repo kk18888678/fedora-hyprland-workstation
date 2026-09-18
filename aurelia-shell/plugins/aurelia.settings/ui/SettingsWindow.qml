@@ -338,6 +338,9 @@ PanelWindow {
             root.busy = false
             if (code === 0) {
                 root.footerText = (helperStdout.text || "Done.").trim().split("\n")[0]
+                // Preferences are read by the Theme singleton; reload so a
+                // preference change is visible without a shell restart.
+                Theme.reloadPreferences()
             } else {
                 root.footerText = "Failed: " + (helperStderr.text || "helper error").trim()
             }
@@ -420,6 +423,19 @@ PanelWindow {
                 }
             }
             root.applyAureliaPatch({ textSize: size })
+        }
+    }
+
+    Process {
+        id: weekStartProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: weekStartStdout }
+        onExited: function(code) {
+            var value = code === 0 ? String(weekStartStdout.text || "").trim() : "sunday"
+            if (value !== "monday") value = "sunday"
+            root.applyAureliaPatch({ weekStart: value })
         }
     }
 
@@ -530,6 +546,8 @@ PanelWindow {
         motionProcess.running = true
         textSizeProcess.command = [root.helperBin("aurelia-display-text-size")]
         textSizeProcess.running = true
+        weekStartProcess.command = [root.helperBin("workstation-aurelia"), "preference", "get", "aurelia.calendar.week_start"]
+        weekStartProcess.running = true
         barProcess.command = [root.helperBin("aurelia-bar-hidden"), "read"]
         barProcess.running = true
     }
@@ -542,7 +560,7 @@ PanelWindow {
     function applyAureliaPatch(patch) {
         var next = {}
         var keys = ["ipcOnline", "themes", "currentTheme", "motionEnabled", "motionScale",
-                    "textSize", "barHidden", "settingsPath"]
+                    "textSize", "barHidden", "weekStart", "settingsPath"]
         for (var i = 0; i < keys.length; i++) {
             next[keys[i]] = keys[i] in patch ? patch[keys[i]] : root.aureliaState[keys[i]]
         }
@@ -623,6 +641,10 @@ PanelWindow {
             break
         case "aurelia.bar":
             runHelper([root.helperBin("aurelia-bar-hidden"), value ? "on" : "off"], "Toggling bar…")
+            break
+        case "aurelia.calendar.weekStart":
+            runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
+                       "aurelia.calendar.week_start", String(value)], "Setting week start…")
             break
         default:
             console.warn("[SETTINGS] unknown aurelia option: " + optionId)

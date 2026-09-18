@@ -722,6 +722,9 @@ QtObject {
         return (!isNaN(num) && num >= 0) ? num : 1.0
     }
 
+    // First day of the week for the Aurelia calendar (0 = Sunday, 1 = Monday).
+    readonly property int calendarWeekStart: getPreference("aurelia.calendar.week_start", "sunday") === "monday" ? 1 : 0
+
     function componentMotionEnabled(componentId: string): bool {
         var compPref = getPreference("components." + componentId + ".motion.enabled", undefined)
         if (compPref !== undefined) {
