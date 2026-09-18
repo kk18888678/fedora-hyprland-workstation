@@ -26,6 +26,13 @@ else
     fail "[static] workstation-hypr-settings backend is missing or unmarked"
 fi
 
+if [[ -x "$repo_root/bin/workstation-system-settings" ]] &&
+   grep -q 'install_workstation_system_settings' "$repo_root/modules/desktop.sh"; then
+    pass "[static] system settings backend exists and the installer ships it"
+else
+    fail "[static] system settings backend is missing or not installed"
+fi
+
 required_ids=(general.gaps_in general.border_size general.layout decoration.rounding
     decoration.shadow.enabled decoration.blur.enabled input.kb_layout input.repeat_rate
     animations.enabled animations.preset workspaces.persistent)
@@ -208,6 +215,144 @@ assert all(isinstance(v, list) for v in d.values())
     fi
 else
     skip "[unit] app-defaults choices JSON (CLI unavailable)"
+fi
+
+if command -v node >/dev/null 2>&1; then
+    backends_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsBackends.js" >"$backends_test"
+    cat >>"$backends_test" <<'BACKENDS_EXPORTS'
+module.exports = { mergeSchemas, schemaMap, mergeStatusMaps, isSystemOption, backendFor };
+BACKENDS_EXPORTS
+    if node -e '
+const B = require(process.argv[1]);
+const schemas = B.mergeSchemas([{ id: "general.gaps_in" }], [{ id: "system.power.profile" }]);
+const map = B.schemaMap(schemas);
+const merged = B.mergeStatusMaps({ "general.gaps_in": { effective: "3" } },
+    { "system.power.profile": { effective: "balanced" } });
+const ok = schemas.length === 2 && map["system.power.profile"] &&
+    merged["general.gaps_in"].effective === "3" &&
+    merged["system.power.profile"].effective === "balanced" &&
+    B.isSystemOption("system.time.ntp") && !B.isSystemOption("general.gaps_in") &&
+    B.backendFor("system.time.ntp", "/hypr", "/sys") === "/sys" &&
+    B.backendFor("general.gaps_in", "/hypr", "/sys") === "/hypr";
+process.exit(ok ? 0 : 1);
+' "$backends_test" >/dev/null 2>&1; then
+        pass "[unit] settings backend merge and system-option routing are correct"
+    else
+        fail "[unit] settings backend routing contract failed"
+    fi
+    rm -f -- "$backends_test"
+else
+    skip "[unit] settings backend routing (node unavailable)"
+fi
+
+# ---------------------------------------------------------------------------
+# System settings backend (mock power/audio/network/time tools)
+# ---------------------------------------------------------------------------
+system_backend="$repo_root/bin/workstation-system-settings"
+if [[ -x "$system_backend" ]]; then
+    sys_sandbox="$(mktemp -d)"
+    sys_log="$sys_sandbox/applied.log"
+    : >"$sys_log"
+    cat >"$sys_sandbox/powerprofilesctl" <<'MOCK_PP'
+#!/usr/bin/env bash
+case "$1" in
+    get) echo balanced ;;
+    set) echo "power $2" >>"$MOCK_SYS_LOG" ;;
+esac
+MOCK_PP
+    cat >"$sys_sandbox/brightnessctl" <<'MOCK_BR'
+#!/usr/bin/env bash
+case "$1" in
+    get) echo 5000 ;;
+    max) echo 10000 ;;
+    set) echo "brightness $2" >>"$MOCK_SYS_LOG" ;;
+esac
+MOCK_BR
+    cat >"$sys_sandbox/wpctl" <<'MOCK_WP'
+#!/usr/bin/env bash
+case "$1" in
+    get-volume) echo "Volume: 0.50" ;;
+    set-volume) echo "volume $3" >>"$MOCK_SYS_LOG" ;;
+    set-mute) echo "mute $3" >>"$MOCK_SYS_LOG" ;;
+esac
+MOCK_WP
+    cat >"$sys_sandbox/nmcli" <<'MOCK_NM'
+#!/usr/bin/env bash
+case "$2 $3" in
+    "wifi on") echo "wifi on" >>"$MOCK_SYS_LOG" ;;
+    "wifi off") echo "wifi off" >>"$MOCK_SYS_LOG" ;;
+    "radio wifi") echo enabled ;;
+    *) echo enabled ;;
+esac
+MOCK_NM
+    cat >"$sys_sandbox/timedatectl" <<'MOCK_TD'
+#!/usr/bin/env bash
+case "$1 $2" in
+    "-p NTP") echo yes ;;
+    "show -p") echo yes ;;
+    "set-ntp"*) echo "ntp $2" >>"$MOCK_SYS_LOG" ;;
+esac
+MOCK_TD
+    chmod +x "$sys_sandbox"/powerprofilesctl "$sys_sandbox"/brightnessctl "$sys_sandbox"/wpctl "$sys_sandbox"/nmcli "$sys_sandbox"/timedatectl
+
+    export WORKSTATION_SYSTEM_SETTINGS_POWERPROFILES_BIN="$sys_sandbox/powerprofilesctl"
+    export WORKSTATION_SYSTEM_SETTINGS_BRIGHTNESS_BIN="$sys_sandbox/brightnessctl"
+    export WORKSTATION_SYSTEM_SETTINGS_WPCTL_BIN="$sys_sandbox/wpctl"
+    export WORKSTATION_SYSTEM_SETTINGS_NMCLI_BIN="$sys_sandbox/nmcli"
+    export WORKSTATION_SYSTEM_SETTINGS_TIMEDATECTL_BIN="$sys_sandbox/timedatectl"
+    export MOCK_SYS_LOG="$sys_log"
+
+    if "$system_backend" status | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+by_id = {o["id"]: o for o in d["options"]}
+assert by_id["system.power.profile"]["effective"] == "balanced"
+assert by_id["system.display.brightness"]["effective"] == "50"
+assert by_id["system.audio.output_volume"]["effective"] == "50"
+assert by_id["system.audio.output_mute"]["effective"] == "false"
+assert by_id["system.network.wifi_enabled"]["effective"] == "true"
+assert by_id["system.time.ntp"]["effective"] == "true"
+' >/dev/null; then
+        pass "[sandbox] system settings status reads every live option"
+    else
+        fail "[sandbox] system settings status is wrong"
+    fi
+
+    if "$system_backend" set system.power.profile performance >/dev/null &&
+       "$system_backend" set system.display.brightness 40 >/dev/null &&
+       "$system_backend" set system.audio.output_volume 35 >/dev/null &&
+       "$system_backend" set system.audio.output_mute true >/dev/null &&
+       "$system_backend" set system.network.wifi_enabled false >/dev/null &&
+       "$system_backend" set system.time.ntp false >/dev/null &&
+       grep -q '^power performance$' "$sys_log" &&
+       grep -q '^brightness 40%$' "$sys_log" &&
+       grep -q '^volume 35%$' "$sys_log" &&
+       grep -q '^mute 1$' "$sys_log" &&
+       grep -q '^wifi off$' "$sys_log"; then
+        pass "[sandbox] system settings apply through the owning tools"
+    else
+        fail "[sandbox] system settings apply routing is wrong"
+    fi
+
+    sys_rejected=0
+    "$system_backend" set system.power.profile banana >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set system.display.brightness 0 >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set system.display.brightness 200 >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set system.audio.output_volume 101 >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set bogus.option 1 >/dev/null 2>&1 && sys_rejected=1
+    if [[ "$sys_rejected" -eq 0 ]]; then
+        pass "[sandbox] system settings invalid values fail closed"
+    else
+        fail "[sandbox] system settings accepted an invalid value"
+    fi
+
+    unset WORKSTATION_SYSTEM_SETTINGS_POWERPROFILES_BIN WORKSTATION_SYSTEM_SETTINGS_BRIGHTNESS_BIN \
+        WORKSTATION_SYSTEM_SETTINGS_WPCTL_BIN WORKSTATION_SYSTEM_SETTINGS_NMCLI_BIN \
+        WORKSTATION_SYSTEM_SETTINGS_TIMEDATECTL_BIN MOCK_SYS_LOG
+    rm -rf -- "$sys_sandbox"
+else
+    fail "[static] workstation-system-settings backend is missing"
 fi
 
 # ---------------------------------------------------------------------------

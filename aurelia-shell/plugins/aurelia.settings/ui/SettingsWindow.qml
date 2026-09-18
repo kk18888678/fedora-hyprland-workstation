@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import "SettingsRows.js" as SettingsRows
+import "SettingsBackends.js" as SettingsBackends
 import "../../../theme"
 import "."
 
@@ -64,6 +65,14 @@ PanelWindow {
     property bool statusReady: false
     property bool pendingClearConfirm: false
 
+    // System settings backend (power/audio/network/time). It is loaded in
+    // addition to the Hyprland backend and routed by the "system." id prefix.
+    property var hyprSchemas: []
+    property var systemSchemas: []
+    property var hyprStatusMap: ({})
+    property var systemStatusMap: ({})
+    property bool systemSchemaReady: false
+
     // Color picker modal state. The picker itself is presentation-only; the
     // window owns the mutation once a value is accepted.
     property string colorPickerOptionId: ""
@@ -87,6 +96,9 @@ PanelWindow {
     property string backendBin: "/usr/local/bin/workstation-hypr-settings"
     property bool checkoutAureliaAvailable: false
     property string aureliaBinDir: "/usr/local/bin"
+
+    property string systemBackendBin: "/usr/local/bin/workstation-system-settings"
+    property bool systemBackendAvailable: false
 
     function helperBin(name) {
         return aureliaBinDir + "/" + name
@@ -178,10 +190,8 @@ PanelWindow {
             }
             try {
                 var parsed = JSON.parse(schemaStdout.text || "[]")
-                var map = {}
-                for (var i = 0; i < parsed.length; i++) map[parsed[i].id] = parsed[i]
-                root.schemas = parsed
-                root.schemaMap = map
+                root.hyprSchemas = parsed
+                root.mergeSchemas()
                 root.schemaReady = true
                 root.footerText = "Loading live state…"
                 root.refreshStatus()
@@ -210,7 +220,7 @@ PanelWindow {
                 for (var i = 0; i < parsed.options.length; i++) {
                     map[parsed.options[i].id] = parsed.options[i]
                 }
-                root.statusMap = map
+                root.hyprStatusMap = map
                 root.statusMeta = {
                     hyprctlAvailable: parsed.hyprctlAvailable === true,
                     settingsPath: String(parsed.settingsPath || "")
@@ -220,10 +230,75 @@ PanelWindow {
                 root.footerText = root.statusMeta.hyprctlAvailable
                     ? "Ready — changes apply live"
                     : "Ready — Hyprland not reachable; changes apply on reload"
-                root.rebuildRows()
+                root.mergeStatus()
             } catch (error) {
                 root.footerText = "Live state returned invalid data."
                 console.warn("[SETTINGS] status_parse_failed")
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // System settings backend (bounded, loaded alongside the Hyprland backend)
+    // ------------------------------------------------------------------
+    Process {
+        id: systemProbe
+        command: []
+        onExited: function(code) {
+            root.systemBackendAvailable = (code === 0)
+            if (code !== 0) return
+            systemSchemaProcess.command = [root.systemBackendBin, "schema"]
+            systemSchemaProcess.running = true
+        }
+    }
+
+    Process {
+        id: systemSchemaProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: systemSchemaStdout }
+        stderr: StdioCollector { id: systemSchemaStderr }
+        onExited: function(code) {
+            if (code !== 0) {
+                console.warn("[SETTINGS] system_schema_unavailable")
+                return
+            }
+            try {
+                root.systemSchemas = JSON.parse(systemSchemaStdout.text || "[]")
+                root.systemSchemaReady = true
+                root.mergeSchemas()
+                root.refreshSystemStatus()
+            } catch (error) {
+                console.warn("[SETTINGS] system_schema_parse_failed")
+            }
+        }
+    }
+
+    Process {
+        id: systemStatusProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: systemStatusStdout }
+        stderr: StdioCollector { id: systemStatusStderr }
+        onExited: function(code) {
+            if (code !== 0) {
+                console.warn("[SETTINGS] system_status_unavailable")
+                return
+            }
+            try {
+                var parsed = JSON.parse(systemStatusStdout.text || "{}")
+                var map = {}
+                if (Array.isArray(parsed.options)) {
+                    for (var i = 0; i < parsed.options.length; i++) {
+                        map[parsed.options[i].id] = parsed.options[i]
+                    }
+                }
+                root.systemStatusMap = map
+                root.mergeStatus()
+            } catch (error) {
+                console.warn("[SETTINGS] system_status_parse_failed")
             }
         }
     }
@@ -424,6 +499,12 @@ PanelWindow {
     }
 
     function start() {
+        // Derive the system backend from the resolved Hyprland backend so both
+        // resolve from the same root (checkout or /usr/local/bin).
+        root.systemBackendBin = String(root.backendBin).replace(
+            /workstation-hypr-settings$/, "workstation-system-settings")
+        systemProbe.command = ["/usr/bin/test", "-x", root.systemBackendBin]
+        systemProbe.running = true
         schemaProcess.command = [root.backendBin, "schema"]
         schemaProcess.running = true
         pingProcess.command = [root.helperBin("aurelia-shell"), "shell", "ping"]
@@ -434,10 +515,12 @@ PanelWindow {
     function refreshStatus() {
         // Never run with the unresolved fallback path: only query once a real
         // backend is confirmed (probes complete with checkout or installed).
-        if (!(checkoutBackendAvailable || installedBackendAvailable)) return
-        if (backendBin === "/usr/local/bin/workstation-hypr-settings" && !installedBackendAvailable) return
-        statusProcess.command = [root.backendBin, "status"]
-        statusProcess.running = true
+        if ((checkoutBackendAvailable || installedBackendAvailable) &&
+            !(backendBin === "/usr/local/bin/workstation-hypr-settings" && !installedBackendAvailable)) {
+            statusProcess.command = [root.backendBin, "status"]
+            statusProcess.running = true
+        }
+        root.refreshSystemStatus()
     }
 
     function refreshAurelia() {
@@ -511,10 +594,16 @@ PanelWindow {
     // User intent
     // ------------------------------------------------------------------
     function applyOption(optionId, value) {
-        if (!schemaReady || optionId === "" || busy) return
+        if (optionId === "" || busy) return
+        // System and Hyprland backends load independently; apply once the
+        // owning backend's schema is ready.
+        var ready = SettingsBackends.isSystemOption(optionId) ? root.systemSchemaReady : root.schemaReady
+        if (!ready) return
         busy = true
         footerText = "Applying " + optionId + " …"
-        applyProcess.command = [root.backendBin, "set", optionId, String(value)]
+        applyProcess.command = [
+            SettingsBackends.backendFor(optionId, root.backendBin, root.systemBackendBin),
+            "set", optionId, String(value)]
         applyProcess.running = true
     }
 
@@ -610,6 +699,24 @@ PanelWindow {
     // ------------------------------------------------------------------
     // Page projection
     // ------------------------------------------------------------------
+    function mergeSchemas() {
+        var all = SettingsBackends.mergeSchemas(root.hyprSchemas, root.systemSchemas)
+        root.schemas = all
+        root.schemaMap = SettingsBackends.schemaMap(all)
+        root.rebuildRows()
+    }
+
+    function mergeStatus() {
+        root.statusMap = SettingsBackends.mergeStatusMaps(root.hyprStatusMap, root.systemStatusMap)
+        root.rebuildRows()
+    }
+
+    function refreshSystemStatus() {
+        if (!root.systemBackendAvailable || !root.systemSchemaReady) return
+        systemStatusProcess.command = [root.systemBackendBin, "status"]
+        systemStatusProcess.running = true
+    }
+
     function rebuildRows() {
         if (!schemaReady) return
         pageRows = SettingsRows.buildRows(activeSection, root.schemas, root.statusMap, root.aureliaState)

@@ -65,6 +65,13 @@ install_workstation_hypr_settings() {
         "workstation-hypr-settings"
 }
 
+install_workstation_system_settings() {
+    install_root_cli_file \
+        "$SCRIPT_DIR/bin/workstation-system-settings" \
+        "/usr/local/bin/workstation-system-settings" \
+        "workstation-system-settings"
+}
+
 # Unified `aurelia` command center CLI plus the bounded IPC client. Both are
 # self-contained scripts (no lib trees); the dispatcher resolves the remaining
 # aurelia-* backends at runtime from the shell root or installed root.
@@ -1257,6 +1264,7 @@ install_desktop() {
     validate_desktop_shell_selection
     deploy_hyprland_config
     install_workstation_hypr_settings
+    install_workstation_system_settings
     install_aurelia_cli
     deploy_session_shell_selection
     if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]]; then

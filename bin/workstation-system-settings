@@ -1,0 +1,373 @@
+#!/usr/bin/env bash
+# workstation-system-settings — bounded user-level system settings backend.
+#
+# Exposes a small, validated set of live system settings to the Aurelia
+# settings hub: power profile, display brightness, default audio output, and
+# Wi-Fi/NTP toggles. Every operation is a bounded, single-purpose command run
+# as the invoking user (never root); authorization is whatever polkit/logind
+# grants the active session, and failures are reported, never hidden.
+#
+# Safety invariants:
+#   * strict option schema: unknown ids and invalid values fail closed
+#   * bounded external operations (timeout around every tool call)
+#   * no configuration files are written by this backend; it applies live
+#     state through the owning tool so the tool remains the single owner
+#   * a missing tool degrades to read-only defaults and a clear write error
+
+set -Eeuo pipefail
+
+PROG="workstation-system-settings"
+
+# ---------------------------------------------------------------------------
+# Bounded external operations
+# ---------------------------------------------------------------------------
+TIME_BIN="${WORKSTATION_SYSTEM_SETTINGS_TIMEOUT_BIN:-$(command -v timeout || true)}"
+if [[ -z "$TIME_BIN" ]]; then
+    printf '%s\n' "Error: timeout is required." >&2
+    exit 1
+fi
+
+tool_bin() {
+    local override="$1" name="$2"
+    if [[ -n "$override" && -x "$override" ]]; then
+        printf '%s\n' "$override"
+        return 0
+    fi
+    command -v "$name" 2>/dev/null || true
+}
+
+POWERPROFILES_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_POWERPROFILES_BIN:-}" powerprofilesctl)"
+BRIGHTNESS_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_BRIGHTNESS_BIN:-}" brightnessctl)"
+WPCTL_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_WPCTL_BIN:-}" wpctl)"
+NMCLI_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_NMCLI_BIN:-}" nmcli)"
+TIMEDATECTL_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_TIMEDATECTL_BIN:-}" timedatectl)"
+
+bounded() {
+    "$TIME_BIN" --kill-after=1s 5s "$@"
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Option schema registry
+# ---------------------------------------------------------------------------
+# Fields: id|type|min|max|enum|category|default|label|description
+# Types: bool, int, enum
+option_specs() {
+    cat <<'EOF'
+system.power.profile|enum|||power-saver,balanced,performance|power|balanced|Power Profile|CPU and GPU power/performance balance
+system.display.brightness|int|1|100||display|-|Screen Brightness|Brightness of the primary display (%)
+system.audio.output_volume|int|0|100||audio|-|Output Volume|Volume of the default audio output (%)
+system.audio.output_mute|bool||||audio|false|Mute Output|Mute the default audio output
+system.network.wifi_enabled|bool||||network|-|Wi-Fi|Enable the Wi-Fi radio
+system.time.ntp|bool||||time|-|Automatic Time|Synchronize the clock with network time
+EOF
+}
+
+spec_for() {
+    option_specs | awk -F'|' -v id="$1" '$1 == id { print }'
+}
+
+spec_field() {
+    printf '%s\n' "$1" | awk -F'|' -v n="$2" '{ print $n }'
+}
+
+# ---------------------------------------------------------------------------
+# Value validation
+# ---------------------------------------------------------------------------
+validate_value() {
+    local id="$1" value="$2" spec type min max enum
+    spec="$(spec_for "$id")"
+    [[ -n "$spec" ]] || fail "unknown option id: $id"
+    type="$(spec_field "$spec" 2)"
+    min="$(spec_field "$spec" 3)"
+    max="$(spec_field "$spec" 4)"
+    enum="$(spec_field "$spec" 5)"
+
+    case "$type" in
+        bool)
+            case "$value" in
+                true|1)  printf '%s\n' true ;;
+                false|0) printf '%s\n' false ;;
+                *) fail "invalid boolean value for $id: $value" ;;
+            esac
+            ;;
+        int)
+            [[ "$value" =~ ^-?[0-9]+$ ]] || fail "invalid integer for $id: $value"
+            if [[ -n "$min" && "$value" -lt "$min" ]]; then
+                fail "value for $id below minimum $min"
+            fi
+            if [[ -n "$max" && "$value" -gt "$max" ]]; then
+                fail "value for $id above maximum $max"
+            fi
+            printf '%s\n' "$value"
+            ;;
+        enum)
+            local found=0 entry IFS=','
+            for entry in $enum; do
+                if [[ "$value" == "$entry" ]]; then
+                    found=1
+                    break
+                fi
+            done
+            (( found == 1 )) || fail "invalid value for $id: $value (expected one of: $enum)"
+            printf '%s\n' "$value"
+            ;;
+        *)
+            fail "unsupported schema type for $id: $type"
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Readers (one per option; all bounded, none fatal)
+# ---------------------------------------------------------------------------
+read_power_profile() {
+    [[ -n "$POWERPROFILES_BIN" ]] || return 1
+    local out
+    out="$(bounded "$POWERPROFILES_BIN" get 2>/dev/null | head -n 1 || true)"
+    [[ "$out" == "power-saver" || "$out" == "balanced" || "$out" == "performance" ]] || return 1
+    printf '%s\n' "$out"
+}
+
+read_brightness() {
+    [[ -n "$BRIGHTNESS_BIN" ]] || return 1
+    local cur max
+    cur="$(bounded "$BRIGHTNESS_BIN" get 2>/dev/null | head -n 1 || true)"
+    max="$(bounded "$BRIGHTNESS_BIN" max 2>/dev/null | head -n 1 || true)"
+    [[ "$cur" =~ ^[0-9]+$ && "$max" =~ ^[0-9]+$ ]] || return 1
+    (( max > 0 )) || return 1
+    awk -v c="$cur" -v m="$max" 'BEGIN { p = int(c * 100 / m + 0.5); if (p < 1) p = 1; if (p > 100) p = 100; print p }'
+}
+
+read_audio_volume() {
+    [[ -n "$WPCTL_BIN" ]] || return 1
+    local out
+    out="$(bounded "$WPCTL_BIN" get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | head -n 1 || true)"
+    [[ "$out" =~ Volume:[[:space:]]+([0-9.]+) ]] || return 1
+    awk -v v="${BASH_REMATCH[1]}" 'BEGIN { p = int(v * 100 + 0.5); if (p < 0) p = 0; if (p > 100) p = 100; print p }'
+}
+
+read_audio_mute() {
+    [[ -n "$WPCTL_BIN" ]] || return 1
+    local out
+    out="$(bounded "$WPCTL_BIN" get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | head -n 1 || true)"
+    [[ -n "$out" ]] || return 1
+    if [[ "$out" == *MUTED* ]]; then printf 'true\n'; else printf 'false\n'; fi
+}
+
+read_wifi_enabled() {
+    [[ -n "$NMCLI_BIN" ]] || return 1
+    local out
+    out="$(bounded "$NMCLI_BIN" radio wifi 2>/dev/null | head -n 1 || true)"
+    case "$out" in
+        enabled) printf 'true\n' ;;
+        disabled) printf 'false\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+read_ntp() {
+    [[ -n "$TIMEDATECTL_BIN" ]] || return 1
+    local out
+    out="$(bounded "$TIMEDATECTL_BIN" show -p NTP --value 2>/dev/null | head -n 1 || true)"
+    case "$out" in
+        yes) printf 'true\n' ;;
+        no) printf 'false\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+read_value() {
+    local id="$1"
+    case "$id" in
+        system.power.profile) read_power_profile ;;
+        system.display.brightness) read_brightness ;;
+        system.audio.output_volume) read_audio_volume ;;
+        system.audio.output_mute) read_audio_mute ;;
+        system.network.wifi_enabled) read_wifi_enabled ;;
+        system.time.ntp) read_ntp ;;
+        *) return 1 ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Writers (one per option; bounded, output discarded, failure reported)
+# ---------------------------------------------------------------------------
+write_value() {
+    local id="$1" value="$2"
+    case "$id" in
+        system.power.profile)
+            [[ -n "$POWERPROFILES_BIN" ]] || fail "powerprofilesctl is not available"
+            bounded "$POWERPROFILES_BIN" set "$value" >/dev/null 2>&1 ||
+                fail "could not set power profile (polkit may have denied the request)"
+            ;;
+        system.display.brightness)
+            [[ -n "$BRIGHTNESS_BIN" ]] || fail "brightnessctl is not available"
+            bounded "$BRIGHTNESS_BIN" set "$value%" >/dev/null 2>&1 ||
+                fail "could not set display brightness"
+            ;;
+        system.audio.output_volume)
+            [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
+            bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SINK@ "$value%" >/dev/null 2>&1 ||
+                fail "could not set output volume"
+            ;;
+        system.audio.output_mute)
+            [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
+            local mute_flag=0
+            [[ "$value" == "true" ]] && mute_flag=1
+            bounded "$WPCTL_BIN" set-mute @DEFAULT_AUDIO_SINK@ "$mute_flag" >/dev/null 2>&1 ||
+                fail "could not change output mute state"
+            ;;
+        system.network.wifi_enabled)
+            [[ -n "$NMCLI_BIN" ]] || fail "nmcli is not available"
+            local radio="off"
+            [[ "$value" == "true" ]] && radio="on"
+            bounded "$NMCLI_BIN" radio wifi "$radio" >/dev/null 2>&1 ||
+                fail "could not change the Wi-Fi radio (polkit may have denied the request)"
+            ;;
+        system.time.ntp)
+            [[ -n "$TIMEDATECTL_BIN" ]] || fail "timedatectl is not available"
+            bounded "$TIMEDATECTL_BIN" set-ntp "$value" >/dev/null 2>&1 ||
+                fail "could not change automatic time (polkit may have denied the request)"
+            ;;
+        *)
+            fail "unknown option id: $id"
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# JSON helpers
+# ---------------------------------------------------------------------------
+json_string() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '"%s"' "$s"
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+cmd_schema() {
+    printf '[\n'
+    local first=1 line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        (( first )) || printf ',\n'
+        first=0
+        printf '  { "id": %s, "type": %s, "min": %s, "max": %s, "enum": %s, "category": %s, "default": %s, "label": %s, "description": %s }' \
+            "$(json_string "$(spec_field "$line" 1)")" \
+            "$(json_string "$(spec_field "$line" 2)")" \
+            "$(json_string "$(spec_field "$line" 3)")" \
+            "$(json_string "$(spec_field "$line" 4)")" \
+            "$(json_string "$(spec_field "$line" 5)")" \
+            "$(json_string "$(spec_field "$line" 6)")" \
+            "$(json_string "$(spec_field "$line" 7)")" \
+            "$(json_string "$(spec_field "$line" 8)")" \
+            "$(json_string "$(spec_field "$line" 9)")"
+    done < <(option_specs)
+    printf '\n]\n'
+}
+
+cmd_status() {
+    local first=1 line id live effective source default_val
+    printf '{\n  "options": ['
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        id="$(spec_field "$line" 1)"
+        default_val="$(spec_field "$line" 7)"
+        live=""
+        if live="$(read_value "$id" 2>/dev/null)"; then
+            effective="$live"
+            source="live"
+        else
+            live=""
+            effective="${default_val:--}"
+            source="default"
+        fi
+        (( first )) || printf ',\n'
+        first=0
+        printf '    { "id": %s, "label": %s, "category": %s, "type": %s, "default": %s, "live": %s, "effective": %s, "source": %s }' \
+            "$(json_string "$id")" \
+            "$(json_string "$(spec_field "$line" 8)")" \
+            "$(json_string "$(spec_field "$line" 6)")" \
+            "$(json_string "$(spec_field "$line" 2)")" \
+            "$(json_string "$default_val")" \
+            "$([[ -n "$live" ]] && json_string "$live" || printf null)" \
+            "$(json_string "$effective")" \
+            "$(json_string "$source")"
+    done < <(option_specs)
+    printf '\n  ]\n}\n'
+}
+
+cmd_get() {
+    local id="$1" value
+    [[ -n "$(spec_for "$id")" ]] || fail "unknown option id: $id"
+    if value="$(read_value "$id" 2>/dev/null)"; then
+        printf '%s\n' "$value"
+        return 0
+    fi
+    printf '%s\n' "$(spec_field "$(spec_for "$id")" 7)"
+}
+
+cmd_set() {
+    local id="$1" value="$2"
+    [[ -n "$(spec_for "$id")" ]] || fail "unknown option id: $id"
+    value="$(validate_value "$id" "$value")"
+    write_value "$id" "$value"
+    printf 'Set %s = %s.\n' "$id" "$value"
+}
+
+cmd_check() {
+    printf 'backend: %s\n' "$PROG"
+    printf 'powerprofilesctl: %s\n' "${POWERPROFILES_BIN:-unavailable}"
+    printf 'brightnessctl: %s\n' "${BRIGHTNESS_BIN:-unavailable}"
+    printf 'wpctl: %s\n' "${WPCTL_BIN:-unavailable}"
+    printf 'nmcli: %s\n' "${NMCLI_BIN:-unavailable}"
+    printf 'timedatectl: %s\n' "${TIMEDATECTL_BIN:-unavailable}"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage: workstation-system-settings <command> [args]
+
+Commands:
+  schema            Print the option registry as JSON.
+  status            Print effective per-option state (JSON).
+  get <id>          Print the effective value of one option.
+  set <id> <value>  Validate and apply one option live.
+  check             Report tool availability.
+
+Options cover power profile, display brightness, default audio output, Wi-Fi
+radio, and automatic time. Commands run as the invoking user; authorization is
+whatever polkit/logind grants the active session.
+USAGE
+}
+
+main() {
+    local cmd="${1:-}"
+    [[ -n "$cmd" ]] || { usage; exit 2; }
+    shift || true
+    case "$cmd" in
+        -h|--help|help) usage ;;
+        schema) cmd_schema ;;
+        status) cmd_status ;;
+        get)
+            [[ $# -eq 1 ]] || fail "usage: $PROG get <id>"
+            cmd_get "$1"
+            ;;
+        set)
+            [[ $# -eq 2 ]] || fail "usage: $PROG set <id> <value>"
+            cmd_set "$1" "$2"
+            ;;
+        check) cmd_check ;;
+        *) fail "unknown command: $cmd (see --help)" ;;
+    esac
+}
+
+main "$@"

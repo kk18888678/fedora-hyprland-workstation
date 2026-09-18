@@ -63,6 +63,9 @@ RowLayout {
                 if (unit === "%") {
                     return Math.round(raw * 100) + "%"
                 }
+                if (unit === "pct") {
+                    return Math.round(raw) + "%"
+                }
                 if (Math.round(raw) === raw) return String(Math.round(raw)) + (unit ? " " + unit : "")
                 return String(Number(raw).toFixed(2)) + (unit ? " " + unit : "")
             }

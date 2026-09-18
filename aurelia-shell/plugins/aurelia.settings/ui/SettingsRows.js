@@ -147,6 +147,9 @@ function displayEnum(value) {
         case "snappy": return "Snappy"
         case "relaxed": return "Relaxed"
         case "off": return "Off"
+        case "power-saver": return "Power Saver"
+        case "balanced": return "Balanced"
+        case "performance": return "Performance"
         default: return String(value)
     }
 }
@@ -168,6 +171,9 @@ function unitFor(id) {
         case "decoration.inactive_opacity":
         case "decoration.fullscreen_opacity":
             return "%"
+        case "system.display.brightness":
+        case "system.audio.output_volume":
+            return "pct"
         default:
             return ""
     }
@@ -184,6 +190,14 @@ function sections() {
           categories: ["input"], schema: true },
         { id: "hypr-workspaces", name: "Workspaces", icon: "preferences-desktop-wallpaper",
           categories: ["workspaces"], schema: true },
+        { id: "power", name: "Power", icon: "battery",
+          categories: ["power", "display"], schema: true },
+        { id: "audio", name: "Audio", icon: "audio-volume-high",
+          categories: ["audio"], schema: true },
+        { id: "network", name: "Network", icon: "network-wireless",
+          categories: ["network"], schema: true },
+        { id: "time", name: "Date & Time", icon: "preferences-system-time",
+          categories: ["time"], schema: true },
         { id: "defaults", name: "Defaults", icon: "preferences-desktop-apps",
           categories: [], schema: false, defaults: true },
         { id: "aurelia", name: "Aurelia Shell", icon: "display",
@@ -400,6 +414,11 @@ function headingName(category) {
         case "input": return "Input"
         case "animations": return "Animations"
         case "workspaces": return "Workspaces"
+        case "power": return "Power"
+        case "display": return "Display"
+        case "audio": return "Audio"
+        case "network": return "Network"
+        case "time": return "Date & Time"
         default: return category
     }
 }
