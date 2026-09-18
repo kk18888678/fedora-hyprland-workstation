@@ -25,7 +25,80 @@ function schemaRow(schema, status) {
         source: status ? status.source : "default",
         override: status ? status.override : ""
     }
+    // A few backend options are free-form strings that benefit from a curated
+    // picker while still accepting arbitrary values (editable combo).
+    if (schema.id === "input.kb_layout") {
+        descriptor.kind = "combo"
+        descriptor.editable = true
+        descriptor.enumOptions = keyboardLayoutOptions(descriptor.effective)
+    }
     return descriptor
+}
+
+// Curated keyboard layouts. The backend still validates kb_layout as a free
+// string, so the picker is editable and never blocks a custom layout.
+function keyboardLayoutOptions(current) {
+    var codes = ["us", "gb", "de", "fr", "es", "it", "pt", "nl", "se", "no",
+        "dk", "fi", "pl", "cz", "sk", "hu", "ro", "bg", "gr", "tr",
+        "ru", "ua", "il", "jp", "kr", "cn", "in", "br", "ca", "ch",
+        "be", "at", "ie", "mx", "vn", "th"]
+    var options = []
+    for (var i = 0; i < codes.length; i++) {
+        options.push({ value: codes[i], label: layoutLabel(codes[i]) })
+    }
+    var cur = String(current || "").trim()
+    if (cur !== "" && !layoutKnown(cur)) options.unshift({ value: cur, label: cur })
+    return options
+}
+
+function layoutKnown(value) {
+    var codes = ["us", "gb", "de", "fr", "es", "it", "pt", "nl", "se", "no",
+        "dk", "fi", "pl", "cz", "sk", "hu", "ro", "bg", "gr", "tr",
+        "ru", "ua", "il", "jp", "kr", "cn", "in", "br", "ca", "ch",
+        "be", "at", "ie", "mx", "vn", "th"]
+    for (var i = 0; i < codes.length; i++) {
+        if (codes[i] === value) return true
+    }
+    return false
+}
+
+function layoutLabel(code) {
+    var labels = {
+        us: "English (US)", gb: "English (UK)", de: "German", fr: "French",
+        es: "Spanish", it: "Italian", pt: "Portuguese", nl: "Dutch",
+        se: "Swedish", no: "Norwegian", dk: "Danish", fi: "Finnish",
+        pl: "Polish", cz: "Czech", sk: "Slovak", hu: "Hungarian",
+        ro: "Romanian", bg: "Bulgarian", gr: "Greek", tr: "Turkish",
+        ru: "Russian", ua: "Ukrainian", il: "Hebrew", jp: "Japanese",
+        kr: "Korean", cn: "Chinese", in: "Indian", br: "Portuguese (Brazil)",
+        ca: "English (Canada)", ch: "German (Switzerland)", be: "Belgian",
+        at: "German (Austria)", ie: "English (Ireland)", mx: "Spanish (Mexico)",
+        vn: "Vietnamese", th: "Thai"
+    }
+    return labels[code] || code.toUpperCase()
+}
+
+// Application-defaults picker options for one role. An empty value means
+// "no explicit default", which the window maps to a reset.
+function roleOptions(role, choices, current) {
+    var options = [{ value: "", label: "System default" }]
+    var list = choices && choices[role] ? choices[role] : []
+    var seen = {}
+    for (var i = 0; i < list.length; i++) {
+        var id = String(list[i])
+        if (id === "" || seen[id]) continue
+        seen[id] = true
+        options.push({ value: id, label: displayAppId(id) })
+    }
+    var cur = String(current || "")
+    if (cur !== "" && !seen[cur]) options.push({ value: cur, label: displayAppId(cur) })
+    return options
+}
+
+function displayAppId(id) {
+    var name = String(id)
+    if (name.slice(-8) === ".desktop") name = name.slice(0, -8)
+    return name
 }
 
 function normalizeStatus(status, type) {
@@ -178,22 +251,19 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
         ]
         for (var d = 0; d < defRoles.length; d++) {
             var role = defRoles[d].role
-            var current = (aurelia && aurelia.defaults && aurelia.defaults.currents)
-                ? (aurelia.defaults.currents[role] || "Not set") : "…"
+            var currents = aurelia && aurelia.defaults ? aurelia.defaults.currents : null
+            var choices = aurelia && aurelia.defaults ? aurelia.defaults.choices : null
+            var current = currents ? String(currents[role] || "") : ""
             rows.push({
-                kind: "info",
-                id: role,
+                kind: "combo",
+                id: "defaults." + role,
                 title: defRoles[d].name,
-                value: current,
-                description: defRoles[d].desc
+                description: defRoles[d].desc,
+                enumOptions: roleOptions(role, choices, current),
+                effective: current,
+                defaultValue: ""
             })
         }
-        rows.push({
-            kind: "info",
-            title: "Change a default",
-            value: "terminal",
-            description: "Edit ~/.config/workstation/desktop.conf with <role>.default=<desktop-id> (e.g. browser.default=firefox.desktop), or run: workstation-app-defaults set <role> <app>. Resolved order: desktop.conf, then the XDG default."
-        })
         return rows
     }
 

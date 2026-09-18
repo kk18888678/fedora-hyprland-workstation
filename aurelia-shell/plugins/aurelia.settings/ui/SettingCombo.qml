@@ -13,6 +13,7 @@ RowLayout {
     property string effective: descriptor ? String(descriptor.effective || "") : ""
     property var enumOptions: descriptor && descriptor.enumOptions ? descriptor.enumOptions : []
     property string actionId: descriptor ? String(descriptor.actionId || "") : ""
+    property bool editable: descriptor ? descriptor.editable === true : false
 
     signal changed(var value)
 
@@ -56,6 +57,7 @@ RowLayout {
         model: root.enumOptions
         textRole: "label"
         valueRole: "value"
+        editable: root.editable
         placeholderText: root.effective
         currentIndex: {
             var index = -1
@@ -67,6 +69,9 @@ RowLayout {
         }
         onActivated: function(index) {
             root.changed(root.enumOptions[index].value)
+        }
+        onAccepted: {
+            if (root.editable) root.changed(String(editText || "").trim())
         }
     }
 }

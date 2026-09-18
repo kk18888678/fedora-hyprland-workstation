@@ -366,7 +366,29 @@ PanelWindow {
                     }
                 } catch (error) { console.warn("[SETTINGS] defaults_status_parse_failed") }
             }
-            root.applyAureliaDefaults({ currents: currents })
+            root.applyDefaultsPatch({ currents: currents })
+        }
+    }
+
+    Process {
+        id: defaultsChoicesProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: defaultsChoicesStdout }
+        onExited: function(code) {
+            var choices = {}
+            if (code === 0) {
+                try {
+                    var parsed = JSON.parse(defaultsChoicesStdout.text || "{}")
+                    if (parsed && typeof parsed === "object") {
+                        for (var role in parsed) {
+                            if (Array.isArray(parsed[role])) choices[role] = parsed[role]
+                        }
+                    }
+                } catch (error) { console.warn("[SETTINGS] defaults_choices_parse_failed") }
+            }
+            root.applyDefaultsPatch({ choices: choices })
         }
     }
 
@@ -444,19 +466,28 @@ PanelWindow {
         root.aureliaState = next // new object so onAureliaStateChanged fires
     }
 
-    // Defaults (workstation-app-defaults CLI; bounded single status query).
-    property var defaultsState: ({ currents: {}, ready: false })
+    // Defaults (workstation-app-defaults CLI; bounded status + choices queries).
+    property var defaultsState: ({ currents: {}, choices: {}, ready: false })
 
     function refreshDefaults() {
         defaultsStatusProcess.command = [root.resolveDefaultsCli(), "status"]
         defaultsStatusProcess.running = true
+        defaultsChoicesProcess.command = [root.resolveDefaultsCli(), "choices"]
+        defaultsChoicesProcess.running = true
     }
 
-    function applyAureliaDefaults(patch) {
+    function applyDefaultsPatch(patch) {
         // keep rows reactive: new objects all the way down
-        var next = { currents: {}, ready: true }
-        var src = patch.currents
-        for (var k in src) next.currents[k] = src[k]
+        var next = { currents: {}, choices: {}, ready: true }
+        var k
+        for (k in root.defaultsState.currents) next.currents[k] = root.defaultsState.currents[k]
+        for (k in root.defaultsState.choices) next.choices[k] = root.defaultsState.choices[k]
+        if (patch.currents) {
+            for (k in patch.currents) next.currents[k] = patch.currents[k]
+        }
+        if (patch.choices) {
+            for (k in patch.choices) next.choices[k] = patch.choices[k]
+        }
         root.defaultsState = next
         var nextState = {}
         var keys = ["ipcOnline", "themes", "currentTheme", "motionEnabled", "motionScale",
@@ -464,6 +495,16 @@ PanelWindow {
         for (var i = 0; i < keys.length; i++) nextState[keys[i]] = root.aureliaState[keys[i]]
         nextState.defaults = root.defaultsState
         root.aureliaState = nextState
+    }
+
+    function applyDefaultsOption(optionId, value) {
+        var role = String(optionId).slice("defaults.".length)
+        if (role === "") return
+        if (String(value) === "") {
+            runHelper([root.resolveDefaultsCli(), "reset", role], "Resetting " + role + "…")
+        } else {
+            runHelper([root.resolveDefaultsCli(), "set", role, String(value)], "Setting " + role + "…")
+        }
     }
 
     // ------------------------------------------------------------------
@@ -746,6 +787,8 @@ PanelWindow {
                     onChanged: function(optionId, value) {
                         if (String(optionId).indexOf("aurelia.") === 0) {
                             root.applyAureliaOption(optionId, value)
+                        } else if (String(optionId).indexOf("defaults.") === 0) {
+                            root.applyDefaultsOption(optionId, value)
                         } else {
                             root.applyOption(optionId, value)
                         }

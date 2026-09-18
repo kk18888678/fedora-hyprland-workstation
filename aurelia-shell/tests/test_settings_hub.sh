@@ -158,6 +158,58 @@ else
     skip "[unit] ColorUtils color contract (node unavailable)"
 fi
 
+# Defaults must be pickers, not file-edit instructions; kb_layout should be a
+# curated (but still free-form) selector.
+if command -v node >/dev/null 2>&1; then
+    rows_projection_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$rows_projection_test"
+    cat >>"$rows_projection_test" <<'ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState, schemaRow };
+ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const aurelia = Object.assign({}, SR.emptyAureliaState(), {
+    defaults: { currents: { terminal: "kitty.desktop" }, choices: { terminal: ["kitty.desktop"] } }
+});
+const rows = SR.buildRows("defaults", [], {}, aurelia);
+const kinds = rows.map(r => r.kind).join(",");
+const term = rows.find(r => r.id === "defaults.terminal");
+const kb = SR.schemaRow(
+    { id: "input.kb_layout", type: "str", min: "", max: "", enum: "",
+      category: "input", default: "us", label: "Keyboard Layout", description: "" },
+    { effective: "us,ru" });
+const ok = kinds === "heading,combo,combo,combo,combo,combo" &&
+    term.enumOptions[0].value === "" &&
+    term.enumOptions[1].value === "kitty.desktop" &&
+    kb.kind === "combo" && kb.editable === true &&
+    kb.enumOptions[0].value === "us,ru";
+process.exit(ok ? 0 : 1);
+' "$rows_projection_test" >/dev/null 2>&1; then
+        pass "[unit] defaults are pickers and kb_layout is an editable selector"
+    else
+        fail "[unit] defaults/kb_layout row projection contract failed"
+    fi
+    rm -f -- "$rows_projection_test"
+else
+    skip "[unit] defaults/kb_layout row projection (node unavailable)"
+fi
+
+if [[ -x "$repo_root/bin/workstation-app-defaults" ]]; then
+    if "$repo_root/bin/workstation-app-defaults" choices | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+roles = {"terminal", "file-manager", "browser", "editor", "email-client"}
+assert set(d.keys()) == roles, d.keys()
+assert all(isinstance(v, list) for v in d.values())
+' >/dev/null; then
+        pass "[unit] app-defaults choices JSON covers every role"
+    else
+        fail "[unit] app-defaults choices JSON is invalid"
+    fi
+else
+    skip "[unit] app-defaults choices JSON (CLI unavailable)"
+fi
+
 # ---------------------------------------------------------------------------
 # Sandbox behavior (mock hyprctl)
 # ---------------------------------------------------------------------------

@@ -99,7 +99,7 @@ list_choices() {
                 editor)
                     grep -qiE '^Categories=.*(TextEditor|Development|Utility)' "$f" || continue ;;
                 email-client)
-                    grep -qiE '^Categories=.*(Network|Office)' "$f" || continue ;;
+                    grep -qiE '^Categories=.*(Email|Mail)' "$f" || continue ;;
             esac
             entry="$(basename "$f")"
             local found=0
@@ -195,6 +195,33 @@ cmd_status() {
     printf '\n  ]\n}\n'
 }
 
+json_string() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '"%s"' "$s"
+}
+
+# All roles with their candidate desktop ids in one bounded call, so the
+# settings UI can render pickers without shelling out once per role.
+cmd_choices() {
+    printf '{\n'
+    local first=1 spec role app first_app
+    for spec in "${APP_ROLE_LABELS[@]}"; do
+        role="${spec%%:*}"
+        if (( first )); then first=0; else printf ',\n'; fi
+        printf '  "%s": [' "$role"
+        first_app=1
+        while IFS= read -r app; do
+            [[ -n "$app" ]] || continue
+            if (( first_app )); then first_app=0; else printf ', '; fi
+            json_string "$app"
+        done < <(list_choices "$role")
+        printf ']'
+    done
+    printf '\n}\n'
+}
+
 cmd_current() {
     local role="$1"
     resolve_current "$role"
@@ -206,6 +233,7 @@ Usage: workstation-app-defaults <command> [args]
 
   status                Show every role's current default (JSON).
   list <role>           List candidate .desktop ids for a role.
+  choices               Show every role's candidate .desktop ids (JSON).
   current <role>        Print the resolved default for one role.
   set <role> <app>      Persist <role>.default=<app> in desktop.conf.
   reset <role>          Remove the explicit default (XDG default reapplies).
@@ -222,6 +250,7 @@ case "$cmd" in
     help|-h|--help) usage ;;
     status) cmd_status ;;
     list) [[ $# -eq 1 ]] || fail "usage: $PROG list <role>"; list_choices "$1" ;;
+    choices) cmd_choices ;;
     current) [[ $# -eq 1 ]] || fail "usage: $PROG current <role>"; cmd_current "$1" ;;
     set) [[ $# -eq 2 ]] || fail "usage: $PROG set <role> <app>"; set_default "$1" "$2" ;;
     reset) [[ $# -eq 1 ]] || fail "usage: $PROG reset <role>"; reset_default "$1" ;;

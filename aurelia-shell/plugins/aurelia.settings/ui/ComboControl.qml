@@ -16,15 +16,49 @@ ComboBox {
     implicitWidth: 200
     implicitHeight: controlHeight
 
-    contentItem: Text {
-        leftPadding: Theme.spacingMd - 2
-        rightPadding: control.indicator.width + Theme.spacingSm
-        text: control.currentIndex >= 0 ? String(control.displayText || "") : control.placeholderText
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSm
-        color: control.currentIndex >= 0 ? Theme.controls.normalColor : Theme.textMuted
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+    // Editable combos use a real text field; read-only combos keep a plain
+    // Text so they never steal keyboard focus from popup navigation.
+    contentItem: Loader {
+        sourceComponent: control.editable ? editableContent : readonlyContent
+    }
+
+    Component {
+        id: editableContent
+        TextField {
+            leftPadding: Theme.spacingMd - 2
+            rightPadding: control.indicator.width + Theme.spacingSm
+            text: String(control.editText || "")
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSm
+            color: Theme.controls.normalColor
+            verticalAlignment: Text.AlignVCenter
+            background: null
+            selectByMouse: true
+            onTextEdited: control.editText = text
+            onAccepted: control.accepted()
+        }
+    }
+
+    Component {
+        id: readonlyContent
+        Text {
+            leftPadding: Theme.spacingMd - 2
+            rightPadding: control.indicator.width + Theme.spacingSm
+            text: control.currentIndex >= 0
+                ? String(control.displayText || "")
+                : String(control.placeholderText || "")
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSm
+            // Any shown value is real text; use the normal foreground. The
+            // muted tone is reserved for a genuinely empty control (no value,
+            // no placeholder), so selected values stay legible under every
+            // theme.
+            color: (control.currentIndex >= 0 || String(control.placeholderText || "") !== "")
+                ? Theme.controls.normalColor
+                : Theme.textMuted
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
     }
 
     indicator: Rectangle {
