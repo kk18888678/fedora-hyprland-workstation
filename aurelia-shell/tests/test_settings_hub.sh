@@ -47,6 +47,22 @@ if [[ "$missing_id" -eq 0 ]]; then
     pass "[static] option schema covers the required curated option set"
 fi
 
+if "$backend" schema | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+by_cat = {}
+for r in rows:
+    by_cat[r["category"]] = by_cat.get(r["category"], 0) + 1
+assert len(rows) >= 90, len(rows)
+for c in ["general", "decoration", "input", "misc", "animations", "workspaces",
+          "cursor", "binds", "master", "dwindle", "xwayland", "ecosystem"]:
+    assert by_cat.get(c, 0) > 0, c
+' >/dev/null; then
+    pass "[static] hyprland option registry is extensive and covers every section"
+else
+    fail "[static] hyprland option registry is incomplete"
+fi
+
 if grep -q 'fedora-hyprland-workstation/hypr-settings.lua' "$hyprland_lua" &&
    grep -q 'pcall(dofile, path)' "$hyprland_lua" &&
    grep -q 'hl.animation({' "$hyprland_lua" &&
@@ -247,13 +263,29 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# System settings backend (mock power/audio/network/time tools)
+# System settings backend (mock appearance/audio/bluetooth/network/time tools)
 # ---------------------------------------------------------------------------
 system_backend="$repo_root/bin/workstation-system-settings"
 if [[ -x "$system_backend" ]]; then
     sys_sandbox="$(mktemp -d)"
     sys_log="$sys_sandbox/applied.log"
+    gs_store="$sys_sandbox/gsettings.store"
     : >"$sys_log"
+    cat >"$gs_store" <<'GSINIT'
+gtk-theme='adw-gtk3-dark'
+icon-theme='Adwaita'
+cursor-theme='default'
+cursor-size=24
+color-scheme='prefer-dark'
+accent-color='blue'
+text-scaling-factor=1.0
+enable-animations=true
+show-battery-percentage=false
+clock-format='24h'
+clock-show-seconds=false
+clock-show-date=true
+clock-show-weekday=false
+GSINIT
     cat >"$sys_sandbox/powerprofilesctl" <<'MOCK_PP'
 #!/usr/bin/env bash
 case "$1" in
@@ -275,6 +307,8 @@ case "$1" in
     get-volume) echo "Volume: 0.50" ;;
     set-volume) echo "volume $3" >>"$MOCK_SYS_LOG" ;;
     set-mute) echo "mute $3" >>"$MOCK_SYS_LOG" ;;
+    set-default) echo "default $2" >>"$MOCK_SYS_LOG" ;;
+    status) printf 'Audio\n Sinks:\n  *   50. Built-in Analog        [vol: 0.50]\n Sources:\n  *   51. Built-in Analog        [vol: 0.50]\n' ;;
 esac
 MOCK_WP
     cat >"$sys_sandbox/nmcli" <<'MOCK_NM'
@@ -288,20 +322,50 @@ esac
 MOCK_NM
     cat >"$sys_sandbox/timedatectl" <<'MOCK_TD'
 #!/usr/bin/env bash
-case "$1 $2" in
-    "-p NTP") echo yes ;;
-    "show -p") echo yes ;;
-    "set-ntp"*) echo "ntp $2" >>"$MOCK_SYS_LOG" ;;
+case "$*" in
+    "show -p NTP --value") echo yes ;;
+    "show -p Timezone --value") echo UTC ;;
+    "list-timezones") printf 'UTC\nEurope/London\nAsia/Tokyo\n' ;;
+    "set-ntp "*) echo "ntp $2" >>"$MOCK_SYS_LOG" ;;
+    "set-timezone "*) echo "tz $2" >>"$MOCK_SYS_LOG" ;;
 esac
 MOCK_TD
-    chmod +x "$sys_sandbox"/powerprofilesctl "$sys_sandbox"/brightnessctl "$sys_sandbox"/wpctl "$sys_sandbox"/nmcli "$sys_sandbox"/timedatectl
+    cat >"$sys_sandbox/gsettings" <<'MOCK_GS'
+#!/usr/bin/env bash
+store="$MOCK_GS_STORE"
+case "$1" in
+    get)
+        grep -m1 "^$3=" "$store" 2>/dev/null | cut -d= -f2-
+        ;;
+    set)
+        if [[ -f "$store" ]]; then
+            grep -v "^$3=" "$store" >"$store.tmp" 2>/dev/null || true
+            mv "$store.tmp" "$store"
+        fi
+        printf '%s=%s\n' "$3" "$4" >>"$store"
+        ;;
+esac
+MOCK_GS
+    cat >"$sys_sandbox/bluetoothctl" <<'MOCK_BT'
+#!/usr/bin/env bash
+case "$1" in
+    show) printf '\tPowered: yes\n\tDiscoverable: no\n' ;;
+    power) echo "bt-power $2" >>"$MOCK_SYS_LOG" ;;
+    discoverable) echo "bt-discoverable $2" >>"$MOCK_SYS_LOG" ;;
+esac
+MOCK_BT
+    chmod +x "$sys_sandbox"/powerprofilesctl "$sys_sandbox"/brightnessctl "$sys_sandbox"/wpctl \
+        "$sys_sandbox"/nmcli "$sys_sandbox"/timedatectl "$sys_sandbox"/gsettings "$sys_sandbox"/bluetoothctl
 
     export WORKSTATION_SYSTEM_SETTINGS_POWERPROFILES_BIN="$sys_sandbox/powerprofilesctl"
     export WORKSTATION_SYSTEM_SETTINGS_BRIGHTNESS_BIN="$sys_sandbox/brightnessctl"
     export WORKSTATION_SYSTEM_SETTINGS_WPCTL_BIN="$sys_sandbox/wpctl"
     export WORKSTATION_SYSTEM_SETTINGS_NMCLI_BIN="$sys_sandbox/nmcli"
     export WORKSTATION_SYSTEM_SETTINGS_TIMEDATECTL_BIN="$sys_sandbox/timedatectl"
+    export WORKSTATION_SYSTEM_SETTINGS_GSETTINGS_BIN="$sys_sandbox/gsettings"
+    export WORKSTATION_SYSTEM_SETTINGS_BLUETOOTHCTL_BIN="$sys_sandbox/bluetoothctl"
     export MOCK_SYS_LOG="$sys_log"
+    export MOCK_GS_STORE="$gs_store"
 
     if "$system_backend" status | python3 -c '
 import json, sys
@@ -309,27 +373,60 @@ d = json.load(sys.stdin)
 by_id = {o["id"]: o for o in d["options"]}
 assert by_id["system.power.profile"]["effective"] == "balanced"
 assert by_id["system.display.brightness"]["effective"] == "50"
+assert by_id["system.appearance.gtk_theme"]["effective"] == "adw-gtk3-dark"
+assert by_id["system.appearance.cursor_size"]["effective"] == "24"
+assert by_id["system.appearance.color_scheme"]["effective"] == "prefer-dark"
 assert by_id["system.audio.output_volume"]["effective"] == "50"
-assert by_id["system.audio.output_mute"]["effective"] == "false"
+assert by_id["system.audio.output_device"]["effective"] == "50"
+assert by_id["system.audio.input_device"]["effective"] == "51"
+assert by_id["system.bluetooth.enabled"]["effective"] == "true"
 assert by_id["system.network.wifi_enabled"]["effective"] == "true"
 assert by_id["system.time.ntp"]["effective"] == "true"
+assert by_id["system.time.timezone"]["effective"] == "UTC"
+assert by_id["system.time.clock_24h"]["effective"] == "true"
+assert len(by_id["system.time.timezone"]["options"]) == 3
+assert any(o["value"] == "50" for o in by_id["system.audio.output_device"]["options"])
 ' >/dev/null; then
-        pass "[sandbox] system settings status reads every live option"
+        pass "[sandbox] system settings status reads appearance/audio/bluetooth/time"
     else
         fail "[sandbox] system settings status is wrong"
     fi
 
     if "$system_backend" set system.power.profile performance >/dev/null &&
        "$system_backend" set system.display.brightness 40 >/dev/null &&
+       "$system_backend" set system.appearance.gtk_theme adw-gtk3 >/dev/null &&
+       "$system_backend" set system.appearance.cursor_size 32 >/dev/null &&
+       "$system_backend" set system.appearance.color_scheme prefer-light >/dev/null &&
+       "$system_backend" set system.appearance.text_scaling 1.25 >/dev/null &&
+       "$system_backend" set system.appearance.enable_animations false >/dev/null &&
+       "$system_backend" set system.time.clock_24h false >/dev/null &&
+       "$system_backend" set system.time.show_seconds true >/dev/null &&
        "$system_backend" set system.audio.output_volume 35 >/dev/null &&
+       "$system_backend" set system.audio.input_volume 40 >/dev/null &&
        "$system_backend" set system.audio.output_mute true >/dev/null &&
+       "$system_backend" set system.audio.output_device 50 >/dev/null &&
+       "$system_backend" set system.bluetooth.enabled false >/dev/null &&
+       "$system_backend" set system.bluetooth.discoverable true >/dev/null &&
        "$system_backend" set system.network.wifi_enabled false >/dev/null &&
        "$system_backend" set system.time.ntp false >/dev/null &&
+       "$system_backend" set system.time.timezone UTC >/dev/null &&
        grep -q '^power performance$' "$sys_log" &&
        grep -q '^brightness 40%$' "$sys_log" &&
        grep -q '^volume 35%$' "$sys_log" &&
+       grep -q '^volume 40%$' "$sys_log" &&
        grep -q '^mute 1$' "$sys_log" &&
-       grep -q '^wifi off$' "$sys_log"; then
+       grep -q '^default 50$' "$sys_log" &&
+       grep -q '^bt-power off$' "$sys_log" &&
+       grep -q '^bt-discoverable on$' "$sys_log" &&
+       grep -q '^wifi off$' "$sys_log" &&
+       grep -q '^tz UTC$' "$sys_log" &&
+       grep -q "^gtk-theme='adw-gtk3'$" "$gs_store" &&
+       grep -q '^cursor-size=32$' "$gs_store" &&
+       grep -q "^color-scheme='prefer-light'$" "$gs_store" &&
+       grep -qE '^text-scaling-factor=1\.2500?$' "$gs_store" &&
+       grep -q '^enable-animations=false$' "$gs_store" &&
+       grep -q "^clock-format='12h'$" "$gs_store" &&
+       grep -q '^clock-show-seconds=true$' "$gs_store"; then
         pass "[sandbox] system settings apply through the owning tools"
     else
         fail "[sandbox] system settings apply routing is wrong"
@@ -340,6 +437,9 @@ assert by_id["system.time.ntp"]["effective"] == "true"
     "$system_backend" set system.display.brightness 0 >/dev/null 2>&1 && sys_rejected=1
     "$system_backend" set system.display.brightness 200 >/dev/null 2>&1 && sys_rejected=1
     "$system_backend" set system.audio.output_volume 101 >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set system.appearance.gtk_theme not-a-real-theme >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set system.appearance.color_scheme rainbow >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set system.time.timezone Bad/Zone >/dev/null 2>&1 && sys_rejected=1
     "$system_backend" set bogus.option 1 >/dev/null 2>&1 && sys_rejected=1
     if [[ "$sys_rejected" -eq 0 ]]; then
         pass "[sandbox] system settings invalid values fail closed"
@@ -349,7 +449,8 @@ assert by_id["system.time.ntp"]["effective"] == "true"
 
     unset WORKSTATION_SYSTEM_SETTINGS_POWERPROFILES_BIN WORKSTATION_SYSTEM_SETTINGS_BRIGHTNESS_BIN \
         WORKSTATION_SYSTEM_SETTINGS_WPCTL_BIN WORKSTATION_SYSTEM_SETTINGS_NMCLI_BIN \
-        WORKSTATION_SYSTEM_SETTINGS_TIMEDATECTL_BIN MOCK_SYS_LOG
+        WORKSTATION_SYSTEM_SETTINGS_TIMEDATECTL_BIN WORKSTATION_SYSTEM_SETTINGS_GSETTINGS_BIN \
+        WORKSTATION_SYSTEM_SETTINGS_BLUETOOTHCTL_BIN MOCK_SYS_LOG MOCK_GS_STORE
     rm -rf -- "$sys_sandbox"
 else
     fail "[static] workstation-system-settings backend is missing"
@@ -420,6 +521,22 @@ if "$backend" set general.gaps_in 4 >/dev/null &&
 else
     fail "[sandbox] set/get/reset/clear lifecycle failed"
 fi
+
+# Newer option categories must persist into the overlay as nested tables.
+if "$backend" set cursor.inactive_timeout 15 >/dev/null &&
+   "$backend" set master.mfact 0.6 >/dev/null &&
+   "$backend" set binds.scroll_event_delay 100 >/dev/null &&
+   "$backend" set dwindle.preserve_split true >/dev/null &&
+   [[ "$("$backend" get cursor.inactive_timeout)" == "15" ]] &&
+   grep -q 'inactive_timeout = 15' "$WORKSTATION_HYPR_SETTINGS_PATH" &&
+   grep -q 'mfact = 0.6' "$WORKSTATION_HYPR_SETTINGS_PATH" &&
+   grep -q 'scroll_event_delay = 100' "$WORKSTATION_HYPR_SETTINGS_PATH" &&
+   grep -q 'preserve_split = true' "$WORKSTATION_HYPR_SETTINGS_PATH"; then
+    pass "[sandbox] new-category options persist into the overlay"
+else
+    fail "[sandbox] new-category options did not persist"
+fi
+"$backend" clear >/dev/null || true
 
 # idempotency: second identical set must not rewrite the overlay (atomic
 # rewrite would change the inode)

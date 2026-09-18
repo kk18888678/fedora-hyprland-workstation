@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # workstation-system-settings — bounded user-level system settings backend.
 #
-# Exposes a small, validated set of live system settings to the Aurelia
-# settings hub: power profile, display brightness, default audio output, and
-# Wi-Fi/NTP toggles. Every operation is a bounded, single-purpose command run
-# as the invoking user (never root); authorization is whatever polkit/logind
-# grants the active session, and failures are reported, never hidden.
+# Exposes a validated set of live system settings to the Aurelia settings hub:
+# appearance (GTK/icon/cursor/font via gsettings), audio (default output/input
+# via wpctl), Bluetooth, network, date & time, power profile and brightness.
+# Every operation is a bounded, single-purpose command run as the invoking user
+# (never root); authorization is whatever polkit/logind/dconf grants the active
+# session, and failures are reported, never hidden.
 #
 # Safety invariants:
 #   * strict option schema: unknown ids and invalid values fail closed
@@ -41,6 +42,8 @@ BRIGHTNESS_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_BRIGHTNESS_BIN:-}" bri
 WPCTL_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_WPCTL_BIN:-}" wpctl)"
 NMCLI_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_NMCLI_BIN:-}" nmcli)"
 TIMEDATECTL_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_TIMEDATECTL_BIN:-}" timedatectl)"
+GSETTINGS_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_GSETTINGS_BIN:-}" gsettings)"
+BLUETOOTHCTL_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_BLUETOOTHCTL_BIN:-}" bluetoothctl)"
 
 bounded() {
     "$TIME_BIN" --kill-after=1s 5s "$@"
@@ -55,15 +58,35 @@ fail() {
 # Option schema registry
 # ---------------------------------------------------------------------------
 # Fields: id|type|min|max|enum|category|default|label|description
-# Types: bool, int, enum
+# Types: bool, int, float, enum, denum (dynamic enum resolved from status)
 option_specs() {
     cat <<'EOF'
 system.power.profile|enum|||power-saver,balanced,performance|power|balanced|Power Profile|CPU and GPU power/performance balance
 system.display.brightness|int|1|100||display|-|Screen Brightness|Brightness of the primary display (%)
+system.appearance.gtk_theme|denum||||appearance|-|GTK Theme|GTK widget theme for applications
+system.appearance.icon_theme|denum||||appearance|-|Icon Theme|Icon theme for applications
+system.appearance.cursor_theme|denum||||appearance|-|Cursor Theme|Mouse cursor theme
+system.appearance.cursor_size|int|16|96||appearance|24|Cursor Size|Mouse cursor size in pixels
+system.appearance.color_scheme|enum|||default,prefer-dark,prefer-light|appearance|prefer-dark|Color Scheme|Light or dark application preference
+system.appearance.accent_color|enum|||blue,teal,green,yellow,orange,red,pink,purple,slate|appearance|blue|Accent Color|Accent color for GTK applications
+system.appearance.text_scaling|float|0.5|3||appearance|1.0|Text Scaling|Global text scaling factor
+system.appearance.enable_animations|bool||||appearance|true|Interface Animations|Animate GTK interface elements
+system.appearance.show_battery_percentage|bool||||appearance|false|Battery Percentage|Show the battery percentage in the bar
+system.time.clock_24h|bool||||time|true|24-Hour Clock|Use a 24-hour clock format
+system.time.show_seconds|bool||||time|false|Show Seconds|Show seconds in the clock
+system.time.show_date|bool||||time|true|Show Date|Show the date in the clock
+system.time.show_weekday|bool||||time|false|Show Weekday|Show the weekday in the clock
 system.audio.output_volume|int|0|100||audio|-|Output Volume|Volume of the default audio output (%)
 system.audio.output_mute|bool||||audio|false|Mute Output|Mute the default audio output
+system.audio.input_volume|int|0|100||audio|-|Input Volume|Volume of the default audio input (%)
+system.audio.input_mute|bool||||audio|false|Mute Input|Mute the default audio input
+system.audio.output_device|denum||||audio|-|Output Device|Default audio output device
+system.audio.input_device|denum||||audio|-|Input Device|Default audio input device
+system.bluetooth.enabled|bool||||bluetooth|-|Bluetooth|Enable the Bluetooth adapter
+system.bluetooth.discoverable|bool||||bluetooth|false|Discoverable|Allow other devices to find this computer
 system.network.wifi_enabled|bool||||network|-|Wi-Fi|Enable the Wi-Fi radio
 system.time.ntp|bool||||time|-|Automatic Time|Synchronize the clock with network time
+system.time.timezone|denum||||time|-|Time Zone|System time zone
 EOF
 }
 
@@ -73,6 +96,98 @@ spec_for() {
 
 spec_field() {
     printf '%s\n' "$1" | awk -F'|' -v n="$2" '{ print $n }'
+}
+
+# ---------------------------------------------------------------------------
+# Dynamic option sources (value<TAB>label)
+# ---------------------------------------------------------------------------
+list_unique() {
+    awk -F'\t' '!seen[$1]++'
+}
+
+list_theme_names() {
+    local d e
+    for d in /usr/share/themes "$HOME/.themes" "$HOME/.local/share/themes"; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        for e in "$d"/*; do
+            [[ -d "$e" && ! -L "$e" ]] || continue
+            printf '%s\t%s\n' "$(basename "$e")" "$(basename "$e")"
+        done
+    done | list_unique
+}
+
+list_icon_names() {
+    local d e
+    for d in /usr/share/icons "$HOME/.icons" "$HOME/.local/share/icons"; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        for e in "$d"/*; do
+            [[ -d "$e" && ! -L "$e" ]] || continue
+            [[ -f "$e/index.theme" || -d "$e/cursors" ]] || continue
+            printf '%s\t%s\n' "$(basename "$e")" "$(basename "$e")"
+        done
+    done | list_unique
+}
+
+list_cursor_names() {
+    local d e
+    for d in /usr/share/icons "$HOME/.icons" "$HOME/.local/share/icons"; do
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        for e in "$d"/*; do
+            [[ -d "$e/cursors" && ! -L "$e" ]] || continue
+            printf '%s\t%s\n' "$(basename "$e")" "$(basename "$e")"
+        done
+    done | list_unique
+}
+
+# PipeWire node ids for a wpctl status section (Sinks or Sources).
+wpctl_section_ids() {
+    [[ -n "$WPCTL_BIN" ]] || return 1
+    bounded "$WPCTL_BIN" status 2>/dev/null | awk -v want="$1" '
+        /:[[:space:]]*$/ {
+            if (match($0, /[A-Za-z]+:/)) section = substr($0, RSTART, RLENGTH - 1)
+        }
+        section == want {
+            if (match($0, /[0-9]+\./)) {
+                id = substr($0, RSTART, RLENGTH - 1)
+                rest = substr($0, RSTART + RLENGTH)
+                sub(/^[[:space:]]+/, "", rest)
+                sub(/[[:space:]]+\[vol.*/, "", rest)
+                sub(/[[:space:]]+$/, "", rest)
+                if (rest != "") print id "\t" rest
+            }
+        }'
+}
+
+read_default_device() {
+    [[ -n "$WPCTL_BIN" ]] || return 1
+    bounded "$WPCTL_BIN" status 2>/dev/null | awk -v want="$1" '
+        /:[[:space:]]*$/ {
+            if (match($0, /[A-Za-z]+:/)) section = substr($0, RSTART, RLENGTH - 1)
+        }
+        section == want && index($0, "*") && match($0, /[0-9]+\./) {
+            print substr($0, RSTART, RLENGTH - 1); exit
+        }'
+}
+
+list_timezones() {
+    [[ -n "$TIMEDATECTL_BIN" ]] || return 1
+    bounded "$TIMEDATECTL_BIN" list-timezones 2>/dev/null | while IFS= read -r zone; do
+        [[ -n "$zone" ]] || continue
+        printf '%s\t%s\n' "$zone" "$zone"
+    done
+}
+
+dynamic_options() {
+    local id="$1"
+    case "$id" in
+        system.appearance.gtk_theme) list_theme_names ;;
+        system.appearance.icon_theme) list_icon_names ;;
+        system.appearance.cursor_theme) list_cursor_names ;;
+        system.audio.output_device) wpctl_section_ids Sinks ;;
+        system.audio.input_device) wpctl_section_ids Sources ;;
+        system.time.timezone) list_timezones ;;
+        *) return 1 ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -105,6 +220,19 @@ validate_value() {
             fi
             printf '%s\n' "$value"
             ;;
+        float)
+            [[ "$value" =~ ^[0-9]*\.?[0-9]+$ ]] || fail "invalid number for $id: $value"
+            awk -v min="$min" -v max="$max" -v v="$value" -v id="$id" '
+                BEGIN {
+                    n = v + 0
+                    if (n < min || n > max) {
+                        printf "value for %s outside [%s, %s]\n", id, min, max > "/dev/stderr"
+                        exit 1
+                    }
+                    if (n == int(n)) printf "%d\n", n
+                    else printf "%.4f\n", n
+                }'
+            ;;
         enum)
             local found=0 entry IFS=','
             for entry in $enum; do
@@ -116,10 +244,58 @@ validate_value() {
             (( found == 1 )) || fail "invalid value for $id: $value (expected one of: $enum)"
             printf '%s\n' "$value"
             ;;
+        denum)
+            local found=0 entry
+            while IFS=$'\t' read -r entry _label; do
+                if [[ "$value" == "$entry" ]]; then
+                    found=1
+                    break
+                fi
+            done < <(dynamic_options "$id" 2>/dev/null || true)
+            (( found == 1 )) || fail "invalid value for $id: $value"
+            printf '%s\n' "$value"
+            ;;
         *)
             fail "unsupported schema type for $id: $type"
             ;;
     esac
+}
+
+# ---------------------------------------------------------------------------
+# gsettings helpers
+# ---------------------------------------------------------------------------
+GS_SCHEMA="org.gnome.desktop.interface"
+
+gsettings_get() {
+    [[ -n "$GSETTINGS_BIN" ]] || return 1
+    local out
+    out="$(bounded "$GSETTINGS_BIN" get "$GS_SCHEMA" "$1" 2>/dev/null | head -n 1 || true)"
+    [[ -n "$out" ]] || return 1
+    printf '%s\n' "$out"
+}
+
+gsettings_get_string() {
+    local out
+    out="$(gsettings_get "$1")" || return 1
+    out="${out%\'}"
+    out="${out#\'}"
+    printf '%s\n' "$out"
+}
+
+gsettings_get_bool() {
+    local out
+    out="$(gsettings_get "$1")" || return 1
+    case "$out" in
+        true) printf 'true\n' ;;
+        false) printf 'false\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+gsettings_set() {
+    [[ -n "$GSETTINGS_BIN" ]] || fail "gsettings is not available"
+    bounded "$GSETTINGS_BIN" set "$GS_SCHEMA" "$1" "$2" >/dev/null 2>&1 ||
+        fail "could not set $1"
 }
 
 # ---------------------------------------------------------------------------
@@ -146,7 +322,7 @@ read_brightness() {
 read_audio_volume() {
     [[ -n "$WPCTL_BIN" ]] || return 1
     local out
-    out="$(bounded "$WPCTL_BIN" get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$WPCTL_BIN" get-volume "$1" 2>/dev/null | head -n 1 || true)"
     [[ "$out" =~ Volume:[[:space:]]+([0-9.]+) ]] || return 1
     awk -v v="${BASH_REMATCH[1]}" 'BEGIN { p = int(v * 100 + 0.5); if (p < 0) p = 0; if (p > 100) p = 100; print p }'
 }
@@ -154,9 +330,23 @@ read_audio_volume() {
 read_audio_mute() {
     [[ -n "$WPCTL_BIN" ]] || return 1
     local out
-    out="$(bounded "$WPCTL_BIN" get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$WPCTL_BIN" get-volume "$1" 2>/dev/null | head -n 1 || true)"
     [[ -n "$out" ]] || return 1
     if [[ "$out" == *MUTED* ]]; then printf 'true\n'; else printf 'false\n'; fi
+}
+
+read_bluetooth_field() {
+    [[ -n "$BLUETOOTHCTL_BIN" ]] || return 1
+    local field="$1" out
+    out="$(bounded "$BLUETOOTHCTL_BIN" show 2>/dev/null || true)"
+    [[ -n "$out" ]] || return 1
+    local value
+    value="$(printf '%s\n' "$out" | awk -v f="$field:" '$1 == f { print $2; exit }')"
+    case "$value" in
+        yes) printf 'true\n' ;;
+        no) printf 'false\n' ;;
+        *) return 1 ;;
+    esac
 }
 
 read_wifi_enabled() {
@@ -181,15 +371,47 @@ read_ntp() {
     esac
 }
 
+read_timezone() {
+    [[ -n "$TIMEDATECTL_BIN" ]] || return 1
+    local out
+    out="$(bounded "$TIMEDATECTL_BIN" show -p Timezone --value 2>/dev/null | head -n 1 || true)"
+    [[ -n "$out" ]] || return 1
+    printf '%s\n' "$out"
+}
+
 read_value() {
     local id="$1"
     case "$id" in
         system.power.profile) read_power_profile ;;
         system.display.brightness) read_brightness ;;
-        system.audio.output_volume) read_audio_volume ;;
-        system.audio.output_mute) read_audio_mute ;;
+        system.appearance.gtk_theme) gsettings_get_string gtk-theme ;;
+        system.appearance.icon_theme) gsettings_get_string icon-theme ;;
+        system.appearance.cursor_theme) gsettings_get_string cursor-theme ;;
+        system.appearance.cursor_size) gsettings_get cursor-size ;;
+        system.appearance.color_scheme) gsettings_get_string color-scheme ;;
+        system.appearance.accent_color) gsettings_get_string accent-color ;;
+        system.appearance.text_scaling) gsettings_get text-scaling-factor ;;
+        system.appearance.enable_animations) gsettings_get_bool enable-animations ;;
+        system.appearance.show_battery_percentage) gsettings_get_bool show-battery-percentage ;;
+        system.appearance.clock_24h|system.time.clock_24h)
+            local fmt
+            fmt="$(gsettings_get_string clock-format)" || return 1
+            if [[ "$fmt" == "24h" ]]; then printf 'true\n'; else printf 'false\n'; fi
+            ;;
+        system.appearance.show_seconds|system.time.show_seconds) gsettings_get_bool clock-show-seconds ;;
+        system.appearance.show_date|system.time.show_date) gsettings_get_bool clock-show-date ;;
+        system.appearance.show_weekday|system.time.show_weekday) gsettings_get_bool clock-show-weekday ;;
+        system.audio.output_volume) read_audio_volume @DEFAULT_AUDIO_SINK@ ;;
+        system.audio.output_mute) read_audio_mute @DEFAULT_AUDIO_SINK@ ;;
+        system.audio.input_volume) read_audio_volume @DEFAULT_AUDIO_SOURCE@ ;;
+        system.audio.input_mute) read_audio_mute @DEFAULT_AUDIO_SOURCE@ ;;
+        system.audio.output_device) read_default_device Sinks ;;
+        system.audio.input_device) read_default_device Sources ;;
+        system.bluetooth.enabled) read_bluetooth_field Powered ;;
+        system.bluetooth.discoverable) read_bluetooth_field Discoverable ;;
         system.network.wifi_enabled) read_wifi_enabled ;;
         system.time.ntp) read_ntp ;;
+        system.time.timezone) read_timezone ;;
         *) return 1 ;;
     esac
 }
@@ -210,17 +432,69 @@ write_value() {
             bounded "$BRIGHTNESS_BIN" set "$value%" >/dev/null 2>&1 ||
                 fail "could not set display brightness"
             ;;
+        system.appearance.gtk_theme)
+            gsettings_set gtk-theme "'$value'" ;;
+        system.appearance.icon_theme)
+            gsettings_set icon-theme "'$value'" ;;
+        system.appearance.cursor_theme)
+            gsettings_set cursor-theme "'$value'" ;;
+        system.appearance.cursor_size)
+            gsettings_set cursor-size "$value" ;;
+        system.appearance.color_scheme)
+            gsettings_set color-scheme "'$value'" ;;
+        system.appearance.accent_color)
+            gsettings_set accent-color "'$value'" ;;
+        system.appearance.text_scaling)
+            gsettings_set text-scaling-factor "$value" ;;
+        system.appearance.enable_animations)
+            gsettings_set enable-animations "$value" ;;
+        system.appearance.show_battery_percentage)
+            gsettings_set show-battery-percentage "$value" ;;
+        system.appearance.clock_24h|system.time.clock_24h)
+            if [[ "$value" == "true" ]]; then gsettings_set clock-format "'24h'"; else gsettings_set clock-format "'12h'"; fi
+            ;;
+        system.appearance.show_seconds|system.time.show_seconds)
+            gsettings_set clock-show-seconds "$value" ;;
+        system.appearance.show_date|system.time.show_date)
+            gsettings_set clock-show-date "$value" ;;
+        system.appearance.show_weekday|system.time.show_weekday)
+            gsettings_set clock-show-weekday "$value" ;;
         system.audio.output_volume)
             [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
             bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SINK@ "$value%" >/dev/null 2>&1 ||
                 fail "could not set output volume"
             ;;
-        system.audio.output_mute)
+        system.audio.input_volume)
             [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
-            local mute_flag=0
-            [[ "$value" == "true" ]] && mute_flag=1
-            bounded "$WPCTL_BIN" set-mute @DEFAULT_AUDIO_SINK@ "$mute_flag" >/dev/null 2>&1 ||
-                fail "could not change output mute state"
+            bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SOURCE@ "$value%" >/dev/null 2>&1 ||
+                fail "could not set input volume"
+            ;;
+        system.audio.output_mute|system.audio.input_mute)
+            [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
+            local node="@DEFAULT_AUDIO_SINK@" flag=0
+            [[ "$id" == "system.audio.input_mute" ]] && node="@DEFAULT_AUDIO_SOURCE@"
+            [[ "$value" == "true" ]] && flag=1
+            bounded "$WPCTL_BIN" set-mute "$node" "$flag" >/dev/null 2>&1 ||
+                fail "could not change mute state"
+            ;;
+        system.audio.output_device|system.audio.input_device)
+            [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
+            bounded "$WPCTL_BIN" set-default "$value" >/dev/null 2>&1 ||
+                fail "could not set default audio device"
+            ;;
+        system.bluetooth.enabled)
+            [[ -n "$BLUETOOTHCTL_BIN" ]] || fail "bluetoothctl is not available"
+            local power="off"
+            [[ "$value" == "true" ]] && power="on"
+            bounded "$BLUETOOTHCTL_BIN" power "$power" >/dev/null 2>&1 ||
+                fail "could not change Bluetooth power"
+            ;;
+        system.bluetooth.discoverable)
+            [[ -n "$BLUETOOTHCTL_BIN" ]] || fail "bluetoothctl is not available"
+            local disc="off"
+            [[ "$value" == "true" ]] && disc="on"
+            bounded "$BLUETOOTHCTL_BIN" discoverable "$disc" >/dev/null 2>&1 ||
+                fail "could not change Bluetooth discoverable state"
             ;;
         system.network.wifi_enabled)
             [[ -n "$NMCLI_BIN" ]] || fail "nmcli is not available"
@@ -233,6 +507,11 @@ write_value() {
             [[ -n "$TIMEDATECTL_BIN" ]] || fail "timedatectl is not available"
             bounded "$TIMEDATECTL_BIN" set-ntp "$value" >/dev/null 2>&1 ||
                 fail "could not change automatic time (polkit may have denied the request)"
+            ;;
+        system.time.timezone)
+            [[ -n "$TIMEDATECTL_BIN" ]] || fail "timedatectl is not available"
+            bounded "$TIMEDATECTL_BIN" set-timezone "$value" >/dev/null 2>&1 ||
+                fail "could not change the time zone (polkit may have denied the request)"
             ;;
         *)
             fail "unknown option id: $id"
@@ -247,6 +526,9 @@ json_string() {
     local s="$1"
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
     printf '"%s"' "$s"
 }
 
@@ -275,11 +557,12 @@ cmd_schema() {
 }
 
 cmd_status() {
-    local first=1 line id live effective source default_val
+    local first=1 line id live effective source default_val type options_json entry
     printf '{\n  "options": ['
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         id="$(spec_field "$line" 1)"
+        type="$(spec_field "$line" 2)"
         default_val="$(spec_field "$line" 7)"
         live=""
         if live="$(read_value "$id" 2>/dev/null)"; then
@@ -290,17 +573,30 @@ cmd_status() {
             effective="${default_val:--}"
             source="default"
         fi
+        options_json="null"
+        if [[ "$type" == "denum" ]]; then
+            local first_opt=1
+            options_json="["
+            while IFS=$'\t' read -r entry opt_label; do
+                [[ -n "$entry" ]] || continue
+                (( first_opt )) || options_json+=", "
+                first_opt=0
+                options_json+="{ \"value\": $(json_string "$entry"), \"label\": $(json_string "${opt_label:-$entry}") }"
+            done < <(dynamic_options "$id" 2>/dev/null || true)
+            options_json+="]"
+        fi
         (( first )) || printf ',\n'
         first=0
-        printf '    { "id": %s, "label": %s, "category": %s, "type": %s, "default": %s, "live": %s, "effective": %s, "source": %s }' \
+        printf '    { "id": %s, "label": %s, "category": %s, "type": %s, "default": %s, "live": %s, "effective": %s, "source": %s, "options": %s }' \
             "$(json_string "$id")" \
             "$(json_string "$(spec_field "$line" 8)")" \
             "$(json_string "$(spec_field "$line" 6)")" \
-            "$(json_string "$(spec_field "$line" 2)")" \
+            "$(json_string "$type")" \
             "$(json_string "$default_val")" \
             "$([[ -n "$live" ]] && json_string "$live" || printf null)" \
             "$(json_string "$effective")" \
-            "$(json_string "$source")"
+            "$(json_string "$source")" \
+            "$options_json"
     done < <(option_specs)
     printf '\n  ]\n}\n'
 }
@@ -330,6 +626,8 @@ cmd_check() {
     printf 'wpctl: %s\n' "${WPCTL_BIN:-unavailable}"
     printf 'nmcli: %s\n' "${NMCLI_BIN:-unavailable}"
     printf 'timedatectl: %s\n' "${TIMEDATECTL_BIN:-unavailable}"
+    printf 'gsettings: %s\n' "${GSETTINGS_BIN:-unavailable}"
+    printf 'bluetoothctl: %s\n' "${BLUETOOTHCTL_BIN:-unavailable}"
 }
 
 usage() {
@@ -338,14 +636,14 @@ Usage: workstation-system-settings <command> [args]
 
 Commands:
   schema            Print the option registry as JSON.
-  status            Print effective per-option state (JSON).
+  status            Print effective per-option state (JSON, with dynamic options).
   get <id>          Print the effective value of one option.
   set <id> <value>  Validate and apply one option live.
   check             Report tool availability.
 
-Options cover power profile, display brightness, default audio output, Wi-Fi
-radio, and automatic time. Commands run as the invoking user; authorization is
-whatever polkit/logind grants the active session.
+Options cover appearance, audio, Bluetooth, network, date & time, power profile
+and display brightness. Commands run as the invoking user; authorization is
+whatever polkit/logind/dconf grants the active session.
 USAGE
 }
 

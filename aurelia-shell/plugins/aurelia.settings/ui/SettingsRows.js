@@ -18,7 +18,9 @@ function schemaRow(schema, status) {
         type: schema.type,
         min: schema.min !== "" ? Number(schema.min) : 0,
         max: schema.max !== "" ? Number(schema.max) : 1,
-        enumOptions: splitEnum(schema.enum),
+        enumOptions: (status && status.options && status.options.length)
+            ? status.options : splitEnum(schema.enum),
+        step: stepFor(schema),
         defaultValue: schema.default,
         unit: unitFor(schema.id),
         effective: normalizeStatus(status, schema.type),
@@ -32,7 +34,23 @@ function schemaRow(schema, status) {
         descriptor.editable = true
         descriptor.enumOptions = keyboardLayoutOptions(descriptor.effective)
     }
+    if (schema.id === "misc.font_family") {
+        descriptor.kind = "combo"
+        descriptor.editable = true
+        descriptor.enumOptions = fontFamilyOptions(descriptor.effective)
+    }
     return descriptor
+}
+
+// Curated font-family suggestions; the field stays editable for any family.
+function fontFamilyOptions(current) {
+    var families = ["Sans", "Serif", "Monospace", "Noto Sans", "Cantarell", "Inter",
+        "JetBrainsMono Nerd Font", "Hack Nerd Font", "FiraCode Nerd Font", "Ubuntu"]
+    var options = []
+    for (var i = 0; i < families.length; i++) options.push({ value: families[i], label: families[i] })
+    var cur = String(current || "").trim()
+    if (cur !== "" && families.indexOf(cur) === -1) options.unshift({ value: cur, label: cur })
+    return options
 }
 
 // Curated keyboard layouts. The backend still validates kb_layout as a free
@@ -114,13 +132,19 @@ function normalizeStatus(status, type) {
 function controlKind(schema) {
     switch (schema.type) {
         case "bool": return "toggle"
-        case "enum": return "combo"
+        case "enum":
+        case "denum": return "combo"
         case "color": return "color"
         case "str": return "text"
         case "int":
         case "float":
         default: return "slider"
     }
+}
+
+// Slider granularity. Floats need a fractional step; integers step by one.
+function stepFor(schema) {
+    return schema.type === "float" ? 0.05 : 1
 }
 
 function splitEnum(enumValue) {
@@ -150,6 +174,11 @@ function displayEnum(value) {
         case "power-saver": return "Power Saver"
         case "balanced": return "Balanced"
         case "performance": return "Performance"
+        case "slave": return "Slave"
+        case "inherit": return "Inherit"
+        case "default": return "Default"
+        case "prefer-dark": return "Prefer Dark"
+        case "prefer-light": return "Prefer Light"
         default: return String(value)
     }
 }
@@ -174,6 +203,23 @@ function unitFor(id) {
         case "system.display.brightness":
         case "system.audio.output_volume":
             return "pct"
+        case "system.appearance.cursor_size":
+            return "px"
+        case "system.appearance.text_scaling":
+            return "\u00d7"
+        case "cursor.inactive_timeout":
+            return "s"
+        case "cursor.min_refresh_rate":
+            return "Hz"
+        case "binds.scroll_event_delay":
+            return "ms"
+        case "decoration.shadow.range":
+            return "px"
+        case "input.touchpad.scroll_factor":
+        case "cursor.zoom_factor":
+            return "\u00d7"
+        case "decoration.dim_strength":
+            return "%"
         default:
             return ""
     }
@@ -188,12 +234,24 @@ function sections() {
           categories: ["animations"], schema: true },
         { id: "hypr-input", name: "Input", icon: "input-keyboard",
           categories: ["input"], schema: true },
+        { id: "hypr-layouts", name: "Window Layouts", icon: "preferences-system-windows",
+          categories: ["master", "dwindle"], schema: true },
+        { id: "hypr-cursor", name: "Cursor", icon: "input-mouse",
+          categories: ["cursor"], schema: true },
+        { id: "hypr-binds", name: "Keybind Behavior", icon: "input-keyboard-virtual",
+          categories: ["binds"], schema: true },
+        { id: "hypr-compat", name: "Compatibility", icon: "preferences-system",
+          categories: ["xwayland", "ecosystem"], schema: true },
         { id: "hypr-workspaces", name: "Workspaces", icon: "preferences-desktop-wallpaper",
           categories: ["workspaces"], schema: true },
         { id: "power", name: "Power", icon: "battery",
           categories: ["power", "display"], schema: true },
+        { id: "appearance", name: "Themes & Fonts", icon: "preferences-desktop-theme",
+          categories: ["appearance"], schema: true },
         { id: "audio", name: "Audio", icon: "audio-volume-high",
           categories: ["audio"], schema: true },
+        { id: "bluetooth", name: "Bluetooth", icon: "bluetooth",
+          categories: ["bluetooth"], schema: true },
         { id: "network", name: "Network", icon: "network-wireless",
           categories: ["network"], schema: true },
         { id: "time", name: "Date & Time", icon: "preferences-system-time",
@@ -414,9 +472,17 @@ function headingName(category) {
         case "input": return "Input"
         case "animations": return "Animations"
         case "workspaces": return "Workspaces"
+        case "cursor": return "Cursor"
+        case "binds": return "Keybind Behavior"
+        case "master": return "Master Layout"
+        case "dwindle": return "Dwindle Layout"
+        case "xwayland": return "XWayland"
+        case "ecosystem": return "Ecosystem"
         case "power": return "Power"
         case "display": return "Display"
+        case "appearance": return "Appearance"
         case "audio": return "Audio"
+        case "bluetooth": return "Bluetooth"
         case "network": return "Network"
         case "time": return "Date & Time"
         default: return category

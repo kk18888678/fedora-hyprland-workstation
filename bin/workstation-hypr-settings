@@ -90,29 +90,106 @@ option_specs() {
     cat <<'EOF'
 general.gaps_in|general:gaps_in|int|0|64||general|3|Gaps In|Window gap between tiled windows
 general.gaps_out|general:gaps_out|int|0|64||general|6|Gaps Out|Window gap at screen edges
+general.gaps_workspaces|general:gaps_workspaces|int|0|64||general|0|Workspace Gaps|Gap between adjacent workspaces
 general.border_size|general:border_size|int|0|16||general|2|Border Size|Window border thickness in pixels
 general.resize_on_border|general:resize_on_border|bool||||general|true|Resize on Border|Resize windows by dragging the border
 general.layout|general:layout|enum|||dwindle,master|general|dwindle|Layout|Window layout algorithm
 general.snap.enabled|general:snap:enabled|bool||||general|true|Snap Assistant|Show resize/layout snapping assistant
+general.allow_tearing|general:allow_tearing|bool||||general|false|Allow Tearing|Allow tearing for fullscreen games
 general.col.active_border|general:col.active_border|color||||general|-|Active Border Color|Color of the focused window border
 general.col.inactive_border|general:col.inactive_border|color||||general|-|Inactive Border Color|Color of unfocused window borders
 decoration.rounding|decoration:rounding|int|0|24||decoration|8|Corner Rounding|Window corner radius in pixels
+decoration.rounding_power|decoration:rounding_power|float|1|8||decoration|2.0|Rounding Power|Rounding curve exponent
 decoration.active_opacity|decoration:active_opacity|float|0.1|1||decoration|1.0|Active Opacity|Opacity of focused windows
 decoration.inactive_opacity|decoration:inactive_opacity|float|0.1|1||decoration|1.0|Inactive Opacity|Opacity of unfocused windows
 decoration.fullscreen_opacity|decoration:fullscreen_opacity|float|0.1|1||decoration|1.0|Fullscreen Opacity|Opacity of fullscreen windows
+decoration.dim_inactive|decoration:dim_inactive|bool||||decoration|false|Dim Inactive|Dim unfocused windows
+decoration.dim_strength|decoration:dim_strength|float|0|1||decoration|0.5|Dim Strength|Dimming amount for inactive windows
 decoration.shadow.enabled|decoration:shadow:enabled|bool||||decoration|true|Shadows|Draw window shadows
+decoration.shadow.range|decoration:shadow:range|int|0|64||decoration|4|Shadow Range|Shadow size in pixels
+decoration.shadow.render_power|decoration:shadow:render_power|int|1|4||decoration|3|Shadow Render Power|Shadow falloff exponent
+decoration.shadow.color|decoration:shadow:color|color||||decoration|-|Shadow Color|Window shadow color
 decoration.blur.enabled|decoration:blur:enabled|bool||||decoration|false|Blur|Blur windows behind translucent surfaces
 decoration.blur.size|decoration:blur:size|int|1|16||decoration|8|Blur Size|Blur radius in pixels
+decoration.blur.passes|decoration:blur:passes|int|0|8||decoration|1|Blur Passes|Number of blur passes
+decoration.blur.new_optimizations|decoration:blur:new_optimizations|bool||||decoration|true|Blur Optimizations|Use the optimized blur path
+decoration.blur.xray|decoration:blur:xray|bool||||decoration|false|Blur X-Ray|Blur only the wallpaper behind windows
+decoration.blur.vibrancy|decoration:blur:vibrancy|float|0|1||decoration|0.17|Blur Vibrancy|Vibrancy of blurred content
+decoration.blur.popups|decoration:blur:popups|bool||||decoration|true|Blur Popups|Blur popup windows
+decoration.blur.special|decoration:blur:special|bool||||decoration|false|Blur Special|Blur special workspaces
+decoration.blur.ignore_opacity|decoration:blur:ignore_opacity|bool||||decoration|false|Blur Ignore Opacity|Blur regardless of window opacity
 misc.vrr|misc:vrr|enum|||0,1,2|misc|0|Variable Refresh Rate|0 off, 1 on, 2 fullscreen only
+misc.disable_hyprland_logo|misc:disable_hyprland_logo|bool||||misc|false|Disable Hyprland Logo|Hide the background logo
+misc.force_default_wallpaper|misc:force_default_wallpaper|int|0|2||misc|1|Default Wallpaper|Splash wallpaper variant
+misc.disable_splash_rendering|misc:disable_splash_rendering|bool||||misc|false|Disable Splash|Hide the splash on start
+misc.focus_on_activate|misc:focus_on_activate|bool||||misc|false|Focus on Activate|Focus windows that request activation
+misc.mouse_move_enables_dpms|misc:mouse_move_enables_dpms|bool||||misc|false|Mouse Wakes Display|Mouse movement wakes the display
+misc.key_press_enables_dpms|misc:key_press_enables_dpms|bool||||misc|false|Key Wakes Display|Key presses wake the display
+misc.animate_manual_resizes|misc:animate_manual_resizes|bool||||misc|false|Animate Manual Resizes|Animate manual window resizes
+misc.animate_mouse_windowdragging|misc:animate_mouse_windowdragging|bool||||misc|false|Animate Mouse Drag|Animate mouse window dragging
+misc.enable_swallow|misc:enable_swallow|bool||||misc|false|Window Swallowing|Hide a terminal while its child window is open
+misc.close_special_on_empty|misc:close_special_on_empty|bool||||misc|true|Close Empty Special|Close the special workspace when it becomes empty
+misc.on_focus_under_fullscreen|misc:on_focus_under_fullscreen|int|0|2||misc|0|Focus Under Fullscreen|Focus behavior for windows under a fullscreen window
+misc.middle_click_paste|misc:middle_click_paste|bool||||misc|true|Middle Click Paste|Paste the primary selection on middle click
+misc.font_family|misc:font_family|str||||misc|Sans|Font Family|Default Hyprland UI font family
+misc.swallow_regex|misc:swallow_regex|str||||misc|-|Swallow Regex|Windows eligible for swallowing
 input.kb_layout|input:kb_layout|str||||input|us|Keyboard Layout|XKB layout or comma-separated list
+input.kb_variant|input:kb_variant|str||||input|-|Keyboard Variant|XKB layout variant
+input.kb_model|input:kb_model|str||||input|-|Keyboard Model|XKB keyboard model
+input.kb_options|input:kb_options|str||||input|-|Keyboard Options|XKB options (comma-separated)
 input.numlock_by_default|input:numlock_by_default|bool||||input|true|Numlock by Default|Enable Numlock at session start
 input.repeat_delay|input:repeat_delay|int|150|1000||input|250|Key Repeat Delay|Delay before key repetition in ms
 input.repeat_rate|input:repeat_rate|int|10|100||input|35|Key Repeat Rate|Repeat rate in characters per second
+input.sensitivity|input:sensitivity|float|-1|1||input|0|Pointer Sensitivity|Mouse sensitivity (-1..1)
 input.accel_profile|input:accel_profile|enum|||flat,adaptive|input|flat|Pointer Acceleration|Pointer acceleration profile
+input.force_no_accel|input:force_no_accel|bool||||input|false|Disable Acceleration|Bypass pointer acceleration
+input.left_handed|input:left_handed|bool||||input|false|Left Handed|Swap mouse buttons
 input.follow_mouse|input:follow_mouse|int|0|3||input|1|Follow Mouse|Focus behavior relative to the pointer
+input.mouse_refocus|input:mouse_refocus|bool||||input|true|Mouse Refocus|Refocus a window on hover
+input.special_fallthrough|input:special_fallthrough|bool||||input|false|Special Fallthrough|Pass keys through to the special workspace
 input.touchpad.natural_scroll|input:touchpad:natural_scroll|bool||||input|true|Natural Scroll|Invert touchpad scroll direction
-input.touchpad.disable_while_typing|input:touchpad:disable_while_typing|bool||||input|true|Disable While Typing|Pause touchpad while typing
-input.touchpad.clickfinger_behavior|input:touchpad:clickfinger_behavior|bool||||input|true|Clickfinger Behavior|Tap with fingers instead of buttons
+input.touchpad.disable_while_typing|input:touchpad:disable_while_typing|bool||||input|true|Disable While Typing|Pause the touchpad while typing
+input.touchpad.clickfinger_behavior|input:touchpad:clickfinger_behavior|bool||||input|true|Clickfinger Behavior|Tap with multiple fingers instead of buttons
+input.touchpad.tap_to_click|input:touchpad:tap-to-click|bool||||input|true|Tap to Click|Tap the touchpad to click
+input.touchpad.tap_and_drag|input:touchpad:tap-and-drag|bool||||input|true|Tap and Drag|Drag by tapping the touchpad
+input.touchpad.drag_lock|input:touchpad:drag_lock|int|0|2||input|0|Drag Lock|Drag lock level (0 off)
+input.touchpad.scroll_factor|input:touchpad:scroll_factor|float|0|5||input|1.0|Touchpad Scroll Factor|Touchpad scroll speed multiplier
+input.touchpad.middle_button_emulation|input:touchpad:middle_button_emulation|bool||||input|false|Middle Button Emulation|Emulate middle click with two fingers
+input.touchpad.flip_x|input:touchpad:flip_x|bool||||input|false|Flip Touchpad X|Invert the horizontal touchpad direction
+input.touchpad.flip_y|input:touchpad:flip_y|bool||||input|false|Flip Touchpad Y|Invert the vertical touchpad direction
+cursor.inactive_timeout|cursor:inactive_timeout|float|0|3600||cursor|0|Hide Cursor After|Seconds before the cursor is hidden (0 keeps it visible)
+cursor.sync_gsettings_theme|cursor:sync_gsettings_theme|bool||||cursor|true|Sync Cursor Theme|Follow the GTK cursor theme
+cursor.enable_hyprcursor|cursor:enable_hyprcursor|bool||||cursor|true|Hyprcursor|Use hyprcursor themes when available
+cursor.hide_on_key_press|cursor:hide_on_key_press|bool||||cursor|false|Hide on Key Press|Hide the cursor while typing
+cursor.warp_on_change_workspace|cursor:warp_on_change_workspace|int|0|2||cursor|0|Warp on Workspace Change|Move the cursor when switching workspaces
+cursor.no_hardware_cursors|cursor:no_hardware_cursors|int|0|2||cursor|2|Hardware Cursors|0 on, 1 off, 2 auto
+cursor.no_break_fs_vrr|cursor:no_break_fs_vrr|int|0|3||cursor|0|VRR Cursor Fix|Reduce cursor updates to keep VRR
+cursor.min_refresh_rate|cursor:min_refresh_rate|int|0|240||cursor|0|Minimum Refresh Rate|Minimum monitor refresh rate in Hz
+cursor.zoom_factor|cursor:zoom_factor|float|1|10||cursor|1.0|Zoom Factor|Screen magnification factor
+cursor.zoom_rigid|cursor:zoom_rigid|bool||||cursor|false|Rigid Zoom|Lock the zoom area to the cursor
+binds.workspace_back_and_forth|binds:workspace_back_and_forth|bool||||binds|false|Workspace Back and Forth|Toggle back to the previous workspace
+binds.allow_workspace_cycles|binds:allow_workspace_cycles|bool||||binds|false|Allow Workspace Cycles|Wrap around workspaces with the mouse wheel
+binds.pass_mouse_when_bound|binds:pass_mouse_when_bound|bool||||binds|false|Pass Mouse When Bound|Pass the mouse wheel to a bound action
+binds.ignore_group_lock|binds:ignore_group_lock|bool||||binds|false|Ignore Group Lock|Allow focus changes in locked groups
+binds.movefocus_cycles_fullscreen|binds:movefocus_cycles_fullscreen|bool||||binds|false|Movefocus Cycles Fullscreen|Move focus past fullscreen windows
+binds.disable_keybind_grabbing|binds:disable_keybind_grabbing|bool||||binds|false|Disable Keybind Grabbing|Let windows grab keybinds
+binds.scroll_event_delay|binds:scroll_event_delay|int|0|1000||binds|0|Scroll Event Delay|Delay between scroll events in ms
+binds.focus_preferred_method|binds:focus_preferred_method|int|0|1||binds|0|Focus Preferred Method|0 history, 1 length
+master.new_status|master:new_status|enum|||master,slave,inherit|master|slave|New Window Status|Default role for new windows
+master.mfact|master:mfact|float|0.05|0.95||master|0.55|Master Ratio|Master pane size ratio
+master.special_scale_factor|master:special_scale_factor|float|0|1||master|0.8|Special Scale|Scale of special workspace windows
+master.new_on_top|master:new_on_top|bool||||master|false|New on Top|Insert new windows at the top
+dwindle.preserve_split|dwindle:preserve_split|bool||||dwindle|false|Preserve Split|Keep the split direction on resize
+dwindle.smart_split|dwindle:smart_split|bool||||dwindle|false|Smart Split|Split based on window aspect
+dwindle.use_active_for_splits|dwindle:use_active_for_splits|bool||||dwindle|true|Use Active for Splits|Split relative to the active window
+dwindle.default_split_ratio|dwindle:default_split_ratio|float|0.1|1.9||dwindle|1.0|Default Split Ratio|Initial split ratio
+dwindle.special_scale_factor|dwindle:special_scale_factor|float|0|1||dwindle|0.8|Special Scale|Scale of special workspace windows
+dwindle.force_split|dwindle:force_split|int|0|2||dwindle|0|Force Split|0 normal, 1 left/top, 2 right/bottom
+xwayland.use_nearest_neighbor|xwayland:use_nearest_neighbor|bool||||xwayland|true|Nearest Neighbor|Pixel-perfect X11 scaling
+xwayland.force_zero_scaling|xwayland:force_zero_scaling|bool||||xwayland|false|Force Zero Scaling|Disable X11 fractional scaling
+ecosystem.no_update_news|ecosystem:no_update_news|bool||||ecosystem|false|Hide Update News|Do not show update notifications
+ecosystem.no_donation_nag|ecosystem:no_donation_nag|bool||||ecosystem|false|Hide Donation Nag|Do not show donation prompts
+ecosystem.enforce_permissions|ecosystem:enforce_permissions|bool||||ecosystem|false|Enforce Permissions|Enforce Hyprland permission requests
 animations.enabled|animations:enabled|bool||||animations|true|Animations Enabled|Master animation switch
 animations.preset|animation_preset|enum|||baseline,snappy,relaxed,off|animations|baseline|Animation Preset|Curated animation speed profile
 workspaces.persistent|persistent_workspaces|int|0|10||workspaces|3|Pinned Workspaces|Number of permanent workspaces (1..10)
@@ -487,7 +564,7 @@ emit_overlay_file() {
     mapfile -t sorted < <(printf '%s\n' "${config_records[@]:-}" | sed '/^$/d' | sort)
 
     # per-category members of "lua-tail|value|type"
-    local -a cats=(general decoration misc input animations)
+    local -a cats=(general decoration misc input animations cursor binds master dwindle xwayland ecosystem)
     local -A cat_members=()
     local entry
     for entry in "${sorted[@]}"; do
