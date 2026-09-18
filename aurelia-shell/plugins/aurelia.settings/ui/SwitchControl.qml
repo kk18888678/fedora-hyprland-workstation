@@ -4,19 +4,22 @@ import "../../../theme"
 
 // Themed switch following the Aurelia design language (accent track,
 // rounded knob, theme border tokens).
+//
+// The control's implicit width is exactly the visible track width so the
+// switch right-aligns with combos, sliders, and text fields in the settings
+// rows. It previously reserved 64px while drawing a 40px track, which pushed
+// the visible switch ~24px inboard of every neighbouring control.
 Switch {
     id: control
 
-    // Generous hit area: the padded control surface makes toggles easy to
-    // click even beside the small track.
-    implicitWidth: 64
-    implicitHeight: 28
+    implicitWidth: 40
+    implicitHeight: 24
 
     indicator: Rectangle {
         implicitWidth: 40
         implicitHeight: 22
-        x: control.leftPadding + 4
-        y: control.topPadding + (control.availableHeight - height) / 2
+        x: 0
+        y: (control.height - height) / 2
         radius: Math.round(height / 2)
         color: control.checked ? Theme.accent : Theme.surface
         border.width: 1
@@ -39,6 +42,6 @@ Switch {
     contentItem: Text {
         text: ""
         visible: false
-        width: 18
+        width: 0
     }
 }

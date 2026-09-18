@@ -64,6 +64,12 @@ PanelWindow {
     property bool statusReady: false
     property bool pendingClearConfirm: false
 
+    // Color picker modal state. The picker itself is presentation-only; the
+    // window owns the mutation once a value is accepted.
+    property string colorPickerOptionId: ""
+    property string colorPickerValue: ""
+    property string colorPickerTitle: ""
+
     readonly property string aureliaRoot: pluginRoot && pluginRoot.aureliaPath ? pluginRoot.aureliaPath : ""
     // Mutable probe targets, computed from pluginRoot.aureliaPath at runtime
     // (Component.onCompleted). Derived readonly bindings are evaluated once,
@@ -536,6 +542,31 @@ PanelWindow {
     }
 
     // ------------------------------------------------------------------
+    // Color picker
+    // ------------------------------------------------------------------
+    function openColorPicker(optionId, value, title) {
+        root.colorPickerValue = String(value || "")
+        root.colorPickerTitle = String(title || "Color")
+        root.colorPickerOptionId = String(optionId || "")
+        colorPicker.openWith(root.colorPickerValue)
+    }
+
+    function closeColorPicker() {
+        root.colorPickerOptionId = ""
+    }
+
+    function applyColorPicker(value) {
+        var optionId = root.colorPickerOptionId
+        root.closeColorPicker()
+        if (optionId === "") return
+        if (String(optionId).indexOf("aurelia.") === 0) {
+            root.applyAureliaOption(optionId, value)
+        } else {
+            root.applyOption(optionId, value)
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Page projection
     // ------------------------------------------------------------------
     function rebuildRows() {
@@ -594,7 +625,9 @@ PanelWindow {
 
         Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Escape) {
-                if (root.pendingClearConfirm) {
+                if (root.colorPickerOptionId !== "") {
+                    root.closeColorPicker()
+                } else if (root.pendingClearConfirm) {
                     root.pendingClearConfirm = false
                     root.footerText = "Cancelled."
                 } else {
@@ -720,6 +753,9 @@ PanelWindow {
                     onAction: function(actionId) {
                         root.runAction(actionId)
                     }
+                    onColorPickerRequested: function(optionId, value, title) {
+                        root.openColorPicker(optionId, value, title)
+                    }
                 }
             }
 
@@ -788,6 +824,33 @@ PanelWindow {
                     Layout.maximumWidth: 360
                 }
             }
+        }
+
+        // Color picker: a modal overlay centered over the whole card. It is a
+        // sibling of the layout (never layout-managed), so it can cover the
+        // rows without changing their fixed heights.
+        Rectangle {
+            id: colorPickerScrim
+            anchors.fill: parent
+            radius: Theme.radiusLg
+            color: Qt.rgba(0, 0, 0, 0.45)
+            visible: root.colorPickerOptionId !== ""
+            z: 25
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.closeColorPicker()
+            }
+        }
+
+        ColorPicker {
+            id: colorPicker
+            anchors.centerIn: parent
+            visible: root.colorPickerOptionId !== ""
+            z: 26
+            title: root.colorPickerTitle
+            onAccepted: function(value) { root.applyColorPicker(value) }
+            onCancelled: root.closeColorPicker()
         }
     }
 

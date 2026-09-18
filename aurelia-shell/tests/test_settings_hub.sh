@@ -91,12 +91,72 @@ else
 fi
 
 for row_file in SettingToggle SettingSlider SettingCombo SettingColor SettingText \
-    SettingHeading SettingInfo SettingAction SettingsNav SettingsPage SettingsWindow; do
+    SettingHeading SettingInfo SettingAction SettingsNav SettingsPage SettingsWindow \
+    ColorPicker ColorChannelSlider SwitchControl ComboControl TextControl SliderControl; do
     if [[ ! -f "$plugin_dir/ui/$row_file.qml" ]]; then
         fail "[static] settings ui component missing: $row_file.qml"
     fi
 done
 pass "[static] settings ui component set is complete"
+
+if [[ -f "$plugin_dir/ui/ColorUtils.js" ]] &&
+   grep -q 'function parseColor' "$plugin_dir/ui/ColorUtils.js" &&
+   grep -q 'function toRgba' "$plugin_dir/ui/ColorUtils.js"; then
+    pass "[static] shared color utilities module is present"
+else
+    fail "[static] shared color utilities module is missing"
+fi
+
+# Color options must route through the picker/preset surface, never a raw
+# rgba text field left in the row.
+if ! grep -q 'TextControl' "$plugin_dir/ui/SettingColor.qml" &&
+   grep -q 'ColorUtils' "$plugin_dir/ui/SettingColor.qml" &&
+   grep -q 'pickRequested' "$plugin_dir/ui/SettingColor.qml" &&
+   grep -q 'ColorPicker' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'openColorPicker' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'colorPickerRequested' "$plugin_dir/ui/SettingsPage.qml"; then
+    pass "[static] color options route through a picker instead of a raw text field"
+else
+    fail "[static] color option picker wiring is incomplete"
+fi
+
+# Right-hand controls share one alignment edge: the switch draws its full
+# implicit width and the row uses the same inset as the combo/text rows.
+if grep -q 'implicitWidth: 40' "$plugin_dir/ui/SwitchControl.qml" &&
+   grep -q 'Layout.rightMargin: Theme.spacingSm' "$plugin_dir/ui/SettingToggle.qml" &&
+   grep -q 'ColorPicker 1.0 ColorPicker.qml' "$plugin_dir/ui/qmldir" &&
+   grep -q 'ColorChannelSlider 1.0 ColorChannelSlider.qml' "$plugin_dir/ui/qmldir"; then
+    pass "[static] toggle switch alignment and picker registration are stable"
+else
+    fail "[static] toggle switch alignment or picker registration regressed"
+fi
+
+# ColorUtils is pure JS; exercise its parse/format/validate contract directly.
+if command -v node >/dev/null 2>&1; then
+    color_utils_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/ColorUtils.js" >"$color_utils_test"
+    cat >>"$color_utils_test" <<'COLOR_UTILS_EXPORTS'
+module.exports = { parseColor, isValid, toRgba, sameRgb };
+COLOR_UTILS_EXPORTS
+    if node -e '
+const C = require(process.argv[1]);
+const a = C.parseColor("rgba(5fd4fdff)");
+const b = C.parseColor("#5fd4fd80");
+const ok = a.r === 0x5f && a.g === 0xd4 && a.b === 0xfd && a.a === 0xff &&
+    b.a === 0x80 &&
+    C.toRgba(0x5f, 0xd4, 0xfd, 0xff) === "rgba(5fd4fdff)" &&
+    C.isValid("rgba(5fd4fdff)") && !C.isValid("not-a-color") &&
+    C.sameRgb(1, 2, 3, 1, 2, 3) && !C.sameRgb(1, 2, 3, 4, 5, 6);
+process.exit(ok ? 0 : 1);
+' "$color_utils_test" >/dev/null 2>&1; then
+        pass "[unit] ColorUtils parses, formats, and validates canonical colors"
+    else
+        fail "[unit] ColorUtils color contract failed"
+    fi
+    rm -f -- "$color_utils_test"
+else
+    skip "[unit] ColorUtils color contract (node unavailable)"
+fi
 
 # ---------------------------------------------------------------------------
 # Sandbox behavior (mock hyprctl)

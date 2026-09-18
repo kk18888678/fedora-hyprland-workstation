@@ -12,6 +12,8 @@ SwitchControl 1.0 SwitchControl.qml
 SliderControl 1.0 SliderControl.qml
 ComboControl 1.0 ComboControl.qml
 TextControl 1.0 TextControl.qml
+ColorPicker 1.0 ColorPicker.qml
+ColorChannelSlider 1.0 ColorChannelSlider.qml
 SettingsNav 1.0 SettingsNav.qml
 SettingsPage 1.0 SettingsPage.qml
 SettingsWindow 1.0 SettingsWindow.qml

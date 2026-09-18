@@ -19,6 +19,7 @@ Item {
 
     signal changed(string optionId, var value)
     signal action(string actionId)
+    signal colorPickerRequested(string optionId, string value, string title)
 
     ListView {
         id: list
@@ -89,6 +90,12 @@ Item {
                     if (typeof item.action === "function") {
                         item.action.connect(function() {
                             pageRoot.action(String(modelData.actionId || ""))
+                        })
+                    }
+                    if (typeof item.pickRequested === "function") {
+                        item.pickRequested.connect(function(optionId, value, title) {
+                            pageRoot.colorPickerRequested(String(optionId || ""),
+                                String(value || ""), String(title || ""))
                         })
                     }
                 }

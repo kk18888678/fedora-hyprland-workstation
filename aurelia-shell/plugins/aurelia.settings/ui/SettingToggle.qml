@@ -46,8 +46,10 @@ RowLayout {
         }
     }
 
+    // Same right inset as the combo/text rows so every right-hand control
+    // shares one alignment edge.
     SwitchControl {
-        Layout.rightMargin: 36
+        Layout.rightMargin: Theme.spacingSm
         id: switchControl
         Layout.alignment: Qt.AlignVCenter
         checked: root.effective
