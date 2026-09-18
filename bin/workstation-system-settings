@@ -72,10 +72,6 @@ system.appearance.accent_color|enum|||blue,teal,green,yellow,orange,red,pink,pur
 system.appearance.text_scaling|float|0.5|3||appearance|1.0|Text Scaling|Global text scaling factor
 system.appearance.enable_animations|bool||||appearance|true|Interface Animations|Animate GTK interface elements
 system.appearance.show_battery_percentage|bool||||appearance|false|Battery Percentage|Show the battery percentage in the bar
-system.time.clock_24h|bool||||time|true|24-Hour Clock|Use a 24-hour clock format
-system.time.show_seconds|bool||||time|false|Show Seconds|Show seconds in the clock
-system.time.show_date|bool||||time|true|Show Date|Show the date in the clock
-system.time.show_weekday|bool||||time|false|Show Weekday|Show the weekday in the clock
 system.audio.output_volume|int|0|100||audio|-|Output Volume|Volume of the default audio output (%)
 system.audio.output_mute|bool||||audio|false|Mute Output|Mute the default audio output
 system.audio.input_volume|int|0|100||audio|-|Input Volume|Volume of the default audio input (%)
@@ -419,14 +415,6 @@ read_value() {
         system.appearance.text_scaling) gsettings_get text-scaling-factor ;;
         system.appearance.enable_animations) gsettings_get_bool enable-animations ;;
         system.appearance.show_battery_percentage) gsettings_get_bool show-battery-percentage ;;
-        system.appearance.clock_24h|system.time.clock_24h)
-            local fmt
-            fmt="$(gsettings_get_string clock-format)" || return 1
-            if [[ "$fmt" == "24h" ]]; then printf 'true\n'; else printf 'false\n'; fi
-            ;;
-        system.appearance.show_seconds|system.time.show_seconds) gsettings_get_bool clock-show-seconds ;;
-        system.appearance.show_date|system.time.show_date) gsettings_get_bool clock-show-date ;;
-        system.appearance.show_weekday|system.time.show_weekday) gsettings_get_bool clock-show-weekday ;;
         system.audio.output_volume) read_audio_volume @DEFAULT_AUDIO_SINK@ ;;
         system.audio.output_mute) read_audio_mute @DEFAULT_AUDIO_SINK@ ;;
         system.audio.input_volume) read_audio_volume @DEFAULT_AUDIO_SOURCE@ ;;
@@ -477,15 +465,6 @@ write_value() {
             gsettings_set enable-animations "$value" ;;
         system.appearance.show_battery_percentage)
             gsettings_set show-battery-percentage "$value" ;;
-        system.appearance.clock_24h|system.time.clock_24h)
-            if [[ "$value" == "true" ]]; then gsettings_set clock-format "'24h'"; else gsettings_set clock-format "'12h'"; fi
-            ;;
-        system.appearance.show_seconds|system.time.show_seconds)
-            gsettings_set clock-show-seconds "$value" ;;
-        system.appearance.show_date|system.time.show_date)
-            gsettings_set clock-show-date "$value" ;;
-        system.appearance.show_weekday|system.time.show_weekday)
-            gsettings_set clock-show-weekday "$value" ;;
         system.audio.output_volume)
             [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
             bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SINK@ "$value%" >/dev/null 2>&1 ||

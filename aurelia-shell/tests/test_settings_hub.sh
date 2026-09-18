@@ -33,15 +33,15 @@ else
     fail "[static] system settings backend is missing or not installed"
 fi
 
-# The clock widget must read the same Date & Time preferences the hub writes,
+# The clock widget must read the same Aurelia clock preferences the hub writes,
 # otherwise the two are visibly out of sync.
-if grep -q 'gsettings monitor org.gnome.desktop.interface' \
-       "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
-   grep -q 'clock-show-seconds' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
-   grep -q 'clock-show-date' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml"; then
-    pass "[static] clock widget follows the Date & Time settings the hub writes"
+if grep -q 'Theme.clockFormat' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
+   grep -q 'Theme.clockHour24' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
+   grep -q 'Theme.clockSeconds' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
+   grep -q 'aurelia.clock.hour24' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] clock widget follows the Aurelia clock preferences the hub writes"
 else
-    fail "[static] clock widget does not read the desktop clock preferences"
+    fail "[static] clock widget does not read the Aurelia clock preferences"
 fi
 
 required_ids=(general.gaps_in general.border_size general.layout decoration.rounding
@@ -304,6 +304,40 @@ else
     skip "[unit] calendar week-start math (node unavailable)"
 fi
 
+# Clock format presets must produce the exact layout users pick.
+clock_format_js="$repo_root/aurelia-shell/plugins/aurelia.clock/ClockFormat.js"
+if command -v node >/dev/null 2>&1; then
+    clock_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$clock_format_js" >"$clock_test"
+    cat >>"$clock_test" <<'CLOCK_EXPORTS'
+module.exports = { buildFormat, timeFormat };
+CLOCK_EXPORTS
+    if node -e '
+const C = require(process.argv[1]);
+const checks = [
+    [C.buildFormat("month_day_time", true, false), "MMM d, HH:mm"],
+    [C.buildFormat("weekday_day_month_time", true, false), "ddd d MMM, HH:mm"],
+    [C.buildFormat("full_weekday_month_day_time", true, false), "dddd, MMM d, HH:mm"],
+    [C.buildFormat("month_day_weekday_time", true, false), "MMM d, dddd HH:mm"],
+    [C.buildFormat("time_only", true, false), "HH:mm"],
+    [C.buildFormat("month_day_only", true, false), "MMM d"],
+    [C.buildFormat("month_day_time", false, false), "MMM d, h:mm AP"],
+    [C.buildFormat("weekday_day_month_time", false, true), "ddd d MMM, h:mm:ss AP"],
+    [C.buildFormat("month_day_time", true, true), "MMM d, HH:mm:ss"],
+];
+const ok = checks.every(c => c[0] === c[1]);
+if (!ok) console.error(JSON.stringify(checks));
+process.exit(ok ? 0 : 1);
+' "$clock_test" >/dev/null 2>&1; then
+        pass "[unit] clock format presets cover 12/24h, seconds, and layouts"
+    else
+        fail "[unit] clock format preset mapping is wrong"
+    fi
+    rm -f -- "$clock_test"
+else
+    skip "[unit] clock format presets (node unavailable)"
+fi
+
 # The weekday header must always render: its row has an explicit height, and
 # the panel follows the configured week start through the shared model.
 if grep -q 'CalendarModel.weekdayLabels' "$calendar_panel" &&
@@ -321,6 +355,17 @@ else
     fail "[unit] calendar week_start preference is unavailable"
 fi
 
+if "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.format 2>/dev/null |
+       grep -qE '^(time_only|month_day_time|month_day_weekday_time|weekday_day_month_time|full_weekday_month_day_time|month_day_only)$' &&
+   "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.hour24 2>/dev/null |
+       grep -qE '^(true|false)$' &&
+   "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.seconds 2>/dev/null |
+       grep -qE '^(true|false)$'; then
+    pass "[unit] clock format/hour24/seconds preferences resolve"
+else
+    fail "[unit] clock preferences are unavailable"
+fi
+
 if command -v node >/dev/null 2>&1; then
     time_rows_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$time_rows_test"
@@ -329,16 +374,23 @@ module.exports = { buildRows, emptyAureliaState };
 TIME_ROWS_EXPORTS
     if node -e '
 const SR = require(process.argv[1]);
-const state = Object.assign({}, SR.emptyAureliaState(), { weekStart: "monday" });
+const state = Object.assign({}, SR.emptyAureliaState(), {
+    weekStart: "monday", clockFormat: "weekday_day_month_time", clockHour24: false, clockSeconds: true });
 const rows = SR.buildRows("time", [], {}, state);
-const row = rows.find(r => r.id === "aurelia.calendar.weekStart");
-const ok = row && row.kind === "combo" && row.effective === "monday" &&
-    row.enumOptions.length === 2 && row.enumOptions[1].value === "monday";
+const week = rows.find(r => r.id === "aurelia.calendar.weekStart");
+const format = rows.find(r => r.id === "aurelia.clock.format");
+const hour24 = rows.find(r => r.id === "aurelia.clock.hour24");
+const seconds = rows.find(r => r.id === "aurelia.clock.seconds");
+const ok = week && week.kind === "combo" && week.effective === "monday" && week.enumOptions.length === 2 &&
+    format && format.kind === "combo" && format.effective === "weekday_day_month_time" &&
+    format.enumOptions.length === 6 &&
+    hour24 && hour24.kind === "toggle" && hour24.effective === false &&
+    seconds && seconds.kind === "toggle" && seconds.effective === true;
 process.exit(ok ? 0 : 1);
 ' "$time_rows_test" >/dev/null 2>&1; then
-        pass "[unit] Date & Time exposes a Week Starts On picker"
+        pass "[unit] Date & Time exposes clock format, hour cycle, seconds and week start"
     else
-        fail "[unit] Date & Time week-start row is missing"
+        fail "[unit] Date & Time clock rows are missing"
     fi
     rm -f -- "$time_rows_test"
 fi
@@ -468,7 +520,7 @@ assert by_id["system.bluetooth.enabled"]["effective"] == "true"
 assert by_id["system.network.wifi_enabled"]["effective"] == "true"
 assert by_id["system.time.ntp"]["effective"] == "true"
 assert by_id["system.time.timezone"]["effective"] == "UTC"
-assert by_id["system.time.clock_24h"]["effective"] == "true"
+assert "system.time.clock_24h" not in by_id
 assert len(by_id["system.time.timezone"]["options"]) == 3
 assert any(o["value"] == "50" for o in by_id["system.audio.output_device"]["options"])
 ' >/dev/null; then
@@ -484,8 +536,6 @@ assert any(o["value"] == "50" for o in by_id["system.audio.output_device"]["opti
        "$system_backend" set system.appearance.color_scheme prefer-light >/dev/null &&
        "$system_backend" set system.appearance.text_scaling 1.25 >/dev/null &&
        "$system_backend" set system.appearance.enable_animations false >/dev/null &&
-       "$system_backend" set system.time.clock_24h false >/dev/null &&
-       "$system_backend" set system.time.show_seconds true >/dev/null &&
        "$system_backend" set system.audio.output_volume 35 >/dev/null &&
        "$system_backend" set system.audio.input_volume 40 >/dev/null &&
        "$system_backend" set system.audio.output_mute true >/dev/null &&
@@ -509,9 +559,7 @@ assert any(o["value"] == "50" for o in by_id["system.audio.output_device"]["opti
        grep -q '^cursor-size=32$' "$gs_store" &&
        grep -q "^color-scheme='prefer-light'$" "$gs_store" &&
        grep -qE '^text-scaling-factor=1\.2500?$' "$gs_store" &&
-       grep -q '^enable-animations=false$' "$gs_store" &&
-       grep -q "^clock-format='12h'$" "$gs_store" &&
-       grep -q '^clock-show-seconds=true$' "$gs_store"; then
+       grep -q '^enable-animations=false$' "$gs_store"; then
         pass "[sandbox] system settings apply through the owning tools"
     else
         fail "[sandbox] system settings apply routing is wrong"

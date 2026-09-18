@@ -725,6 +725,17 @@ QtObject {
     // First day of the week for the Aurelia calendar (0 = Sunday, 1 = Monday).
     readonly property int calendarWeekStart: getPreference("aurelia.calendar.week_start", "sunday") === "monday" ? 1 : 0
 
+    // Aurelia bar clock layout, hour cycle, and seconds.
+    readonly property string clockFormat: getPreference("aurelia.clock.format", "month_day_weekday_time")
+    readonly property bool clockHour24: {
+        var p = getPreference("aurelia.clock.hour24", true)
+        return p === true || p === "true"
+    }
+    readonly property bool clockSeconds: {
+        var p = getPreference("aurelia.clock.seconds", false)
+        return p === true || p === "true"
+    }
+
     function componentMotionEnabled(componentId: string): bool {
         var compPref = getPreference("components." + componentId + ".motion.enabled", undefined)
         if (compPref !== undefined) {

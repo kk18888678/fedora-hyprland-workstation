@@ -322,6 +322,35 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
         if (sectionId === "time") {
             rows.push({
                 kind: "combo",
+                id: "aurelia.clock.format",
+                title: "Clock Format",
+                description: "Layout of the Aurelia bar clock.",
+                enumOptions: [
+                    { value: "time_only", label: "Time only" },
+                    { value: "month_day_time", label: "Month day + time" },
+                    { value: "month_day_weekday_time", label: "Month day + weekday + time" },
+                    { value: "weekday_day_month_time", label: "Weekday + day month + time" },
+                    { value: "full_weekday_month_day_time", label: "Full weekday + month day + time" },
+                    { value: "month_day_only", label: "Month day only" }
+                ],
+                effective: (aurelia && aurelia.clockFormat) ? aurelia.clockFormat : "month_day_weekday_time"
+            })
+            rows.push({
+                kind: "toggle",
+                id: "aurelia.clock.hour24",
+                title: "24-Hour Clock",
+                description: "Use a 24-hour clock in the Aurelia bar clock.",
+                effective: aurelia ? aurelia.clockHour24 !== false : true
+            })
+            rows.push({
+                kind: "toggle",
+                id: "aurelia.clock.seconds",
+                title: "Show Seconds",
+                description: "Show seconds in the Aurelia bar clock.",
+                effective: aurelia ? aurelia.clockSeconds === true : false
+            })
+            rows.push({
+                kind: "combo",
                 id: "aurelia.calendar.weekStart",
                 title: "Week Starts On",
                 description: "First day of the week in the Aurelia calendar.",
@@ -526,6 +555,9 @@ function emptyAureliaState() {
         textSize: 12,
         barHidden: false,
         weekStart: "sunday",
+        clockFormat: "month_day_weekday_time",
+        clockHour24: true,
+        clockSeconds: false,
         settingsPath: ""
     }
 }

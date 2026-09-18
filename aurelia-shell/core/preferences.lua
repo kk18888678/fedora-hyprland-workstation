@@ -104,6 +104,38 @@ M.SCHEMA = {
         scope = "shell",
         description = "First day of the week shown by the Aurelia calendar",
     },
+    ["aurelia.clock.format"] = {
+        canonical_key = "aurelia.clock.format",
+        type = "string",
+        enum = {
+            "time_only",
+            "month_day_time",
+            "month_day_weekday_time",
+            "weekday_day_month_time",
+            "full_weekday_month_day_time",
+            "month_day_only",
+        },
+        default = "month_day_weekday_time",
+        portable = true,
+        scope = "shell",
+        description = "Layout of the Aurelia bar clock",
+    },
+    ["aurelia.clock.hour24"] = {
+        canonical_key = "aurelia.clock.hour24",
+        type = "boolean",
+        default = true,
+        portable = true,
+        scope = "shell",
+        description = "Use a 24-hour clock in the Aurelia bar clock",
+    },
+    ["aurelia.clock.seconds"] = {
+        canonical_key = "aurelia.clock.seconds",
+        type = "boolean",
+        default = false,
+        portable = true,
+        scope = "shell",
+        description = "Show seconds in the Aurelia bar clock",
+    },
 }
 
 -- Shipped Defaults derived authoritatively from the schema registry

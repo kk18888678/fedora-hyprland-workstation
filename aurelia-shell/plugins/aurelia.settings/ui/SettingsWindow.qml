@@ -427,15 +427,25 @@ PanelWindow {
     }
 
     Process {
-        id: weekStartProcess
+        id: aureliaPrefsProcess
         command: []
         environment: root.backendEnvironment
         clearEnvironment: false
-        stdout: StdioCollector { id: weekStartStdout }
+        stdout: StdioCollector { id: aureliaPrefsStdout }
         onExited: function(code) {
-            var value = code === 0 ? String(weekStartStdout.text || "").trim() : "sunday"
-            if (value !== "monday") value = "sunday"
-            root.applyAureliaPatch({ weekStart: value })
+            var lines = code === 0 ? String(aureliaPrefsStdout.text || "").split("\n") : []
+            var format = String(lines[0] || "").trim()
+            var hour24 = String(lines[1] || "").trim() === "true"
+            var seconds = String(lines[2] || "").trim() === "true"
+            var weekStart = String(lines[3] || "").trim()
+            if (format === "") format = "month_day_weekday_time"
+            if (weekStart !== "monday") weekStart = "sunday"
+            root.applyAureliaPatch({
+                clockFormat: format,
+                clockHour24: hour24,
+                clockSeconds: seconds,
+                weekStart: weekStart
+            })
         }
     }
 
@@ -546,8 +556,13 @@ PanelWindow {
         motionProcess.running = true
         textSizeProcess.command = [root.helperBin("aurelia-display-text-size")]
         textSizeProcess.running = true
-        weekStartProcess.command = [root.helperBin("workstation-aurelia"), "preference", "get", "aurelia.calendar.week_start"]
-        weekStartProcess.running = true
+        aureliaPrefsProcess.command = ["/usr/bin/sh", "-c",
+            "\"$1\" preference get aurelia.clock.format; " +
+            "\"$1\" preference get aurelia.clock.hour24; " +
+            "\"$1\" preference get aurelia.clock.seconds; " +
+            "\"$1\" preference get aurelia.calendar.week_start",
+            "settings", root.helperBin("workstation-aurelia")]
+        aureliaPrefsProcess.running = true
         barProcess.command = [root.helperBin("aurelia-bar-hidden"), "read"]
         barProcess.running = true
     }
@@ -560,7 +575,8 @@ PanelWindow {
     function applyAureliaPatch(patch) {
         var next = {}
         var keys = ["ipcOnline", "themes", "currentTheme", "motionEnabled", "motionScale",
-                    "textSize", "barHidden", "weekStart", "settingsPath"]
+                    "textSize", "barHidden", "weekStart", "clockFormat", "clockHour24",
+                    "clockSeconds", "settingsPath"]
         for (var i = 0; i < keys.length; i++) {
             next[keys[i]] = keys[i] in patch ? patch[keys[i]] : root.aureliaState[keys[i]]
         }
@@ -645,6 +661,18 @@ PanelWindow {
         case "aurelia.calendar.weekStart":
             runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
                        "aurelia.calendar.week_start", String(value)], "Setting week start…")
+            break
+        case "aurelia.clock.format":
+            runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
+                       "aurelia.clock.format", String(value)], "Setting clock format…")
+            break
+        case "aurelia.clock.hour24":
+            runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
+                       "aurelia.clock.hour24", value ? "true" : "false"], "Setting hour format…")
+            break
+        case "aurelia.clock.seconds":
+            runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
+                       "aurelia.clock.seconds", value ? "true" : "false"], "Setting clock seconds…")
             break
         default:
             console.warn("[SETTINGS] unknown aurelia option: " + optionId)
