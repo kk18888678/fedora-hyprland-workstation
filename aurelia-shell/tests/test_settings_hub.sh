@@ -165,6 +165,17 @@ else
     fail "[static] toggle switch alignment or picker registration regressed"
 fi
 
+# Scroll/rebuild performance invariants: pre-buffer delegates so a flick does
+# not create them on the render path, and coalesce row rebuilds so opening
+# does not reset the list several times.
+if grep -q 'cacheBuffer: 2000' "$plugin_dir/ui/SettingsPage.qml" &&
+   grep -q 'boundsBehavior: Flickable.StopAtBounds' "$plugin_dir/ui/SettingsPage.qml" &&
+   grep -q '_rebuildPending' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] settings list pre-buffers delegates and coalesces row rebuilds"
+else
+    fail "[static] settings list scroll/rebuild performance settings are missing"
+fi
+
 # ColorUtils is pure JS; exercise its parse/format/validate contract directly.
 if command -v node >/dev/null 2>&1; then
     color_utils_test="$(mktemp --suffix=.js)"

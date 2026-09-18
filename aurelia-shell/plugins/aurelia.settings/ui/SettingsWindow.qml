@@ -64,6 +64,7 @@ PanelWindow {
     property bool schemaReady: false
     property bool statusReady: false
     property bool pendingClearConfirm: false
+    property bool _rebuildPending: false
 
     // System settings backend (power/audio/network/time). It is loaded in
     // addition to the Hyprland backend and routed by the "system." id prefix.
@@ -776,8 +777,17 @@ PanelWindow {
     }
 
     function rebuildRows() {
-        if (!schemaReady) return
-        pageRows = SettingsRows.buildRows(activeSection, root.schemas, root.statusMap, root.aureliaState)
+        // Coalesce bursts of updates (schema/status/preferences all arrive
+        // during open) into a single model reset; each reset rebuilds every
+        // delegate, so resetting the list several times on open was both slow
+        // and visibly flickery.
+        if (!schemaReady || _rebuildPending) return
+        _rebuildPending = true
+        Qt.callLater(function() {
+            root._rebuildPending = false
+            if (!root.schemaReady) return
+            root.pageRows = SettingsRows.buildRows(root.activeSection, root.schemas, root.statusMap, root.aureliaState)
+        })
     }
 
     onActiveSectionChanged: rebuildRows()

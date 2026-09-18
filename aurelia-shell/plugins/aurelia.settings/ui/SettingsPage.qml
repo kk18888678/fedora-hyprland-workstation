@@ -12,7 +12,8 @@ import "."
 // stretching apart.
 Item {
     id: pageRoot
-    clip: true
+    // The ListView owns clipping. A second clip on this Item only adds a
+    // stencil pass around the whole page.
 
     property var rows: []
     property var windowRoot: null
@@ -29,6 +30,11 @@ Item {
         clip: true
         topMargin: Theme.spacingMd
         bottomMargin: Theme.spacingLg
+        // Keep a generous buffer around the viewport so a flick does not create
+        // delegates on the render path (the main source of scroll jitter), and
+        // keep the edges firm instead of bouncing.
+        cacheBuffer: 2000
+        boundsBehavior: Flickable.StopAtBounds
 
         ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AlwaysOff
@@ -38,10 +44,10 @@ Item {
             required property var modelData
             width: list.width
             height: modelData.kind === "heading" ? 34 : 64
-            clip: true // contain any stretched control within the row
 
-            // Card surface for non-heading rows. clip keeps any stretched
-            // control (e.g. full-width slider tracks) inside the rounded card.
+            // Card surface for non-heading rows. No per-row clip: row content
+            // sits inside the card margins, and nested clips force extra
+            // scissor state changes on every frame while scrolling.
             Rectangle {
                 anchors.fill: parent
                 visible: modelData.kind !== "heading"
@@ -49,7 +55,6 @@ Item {
                 color: Theme.surface
                 border.width: 1
                 border.color: Theme.border
-                clip: true
             }
 
             Loader {
