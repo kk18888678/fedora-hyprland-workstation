@@ -18,7 +18,7 @@ QtObject {
             left: [{id: "aurelia.workspaces"}],
             center: [
                 {id: "aurelia.notifications"},
-                {id: "aurelia.clock", format: "MMM d, dddd HH:mm"},
+                {id: "aurelia.clock", format: "auto"},
                 {id: "aurelia.weather", location: "auto"}
             ],
             right: [

@@ -85,6 +85,7 @@ system.audio.input_device|denum||||audio|-|Input Device|Default audio input devi
 system.bluetooth.enabled|bool||||bluetooth|-|Bluetooth|Enable the Bluetooth adapter
 system.bluetooth.discoverable|bool||||bluetooth|false|Discoverable|Allow other devices to find this computer
 system.network.wifi_enabled|bool||||network|-|Wi-Fi|Enable the Wi-Fi radio
+system.network.saved_connection|denum||||network|-|Saved Network|Connect to a saved Wi-Fi network
 system.time.ntp|bool||||time|-|Automatic Time|Synchronize the clock with network time
 system.time.timezone|denum||||time|-|Time Zone|System time zone
 EOF
@@ -177,6 +178,30 @@ list_timezones() {
     done
 }
 
+list_saved_wifi() {
+    [[ -n "$NMCLI_BIN" ]] || return 1
+    bounded "$NMCLI_BIN" -t -f TYPE,NAME connection show 2>/dev/null | while IFS= read -r line; do
+        [[ "$line" == *wireless* ]] || continue
+        local name="${line#*:}"
+        [[ -n "$name" && "$name" != "$line" ]] || continue
+        printf '%s\t%s\n' "$name" "$name"
+    done | list_unique
+}
+
+read_saved_wifi() {
+    [[ -n "$NMCLI_BIN" ]] || return 1
+    local out
+    out="$(bounded "$NMCLI_BIN" -t -f ACTIVE,TYPE,NAME connection show 2>/dev/null || true)"
+    [[ -n "$out" ]] || return 1
+    printf '%s\n' "$out" | while IFS= read -r line; do
+        local active="${line%%:*}" rest="${line#*:}" type name
+        type="${rest%%:*}"
+        name="${rest#*:}"
+        [[ "$active" == "yes" && "$type" == *wireless* ]] || continue
+        printf '%s\n' "$name"
+    done
+}
+
 dynamic_options() {
     local id="$1"
     case "$id" in
@@ -185,6 +210,7 @@ dynamic_options() {
         system.appearance.cursor_theme) list_cursor_names ;;
         system.audio.output_device) wpctl_section_ids Sinks ;;
         system.audio.input_device) wpctl_section_ids Sources ;;
+        system.network.saved_connection) list_saved_wifi ;;
         system.time.timezone) list_timezones ;;
         *) return 1 ;;
     esac
@@ -221,7 +247,7 @@ validate_value() {
             printf '%s\n' "$value"
             ;;
         float)
-            [[ "$value" =~ ^[0-9]*\.?[0-9]+$ ]] || fail "invalid number for $id: $value"
+            [[ "$value" =~ ^-?[0-9]*\.?[0-9]+$ ]] || fail "invalid number for $id: $value"
             awk -v min="$min" -v max="$max" -v v="$value" -v id="$id" '
                 BEGIN {
                     n = v + 0
@@ -410,6 +436,7 @@ read_value() {
         system.bluetooth.enabled) read_bluetooth_field Powered ;;
         system.bluetooth.discoverable) read_bluetooth_field Discoverable ;;
         system.network.wifi_enabled) read_wifi_enabled ;;
+        system.network.saved_connection) read_saved_wifi ;;
         system.time.ntp) read_ntp ;;
         system.time.timezone) read_timezone ;;
         *) return 1 ;;
@@ -502,6 +529,11 @@ write_value() {
             [[ "$value" == "true" ]] && radio="on"
             bounded "$NMCLI_BIN" radio wifi "$radio" >/dev/null 2>&1 ||
                 fail "could not change the Wi-Fi radio (polkit may have denied the request)"
+            ;;
+        system.network.saved_connection)
+            [[ -n "$NMCLI_BIN" ]] || fail "nmcli is not available"
+            bounded "$NMCLI_BIN" connection up "$value" >/dev/null 2>&1 ||
+                fail "could not activate the saved connection"
             ;;
         system.time.ntp)
             [[ -n "$TIMEDATECTL_BIN" ]] || fail "timedatectl is not available"

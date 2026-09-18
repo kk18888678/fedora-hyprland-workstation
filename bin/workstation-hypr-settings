@@ -259,7 +259,7 @@ validate_value() {
             printf '%s\n' "$value"
             ;;
         float)
-            [[ "$value" =~ ^[0-9]*\.?[0-9]+$ ]] || fail "invalid number for $id: $value"
+            [[ "$value" =~ ^-?[0-9]*\.?[0-9]+$ ]] || fail "invalid number for $id: $value"
             awk -v min="$min" -v max="$max" -v v="$value" -v id="$id" '
                 BEGIN {
                     n = v + 0
@@ -409,12 +409,20 @@ live_value_for() {
         v="$(normalize_gradient "${BASH_REMATCH[1]%% *}")"
     elif [[ "$out" =~ \"str\":\ \"([^\"]*)\" ]]; then
         v="${BASH_REMATCH[1]}"
+        # Hyprland reports unset string options as the literal marker
+        # [[EMPTY]]; surface them as an empty value instead of that marker.
+        [[ "$v" == "[[EMPTY]]" ]] && v=""
     elif [[ "$out" =~ \"int\":\ (-?[0-9]+) ]]; then
         v="${BASH_REMATCH[1]}"
     elif [[ "$out" =~ \"float\":\ (-?[0-9.]+) ]]; then
         v="$(awk -v n="${BASH_REMATCH[1]}" 'BEGIN { if (n == int(n)) printf "%d", n; else printf "%g", n }')"
     elif [[ "$out" =~ \"bool\":\ (true|false) ]]; then
         v="${BASH_REMATCH[1]}"
+    fi
+    # An empty string is a valid live value for str options (kb_variant etc.).
+    if [[ -z "$v" && "$type" == "str" ]]; then
+        printf '\n'
+        return 0
     fi
     [[ -n "$v" ]] || return 1
     printf '%s\n' "$v"
@@ -606,14 +614,21 @@ $(emit_preset_animations "$preset")
     },
 "
     fi
-    if [[ -n "$ws_count" && "$ws_count" != "0" ]]; then
-        body+="    persistent_workspaces = {"
-        local w
-        for ((w = 1; w <= ws_count; w++)); do
-            body+=" $w,"
-        done
-        body+=" },
+    if [[ -n "$ws_count" ]]; then
+        if [[ "$ws_count" == "0" ]]; then
+            # An explicit empty table clears any baseline pinning; omitting the
+            # key would let the reviewed baseline's default workspaces return.
+            body+="    persistent_workspaces = {},
 "
+        else
+            body+="    persistent_workspaces = {"
+            local w
+            for ((w = 1; w <= ws_count; w++)); do
+                body+=" $w,"
+            done
+            body+=" },
+"
+        fi
     fi
     body+="}
 "
@@ -755,14 +770,15 @@ cmd_status() {
         id="$(spec_field "$line" 1)"
         override="$(overlay_override_for "$id")"
         live=""
-        if live_value_for "$id" >/dev/null; then
-            live="$(live_value_for "$id" 2>&1 || true)"
+        local read_ok=0
+        if live="$(live_value_for "$id" 2>/dev/null)"; then
+            read_ok=1
         fi
         default_val="$(spec_field "$line" 8)"
         if [[ -n "$override" ]]; then
             effective="$override"
             source="override"
-        elif [[ -n "$live" ]]; then
+        elif (( read_ok )); then
             effective="$live"
             source="live"
         else

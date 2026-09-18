@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell.Io
 import "../../theme"
 
 // Deliberately small bar-only clock. A future calendar panel can be added as
@@ -13,6 +14,28 @@ Item {
     property var manifest: ({})
     property var pluginRegistry: null
     property int refreshTick: 0
+
+    // Date & Time preferences are owned by the desktop (gsettings) and written
+    // by the settings hub. The clock treats the historical default format as
+    // "auto" so the hub drives it without a migration.
+    property bool clock24h: true
+    property bool clockShowDate: true
+    property bool clockShowSeconds: false
+    property bool clockShowWeekday: false
+    readonly property string configuredFormat: settings && typeof settings.format === "string"
+        ? settings.format : ""
+    readonly property bool autoFormat: configuredFormat === "" ||
+        configuredFormat === "auto" || configuredFormat === "MMM d, dddd HH:mm"
+    readonly property string derivedFormat: {
+        var timeFormat = clock24h
+            ? (clockShowSeconds ? "HH:mm:ss" : "HH:mm")
+            : (clockShowSeconds ? "h:mm:ss AP" : "h:mm AP")
+        if (clockShowDate && clockShowWeekday) return "MMM d, dddd " + timeFormat
+        if (clockShowDate) return "MMM d " + timeFormat
+        if (clockShowWeekday) return "dddd " + timeFormat
+        return timeFormat
+    }
+
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
 
@@ -20,8 +43,7 @@ Item {
     readonly property string displayFormat: root.vertical
         ? (settings && typeof settings.verticalFormat === "string" && settings.verticalFormat !== ""
             ? settings.verticalFormat : "HH\n—\nmm")
-        : (settings && typeof settings.format === "string" && settings.format !== ""
-            ? settings.format : "MMM d, dddd HH:mm")
+        : (root.autoFormat ? root.derivedFormat : root.configuredFormat)
     readonly property var verticalLines: displayText.split("\n")
     readonly property var displayLocale: Qt.locale("en_US")
     readonly property string displayText: {
@@ -43,6 +65,39 @@ Item {
     implicitHeight: root.vertical
         ? root.verticalLines.length * (root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot)
         : (bar ? bar.barSize : Theme.bar.sizeHorizontal)
+
+    // Read the desktop clock preferences (owned by gsettings) and re-read them
+    // whenever the settings hub changes them, so widget and settings stay in
+    // sync. Degrades to the built-in format when gsettings is unavailable.
+    Process {
+        id: clockPrefsProcess
+        command: ["/usr/bin/sh", "-c",
+            "command -v gsettings >/dev/null 2>&1 || exit 3; " +
+            "gsettings get org.gnome.desktop.interface clock-format; " +
+            "gsettings get org.gnome.desktop.interface clock-show-date; " +
+            "gsettings get org.gnome.desktop.interface clock-show-seconds; " +
+            "gsettings get org.gnome.desktop.interface clock-show-weekday"]
+        stdout: StdioCollector { id: clockPrefsOut }
+        onExited: function(code) {
+            if (code !== 0) return
+            var lines = String(clockPrefsOut.text || "").split("\n")
+            root.clock24h = String(lines[0] || "").indexOf("24h") >= 0
+            root.clockShowDate = String(lines[1] || "").indexOf("true") >= 0
+            root.clockShowSeconds = String(lines[2] || "").indexOf("true") >= 0
+            root.clockShowWeekday = String(lines[3] || "").indexOf("true") >= 0
+        }
+    }
+
+    Process {
+        id: clockPrefsMonitor
+        command: ["/usr/bin/sh", "-c",
+            "command -v gsettings >/dev/null 2>&1 && exec gsettings monitor org.gnome.desktop.interface"]
+        stdout: SplitParser {
+            onRead: function() { clockPrefsProcess.running = true }
+        }
+    }
+
+    Component.onCompleted: clockPrefsProcess.running = true
 
     Timer {
         interval: 15000

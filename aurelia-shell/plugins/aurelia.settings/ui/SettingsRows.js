@@ -306,6 +306,17 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
                 rows.push(schemaRow(schemas[i], statuses ? statuses[schemas[i].id] : {}))
             }
         }
+        // Network scanning/connecting is owned by the full network panel; the
+        // settings hub surfaces it rather than duplicating the password flow.
+        if (sectionId === "network") {
+            rows.push({
+                kind: "action",
+                actionId: "openNetworkPanel",
+                title: "Scan for networks",
+                description: "Discover available Wi-Fi networks and connect (opens the network panel).",
+                label: "Scan\u2026"
+            })
+        }
         return rows
     }
 

@@ -33,6 +33,17 @@ else
     fail "[static] system settings backend is missing or not installed"
 fi
 
+# The clock widget must read the same Date & Time preferences the hub writes,
+# otherwise the two are visibly out of sync.
+if grep -q 'gsettings monitor org.gnome.desktop.interface' \
+       "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
+   grep -q 'clock-show-seconds' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
+   grep -q 'clock-show-date' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml"; then
+    pass "[static] clock widget follows the Date & Time settings the hub writes"
+else
+    fail "[static] clock widget does not read the desktop clock preferences"
+fi
+
 required_ids=(general.gaps_in general.border_size general.layout decoration.rounding
     decoration.shadow.enabled decoration.blur.enabled input.kb_layout input.repeat_rate
     animations.enabled animations.preset workspaces.persistent)
@@ -313,11 +324,15 @@ esac
 MOCK_WP
     cat >"$sys_sandbox/nmcli" <<'MOCK_NM'
 #!/usr/bin/env bash
-case "$2 $3" in
-    "wifi on") echo "wifi on" >>"$MOCK_SYS_LOG" ;;
-    "wifi off") echo "wifi off" >>"$MOCK_SYS_LOG" ;;
+args="$*"
+case "$args" in
+    *"ACTIVE,TYPE,NAME connection show"*) printf 'yes:802-11-wireless:MyWifi\n' ;;
+    *"TYPE,NAME connection show"*) printf '802-11-wireless:MyWifi\n802-3-ethernet:Wired\n' ;;
     "radio wifi") echo enabled ;;
-    *) echo enabled ;;
+    "radio wifi on") echo "wifi on" >>"$MOCK_SYS_LOG" ;;
+    "radio wifi off") echo "wifi off" >>"$MOCK_SYS_LOG" ;;
+    *"connection up"*) echo "connect ${!#}" >>"$MOCK_SYS_LOG" ;;
+    *) : ;;
 esac
 MOCK_NM
     cat >"$sys_sandbox/timedatectl" <<'MOCK_TD'
@@ -432,6 +447,46 @@ assert any(o["value"] == "50" for o in by_id["system.audio.output_device"]["opti
         fail "[sandbox] system settings apply routing is wrong"
     fi
 
+    # Every registered option must independently validate and apply. Sample
+    # values are derived from the schema/status so this stays exhaustive as
+    # options are added.
+    if python3 - "$system_backend" <<'SYS_PER_OPTION' >/dev/null
+import json, subprocess, sys
+backend = sys.argv[1]
+schema = json.loads(subprocess.check_output([backend, "schema"]))
+status = json.loads(subprocess.check_output([backend, "status"]))
+by_id = {o["id"]: o for o in status["options"]}
+def sample(o):
+    t = o["type"]
+    if t == "bool": return "true"
+    if t == "int": return o["min"] if o["min"] not in ("", "-") else "0"
+    if t == "float": return o["min"] if o["min"] not in ("", "-") else "1"
+    if t == "enum": return o["enum"].split(",")[-1]
+    if t == "denum":
+        opts = by_id.get(o["id"], {}).get("options") or []
+        return opts[0]["value"] if opts else None
+    if t == "str": return "settings-test"
+    return None
+failures = []
+for o in schema:
+    v = sample(o)
+    if v is None:
+        failures.append((o["id"], "no-sample")); continue
+    r = subprocess.run([backend, "set", o["id"], v], capture_output=True, text=True)
+    if r.returncode != 0:
+        failures.append((o["id"], "set", r.stderr.strip())); continue
+    g = subprocess.run([backend, "get", o["id"]], capture_output=True, text=True)
+    if g.returncode != 0 or g.stdout.strip() == "":
+        failures.append((o["id"], "get", (g.stderr or g.stdout).strip()))
+print(json.dumps(failures))
+sys.exit(1 if failures else 0)
+SYS_PER_OPTION
+    then
+        pass "[sandbox] every system option validates and applies"
+    else
+        fail "[sandbox] some system options failed to apply"
+    fi
+
     sys_rejected=0
     "$system_backend" set system.power.profile banana >/dev/null 2>&1 && sys_rejected=1
     "$system_backend" set system.display.brightness 0 >/dev/null 2>&1 && sys_rejected=1
@@ -474,6 +529,7 @@ case "$1" in
                 decoration:active_opacity) echo '{"option": "decoration:active_opacity", "float": 1.000000, "set": true }' ;;
                 general:col.active_border) echo '{"option": "general:col.active_border", "gradient": "ff5fd4fd 0deg", "set": true }' ;;
                 input:numlock_by_default) echo '{"option": "input:numlock_by_default", "bool": true, "set": true }' ;;
+                input:kb_variant) echo '{"option": "input:kb_variant", "str": "[[EMPTY]]", "set": false }' ;;
                 *) echo '{"option": "'"$3"'", "int": 0, "set": true }' ;;
             esac
         fi
@@ -535,6 +591,51 @@ if "$backend" set cursor.inactive_timeout 15 >/dev/null &&
     pass "[sandbox] new-category options persist into the overlay"
 else
     fail "[sandbox] new-category options did not persist"
+fi
+"$backend" clear >/dev/null || true
+
+# Every registered Hyprland option must validate and round-trip through the
+# overlay. Sample values are derived from the schema so this stays exhaustive.
+if python3 - "$backend" <<'HYPR_PER_OPTION' >/dev/null
+import json, subprocess, sys
+backend = sys.argv[1]
+schema = json.loads(subprocess.check_output([backend, "schema"]))
+def sample(o):
+    t = o["type"]
+    if t == "bool": return "true"
+    if t == "int": return o["min"] if o["min"] not in ("", "-") else "0"
+    if t == "float": return o["min"] if o["min"] not in ("", "-") else "1"
+    if t == "enum": return o["enum"].split(",")[-1]
+    if t == "str": return "settings-test"
+    if t == "color": return "rgba(112233ff)"
+    return None
+failures = []
+for o in schema:
+    v = sample(o)
+    if v is None:
+        failures.append((o["id"], "no-sample")); continue
+    r = subprocess.run([backend, "set", o["id"], v], capture_output=True, text=True)
+    if r.returncode != 0:
+        failures.append((o["id"], "set", r.stderr.strip())); continue
+    g = subprocess.run([backend, "get", o["id"]], capture_output=True, text=True)
+    got = g.stdout.strip()
+    if g.returncode != 0:
+        failures.append((o["id"], "get", g.stderr.strip())); continue
+    if o["type"] == "float":
+        try:
+            if abs(float(got) - float(v)) > 1e-6:
+                failures.append((o["id"], "value", got, v))
+        except Exception:
+            failures.append((o["id"], "parse", got))
+    elif got != v:
+        failures.append((o["id"], "value", got, v))
+print(json.dumps(failures))
+sys.exit(1 if failures else 0)
+HYPR_PER_OPTION
+then
+    pass "[sandbox] every hyprland option validates and round-trips"
+else
+    fail "[sandbox] some hyprland options failed to round-trip"
 fi
 "$backend" clear >/dev/null || true
 
@@ -606,6 +707,21 @@ else
     skip "[sandbox] overlay reader round-trip (luajit or lua unavailable)"
 fi
 "$backend" clear >/dev/null || true
+
+# Hyprland reports unset string options as the literal [[EMPTY]] marker; it
+# must surface as an empty value, not that marker.
+if "$backend" status | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+by_id = {o["id"]: o for o in d["options"]}
+assert by_id["input.kb_variant"]["effective"] == "", by_id["input.kb_variant"]
+assert by_id["input.kb_variant"]["source"] == "live", by_id["input.kb_variant"]
+assert "[[EMPTY]]" not in json.dumps(d)
+' >/dev/null; then
+    pass "[sandbox] [[EMPTY]] string options surface as empty values"
+else
+    fail "[sandbox] [[EMPTY]] marker leaked into settings state"
+fi
 
 # unmanaged file refusal
 printf '%s\n' 'return {}' >"$WORKSTATION_HYPR_SETTINGS_PATH"

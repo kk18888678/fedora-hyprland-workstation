@@ -641,6 +641,11 @@ PanelWindow {
                 pluginRoot.shell.toggle("aurelia.keybindings", "{}")
             }
             break
+        case "openNetworkPanel":
+            if (pluginRoot && pluginRoot.shell && typeof pluginRoot.shell.toggle === "function") {
+                pluginRoot.shell.toggle("aurelia.network", "{}")
+            }
+            break
         case "resetSection":
             clearAllOverrides()
             break

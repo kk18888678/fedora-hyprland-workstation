@@ -50,6 +50,7 @@ RowLayout {
         Layout.rightMargin: Theme.spacingSm
         Layout.alignment: Qt.AlignVCenter
         Layout.minimumWidth: 170
+        placeholderText: "Not set"
         text: root.effective
         onAccepted: root.changed(text.trim())
     }
