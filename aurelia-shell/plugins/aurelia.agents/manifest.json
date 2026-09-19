@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.agents",
+  "name": "Agents",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "AI coding subscription usage (local token stats) in an Aurelia bar panel.",
+  "icon": "agents",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "AgentsBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Agents",
+    "description": "AI agent token usage panel backed by local session stats.",
+    "category": "AI",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

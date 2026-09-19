@@ -37,6 +37,10 @@ conf_path="${WORKSTATION_AI_CONF:-$config_home/workstation/ai.conf}"
 [[ "$conf_path" == *"/../"* ]] && fail "ai.conf path traversal"
 conf_dir="$(dirname -- "$conf_path")"
 
+state_home="${XDG_STATE_HOME:-$home/.local/state}"
+[[ "$state_home" == /* && "$state_home" != "/" ]] || fail "XDG_STATE_HOME must be absolute"
+usage_dir="$state_home/aurelia/agents/usage"
+
 skill_source="$SCRIPT_DIR/../config/agent-skill/fedora-hyprland-workstation"
 [[ -d "$skill_source" ]] || skill_source="/usr/local/share/fedora-hyprland-workstation/agent-skill/fedora-hyprland-workstation"
 [[ -d "$skill_source" ]] || skill_source="$config_home/aurelia/agent-skill/fedora-hyprland-workstation"
@@ -83,12 +87,12 @@ is_installed() {
     command_name="$(printf '%s' "$spec" | cut -d'|' -f3)"
     kind="$(printf '%s' "$spec" | cut -d'|' -f4)"
     if [[ "$kind" == "desktop" ]]; then
-        command -v "$command_name" >/dev/null 2>&1 && return 0
-        command -v gtk-launch >/dev/null 2>&1 &&
+        command -v "$command_name" >/dev/null && return 0
+        command -v gtk-launch >/dev/null &&
             [[ -f "/usr/share/applications/${command_name}.desktop" ]] && return 0
         return 1
     fi
-    command -v "$command_name" >/dev/null 2>&1
+    command -v "$command_name" >/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -124,15 +128,15 @@ write_default() {
 # ---------------------------------------------------------------------------
 terminal_prefix() {
     # Prints the terminal invocation for a command, or returns 1.
-    if command -v kitty >/dev/null 2>&1; then
+    if command -v kitty >/dev/null; then
         printf '%s\n' "kitty|title"
-    elif command -v ghostty >/dev/null 2>&1; then
+    elif command -v ghostty >/dev/null; then
         printf '%s\n' "ghostty|title"
-    elif command -v alacritty >/dev/null 2>&1; then
+    elif command -v alacritty >/dev/null; then
         printf '%s\n' "alacritty|title"
-    elif command -v foot >/dev/null 2>&1; then
+    elif command -v foot >/dev/null; then
         printf '%s\n' "foot|title"
-    elif command -v xterm >/dev/null 2>&1; then
+    elif command -v xterm >/dev/null; then
         printf '%s\n' "xterm|title"
     else
         return 1
@@ -236,7 +240,7 @@ cmd_launch() {
     kind="$(printf '%s' "$spec" | cut -d'|' -f4)"
 
     if [[ "$kind" == "desktop" ]]; then
-        if command -v gtk-launch >/dev/null 2>&1; then
+        if command -v gtk-launch >/dev/null; then
             exec gtk-launch -- "$id.desktop"
         fi
         exec "$id"
@@ -365,9 +369,84 @@ cmd_reset() {
 cmd_check() {
     printf 'backend: %s\n' "$PROG"
     printf 'ai_conf: %s\n' "$conf_path"
+    printf 'usage_dir: %s\n' "$usage_dir"
     printf 'default: %s\n' "$(read_default)"
-    printf 'terminal: %s\n' "$(terminal_prefix 2>/dev/null | cut -d'|' -f1 || printf 'unavailable')"
+    printf 'terminal: %s\n' "$(terminal_prefix | cut -d'|' -f1 || printf 'unavailable')"
     printf 'skill_source: %s\n' "$skill_source"
+}
+
+# Collectors are executable ai-usage-<agent> scripts; each prints one record.
+json_valid() {
+    if command -v jq >/dev/null; then
+        jq -e . >/dev/null
+    elif command -v python3 >/dev/null; then
+        python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null
+    else
+        cat >/dev/null
+    fi
+}
+
+cmd_usage_update() {
+    local force=0 agent collector out tmp candidate wanted
+    local -a only=() cargs=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force) force=1 ;;
+            --*) fail "unknown flag: $1" ;;
+            *) only+=("$1") ;;
+        esac
+        shift
+    done
+    mkdir -p -- "$usage_dir" || fail "could not create usage directory"
+    local status=0
+    for collector in "$SCRIPT_DIR"/ai-usage-*; do
+        [[ -f "$collector" && -x "$collector" ]] || continue
+        agent="${collector##*/ai-usage-}"
+        [[ "$agent" == "*-usage-update" ]] && continue
+        if (( ${#only[@]} > 0 )); then
+            wanted=0
+            for candidate in "${only[@]}"; do
+                [[ "$candidate" == "$agent" ]] && wanted=1
+            done
+            (( wanted )) || continue
+        fi
+        cargs=()
+        (( force )) && cargs+=(--force)
+        if ! out="$("$collector" "${cargs[@]}")"; then
+            printf 'Warning: %s collector failed.\n' "$agent" >&2
+            status=1
+            continue
+        fi
+        [[ -n "$out" ]] || continue
+        if ! printf '%s' "$out" | json_valid; then
+            printf 'Warning: %s collector produced invalid JSON.\n' "$agent" >&2
+            status=1
+            continue
+        fi
+        tmp="$(mktemp "$usage_dir/.$agent.XXXXXX")" || { status=1; continue; }
+        if printf '%s\n' "$out" >"$tmp" && chmod 0600 -- "$tmp" && mv -f -- "$tmp" "$usage_dir/$agent.json"; then
+            :
+        else
+            rm -f -- "$tmp"
+            status=1
+        fi
+    done
+    return $status
+}
+
+cmd_usage() {
+    local first=1 file
+    printf '{\n  "agents": ['
+    if [[ -d "$usage_dir" ]]; then
+        for file in "$usage_dir"/*.json; do
+            [[ -f "$file" ]] || continue
+            (( first )) || printf ','
+            first=0
+            printf '\n'
+            cat "$file"
+        done
+    fi
+    printf '\n  ]\n}\n'
 }
 
 # Launch the default agent seeded with a task (mirrors `omarchy agent prompt`).
@@ -381,8 +460,8 @@ cmd_crash() {
     local pid="${1:-}"
     [[ "$pid" =~ ^[0-9]+$ ]] || fail "usage: $PROG crash <pid>"
     local info=""
-    if command -v coredumpctl >/dev/null 2>&1; then
-        info="$(coredumpctl info "$pid" 2>/dev/null | head -n 60 || true)"
+    if command -v coredumpctl >/dev/null; then
+        info="$(coredumpctl info "$pid" | head -n 60 || true)"
     fi
     [[ -n "$info" ]] || fail "no core dump found for PID $pid (see: coredumpctl list)"
     local prompt="Diagnose this process crash. Establish the facts from the core dump, decide whether it is worth reporting upstream, and propose a fix."
@@ -401,6 +480,8 @@ Usage: workstation-ai <command> [args]
   launch [--prompt TEXT] Launch the default agent in a terminal (unattended mode).
   prompt <text>          Launch the default agent seeded with a task.
   crash <pid>            Diagnose a coredumpctl crash with the default agent.
+  usage                  Print collected agent usage records (JSON).
+  usage-update [--force] [agent...]  Refresh the usage records.
   skill [status|install|remove]  Manage the workstation agent skill.
   check                  Report backend diagnostics.
 
@@ -424,6 +505,8 @@ main() {
         launch) cmd_launch "$@" ;;
         prompt) cmd_prompt "$@" ;;
         crash) cmd_crash "$@" ;;
+        usage) cmd_usage ;;
+        usage-update) cmd_usage_update "$@" ;;
         skill) cmd_skill "$@" ;;
         check) cmd_check ;;
         *) fail "unknown command: $cmd (see --help)" ;;

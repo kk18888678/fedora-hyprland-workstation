@@ -22,7 +22,7 @@ if [[ -f "$default_file" && -f "$default_service" ]] &&
    jq -e '.id == "aurelia.bar" and .position == "top" and .centerAnchor == "aurelia.clock" and
           (.layout.left[0].id == "aurelia.workspaces") and
           ([.layout.center[].id] == ["aurelia.notifications", "aurelia.clock", "aurelia.weather"]) and
-          ([.layout.right[].id] == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.session-actions", "aurelia.power"])' \
+          ([.layout.right[].id] == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.agents", "aurelia.session-actions", "aurelia.power"])' \
        "$default_file" >/dev/null; then
     pass "[static] one canonical repository bar-default document feeds ShellConfig and Bar with a recovery fallback"
 else
@@ -67,7 +67,7 @@ if [[ "$runtime_status" -eq 0 ]] && runtime_log_is_environment_only "$runtime_lo
     .centerAnchor == "aurelia.clock" and
     .left == ["aurelia.workspaces"] and
     .center == ["aurelia.notifications", "aurelia.clock", "aurelia.weather"] and
-    .right == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.session-actions", "aurelia.power"] and
+    .right == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.agents", "aurelia.session-actions", "aurelia.power"] and
     .stateRight == .right and .explicitRight == ["aurelia.user-widget"]
   ' "$result_path" >/dev/null; then
     pass "[isolated-runtime] canonical bar-default loader returns the preserved default layout"

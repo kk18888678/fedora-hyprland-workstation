@@ -28,6 +28,7 @@ QtObject {
                 {id: "aurelia.bluetooth"},
                 {id: "aurelia.monitor"},
                 {id: "aurelia.screenshot"},
+                {id: "aurelia.agents"},
                 {id: "aurelia.session-actions"},
                 {id: "aurelia.power"}
             ]
