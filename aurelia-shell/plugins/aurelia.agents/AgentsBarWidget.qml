@@ -26,6 +26,7 @@ Item {
     property int retryCount: 0
     property double lastLoadedMs: 0
     property var limitState: ({})
+    property var renewalState: ({})
 
     readonly property string backendBin: {
         var override = Quickshell.env("WORKSTATION_AI_BIN") || ""
@@ -112,13 +113,16 @@ Item {
     // Notify on limit resets and near-exhaustion. The previous observation is
     // fed back so only transitions fire, not the steady state.
     function applyLimitNotifications() {
-        var result = AgentUsage.limitTransitions(root.agents, root.limitState)
-        root.limitState = result.state
-        for (var i = 0; i < result.notifications.length; i++) {
-            var notice = result.notifications[i]
+        var limits = AgentUsage.limitTransitions(root.agents, root.limitState)
+        root.limitState = limits.state
+        var renewals = AgentUsage.renewalReminders(root.agents, root.renewalState,
+            AgentUsage.todayDate(Date.now()))
+        root.renewalState = renewals.state
+        var notices = limits.notifications.concat(renewals.notifications)
+        for (var i = 0; i < notices.length; i++) {
             Quickshell.execDetached([
                 "notify-send", "-a", "Aurelia Agents", "-u", "normal",
-                notice.title, notice.body
+                notices[i].title, notices[i].body
             ])
         }
     }

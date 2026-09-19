@@ -94,7 +94,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, paceInfo, elapsedFraction };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, paceInfo, elapsedFraction, billingText, renewalReminders };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -118,6 +118,13 @@ const future = new Date(nowMs + 3.5 * 86400000).toISOString();
 const paceEven = A.paceInfo({percent: 0.5, resetsAt: future, windowMinutes: 10080}, nowMs);
 const paceBehind = A.paceInfo({percent: 0.7, resetsAt: future, windowMinutes: 10080}, nowMs);
 const ok =
+    A.billingText({subscription: {renew: "2030-01-01", daysLeft: 5}}) === "Renews 2030-01-01 · in 5 days" &&
+    A.billingText({}) === "" &&
+    A.renewalReminders([{id: "codex", name: "Codex", ready: true,
+        subscription: {renew: "2030-01-01", daysLeft: 2, reminderDays: 3}}], {}, "2026-09-19").notifications.length === 1 &&
+    A.renewalReminders([{id: "codex", name: "Codex", ready: true,
+        subscription: {renew: "2030-01-01", daysLeft: 2, reminderDays: 3}}],
+        {"renew|codex": "2026-09-19"}, "2026-09-19").notifications.length === 0 &&
     A.severityFor(50) === "ok" && A.severityFor(80) === "warn" && A.severityFor(95) === "critical" &&
     A.severityForLimit({percent: 0.95}) === "critical" &&
     paceEven && Math.abs(paceEven.elapsed - 0.5) < 0.01 && paceEven.behind === false &&

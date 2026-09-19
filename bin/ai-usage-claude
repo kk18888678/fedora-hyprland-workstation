@@ -23,6 +23,9 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import ai_usage_common as common  # noqa: E402
+
 AGENT_ID = "claude"
 AGENT_NAME = "Claude Code"
 USAGE_STATUS = "Local usage only"
@@ -188,6 +191,7 @@ def main() -> int:
         "limits": [],
     }
     record.update(stats)
+    common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0
 

@@ -1,14 +1,15 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import Quickshell
 import "../../ui"
 import "../../theme"
 import "AgentUsage.js" as AgentUsage
 
-// AI subscription usage panel. Mirrors Omarchy's agents panel information
-// architecture: a provider switch, a hero with the plan, live limit meters
-// with reset countdowns, a tokens-by-day chart, and a tokens-by-model
-// breakdown. Live rate limits come from each collector's own probe.
+// AI subscription usage panel. Mirrors the reference agents panels: a provider
+// switch, an all-accounts snapshot, live limit meters with a pace marker and
+// reset countdown, a vertical tokens-by-day chart, and a compact
+// tokens-by-model breakdown. The body scrolls when it is taller than the card.
 AureliaKeyboardPanel {
     id: panelRoot
 
@@ -21,9 +22,9 @@ AureliaKeyboardPanel {
     popupWidth: 460
     popupHeight: 320
     fitHeightToContent: true
-    contentSizingItem: contentColumn
+    contentSizingItem: scroller
     minPopupHeight: 200
-    maxPopupHeight: 720
+    maxPopupHeight: 640
     shown: false
 
     readonly property var agents: agentsWidget ? agentsWidget.visibleAgents : []
@@ -31,8 +32,10 @@ AureliaKeyboardPanel {
         ? Math.max(0, Math.min(selectedIndex, agents.length - 1)) : 0
     readonly property var provider: agents.length > 0 ? agents[safeIndex] : null
     readonly property var limits: (provider && provider.limits) || []
-    readonly property var models: AgentUsage.modelRows(provider, 4)
+    readonly property var models: AgentUsage.modelRows(provider, 5)
     readonly property real weekPeak: Math.max(1, AgentUsage.weekPeak(provider))
+    readonly property real contentWidth: popupWidth - contentPadding * 2
+    readonly property real maxBodyHeight: 460
 
     function open() {
         if (!agentsWidget || !agentsWidget.hasAgents) return
@@ -120,7 +123,7 @@ AureliaKeyboardPanel {
         property var window: null
 
         readonly property real percent: Number(limitRow.window && limitRow.window.percent)
-        readonly property bool alarming: isFinite(limitRow.percent) && limitRow.percent >= 0.9
+        readonly property bool alarming: AgentUsage.severityForLimit(limitRow.window) === "critical"
         readonly property real remainingMs: AgentUsage.resetMsFor(limitRow.window, panelRoot.nowMs)
         readonly property var pace: AgentUsage.paceInfo(limitRow.window, panelRoot.nowMs)
 
@@ -168,351 +171,339 @@ AureliaKeyboardPanel {
         }
     }
 
-    // One row per day: label, bar, tokens. Today is picked out in full colour.
-    component DayRow: Item {
-        id: dayRow
-        property var day: null
-        property real ratio: 0
-        property bool today: false
+    // Vertical tokens-by-day columns. Today is picked out in accent.
+    component DayChart: Item {
+        id: chart
+        property var days: []
+        property real peak: 1
+        property string todayDate: ""
 
         Layout.fillWidth: true
-        implicitHeight: Math.max(dayLabel.implicitHeight, dayValue.implicitHeight) + Theme.spacingXs
+        implicitHeight: 96
 
-        Text {
-            id: dayLabel
-            text: AgentUsage.dayLabel(dayRow.day ? dayRow.day.date : "", dayRow.today)
-            color: dayRow.today ? Theme.text : Theme.textMuted
-            font.pixelSize: Theme.fontSizeSm
-            font.bold: dayRow.today
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            width: 52
-        }
+        readonly property real columnWidth: days.length > 0
+            ? (width - (days.length - 1) * Theme.spacingXs) / days.length : 0
 
-        Rectangle {
-            id: dayTrack
-            anchors.left: dayLabel.right
-            anchors.right: dayValue.left
-            anchors.leftMargin: Theme.spacingSm
-            anchors.rightMargin: Theme.spacingSm
-            anchors.verticalCenter: parent.verticalCenter
-            height: 6
-            radius: height / 2
-            color: Theme.surface
+        Row {
+            anchors.fill: parent
+            spacing: Theme.spacingXs
 
-            Rectangle {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                height: parent.height
-                radius: parent.radius
-                width: parent.width * AgentUsage.clamp(dayRow.ratio, 0, 1)
-                color: dayRow.today ? Theme.accent : Theme.textMuted
+            Repeater {
+                model: chart.days
 
-                Behavior on width {
-                    NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                delegate: Column {
+                    id: dayColumn
+                    required property var modelData
+                    required property int index
+                    readonly property bool today: String(modelData.date || "") === chart.todayDate
+                    readonly property real fraction: AgentUsage.clamp(
+                        Number(modelData.messageCount || 0) / Math.max(1, chart.peak), 0, 1)
+
+                    width: chart.columnWidth
+                    spacing: 2
+
+                    Item {
+                        width: parent.width
+                        height: chart.implicitHeight - 16
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: Math.max(3, parent.width * 0.6)
+                            height: Math.max(2, parent.height * dayColumn.fraction)
+                            radius: 2
+                            color: dayColumn.today ? Theme.accent : Theme.textMuted
+                            opacity: dayColumn.today ? 1 : 0.7
+
+                            Behavior on height {
+                                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                            }
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: AgentUsage.dayLabel(dayColumn.modelData.date, dayColumn.today)
+                        color: dayColumn.today ? Theme.text : Theme.textMuted
+                        font.pixelSize: Theme.fontSizeSm - 2
+                        font.bold: dayColumn.today
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
                 }
             }
-        }
-
-        Text {
-            id: dayValue
-            text: AgentUsage.formatTokens(dayRow.day ? Number(dayRow.day.messageCount || 0) : 0)
-            color: dayRow.today ? Theme.text : Theme.textMuted
-            font.pixelSize: Theme.fontSizeSm
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
         }
     }
 
     // One model row: name, share bar scaled to the heaviest model, tokens.
-    component ModelRow: ColumnLayout {
+    component ModelRow: RowLayout {
         id: modelRow
         property var row: null
         property real share: 0
 
         Layout.fillWidth: true
-        spacing: Theme.spacingXs
+        spacing: Theme.spacingSm
 
-        RowLayout {
+        Text {
             Layout.fillWidth: true
-
-            Text {
-                text: modelRow.row ? String(modelRow.row.name) : ""
-                color: Theme.text
-                font.pixelSize: Theme.fontSizeSm
-                elide: Text.ElideRight
-                Layout.fillWidth: true
-            }
-
-            Text {
-                text: AgentUsage.formatTokens(modelRow.row ? modelRow.row.total : 0)
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeSm
-            }
+            text: modelRow.row ? String(modelRow.row.name) : ""
+            color: Theme.text
+            font.pixelSize: Theme.fontSizeSm
+            elide: Text.ElideRight
         }
 
         Meter {
+            Layout.fillWidth: false
+            Layout.preferredWidth: 84
             value: modelRow.share
+        }
+
+        Text {
+            text: AgentUsage.formatTokens(modelRow.row ? modelRow.row.total : 0)
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontSizeSm
         }
     }
 
     // ---------------------------------------------------------------- content
 
-    ColumnLayout {
-        id: contentColumn
-        width: panelRoot.popupWidth - panelRoot.contentPadding * 2
-        spacing: Theme.spacingMd
+    // The body scrolls instead of overflowing the card. `scroller` is the
+    // content-sizing item so the card grows with the content up to a cap.
+    Flickable {
+        id: scroller
+        width: panelRoot.contentWidth
+        implicitHeight: Math.min(contentColumn.implicitHeight, panelRoot.maxBodyHeight)
+        contentWidth: width
+        contentHeight: contentColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
 
-        Timer {
-            interval: 30000
-            repeat: true
-            running: panelRoot.shown
-            onTriggered: panelRoot.nowMs = Date.now()
-        }
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-        // Hero: name · plan
-        RowLayout {
-            Layout.fillWidth: true
+        ColumnLayout {
+            id: contentColumn
+            width: scroller.width
+            spacing: Theme.spacingMd
 
-            Text {
-                text: panelRoot.provider ? String(panelRoot.provider.name || panelRoot.provider.id) : "Agents"
-                color: Theme.text
-                font.pixelSize: Theme.fontSizeLg
-                font.bold: true
-                Layout.fillWidth: true
+            Timer {
+                interval: 30000
+                repeat: true
+                running: panelRoot.shown
+                onTriggered: panelRoot.nowMs = Date.now()
             }
 
+            // Hero: name · plan · refresh
+            RowLayout {
+                Layout.fillWidth: true
+
+                Text {
+                    text: panelRoot.provider ? String(panelRoot.provider.name || panelRoot.provider.id) : "Agents"
+                    color: Theme.text
+                    font.pixelSize: Theme.fontSizeLg
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    text: AgentUsage.heroMeta(panelRoot.provider)
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeSm
+                }
+
+                Text {
+                    text: "Refresh"
+                    color: refreshArea.containsMouse ? Theme.accent : Theme.textMuted
+                    font.pixelSize: Theme.fontSizeSm
+
+                    MouseArea {
+                        id: refreshArea
+                        anchors.fill: parent
+                        anchors.margins: -Theme.spacingXs
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: panelRoot.refreshNow()
+                    }
+                }
+            }
+
+            // Plan · billing line
             Text {
-                text: AgentUsage.heroMeta(panelRoot.provider)
+                Layout.fillWidth: true
+                visible: text !== ""
+                text: AgentUsage.billingText(panelRoot.provider)
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSizeSm
             }
 
             Text {
-                text: "Refresh"
-                color: refreshArea.containsMouse ? Theme.accent : Theme.textMuted
+                Layout.fillWidth: true
+                visible: panelRoot.agents.length === 0
+                wrapMode: Text.WordWrap
+                text: "No AI coding subscriptions found.\nAgents show up here once you've used them."
+                color: Theme.textMuted
                 font.pixelSize: Theme.fontSizeSm
-
-                MouseArea {
-                    id: refreshArea
-                    anchors.fill: parent
-                    anchors.margins: -Theme.spacingXs
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: panelRoot.refreshNow()
-                }
+                horizontalAlignment: Text.AlignHCenter
             }
-        }
 
-        Text {
-            Layout.fillWidth: true
-            visible: panelRoot.agents.length === 0
-            wrapMode: Text.WordWrap
-            text: "No AI coding subscriptions found.\nAgents show up here once you've used them."
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontSizeSm
-            horizontalAlignment: Text.AlignHCenter
-        }
-
-        // Provider switch
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingSm
-            visible: panelRoot.agents.length > 1
+            // All-accounts snapshot: every agent's headline at a glance.
+            SectionHeader {
+                text: "ALL ACCOUNTS"
+                visible: panelRoot.agents.length > 1
+            }
 
             Repeater {
                 model: panelRoot.agents
 
                 delegate: Rectangle {
-                    id: providerPill
+                    id: snapshotRow
                     required property var modelData
                     required property int index
+                    readonly property var snapshotLimit: AgentUsage.bindingWindow(snapshotRow.modelData)
 
                     Layout.fillWidth: true
-                    implicitHeight: pillLabel.implicitHeight + Theme.spacingSm
+                    implicitHeight: snapshotLayout.implicitHeight + Theme.spacingSm
                     radius: Theme.radiusSm
-                    color: index === panelRoot.safeIndex ? Theme.accent
-                        : (pillArea.containsMouse ? Theme.controls.hoverFill : Theme.surface)
+                    color: snapshotArea.containsMouse ? Theme.controls.hoverFill
+                        : (index === panelRoot.safeIndex ? Theme.controls.selectedFill : "transparent")
 
-                    Text {
-                        id: pillLabel
-                        anchors.centerIn: parent
-                        text: String(providerPill.modelData.name || providerPill.modelData.id)
-                        color: index === panelRoot.safeIndex ? Theme.background : Theme.text
-                        font.pixelSize: Theme.fontSizeSm
-                        elide: Text.ElideRight
+                    RowLayout {
+                        id: snapshotLayout
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Theme.spacingXs
+                        anchors.rightMargin: Theme.spacingXs
+                        spacing: Theme.spacingSm
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: String(snapshotRow.modelData.name || snapshotRow.modelData.id)
+                            color: snapshotRow.index === panelRoot.safeIndex ? Theme.accent : Theme.text
+                            font.pixelSize: Theme.fontSizeSm
+                            elide: Text.ElideRight
+                        }
+
+                        Meter {
+                            Layout.fillWidth: false
+                            Layout.preferredWidth: 84
+                            visible: snapshotRow.snapshotLimit !== null
+                            value: snapshotRow.snapshotLimit ? Number(snapshotRow.snapshotLimit.percent) : -1
+                            marker: snapshotRow.snapshotLimit
+                                ? AgentUsage.elapsedFraction(snapshotRow.snapshotLimit, panelRoot.nowMs) : -1
+                            alarming: AgentUsage.severityForLimit(snapshotRow.snapshotLimit) === "critical"
+                        }
+
+                        Text {
+                            text: {
+                                if (!snapshotRow.snapshotLimit) {
+                                    return AgentUsage.formatTokens(snapshotRow.modelData.todayTotalTokens) + " today"
+                                }
+                                var percent = Math.round(Number(snapshotRow.snapshotLimit.percent) * 100) + "%"
+                                var remaining = AgentUsage.resetMsFor(snapshotRow.snapshotLimit, panelRoot.nowMs)
+                                return remaining > 0 ? percent + " · " + AgentUsage.formatDuration(remaining) : percent
+                            }
+                            color: {
+                                var severity = AgentUsage.severityForLimit(snapshotRow.snapshotLimit)
+                                if (severity === "critical") return Theme.error
+                                if (severity === "warn") return Theme.warning
+                                return Theme.textMuted
+                            }
+                            font.pixelSize: Theme.fontSizeSm
+                        }
                     }
 
                     MouseArea {
-                        id: pillArea
+                        id: snapshotArea
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: panelRoot.selectProvider(index)
+                        onClicked: panelRoot.selectProvider(snapshotRow.index)
                     }
                 }
             }
-        }
 
-        // All-accounts snapshot: every agent's binding limit and reset at a
-        // glance. Click a row to focus its detail below.
-        SectionHeader {
-            text: "ALL ACCOUNTS"
-            visible: panelRoot.agents.length > 1
-        }
-
-        Repeater {
-            model: panelRoot.agents
-
-            delegate: Rectangle {
-                id: snapshotRow
-                required property var modelData
-                required property int index
-                readonly property var snapshotLimit: AgentUsage.bindingWindow(snapshotRow.modelData)
-
+            // Status / auth help
+            Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: snapshotLayout.implicitHeight + Theme.spacingXs
+                visible: !!panelRoot.provider && String(panelRoot.provider.usageStatusText || "") !== ""
+                implicitHeight: statusText.implicitHeight + Theme.spacingMd * 2
                 radius: Theme.radiusSm
-                color: snapshotArea.containsMouse ? Theme.controls.hoverFill
-                    : (index === panelRoot.safeIndex ? Theme.controls.selectedFill : "transparent")
+                color: Theme.surface
+                border.width: 1
+                border.color: Theme.border
 
-                RowLayout {
-                    id: snapshotLayout
+                Text {
+                    id: statusText
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: Theme.spacingXs
-                    anchors.rightMargin: Theme.spacingXs
-                    spacing: Theme.spacingSm
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: String(snapshotRow.modelData.name || snapshotRow.modelData.id)
-                        color: snapshotRow.index === panelRoot.safeIndex ? Theme.accent : Theme.text
-                        font.pixelSize: Theme.fontSizeSm
-                        elide: Text.ElideRight
-                    }
-
-                    Meter {
-                        Layout.fillWidth: false
-                        Layout.preferredWidth: 90
-                        value: snapshotRow.snapshotLimit ? Number(snapshotRow.snapshotLimit.percent) : -1
-                        marker: snapshotRow.snapshotLimit
-                            ? AgentUsage.elapsedFraction(snapshotRow.snapshotLimit, panelRoot.nowMs) : -1
-                        alarming: AgentUsage.severityForLimit(snapshotRow.snapshotLimit) === "critical"
-                    }
-
-                    Text {
-                        text: {
-                            if (!snapshotRow.snapshotLimit) return "—"
-                            var percent = Math.round(Number(snapshotRow.snapshotLimit.percent) * 100) + "%"
-                            var remaining = AgentUsage.resetMsFor(snapshotRow.snapshotLimit, panelRoot.nowMs)
-                            return remaining > 0 ? percent + " · " + AgentUsage.formatDuration(remaining) : percent
-                        }
-                        color: {
-                            var severity = AgentUsage.severityForLimit(snapshotRow.snapshotLimit)
-                            if (severity === "critical") return Theme.error
-                            if (severity === "warn") return Theme.warning
-                            return Theme.textMuted
-                        }
-                        font.pixelSize: Theme.fontSizeSm
-                    }
-                }
-
-                MouseArea {
-                    id: snapshotArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: panelRoot.selectProvider(snapshotRow.index)
+                    anchors.leftMargin: Theme.spacingMd
+                    anchors.rightMargin: Theme.spacingMd
+                    text: panelRoot.provider
+                        ? String(panelRoot.provider.authHelpText || panelRoot.provider.usageStatusText || "")
+                        : ""
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeSm
+                    wrapMode: Text.WordWrap
                 }
             }
-        }
 
-        // Status / auth help
-        Rectangle {
-            Layout.fillWidth: true
-            visible: !!panelRoot.provider && String(panelRoot.provider.usageStatusText || "") !== ""
-            implicitHeight: statusText.implicitHeight + Theme.spacingMd * 2
-            radius: Theme.radiusSm
-            color: Theme.surface
-            border.width: 1
-            border.color: Theme.border
+            // Limits
+            SectionHeader {
+                text: "LIMITS"
+                visible: panelRoot.limits.length > 0
+            }
+
+            Repeater {
+                model: panelRoot.limits
+
+                delegate: LimitRow {
+                    required property var modelData
+                    window: modelData
+                }
+            }
+
+            // Tokens by day
+            SectionHeader {
+                text: "TOKENS BY DAY"
+                visible: !!panelRoot.provider && (panelRoot.provider.recentDays || []).length > 0
+            }
+
+            DayChart {
+                visible: !!panelRoot.provider && (panelRoot.provider.recentDays || []).length > 0
+                days: panelRoot.provider ? (panelRoot.provider.recentDays || []) : []
+                peak: panelRoot.weekPeak
+                todayDate: AgentUsage.todayDate(panelRoot.nowMs)
+            }
+
+            // Tokens by model
+            SectionHeader {
+                text: "TOKENS BY MODEL"
+                visible: panelRoot.models.length > 0
+            }
+
+            Repeater {
+                model: panelRoot.models
+
+                delegate: ModelRow {
+                    required property var modelData
+                    row: modelData
+                    share: modelData.total / Math.max(1, panelRoot.models[0].total)
+                }
+            }
 
             Text {
-                id: statusText
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Theme.spacingMd
-                anchors.rightMargin: Theme.spacingMd
+                Layout.fillWidth: true
+                visible: text !== ""
                 text: panelRoot.provider
-                    ? String(panelRoot.provider.authHelpText || panelRoot.provider.usageStatusText || "")
+                    ? AgentUsage.formatTokens(panelRoot.provider.todayTotalTokens) + " tokens today · "
+                        + (panelRoot.provider.todayPrompts || 0) + " prompts"
                     : ""
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSizeSm
-                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
             }
-        }
-
-        // Limits
-        SectionHeader {
-            text: "LIMITS"
-            visible: panelRoot.limits.length > 0
-        }
-
-        Repeater {
-            model: panelRoot.limits
-
-            delegate: LimitRow {
-                required property var modelData
-                window: modelData
-            }
-        }
-
-        // Tokens by day
-        SectionHeader {
-            text: "TOKENS BY DAY"
-            visible: !!panelRoot.provider && (panelRoot.provider.recentDays || []).length > 0
-        }
-
-        Repeater {
-            model: panelRoot.provider ? (panelRoot.provider.recentDays || []) : []
-
-            delegate: DayRow {
-                required property var modelData
-                day: modelData
-                ratio: Number(modelData.messageCount || 0) / panelRoot.weekPeak
-                today: String(modelData.date || "") === AgentUsage.todayDate(panelRoot.nowMs)
-            }
-        }
-
-        // Tokens by model
-        SectionHeader {
-            text: "TOKENS BY MODEL"
-            visible: panelRoot.models.length > 0
-        }
-
-        Repeater {
-            model: panelRoot.models
-
-            delegate: ModelRow {
-                required property var modelData
-                row: modelData
-                share: modelData.total / Math.max(1, panelRoot.models[0].total)
-            }
-        }
-
-        Text {
-            Layout.fillWidth: true
-            visible: text !== ""
-            text: panelRoot.provider
-                ? AgentUsage.formatTokens(panelRoot.provider.todayTotalTokens) + " tokens today · "
-                    + (panelRoot.provider.todayPrompts || 0) + " prompts"
-                : ""
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontSizeSm
-            horizontalAlignment: Text.AlignHCenter
         }
     }
 }

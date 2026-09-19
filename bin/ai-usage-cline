@@ -240,6 +240,7 @@ def main() -> int:
         "limits": [],
     }
     record.update(stats)
+    common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0
 

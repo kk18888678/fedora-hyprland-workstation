@@ -133,6 +133,47 @@ function heroMeta(record) {
     return tier.charAt(0).toUpperCase() + tier.slice(1);
 }
 
+// "Renews 2026-10-18 · in 29 days" from the user-owned subscription metadata.
+function billingText(record) {
+    var sub = record && record.subscription;
+    if (!sub || !sub.renew) return "";
+    var days = Number(sub.daysLeft);
+    if (!isFinite(days)) return "Renews " + String(sub.renew);
+    if (days < 0) return "Renewal date passed · " + String(sub.renew);
+    var when = days === 0 ? "today" : (days === 1 ? "in 1 day" : "in " + days + " days");
+    return "Renews " + String(sub.renew) + " · " + when;
+}
+
+// Notify once per day while a subscription is within its reminder window.
+function renewalReminders(records, previousState, todayText) {
+    var state = previousState || {};
+    var next = {};
+    var notifications = [];
+    var ready = readyAgents(records);
+    for (var i = 0; i < ready.length; i++) {
+        var agent = ready[i];
+        var sub = agent && agent.subscription;
+        if (!sub || !sub.renew) continue;
+        var days = Number(sub.daysLeft);
+        if (!isFinite(days)) continue;
+        var reminderDays = Number(sub.reminderDays);
+        if (!isFinite(reminderDays)) reminderDays = 3;
+        var key = "renew|" + String(agent.id);
+        var previous = state[key];
+        if (days >= 0 && days <= reminderDays && previous !== todayText) {
+            notifications.push({
+                title: String(agent.name || agent.id) + " renewal",
+                body: "Renews " + String(sub.renew) +
+                    (days === 0 ? " (today)" : " in " + days + " day" + (days === 1 ? "" : "s"))
+            });
+            next[key] = todayText;
+        } else {
+            next[key] = previous;
+        }
+    }
+    return { state: next, notifications: notifications };
+}
+
 function todayDate(nowMs) {
     var now = new Date(nowMs);
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") +

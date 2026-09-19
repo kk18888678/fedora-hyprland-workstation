@@ -516,6 +516,43 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
             value: installedNames.length > 0 ? installedNames.join(", ") : "None detected",
             description: "Agents are provisioned by the installer or your package manager; this backend only detects and launches them."
         })
+        var subscriptions = ai && ai.subscriptions ? ai.subscriptions : {}
+        var usageAgents = ai && ai.usageAgents ? ai.usageAgents : []
+        if (usageAgents.length > 0) {
+            rows.push({
+                kind: "heading",
+                title: "Subscriptions"
+            })
+            for (var u = 0; u < usageAgents.length; u++) {
+                var agentId = String(usageAgents[u])
+                var sub = subscriptions[agentId] || {}
+                var agentName = agentId
+                for (var g = 0; g < agents.length; g++) {
+                    if (agents[g].id === agentId) { agentName = agents[g].name; break }
+                }
+                rows.push({
+                    kind: "text",
+                    id: "ai.subscription." + agentId + ".plan",
+                    title: agentName + " plan",
+                    description: "Plan name shown on the agents panel.",
+                    effective: String(sub.plan || "")
+                })
+                rows.push({
+                    kind: "text",
+                    id: "ai.subscription." + agentId + ".renew",
+                    title: agentName + " renewal date",
+                    description: "YYYY-MM-DD. Drives days-left and the billing reminder.",
+                    effective: String(sub.renew || "")
+                })
+                rows.push({
+                    kind: "text",
+                    id: "ai.subscription." + agentId + ".reminder_days",
+                    title: agentName + " reminder days",
+                    description: "Notify this many days before renewal.",
+                    effective: String(sub.reminder_days || "3")
+                })
+            }
+        }
         rows.push({
             kind: "heading",
             title: "Workstation Skill"

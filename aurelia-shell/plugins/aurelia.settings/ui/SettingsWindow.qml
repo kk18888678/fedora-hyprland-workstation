@@ -331,15 +331,75 @@ PanelWindow {
             }
             try {
                 var parsed = JSON.parse(aiAgentsStdout.text || "{}")
+                var base = root.aureliaState.ai || {}
                 root.applyAureliaPatch({
                     ai: {
                         default: parsed.default !== undefined ? parsed.default : null,
-                        agents: Array.isArray(parsed.agents) ? parsed.agents : []
+                        agents: Array.isArray(parsed.agents) ? parsed.agents : [],
+                        subscriptions: base.subscriptions || {},
+                        usageAgents: base.usageAgents || []
                     }
                 })
+                aiSubscriptionProcess.command = [root.aiBin, "subscription", "list", "--json"]
+                aiSubscriptionProcess.running = true
             } catch (error) {
                 console.warn("[SETTINGS] ai_agents_parse_failed")
             }
+        }
+    }
+
+    Process {
+        id: aiSubscriptionProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: aiSubscriptionStdout }
+        onExited: function(code) {
+            var subs = {}
+            if (code === 0) {
+                try { subs = JSON.parse(aiSubscriptionStdout.text || "{}") } catch (error) { subs = {} }
+            }
+            var base = root.aureliaState.ai || {}
+            root.applyAureliaPatch({
+                ai: {
+                    default: base.default !== undefined ? base.default : null,
+                    agents: base.agents || [],
+                    subscriptions: subs,
+                    usageAgents: base.usageAgents || []
+                }
+            })
+            aiUsageProcess.command = [root.aiBin, "usage"]
+            aiUsageProcess.running = true
+        }
+    }
+
+    Process {
+        id: aiUsageProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: aiUsageStdout }
+        onExited: function(code) {
+            var ids = []
+            if (code === 0) {
+                try {
+                    var parsed = JSON.parse(aiUsageStdout.text || "{}")
+                    var agents = Array.isArray(parsed.agents) ? parsed.agents : []
+                    for (var i = 0; i < agents.length; i++) {
+                        if (agents[i] && agents[i].detected === true && agents[i].id)
+                            ids.push(String(agents[i].id))
+                    }
+                } catch (error) { ids = [] }
+            }
+            var base = root.aureliaState.ai || {}
+            root.applyAureliaPatch({
+                ai: {
+                    default: base.default !== undefined ? base.default : null,
+                    agents: base.agents || [],
+                    subscriptions: base.subscriptions || {},
+                    usageAgents: ids
+                }
+            })
         }
     }
 
@@ -637,6 +697,15 @@ PanelWindow {
     function applyAiOption(optionId, value) {
         if (optionId === "ai.default") {
             runHelper([root.aiBin, "set", String(value)], "Setting default agent…")
+            return
+        }
+        var prefix = "ai.subscription."
+        if (String(optionId).indexOf(prefix) === 0) {
+            var parts = String(optionId).slice(prefix.length).split(".")
+            if (parts.length === 2 && parts[0] !== "" && parts[1] !== "") {
+                runHelper([root.aiBin, "subscription", "set", parts[0], parts[1], String(value)],
+                    "Saving subscription…")
+            }
         }
     }
 

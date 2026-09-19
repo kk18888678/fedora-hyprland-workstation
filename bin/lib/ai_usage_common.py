@@ -52,6 +52,68 @@ def empty_bucket() -> dict[str, int]:
     }
 
 
+def config_path() -> Path:
+    override = os.environ.get("WORKSTATION_AI_CONF")
+    if override:
+        return Path(override)
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(os.path.expandvars(os.path.expanduser(base))) / "workstation" / "ai.conf"
+
+
+def days_until(date_text: str):
+    text = str(date_text or "").strip()
+    if not text:
+        return None
+    try:
+        target = dt.date.fromisoformat(text)
+    except Exception:
+        return None
+    return (target - dt.date.today()).days
+
+
+# Subscription metadata is user-owned: the vendors' local data has no billing
+# date, so the user records plan / renewal / cycle in ai.conf and every
+# collector merges it into its record.
+def load_subscription(agent: str) -> dict:
+    path = config_path()
+    if not path.is_file():
+        return {}
+    prefix = "subscription." + str(agent) + "."
+    values = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            if key.startswith(prefix):
+                values[key[len(prefix):]] = value.strip()
+    except Exception:
+        return {}
+    if not values:
+        return {}
+    reminder = values.get("reminder_days", "")
+    result = {
+        "plan": values.get("plan", ""),
+        "renew": values.get("renew", ""),
+        "cycle": values.get("cycle", ""),
+        "cost": values.get("cost", ""),
+        "currency": values.get("currency", "USD") or "USD",
+        "reminderDays": int(reminder) if reminder.isdigit() else 3,
+    }
+    result["daysLeft"] = days_until(result["renew"])
+    return result
+
+
+def apply_subscription(record: dict, agent: str) -> dict:
+    sub = load_subscription(agent)
+    if sub:
+        record["subscription"] = sub
+        if not record.get("tierLabel"):
+            record["tierLabel"] = sub.get("plan", "")
+    return record
+
+
 def empty_stats() -> dict:
     recent = recent_date_strings()
     return {

@@ -123,6 +123,32 @@ write_default() {
     mv -f -- "$tmp" "$conf_path" || { rm -f -- "$tmp"; fail "could not install ai.conf"; }
 }
 
+# Rewrite one managed key, preserving every other line. An empty value removes
+# the key. This is the single mutation boundary for ai.conf.
+conf_set() {
+    local key="$1" value="$2"
+    assert_managed
+    mkdir -p -- "$conf_dir" || fail "could not create config directory"
+    local tmp line k
+    tmp="$(mktemp "$conf_dir/.ai.conf.XXXXXX")" || fail "could not stage ai.conf"
+    {
+        printf '%s\n' "# $MARKER"
+        if [[ -f "$conf_path" ]]; then
+            while IFS= read -r line; do
+                [[ "$line" == \#* || "$line" != *=* ]] && continue
+                k="${line%%=*}"
+                [[ "$k" == "$key" ]] && continue
+                printf '%s\n' "$line"
+            done <"$conf_path"
+        fi
+        if [[ -n "$value" ]]; then
+            printf '%s=%s\n' "$key" "$value"
+        fi
+    } >"$tmp" || { rm -f -- "$tmp"; fail "could not write ai.conf"; }
+    chmod 0600 -- "$tmp" || { rm -f -- "$tmp"; fail "could not secure ai.conf"; }
+    mv -f -- "$tmp" "$conf_path" || { rm -f -- "$tmp"; fail "could not install ai.conf"; }
+}
+
 # ---------------------------------------------------------------------------
 # Launch
 # ---------------------------------------------------------------------------
@@ -375,6 +401,59 @@ cmd_check() {
     printf 'skill_source: %s\n' "$skill_source"
 }
 
+# subscription list [--json] | set <agent> <key> <value> | unset <agent> <key>
+# Keys: plan, renew (YYYY-MM-DD), cycle, cost, currency, reminder_days.
+cmd_subscription() {
+    local sub="${1:-list}"
+    shift || true
+    case "$sub" in
+        list)
+            assert_managed
+            local json=0
+            [[ "${1:-}" == "--json" ]] && json=1
+            if (( json )); then
+                python3 - "$conf_path" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+out = {}
+if path.is_file():
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        parts = key.split(".")
+        if len(parts) != 3 or parts[0] != "subscription":
+            continue
+        out.setdefault(parts[1], {})[parts[2]] = value
+print(json.dumps(out, sort_keys=True))
+PY
+            else
+                [[ -f "$conf_path" ]] || return 0
+                grep '^subscription\.' "$conf_path" || true
+            fi
+            ;;
+        set)
+            local agent="${1:-}" key="${2:-}" value="${3:-}"
+            [[ -n "$agent" && -n "$key" ]] || fail "usage: $PROG subscription set <agent> <key> <value>"
+            [[ "$agent" =~ ^[A-Za-z0-9_-]+$ ]] || fail "invalid agent id"
+            [[ "$key" =~ ^[A-Za-z0-9_]+$ ]] || fail "invalid subscription key"
+            conf_set "subscription.$agent.$key" "$value"
+            printf 'Set %s.%s on %s\n' "$key" "$agent" "$value"
+            ;;
+        unset)
+            local agent="${1:-}" key="${2:-}"
+            [[ -n "$agent" && -n "$key" ]] || fail "usage: $PROG subscription unset <agent> <key>"
+            conf_set "subscription.$agent.$key" ""
+            printf 'Unset %s on %s\n' "$key" "$agent"
+            ;;
+        *)
+            fail "usage: $PROG subscription [list [--json]|set <agent> <key> <value>|unset <agent> <key>]"
+            ;;
+    esac
+}
+
 # Collectors are executable ai-usage-<agent> scripts; each prints one record.
 json_valid() {
     if command -v jq >/dev/null; then
@@ -480,6 +559,7 @@ Usage: workstation-ai <command> [args]
   launch [--prompt TEXT] Launch the default agent in a terminal (unattended mode).
   prompt <text>          Launch the default agent seeded with a task.
   crash <pid>            Diagnose a coredumpctl crash with the default agent.
+  subscription [list|set|unset]  Manage subscription plan/renewal metadata.
   usage                  Print collected agent usage records (JSON).
   usage-update [--force] [agent...]  Refresh the usage records.
   skill [status|install|remove]  Manage the workstation agent skill.
@@ -505,6 +585,7 @@ main() {
         launch) cmd_launch "$@" ;;
         prompt) cmd_prompt "$@" ;;
         crash) cmd_crash "$@" ;;
+        subscription) cmd_subscription "$@" ;;
         usage) cmd_usage ;;
         usage-update) cmd_usage_update "$@" ;;
         skill) cmd_skill "$@" ;;
