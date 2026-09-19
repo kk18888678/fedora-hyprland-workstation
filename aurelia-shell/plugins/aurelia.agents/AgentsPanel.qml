@@ -109,6 +109,7 @@ AureliaKeyboardPanel {
         readonly property real percent: Number(limitRow.window && limitRow.window.percent)
         readonly property bool alarming: isFinite(limitRow.percent) && limitRow.percent >= 0.9
         readonly property real remainingMs: AgentUsage.resetMsFor(limitRow.window, panelRoot.nowMs)
+        readonly property var pace: AgentUsage.paceInfo(limitRow.window, panelRoot.nowMs)
 
         Layout.fillWidth: true
         spacing: Theme.spacingXs
@@ -144,9 +145,11 @@ AureliaKeyboardPanel {
                     parts.push(Math.max(0, Math.round((1 - limitRow.percent) * 100)) + "% left")
                 if (limitRow.remainingMs > 0)
                     parts.push("Resets in " + AgentUsage.formatDuration(limitRow.remainingMs))
+                if (limitRow.pace)
+                    parts.push(limitRow.pace.behind ? "behind pace" : "ahead of pace")
                 return parts.join(" · ")
             }
-            color: Theme.textMuted
+            color: limitRow.pace && limitRow.pace.behind ? Theme.warning : Theme.textMuted
             font.pixelSize: Theme.fontSizeSm
         }
     }
@@ -333,6 +336,72 @@ AureliaKeyboardPanel {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: panelRoot.selectProvider(index)
                     }
+                }
+            }
+        }
+
+        // All-accounts snapshot: every agent's binding limit and reset at a
+        // glance. Click a row to focus its detail below.
+        SectionHeader {
+            text: "ALL ACCOUNTS"
+            visible: panelRoot.agents.length > 1
+        }
+
+        Repeater {
+            model: panelRoot.agents
+
+            delegate: Rectangle {
+                id: snapshotRow
+                required property var modelData
+                required property int index
+                readonly property var snapshotLimit: AgentUsage.bindingWindow(snapshotRow.modelData)
+
+                Layout.fillWidth: true
+                implicitHeight: snapshotLayout.implicitHeight + Theme.spacingXs
+                radius: Theme.radiusSm
+                color: snapshotArea.containsMouse ? Theme.controls.hoverFill
+                    : (index === panelRoot.safeIndex ? Theme.controls.selectedFill : "transparent")
+
+                RowLayout {
+                    id: snapshotLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Theme.spacingXs
+                    anchors.rightMargin: Theme.spacingXs
+                    spacing: Theme.spacingSm
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: String(snapshotRow.modelData.name || snapshotRow.modelData.id)
+                        color: snapshotRow.index === panelRoot.safeIndex ? Theme.accent : Theme.text
+                        font.pixelSize: Theme.fontSizeSm
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        text: {
+                            if (!snapshotRow.snapshotLimit) return "—"
+                            var percent = Math.round(Number(snapshotRow.snapshotLimit.percent) * 100) + "%"
+                            var remaining = AgentUsage.resetMsFor(snapshotRow.snapshotLimit, panelRoot.nowMs)
+                            return remaining > 0 ? percent + " · " + AgentUsage.formatDuration(remaining) : percent
+                        }
+                        color: {
+                            var severity = AgentUsage.severityForLimit(snapshotRow.snapshotLimit)
+                            if (severity === "critical") return Theme.error
+                            if (severity === "warn") return Theme.warning
+                            return Theme.textMuted
+                        }
+                        font.pixelSize: Theme.fontSizeSm
+                    }
+                }
+
+                MouseArea {
+                    id: snapshotArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: panelRoot.selectProvider(snapshotRow.index)
                 }
             }
         }

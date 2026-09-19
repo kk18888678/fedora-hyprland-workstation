@@ -53,6 +53,35 @@ Item {
     readonly property var visibleAgents: AgentUsage.detectedAgents(root.agents)
     readonly property bool hasAgents: root.loaded && root.visibleAgents.length > 0
     readonly property real todayTokens: AgentUsage.todayTotal(root.readyAgents)
+    // The bar surfaces the binding limit (the one that will stop the next
+    // prompt) as used% plus time-to-reset, coloured by severity, instead of a
+    // raw token count.
+    readonly property var statusAgent: {
+        var best = null
+        var bestPercent = -1
+        for (var i = 0; i < root.readyAgents.length; i++) {
+            var limit = AgentUsage.bindingWindow(root.readyAgents[i])
+            var percent = limit ? Number(limit.percent) : -1
+            if (percent > bestPercent) {
+                bestPercent = percent
+                best = root.readyAgents[i]
+            }
+        }
+        return best
+    }
+    readonly property var statusLimit: AgentUsage.bindingWindow(root.statusAgent)
+    readonly property string statusText: {
+        if (!root.statusLimit) return AgentUsage.formatTokens(root.todayTokens)
+        var percent = Math.round(Number(root.statusLimit.percent) * 100)
+        var remaining = AgentUsage.resetMsFor(root.statusLimit, Date.now())
+        return remaining > 0 ? percent + "% · " + AgentUsage.formatDuration(remaining) : percent + "%"
+    }
+    readonly property color statusColor: {
+        var severity = AgentUsage.severityForLimit(root.statusLimit)
+        if (severity === "critical") return Theme.error
+        if (severity === "warn") return Theme.warning
+        return root.barForeground
+    }
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
@@ -194,10 +223,10 @@ Item {
             id: agentLabel
             anchors.verticalCenter: parent.verticalCenter
             visible: !root.vertical
-            text: AgentUsage.formatTokens(root.todayTokens)
+            text: root.statusText
             font.family: Theme.fontFamily
             font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.fontSizeSm
-            color: clickArea.containsMouse ? Theme.accent : root.barForeground
+            color: clickArea.containsMouse ? Theme.accent : root.statusColor
         }
     }
 }

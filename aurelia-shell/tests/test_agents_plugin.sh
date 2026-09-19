@@ -38,7 +38,9 @@ if grep -q 'visible: root.hasAgents' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q '"usage"' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.parseRecords' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'applyLimitNotifications' "$plugin_dir/AgentsBarWidget.qml" &&
-   grep -q 'notify-send' "$plugin_dir/AgentsBarWidget.qml"; then
+   grep -q 'notify-send' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.severityForLimit' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.bindingWindow' "$plugin_dir/AgentsBarWidget.qml"; then
     pass "[static] agents widget refreshes through workstation-ai and hides until an agent is detected"
 else
     fail "[static] agents widget backend wiring is incomplete"
@@ -63,6 +65,14 @@ else
     fail "[static] usage backend or collector wiring is missing"
 fi
 
+if grep -q 'AgentUsage.paceInfo' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'ALL ACCOUNTS' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AgentUsage.severityForLimit' "$plugin_dir/AgentsPanel.qml"; then
+    pass "[static] agents panel shows pace, severity colours, and an all-accounts snapshot"
+else
+    fail "[static] agents panel dashboard sections are incomplete"
+fi
+
 # PanelWindow's default property only accepts QQuickItem children, so a
 # non-visual Timer/QtObject declared at panel top level fails to load at
 # runtime (and stays invisible to the offscreen type-unavailable fixture).
@@ -80,7 +90,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, paceInfo, elapsedFraction };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -99,10 +109,18 @@ const first = A.limitTransitions(rec(0.5, "2030-01-01"), {});
 const reset = A.limitTransitions(rec(0.4, "2030-02-01"), first.state);
 const exhausted = A.limitTransitions(rec(0.95, "2030-02-01"), reset.state);
 const steady = A.limitTransitions(rec(0.95, "2030-02-01"), exhausted.state);
+const nowMs = 1700000000000;
+const future = new Date(nowMs + 3.5 * 86400000).toISOString();
+const paceEven = A.paceInfo({percent: 0.5, resetsAt: future, windowMinutes: 10080}, nowMs);
+const paceBehind = A.paceInfo({percent: 0.7, resetsAt: future, windowMinutes: 10080}, nowMs);
 const ok =
+    A.severityFor(50) === "ok" && A.severityFor(80) === "warn" && A.severityFor(95) === "critical" &&
+    A.severityForLimit({percent: 0.95}) === "critical" &&
+    paceEven && Math.abs(paceEven.elapsed - 0.5) < 0.01 && paceEven.behind === false &&
+    paceBehind && paceBehind.behind === true &&
     first.notifications.length === 0 &&
     reset.notifications.length === 1 && reset.notifications[0].title.indexOf("reset") >= 0 &&
-    exhausted.notifications.length === 1 && exhausted.notifications[0].title.indexOf("exhausted") >= 0 &&
+    exhausted.notifications.length === 1 && exhausted.notifications[0].title.indexOf("critical") >= 0 &&
     steady.notifications.length === 0 &&
     A.bindingWindow({limits: limits}).percent === 0.8 &&
     A.formatDuration(90 * 60000) === "1h 30m" &&

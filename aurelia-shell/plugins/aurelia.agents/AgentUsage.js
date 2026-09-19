@@ -181,11 +181,58 @@ function modelRows(record, limit) {
 
 // Compare live rate-limit windows against the previous observation and return
 // the notifications the user should see: a window that reset (its resetsAt
-// moved) and a window that just crossed the near-exhausted threshold. The
+// moved) and a window that crossed into warn or critical severity. The
 // returned state must be fed back on the next call so transitions, not steady
-// states, produce notifications.
-function limitTransitions(records, previousState) {
+// states, produce notifications; the first observation only establishes a
+// baseline.
+var DEFAULT_WARN_PCT = 75
+var DEFAULT_CRITICAL_PCT = 90
+
+function severityFor(pct, warn, critical) {
+    var w = isFinite(warn) ? Number(warn) : DEFAULT_WARN_PCT;
+    var c = isFinite(critical) ? Number(critical) : DEFAULT_CRITICAL_PCT;
+    if (w >= c) w = c;
+    if (!isFinite(pct)) return "ok";
+    if (pct >= c) return "critical";
+    if (pct >= w) return "warn";
+    return "ok";
+}
+
+function severityForLimit(limit, warn, critical) {
+    var percent = Number(limit && limit.percent);
+    return severityFor(isFinite(percent) ? percent * 100 : NaN, warn, critical);
+}
+
+// Fraction of the limit window that has already elapsed, from its reset time
+// and duration. NaN when the collector did not report a window duration.
+function elapsedFraction(limit, nowMs) {
+    var windowMinutes = Number(limit && limit.windowMinutes);
+    var resetsAt = Date.parse(String((limit && limit.resetsAt) || ""));
+    if (!isFinite(resetsAt) || !isFinite(nowMs)) return NaN;
+    if (!isFinite(windowMinutes) || windowMinutes <= 0) return NaN;
+    var windowMs = windowMinutes * 60000;
+    var remaining = Math.max(0, resetsAt - nowMs);
+    return clamp(1 - remaining / windowMs, 0, 1);
+}
+
+// Pace compares the used fraction against the elapsed fraction: positive delta
+// means the account is burning faster than the window is draining.
+function paceInfo(limit, nowMs) {
+    var percent = Number(limit && limit.percent);
+    var elapsed = elapsedFraction(limit, nowMs);
+    if (!isFinite(percent) || !isFinite(elapsed)) return null;
+    return {
+        used: percent,
+        elapsed: elapsed,
+        delta: percent - elapsed,
+        behind: percent > elapsed,
+        expectedUsed: elapsed
+    };
+}
+
+function limitTransitions(records, previousState, thresholds) {
     var state = previousState || {};
+    var opts = thresholds || {};
     var next = {};
     var notifications = [];
     var ready = readyAgents(records);
@@ -199,7 +246,8 @@ function limitTransitions(records, previousState) {
             var key = String(agent.id) + "|" + String(limit.label || "");
             var previous = state[key];
             var percent = Number(limit.percent);
-            var alertedHigh = previous ? previous.alertedHigh === true : false;
+            var severity = severityForLimit(limit, opts.warn, opts.critical);
+            var previousSeverity = previous ? String(previous.severity || "ok") : "ok";
             var name = String(agent.name || agent.id);
             var label = String(limit.label || "Limit");
 
@@ -208,16 +256,15 @@ function limitTransitions(records, previousState) {
                     title: name + " limit reset",
                     body: label + " reset · " + Math.max(0, Math.round((1 - percent) * 100)) + "% available"
                 });
-                alertedHigh = false;
+                previousSeverity = "ok";
             }
-            if (previous && !alertedHigh && isFinite(percent) && percent >= 0.9) {
+            if (previous && severity !== "ok" && severity !== previousSeverity) {
                 notifications.push({
-                    title: name + " limit nearly exhausted",
+                    title: name + " limit " + (severity === "critical" ? "critical" : "warning"),
                     body: label + " is at " + Math.round(percent * 100) + "% used"
                 });
-                alertedHigh = true;
             }
-            next[key] = { resetsAt: resetsAt, alertedHigh: alertedHigh };
+            next[key] = { resetsAt: resetsAt, severity: severity };
         }
     }
     return { state: next, notifications: notifications };

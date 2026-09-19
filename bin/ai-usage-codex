@@ -129,6 +129,7 @@ def limit_window(window) -> dict | None:
         "label": label,
         "percent": float(used) / 100.0,
         "resetsAt": dt.datetime.fromtimestamp(reset, dt.timezone.utc).isoformat() if reset else "",
+        "windowMinutes": minutes,
     }
 
 
