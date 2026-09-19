@@ -63,13 +63,6 @@ AureliaKeyboardPanel {
     }
     onAgentsChanged: if (selectedIndex >= agents.length) selectedIndex = 0
 
-    Timer {
-        interval: 30000
-        repeat: true
-        running: panelRoot.shown
-        onTriggered: panelRoot.nowMs = Date.now()
-    }
-
     // ------------------------------------------------------------ components
 
     component SectionHeader: Text {
@@ -252,6 +245,13 @@ AureliaKeyboardPanel {
         id: contentColumn
         width: panelRoot.popupWidth - panelRoot.contentPadding * 2
         spacing: Theme.spacingMd
+
+        Timer {
+            interval: 30000
+            repeat: true
+            running: panelRoot.shown
+            onTriggered: panelRoot.nowMs = Date.now()
+        }
 
         // Hero: name · plan
         RowLayout {

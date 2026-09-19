@@ -61,6 +61,16 @@ else
     fail "[static] usage backend or collector wiring is missing"
 fi
 
+# PanelWindow's default property only accepts QQuickItem children, so a
+# non-visual Timer/QtObject declared at panel top level fails to load at
+# runtime (and stays invisible to the offscreen type-unavailable fixture).
+if ! grep -qE '^    (Timer|QtObject|Connections|NumberAnimation|PropertyAnimation|SequentialAnimation|ScriptAction) \{' \
+       "$plugin_dir/AgentsPanel.qml"; then
+    pass "[static] agents panel keeps non-visual children inside the content item"
+else
+    fail "[static] agents panel declares a non-visual child on the PanelWindow"
+fi
+
 # ---------------------------------------------------------------------------
 # Pure record projection (node)
 # ---------------------------------------------------------------------------
