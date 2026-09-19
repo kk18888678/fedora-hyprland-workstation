@@ -1,5 +1,6 @@
 {
   "plugins": [
+    {"id":"aurelia.agents","kinds":["bar-widget"],"entryPoints":{"barWidget":"AgentsBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Agents","description":"AI agent token usage panel backed by local session stats.","category":"AI","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.audio","kinds":["bar-widget"],"entryPoints":{"barWidget":"AudioBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Audio","description":"Volume slider, output picker, and per-application mixer.","category":"Audio","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.background","kinds":["service"],"entryPoints":{"service":"Background.qml"},"keepLoaded":true,"barWidget":null},
     {"id":"aurelia.bar","kinds":["bar"],"entryPoints":{"bar":"Bar.qml"},"keepLoaded":true,"barWidget":null},
@@ -42,7 +43,7 @@
         },
         {
           "id": "aurelia.clock",
-          "format": "MMM d, dddd HH:mm"
+          "format": "auto"
         },
         {
           "id": "aurelia.weather",
@@ -67,6 +68,9 @@
         },
         {
           "id": "aurelia.screenshot"
+        },
+        {
+          "id": "aurelia.agents"
         },
         {
           "id": "aurelia.session-actions"

@@ -77,7 +77,7 @@ if jq -e '
       [.layout.right[].id] == [
         "aurelia.tray", "aurelia.network", "aurelia.audio",
         "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot",
-        "aurelia.session-actions", "aurelia.power"
+        "aurelia.agents", "aurelia.session-actions", "aurelia.power"
       ]
    ' "$default_file" >/dev/null; then
     pass "[static] Audio is placed after Network in the canonical right-side default bar"

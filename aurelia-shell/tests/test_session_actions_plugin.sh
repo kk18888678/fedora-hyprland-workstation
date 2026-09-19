@@ -98,7 +98,7 @@ if jq -e '
        [.layout.right[].id] == [
          "aurelia.tray", "aurelia.network", "aurelia.audio",
          "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot",
-         "aurelia.session-actions", "aurelia.power"
+         "aurelia.agents", "aurelia.session-actions", "aurelia.power"
        ]
    ' "$default_file" >/dev/null; then
     pass "[static] Session Actions is added at the former action affordance location while Power remains present"
