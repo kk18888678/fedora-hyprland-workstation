@@ -90,7 +90,10 @@ function sanitizeBody(body, app, appIcon) {
 }
 
 function styledBody(body, app, appIcon) {
-    return stripImageTags(sanitizeBody(body, app, appIcon).replace(/\r\n|\r|\n/g, "<br/>"))
+    var text = sanitizeBody(body, app, appIcon)
+    var formatted = herdrBody(text, app)
+    if (formatted !== "") text = formatted
+    return stripImageTags(text.replace(/\r\n|\r|\n/g, "<br/>"))
 }
 
 function summaryStartsWithGlyph(summary) {
@@ -319,6 +322,31 @@ function defaultActionText(notification) {
     return ""
 }
 
+// Herdr, the terminal workspace manager pi runs inside, reports completion as
+// `<workspace label> · <workspace number> · <count>`. Parse the workspace so
+// the toast can offer a jump back to the chat, and render the body in words
+// instead of the raw middot line.
+function herdrRoute(notification) {
+    var n = notification || {}
+    if (boundedText(n.appName, MAX_APP_LENGTH).toLowerCase() !== "herdr") return null
+    var parts = String(n.body || "").split("·")
+    if (parts.length < 2) return null
+    var label = parts[0].trim()
+    var number = parseInt(parts[1].trim(), 10)
+    if (label === "" || !isFinite(number) || number < 1) return null
+    return { label: label, number: number }
+}
+
+function herdrBody(body, app) {
+    if (String(app || "").toLowerCase() !== "herdr") return ""
+    var parts = String(body || "").split("·")
+    if (parts.length < 2) return ""
+    var label = parts[0].trim()
+    var number = parseInt(parts[1].trim(), 10)
+    if (label === "" || !isFinite(number)) return ""
+    return label + " · workspace " + number
+}
+
 function snapshotOf(notification, timestamp) {
     var n = notification || {}
     var id = finiteNumber(n.id, 0)
@@ -331,6 +359,7 @@ function snapshotOf(notification, timestamp) {
     var desktopEntry = boundedText(n.desktopEntry, MAX_APP_LENGTH)
     var duration = durationFor(urgency, expireTimeout, app, desktopEntry, appIcon)
     var transient = transientFromNotification(n)
+    var herdr = herdrRoute(n)
     return {
         id: id,
         originalId: id,
@@ -341,9 +370,10 @@ function snapshotOf(notification, timestamp) {
         body: boundedText(n.body, MAX_TEXT_LENGTH),
         image: boundedText(n.image, MAX_IMAGE_LENGTH),
         glyph: boundedText(glyphFromHints(n.hints), 256),
-        execArgv: boundedText(execArgvFromHints(n.hints), MAX_TEXT_LENGTH),
+        execArgv: boundedText(execArgvFromHints(n.hints), MAX_TEXT_LENGTH) ||
+            (herdr ? JSON.stringify(["herdr", "workspace", "focus", herdr.label]) : ""),
         actions: actionsOf(n),
-        defaultActionText: defaultActionText(n),
+        defaultActionText: defaultActionText(n) || (herdr ? "Open chat" : ""),
         urgency: urgency,
         expireTimeout: expireTimeout,
         timestamp: stamp,
@@ -491,7 +521,7 @@ function screenshotSnapshot(path, timestamp) {
         appIcon: "camera-photo",
         desktopEntry: "",
         summary: "Screenshot saved",
-        body: "The capture is available in Pictures and on the clipboard.",
+        body: "The capture is available in Pictures/Screenshots and on the clipboard.",
         image: localFileUrl(source),
         glyph: "",
         execArgv: "",

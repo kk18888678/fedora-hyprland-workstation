@@ -546,3 +546,34 @@ else
     if [[ -s "$collision_result" ]]; then details="$details result=$(tr '\n' ' ' <"$collision_result")"; fi
     fail "[isolated-runtime] repeated notification identity collision fixture failed (status=$collision_status): $details"
 fi
+
+# Herdr (the terminal workspace manager pi runs inside) sends a raw
+# "<label> · <number> · <count>" body with no action. The logic must render
+# that in words and synthesize a jump-back-to-the-chat action.
+if command -v node >/dev/null; then
+    herdr_logic_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_root/NotificationLogic.js" >"$herdr_logic_test"
+    cat >>"$herdr_logic_test" <<'HERDR_EXPORTS'
+module.exports = { herdrRoute, herdrBody, styledBody, snapshotOf };
+HERDR_EXPORTS
+    if node -e '
+const L = require(process.argv[1]);
+const n = { id: 7, appName: "Herdr", summary: "pi finished", body: "sutradhar \u00b7 2 \u00b7 3", urgency: 1 };
+const snap = L.snapshotOf(n, 1700000000000);
+const ok =
+    L.herdrRoute(n) && L.herdrRoute(n).label === "sutradhar" && L.herdrRoute(n).number === 2 &&
+    L.herdrBody("sutradhar \u00b7 2 \u00b7 3", "Herdr") === "sutradhar \u00b7 workspace 2" &&
+    snap.defaultActionText === "Open chat" &&
+    JSON.parse(snap.execArgv).join(" ") === "herdr workspace focus sutradhar" &&
+    L.herdrRoute({ appName: "foot", body: "a \u00b7 1 \u00b7 1" }) === null &&
+    L.snapshotOf({ appName: "Herdr", body: "x \u00b7 1", actions: [{ identifier: "default", text: "Reply" }] }, 1).defaultActionText === "Reply";
+process.exit(ok ? 0 : 1);
+' "$herdr_logic_test" >/dev/null; then
+        pass "[unit] Herdr notifications render a clear body and offer a chat jump action"
+    else
+        fail "[unit] Herdr notification projection failed"
+    fi
+    rm -f -- "$herdr_logic_test"
+else
+    skip "[unit] Herdr notification projection (node unavailable)"
+fi

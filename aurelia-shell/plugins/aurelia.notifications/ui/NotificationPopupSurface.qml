@@ -17,9 +17,15 @@ PanelWindow {
     readonly property var bar: root.notificationService ? root.notificationService.bar : null
     readonly property var anchorSlot: {
         var revision = root.bar ? root.bar.widgetRevision : 0
-        return root.bar && typeof root.bar.anchorItemFor === "function"
+        if (!root.bar) return null
+        var slot = typeof root.bar.anchorItemFor === "function"
             ? root.bar.anchorItemFor("aurelia.notifications")
             : null
+        // The notification widget can be absent or ambiguous (duplicated
+        // across screens); fall back to the bar's own content anchor so a
+        // notification still appears under the bar instead of being dropped.
+        if (slot) return slot
+        return typeof root.bar.barAnchorItem === "function" ? root.bar.barAnchorItem() : null
     }
     readonly property var anchorWindow: root.anchorSlot && root.anchorSlot.QsWindow && root.anchorSlot.QsWindow.window
         ? root.anchorSlot.QsWindow.window
