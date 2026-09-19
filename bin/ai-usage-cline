@@ -22,6 +22,9 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import ai_usage_common as common  # noqa: E402
+
 AGENT_ID = "cline"
 AGENT_NAME = "Cline"
 
@@ -220,7 +223,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="accepted for collector parity; local scans are always fresh")
     parser.parse_args()
 
-    stats = scan()
+    stats = common.merge_stats(scan(), common.scan_pi_sessions(["cline"]))
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,

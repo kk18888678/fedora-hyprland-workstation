@@ -68,7 +68,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -81,7 +81,19 @@ const bars = A.recentBars([
     {date: "2026-09-19", messageCount: 10}
 ]);
 const models = A.sortedModels({small: {inputTokens: 1}, big: {inputTokens: 10, outputTokens: 5}});
+const limits = [{percent: 0.2, resetsAt: "2030-01-01T00:00:00Z"}, {percent: 0.8, resetsAt: "2030-01-01T00:00:00Z"}];
 const ok =
+    A.bindingWindow({limits: limits}).percent === 0.8 &&
+    A.formatDuration(90 * 60000) === "1h 30m" &&
+    A.formatDuration(-1) === "now" &&
+    A.heroMeta({tierLabel: "plus"}) === "Plus" &&
+    A.heroMeta({usageStatusText: "Codex limits unavailable"}) === "Codex limits unavailable" &&
+    A.modelRows({modelUsage: {b: {inputTokens: 1}, a: {outputTokens: 5}}})[0].name === "a" &&
+    A.dayLabel("2026-09-19", true) === "Today" &&
+    A.weekPeak({recentDays: [{messageCount: 3}, {messageCount: 9}]}) === 9 &&
+    A.clamp(5, 0, 1) === 1 &&
+    A.resetMsFor({resetsAt: ""}, 0) === -1 &&
+    A.todayDate(Date.UTC(2026, 8, 19, 12)) === "2026-09-19" &&
     A.parseRecords("not json").length === 0 &&
     A.parseRecords("{}").length === 0 &&
     records.length === 2 &&
@@ -169,16 +181,16 @@ else
     fail "[isolated] collected usage record permissions are unsafe (mode=$record_mode)"
 fi
 
-# Codex and Cline fixtures prove the record contract is collector-agnostic:
-# Codex contributes local token totals plus the 5h/weekly limit meters it
-# already records, and Cline contributes VS Code task token totals.
+# Codex and Cline fixtures prove the record contract is collector-agnostic.
+# The RPC probe is disabled here (CODEX_BIN points nowhere) so the local-scan
+# assertions stay deterministic; the probe itself is covered below.
 mkdir -p -- "$sandbox/codex/sessions/2026/09/19" \
     "$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1" \
     "$sandbox/data"
 cat >"$sandbox/codex/sessions/2026/09/19/rollout-x.jsonl" <<'CODEX_ROLLOUT'
 {"timestamp":"2026-09-19T10:00:00Z","type":"session_meta","payload":{"id":"s1"}}
 {"timestamp":"2026-09-19T10:00:01Z","type":"turn_context","payload":{"turn_id":"t1","model":"gpt-5"}}
-{"timestamp":"2026-09-19T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20,"cache_write_input_tokens":5,"total_tokens":175}},"rate_limits":{"primary":{"used_percent":42.0,"window_minutes":300,"resets_at":1800000000},"secondary":{"used_percent":11.0,"window_minutes":10080,"resets_at":1800600000}}}}
+{"timestamp":"2026-09-19T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20,"cache_write_input_tokens":5,"total_tokens":175}}}}
 CODEX_ROLLOUT
 cat >"$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1/ui_messages.json" <<'CLINE_MESSAGES'
 [{"ts":1789000000000,"type":"say","say":"api_req_started","text":"{\"tokensIn\":1000,\"tokensOut\":200,\"cacheReads\":50,\"cacheWrites\":10,\"cost\":0}"}]
@@ -186,20 +198,72 @@ CLINE_MESSAGES
 printf '%s\n' '{"model_usage":[{"model_id":"cline-pass/glm-5.3-flash"}]}' \
     >"$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1/task_metadata.json"
 
-HOME="$sandbox/home" CODEX_HOME="$sandbox/codex" XDG_CONFIG_HOME="$sandbox/config" \
-    XDG_DATA_HOME="$sandbox/data" XDG_STATE_HOME="$sandbox/state" \
+HOME="$sandbox/home" CODEX_HOME="$sandbox/codex" CODEX_BIN="$sandbox/no-codex" \
+    XDG_CONFIG_HOME="$sandbox/config" XDG_DATA_HOME="$sandbox/data" XDG_STATE_HOME="$sandbox/state" \
     "$backend" usage-update >/dev/null
 if XDG_STATE_HOME="$sandbox/state" "$backend" usage | jq -e '
         ([.agents[] | select(.id == "codex")][0]) as $c |
         ([.agents[] | select(.id == "cline")][0]) as $l |
         $c.detected == true and $c.totalPrompts == 1 and $c.todayTotalTokens == 175 and
-        ($c.limits | length == 2) and ($c.limits[0].percent == 42) and
         $c.modelUsage["gpt-5"].inputTokens == 100 and
         $l.detected == true and $l.totalPrompts == 1 and
         $l.modelUsage["cline-pass/glm-5.3-flash"].outputTokens == 200' >/dev/null; then
     pass "[isolated] Codex and Cline collectors populate the same record contract"
 else
     fail "[isolated] Codex/Cline collector record contract diverged"
+fi
+
+# The live-limit probe must read the Codex app-server RPC (fresh), not the
+# stale rate_limits snapshot buried in the last rollout file. A mock codex
+# speaks the JSON-RPC handshake so the parse stays deterministic.
+mkdir -p -- "$sandbox/bin"
+cat >"$sandbox/bin/codex" <<'MOCK_CODEX'
+#!/usr/bin/env bash
+while IFS= read -r line; do
+    id=$(printf '%s' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
+    method=$(printf '%s' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("method",""))' 2>/dev/null)
+    case "$method" in
+        account/read) printf '{"id":%s,"result":{"account":{"type":"chatgpt","planType":"plus"}}}\n' "$id" ;;
+        account/rateLimits/read) printf '{"id":%s,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":1800000000},"secondary":{"usedPercent":11,"windowDurationMins":10080,"resetsAt":1800600000}}}}\n' "$id" ;;
+        *) printf '{"id":%s,"result":{}}\n' "$id" ;;
+    esac
+done
+MOCK_CODEX
+chmod 0755 "$sandbox/bin/codex"
+codex_rpc="$(HOME="$sandbox/home" CODEX_HOME="$sandbox/codex" CODEX_BIN="$sandbox/bin/codex" "$repo_root/bin/ai-usage-codex" 2>/dev/null || true)"
+if printf '%s' "$codex_rpc" | jq -e '
+        .tierLabel == "plus" and
+        (.limits | length == 2) and
+        .limits[0].percent == 0.42 and .limits[0].label == "5h window" and
+        .limits[1].percent == 0.11 and .limits[1].label == "Weekly (7-day)" and
+        (.limits[0].resetsAt | length > 0)' >/dev/null 2>&1; then
+    pass "[isolated] Codex collector reads fresh limits from the app-server RPC"
+else
+    fail "[isolated] Codex RPC limit contract diverged: $codex_rpc"
+fi
+
+# pi drives opencode-go / clinepass / openai-codex through its own API clients,
+# so their usage lives only in pi's session logs. Each provider collector must
+# merge the matching pi turns.
+mkdir -p -- "$sandbox/pi/agent/sessions/proj" "$sandbox/empty-data" "$sandbox/empty-config" "$sandbox/empty-cline"
+cat >"$sandbox/pi/agent/sessions/proj/s.jsonl" <<'PI_SESSION'
+{"type":"session","id":"s1","timestamp":"2026-09-19T09:00:00Z","cwd":"/tmp"}
+{"type":"model_change","provider":"opencode-go","modelId":"deepseek-v4.1-flash"}
+{"type":"message","id":"m1","timestamp":"2026-09-19T09:01:00Z","message":{"role":"assistant","provider":"opencode-go","model":"deepseek-v4.1-flash","usage":{"input":100,"output":20,"cacheRead":5,"cacheWrite":0,"reasoning":3,"totalTokens":128},"content":[]}}
+{"type":"model_change","provider":"clinepass","modelId":"cline-pass/glm-5.3"}
+{"type":"message","id":"m2","timestamp":"2026-09-19T09:02:00Z","message":{"role":"assistant","provider":"clinepass","model":"cline-pass/glm-5.3","usage":{"input":50,"output":10,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":60},"content":[]}}
+{"type":"model_change","provider":"openai-codex","modelId":"gpt-5.5"}
+{"type":"message","id":"m3","timestamp":"2026-09-19T09:03:00Z","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.5","usage":{"input":7,"output":3,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":10},"content":[]}}
+PI_SESSION
+pi_opencode="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_DATA_HOME="$sandbox/empty-data" "$repo_root/bin/ai-usage-opencode" 2>/dev/null || true)"
+pi_cline="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_CONFIG_HOME="$sandbox/empty-config" CLINE_DIR="$sandbox/empty-cline" "$repo_root/bin/ai-usage-cline" 2>/dev/null || true)"
+pi_codex="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" CODEX_HOME="$sandbox/no-codex-home" CODEX_BIN="$sandbox/no-codex" "$repo_root/bin/ai-usage-codex" 2>/dev/null || true)"
+if printf '%s' "$pi_opencode" | jq -e '.detected == true and .totalPrompts == 1 and .todayTotalTokens == 128 and .modelUsage["deepseek-v4.1-flash"].inputTokens == 100' >/dev/null 2>&1 &&
+   printf '%s' "$pi_cline" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["cline-pass/glm-5.3"].outputTokens == 10' >/dev/null 2>&1 &&
+   printf '%s' "$pi_codex" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["gpt-5.5"].inputTokens == 7' >/dev/null 2>&1; then
+    pass "[isolated] pi session usage is merged into the matching provider collectors"
+else
+    fail "[isolated] pi session merge diverged (opencode=$pi_opencode cline=$pi_cline codex=$pi_codex)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -237,11 +301,13 @@ XDG_CONFIG_HOME="$race_root/config" XDG_CACHE_HOME="$race_root/cache" \
     /usr/bin/timeout --kill-after=1s 14s /usr/bin/qs --no-duplicate \
     --path "$ROOT/tests/fixtures/agents-race/shell.qml" \
     >"$race_root/race.log" 2>&1 || race_status=$?
-if [[ "$race_status" -eq 0 ]] &&
+race_log_ok=0
+runtime_log_is_environment_only "$race_root/race.log" >/dev/null 2>&1 && race_log_ok=1
+if [[ "$race_status" -eq 0 && "$race_log_ok" -eq 1 ]] &&
    jq -e '.loaded == true and .agents == 1 and .hasAgents == true and .lastError == ""' \
        "$race_result" >/dev/null 2>&1; then
     pass "[isolated-runtime] agents widget recovers when the host assigns aureliaPath after construction"
 else
     details="$(cat "$race_result" 2>/dev/null || true)"
-    fail "[isolated-runtime] agents widget backend-path race regressed (status=$race_status result=$details)"
+    fail "[isolated-runtime] agents widget backend-path race regressed (status=$race_status log_ok=$race_log_ok result=$details)"
 fi

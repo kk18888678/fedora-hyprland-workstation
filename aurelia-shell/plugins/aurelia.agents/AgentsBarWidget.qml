@@ -24,6 +24,7 @@ Item {
     property bool loaded: false
     property string lastError: ""
     property int retryCount: 0
+    property double lastLoadedMs: 0
 
     readonly property string backendBin: {
         var override = Quickshell.env("WORKSTATION_AI_BIN") || ""
@@ -70,6 +71,12 @@ Item {
         if (root.retryCount >= 3) return
         root.retryCount += 1
         backendRetryTimer.restart()
+    }
+
+    // Refresh only when the last load is older than the caller's tolerance, so
+    // opening the panel does not trigger a live limit probe on every click.
+    function maybeRefresh(maxAgeMs) {
+        if (Date.now() - root.lastLoadedMs > maxAgeMs) root.refresh()
     }
 
     function togglePanel() {
@@ -134,6 +141,7 @@ Item {
             root.loaded = true
             root.lastError = ""
             root.retryCount = 0
+            root.lastLoadedMs = Date.now()
         }
     }
 

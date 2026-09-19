@@ -91,3 +91,90 @@ function recentBars(recentDays) {
         };
     });
 }
+
+function clamp(value, lo, hi) {
+    return Math.max(lo, Math.min(hi, value));
+}
+
+// `limits[].percent` is the fraction of the window already used (0..1).
+function bindingWindow(record) {
+    var windows = (record && record.limits) || [];
+    var best = null;
+    for (var i = 0; i < windows.length; i++) {
+        var percent = Number(windows[i] && windows[i].percent);
+        if (!isFinite(percent)) continue;
+        if (!best || percent > Number(best.percent)) best = windows[i];
+    }
+    return best;
+}
+
+function resetMsFor(window, nowMs) {
+    if (!window || !window.resetsAt) return -1;
+    var parsed = Date.parse(String(window.resetsAt));
+    if (!isFinite(parsed)) return -1;
+    return parsed - nowMs;
+}
+
+function formatDuration(ms) {
+    if (!(ms > 0)) return "now";
+    var minutes = Math.floor(ms / 60000);
+    var hours = Math.floor(minutes / 60);
+    var days = Math.floor(hours / 24);
+    if (days > 0) return days + "d " + (hours % 24) + "h";
+    if (hours > 0) return hours + "h " + (minutes % 60) + "m";
+    return Math.max(1, minutes) + "m";
+}
+
+function heroMeta(record) {
+    if (!record) return "";
+    if (String(record.usageStatusText || "") !== "") return String(record.usageStatusText);
+    var tier = String(record.tierLabel || "");
+    if (tier === "") return "Subscription";
+    return tier.charAt(0).toUpperCase() + tier.slice(1);
+}
+
+function todayDate(nowMs) {
+    var now = new Date(nowMs);
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") +
+        "-" + String(now.getDate()).padStart(2, "0");
+}
+
+function dayName(date) {
+    var parsed = new Date(String(date || "") + "T00:00:00");
+    if (isNaN(parsed.getTime())) return String(date || "");
+    return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][parsed.getDay()];
+}
+
+function dayLabel(date, today) {
+    return today ? "Today" : dayName(date);
+}
+
+function weekPeak(record) {
+    var days = (record && record.recentDays) || [];
+    var peak = 0;
+    for (var i = 0; i < days.length; i++) peak = Math.max(peak, number(days[i] && days[i].messageCount));
+    return peak;
+}
+
+function modelRows(record, limit) {
+    var usage = (record && record.modelUsage) || {};
+    var rows = [];
+    for (var id in usage) {
+        if (!Object.prototype.hasOwnProperty.call(usage, id)) continue;
+        var bucket = usage[id] || {};
+        var input = number(bucket.inputTokens);
+        var output = number(bucket.outputTokens);
+        var cacheRead = number(bucket.cacheReadInputTokens);
+        var cacheWrite = number(bucket.cacheCreationInputTokens);
+        rows.push({
+            name: String(id),
+            total: input + output + cacheRead + cacheWrite,
+            input: input,
+            output: output,
+            cacheRead: cacheRead,
+            cacheWrite: cacheWrite
+        });
+    }
+    rows.sort(function (a, b) { return b.total - a.total; });
+    return rows.slice(0, limit || 4);
+}

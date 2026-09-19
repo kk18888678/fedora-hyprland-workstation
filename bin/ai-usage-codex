@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Local-stats Codex usage collector for the Aurelia agents panel.
+"""Local-stats + live-limit Codex usage collector for the Aurelia agents panel.
 
-Reads Codex CLI rollout transcripts under $CODEX_HOME/sessions and prints one
-display-ready JSON record (the same contract as the other ai-usage-* collectors).
-Token totals come from the per-turn `token_count` events; the rolling 5-hour and
-weekly rate-limit meters come from the `rate_limits` block Codex already records
-locally, so no network call or credential is required.
+Token totals come from the per-turn `token_count` events in Codex rollout
+transcripts under $CODEX_HOME/sessions. The rolling rate-limit meters and the
+plan come from the Codex app-server's `account/rateLimits/read` RPC, which
+queries the account live — rollout files only ever carry a snapshot from the
+last session and go stale the moment a window resets.
+
+Prints one display-ready JSON record (the same contract as the other
+ai-usage-* collectors).
 """
 
 from __future__ import annotations
@@ -14,11 +17,19 @@ import argparse
 import datetime as dt
 import json
 import os
+import select
+import shutil
+import subprocess
+import time
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import ai_usage_common as common  # noqa: E402
+
 AGENT_ID = "codex"
 AGENT_NAME = "Codex"
+AUTH_HELP = "Run `codex login` to enable live Codex rate limits."
 
 
 def codex_home() -> Path:
@@ -56,16 +67,6 @@ def local_date_from_timestamp(value) -> str:
     return local_date_string()
 
 
-def iso_from_epoch(value) -> str:
-    try:
-        seconds = float(value)
-        if seconds <= 0:
-            return ""
-        return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).isoformat()
-    except Exception:
-        return ""
-
-
 def empty_bucket() -> dict[str, int]:
     return {
         "inputTokens": 0,
@@ -75,36 +76,118 @@ def empty_bucket() -> dict[str, int]:
     }
 
 
-def window_label(minutes: int) -> str:
-    if minutes <= 0:
-        return ""
-    if minutes == 300:
-        return "5h window"
-    if minutes == 10080:
-        return "weekly window"
-    if minutes == 43200:
-        return "monthly window"
-    if minutes % 1440 == 0:
-        return f"{minutes // 1440}d window"
-    if minutes % 60 == 0:
-        return f"{minutes // 60}h window"
-    return f"{minutes}m window"
+# ---------------------------------------------------------------- live limits
 
 
-def limit_entry(label: str, title: str, window: dict, fallback_label: str) -> dict | None:
+def find_command(name: str) -> str:
+    found = shutil.which(name)
+    if found:
+        return found
+    candidate = Path.home() / ".local" / "bin" / name
+    return str(candidate) if candidate.is_file() else ""
+
+
+def rpc_request(proc, request_id: int, method: str, params=None, timeout: float = 8) -> dict:
+    proc.stdin.write(json.dumps({"id": request_id, "method": method, "params": params or {}}) + "\n")
+    proc.stdin.flush()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([proc.stdout], [], [], 0.25)
+        if not ready:
+            continue
+        line = proc.stdout.readline()
+        if not line:
+            break
+        try:
+            message = json.loads(line)
+        except Exception:
+            continue
+        if message.get("id") == request_id:
+            return message
+    raise TimeoutError(method)
+
+
+def limit_window(window) -> dict | None:
     if not isinstance(window, dict):
         return None
-    percent = window.get("used_percent")
-    if percent is None:
+    used = window.get("usedPercent")
+    if used is None:
         return None
-    minutes = number(window.get("window_minutes"))
-    text = label or window_label(minutes) or fallback_label
+    minutes = number(window.get("windowDurationMins"))
+    if minutes == 10080:
+        label = "Weekly (7-day)"
+    elif minutes == 43200:
+        label = "Monthly (30-day)"
+    elif minutes and minutes % 60 == 0:
+        label = f"{minutes // 60}h window"
+    elif minutes:
+        label = f"{minutes}m window"
+    else:
+        label = "Limit"
+    reset = number(window.get("resetsAt"))
     return {
-        "label": text,
-        "title": title,
-        "percent": round(float(percent), 2),
-        "resetsAt": iso_from_epoch(window.get("resets_at")),
+        "label": label,
+        "percent": float(used) / 100.0,
+        "resetsAt": dt.datetime.fromtimestamp(reset, dt.timezone.utc).isoformat() if reset else "",
     }
+
+
+def fetch_codex_rpc() -> dict:
+    result = {"limits": [], "tierLabel": "", "usageStatusText": "", "authHelpText": ""}
+    codex = os.environ.get("CODEX_BIN") or find_command("codex")
+    if not codex:
+        result["usageStatusText"] = "Codex unavailable"
+        result["authHelpText"] = "codex not found in PATH"
+        return result
+
+    try:
+        proc = subprocess.Popen(
+            [codex, "-s", "read-only", "-a", "on-request", "app-server"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=dict(os.environ),
+        )
+    except Exception as exc:
+        result["usageStatusText"] = "Codex unavailable"
+        result["authHelpText"] = str(exc)
+        return result
+
+    try:
+        rpc_request(proc, 1, "initialize", {"clientInfo": {"name": "aurelia-agent-usage", "version": "1"}}, timeout=8)
+        proc.stdin.write(json.dumps({"method": "initialized", "params": {}}) + "\n")
+        proc.stdin.flush()
+        account_msg = rpc_request(proc, 2, "account/read", timeout=5)
+        limits_msg = rpc_request(proc, 3, "account/rateLimits/read", timeout=5)
+
+        account = (account_msg.get("result") or {}).get("account") or {}
+        limits = (limits_msg.get("result") or {}).get("rateLimits") or {}
+        plan = limits.get("planType") or account.get("planType") or account.get("type") or ""
+        result["tierLabel"] = str(plan) if plan else ""
+
+        for window in (limits.get("primary"), limits.get("secondary")):
+            entry = limit_window(window)
+            if entry:
+                result["limits"].append(entry)
+        if not result["limits"]:
+            result["usageStatusText"] = "Codex limits unavailable"
+    except Exception as exc:
+        result["usageStatusText"] = "Codex limits unavailable"
+        result["authHelpText"] = str(exc)
+    finally:
+        try:
+            proc.terminate()
+            proc.wait(timeout=1)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    return result
+
+
+# ---------------------------------------------------------------- local scan
 
 
 def scan_sessions(sessions_path: Path) -> dict:
@@ -121,8 +204,6 @@ def scan_sessions(sessions_path: Path) -> dict:
     prompts = 0
     today_prompt_count = 0
     today_token_total = 0
-    latest_limits: dict | None = None
-    latest_limits_at = ""
 
     files = sorted(sessions_path.rglob("rollout-*.jsonl")) if sessions_path.is_dir() else []
     for path in files:
@@ -184,24 +265,8 @@ def scan_sessions(sessions_path: Path) -> dict:
                         today_sessions.add(session_id)
                         today_token_total += total
                         today_tokens[model] = today_tokens.get(model, 0) + total
-
-                    rate_limits = payload.get("rate_limits")
-                    if isinstance(rate_limits, dict):
-                        stamp = str(entry.get("timestamp") or "")
-                        if stamp >= latest_limits_at:
-                            latest_limits_at = stamp
-                            latest_limits = rate_limits
         except Exception as exc:  # pragma: no cover - unreadable files only
             print(f"Ignoring unreadable Codex session file {path}: {exc}", file=sys.stderr)
-
-    limits = []
-    if isinstance(latest_limits, dict):
-        primary = limit_entry("", "Session", latest_limits.get("primary") or {}, "Session")
-        secondary = limit_entry("", "Weekly", latest_limits.get("secondary") or {}, "Weekly")
-        if primary:
-            limits.append(primary)
-        if secondary:
-            limits.append(secondary)
 
     return {
         "todayPrompts": today_prompt_count,
@@ -214,33 +279,37 @@ def scan_sessions(sessions_path: Path) -> dict:
         "totalSessions": len(sessions),
         "activeDays": len(active_days),
         "activeDates": sorted(active_days),
-        "limits": limits,
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--force", action="store_true", help="accepted for collector parity; local scans are always fresh")
+    parser.add_argument("--force", action="store_true", help="accepted for collector parity")
+    parser.add_argument("--limits-only", action="store_true", help="accepted for collector parity")
     parser.parse_args()
 
     home = codex_home()
-    sessions_path = home / "sessions"
-    stats = scan_sessions(sessions_path)
-    detected = home.is_dir()
+    stats = common.merge_stats(scan_sessions(home / "sessions"), common.scan_pi_sessions(["codex"]))
+    rpc = fetch_codex_rpc()
+    detected = home.is_dir() or bool(stats.get("detected"))
+
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,
         "name": AGENT_NAME,
         "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "ready": number(stats.get("totalPrompts")) > 0 or len(stats.get("limits") or []) > 0,
         "detected": detected,
         "hasLocalStats": detected,
         "hasPromptStats": True,
-        "tierLabel": "",
-        "usageStatusText": "Local usage only" if not stats.get("limits") else "",
-        "authHelpText": "",
+        "ready": number(stats.get("totalPrompts")) > 0 or len(rpc.get("limits") or []) > 0,
+        "limits": rpc.get("limits") or [],
+        "tierLabel": rpc.get("tierLabel") or "",
+        "usageStatusText": rpc.get("usageStatusText") or "",
+        "authHelpText": rpc.get("authHelpText") or "",
     }
     record.update(stats)
+    record["detected"] = detected
+    record["hasLocalStats"] = detected
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0
 

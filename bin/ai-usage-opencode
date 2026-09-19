@@ -23,6 +23,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import ai_usage_common as common  # noqa: E402
+
 AGENT_ID = "opencode"
 AGENT_NAME = "OpenCode"
 
@@ -173,8 +176,8 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="accepted for collector parity; local scans are always fresh")
     parser.parse_args()
 
-    stats = scan()
-    detected = database_path().is_file()
+    stats = common.merge_stats(scan(), common.scan_pi_sessions(["opencode"]))
+    detected = database_path().is_file() or bool(stats.get("detected"))
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,
@@ -190,6 +193,8 @@ def main() -> int:
         "limits": [],
     }
     record.update(stats)
+    record["detected"] = detected
+    record["hasLocalStats"] = detected
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0
 
