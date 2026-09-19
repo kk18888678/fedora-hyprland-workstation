@@ -244,6 +244,15 @@ Item {
             z: 1
             anchors.fill: parent
 
+            // Mouse wheel / trackpad scroll cycles the workspace selection.
+            WheelHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: function(event) {
+                    root.cycle(event.angleDelta.y > 0 ? -1 : 1)
+                    event.accepted = true
+                }
+            }
+
             FocusScope {
                 id: keyboardScope
                 anchors.fill: parent
@@ -366,7 +375,6 @@ Item {
                             focused: root.currentWorkspaceId === modelData
                             previewActive: root.isOpen
                             modelRevision: root.modelRevision
-                            onHovered: root.selectWorkspace(workspaceId, false)
                             onActivated: root.activateWorkspace(workspaceId)
                         }
                     }
