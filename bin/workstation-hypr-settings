@@ -445,7 +445,7 @@ load_overlay_overrides() {
     while IFS=$'\t' read -r id value; do
         [[ -n "$id" ]] || continue
         OVERLAY_OVERRIDES["$id"]="$value"
-    done < <(current_records 2>/dev/null || true)
+    done < <(current_records || true)
 }
 
 # Last probe diagnostic, surfaced by `check` so a quiet status probe stays
@@ -793,7 +793,7 @@ cmd_status() {
         override="${OVERLAY_OVERRIDES[$id]:-}"
         live=""
         read_ok=0
-        if live="$(live_value_for_leaf "$leaf" "$type" 2>/dev/null)"; then
+        if live="$(live_value_for_leaf "$leaf" "$type")"; then
             read_ok=1
         fi
         if [[ -n "$override" ]]; then

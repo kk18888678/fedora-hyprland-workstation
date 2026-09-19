@@ -78,7 +78,7 @@ list_choices() {
         *) return 0 ;;
     esac
     # Basic list of .desktop files that mention the role category. Bounded.
-    local dirs=(/usr/share/applications "$config_home/../local/share/applications"/) 2>/dev/null
+    local dirs=(/usr/share/applications "$config_home/../local/share/applications"/)
     dirs=("/usr/share/applications")
     [[ -d "$config_home/../share/applications" ]] && dirs+=("$config_home/../share/applications")
     [[ -d "$home/.local/share/applications" ]] && dirs+=("$home/.local/share/applications")
@@ -143,7 +143,7 @@ set_default() {
         if [[ "$r" == "$role" ]]; then
             printf '%s.default=%s\n' "$r" "$app"
         else
-            cur="$(awk -F= -v k="$r.default" '$1==k{print $2}' "$conf_path" 2>/dev/null | head -n1)"
+            cur="$(awk -F= -v k="$r.default" '$1==k{print $2}' "$conf_path" | head -n1)"
             if [[ "$cur" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.desktop$ ]]; then
                 printf '%s.default=%s\n' "$r" "$cur"
             fi

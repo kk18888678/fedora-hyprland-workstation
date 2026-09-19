@@ -14,7 +14,7 @@ local function has_virtio_gpu_device()
     local handle = io.popen(
         "find /sys/bus/virtio/drivers/virtio_gpu " ..
         "-mindepth 1 -maxdepth 1 -type l -name 'virtio*' " ..
-        "-print -quit 2>/dev/null"
+        "-print -quit"
     )
     if not handle then return false end
 

@@ -211,7 +211,7 @@ else
 fi
 
 # ColorUtils is pure JS; exercise its parse/format/validate contract directly.
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     color_utils_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/ColorUtils.js" >"$color_utils_test"
     cat >>"$color_utils_test" <<'COLOR_UTILS_EXPORTS'
@@ -227,7 +227,7 @@ const ok = a.r === 0x5f && a.g === 0xd4 && a.b === 0xfd && a.a === 0xff &&
     C.isValid("rgba(5fd4fdff)") && !C.isValid("not-a-color") &&
     C.sameRgb(1, 2, 3, 1, 2, 3) && !C.sameRgb(1, 2, 3, 4, 5, 6);
 process.exit(ok ? 0 : 1);
-' "$color_utils_test" >/dev/null 2>&1; then
+' "$color_utils_test" >/dev/null; then
         pass "[unit] ColorUtils parses, formats, and validates canonical colors"
     else
         fail "[unit] ColorUtils color contract failed"
@@ -239,7 +239,7 @@ fi
 
 # Defaults must be pickers, not file-edit instructions; kb_layout should be a
 # curated (but still free-form) selector.
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     rows_projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$rows_projection_test"
     cat >>"$rows_projection_test" <<'ROWS_EXPORTS'
@@ -263,7 +263,7 @@ const ok = kinds === "heading,combo,combo,combo,combo,combo" &&
     kb.kind === "combo" && kb.editable === true &&
     kb.enumOptions[0].value === "us,ru";
 process.exit(ok ? 0 : 1);
-' "$rows_projection_test" >/dev/null 2>&1; then
+' "$rows_projection_test" >/dev/null; then
         pass "[unit] defaults are pickers and kb_layout is an editable selector"
     else
         fail "[unit] defaults/kb_layout row projection contract failed"
@@ -289,7 +289,7 @@ else
     skip "[unit] app-defaults choices JSON (CLI unavailable)"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     backends_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsBackends.js" >"$backends_test"
     cat >>"$backends_test" <<'BACKENDS_EXPORTS'
@@ -308,7 +308,7 @@ const ok = schemas.length === 2 && map["system.power.profile"] &&
     B.backendFor("system.time.ntp", "/hypr", "/sys") === "/sys" &&
     B.backendFor("general.gaps_in", "/hypr", "/sys") === "/hypr";
 process.exit(ok ? 0 : 1);
-' "$backends_test" >/dev/null 2>&1; then
+' "$backends_test" >/dev/null; then
         pass "[unit] settings backend merge and system-option routing are correct"
     else
         fail "[unit] settings backend routing contract failed"
@@ -323,7 +323,7 @@ fi
 # ---------------------------------------------------------------------------
 calendar_model="$repo_root/aurelia-shell/plugins/aurelia.calendar/ui/CalendarModel.js"
 calendar_panel="$repo_root/aurelia-shell/plugins/aurelia.calendar/ui/CalendarPanel.qml"
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     cal_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$calendar_model" >"$cal_test"
     cat >>"$cal_test" <<'CAL_EXPORTS'
@@ -339,7 +339,7 @@ const ok = sun === "SUN,MON,TUE,WED,THU,FRI,SAT" &&
     M.firstWeekdayOffset(0, 1) === 6 && M.firstWeekdayOffset(1, 1) === 0 &&
     M.firstWeekdayOffset(6, 1) === 5;
 process.exit(ok ? 0 : 1);
-' "$cal_test" >/dev/null 2>&1; then
+' "$cal_test" >/dev/null; then
         pass "[unit] calendar week-start rotates weekday labels and offsets"
     else
         fail "[unit] calendar week-start math is wrong"
@@ -351,7 +351,7 @@ fi
 
 # Clock format presets must produce the exact layout users pick.
 clock_format_js="$repo_root/aurelia-shell/plugins/aurelia.clock/ClockFormat.js"
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     clock_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$clock_format_js" >"$clock_test"
     cat >>"$clock_test" <<'CLOCK_EXPORTS'
@@ -373,7 +373,7 @@ const checks = [
 const ok = checks.every(c => c[0] === c[1]);
 if (!ok) console.error(JSON.stringify(checks));
 process.exit(ok ? 0 : 1);
-' "$clock_test" >/dev/null 2>&1; then
+' "$clock_test" >/dev/null; then
         pass "[unit] clock format presets cover 12/24h, seconds, and layouts"
     else
         fail "[unit] clock format preset mapping is wrong"
@@ -393,25 +393,25 @@ else
     fail "[static] calendar weekday header can collapse or ignores week start"
 fi
 
-if "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.calendar.week_start 2>/dev/null |
+if "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.calendar.week_start |
    grep -qE '^(sunday|monday)$'; then
     pass "[unit] calendar week_start preference resolves to a valid day"
 else
     fail "[unit] calendar week_start preference is unavailable"
 fi
 
-if "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.format 2>/dev/null |
+if "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.format |
        grep -qE '^(time_only|month_day_time|month_day_weekday_time|weekday_day_month_time|full_weekday_month_day_time|month_day_only)$' &&
-   "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.hour24 2>/dev/null |
+   "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.hour24 |
        grep -qE '^(true|false)$' &&
-   "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.seconds 2>/dev/null |
+   "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.clock.seconds |
        grep -qE '^(true|false)$'; then
     pass "[unit] clock format/hour24/seconds preferences resolve"
 else
     fail "[unit] clock preferences are unavailable"
 fi
 
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     time_rows_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$time_rows_test"
     cat >>"$time_rows_test" <<'TIME_ROWS_EXPORTS'
@@ -432,7 +432,7 @@ const ok = week && week.kind === "combo" && week.effective === "monday" && week.
     hour24 && hour24.kind === "toggle" && hour24.effective === false &&
     seconds && seconds.kind === "toggle" && seconds.effective === true;
 process.exit(ok ? 0 : 1);
-' "$time_rows_test" >/dev/null 2>&1; then
+' "$time_rows_test" >/dev/null; then
         pass "[unit] Date & Time exposes clock format, hour cycle, seconds and week start"
     else
         fail "[unit] Date & Time clock rows are missing"
@@ -441,7 +441,7 @@ process.exit(ok ? 0 : 1);
 fi
 
 # AI section rows: default agent picker, launch, and skill actions.
-if command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null; then
     ai_rows_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$ai_rows_test"
     cat >>"$ai_rows_test" <<'AI_ROWS_EXPORTS'
@@ -463,7 +463,7 @@ const ok = def && def.kind === "combo" && def.effective === "claude" &&
     def.enumOptions.length === 1 && def.enumOptions[0].value === "claude" &&
     launch && launch.kind === "action" && skill && skill.kind === "action";
 process.exit(ok ? 0 : 1);
-' "$ai_rows_test" >/dev/null 2>&1; then
+' "$ai_rows_test" >/dev/null; then
         pass "[unit] AI section exposes default agent, launch and skill rows"
     else
         fail "[unit] AI section rows are missing"
@@ -502,7 +502,7 @@ assert all(set(["id", "name", "command", "kind", "installed"]) <= set(a) for a i
         fail "[sandbox] AI default agent was not persisted"
     fi
 
-    if "$ai_backend" set not-an-agent >/dev/null 2>&1; then
+    if "$ai_backend" set not-an-agent >/dev/null; then
         fail "[sandbox] AI backend accepted an unknown agent"
     else
         pass "[sandbox] AI backend rejects unknown agents"
@@ -518,20 +518,20 @@ assert all(set(["id", "name", "command", "kind", "installed"]) <= set(a) for a i
     fi
 
     printf 'default_agent=evil\n' >"$XDG_CONFIG_HOME/workstation/ai.conf"
-    if "$ai_backend" default >/dev/null 2>&1; then
+    if "$ai_backend" default >/dev/null; then
         fail "[sandbox] AI backend accepted an unmanaged config file"
     else
         pass "[sandbox] AI backend refuses an unmanaged config file"
     fi
     rm -f -- "$XDG_CONFIG_HOME/workstation/ai.conf"
 
-    if "$ai_backend" prompt "review this project" >/dev/null 2>&1; then
+    if "$ai_backend" prompt "review this project" >/dev/null; then
         fail "[sandbox] AI prompt launched without a default agent"
     else
         pass "[sandbox] AI prompt fails closed without a default agent"
     fi
 
-    if "$ai_backend" crash not-a-pid >/dev/null 2>&1; then
+    if "$ai_backend" crash not-a-pid >/dev/null; then
         fail "[sandbox] AI crash accepted an invalid pid"
     else
         pass "[sandbox] AI crash rejects an invalid pid"
@@ -621,11 +621,11 @@ MOCK_TD
 store="$MOCK_GS_STORE"
 case "$1" in
     get)
-        grep -m1 "^$3=" "$store" 2>/dev/null | cut -d= -f2-
+        grep -m1 "^$3=" "$store" | cut -d= -f2-
         ;;
     set)
         if [[ -f "$store" ]]; then
-            grep -v "^$3=" "$store" >"$store.tmp" 2>/dev/null || true
+            grep -v "^$3=" "$store" >"$store.tmp" || true
             mv "$store.tmp" "$store"
         fi
         printf '%s=%s\n' "$3" "$4" >>"$store"
@@ -755,14 +755,14 @@ SYS_PER_OPTION
     fi
 
     sys_rejected=0
-    "$system_backend" set system.power.profile banana >/dev/null 2>&1 && sys_rejected=1
-    "$system_backend" set system.display.brightness 0 >/dev/null 2>&1 && sys_rejected=1
-    "$system_backend" set system.display.brightness 200 >/dev/null 2>&1 && sys_rejected=1
-    "$system_backend" set system.audio.output_volume 101 >/dev/null 2>&1 && sys_rejected=1
-    "$system_backend" set system.appearance.gtk_theme not-a-real-theme >/dev/null 2>&1 && sys_rejected=1
-    "$system_backend" set system.appearance.color_scheme rainbow >/dev/null 2>&1 && sys_rejected=1
-    "$system_backend" set system.time.timezone Bad/Zone >/dev/null 2>&1 && sys_rejected=1
-    "$system_backend" set bogus.option 1 >/dev/null 2>&1 && sys_rejected=1
+    "$system_backend" set system.power.profile banana >/dev/null && sys_rejected=1
+    "$system_backend" set system.display.brightness 0 >/dev/null && sys_rejected=1
+    "$system_backend" set system.display.brightness 200 >/dev/null && sys_rejected=1
+    "$system_backend" set system.audio.output_volume 101 >/dev/null && sys_rejected=1
+    "$system_backend" set system.appearance.gtk_theme not-a-real-theme >/dev/null && sys_rejected=1
+    "$system_backend" set system.appearance.color_scheme rainbow >/dev/null && sys_rejected=1
+    "$system_backend" set system.time.timezone Bad/Zone >/dev/null && sys_rejected=1
+    "$system_backend" set bogus.option 1 >/dev/null && sys_rejected=1
     if [[ "$sys_rejected" -eq 0 ]]; then
         pass "[sandbox] system settings invalid values fail closed"
     else
@@ -998,7 +998,7 @@ hypr_calls_log="$sandbox/hypr-calls.log"
 : >"$hypr_calls_log"
 MOCK_HYPRCTL_LOG="$hypr_calls_log" "$backend" status >/dev/null
 option_count="$("$backend" schema | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
-call_count="$(grep -c '^getoption ' "$hypr_calls_log" 2>/dev/null || true)"
+call_count="$(grep -c '^getoption ' "$hypr_calls_log" || true)"
 if [[ "$call_count" -le $((option_count + 5)) ]]; then
     pass "[sandbox] status queries each option at most once ($call_count calls for $option_count options)"
 else
@@ -1017,7 +1017,7 @@ exec "$real_lua" "\$@"
 EOF_LUA
     chmod +x "$sandbox/bin/lua-log"
     WORKSTATION_HYPR_SETTINGS_LUA_BIN="$sandbox/bin/lua-log" "$backend" status >/dev/null
-    lua_count="$(grep -c '^lua$' "$lua_log" 2>/dev/null || true)"
+    lua_count="$(grep -c '^lua$' "$lua_log" || true)"
     if [[ "$lua_count" -le 2 ]]; then
         pass "[sandbox] status parses the managed overlay once ($lua_count reads)"
     else

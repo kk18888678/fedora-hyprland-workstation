@@ -34,7 +34,7 @@ tool_bin() {
         printf '%s\n' "$override"
         return 0
     fi
-    command -v "$name" 2>/dev/null || true
+    command -v "$name" || true
 }
 
 POWERPROFILES_BIN="$(tool_bin "${WORKSTATION_SYSTEM_SETTINGS_POWERPROFILES_BIN:-}" powerprofilesctl)"
@@ -139,7 +139,7 @@ list_cursor_names() {
 # PipeWire node ids for a wpctl status section (Sinks or Sources).
 wpctl_section_ids() {
     [[ -n "$WPCTL_BIN" ]] || return 1
-    bounded "$WPCTL_BIN" status 2>/dev/null | awk -v want="$1" '
+    bounded "$WPCTL_BIN" status | awk -v want="$1" '
         /:[[:space:]]*$/ {
             if (match($0, /[A-Za-z]+:/)) section = substr($0, RSTART, RLENGTH - 1)
         }
@@ -157,7 +157,7 @@ wpctl_section_ids() {
 
 read_default_device() {
     [[ -n "$WPCTL_BIN" ]] || return 1
-    bounded "$WPCTL_BIN" status 2>/dev/null | awk -v want="$1" '
+    bounded "$WPCTL_BIN" status | awk -v want="$1" '
         /:[[:space:]]*$/ {
             if (match($0, /[A-Za-z]+:/)) section = substr($0, RSTART, RLENGTH - 1)
         }
@@ -168,7 +168,7 @@ read_default_device() {
 
 list_timezones() {
     [[ -n "$TIMEDATECTL_BIN" ]] || return 1
-    bounded "$TIMEDATECTL_BIN" list-timezones 2>/dev/null | while IFS= read -r zone; do
+    bounded "$TIMEDATECTL_BIN" list-timezones | while IFS= read -r zone; do
         [[ -n "$zone" ]] || continue
         printf '%s\t%s\n' "$zone" "$zone"
     done
@@ -176,7 +176,7 @@ list_timezones() {
 
 list_saved_wifi() {
     [[ -n "$NMCLI_BIN" ]] || return 1
-    bounded "$NMCLI_BIN" -t -f TYPE,NAME connection show 2>/dev/null | while IFS= read -r line; do
+    bounded "$NMCLI_BIN" -t -f TYPE,NAME connection show | while IFS= read -r line; do
         [[ "$line" == *wireless* ]] || continue
         local name="${line#*:}"
         [[ -n "$name" && "$name" != "$line" ]] || continue
@@ -187,7 +187,7 @@ list_saved_wifi() {
 read_saved_wifi() {
     [[ -n "$NMCLI_BIN" ]] || return 1
     local out
-    out="$(bounded "$NMCLI_BIN" -t -f ACTIVE,TYPE,NAME connection show 2>/dev/null || true)"
+    out="$(bounded "$NMCLI_BIN" -t -f ACTIVE,TYPE,NAME connection show || true)"
     [[ -n "$out" ]] || return 1
     printf '%s\n' "$out" | while IFS= read -r line; do
         local active="${line%%:*}" rest="${line#*:}" type name
@@ -273,7 +273,7 @@ validate_value() {
                     found=1
                     break
                 fi
-            done < <(dynamic_options "$id" 2>/dev/null || true)
+            done < <(dynamic_options "$id" || true)
             (( found == 1 )) || fail "invalid value for $id: $value"
             printf '%s\n' "$value"
             ;;
@@ -291,7 +291,7 @@ GS_SCHEMA="org.gnome.desktop.interface"
 gsettings_get() {
     [[ -n "$GSETTINGS_BIN" ]] || return 1
     local out
-    out="$(bounded "$GSETTINGS_BIN" get "$GS_SCHEMA" "$1" 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$GSETTINGS_BIN" get "$GS_SCHEMA" "$1" | head -n 1 || true)"
     [[ -n "$out" ]] || return 1
     printf '%s\n' "$out"
 }
@@ -316,7 +316,7 @@ gsettings_get_bool() {
 
 gsettings_set() {
     [[ -n "$GSETTINGS_BIN" ]] || fail "gsettings is not available"
-    bounded "$GSETTINGS_BIN" set "$GS_SCHEMA" "$1" "$2" >/dev/null 2>&1 ||
+    bounded "$GSETTINGS_BIN" set "$GS_SCHEMA" "$1" "$2" >/dev/null ||
         fail "could not set $1"
 }
 
@@ -326,7 +326,7 @@ gsettings_set() {
 read_power_profile() {
     [[ -n "$POWERPROFILES_BIN" ]] || return 1
     local out
-    out="$(bounded "$POWERPROFILES_BIN" get 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$POWERPROFILES_BIN" get | head -n 1 || true)"
     [[ "$out" == "power-saver" || "$out" == "balanced" || "$out" == "performance" ]] || return 1
     printf '%s\n' "$out"
 }
@@ -334,8 +334,8 @@ read_power_profile() {
 read_brightness() {
     [[ -n "$BRIGHTNESS_BIN" ]] || return 1
     local cur max
-    cur="$(bounded "$BRIGHTNESS_BIN" get 2>/dev/null | head -n 1 || true)"
-    max="$(bounded "$BRIGHTNESS_BIN" max 2>/dev/null | head -n 1 || true)"
+    cur="$(bounded "$BRIGHTNESS_BIN" get | head -n 1 || true)"
+    max="$(bounded "$BRIGHTNESS_BIN" max | head -n 1 || true)"
     [[ "$cur" =~ ^[0-9]+$ && "$max" =~ ^[0-9]+$ ]] || return 1
     (( max > 0 )) || return 1
     awk -v c="$cur" -v m="$max" 'BEGIN { p = int(c * 100 / m + 0.5); if (p < 1) p = 1; if (p > 100) p = 100; print p }'
@@ -344,7 +344,7 @@ read_brightness() {
 read_audio_volume() {
     [[ -n "$WPCTL_BIN" ]] || return 1
     local out
-    out="$(bounded "$WPCTL_BIN" get-volume "$1" 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$WPCTL_BIN" get-volume "$1" | head -n 1 || true)"
     [[ "$out" =~ Volume:[[:space:]]+([0-9.]+) ]] || return 1
     awk -v v="${BASH_REMATCH[1]}" 'BEGIN { p = int(v * 100 + 0.5); if (p < 0) p = 0; if (p > 100) p = 100; print p }'
 }
@@ -352,7 +352,7 @@ read_audio_volume() {
 read_audio_mute() {
     [[ -n "$WPCTL_BIN" ]] || return 1
     local out
-    out="$(bounded "$WPCTL_BIN" get-volume "$1" 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$WPCTL_BIN" get-volume "$1" | head -n 1 || true)"
     [[ -n "$out" ]] || return 1
     if [[ "$out" == *MUTED* ]]; then printf 'true\n'; else printf 'false\n'; fi
 }
@@ -360,7 +360,7 @@ read_audio_mute() {
 read_bluetooth_field() {
     [[ -n "$BLUETOOTHCTL_BIN" ]] || return 1
     local field="$1" out
-    out="$(bounded "$BLUETOOTHCTL_BIN" show 2>/dev/null || true)"
+    out="$(bounded "$BLUETOOTHCTL_BIN" show || true)"
     [[ -n "$out" ]] || return 1
     local value
     value="$(printf '%s\n' "$out" | awk -v f="$field:" '$1 == f { print $2; exit }')"
@@ -374,7 +374,7 @@ read_bluetooth_field() {
 read_wifi_enabled() {
     [[ -n "$NMCLI_BIN" ]] || return 1
     local out
-    out="$(bounded "$NMCLI_BIN" radio wifi 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$NMCLI_BIN" radio wifi | head -n 1 || true)"
     case "$out" in
         enabled) printf 'true\n' ;;
         disabled) printf 'false\n' ;;
@@ -385,7 +385,7 @@ read_wifi_enabled() {
 read_ntp() {
     [[ -n "$TIMEDATECTL_BIN" ]] || return 1
     local out
-    out="$(bounded "$TIMEDATECTL_BIN" show -p NTP --value 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$TIMEDATECTL_BIN" show -p NTP --value | head -n 1 || true)"
     case "$out" in
         yes) printf 'true\n' ;;
         no) printf 'false\n' ;;
@@ -396,7 +396,7 @@ read_ntp() {
 read_timezone() {
     [[ -n "$TIMEDATECTL_BIN" ]] || return 1
     local out
-    out="$(bounded "$TIMEDATECTL_BIN" show -p Timezone --value 2>/dev/null | head -n 1 || true)"
+    out="$(bounded "$TIMEDATECTL_BIN" show -p Timezone --value | head -n 1 || true)"
     [[ -n "$out" ]] || return 1
     printf '%s\n' "$out"
 }
@@ -439,12 +439,12 @@ write_value() {
     case "$id" in
         system.power.profile)
             [[ -n "$POWERPROFILES_BIN" ]] || fail "powerprofilesctl is not available"
-            bounded "$POWERPROFILES_BIN" set "$value" >/dev/null 2>&1 ||
+            bounded "$POWERPROFILES_BIN" set "$value" >/dev/null ||
                 fail "could not set power profile (polkit may have denied the request)"
             ;;
         system.display.brightness)
             [[ -n "$BRIGHTNESS_BIN" ]] || fail "brightnessctl is not available"
-            bounded "$BRIGHTNESS_BIN" set "$value%" >/dev/null 2>&1 ||
+            bounded "$BRIGHTNESS_BIN" set "$value%" >/dev/null ||
                 fail "could not set display brightness"
             ;;
         system.appearance.gtk_theme)
@@ -467,12 +467,12 @@ write_value() {
             gsettings_set show-battery-percentage "$value" ;;
         system.audio.output_volume)
             [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
-            bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SINK@ "$value%" >/dev/null 2>&1 ||
+            bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SINK@ "$value%" >/dev/null ||
                 fail "could not set output volume"
             ;;
         system.audio.input_volume)
             [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
-            bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SOURCE@ "$value%" >/dev/null 2>&1 ||
+            bounded "$WPCTL_BIN" set-volume @DEFAULT_AUDIO_SOURCE@ "$value%" >/dev/null ||
                 fail "could not set input volume"
             ;;
         system.audio.output_mute|system.audio.input_mute)
@@ -480,48 +480,48 @@ write_value() {
             local node="@DEFAULT_AUDIO_SINK@" flag=0
             [[ "$id" == "system.audio.input_mute" ]] && node="@DEFAULT_AUDIO_SOURCE@"
             [[ "$value" == "true" ]] && flag=1
-            bounded "$WPCTL_BIN" set-mute "$node" "$flag" >/dev/null 2>&1 ||
+            bounded "$WPCTL_BIN" set-mute "$node" "$flag" >/dev/null ||
                 fail "could not change mute state"
             ;;
         system.audio.output_device|system.audio.input_device)
             [[ -n "$WPCTL_BIN" ]] || fail "wpctl is not available"
-            bounded "$WPCTL_BIN" set-default "$value" >/dev/null 2>&1 ||
+            bounded "$WPCTL_BIN" set-default "$value" >/dev/null ||
                 fail "could not set default audio device"
             ;;
         system.bluetooth.enabled)
             [[ -n "$BLUETOOTHCTL_BIN" ]] || fail "bluetoothctl is not available"
             local power="off"
             [[ "$value" == "true" ]] && power="on"
-            bounded "$BLUETOOTHCTL_BIN" power "$power" >/dev/null 2>&1 ||
+            bounded "$BLUETOOTHCTL_BIN" power "$power" >/dev/null ||
                 fail "could not change Bluetooth power"
             ;;
         system.bluetooth.discoverable)
             [[ -n "$BLUETOOTHCTL_BIN" ]] || fail "bluetoothctl is not available"
             local disc="off"
             [[ "$value" == "true" ]] && disc="on"
-            bounded "$BLUETOOTHCTL_BIN" discoverable "$disc" >/dev/null 2>&1 ||
+            bounded "$BLUETOOTHCTL_BIN" discoverable "$disc" >/dev/null ||
                 fail "could not change Bluetooth discoverable state"
             ;;
         system.network.wifi_enabled)
             [[ -n "$NMCLI_BIN" ]] || fail "nmcli is not available"
             local radio="off"
             [[ "$value" == "true" ]] && radio="on"
-            bounded "$NMCLI_BIN" radio wifi "$radio" >/dev/null 2>&1 ||
+            bounded "$NMCLI_BIN" radio wifi "$radio" >/dev/null ||
                 fail "could not change the Wi-Fi radio (polkit may have denied the request)"
             ;;
         system.network.saved_connection)
             [[ -n "$NMCLI_BIN" ]] || fail "nmcli is not available"
-            bounded "$NMCLI_BIN" connection up "$value" >/dev/null 2>&1 ||
+            bounded "$NMCLI_BIN" connection up "$value" >/dev/null ||
                 fail "could not activate the saved connection"
             ;;
         system.time.ntp)
             [[ -n "$TIMEDATECTL_BIN" ]] || fail "timedatectl is not available"
-            bounded "$TIMEDATECTL_BIN" set-ntp "$value" >/dev/null 2>&1 ||
+            bounded "$TIMEDATECTL_BIN" set-ntp "$value" >/dev/null ||
                 fail "could not change automatic time (polkit may have denied the request)"
             ;;
         system.time.timezone)
             [[ -n "$TIMEDATECTL_BIN" ]] || fail "timedatectl is not available"
-            bounded "$TIMEDATECTL_BIN" set-timezone "$value" >/dev/null 2>&1 ||
+            bounded "$TIMEDATECTL_BIN" set-timezone "$value" >/dev/null ||
                 fail "could not change the time zone (polkit may have denied the request)"
             ;;
         *)
@@ -576,7 +576,7 @@ cmd_status() {
         [[ -n "$line" ]] || continue
         IFS='|' read -r id type min max enum category default_val label description <<<"$line"
         live=""
-        if live="$(read_value "$id" 2>/dev/null)"; then
+        if live="$(read_value "$id")"; then
             effective="$live"
             source="live"
         else
@@ -593,7 +593,7 @@ cmd_status() {
                 (( first_opt )) || options_json+=", "
                 first_opt=0
                 options_json+="{ \"value\": $(json_string "$entry"), \"label\": $(json_string "${opt_label:-$entry}") }"
-            done < <(dynamic_options "$id" 2>/dev/null || true)
+            done < <(dynamic_options "$id" || true)
             options_json+="]"
         fi
         (( first )) || printf ',\n'
@@ -615,7 +615,7 @@ cmd_status() {
 cmd_get() {
     local id="$1" value
     [[ -n "$(spec_for "$id")" ]] || fail "unknown option id: $id"
-    if value="$(read_value "$id" 2>/dev/null)"; then
+    if value="$(read_value "$id")"; then
         printf '%s\n' "$value"
         return 0
     fi
