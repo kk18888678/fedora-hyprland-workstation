@@ -289,6 +289,16 @@ else
     skip "[unit] app-defaults choices JSON (CLI unavailable)"
 fi
 
+# Terminal role choices must be real terminal emulators (the freedesktop
+# TerminalEmulator category), not Terminal=true wrappers like btop/htop/nvim.
+if grep -q 'TerminalEmulator' "$repo_root/bin/workstation-app-defaults" &&
+   ! grep -q "Terminal=true" "$repo_root/bin/workstation-app-defaults" &&
+   grep -q 'NoDisplay' "$repo_root/bin/workstation-app-defaults"; then
+    pass "[static] app-defaults selects TerminalEmulator entries and hides NoDisplay helpers"
+else
+    fail "[static] app-defaults terminal role filter regressed to Terminal=true wrappers"
+fi
+
 if command -v node >/dev/null; then
     backends_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsBackends.js" >"$backends_test"

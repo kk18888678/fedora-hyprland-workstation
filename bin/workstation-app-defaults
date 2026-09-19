@@ -70,7 +70,7 @@ LUA
 list_choices() {
     local role="$1" filter
     case "$role" in
-        terminal) filter="Terminal=true" ;;
+        terminal) filter="TerminalEmulator" ;;
         browser) filter="StartupWMClass%|WebBrowser|Browser" ;;
         file-manager) filter="FileManager" ;;
         editor) filter="TextEditor|Editor" ;;
@@ -89,9 +89,14 @@ list_choices() {
         local f
         for f in "$d"/*.desktop; do
             [[ -f "$f" && ! -L "$f" ]] || continue
+            # Hidden helper entries are never valid role choices.
+            grep -qiE '^[[:space:]]*NoDisplay[[:space:]]*=[[:space:]]*true' "$f" && continue
             case "$role" in
                 terminal)
-                    grep -qi '^Terminal=true$' "$f" || continue ;;
+                    # Terminal emulators are the TerminalEmulator category;
+                    # the Terminal key only marks apps that run inside one.
+                    grep -qiE '^Categories=.*TerminalEmulator' "$f" || continue
+                    grep -qiE '^Exec=[^ ]*[[:space:]]+--server' "$f" && continue ;;
                 browser)
                     grep -qiE '^Categories=.*(WebBrowser|Network)' "$f" || continue ;;
                 file-manager)
