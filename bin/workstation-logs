@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Bounded Aurelia log diagnostics for WARN/ERROR/FATAL reporting.
+
+Reads the two Aurelia log surfaces:
+
+  * the structured log written by `aurelia log` and the keybinding
+    launcher ($AURELIA_LOG_PATH or $XDG_STATE_HOME/workstation/aurelia.log),
+    whose lines look like `2026-09-19T10:00:00Z [ERROR] [run.dispatch] ...`;
+  * the live Quickshell runtime log ($XDG_RUNTIME_DIR/quickshell/by-id/*/log.qslog),
+    which carries the QML `console.warn`/`console.error` and Quickshell
+    WARN/ERROR/FATAL lines.
+
+`list`/`count` surface the diagnostics, and `report` hands a bounded excerpt
+to the default AI agent for triage. Nothing here mutates the workstation.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+PROG = "workstation-logs"
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+LEVEL_TOKEN = re.compile(r"^(DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL|PERF)\b")
+STRUCTURED = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+\[(?P<level>[A-Z]+)\]\s+\[(?P<component>[^\]]+)\]\s+(?P<message>.*)$")
+NORMALIZE = {"WARNING": "WARN", "CRITICAL": "FATAL"}
+REPORT_LEVELS = ("WARN", "ERROR", "FATAL")
+MAX_LINES = 5000
+
+
+def state_home() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+
+
+def structured_log_path() -> Path:
+    override = os.environ.get("AURELIA_LOG_PATH")
+    if override:
+        return Path(override)
+    return state_home() / "workstation" / "aurelia.log"
+
+
+def runtime_log_path() -> Path | None:
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime:
+        return None
+    candidates = glob.glob(os.path.join(runtime, "quickshell", "by-id", "*", "log.qslog"))
+    if not candidates:
+        return None
+    return Path(max(candidates, key=lambda path: os.path.getmtime(path)))
+
+
+def strip_ansi(text: str) -> str:
+    return ANSI.sub("", text)
+
+
+def normalize_level(value: str) -> str:
+    level = str(value or "").upper()
+    return NORMALIZE.get(level, level)
+
+
+def parse_since(text: str) -> float | None:
+    value = str(text or "").strip()
+    if not value:
+        return None
+    match = re.fullmatch(r"(\d+)\s*([smhdw])", value.lower())
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+        seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
+        return dt.datetime.now().timestamp() - amount * seconds
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        raise SystemExit(f"Error: invalid --since value: {value}")
+
+
+def read_tail(path: Path, limit: int = MAX_LINES) -> list[str]:
+    if not path.is_file():
+        return []
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        lines = handle.readlines()
+    return lines[-limit:]
+
+
+def read_structured(path: Path, since: float | None) -> list[dict]:
+    entries = []
+    for raw in read_tail(path):
+        line = raw.rstrip("\n")
+        match = STRUCTURED.match(line)
+        if not match:
+            continue
+        timestamp = match.group("ts")
+        try:
+            epoch = dt.datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            epoch = 0
+        if since is not None and epoch < since:
+            continue
+        entries.append({
+            "level": normalize_level(match.group("level")),
+            "source": "aurelia.log",
+            "component": match.group("component"),
+            "message": match.group("message"),
+            "timestamp": timestamp,
+            "epoch": epoch,
+        })
+    return entries
+
+
+def read_runtime(path: Path | None, since: float | None) -> list[dict]:
+    # log.qslog is Quickshell's binary log; `qs log` is the supported reader
+    # that restores the severity tokens the binary records store separately.
+    if path is None or not path.is_file():
+        return []
+    mtime = os.path.getmtime(path)
+    if since is not None and mtime < since:
+        return []
+    qs = shutil.which("qs")
+    if not qs:
+        return []
+    try:
+        result = subprocess.run(
+            [qs, "log", str(path), "-t", str(MAX_LINES)],
+            capture_output=True, text=True, timeout=20,
+        )
+    except Exception:
+        return []
+
+    entries = []
+    for raw in result.stdout.splitlines():
+        line = strip_ansi(raw).strip()
+        if not line:
+            continue
+        match = LEVEL_TOKEN.match(line)
+        if not match:
+            continue
+        level = normalize_level(match.group(1))
+        rest = line[match.end():].lstrip()
+        component, _, message = rest.partition(":")
+        component = component.strip() or "qml"
+        entries.append({
+            "level": level,
+            "source": "quickshell",
+            "component": component,
+            "message": message.strip(),
+            "timestamp": "",
+            "epoch": mtime,
+        })
+    return entries
+
+
+def collect(levels: set[str], since: float | None, qslog: Path | None) -> list[dict]:
+    entries = read_structured(structured_log_path(), since)
+    entries.extend(read_runtime(qslog if qslog is not None else runtime_log_path(), since))
+    if levels:
+        entries = [entry for entry in entries if entry["level"] in levels]
+    entries.sort(key=lambda entry: entry["epoch"])
+    return entries
+
+
+def level_filter(value: str) -> set[str]:
+    if not value:
+        return set(REPORT_LEVELS)
+    return {normalize_level(part.strip()) for part in value.split(",") if part.strip()}
+
+
+def cmd_paths(args) -> int:
+    print(f"structured: {structured_log_path()}")
+    runtime = runtime_log_path()
+    print(f"runtime: {runtime if runtime else '(none)'}")
+    return 0
+
+
+def cmd_list(args) -> int:
+    entries = collect(level_filter(args.level), parse_since(args.since), args.qslog)
+    if args.limit:
+        entries = entries[-args.limit:]
+    if args.json:
+        print(json.dumps({"diagnostics": entries}, indent=2))
+        return 0
+    if not entries:
+        print("No WARN/ERROR/FATAL diagnostics found.")
+        return 0
+    for entry in entries:
+        prefix = f"[{entry['level']}] {entry['source']}"
+        if entry["component"]:
+            prefix += f".{entry['component']}"
+        print(f"{prefix}: {entry['message']}")
+    return 0
+
+
+def cmd_count(args) -> int:
+    entries = collect(level_filter(args.level), parse_since(args.since), args.qslog)
+    counts: dict[str, int] = {}
+    for entry in entries:
+        counts[entry["level"]] = counts.get(entry["level"], 0) + 1
+    if args.json:
+        print(json.dumps({"counts": counts, "total": len(entries)}))
+        return 0
+    for level in ("FATAL", "ERROR", "WARN"):
+        print(f"{level}: {counts.get(level, 0)}")
+    return 0
+
+
+def cmd_report(args) -> int:
+    entries = collect(level_filter(args.level), parse_since(args.since), args.qslog)
+    if not entries:
+        print("No WARN/ERROR/FATAL diagnostics to report.")
+        return 0
+    excerpt = entries[-args.limit:]
+    lines = [
+        f"[{entry['level']}] {entry['source']}.{entry['component']}: {entry['message']}"
+        for entry in excerpt
+    ]
+    prompt = (
+        "Diagnose these Aurelia shell log diagnostics. Establish the facts, identify the "
+        "most likely cause of each, decide which are worth fixing upstream, and propose "
+        "concrete fixes. Do not change system state without asking.\n\n"
+        + "\n".join(lines)
+    )
+    backend = os.environ.get("WORKSTATION_AI_BIN") or str(Path(__file__).resolve().parent / "workstation-ai")
+    return subprocess.call([backend, "prompt", prompt])
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog=PROG, description="Aurelia log WARN/ERROR/FATAL diagnostics")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def add_common(target):
+        target.add_argument("--level", default="warn,error,fatal", help="comma-separated levels")
+        target.add_argument("--since", default="", help="duration (1h, 30m, 2d) or ISO timestamp")
+        target.add_argument("--qslog", type=Path, default=None, help="explicit Quickshell log path")
+
+    paths = sub.add_parser("paths", help="print the log file paths")
+    paths.set_defaults(func=cmd_paths)
+
+    listing = sub.add_parser("list", help="list matching diagnostics")
+    add_common(listing)
+    listing.add_argument("--json", action="store_true")
+    listing.add_argument("--limit", type=int, default=0, help="show only the newest N")
+    listing.set_defaults(func=cmd_list)
+
+    count = sub.add_parser("count", help="count matching diagnostics by level")
+    add_common(count)
+    count.add_argument("--json", action="store_true")
+    count.set_defaults(func=cmd_count)
+
+    report = sub.add_parser("report", help="hand a bounded excerpt to the default AI agent")
+    add_common(report)
+    report.add_argument("--limit", type=int, default=40, help="excerpt size handed to the agent")
+    report.set_defaults(func=cmd_report)
+
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

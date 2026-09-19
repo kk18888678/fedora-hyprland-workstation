@@ -39,6 +39,10 @@ resolve_bin() {
             printf '%s\n' "$shell_root/bin/$name"
             return 0
         fi
+        if [[ -x "$shell_root/../bin/$name" ]]; then
+            printf '%s\n' "$shell_root/../bin/$name"
+            return 0
+        fi
     fi
     if [[ -x "$SCRIPT_DIR/$name" ]]; then
         printf '%s\n' "$SCRIPT_DIR/$name"
@@ -227,6 +231,10 @@ cmd_wallpaper() {
     run_backend aurelia-wallpaper "$@"
 }
 
+cmd_logs() {
+    run_backend workstation-logs "$@"
+}
+
 cmd_wallpapers() {
     run_backend aurelia-wallpaper "$@"
 }
@@ -234,7 +242,7 @@ cmd_wallpapers() {
 # ---------------------------------------------------------------
 # Command reference
 # ---------------------------------------------------------------
-AURELIA_CLI_GROUPS=(bar plugin theme settings shell keybindings display capture audio wallpaper)
+AURELIA_CLI_GROUPS=(bar plugin theme settings shell keybindings display capture audio wallpaper logs)
 
 # machine-readable command reference helpers
 command_names() {
@@ -256,6 +264,7 @@ display       brightness, text size, and display scale
 capture       screenshots
 audio         audio output controls
 wallpaper     wallpaper library and palette generation
+logs          Aurelia WARN/ERROR/FATAL diagnostics and agent triage
 DESC
 }
 
@@ -383,6 +392,7 @@ main() {
         capture) cmd_capture "$@" ;;
         audio) cmd_audio "$@" ;;
         wallpaper|wallpapers) cmd_wallpaper "$@" ;;
+        logs) cmd_logs "$@" ;;
         *)
             fail "unknown group: $group (see 'aurelia --help' or 'aurelia commands')"
             ;;

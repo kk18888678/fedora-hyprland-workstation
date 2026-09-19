@@ -315,7 +315,7 @@ AureliaKeyboardPanel {
                     implicitHeight: pillLabel.implicitHeight + Theme.spacingSm
                     radius: Theme.radiusSm
                     color: index === panelRoot.safeIndex ? Theme.accent
-                        : (pillArea.containsMouse ? Theme.hoverFill : Theme.surface)
+                        : (pillArea.containsMouse ? Theme.controls.hoverFill : Theme.surface)
 
                     Text {
                         id: pillLabel
