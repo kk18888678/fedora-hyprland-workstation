@@ -179,10 +179,11 @@ Item {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onPressed: function(mouse) { mouse.accepted = true }
-            onEntered: {
-                root.pointerHovered = true
-                root.hovered()
-            }
+            onEntered: root.pointerHovered = true
+            // Select on real pointer movement, not on card entry: a scrolling
+            // list moves cards under a stationary pointer, and selecting on
+            // that entry would fight the keyboard navigation.
+            onPositionChanged: root.hovered()
             onExited: root.pointerHovered = false
             onClicked: function(mouse) {
                 mouse.accepted = true

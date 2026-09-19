@@ -109,11 +109,15 @@ Item {
         root.keepSelectionVisible()
     }
 
-    function selectWorkspace(id) {
+    function selectWorkspace(id, recenter) {
         var numericId = Number(id)
         if (root.workspaceIds().indexOf(numericId) === -1) return false
         root.selectedWorkspaceId = numericId
-        root.keepSelectionVisible()
+        // Hover selection must not scroll the list: re-centering moves the
+        // cards under a stationary pointer, which re-triggers hover on a new
+        // card and makes the selection jump. Only explicit navigation
+        // re-centers the view.
+        if (recenter !== false) root.keepSelectionVisible()
         return true
     }
 
@@ -123,11 +127,10 @@ Item {
 
         var index = root.selectedIndex()
         var step = Number(delta) < 0 ? -1 : 1
-        var nextIndex = Math.max(0, Math.min(ids.length - 1, index + step))
-        if (nextIndex === index) {
-            root.keepSelectionVisible()
-            return "edge"
-        }
+        var count = ids.length
+        // Wrap around so SUPER+TAB from the last workspace returns to the
+        // first (and SUPER+SHIFT+TAB from the first goes to the last).
+        var nextIndex = ((index + step) % count + count) % count
         root.selectedWorkspaceId = ids[nextIndex]
         root.keepSelectionVisible()
         return "cycled"
@@ -363,7 +366,7 @@ Item {
                             focused: root.currentWorkspaceId === modelData
                             previewActive: root.isOpen
                             modelRevision: root.modelRevision
-                            onHovered: root.selectWorkspace(workspaceId)
+                            onHovered: root.selectWorkspace(workspaceId, false)
                             onActivated: root.activateWorkspace(workspaceId)
                         }
                     }

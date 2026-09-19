@@ -43,8 +43,9 @@ if grep -q 'Quickshell.Hyprland' "$switcher_qml" &&
    grep -q 'function onFocusedWorkspaceChanged()' "$switcher_qml" &&
    grep -q 'function activateWorkspace(id)' "$switcher_qml" &&
    grep -q 'if (root.isOpen) return root.cycle(1)' "$switcher_qml" &&
-   grep -q 'Math.max(0, Math.min(ids.length - 1, index + step))' "$switcher_qml" &&
-   grep -q 'return "edge"' "$switcher_qml" &&
+   grep -q '((index + step) % count + count) % count' "$switcher_qml" &&
+   grep -q 'if (recenter !== false) root.keepSelectionVisible()' "$switcher_qml" &&
+   grep -q 'onHovered: root.selectWorkspace(workspaceId, false)' "$switcher_qml" &&
    grep -q 'Hyprland.refreshMonitors' "$switcher_qml" &&
    grep -q 'ListView.StrictlyEnforceRange' "$switcher_qml" &&
    grep -q 'interactive: false' "$switcher_qml" &&
@@ -91,7 +92,8 @@ if grep -q 'GridLayout {' "$card_qml" &&
    grep -q '"Selected"' "$card_qml" &&
    grep -q 'visible: root.selected' "$card_qml" &&
    grep -q 'signal activated()' "$card_qml" &&
-   grep -q 'signal hovered()' "$card_qml"; then
+   grep -q 'signal hovered()' "$card_qml" &&
+   grep -q 'onPositionChanged: root.hovered()' "$card_qml"; then
     pass "workspace cards show bounded window tiles, empty-state affordances, and predictable hit targets"
 else
     fail "workspace card layout or interaction contract is incomplete"
