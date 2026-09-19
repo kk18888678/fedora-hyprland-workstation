@@ -70,22 +70,48 @@ def terminal_ancestor(pid: int) -> int:
     return 0
 
 
-def window_address_for_pid(pid: int) -> str:
+def window_info_for_pid(pid: int) -> dict:
     hyprctl = shutil.which("hyprctl")
     if not hyprctl or pid <= 0:
-        return ""
+        return {}
     try:
         result = subprocess.run([hyprctl, "clients", "-j"], capture_output=True, text=True, timeout=5)
         clients = json.loads(result.stdout or "[]")
     except Exception:
-        return ""
+        return {}
     for client in clients:
         try:
-            if int(client.get("pid") or -1) == pid:
-                return str(client.get("address") or "")
+            if int(client.get("pid") or -1) != pid:
+                continue
         except Exception:
             continue
-    return ""
+        workspace = client.get("workspace") or {}
+        return {
+            "address": str(client.get("address") or ""),
+            "workspace": str(workspace.get("name") or ""),
+        }
+    return {}
+
+
+def focus_workspace(name: str) -> bool:
+    """Switch to a workspace on both Lua and classic Hyprland configs."""
+    if not name:
+        return False
+    hyprctl = shutil.which("hyprctl")
+    if not hyprctl:
+        return False
+    # Lua configs wrap `hyprctl dispatch` in hl.dispatch(...), so the classic
+    # "workspace N" argument is parsed as Lua and fails. Try the Lua dispatcher
+    # first, then the classic syntax for non-Lua configs.
+    lua = subprocess.run(
+        [hyprctl, "dispatch", 'hl.dsp.focus({ workspace = "' + name + '" })'],
+        capture_output=True, text=True, timeout=5,
+    )
+    if "ok" in (lua.stdout or ""):
+        return True
+    classic = subprocess.run([hyprctl, "dispatch", "workspace", name],
+                             capture_output=True, text=True, timeout=5)
+    return "ok" in (classic.stdout or "")
 
 
 def main() -> int:
@@ -98,27 +124,26 @@ def main() -> int:
         subprocess.run([herdr, "workspace", "focus", workspace], capture_output=True, text=True, timeout=8)
 
     address = ""
+    workspace = ""
     for pid in herdr_client_pids():
         terminal = terminal_ancestor(pid)
         if terminal:
-            address = window_address_for_pid(terminal)
-            if address:
+            info = window_info_for_pid(terminal)
+            if info.get("address"):
+                address = info["address"]
+                workspace = info.get("workspace", "")
                 break
 
     if not address:
         print("no herdr terminal window found", file=sys.stderr)
         return 1
     if dry_run:
-        print(address)
+        print(json.dumps({"address": address, "workspace": workspace}))
         return 0
 
-    hyprctl = shutil.which("hyprctl")
-    if not hyprctl:
-        print("hyprctl unavailable", file=sys.stderr)
-        return 1
-    subprocess.run([hyprctl, "dispatch", "focuswindow", "address:" + address],
-                   capture_output=True, text=True, timeout=5)
-    print("focused " + address)
+    if workspace:
+        focus_workspace(workspace)
+    print("focused workspace " + (workspace or "?"))
     return 0
 
 
