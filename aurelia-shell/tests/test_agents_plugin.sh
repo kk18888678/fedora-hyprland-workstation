@@ -36,7 +36,9 @@ fi
 if grep -q 'visible: root.hasAgents' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q '"usage-update"' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q '"usage"' "$plugin_dir/AgentsBarWidget.qml" &&
-   grep -q 'AgentUsage.parseRecords' "$plugin_dir/AgentsBarWidget.qml"; then
+   grep -q 'AgentUsage.parseRecords' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'applyLimitNotifications' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'notify-send' "$plugin_dir/AgentsBarWidget.qml"; then
     pass "[static] agents widget refreshes through workstation-ai and hides until an agent is detected"
 else
     fail "[static] agents widget backend wiring is incomplete"
@@ -78,7 +80,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -92,7 +94,16 @@ const bars = A.recentBars([
 ]);
 const models = A.sortedModels({small: {inputTokens: 1}, big: {inputTokens: 10, outputTokens: 5}});
 const limits = [{percent: 0.2, resetsAt: "2030-01-01T00:00:00Z"}, {percent: 0.8, resetsAt: "2030-01-01T00:00:00Z"}];
+const rec = (percent, resetsAt) => [{id: "codex", name: "Codex", ready: true, limits: [{label: "Monthly", percent: percent, resetsAt: resetsAt}]}];
+const first = A.limitTransitions(rec(0.5, "2030-01-01"), {});
+const reset = A.limitTransitions(rec(0.4, "2030-02-01"), first.state);
+const exhausted = A.limitTransitions(rec(0.95, "2030-02-01"), reset.state);
+const steady = A.limitTransitions(rec(0.95, "2030-02-01"), exhausted.state);
 const ok =
+    first.notifications.length === 0 &&
+    reset.notifications.length === 1 && reset.notifications[0].title.indexOf("reset") >= 0 &&
+    exhausted.notifications.length === 1 && exhausted.notifications[0].title.indexOf("exhausted") >= 0 &&
+    steady.notifications.length === 0 &&
     A.bindingWindow({limits: limits}).percent === 0.8 &&
     A.formatDuration(90 * 60000) === "1h 30m" &&
     A.formatDuration(-1) === "now" &&

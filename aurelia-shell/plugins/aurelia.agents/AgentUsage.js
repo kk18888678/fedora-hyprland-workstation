@@ -178,3 +178,47 @@ function modelRows(record, limit) {
     rows.sort(function (a, b) { return b.total - a.total; });
     return rows.slice(0, limit || 4);
 }
+
+// Compare live rate-limit windows against the previous observation and return
+// the notifications the user should see: a window that reset (its resetsAt
+// moved) and a window that just crossed the near-exhausted threshold. The
+// returned state must be fed back on the next call so transitions, not steady
+// states, produce notifications.
+function limitTransitions(records, previousState) {
+    var state = previousState || {};
+    var next = {};
+    var notifications = [];
+    var ready = readyAgents(records);
+    for (var i = 0; i < ready.length; i++) {
+        var agent = ready[i];
+        var limits = (agent && agent.limits) || [];
+        for (var j = 0; j < limits.length; j++) {
+            var limit = limits[j] || {};
+            var resetsAt = String(limit.resetsAt || "");
+            if (resetsAt === "") continue;
+            var key = String(agent.id) + "|" + String(limit.label || "");
+            var previous = state[key];
+            var percent = Number(limit.percent);
+            var alertedHigh = previous ? previous.alertedHigh === true : false;
+            var name = String(agent.name || agent.id);
+            var label = String(limit.label || "Limit");
+
+            if (previous && String(previous.resetsAt || "") !== "" && previous.resetsAt !== resetsAt) {
+                notifications.push({
+                    title: name + " limit reset",
+                    body: label + " reset · " + Math.max(0, Math.round((1 - percent) * 100)) + "% available"
+                });
+                alertedHigh = false;
+            }
+            if (previous && !alertedHigh && isFinite(percent) && percent >= 0.9) {
+                notifications.push({
+                    title: name + " limit nearly exhausted",
+                    body: label + " is at " + Math.round(percent * 100) + "% used"
+                });
+                alertedHigh = true;
+            }
+            next[key] = { resetsAt: resetsAt, alertedHigh: alertedHigh };
+        }
+    }
+    return { state: next, notifications: notifications };
+}

@@ -25,6 +25,7 @@ Item {
     property string lastError: ""
     property int retryCount: 0
     property double lastLoadedMs: 0
+    property var limitState: ({})
 
     readonly property string backendBin: {
         var override = Quickshell.env("WORKSTATION_AI_BIN") || ""
@@ -77,6 +78,20 @@ Item {
     // opening the panel does not trigger a live limit probe on every click.
     function maybeRefresh(maxAgeMs) {
         if (Date.now() - root.lastLoadedMs > maxAgeMs) root.refresh()
+    }
+
+    // Notify on limit resets and near-exhaustion. The previous observation is
+    // fed back so only transitions fire, not the steady state.
+    function applyLimitNotifications() {
+        var result = AgentUsage.limitTransitions(root.agents, root.limitState)
+        root.limitState = result.state
+        for (var i = 0; i < result.notifications.length; i++) {
+            var notice = result.notifications[i]
+            Quickshell.execDetached([
+                "notify-send", "-a", "Aurelia Agents", "-u", "normal",
+                notice.title, notice.body
+            ])
+        }
     }
 
     function togglePanel() {
@@ -142,6 +157,7 @@ Item {
             root.lastError = ""
             root.retryCount = 0
             root.lastLoadedMs = Date.now()
+            root.applyLimitNotifications()
         }
     }
 
