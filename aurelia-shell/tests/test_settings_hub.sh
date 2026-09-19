@@ -184,6 +184,32 @@ else
     fail "[static] settings list scroll/rebuild performance settings are missing"
 fi
 
+# State-key invariant: the AI and Defaults dropdowns were empty because one
+# patcher rebuilt aureliaState from a shorter key list (dropping 'ai'), and
+# rows were not rebuilt when state arrived. Both patchers must share the key
+# list, and state changes must refresh the rows.
+state_keys_ok=0
+if python3 - "$plugin_dir/ui/SettingsWindow.qml" <<'STATE_KEYS'
+import re, sys
+src = open(sys.argv[1]).read()
+match = re.search(r"aureliaStateKeys:\s*\[(.*?)\]", src, re.S)
+if not match:
+    sys.exit(1)
+keys = set(re.findall(r'"([^"]+)"', match.group(1)))
+need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds"}
+sys.exit(0 if need <= keys else 1)
+STATE_KEYS
+then
+    state_keys_ok=1
+fi
+if [[ "$state_keys_ok" -eq 1 ]] &&
+   grep -q 'applyAureliaPatch({ defaults: root.defaultsState })' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'onAureliaStateChanged: rebuildRows()' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] settings state keys are shared and rows rebuild on state change"
+else
+    fail "[static] settings state key list can drop fields (empty dropdowns)"
+fi
+
 # ColorUtils is pure JS; exercise its parse/format/validate contract directly.
 if command -v node >/dev/null 2>&1; then
     color_utils_test="$(mktemp --suffix=.js)"
@@ -498,6 +524,18 @@ assert all(set(["id", "name", "command", "kind", "installed"]) <= set(a) for a i
         pass "[sandbox] AI backend refuses an unmanaged config file"
     fi
     rm -f -- "$XDG_CONFIG_HOME/workstation/ai.conf"
+
+    if "$ai_backend" prompt "review this project" >/dev/null 2>&1; then
+        fail "[sandbox] AI prompt launched without a default agent"
+    else
+        pass "[sandbox] AI prompt fails closed without a default agent"
+    fi
+
+    if "$ai_backend" crash not-a-pid >/dev/null 2>&1; then
+        fail "[sandbox] AI crash accepted an invalid pid"
+    else
+        pass "[sandbox] AI crash rejects an invalid pid"
+    fi
 
     export HOME="$saved_home"
     if [[ -n "$saved_xdg" ]]; then export XDG_CONFIG_HOME="$saved_xdg"; else unset XDG_CONFIG_HOME; fi

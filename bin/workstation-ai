@@ -370,6 +370,26 @@ cmd_check() {
     printf 'skill_source: %s\n' "$skill_source"
 }
 
+# Launch the default agent seeded with a task (mirrors `omarchy agent prompt`).
+cmd_prompt() {
+    [[ $# -ge 1 ]] || fail "usage: $PROG prompt <text>"
+    cmd_launch --prompt "$*"
+}
+
+# Diagnose one crash from the systemd core dump, seeded into the default agent.
+cmd_crash() {
+    local pid="${1:-}"
+    [[ "$pid" =~ ^[0-9]+$ ]] || fail "usage: $PROG crash <pid>"
+    local info=""
+    if command -v coredumpctl >/dev/null 2>&1; then
+        info="$(coredumpctl info "$pid" 2>/dev/null | head -n 60 || true)"
+    fi
+    [[ -n "$info" ]] || fail "no core dump found for PID $pid (see: coredumpctl list)"
+    local prompt="Diagnose this process crash. Establish the facts from the core dump, decide whether it is worth reporting upstream, and propose a fix."
+    prompt+=$'\n\n'"$(printf '%s' "$info" | head -n 40)"
+    cmd_launch --prompt "$prompt"
+}
+
 usage() {
     cat <<'USAGE'
 Usage: workstation-ai <command> [args]
@@ -379,6 +399,8 @@ Usage: workstation-ai <command> [args]
   set <id>               Persist the default agent.
   reset                  Clear the default agent.
   launch [--prompt TEXT] Launch the default agent in a terminal (unattended mode).
+  prompt <text>          Launch the default agent seeded with a task.
+  crash <pid>            Diagnose a coredumpctl crash with the default agent.
   skill [status|install|remove]  Manage the workstation agent skill.
   check                  Report backend diagnostics.
 
@@ -400,6 +422,8 @@ main() {
             ;;
         reset) cmd_reset ;;
         launch) cmd_launch "$@" ;;
+        prompt) cmd_prompt "$@" ;;
+        crash) cmd_crash "$@" ;;
         skill) cmd_skill "$@" ;;
         check) cmd_check ;;
         *) fail "unknown command: $cmd (see --help)" ;;

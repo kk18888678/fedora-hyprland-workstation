@@ -652,11 +652,16 @@ PanelWindow {
         themeCatalogProcess.running = true
     }
 
+    // Single authoritative key list. Both patchers route through it so a new
+    // field can never be dropped when one patcher rebuilds the state (which
+    // is what emptied the AI/defaults dropdowns).
+    readonly property var aureliaStateKeys: ["ipcOnline", "themes", "currentTheme",
+        "motionEnabled", "motionScale", "textSize", "barHidden", "weekStart",
+        "clockFormat", "clockHour24", "clockSeconds", "defaults", "ai", "settingsPath"]
+
     function applyAureliaPatch(patch) {
         var next = {}
-        var keys = ["ipcOnline", "themes", "currentTheme", "motionEnabled", "motionScale",
-                    "textSize", "barHidden", "weekStart", "clockFormat", "clockHour24",
-                    "clockSeconds", "ai", "settingsPath"]
+        var keys = root.aureliaStateKeys
         for (var i = 0; i < keys.length; i++) {
             next[keys[i]] = keys[i] in patch ? patch[keys[i]] : root.aureliaState[keys[i]]
         }
@@ -686,12 +691,7 @@ PanelWindow {
             for (k in patch.choices) next.choices[k] = patch.choices[k]
         }
         root.defaultsState = next
-        var nextState = {}
-        var keys = ["ipcOnline", "themes", "currentTheme", "motionEnabled", "motionScale",
-                    "textSize", "barHidden", "settingsPath"]
-        for (var i = 0; i < keys.length; i++) nextState[keys[i]] = root.aureliaState[keys[i]]
-        nextState.defaults = root.defaultsState
-        root.aureliaState = nextState
+        root.applyAureliaPatch({ defaults: root.defaultsState })
     }
 
     function applyDefaultsOption(optionId, value) {
@@ -876,6 +876,10 @@ PanelWindow {
     }
 
     onActiveSectionChanged: rebuildRows()
+    // Any state change (AI list, defaults choices, clock/week preferences) must
+    // refresh the projected rows; without this the dropdowns stayed empty when
+    // their data arrived after the initial rebuild.
+    onAureliaStateChanged: rebuildRows()
 
     function kindFor(optionId) {
         var schema = root.schemaMap[optionId]

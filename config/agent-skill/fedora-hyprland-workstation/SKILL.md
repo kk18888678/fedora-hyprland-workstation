@@ -17,10 +17,20 @@ the bounded, reviewed backends over editing files by hand.
   brightness, audio, Bluetooth, Wi-Fi, appearance (gsettings), time zone.
 - `workstation-app-defaults status|choices|current|set|reset <role> [app]` —
   default terminal, file manager, browser, editor, email client.
-- `workstation-ai agents|default|set|reset|launch|skill` — AI coding agents.
+- `workstation-ai agents|default|set|reset|launch|prompt|crash|skill` — AI coding
+  agents (detect, choose a default, launch, diagnose a crash, install the
+  workstation skill). This backend never installs agents.
 - `aurelia bar|theme|...` — Aurelia shell controls (`aurelia` CLI).
 - `workstation-aurelia preference get|set|unset` — shell preferences (clock
   format, calendar week start, motion, text size).
+
+## Diagnosing a crash
+
+1. `coredumpctl list` to find the PID.
+2. `workstation-ai crash <pid>` gathers the core dump and hands it to the
+   default agent with the diagnosis task.
+3. Establish the facts from the dump before proposing a fix; only recommend an
+   upstream report when the cause is in the program, not the local setup.
 
 ## Rules
 
