@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
 import "../../../theme"
+import "../../../ui/PopupPlacement.js" as Placement
 import "."
 import "../NotificationLogic.js" as Logic
 
@@ -32,6 +33,11 @@ PanelWindow {
         : (root.bar && root.bar.contentItem ? root.bar : null)
     readonly property point anchorPosition: {
         var revision = root.bar ? root.bar.widgetRevision : 0
+        // surfaceReady-style invalidation: mapFromItem is one-shot, so bumping
+        // placementRevision after the surface is mapped re-reads the anchor
+        // instead of keeping a stale (0,0) that collapses the popup into a
+        // corner.
+        var placementTick = root.placementRevision
         var slotX = root.anchorSlot ? root.anchorSlot.x : 0
         var slotY = root.anchorSlot ? root.anchorSlot.y : 0
         var slotWidth = root.anchorSlot ? root.anchorSlot.width : 0
@@ -43,6 +49,16 @@ PanelWindow {
         }
         return root.anchorWindow.mapFromItem(root.anchorSlot, 0, 0)
     }
+    // Global placement rule: the popup follows the owning bar widget. A widget
+    // may override the direction with `popupAlign` in its bar entry.
+    property int placementRevision: 0
+    readonly property bool anchorMappingValid: root.anchorPosition.x > 0 || root.anchorPosition.y > 0
+    readonly property string popupAlign: {
+        var slot = root.anchorSlot
+        var configured = slot && slot.settings ? String(slot.settings.popupAlign || "") : ""
+        return configured
+    }
+    onVisibleChanged: if (visible) Qt.callLater(function() { root.placementRevision++ })
     readonly property bool anchored: {
         // Read the declared model screen instead of the PanelWindow.screen
         // binding. The latter is compositor-managed and can feed back into
@@ -59,28 +75,22 @@ PanelWindow {
     }
     readonly property real columnWidth: Math.max(1, Math.min(416, root.width - Theme.spacingMd * 2))
     readonly property point popupOrigin: {
-        var revision = root.bar ? root.bar.widgetRevision : 0
-        var columnHeight = popupColumn.implicitHeight
-        var x = root.anchorPosition.x + (root.anchorSlot ? root.anchorSlot.width / 2 : 0) - root.columnWidth / 2
-        var y = Theme.spacingMd
-        var barSize = root.bar ? Number(root.bar.barSize || 0) : 0
-
-        if (!root.anchored) return Qt.point(-root.columnWidth, -columnHeight)
-        if (root.bar.position === "bottom") {
-            y = root.height - barSize - columnHeight - Theme.popupMargin
-        } else if (root.bar.position === "left") {
-            x = barSize + Theme.popupMargin
-            y = root.anchorPosition.y + (root.anchorSlot ? root.anchorSlot.height / 2 : 0) - columnHeight / 2
-        } else if (root.bar.position === "right") {
-            x = root.width - barSize - root.columnWidth - Theme.popupMargin
-            y = root.anchorPosition.y + (root.anchorSlot ? root.anchorSlot.height / 2 : 0) - columnHeight / 2
-        } else {
-            y = barSize + Theme.popupMargin
-        }
-
-        x = Math.max(Theme.spacingMd, Math.min(x, root.width - root.columnWidth - Theme.spacingMd))
-        y = Math.max(Theme.spacingMd, Math.min(y, root.height - columnHeight - Theme.spacingMd))
-        return Qt.point(Math.round(x), Math.round(y))
+        var origin = Placement.computeOrigin({
+            barPosition: root.bar ? root.bar.position : "top",
+            barSize: root.bar ? Number(root.bar.barSize || 0) : 0,
+            popupWidth: root.columnWidth,
+            popupHeight: popupColumn.implicitHeight,
+            screenW: root.width,
+            screenH: root.height,
+            margin: Theme.spacingMd,
+            anchorX: root.anchorPosition.x,
+            anchorY: root.anchorPosition.y,
+            anchorWidth: root.anchorSlot ? root.anchorSlot.width : 0,
+            anchorHeight: root.anchorSlot ? root.anchorSlot.height : 0,
+            align: root.popupAlign,
+            anchored: root.anchored && root.anchorMappingValid
+        })
+        return Qt.point(origin.x, origin.y)
     }
 
     screen: root.screenModel

@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import "../theme"
+import "PopupPlacement.js" as Placement
 
 // Omarchy-aligned keyboard-capable bar panel. The visible card is rendered in
 // a full-screen layer-shell surface so the compositor can grant keyboard focus
@@ -86,44 +87,33 @@ PanelWindow {
         }
         return anchorWindow.mapFromItem(resolvedAnchorItem, 0, 0)
     }
+    readonly property bool anchorMappingValid: anchorScreenPos.x > 0 || anchorScreenPos.y > 0
+    // Global placement rule: a popup follows the owning bar widget. The only
+    // overrides are `centerOnBar` and a per-widget `popupAlign` bar entry.
+    readonly property string popupAlign: {
+        if (root.centerOnBar) return "center"
+        var slot = root.resolvedAnchorItem
+        var configured = slot && slot.settings ? String(slot.settings.popupAlign || "") : ""
+        return configured
+    }
     readonly property point cardOrigin: {
-        var transform = anchorTransform
         if (!resolvedAnchorItem || !bar || screenW <= 0 || screenH <= 0) return Qt.point(margin, margin)
-        var x = 0
-        var y = 0
-        // The actual bar PanelWindow is the anchor window. Use its mapped
-        // geometry directly; querying compositor layer state adds latency and
-        // can fail closed when a popup is opened from a fresh session.
-        var actualBarTop = 0
-        var actualBarLeft = 0
-        var actualBarWidth = barW
-        var actualBarHeight = barH
-        if (centerOnBar && (bar.position === "top" || bar.position === "bottom")) {
-            x = screenW / 2 - root.resolvedPopupWidth / 2
-            y = bar.position === "bottom"
-                ? screenH - actualBarHeight - root.resolvedPopupHeight - margin
-                : actualBarTop + actualBarHeight + margin
-        } else if (centerOnBar) {
-            x = bar.position === "left"
-                ? actualBarLeft + actualBarWidth + margin
-                : screenW - actualBarWidth - root.resolvedPopupWidth - margin
-            y = screenH / 2 - root.resolvedPopupHeight / 2
-        } else if (bar.position === "bottom") {
-            x = anchorScreenPos.x + resolvedAnchorItem.width / 2 - root.resolvedPopupWidth / 2
-            y = screenH - actualBarHeight - root.resolvedPopupHeight - margin
-        } else if (bar.position === "left") {
-            x = actualBarLeft + actualBarWidth + margin
-            y = anchorScreenPos.y + resolvedAnchorItem.height / 2 - root.resolvedPopupHeight / 2
-        } else if (bar.position === "right") {
-            x = screenW - actualBarWidth - root.resolvedPopupWidth - margin
-            y = anchorScreenPos.y + resolvedAnchorItem.height / 2 - root.resolvedPopupHeight / 2
-        } else {
-            x = anchorScreenPos.x + resolvedAnchorItem.width / 2 - root.resolvedPopupWidth / 2
-            y = actualBarTop + actualBarHeight + margin
-        }
-        x = Math.max(margin, Math.min(x, screenW - root.resolvedPopupWidth - margin))
-        y = Math.max(margin, Math.min(y, screenH - root.resolvedPopupHeight - margin))
-        return Qt.point(Math.round(x), Math.round(y))
+        var origin = Placement.computeOrigin({
+            barPosition: bar.position,
+            barSize: barH,
+            popupWidth: root.resolvedPopupWidth,
+            popupHeight: root.resolvedPopupHeight,
+            screenW: screenW,
+            screenH: screenH,
+            margin: margin,
+            anchorX: anchorScreenPos.x,
+            anchorY: anchorScreenPos.y,
+            anchorWidth: resolvedAnchorItem.width,
+            anchorHeight: resolvedAnchorItem.height,
+            align: root.popupAlign,
+            anchored: root.anchorMappingValid
+        })
+        return Qt.point(origin.x, origin.y)
     }
 
     default property alias contentItem: contentHolder.children
