@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Focus the Herdr terminal window that owns a pi chat.
+
+Herdr is a terminal workspace manager: its workspaces are internal, so
+`herdr workspace focus <n>` alone leaves the compositor on whatever workspace
+it was on. This helper switches the Herdr workspace and then raises the
+terminal window that actually runs Herdr, which also moves the compositor to
+that window's workspace.
+
+Usage: workstation-herdr-focus [workspace-number] [--dry-run]
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+TERMINALS = (
+    "foot", "footclient", "kitty", "alacritty", "ghostty",
+    "wezterm", "xterm", "konsole", "gnome-terminal", "alacritty",
+)
+
+
+def read_cmdline(pid: int) -> str:
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            return handle.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+    except Exception:
+        return ""
+
+
+def read_ppid(pid: int) -> int:
+    try:
+        with open(f"/proc/{pid}/stat", "r") as handle:
+            tail = handle.read().rsplit(")", 1)[1].split()
+        return int(tail[1])
+    except Exception:
+        return 0
+
+
+def herdr_client_pids() -> list[int]:
+    pids = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        cmdline = read_cmdline(int(entry))
+        if not cmdline:
+            continue
+        argv = cmdline.split()
+        if os.path.basename(argv[0]) != "herdr":
+            continue
+        if len(argv) > 1 and argv[1] == "server":
+            continue
+        pids.append(int(entry))
+    return pids
+
+
+def terminal_ancestor(pid: int) -> int:
+    seen = set()
+    while pid and pid > 1 and pid not in seen:
+        seen.add(pid)
+        cmdline = read_cmdline(pid)
+        base = os.path.basename(cmdline.split(" ")[0]) if cmdline else ""
+        if base in TERMINALS:
+            return pid
+        pid = read_ppid(pid)
+    return 0
+
+
+def window_address_for_pid(pid: int) -> str:
+    hyprctl = shutil.which("hyprctl")
+    if not hyprctl or pid <= 0:
+        return ""
+    try:
+        result = subprocess.run([hyprctl, "clients", "-j"], capture_output=True, text=True, timeout=5)
+        clients = json.loads(result.stdout or "[]")
+    except Exception:
+        return ""
+    for client in clients:
+        try:
+            if int(client.get("pid") or -1) == pid:
+                return str(client.get("address") or "")
+        except Exception:
+            continue
+    return ""
+
+
+def main() -> int:
+    args = [arg for arg in sys.argv[1:] if arg != "--dry-run"]
+    dry_run = "--dry-run" in sys.argv[1:]
+    workspace = args[0] if args else ""
+
+    herdr = shutil.which("herdr") or os.path.expanduser("~/.local/bin/herdr")
+    if workspace and os.path.exists(herdr):
+        subprocess.run([herdr, "workspace", "focus", workspace], capture_output=True, text=True, timeout=8)
+
+    address = ""
+    for pid in herdr_client_pids():
+        terminal = terminal_ancestor(pid)
+        if terminal:
+            address = window_address_for_pid(terminal)
+            if address:
+                break
+
+    if not address:
+        print("no herdr terminal window found", file=sys.stderr)
+        return 1
+    if dry_run:
+        print(address)
+        return 0
+
+    hyprctl = shutil.which("hyprctl")
+    if not hyprctl:
+        print("hyprctl unavailable", file=sys.stderr)
+        return 1
+    subprocess.run([hyprctl, "dispatch", "focuswindow", "address:" + address],
+                   capture_output=True, text=True, timeout=5)
+    print("focused " + address)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -371,7 +371,8 @@ function snapshotOf(notification, timestamp) {
         image: boundedText(n.image, MAX_IMAGE_LENGTH),
         glyph: boundedText(glyphFromHints(n.hints), 256),
         execArgv: boundedText(execArgvFromHints(n.hints), MAX_TEXT_LENGTH) ||
-            (herdr ? JSON.stringify(["herdr", "workspace", "focus", String(herdr.number)]) : ""),
+            (herdr ? JSON.stringify(["bash", "-lc",
+                "f=\"$AURELIA_SHELL_ROOT/bin/workstation-herdr-focus\"; [ -x \"$f\" ] && \"$f\" " + herdr.number]) : ""),
         actions: actionsOf(n),
         defaultActionText: defaultActionText(n) || (herdr ? "Open" : ""),
         urgency: urgency,
