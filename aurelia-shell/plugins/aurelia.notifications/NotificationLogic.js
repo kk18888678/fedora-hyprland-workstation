@@ -373,7 +373,7 @@ function snapshotOf(notification, timestamp) {
         execArgv: boundedText(execArgvFromHints(n.hints), MAX_TEXT_LENGTH) ||
             (herdr ? JSON.stringify(["herdr", "workspace", "focus", herdr.label]) : ""),
         actions: actionsOf(n),
-        defaultActionText: defaultActionText(n) || (herdr ? "Open chat" : ""),
+        defaultActionText: defaultActionText(n) || (herdr ? "Open" : ""),
         urgency: urgency,
         expireTimeout: expireTimeout,
         timestamp: stamp,

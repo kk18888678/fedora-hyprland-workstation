@@ -563,7 +563,7 @@ const snap = L.snapshotOf(n, 1700000000000);
 const ok =
     L.herdrRoute(n) && L.herdrRoute(n).label === "sutradhar" && L.herdrRoute(n).number === 2 &&
     L.herdrBody("sutradhar \u00b7 2 \u00b7 3", "Herdr") === "sutradhar \u00b7 workspace 2" &&
-    snap.defaultActionText === "Open chat" &&
+    snap.defaultActionText === "Open" &&
     JSON.parse(snap.execArgv).join(" ") === "herdr workspace focus sutradhar" &&
     L.herdrRoute({ appName: "foot", body: "a \u00b7 1 \u00b7 1" }) === null &&
     L.snapshotOf({ appName: "Herdr", body: "x \u00b7 1", actions: [{ identifier: "default", text: "Reply" }] }, 1).defaultActionText === "Reply";

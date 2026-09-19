@@ -254,6 +254,9 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: visible ? actionToolbar.implicitHeight : 0
                 Layout.topMargin: Theme.scaleGeometry(2)
+                // Leave breathing room between the action row and the card's
+                // bottom border so the button never touches the edge.
+                Layout.bottomMargin: visible ? Theme.scaleGeometry(6) : 0
                 visible: root.showActions && (root.defaultActionText !== "" ||
                     (root.actions && root.actions.length > 0) || root.showArchive)
 
