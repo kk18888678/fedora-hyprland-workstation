@@ -371,7 +371,7 @@ function snapshotOf(notification, timestamp) {
         image: boundedText(n.image, MAX_IMAGE_LENGTH),
         glyph: boundedText(glyphFromHints(n.hints), 256),
         execArgv: boundedText(execArgvFromHints(n.hints), MAX_TEXT_LENGTH) ||
-            (herdr ? JSON.stringify(["herdr", "workspace", "focus", herdr.label]) : ""),
+            (herdr ? JSON.stringify(["herdr", "workspace", "focus", String(herdr.number)]) : ""),
         actions: actionsOf(n),
         defaultActionText: defaultActionText(n) || (herdr ? "Open" : ""),
         urgency: urgency,
