@@ -33,6 +33,14 @@ else
     fail "[static] system settings backend is missing or not installed"
 fi
 
+if [[ -x "$repo_root/bin/workstation-ai" ]] &&
+   grep -q 'install_workstation_ai' "$repo_root/modules/desktop.sh" &&
+   [[ -f "$repo_root/config/agent-skill/fedora-hyprland-workstation/SKILL.md" ]]; then
+    pass "[static] AI agent backend and workstation skill exist and are shipped"
+else
+    fail "[static] AI agent backend or skill is missing"
+fi
+
 # The clock widget must read the same Aurelia clock preferences the hub writes,
 # otherwise the two are visibly out of sync.
 if grep -q 'Theme.clockFormat' "$repo_root/aurelia-shell/plugins/aurelia.clock/ClockBarWidget.qml" &&
@@ -404,6 +412,98 @@ process.exit(ok ? 0 : 1);
         fail "[unit] Date & Time clock rows are missing"
     fi
     rm -f -- "$time_rows_test"
+fi
+
+# AI section rows: default agent picker, launch, and skill actions.
+if command -v node >/dev/null 2>&1; then
+    ai_rows_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$ai_rows_test"
+    cat >>"$ai_rows_test" <<'AI_ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState };
+AI_ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const state = Object.assign({}, SR.emptyAureliaState(), {
+    ai: { default: "claude", agents: [
+        { id: "claude", name: "Claude Code", installed: true },
+        { id: "codex", name: "Codex", installed: false }
+    ] }
+});
+const rows = SR.buildRows("ai", [], {}, state);
+const def = rows.find(r => r.id === "ai.default");
+const launch = rows.find(r => r.actionId === "launchAgent");
+const skill = rows.find(r => r.actionId === "installSkill");
+const ok = def && def.kind === "combo" && def.effective === "claude" &&
+    def.enumOptions.length === 1 && def.enumOptions[0].value === "claude" &&
+    launch && launch.kind === "action" && skill && skill.kind === "action";
+process.exit(ok ? 0 : 1);
+' "$ai_rows_test" >/dev/null 2>&1; then
+        pass "[unit] AI section exposes default agent, launch and skill rows"
+    else
+        fail "[unit] AI section rows are missing"
+    fi
+    rm -f -- "$ai_rows_test"
+else
+    skip "[unit] AI section rows (node unavailable)"
+fi
+
+ai_backend="$repo_root/bin/workstation-ai"
+if [[ -x "$ai_backend" ]]; then
+    ai_sandbox="$(mktemp -d)"
+    mkdir -p "$ai_sandbox/home/.config"
+    saved_home="$HOME"
+    saved_xdg="${XDG_CONFIG_HOME:-}"
+    export HOME="$ai_sandbox/home"
+    export XDG_CONFIG_HOME="$ai_sandbox/home/.config"
+
+    if "$ai_backend" agents | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["default"] is None
+assert any(a["id"] == "claude" for a in d["agents"])
+assert all(set(["id", "name", "command", "kind", "installed"]) <= set(a) for a in d["agents"])
+' >/dev/null; then
+        pass "[sandbox] AI agent registry reports agents with installed state"
+    else
+        fail "[sandbox] AI agent registry JSON is invalid"
+    fi
+
+    if "$ai_backend" set claude >/dev/null &&
+       [[ "$("$ai_backend" default)" == "claude" ]] &&
+       grep -q 'default_agent=claude' "$XDG_CONFIG_HOME/workstation/ai.conf"; then
+        pass "[sandbox] AI default agent persists to the managed config"
+    else
+        fail "[sandbox] AI default agent was not persisted"
+    fi
+
+    if "$ai_backend" set not-an-agent >/dev/null 2>&1; then
+        fail "[sandbox] AI backend accepted an unknown agent"
+    else
+        pass "[sandbox] AI backend rejects unknown agents"
+    fi
+
+    if "$ai_backend" skill install >/dev/null &&
+       [[ -L "$HOME/.agents/skills/fedora-hyprland-workstation" ]] &&
+       "$ai_backend" skill remove >/dev/null &&
+       [[ ! -e "$HOME/.agents/skills/fedora-hyprland-workstation" ]]; then
+        pass "[sandbox] AI skill installs and removes only its own symlink"
+    else
+        fail "[sandbox] AI skill install/remove failed"
+    fi
+
+    printf 'default_agent=evil\n' >"$XDG_CONFIG_HOME/workstation/ai.conf"
+    if "$ai_backend" default >/dev/null 2>&1; then
+        fail "[sandbox] AI backend accepted an unmanaged config file"
+    else
+        pass "[sandbox] AI backend refuses an unmanaged config file"
+    fi
+    rm -f -- "$XDG_CONFIG_HOME/workstation/ai.conf"
+
+    export HOME="$saved_home"
+    if [[ -n "$saved_xdg" ]]; then export XDG_CONFIG_HOME="$saved_xdg"; else unset XDG_CONFIG_HOME; fi
+    rm -rf -- "$ai_sandbox"
+else
+    fail "[static] workstation-ai backend is missing"
 fi
 
 # ---------------------------------------------------------------------------

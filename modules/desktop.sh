@@ -72,6 +72,23 @@ install_workstation_system_settings() {
         "workstation-system-settings"
 }
 
+install_workstation_ai() {
+    install_root_cli_file \
+        "$SCRIPT_DIR/bin/workstation-ai" \
+        "/usr/local/bin/workstation-ai" \
+        "workstation-ai"
+    # The agent skill is a directory; install its single file so the backend can
+    # symlink the parent. A failure here is deferred, not login-critical.
+    if ! install_root_file_atomically \
+        "$SCRIPT_DIR/config/agent-skill/fedora-hyprland-workstation/SKILL.md" \
+        "/usr/local/share/fedora-hyprland-workstation/agent-skill/fedora-hyprland-workstation/SKILL.md" \
+        0644 root root; then
+        record_deferred "desktop" "ai-skill" "Could not install the workstation agent skill."
+        return 0
+    fi
+    record_success "ai-skill"
+}
+
 # Unified `aurelia` command center CLI plus the bounded IPC client. Both are
 # self-contained scripts (no lib trees); the dispatcher resolves the remaining
 # aurelia-* backends at runtime from the shell root or installed root.
@@ -1265,6 +1282,7 @@ install_desktop() {
     deploy_hyprland_config
     install_workstation_hypr_settings
     install_workstation_system_settings
+    install_workstation_ai
     install_aurelia_cli
     deploy_session_shell_selection
     if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]]; then

@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+# workstation-ai — bounded AI coding-agent launcher and default-agent owner.
+#
+# Mirrors the core of Omarchy's AI workflow for the Fedora Hyprland
+# workstation: a registry of coding agents, one user-selected default, a
+# terminal launcher that runs the default in its unattended mode, and the
+# workstation skill installed into agent skill directories.
+#
+# Ownership: this backend never installs agents. Agents that are not present
+# are reported as unavailable; provisioning them is an installer or package
+# decision (see modules/applications.sh), so the workstation keeps a single,
+# verifiable supply chain.
+#
+# Safety invariants:
+#   * strict agent registry: unknown ids fail closed
+#   * the only mutation is an atomic write of the user-owned ai.conf (0600)
+#   * skill installation only creates/removes this project's own symlink
+#   * no network access; no arbitrary upstream installs
+
+set -Eeuo pipefail
+
+PROG="workstation-ai"
+MARKER="WORKSTATION_AI_MANAGED_V1"
+
+fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd -P)"
+
+home="${HOME:-}"
+if [[ "$home" != /* || "$home" == "/" || ! -d "$home" || -L "$home" ]]; then
+    fail "HOME is missing or unsafe"
+fi
+config_home="${XDG_CONFIG_HOME:-$home/.config}"
+[[ "$config_home" == /* && "$config_home" != "/" ]] || fail "XDG_CONFIG_HOME must be absolute"
+conf_path="${WORKSTATION_AI_CONF:-$config_home/workstation/ai.conf}"
+[[ "$conf_path" == /* && "$conf_path" != "/" ]] || fail "ai.conf path must be absolute"
+[[ "$conf_path" == *"/../"* ]] && fail "ai.conf path traversal"
+conf_dir="$(dirname -- "$conf_path")"
+
+skill_source="$SCRIPT_DIR/../config/agent-skill/fedora-hyprland-workstation"
+[[ -d "$skill_source" ]] || skill_source="/usr/local/share/fedora-hyprland-workstation/agent-skill/fedora-hyprland-workstation"
+[[ -d "$skill_source" ]] || skill_source="$config_home/aurelia/agent-skill/fedora-hyprland-workstation"
+
+# ---------------------------------------------------------------------------
+# Agent registry: id|name|command|kind
+# kind is "cli" (runs in a terminal) or "desktop" (a graphical application).
+# ---------------------------------------------------------------------------
+agent_specs() {
+    cat <<'EOF'
+agy|Antigravity|agy|cli
+chatgpt|ChatGPT|chatgpt|desktop
+claude|Claude Code|claude|cli
+codex|Codex|codex|cli
+opencode|OpenCode|opencode|cli
+crush|Crush|crush|cli
+copilot|GitHub Copilot|copilot|cli
+grok|Grok|grok|cli
+pi|Pi|pi|cli
+omp|Oh My Pi|omp|cli
+ori|Ori|ori|cli
+hermes|Hermes|hermes|cli
+muse|Muse Code|muse|cli
+cursor-agent|Cursor CLI|cursor-agent|cli
+EOF
+}
+
+spec_for() {
+    agent_specs | awk -F'|' -v id="$1" '$1 == id { print }'
+}
+
+agent_ids() {
+    agent_specs | cut -d'|' -f1
+}
+
+is_known() {
+    [[ -n "$(spec_for "$1")" ]]
+}
+
+is_installed() {
+    local spec kind command_name
+    spec="$(spec_for "$1")"
+    [[ -n "$spec" ]] || return 1
+    command_name="$(printf '%s' "$spec" | cut -d'|' -f3)"
+    kind="$(printf '%s' "$spec" | cut -d'|' -f4)"
+    if [[ "$kind" == "desktop" ]]; then
+        command -v "$command_name" >/dev/null 2>&1 && return 0
+        command -v gtk-launch >/dev/null 2>&1 &&
+            [[ -f "/usr/share/applications/${command_name}.desktop" ]] && return 0
+        return 1
+    fi
+    command -v "$command_name" >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------------------
+# Default agent config
+# ---------------------------------------------------------------------------
+assert_managed() {
+    if [[ -f "$conf_path" ]]; then
+        grep -q "$MARKER" "$conf_path" || fail "ai.conf exists but is not managed by $PROG: $conf_path"
+    fi
+}
+
+read_default() {
+    [[ -f "$conf_path" ]] || return 0
+    assert_managed
+    awk -F= '$1 == "default_agent" { print $2; exit }' "$conf_path"
+}
+
+write_default() {
+    local value="$1"
+    mkdir -p -- "$conf_dir" || fail "could not create config directory"
+    local tmp
+    tmp="$(mktemp "$conf_dir/.ai.conf.XXXXXX")" || fail "could not stage ai.conf"
+    {
+        printf '%s\n' "# $MARKER"
+        [[ -n "$value" ]] && printf 'default_agent=%s\n' "$value"
+    } >"$tmp" || { rm -f -- "$tmp"; fail "could not write ai.conf"; }
+    chmod 0600 -- "$tmp" || { rm -f -- "$tmp"; fail "could not secure ai.conf"; }
+    mv -f -- "$tmp" "$conf_path" || { rm -f -- "$tmp"; fail "could not install ai.conf"; }
+}
+
+# ---------------------------------------------------------------------------
+# Launch
+# ---------------------------------------------------------------------------
+terminal_prefix() {
+    # Prints the terminal invocation for a command, or returns 1.
+    if command -v kitty >/dev/null 2>&1; then
+        printf '%s\n' "kitty|title"
+    elif command -v ghostty >/dev/null 2>&1; then
+        printf '%s\n' "ghostty|title"
+    elif command -v alacritty >/dev/null 2>&1; then
+        printf '%s\n' "alacritty|title"
+    elif command -v foot >/dev/null 2>&1; then
+        printf '%s\n' "foot|title"
+    elif command -v xterm >/dev/null 2>&1; then
+        printf '%s\n' "xterm|title"
+    else
+        return 1
+    fi
+}
+
+# Build the agent argv (unattended mode), optionally seeded with a prompt.
+build_agent_argv() {
+    local id="$1" prompt="${2:-}"
+    case "$id" in
+        opencode)
+            argv=(opencode --auto)
+            [[ -n "$prompt" ]] && argv+=(--prompt "$prompt")
+            ;;
+        agy)
+            argv=(agy --dangerously-skip-permissions)
+            [[ -n "$prompt" ]] && argv+=(--prompt-interactive "$prompt")
+            ;;
+        claude)
+            argv=(claude --permission-mode auto)
+            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+            ;;
+        codex)
+            argv=(codex --approve-for-me)
+            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+            ;;
+        crush)
+            if [[ -n "$prompt" ]]; then argv=(crush run "$prompt"); else argv=(crush --yolo); fi
+            ;;
+        copilot)
+            argv=(copilot --allow-all)
+            [[ -n "$prompt" ]] && argv+=(--interactive "$prompt")
+            ;;
+        grok)
+            argv=(grok --permission-mode bypassPermissions)
+            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+            ;;
+        omp)
+            argv=(omp --auto-approve)
+            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+            ;;
+        ori)
+            argv=(ori code)
+            [[ -n "$prompt" ]] && argv+=(--interactive --prompt "$prompt")
+            ;;
+        hermes)
+            if [[ -n "$prompt" ]]; then
+                argv=(env -u HERMES_SESSION_SOURCE hermes chat --yolo --tui "--query=$prompt")
+            else
+                argv=(hermes --yolo)
+            fi
+            ;;
+        muse)
+            argv=(muse --approval-mode never)
+            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+            ;;
+        cursor-agent)
+            argv=(cursor-agent --yolo --trust)
+            [[ -n "$prompt" ]] && argv+=(agent -- "$prompt")
+            ;;
+        pi)
+            argv=(pi)
+            [[ -n "$prompt" ]] && argv+=("$prompt")
+            ;;
+        *)
+            fail "agent has no unattended launcher: $id"
+            ;;
+    esac
+}
+
+cmd_launch() {
+    local prompt=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --prompt)
+                [[ $# -ge 2 ]] || fail "--prompt needs a value"
+                prompt="$2"
+                shift 2
+                ;;
+            *) fail "unexpected argument: $1" ;;
+        esac
+    done
+
+    local id
+    id="$(read_default)"
+    if [[ -z "$id" ]]; then
+        fail "no default agent set (use: $PROG set <agent>)"
+    fi
+    is_known "$id" || fail "default agent is not in the registry: $id"
+    is_installed "$id" || fail "$id is not installed"
+
+    # Agents refuse to remember trust for $HOME; start in ~/Work when present,
+    # mirroring the workstation convention.
+    if [[ "$PWD" == "$home" && -d "$home/Work" ]]; then
+        cd "$home/Work"
+    fi
+
+    local spec name kind
+    spec="$(spec_for "$id")"
+    name="$(printf '%s' "$spec" | cut -d'|' -f2)"
+    kind="$(printf '%s' "$spec" | cut -d'|' -f4)"
+
+    if [[ "$kind" == "desktop" ]]; then
+        if command -v gtk-launch >/dev/null 2>&1; then
+            exec gtk-launch -- "$id.desktop"
+        fi
+        exec "$id"
+    fi
+
+    build_agent_argv "$id" "$prompt"
+
+    local prefix terminal
+    prefix="$(terminal_prefix)" || fail "no supported terminal found (kitty, ghostty, alacritty, foot, xterm)"
+    terminal="${prefix%%|*}"
+    case "$terminal" in
+        kitty) exec kitty --title "AI: $name" "${argv[@]}" ;;
+        ghostty) exec ghostty --title="AI: $name" -e "${argv[@]}" ;;
+        alacritty) exec alacritty --title "AI: $name" -e "${argv[@]}" ;;
+        foot) exec foot -T "AI: $name" "${argv[@]}" ;;
+        xterm) exec xterm -T "AI: $name" -e "${argv[@]}" ;;
+        *) fail "unsupported terminal: $terminal" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Skill
+# ---------------------------------------------------------------------------
+skill_targets() {
+    local base="$home/.agents/skills"
+    printf '%s\n' "$base"
+    local agent_dir
+    for agent_dir in "$home/.claude/skills" "$home/.codex/skills" "$home/.pi/agent/skills" \
+        "$home/.gemini/config/skills" "$home/.hermes/skills"; do
+        [[ -d "$agent_dir" ]] && printf '%s\n' "$agent_dir"
+    done
+}
+
+cmd_skill() {
+    local action="${1:-status}"
+    case "$action" in
+        status)
+            local target installed=0
+            while IFS= read -r target; do
+                [[ -n "$target" ]] || continue
+                if [[ -L "$target/fedora-hyprland-workstation" ]]; then
+                    installed=1
+                fi
+            done < <(skill_targets)
+            if (( installed )); then printf 'installed\n'; else printf 'not-installed\n'; fi
+            ;;
+        install)
+            [[ -d "$skill_source" ]] || fail "skill source not found: $skill_source"
+            local target link
+            while IFS= read -r target; do
+                [[ -n "$target" ]] || continue
+                mkdir -p -- "$target" || fail "could not create $target"
+                link="$target/fedora-hyprland-workstation"
+                if [[ -e "$link" && ! -L "$link" ]]; then
+                    fail "refusing to replace non-symlink: $link"
+                fi
+                rm -f -- "$link"
+                ln -s -- "$skill_source" "$link" || fail "could not link skill into $target"
+            done < <(skill_targets)
+            printf 'Skill installed for %s\n' "$(skill_targets | wc -l | tr -d ' ')"
+            ;;
+        remove)
+            local target link removed=0
+            while IFS= read -r target; do
+                [[ -n "$target" ]] || continue
+                link="$target/fedora-hyprland-workstation"
+                if [[ -L "$link" ]]; then
+                    rm -f -- "$link" && removed=1
+                fi
+            done < <(skill_targets)
+            if (( removed )); then printf 'Skill removed.\n'; else printf 'Skill was not installed.\n'; fi
+            ;;
+        *) fail "usage: $PROG skill [status|install|remove]" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# JSON
+# ---------------------------------------------------------------------------
+json_string() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '"%s"' "$s"
+}
+
+cmd_agents() {
+    local default_id first=1 line id name command_name kind installed
+    default_id="$(read_default)"
+    printf '{\n  "default": %s,\n  "agents": [' "$([[ -n "$default_id" ]] && json_string "$default_id" || printf null)"
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        id="$(printf '%s' "$line" | cut -d'|' -f1)"
+        name="$(printf '%s' "$line" | cut -d'|' -f2)"
+        command_name="$(printf '%s' "$line" | cut -d'|' -f3)"
+        kind="$(printf '%s' "$line" | cut -d'|' -f4)"
+        if is_installed "$id"; then installed=true; else installed=false; fi
+        (( first )) || printf ',\n'
+        first=0
+        printf '    { "id": %s, "name": %s, "command": %s, "kind": %s, "installed": %s }' \
+            "$(json_string "$id")" "$(json_string "$name")" "$(json_string "$command_name")" \
+            "$(json_string "$kind")" "$installed"
+    done < <(agent_specs)
+    printf '\n  ]\n}\n'
+}
+
+cmd_set() {
+    local id="$1"
+    is_known "$id" || fail "unknown agent: $id"
+    write_default "$id"
+    if is_installed "$id"; then
+        printf 'Default agent set to %s.\n' "$id"
+    else
+        printf 'Default agent set to %s (not installed yet).\n' "$id"
+    fi
+}
+
+cmd_reset() {
+    if [[ -f "$conf_path" ]]; then
+        assert_managed
+        rm -f -- "$conf_path"
+    fi
+    printf 'Cleared the default agent.\n'
+}
+
+cmd_check() {
+    printf 'backend: %s\n' "$PROG"
+    printf 'ai_conf: %s\n' "$conf_path"
+    printf 'default: %s\n' "$(read_default)"
+    printf 'terminal: %s\n' "$(terminal_prefix 2>/dev/null | cut -d'|' -f1 || printf 'unavailable')"
+    printf 'skill_source: %s\n' "$skill_source"
+}
+
+usage() {
+    cat <<'USAGE'
+Usage: workstation-ai <command> [args]
+
+  agents                 List known agents with installed state (JSON).
+  default                Print the default agent id.
+  set <id>               Persist the default agent.
+  reset                  Clear the default agent.
+  launch [--prompt TEXT] Launch the default agent in a terminal (unattended mode).
+  skill [status|install|remove]  Manage the workstation agent skill.
+  check                  Report backend diagnostics.
+
+This backend detects and launches agents; it never installs them.
+USAGE
+}
+
+main() {
+    local cmd="${1:-}"
+    [[ -n "$cmd" ]] || { usage; exit 2; }
+    shift || true
+    case "$cmd" in
+        -h|--help|help) usage ;;
+        agents) cmd_agents ;;
+        default) read_default ;;
+        set)
+            [[ $# -eq 1 ]] || fail "usage: $PROG set <id>"
+            cmd_set "$1"
+            ;;
+        reset) cmd_reset ;;
+        launch) cmd_launch "$@" ;;
+        skill) cmd_skill "$@" ;;
+        check) cmd_check ;;
+        *) fail "unknown command: $cmd (see --help)" ;;
+    esac
+}
+
+main "$@"

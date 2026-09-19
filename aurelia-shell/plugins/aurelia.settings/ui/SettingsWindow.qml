@@ -100,6 +100,8 @@ PanelWindow {
 
     property string systemBackendBin: "/usr/local/bin/workstation-system-settings"
     property bool systemBackendAvailable: false
+    property string aiBin: "/usr/local/bin/workstation-ai"
+    property bool aiBackendAvailable: false
 
     function helperBin(name) {
         return aureliaBinDir + "/" + name
@@ -301,6 +303,56 @@ PanelWindow {
             } catch (error) {
                 console.warn("[SETTINGS] system_status_parse_failed")
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // AI agent backend (bounded; detects and launches, never installs)
+    // ------------------------------------------------------------------
+    Process {
+        id: aiProbe
+        command: []
+        onExited: function(code) {
+            root.aiBackendAvailable = (code === 0)
+            if (code === 0) root.refreshAi()
+        }
+    }
+
+    Process {
+        id: aiAgentsProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: aiAgentsStdout }
+        onExited: function(code) {
+            if (code !== 0) {
+                console.warn("[SETTINGS] ai_agents_unavailable")
+                return
+            }
+            try {
+                var parsed = JSON.parse(aiAgentsStdout.text || "{}")
+                root.applyAureliaPatch({
+                    ai: {
+                        default: parsed.default !== undefined ? parsed.default : null,
+                        agents: Array.isArray(parsed.agents) ? parsed.agents : []
+                    }
+                })
+            } catch (error) {
+                console.warn("[SETTINGS] ai_agents_parse_failed")
+            }
+        }
+    }
+
+    Process {
+        id: aiLaunchProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stderr: StdioCollector { id: aiLaunchStderr }
+        onExited: function(code) {
+            root.footerText = code === 0
+                ? "Agent launched."
+                : "Failed: " + (aiLaunchStderr.text || "launch error").trim()
         }
     }
 
@@ -532,6 +584,10 @@ PanelWindow {
             /workstation-hypr-settings$/, "workstation-system-settings")
         systemProbe.command = ["/usr/bin/test", "-x", root.systemBackendBin]
         systemProbe.running = true
+        root.aiBin = String(root.backendBin).replace(
+            /workstation-hypr-settings$/, "workstation-ai")
+        aiProbe.command = ["/usr/bin/test", "-x", root.aiBin]
+        aiProbe.running = true
         schemaProcess.command = [root.backendBin, "schema"]
         schemaProcess.running = true
         // Fetch live state in parallel with the schema; both are independent
@@ -569,6 +625,26 @@ PanelWindow {
         aureliaPrefsProcess.running = true
         barProcess.command = [root.helperBin("aurelia-bar-hidden"), "read"]
         barProcess.running = true
+        root.refreshAi()
+    }
+
+    function refreshAi() {
+        if (!root.aiBackendAvailable) return
+        aiAgentsProcess.command = [root.aiBin, "agents"]
+        aiAgentsProcess.running = true
+    }
+
+    function applyAiOption(optionId, value) {
+        if (optionId === "ai.default") {
+            runHelper([root.aiBin, "set", String(value)], "Setting default agent…")
+        }
+    }
+
+    function launchAgent() {
+        if (!root.aiBackendAvailable) return
+        root.footerText = "Launching default agent…"
+        aiLaunchProcess.command = [root.aiBin, "launch"]
+        aiLaunchProcess.running = true
     }
 
     function loadAureliaThemes() {
@@ -580,7 +656,7 @@ PanelWindow {
         var next = {}
         var keys = ["ipcOnline", "themes", "currentTheme", "motionEnabled", "motionScale",
                     "textSize", "barHidden", "weekStart", "clockFormat", "clockHour24",
-                    "clockSeconds", "settingsPath"]
+                    "clockSeconds", "ai", "settingsPath"]
         for (var i = 0; i < keys.length; i++) {
             next[keys[i]] = keys[i] in patch ? patch[keys[i]] : root.aureliaState[keys[i]]
         }
@@ -699,6 +775,15 @@ PanelWindow {
             if (pluginRoot && pluginRoot.shell && typeof pluginRoot.shell.toggle === "function") {
                 pluginRoot.shell.toggle("aurelia.network", "{}")
             }
+            break
+        case "launchAgent":
+            root.launchAgent()
+            break
+        case "installSkill":
+            runHelper([root.aiBin, "skill", "install"], "Installing workstation skill…")
+            break
+        case "removeSkill":
+            runHelper([root.aiBin, "skill", "remove"], "Removing workstation skill…")
             break
         case "resetSection":
             clearAllOverrides()
@@ -964,6 +1049,8 @@ PanelWindow {
                             root.applyAureliaOption(optionId, value)
                         } else if (String(optionId).indexOf("defaults.") === 0) {
                             root.applyDefaultsOption(optionId, value)
+                        } else if (String(optionId).indexOf("ai.") === 0) {
+                            root.applyAiOption(optionId, value)
                         } else {
                             root.applyOption(optionId, value)
                         }

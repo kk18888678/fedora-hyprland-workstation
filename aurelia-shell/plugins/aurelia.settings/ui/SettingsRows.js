@@ -258,6 +258,8 @@ function sections() {
           categories: ["time"], schema: true },
         { id: "defaults", name: "Defaults", icon: "preferences-desktop-apps",
           categories: [], schema: false, defaults: true },
+        { id: "ai", name: "AI", icon: "applications-development",
+          categories: [], schema: false, ai: true },
         { id: "aurelia", name: "Aurelia Shell", icon: "display",
           categories: [], schema: false, aurelia: true },
         { id: "about", name: "About & Reset", icon: "help-about",
@@ -479,6 +481,62 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
         return rows
     }
 
+    if (sectionId === "ai") {
+        var ai = aurelia && aurelia.ai ? aurelia.ai : null
+        var agents = ai && ai.agents ? ai.agents : []
+        var installed = []
+        for (var a = 0; a < agents.length; a++) {
+            if (agents[a].installed === true) installed.push(agents[a])
+        }
+        rows.push({
+            kind: "heading",
+            title: "Coding Agents"
+        })
+        rows.push({
+            kind: "combo",
+            id: "ai.default",
+            title: "Default Agent",
+            description: "Launched by the AI shortcut and the launch action below.",
+            enumOptions: installed.map(function(entry) {
+                return { value: entry.id, label: entry.name }
+            }),
+            effective: ai ? String(ai.default || "") : ""
+        })
+        rows.push({
+            kind: "action",
+            actionId: "launchAgent",
+            title: "Launch default agent",
+            description: "Open the default agent in a terminal in its unattended mode.",
+            label: "Launch"
+        })
+        var installedNames = installed.map(function(entry) { return entry.name })
+        rows.push({
+            kind: "info",
+            title: "Installed agents",
+            value: installedNames.length > 0 ? installedNames.join(", ") : "None detected",
+            description: "Agents are provisioned by the installer or your package manager; this backend only detects and launches them."
+        })
+        rows.push({
+            kind: "heading",
+            title: "Workstation Skill"
+        })
+        rows.push({
+            kind: "action",
+            actionId: "installSkill",
+            title: "Install workstation skill",
+            description: "Link the Fedora Hyprland workstation skill into agent skill directories.",
+            label: "Install"
+        })
+        rows.push({
+            kind: "action",
+            actionId: "removeSkill",
+            title: "Remove workstation skill",
+            description: "Remove only this project's skill symlink.",
+            label: "Remove"
+        })
+        return rows
+    }
+
     if (sectionId === "about") {
         rows.push({
             kind: "heading",
@@ -558,6 +616,7 @@ function emptyAureliaState() {
         clockFormat: "month_day_weekday_time",
         clockHour24: true,
         clockSeconds: false,
+        ai: { default: null, agents: [] },
         settingsPath: ""
     }
 }
