@@ -201,3 +201,47 @@ if XDG_STATE_HOME="$sandbox/state" "$backend" usage | jq -e '
 else
     fail "[isolated] Codex/Cline collector record contract diverged"
 fi
+
+# ---------------------------------------------------------------------------
+# Backend-path race (isolated runtime)
+# ---------------------------------------------------------------------------
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] agents backend-path race (qs or timeout unavailable)"
+    return 0
+fi
+
+race_root="$(mktemp -d)"
+trap 'rm -rf -- "$race_root" || true' RETURN
+mkdir -p -- "$race_root/runtime" "$race_root/state" "$race_root/config" \
+    "$race_root/cache" "$race_root/shell" "$race_root/bin"
+cat >"$race_root/bin/workstation-ai" <<'MOCK_AI'
+#!/usr/bin/env bash
+case "${1:-}" in
+    usage-update) exit 0 ;;
+    usage)
+        printf '%s\n' '{"agents":[{"id":"mock","name":"Mock Agent","detected":true,"ready":true,"todayTotalTokens":1234,"todayPrompts":2,"todaySessions":1,"todayTokensByModel":{},"recentDays":[],"modelUsage":{},"totalPrompts":2,"totalSessions":1,"activeDays":1,"activeDates":[],"tierLabel":"","usageStatusText":"","authHelpText":"","limits":[]}]}'
+        ;;
+    *) exit 0 ;;
+esac
+MOCK_AI
+chmod 0755 "$race_root/bin/workstation-ai"
+race_result="$race_root/result.json"
+: >"$race_result"
+race_status=0
+AGENTS_WIDGET_SOURCE="$plugin_dir/AgentsBarWidget.qml" \
+AGENTS_AURELIA_PATH="$race_root/shell" \
+AGENTS_RACE_RESULT="$race_result" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$race_root/runtime" XDG_STATE_HOME="$race_root/state" \
+XDG_CONFIG_HOME="$race_root/config" XDG_CACHE_HOME="$race_root/cache" \
+    /usr/bin/timeout --kill-after=1s 14s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/agents-race/shell.qml" \
+    >"$race_root/race.log" 2>&1 || race_status=$?
+if [[ "$race_status" -eq 0 ]] &&
+   jq -e '.loaded == true and .agents == 1 and .hasAgents == true and .lastError == ""' \
+       "$race_result" >/dev/null 2>&1; then
+    pass "[isolated-runtime] agents widget recovers when the host assigns aureliaPath after construction"
+else
+    details="$(cat "$race_result" 2>/dev/null || true)"
+    fail "[isolated-runtime] agents widget backend-path race regressed (status=$race_status result=$details)"
+fi

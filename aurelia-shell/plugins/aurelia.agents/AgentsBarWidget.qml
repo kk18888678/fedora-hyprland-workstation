@@ -23,6 +23,7 @@ Item {
     property var agents: []
     property bool loaded: false
     property string lastError: ""
+    property int retryCount: 0
 
     readonly property string backendBin: {
         var override = Quickshell.env("WORKSTATION_AI_BIN") || ""
@@ -30,6 +31,16 @@ Item {
         if (root.aureliaPath !== "") return root.aureliaPath + "/../bin/workstation-ai"
         return "/usr/local/bin/workstation-ai"
     }
+    // The host assigns aureliaPath after the widget is constructed, so the
+    // first refresh must not race it into a non-existent installed path.
+    readonly property bool backendReady: (Quickshell.env("WORKSTATION_AI_BIN") || "") !== "" || root.aureliaPath !== ""
+    readonly property var processEnvironment: ({
+        "PATH": "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : ""),
+        "HOME": Quickshell.env("HOME") || "",
+        "XDG_RUNTIME_DIR": Quickshell.env("XDG_RUNTIME_DIR") || "",
+        "XDG_STATE_HOME": Quickshell.env("XDG_STATE_HOME") || "",
+        "XDG_CONFIG_HOME": Quickshell.env("XDG_CONFIG_HOME") || ""
+    })
     readonly property int refreshSeconds: {
         var raw = root.settings && root.settings.refreshIntervalSec !== undefined
             ? parseInt(root.settings.refreshIntervalSec) : 900
@@ -50,8 +61,15 @@ Item {
     implicitHeight: root.bar ? root.bar.barSize : 26
 
     function refresh() {
+        if (!root.backendReady) return
         if (usageUpdateProcess.running || usageProcess.running) return
         usageUpdateProcess.running = true
+    }
+
+    function scheduleRetry() {
+        if (root.retryCount >= 3) return
+        root.retryCount += 1
+        backendRetryTimer.restart()
     }
 
     function togglePanel() {
@@ -61,7 +79,26 @@ Item {
         else panel.open()
     }
 
-    Component.onCompleted: refresh()
+    Component.onCompleted: {
+        root.refresh()
+        startupRetryTimer.restart()
+    }
+    onAureliaPathChanged: root.refresh()
+    onBarChanged: root.refresh()
+
+    Timer {
+        id: startupRetryTimer
+        interval: 4000
+        repeat: false
+        onTriggered: if (!root.loaded) root.refresh()
+    }
+
+    Timer {
+        id: backendRetryTimer
+        interval: 5000
+        repeat: false
+        onTriggered: root.refresh()
+    }
 
     Loader {
         id: agentsPanelLoader
@@ -73,6 +110,7 @@ Item {
     Process {
         id: usageUpdateProcess
         command: [root.backendBin, "usage-update"]
+        environment: root.processEnvironment
         running: false
         onExited: function (code) {
             usageProcess.running = true
@@ -82,17 +120,20 @@ Item {
     Process {
         id: usageProcess
         command: [root.backendBin, "usage"]
+        environment: root.processEnvironment
         running: false
         stdout: StdioCollector { id: usageOut }
         onExited: function (code) {
             if (code !== 0) {
                 root.lastError = "usage backend failed"
                 root.loaded = true
+                root.scheduleRetry()
                 return
             }
             root.agents = AgentUsage.parseRecords(usageOut.text)
             root.loaded = true
             root.lastError = ""
+            root.retryCount = 0
         }
     }
 
