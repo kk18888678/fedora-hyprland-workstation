@@ -224,14 +224,15 @@ def main() -> int:
     parser.parse_args()
 
     stats = common.merge_stats(scan(), common.scan_pi_sessions(["cline"]))
+    detected = number(stats.get("totalPrompts")) > 0
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,
         "name": AGENT_NAME,
         "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "ready": number(stats.get("totalPrompts")) > 0,
-        "detected": bool(stats.get("detected")),
-        "hasLocalStats": bool(stats.get("detected")),
+        "detected": detected,
+        "hasLocalStats": detected,
         "hasPromptStats": True,
         "tierLabel": "",
         "usageStatusText": "Local usage only",

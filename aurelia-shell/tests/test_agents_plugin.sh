@@ -59,7 +59,9 @@ if [[ -x "$collector" ]] &&
    grep -q 'cmd_usage()' "$backend" &&
    for agent in claude codex cline opencode; do
        [[ -x "$repo_root/bin/ai-usage-$agent" ]] || false
-   done; then
+   done &&
+   grep -q 'zen/go/v1/usage' "$repo_root/bin/ai-usage-opencode" &&
+   grep -q 'User-Agent' "$repo_root/bin/ai-usage-opencode"; then
     pass "[static] usage collectors are executable and the backend exposes usage/usage-update"
 else
     fail "[static] usage backend or collector wiring is missing"
@@ -67,7 +69,9 @@ fi
 
 if grep -q 'AgentUsage.paceInfo' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'ALL ACCOUNTS' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.severityForLimit' "$plugin_dir/AgentsPanel.qml"; then
+   grep -q 'AgentUsage.severityForLimit' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'property real marker' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AgentUsage.elapsedFraction' "$plugin_dir/AgentsPanel.qml"; then
     pass "[static] agents panel shows pace, severity colours, and an all-accounts snapshot"
 else
     fail "[static] agents panel dashboard sections are incomplete"
@@ -274,6 +278,7 @@ if printf '%s' "$codex_rpc" | jq -e '
         .tierLabel == "plus" and
         (.limits | length == 2) and
         .limits[0].percent == 0.42 and .limits[0].label == "5h window" and
+        .limits[0].windowMinutes == 300 and
         .limits[1].percent == 0.11 and .limits[1].label == "Weekly (7-day)" and
         (.limits[0].resetsAt | length > 0)' >/dev/null 2>&1; then
     pass "[isolated] Codex collector reads fresh limits from the app-server RPC"

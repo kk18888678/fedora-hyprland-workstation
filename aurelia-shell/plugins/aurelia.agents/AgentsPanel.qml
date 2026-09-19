@@ -72,10 +72,13 @@ AureliaKeyboardPanel {
         font.bold: true
     }
 
-    // Rounded track showing the fraction of an allowance used.
+    // Rounded track showing the fraction of an allowance used. The marker sits
+    // at the pace position (where usage would be if the window drained evenly),
+    // so a fill past the marker reads as "behind pace" at a glance.
     component Meter: Item {
         id: meter
         property real value: -1
+        property real marker: -1
         property bool alarming: false
 
         Layout.fillWidth: true
@@ -98,6 +101,16 @@ AureliaKeyboardPanel {
             Behavior on width {
                 NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
             }
+        }
+
+        Rectangle {
+            visible: meter.marker >= 0
+            x: Math.round(parent.width * AgentUsage.clamp(meter.marker, 0, 1)) - width / 2
+            width: 2
+            height: parent.height + 4
+            anchors.verticalCenter: parent.verticalCenter
+            color: Theme.text
+            opacity: 0.75
         }
     }
 
@@ -134,6 +147,7 @@ AureliaKeyboardPanel {
 
         Meter {
             value: limitRow.percent
+            marker: limitRow.pace ? limitRow.pace.elapsed : -1
             alarming: limitRow.alarming
         }
 
@@ -377,6 +391,15 @@ AureliaKeyboardPanel {
                         color: snapshotRow.index === panelRoot.safeIndex ? Theme.accent : Theme.text
                         font.pixelSize: Theme.fontSizeSm
                         elide: Text.ElideRight
+                    }
+
+                    Meter {
+                        Layout.fillWidth: false
+                        Layout.preferredWidth: 90
+                        value: snapshotRow.snapshotLimit ? Number(snapshotRow.snapshotLimit.percent) : -1
+                        marker: snapshotRow.snapshotLimit
+                            ? AgentUsage.elapsedFraction(snapshotRow.snapshotLimit, panelRoot.nowMs) : -1
+                        alarming: AgentUsage.severityForLimit(snapshotRow.snapshotLimit) === "critical"
                     }
 
                     Text {

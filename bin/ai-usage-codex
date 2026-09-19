@@ -292,7 +292,7 @@ def main() -> int:
     home = codex_home()
     stats = common.merge_stats(scan_sessions(home / "sessions"), common.scan_pi_sessions(["codex"]))
     rpc = fetch_codex_rpc()
-    detected = home.is_dir() or bool(stats.get("detected"))
+    detected = number(stats.get("totalPrompts")) > 0 or len(rpc.get("limits") or []) > 0
 
     record = {
         "schemaVersion": 1,

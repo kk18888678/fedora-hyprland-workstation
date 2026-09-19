@@ -21,6 +21,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
@@ -28,6 +29,72 @@ import ai_usage_common as common  # noqa: E402
 
 AGENT_ID = "opencode"
 AGENT_NAME = "OpenCode"
+GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage"
+GO_WINDOWS = (("rolling", "5h window", 300), ("weekly", "Weekly (7-day)", 10080), ("monthly", "Monthly (30-day)", 43200))
+
+
+def auth_paths() -> list[Path]:
+    home = Path.home()
+    return [
+        Path(os.environ.get("PI_HOME") or home / ".pi") / "agent" / "auth.json",
+        Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share") / "opencode" / "auth.json",
+    ]
+
+
+def opencode_go_key() -> str:
+    for path in auth_paths():
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        entry = data.get("opencode-go") if isinstance(data, dict) else None
+        if isinstance(entry, dict):
+            key = str(entry.get("key") or "").strip()
+            if key:
+                return key
+    return ""
+
+
+def fetch_go_limits() -> dict:
+    """Live OpenCode Go subscription windows (rolling 5h / weekly / monthly)."""
+    key = opencode_go_key()
+    if not key:
+        return {"limits": [], "usageStatusText": "", "authHelpText": ""}
+    try:
+        request = urllib.request.Request(
+            GO_USAGE_URL,
+            headers={
+                "Authorization": "Bearer " + key,
+                "Accept": "application/json",
+                "User-Agent": "aurelia-agent-usage/1.0",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+    except Exception as exc:
+        return {"limits": [], "usageStatusText": "OpenCode Go limits unavailable", "authHelpText": str(exc)}
+
+    usage = payload.get("usage") if isinstance(payload, dict) else None
+    if not isinstance(usage, dict):
+        return {"limits": [], "usageStatusText": "OpenCode Go limits unavailable", "authHelpText": ""}
+
+    limits = []
+    for name, label, minutes in GO_WINDOWS:
+        window = usage.get(name)
+        if not isinstance(window, dict):
+            continue
+        percent = window.get("percent")
+        if percent is None:
+            continue
+        limits.append({
+            "label": label,
+            "percent": float(percent) / 100.0,
+            "resetsAt": str(window.get("resetsAt") or ""),
+            "windowMinutes": minutes,
+        })
+    return {"limits": limits, "usageStatusText": "", "authHelpText": ""}
 
 
 def number(value) -> int:
@@ -177,20 +244,21 @@ def main() -> int:
     parser.parse_args()
 
     stats = common.merge_stats(scan(), common.scan_pi_sessions(["opencode"]))
-    detected = database_path().is_file() or bool(stats.get("detected"))
+    go = fetch_go_limits()
+    detected = database_path().is_file() or bool(stats.get("detected")) or len(go["limits"]) > 0
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,
         "name": AGENT_NAME,
         "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "ready": number(stats.get("totalPrompts")) > 0,
+        "ready": number(stats.get("totalPrompts")) > 0 or len(go["limits"]) > 0,
         "detected": detected,
         "hasLocalStats": detected,
         "hasPromptStats": True,
-        "tierLabel": "",
-        "usageStatusText": "Local usage only",
-        "authHelpText": "",
-        "limits": [],
+        "tierLabel": "OpenCode Go" if go["limits"] else "",
+        "usageStatusText": go["usageStatusText"],
+        "authHelpText": go["authHelpText"],
+        "limits": go["limits"],
     }
     record.update(stats)
     record["detected"] = detected
