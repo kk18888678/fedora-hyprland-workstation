@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""Local-stats Codex usage collector for the Aurelia agents panel.
+
+Reads Codex CLI rollout transcripts under $CODEX_HOME/sessions and prints one
+display-ready JSON record (the same contract as the other ai-usage-* collectors).
+Token totals come from the per-turn `token_count` events; the rolling 5-hour and
+weekly rate-limit meters come from the `rate_limits` block Codex already records
+locally, so no network call or credential is required.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import sys
+from pathlib import Path
+
+AGENT_ID = "codex"
+AGENT_NAME = "Codex"
+
+
+def codex_home() -> Path:
+    value = os.environ.get("CODEX_HOME") or "~/.codex"
+    return Path(os.path.expandvars(os.path.expanduser(value)))
+
+
+def number(value) -> int:
+    try:
+        n = float(value or 0)
+        return round(n) if n == n else 0
+    except Exception:
+        return 0
+
+
+def local_date_string() -> str:
+    return dt.datetime.now().strftime("%Y-%m-%d")
+
+
+def recent_date_strings() -> list[str]:
+    today = dt.datetime.now().date()
+    return [(today - dt.timedelta(days=offset)).strftime("%Y-%m-%d") for offset in range(6, -1, -1)]
+
+
+def local_date_from_timestamp(value) -> str:
+    text = str(value or "").strip()
+    if text:
+        try:
+            parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone()
+            return parsed.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return local_date_string()
+
+
+def iso_from_epoch(value) -> str:
+    try:
+        seconds = float(value)
+        if seconds <= 0:
+            return ""
+        return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).isoformat()
+    except Exception:
+        return ""
+
+
+def empty_bucket() -> dict[str, int]:
+    return {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+    }
+
+
+def window_label(minutes: int) -> str:
+    if minutes <= 0:
+        return ""
+    if minutes == 300:
+        return "5h window"
+    if minutes == 10080:
+        return "weekly window"
+    if minutes == 43200:
+        return "monthly window"
+    if minutes % 1440 == 0:
+        return f"{minutes // 1440}d window"
+    if minutes % 60 == 0:
+        return f"{minutes // 60}h window"
+    return f"{minutes}m window"
+
+
+def limit_entry(label: str, title: str, window: dict, fallback_label: str) -> dict | None:
+    if not isinstance(window, dict):
+        return None
+    percent = window.get("used_percent")
+    if percent is None:
+        return None
+    minutes = number(window.get("window_minutes"))
+    text = label or window_label(minutes) or fallback_label
+    return {
+        "label": text,
+        "title": title,
+        "percent": round(float(percent), 2),
+        "resetsAt": iso_from_epoch(window.get("resets_at")),
+    }
+
+
+def scan_sessions(sessions_path: Path) -> dict:
+    today = local_date_string()
+    recent_dates = recent_date_strings()
+    recent = {day: {"date": day, "messageCount": 0} for day in recent_dates}
+
+    seen: set[tuple[str, str]] = set()
+    sessions: set[str] = set()
+    active_days: set[str] = set()
+    today_sessions: set[str] = set()
+    today_tokens: dict[str, int] = {}
+    usage_by_model: dict[str, dict[str, int]] = {}
+    prompts = 0
+    today_prompt_count = 0
+    today_token_total = 0
+    latest_limits: dict | None = None
+    latest_limits_at = ""
+
+    files = sorted(sessions_path.rglob("rollout-*.jsonl")) if sessions_path.is_dir() else []
+    for path in files:
+        session_id = path.stem
+        model = "codex"
+        turn_id = ""
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line_number, line in enumerate(handle, 1):
+                    if '"token_count"' not in line and '"turn_context"' not in line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except Exception:
+                        continue
+
+                    if entry.get("type") == "turn_context":
+                        payload = entry.get("payload")
+                        if isinstance(payload, dict):
+                            turn_id = str(payload.get("turn_id") or turn_id)
+                            model = str(payload.get("model") or model)
+                        continue
+
+                    payload = entry.get("payload")
+                    if not isinstance(payload, dict) or payload.get("type") != "token_count":
+                        continue
+
+                    info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+                    last = info.get("last_token_usage") if isinstance(info.get("last_token_usage"), dict) else {}
+                    input_tokens = number(last.get("input_tokens"))
+                    output_tokens = number(last.get("output_tokens"))
+                    cache_read = number(last.get("cached_input_tokens"))
+                    cache_write = number(last.get("cache_write_input_tokens"))
+                    total = input_tokens + output_tokens + cache_read + cache_write
+
+                    unique_key = (session_id, turn_id or f"line{line_number}")
+                    if unique_key in seen:
+                        continue
+                    seen.add(unique_key)
+                    if total <= 0:
+                        continue
+
+                    day = local_date_from_timestamp(entry.get("timestamp"))
+                    sessions.add(session_id)
+                    active_days.add(day)
+                    prompts += 1
+
+                    bucket = usage_by_model.setdefault(model, empty_bucket())
+                    bucket["inputTokens"] += input_tokens
+                    bucket["outputTokens"] += output_tokens
+                    bucket["cacheReadInputTokens"] += cache_read
+                    bucket["cacheCreationInputTokens"] += cache_write
+
+                    if day in recent:
+                        recent[day]["messageCount"] += total
+
+                    if day == today:
+                        today_prompt_count += 1
+                        today_sessions.add(session_id)
+                        today_token_total += total
+                        today_tokens[model] = today_tokens.get(model, 0) + total
+
+                    rate_limits = payload.get("rate_limits")
+                    if isinstance(rate_limits, dict):
+                        stamp = str(entry.get("timestamp") or "")
+                        if stamp >= latest_limits_at:
+                            latest_limits_at = stamp
+                            latest_limits = rate_limits
+        except Exception as exc:  # pragma: no cover - unreadable files only
+            print(f"Ignoring unreadable Codex session file {path}: {exc}", file=sys.stderr)
+
+    limits = []
+    if isinstance(latest_limits, dict):
+        primary = limit_entry("", "Session", latest_limits.get("primary") or {}, "Session")
+        secondary = limit_entry("", "Weekly", latest_limits.get("secondary") or {}, "Weekly")
+        if primary:
+            limits.append(primary)
+        if secondary:
+            limits.append(secondary)
+
+    return {
+        "todayPrompts": today_prompt_count,
+        "todaySessions": len(today_sessions),
+        "todayTotalTokens": today_token_total,
+        "todayTokensByModel": today_tokens,
+        "recentDays": [recent[day] for day in recent_dates],
+        "modelUsage": usage_by_model,
+        "totalPrompts": prompts,
+        "totalSessions": len(sessions),
+        "activeDays": len(active_days),
+        "activeDates": sorted(active_days),
+        "limits": limits,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true", help="accepted for collector parity; local scans are always fresh")
+    parser.parse_args()
+
+    home = codex_home()
+    sessions_path = home / "sessions"
+    stats = scan_sessions(sessions_path)
+    detected = home.is_dir()
+    record = {
+        "schemaVersion": 1,
+        "id": AGENT_ID,
+        "name": AGENT_NAME,
+        "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "ready": number(stats.get("totalPrompts")) > 0 or len(stats.get("limits") or []) > 0,
+        "detected": detected,
+        "hasLocalStats": detected,
+        "hasPromptStats": True,
+        "tierLabel": "",
+        "usageStatusText": "Local usage only" if not stats.get("limits") else "",
+        "authHelpText": "",
+    }
+    record.update(stats)
+    print(json.dumps(record, separators=(",", ":"), sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

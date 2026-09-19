@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""Local-stats OpenCode usage collector for the Aurelia agents panel.
+
+OpenCode keeps per-session token totals in its SQLite database
+($XDG_DATA_HOME/opencode/opencode.db, table `session`). Because the database
+runs in WAL mode and may be open, this collector copies the database (and its
+WAL sidecars) into a private temporary directory and reads the copy, so the
+live database is never written to or checkpointed.
+
+Prints one display-ready JSON record (the same contract as the other
+ai-usage-* collectors). No network calls and no credentials.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import shutil
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+AGENT_ID = "opencode"
+AGENT_NAME = "OpenCode"
+
+
+def number(value) -> int:
+    try:
+        n = float(value or 0)
+        return round(n) if n == n else 0
+    except Exception:
+        return 0
+
+
+def data_home() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+
+
+def database_path() -> Path:
+    return data_home() / "opencode" / "opencode.db"
+
+
+def local_date_string() -> str:
+    return dt.datetime.now().strftime("%Y-%m-%d")
+
+
+def recent_date_strings() -> list[str]:
+    today = dt.datetime.now().date()
+    return [(today - dt.timedelta(days=offset)).strftime("%Y-%m-%d") for offset in range(6, -1, -1)]
+
+
+def local_date_from_millis(value) -> str:
+    try:
+        millis = float(value)
+        if millis <= 0:
+            return local_date_string()
+        return dt.datetime.fromtimestamp(millis / 1000.0).strftime("%Y-%m-%d")
+    except Exception:
+        return local_date_string()
+
+
+def empty_bucket() -> dict[str, int]:
+    return {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+    }
+
+
+def model_name(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "opencode"
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return text
+    if isinstance(parsed, dict):
+        return str(parsed.get("id") or parsed.get("modelID") or parsed.get("name") or text)
+    return text
+
+
+def copy_database(source: Path, staging: Path) -> Path:
+    target = staging / "opencode.db"
+    shutil.copy2(source, target)
+    for suffix in ("-wal", "-shm"):
+        sidecar = source.with_name(source.name + suffix)
+        if sidecar.is_file():
+            shutil.copy2(sidecar, staging / (target.name + suffix))
+    return target
+
+
+def scan() -> dict:
+    today = local_date_string()
+    recent_dates = recent_date_strings()
+    recent = {day: {"date": day, "messageCount": 0} for day in recent_dates}
+
+    sessions = 0
+    active_days: set[str] = set()
+    today_sessions = 0
+    today_tokens: dict[str, int] = {}
+    usage_by_model: dict[str, dict[str, int]] = {}
+    today_token_total = 0
+
+    source = database_path()
+    if not source.is_file():
+        return _result(recent, recent_dates, usage_by_model, today_tokens, sessions, active_days, today_token_total, today_sessions)
+
+    staging = Path(tempfile.mkdtemp(prefix="aurelia-opencode-"))
+    try:
+        copy = copy_database(source, staging)
+        con = sqlite3.connect(copy)
+        try:
+            rows = con.execute(
+                "select model, tokens_input, tokens_output, tokens_reasoning, "
+                "tokens_cache_read, tokens_cache_write, time_created "
+                "from session"
+            )
+            for model_raw, input_tokens, output_tokens, reasoning, cache_read, cache_write, created in rows:
+                input_tokens = number(input_tokens)
+                output_tokens = number(output_tokens) + number(reasoning)
+                cache_read = number(cache_read)
+                cache_write = number(cache_write)
+                total = input_tokens + output_tokens + cache_read + cache_write
+                if total <= 0:
+                    continue
+                model = model_name(model_raw)
+                day = local_date_from_millis(created)
+                sessions += 1
+                active_days.add(day)
+                bucket = usage_by_model.setdefault(model, empty_bucket())
+                bucket["inputTokens"] += input_tokens
+                bucket["outputTokens"] += output_tokens
+                bucket["cacheReadInputTokens"] += cache_read
+                bucket["cacheCreationInputTokens"] += cache_write
+                if day in recent:
+                    recent[day]["messageCount"] += total
+                if day == today:
+                    today_sessions += 1
+                    today_token_total += total
+                    today_tokens[model] = today_tokens.get(model, 0) + total
+        finally:
+            con.close()
+    except Exception as exc:  # pragma: no cover - locked or corrupt database only
+        print(f"Ignoring unreadable OpenCode database {source}: {exc}", file=sys.stderr)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    return _result(recent, recent_dates, usage_by_model, today_tokens, sessions, active_days, today_token_total, today_sessions)
+
+
+def _result(recent, recent_dates, usage_by_model, today_tokens, sessions, active_days, today_token_total, today_sessions) -> dict:
+    return {
+        "todayPrompts": today_sessions,
+        "todaySessions": today_sessions,
+        "todayTotalTokens": today_token_total,
+        "todayTokensByModel": today_tokens,
+        "recentDays": [recent[day] for day in recent_dates],
+        "modelUsage": usage_by_model,
+        "totalPrompts": sessions,
+        "totalSessions": sessions,
+        "activeDays": len(active_days),
+        "activeDates": sorted(active_days),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true", help="accepted for collector parity; local scans are always fresh")
+    parser.parse_args()
+
+    stats = scan()
+    detected = database_path().is_file()
+    record = {
+        "schemaVersion": 1,
+        "id": AGENT_ID,
+        "name": AGENT_NAME,
+        "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "ready": number(stats.get("totalPrompts")) > 0,
+        "detected": detected,
+        "hasLocalStats": detected,
+        "hasPromptStats": True,
+        "tierLabel": "",
+        "usageStatusText": "Local usage only",
+        "authHelpText": "",
+        "limits": [],
+    }
+    record.update(stats)
+    print(json.dumps(record, separators=(",", ":"), sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

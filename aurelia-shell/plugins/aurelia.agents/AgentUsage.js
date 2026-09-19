@@ -38,6 +38,14 @@ function readyAgents(records) {
     });
 }
 
+// Agents the user actually has: an installed/used tool is listed even before it
+// has any recorded usage, so the panel can explain the empty state.
+function detectedAgents(records) {
+    return (records || []).filter(function (agent) {
+        return agent && (agent.detected === true || agent.ready === true);
+    });
+}
+
 function todayTotal(records) {
     var total = 0;
     (records || []).forEach(function (agent) {

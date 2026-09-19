@@ -37,15 +37,16 @@ Item {
         return raw
     }
     readonly property var readyAgents: AgentUsage.readyAgents(root.agents)
-    readonly property bool ready: root.loaded && root.readyAgents.length > 0
+    readonly property var visibleAgents: AgentUsage.detectedAgents(root.agents)
+    readonly property bool hasAgents: root.loaded && root.visibleAgents.length > 0
     readonly property real todayTokens: AgentUsage.todayTotal(root.readyAgents)
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
 
-    visible: root.ready
-    implicitWidth: root.ready && !root.vertical ? agentRow.implicitWidth + Theme.spacingSm * 2
-        : (root.ready ? (root.bar ? root.bar.barSize : 26) : 0)
+    visible: root.hasAgents
+    implicitWidth: root.hasAgents && !root.vertical ? agentRow.implicitWidth + Theme.spacingSm * 2
+        : (root.hasAgents ? (root.bar ? root.bar.barSize : 26) : 0)
     implicitHeight: root.bar ? root.bar.barSize : 26
 
     function refresh() {

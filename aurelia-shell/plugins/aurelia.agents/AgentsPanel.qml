@@ -20,10 +20,10 @@ AureliaKeyboardPanel {
     maxPopupHeight: 640
     shown: false
 
-    readonly property var agents: agentsWidget ? agentsWidget.readyAgents : []
+    readonly property var agents: agentsWidget ? agentsWidget.visibleAgents : []
 
     function open() {
-        if (agentsWidget && agentsWidget.ready) shown = true
+        if (agentsWidget && agentsWidget.hasAgents) shown = true
     }
 
     function close() {
@@ -117,10 +117,36 @@ AureliaKeyboardPanel {
 
                 Text {
                     Layout.fillWidth: true
-                    text: AgentUsage.formatTokens(agentCard.modelData.todayTotalTokens) +
-                        " tokens today · " + (agentCard.modelData.todayPrompts || 0) + " prompts"
+                    text: agentCard.modelData.ready === true
+                        ? AgentUsage.formatTokens(agentCard.modelData.todayTotalTokens) +
+                            " tokens today · " + (agentCard.modelData.todayPrompts || 0) + " prompts"
+                        : "No usage recorded yet"
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeSm
+                }
+
+                Repeater {
+                    model: agentCard.modelData.limits || []
+
+                    delegate: RowLayout {
+                        id: limitRow
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSm
+
+                        Text {
+                            text: (limitRow.modelData.title || limitRow.modelData.label || "Limit")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSizeSm
+                            Layout.fillWidth: true
+                        }
+
+                        Text {
+                            text: Math.round(Number(limitRow.modelData.percent) || 0) + "%"
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSizeSm
+                        }
+                    }
                 }
 
                 Row {

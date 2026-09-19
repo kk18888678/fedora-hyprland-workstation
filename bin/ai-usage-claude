@@ -179,6 +179,7 @@ def main() -> int:
         "name": AGENT_NAME,
         "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "ready": number(stats.get("totalPrompts")) > 0,
+        "detected": config_dir().is_dir(),
         "hasLocalStats": True,
         "hasPromptStats": True,
         "tierLabel": "",

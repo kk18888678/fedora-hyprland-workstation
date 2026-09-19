@@ -33,11 +33,11 @@ else
     fail "[static] agents manifest contract is invalid"
 fi
 
-if grep -q 'visible: root.ready' "$plugin_dir/AgentsBarWidget.qml" &&
+if grep -q 'visible: root.hasAgents' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q '"usage-update"' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q '"usage"' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.parseRecords' "$plugin_dir/AgentsBarWidget.qml"; then
-    pass "[static] agents widget refreshes through workstation-ai and hides until a record is ready"
+    pass "[static] agents widget refreshes through workstation-ai and hides until an agent is detected"
 else
     fail "[static] agents widget backend wiring is incomplete"
 fi
@@ -52,8 +52,11 @@ fi
 if [[ -x "$collector" ]] &&
    grep -q 'usage-update' "$backend" &&
    grep -q 'cmd_usage_update' "$backend" &&
-   grep -q 'cmd_usage()' "$backend"; then
-    pass "[static] usage collector is executable and the backend exposes usage/usage-update"
+   grep -q 'cmd_usage()' "$backend" &&
+   for agent in claude codex cline opencode; do
+       [[ -x "$repo_root/bin/ai-usage-$agent" ]] || false
+   done; then
+    pass "[static] usage collectors are executable and the backend exposes usage/usage-update"
 else
     fail "[static] usage backend or collector wiring is missing"
 fi
@@ -65,13 +68,13 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, todayTotal, tierLabel, sortedModels, recentBars };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
 const records = A.parseRecords(JSON.stringify({agents: [
     {id: "claude", ready: true, todayTotalTokens: 1500, tierLabel: "Max"},
-    {id: "codex", ready: false}
+    {id: "codex", ready: false, detected: true}
 ]}));
 const bars = A.recentBars([
     {date: "2026-09-18", messageCount: 0},
@@ -83,6 +86,8 @@ const ok =
     A.parseRecords("{}").length === 0 &&
     records.length === 2 &&
     A.readyAgents(records).length === 1 &&
+    A.detectedAgents(records).length === 2 &&
+    A.detectedAgents([{detected: true}, {ready: true}, {detected: false, ready: false}]).length === 2 &&
     A.todayTotal(records) === 1500 &&
     A.tierLabel(records[0]) === "Max" &&
     A.formatTokens(0) === "0" &&
@@ -162,4 +167,37 @@ if [[ -f "$record_file" && "$record_mode" == "600" ]]; then
     pass "[isolated] collected usage records are stored private (0600) and atomically"
 else
     fail "[isolated] collected usage record permissions are unsafe (mode=$record_mode)"
+fi
+
+# Codex and Cline fixtures prove the record contract is collector-agnostic:
+# Codex contributes local token totals plus the 5h/weekly limit meters it
+# already records, and Cline contributes VS Code task token totals.
+mkdir -p -- "$sandbox/codex/sessions/2026/09/19" \
+    "$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1" \
+    "$sandbox/data"
+cat >"$sandbox/codex/sessions/2026/09/19/rollout-x.jsonl" <<'CODEX_ROLLOUT'
+{"timestamp":"2026-09-19T10:00:00Z","type":"session_meta","payload":{"id":"s1"}}
+{"timestamp":"2026-09-19T10:00:01Z","type":"turn_context","payload":{"turn_id":"t1","model":"gpt-5"}}
+{"timestamp":"2026-09-19T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20,"cache_write_input_tokens":5,"total_tokens":175}},"rate_limits":{"primary":{"used_percent":42.0,"window_minutes":300,"resets_at":1800000000},"secondary":{"used_percent":11.0,"window_minutes":10080,"resets_at":1800600000}}}}
+CODEX_ROLLOUT
+cat >"$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1/ui_messages.json" <<'CLINE_MESSAGES'
+[{"ts":1789000000000,"type":"say","say":"api_req_started","text":"{\"tokensIn\":1000,\"tokensOut\":200,\"cacheReads\":50,\"cacheWrites\":10,\"cost\":0}"}]
+CLINE_MESSAGES
+printf '%s\n' '{"model_usage":[{"model_id":"cline-pass/glm-5.3-flash"}]}' \
+    >"$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1/task_metadata.json"
+
+HOME="$sandbox/home" CODEX_HOME="$sandbox/codex" XDG_CONFIG_HOME="$sandbox/config" \
+    XDG_DATA_HOME="$sandbox/data" XDG_STATE_HOME="$sandbox/state" \
+    "$backend" usage-update >/dev/null
+if XDG_STATE_HOME="$sandbox/state" "$backend" usage | jq -e '
+        ([.agents[] | select(.id == "codex")][0]) as $c |
+        ([.agents[] | select(.id == "cline")][0]) as $l |
+        $c.detected == true and $c.totalPrompts == 1 and $c.todayTotalTokens == 175 and
+        ($c.limits | length == 2) and ($c.limits[0].percent == 42) and
+        $c.modelUsage["gpt-5"].inputTokens == 100 and
+        $l.detected == true and $l.totalPrompts == 1 and
+        $l.modelUsage["cline-pass/glm-5.3-flash"].outputTokens == 200' >/dev/null; then
+    pass "[isolated] Codex and Cline collectors populate the same record contract"
+else
+    fail "[isolated] Codex/Cline collector record contract diverged"
 fi
