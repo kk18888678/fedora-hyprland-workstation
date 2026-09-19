@@ -46,7 +46,8 @@ if grep -q 'Quickshell.Hyprland' "$switcher_qml" &&
    grep -q '((index + step) % count + count) % count' "$switcher_qml" &&
    grep -q 'if (recenter !== false) root.keepSelectionVisible()' "$switcher_qml" &&
    grep -q 'WheelHandler {' "$switcher_qml" &&
-   grep -q 'root.cycle(event.angleDelta.y > 0 ? -1 : 1)' "$switcher_qml" &&
+   grep -q 'root.wheelAccumulator += event.angleDelta.y' "$switcher_qml" &&
+   grep -q 'while (Math.abs(root.wheelAccumulator) >= 120)' "$switcher_qml" &&
    ! grep -q 'onHovered: root.selectWorkspace' "$switcher_qml" &&
    grep -q 'Hyprland.refreshMonitors' "$switcher_qml" &&
    grep -q 'ListView.StrictlyEnforceRange' "$switcher_qml" &&

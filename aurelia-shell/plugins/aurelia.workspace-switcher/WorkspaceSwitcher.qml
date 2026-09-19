@@ -20,6 +20,9 @@ Item {
     property bool isOpen: false
     property int selectedWorkspaceId: 1
     property int modelRevision: 0
+    // Accumulated wheel delta so one physical notch (120) is exactly one
+    // cycle, instead of one cycle per high-resolution wheel event.
+    property real wheelAccumulator: 0
 
     readonly property int currentWorkspaceId: {
         var revision = root.modelRevision
@@ -184,6 +187,7 @@ Item {
 
     function close() {
         root.isOpen = false
+        root.wheelAccumulator = 0
         return "closed"
     }
 
@@ -245,10 +249,16 @@ Item {
             anchors.fill: parent
 
             // Mouse wheel / trackpad scroll cycles the workspace selection.
+            // Accumulate the delta so a single notch (120) advances one
+            // workspace even when the device reports several small events.
             WheelHandler {
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 onWheel: function(event) {
-                    root.cycle(event.angleDelta.y > 0 ? -1 : 1)
+                    root.wheelAccumulator += event.angleDelta.y
+                    while (Math.abs(root.wheelAccumulator) >= 120) {
+                        root.cycle(root.wheelAccumulator > 0 ? -1 : 1)
+                        root.wheelAccumulator -= root.wheelAccumulator > 0 ? 120 : -120
+                    }
                     event.accepted = true
                 }
             }
