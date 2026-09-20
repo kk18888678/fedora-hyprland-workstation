@@ -59,13 +59,28 @@ if [[ -f "$crash_skill" && -f "$reporting" ]] &&
    grep -q '^name: diagnose-crash' "$crash_skill" &&
    grep -q 'coredumpctl info' "$crash_skill" &&
    grep -q 'coredumpctl list' "$crash_skill" &&
-   grep -q 'debuginfod.fedoraproject.org' "$crash_skill" &&
+   grep -q 'Metadata only' "$crash_skill" &&
+   grep -qi 'never extract, copy, or read a core dump' "$crash_skill" &&
+   ! grep -q 'coredumpctl dump' "$crash_skill" &&
+   ! grep -q 'debuginfod' "$crash_skill" &&
+   ! grep -Eq '(^|[^[:alnum:]_])gdb([^[:alnum:]_]|$)' "$crash_skill" &&
    grep -q 'Leave the system as you found it' "$crash_skill" &&
    grep -q 'aurelia crash mute' "$crash_skill" &&
    grep -q 'kk18888678/fedora-hyprland-workstation' "$reporting"; then
-    pass "the diagnose-crash skill is evidence-first with a bounded reporting contract"
+    pass "the diagnose-crash skill is metadata-only and evidence-first with a bounded reporting contract"
 else
     fail "the diagnose-crash skill contract is incomplete"
+fi
+
+if grep -q 'mask_secrets()' "$ROOT/bin/workstation-ai" &&
+   grep -q 'cmd_review()' "$ROOT/bin/workstation-ai" &&
+   grep -q '__review' "$ROOT/bin/workstation-ai" &&
+   grep -Fq "build_agent_argv \"\$agent\" \"\$prompt\" readonly" "$ROOT/bin/workstation-ai" &&
+   grep -q 'cmd_launch --review' "$ROOT/bin/workstation-ai" &&
+   ! grep -q 'coredumpctl dump' "$ROOT/bin/workstation-ai"; then
+    pass "the crash handoff masks, reviews, and launches the agent read-only"
+else
+    fail "the crash handoff is missing its privacy boundary"
 fi
 
 # The extended crash handoff and the dual-skill install run in a sandbox HOME.

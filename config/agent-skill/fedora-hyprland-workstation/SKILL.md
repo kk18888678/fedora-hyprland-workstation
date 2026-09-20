@@ -31,11 +31,15 @@ the bounded, reviewed backends over editing files by hand.
 ## Diagnosing a crash
 
 1. `coredumpctl list` to find the PID (the watcher notification also carries it).
-2. `aurelia crash diagnose <pid>` (or `workstation-ai crash <pid>`) hands the
-   crash facts to the default agent with the evidence-first diagnosis task.
-3. Follow the `diagnose-crash` skill: establish the facts from the dump before
-   proposing a fix; only recommend an upstream report when the cause is in the
-   program, not the local setup.
+2. `aurelia crash diagnose <pid>` (or `workstation-ai crash <pid>`) shows the
+   exact masked payload for review, then hands it to the default agent in its
+   most restricted read-only mode. Nothing is sent unless you approve the
+   review.
+3. Follow the `diagnose-crash` skill: establish the facts from the systemd
+   metadata (`coredumpctl info`, the journal, and package history) before
+   proposing a fix. The diagnosis is metadata-only — never take a core dump.
+   Only recommend an upstream report when the cause is in the program, not the
+   local setup.
 4. Offer to mute the program with `aurelia crash mute '<program>'`, and say how
    to undo it with `off`.
 

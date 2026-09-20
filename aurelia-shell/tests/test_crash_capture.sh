@@ -420,17 +420,148 @@ grep -Fq 'aurelia crash mute' "$crash_skill" ||
     fail "the diagnosis no longer names the command that mutes"
 grep -Fq 'coredumpctl info' "$crash_skill" ||
     fail "the diagnosis does not start from coredumpctl evidence"
-grep -Fq 'debuginfod.fedoraproject.org' "$crash_skill" ||
-    fail "the diagnosis does not document Fedora symbolization"
+grep -Fq 'Metadata only' "$crash_skill" ||
+    fail "the diagnosis does not declare itself metadata-only"
+grep -Fqi 'never extract, copy, or read a core dump' "$crash_skill" ||
+    fail "the diagnosis does not explicitly forbid core dumps"
 grep -Fq 'Leave the system as you found it' "$crash_skill" ||
     fail "the diagnosis no longer states the no-mutation rule"
 grep -Fq 'kk18888678/fedora-hyprland-workstation' "$report_skill" ||
     fail "the reporting contract does not name the project it reports to"
-pass "the evidence-first skill covers evidence, Fedora symbolization, no-mutation, and reporting"
+pass "the metadata-only skill covers evidence, the core-dump prohibition, no-mutation, and reporting"
 
 grep -Fq 'diagnose-crash' "$ROOT/../bin/workstation-ai" ||
     fail "workstation-ai does not install or reference the diagnose-crash skill"
 pass "workstation-ai ships the diagnose-crash skill"
+
+# ---------------------------------------------------------------------------
+# Crash privacy: no core dump, masking, and a fail-closed review gate
+# ---------------------------------------------------------------------------
+# Static: the diagnosis and handoff never contain a core-extraction step.
+if ! grep -Fq 'coredumpctl dump' "$crash_skill" &&
+   ! grep -Eq '(^|[^[:alnum:]_])gdb([^[:alnum:]_]|$)' "$crash_skill" &&
+   ! grep -Fq 'debuginfod' "$crash_skill" &&
+   ! grep -Fq 'coredumpctl dump' "$ROOT/../bin/workstation-ai"; then
+    pass "neither the skill nor the handoff contains a core-extraction step"
+else
+    fail "the crash feature still contains a core-extraction step"
+fi
+
+privacy_home="$fixture/privacy-home"
+privacy_bin="$fixture/privacy-bin"
+privacy_logs="$fixture/privacy-logs"
+mkdir -p "$privacy_home/.config" "$privacy_bin" "$privacy_logs"
+
+cat >"$privacy_bin/coredumpctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$AURELIA_CRASH_COREDUMP_LOG"
+if [[ "${1:-}" == "list" ]]; then
+    printf '%s\n' "Mon 2026-01-01 00:00:00 UTC 4242 1000 11 SIGSEGV /usr/bin/hyprland"
+fi
+SH
+cat >"$privacy_bin/gdb" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$AURELIA_CRASH_GDB_LOG"
+SH
+cat >"$privacy_bin/pi" <<'SH'
+#!/usr/bin/env bash
+{
+    printf 'ARGC=%s\n' "$#"
+    for arg in "$@"; do printf 'ARG=%s\n' "$arg"; done
+} >>"$AURELIA_CRASH_AGENT_LOG"
+SH
+cat >"$privacy_bin/kitty" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$AURELIA_CRASH_KITTY_LOG"
+[[ "${1:-}" == "--title" ]] && shift 2
+printf '%s\n' "${KITTY_APPROVE:-}" | "$@"
+SH
+chmod +x "$privacy_bin/coredumpctl" "$privacy_bin/gdb" "$privacy_bin/pi" "$privacy_bin/kitty"
+
+privacy_ai() {
+    HOME="$privacy_home" \
+    XDG_CONFIG_HOME="$privacy_home/.config" \
+    XDG_STATE_HOME="$privacy_home/.local/state" \
+    AURELIA_CRASH_COREDUMP_LOG="$privacy_logs/coredump" \
+    AURELIA_CRASH_GDB_LOG="$privacy_logs/gdb" \
+    AURELIA_CRASH_AGENT_LOG="$privacy_logs/agent" \
+    AURELIA_CRASH_KITTY_LOG="$privacy_logs/kitty" \
+    KITTY_APPROVE="${KITTY_APPROVE:-}" \
+    PATH="$privacy_bin:$PATH" \
+        "$ROOT/../bin/workstation-ai" "$@"
+}
+
+privacy_ai set pi >/dev/null || fail "could not select the read-only test agent"
+
+# Approved review: the agent receives the masked payload in read-only mode,
+# and no core is dumped and no debugger is started.
+: >"$privacy_logs/coredump"
+: >"$privacy_logs/kitty"
+rm -f "$privacy_logs/agent" "$privacy_logs/gdb"
+if KITTY_APPROVE=y privacy_ai crash 4242 'password=hunter2' /usr/bin/hyprland SIGSEGV >"$privacy_logs/out" 2>&1; then
+    pass "an approved review completes"
+else
+    fail "an approved review did not complete"
+fi
+if [[ -f "$privacy_logs/agent" ]] &&
+   grep -Fq 'ARG=read,bash' "$privacy_logs/agent" &&
+   grep -Fq 'password=[REDACTED]' "$privacy_logs/agent" &&
+   ! grep -Fq 'hunter2' "$privacy_logs/agent"; then
+    pass "the approved payload reaches the agent masked and in read-only mode"
+else
+    fail "the approved payload is unmasked or launched in an unsafe mode"
+fi
+if grep -Fq '__review' "$privacy_logs/kitty" &&
+   ! grep -Fq 'password=hunter2' "$privacy_logs/kitty"; then
+    pass "the terminal is opened on the review, not on the raw payload"
+else
+    fail "the terminal was opened without a review step"
+fi
+if grep -Fq 'list' "$privacy_logs/coredump" &&
+   ! grep -Fq 'dump' "$privacy_logs/coredump" &&
+   [[ ! -e "$privacy_logs/gdb" ]]; then
+    pass "the diagnosis reads coredumpctl metadata and never extracts a core"
+else
+    fail "the diagnosis took a core dump or started a debugger"
+fi
+
+# Declined review: the agent is never launched.
+rm -f "$privacy_logs/agent"
+if KITTY_APPROVE=n privacy_ai crash 4242 hyprland /usr/bin/hyprland SIGSEGV >"$privacy_logs/out" 2>&1; then
+    fail "a declined review still exited successfully"
+else
+    pass "a declined review fails closed"
+fi
+[[ ! -e "$privacy_logs/agent" ]] ||
+    fail "a declined review still launched the agent"
+pass "a declined review never launches the agent"
+
+# No answer (EOF): the agent is never launched.
+rm -f "$privacy_logs/agent"
+if KITTY_APPROVE='' privacy_ai crash 4242 hyprland /usr/bin/hyprland SIGSEGV >"$privacy_logs/out" 2>&1; then
+    fail "a review with no answer still exited successfully"
+else
+    pass "a review with no answer fails closed"
+fi
+[[ ! -e "$privacy_logs/agent" ]] ||
+    fail "a review with no answer still launched the agent"
+pass "a review with no answer never launches the agent"
+
+# An unavailable payload cannot be reviewed, so nothing is sent.
+if privacy_ai __review --payload "$fixture/does-not-exist" --agent pi >"$privacy_logs/out" 2>&1; then
+    fail "__review sent a payload it could not show"
+else
+    pass "__review fails closed when the payload cannot be shown"
+fi
+
+# The crash review masks the payload and launches the agent read-only.
+if grep -Fq "build_agent_argv \"\$agent\" \"\$prompt\" readonly" "$ROOT/../bin/workstation-ai" &&
+   grep -Fq 'mask_secrets' "$ROOT/../bin/workstation-ai" &&
+   grep -Fq 'cmd_launch --review' "$ROOT/../bin/workstation-ai"; then
+    pass "the crash review masks the payload and launches the agent read-only"
+else
+    fail "the crash review is missing its masking or read-only boundary"
+fi
 
 # ---------------------------------------------------------------------------
 # Menu and Command Center integration

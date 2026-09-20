@@ -1,13 +1,13 @@
 ---
 name: diagnose-crash
 description: >
-  Diagnose why a program crashed on this Fedora Hyprland workstation, from a
-  systemd-coredump core dump. Use when a process has segfaulted, aborted, or
+  Diagnose why a program crashed on this Fedora Hyprland workstation, from
+  systemd-coredump metadata. Use when a process has segfaulted, aborted, or
   otherwise dumped core, when asked why an application crashed or disappeared,
   or when a "Process crashed:" desktop notification is acted on. Triggers:
   crash, segfault, SIGSEGV, SIGABRT, SIGBUS, core dump, coredumpctl, "why did
-  X crash", "X keeps crashing", backtrace symbolization, OOM kill. Covers
-  reporting a confirmed workstation bug upstream — see reporting.md.
+  X crash", "X keeps crashing", OOM kill. Covers reporting a confirmed
+  workstation bug upstream — see reporting.md.
 ---
 
 # Diagnosing a Crash
@@ -15,11 +15,25 @@ description: >
 Work from evidence. The goal is an honest account of what happened, not a
 plausible-sounding story.
 
+## Metadata only: never take a core dump
+
+This diagnosis is **metadata-only**. Never extract, copy, or read a core dump,
+and never read process memory. Do not launch a debugger, a symbolization
+server, or any tool that opens the core. A core is a verbatim copy of the
+crashed process's address space and can hold passwords, tokens, private keys,
+and private documents; this workstation does not collect or inspect it.
+
+The handoff launches you in the most restricted read-only mode it can, and this
+rule still holds: if a step would produce or open a core, do not take it.
+Diagnose from the metadata below instead.
+
 ## Establish the facts
 
-`coredumpctl info <pid>` is the starting point. Beyond the backtrace, note the
-**command line** the process was started with — it usually reveals what the
-program was working on when it died, which is often the whole answer.
+`coredumpctl info <pid>` is the starting point. It reports the signal, the
+executable, the command line, the crash timestamp, and the journal metadata
+that systemd-coredump recorded. Note the **command line** the process was
+started with — it usually reveals what the program was working on when it died,
+which is often the whole answer.
 
 `coredumpctl list` shows whether this crash is a one-off or a pattern. Repeated
 crashes of the same program, or several programs dying together, point somewhere
@@ -54,41 +68,18 @@ The crash timestamp is the most underused piece of evidence. Compare it against:
   changed just before the crash; an update landing on the crash time points at
   the update.
 
-## Read the whole core, not just frame 0
+## Look for what was in flight
 
-Thread stacks other than the crashing one show what work was **in flight** —
-thumbnailers, image loaders, IPC readers, GPU queues. That context often
-explains the trigger even when the crashing frame itself cannot be symbolized.
+Without a backtrace, the journal and the command line are the map. Look for
+other warnings from the same process just before the crash, for a worker,
+thumbnailer, or plugin that was active, and for third-party code the process
+loaded. In-process third-party code — file-manager or browser extensions,
+plugins, out-of-tree drivers — is a common crash source and worth flagging, but
+do not pin blame on it without evidence that it is actually implicated.
 
-Note any third-party code in the address space: file-manager or browser
-extensions, plugins, out-of-tree drivers. In-process third-party code is a
-common crash source and worth flagging — but do not pin blame on it without
-evidence that it is actually implicated.
-
-## Symbolize when you can
-
-Fedora runs a public debuginfod server. `gdb` and `debuginfod` may not be
-installed; if they are missing, say so and report the unsymbolized stack rather
-than installing anything.
-
-```bash
-core=$(mktemp -t crash-XXXXXX.core)
-trap 'rm -f "$core"' EXIT
-coredumpctl dump <pid> --output="$core"
-DEBUGINFOD_URLS="https://debuginfod.fedoraproject.org/" \
-  gdb -q <executable> "$core" \
-  -batch -ex 'set debuginfod enabled on' -ex 'bt'
-```
-
-A core is a verbatim copy of the process's memory and can hold passwords,
-tokens, and private documents. Write it to a fresh `mktemp` path rather than a
-predictable shared one, and delete it when you are done — never leave it lying
-in `/tmp`.
-
-Many packages publish no debug symbols. When frames stay unresolved, say so —
-never invent function names to fill the gap. An unsymbolized stack still has
-shape: which library each frame belongs to, and whether the crash came from a
-signal handler, a main loop, or a worker thread.
+Many packages publish no debug symbols. When the metadata does not explain a
+frame, say so — never invent function names or a stack to fill the gap. An
+honest "the metadata does not identify the failing code" is a valid finding.
 
 ## Report
 
@@ -103,9 +94,8 @@ Be straight about the limits of the evidence. If the cause is genuinely
 ambiguous, say so rather than assembling confidence out of guesswork.
 
 **Leave the system as you found it.** Diagnosis reads; it does not fix, tidy, or
-reconfigure. The one thing to clean up is your own: delete the core you extracted
-above, which is a copy of the crashed process's memory. The single change a
-diagnosis may make is the mute below, and only when the user asks for it.
+reconfigure. It does not dump cores, and it does not write to the filesystem
+except for the per-program mute below, and only when the user asks for it.
 
 ## Offer to stop the notifications for this program
 

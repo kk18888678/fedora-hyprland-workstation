@@ -44,8 +44,9 @@ gh search issues --repo kk18888678/fedora-hyprland-workstation "<program> crash"
 gh issue list --repo kk18888678/fedora-hyprland-workstation --state all --search "<signal> <program>"
 ```
 
-Search on the crashing program, the signal, and distinctive symbols from the
-backtrace — not on the wording of the title you were about to write.
+Search on the crashing program, the signal, and distinctive values from the
+command line or journal — not on the wording of the title you were about to
+write.
 
 `gh search issues` accepts only `open` or `closed` for `--state`, and errors on
 anything else. Leaving it off searches both, which is what you want here.
@@ -67,8 +68,8 @@ same bug if the trigger or the stack differs.
 
 If it is the same, add to that issue rather than opening a new one — but only
 when you have something the thread does not already contain: a different
-reproduction, a symbolized stack where it has none, a narrower trigger, a version
-where it regressed.
+reproduction, the metadata or command line where it has none, a narrower
+trigger, a version where it regressed.
 
 A comment that only says the bug happens to you too is noise. If that is all you
 have, tell the user so and file nothing.
@@ -87,8 +88,9 @@ gh issue create --repo kk18888678/fedora-hyprland-workstation --title "..." --bo
 
 Include what happened, what was expected, steps to reproduce, and system details:
 the output of `cat /etc/os-release`, `uname -r`, and `rpm -q` for the crashing
-package (`rpm -qf <executable>`). Include the symbolized or unsymbolized
-backtrace and the exact crash command line.
+package (`rpm -qf <executable>`). Include the systemd-coredump metadata from
+`coredumpctl info` and the exact crash command line. Do not attach or extract a
+core dump.
 
 `gh` cannot attach media. If a screenshot would help, save one and give the user
 the path to drag into the web form.

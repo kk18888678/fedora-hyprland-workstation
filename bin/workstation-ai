@@ -25,6 +25,9 @@ MARKER="WORKSTATION_AI_MANAGED_V1"
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd -P)"
+# Absolute path to this backend, so the reviewed crash handoff can re-enter the
+# same binary from inside the terminal it opens.
+SELF_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 
 home="${HOME:-}"
 if [[ "$home" != /* || "$home" == "/" || ! -d "$home" || -L "$home" ]]; then
@@ -178,76 +181,159 @@ terminal_prefix() {
 }
 
 # Build the agent argv (unattended mode), optionally seeded with a prompt.
+# Build the agent argv. mode is "unattended" (the normal launcher) or
+# "readonly" (the crash diagnosis handoff, which must not be able to mutate
+# the workstation).
 build_agent_argv() {
-    local id="$1" prompt="${2:-}"
-    case "$id" in
-        opencode)
-            argv=(opencode --auto)
-            [[ -n "$prompt" ]] && argv+=(--prompt "$prompt")
+    local id="$1" prompt="${2:-}" mode="${3:-unattended}"
+    case "$mode" in
+        unattended)
+            case "$id" in
+                opencode)
+                    argv=(opencode --auto)
+                    [[ -n "$prompt" ]] && argv+=(--prompt "$prompt")
+                    ;;
+                agy)
+                    argv=(agy --dangerously-skip-permissions)
+                    [[ -n "$prompt" ]] && argv+=(--prompt-interactive "$prompt")
+                    ;;
+                claude)
+                    argv=(claude --permission-mode auto)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                codex)
+                    argv=(codex --approve-for-me)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                crush)
+                    if [[ -n "$prompt" ]]; then argv=(crush run "$prompt"); else argv=(crush --yolo); fi
+                    ;;
+                copilot)
+                    argv=(copilot --allow-all)
+                    [[ -n "$prompt" ]] && argv+=(--interactive "$prompt")
+                    ;;
+                grok)
+                    argv=(grok --permission-mode bypassPermissions)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                omp)
+                    argv=(omp --auto-approve)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                ori)
+                    argv=(ori code)
+                    [[ -n "$prompt" ]] && argv+=(--interactive --prompt "$prompt")
+                    ;;
+                hermes)
+                    if [[ -n "$prompt" ]]; then
+                        argv=(env -u HERMES_SESSION_SOURCE hermes chat --yolo --tui "--query=$prompt")
+                    else
+                        argv=(hermes --yolo)
+                    fi
+                    ;;
+                muse)
+                    argv=(muse --approval-mode never)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                cursor-agent)
+                    argv=(cursor-agent --yolo --trust)
+                    [[ -n "$prompt" ]] && argv+=(agent -- "$prompt")
+                    ;;
+                pi)
+                    argv=(pi)
+                    [[ -n "$prompt" ]] && argv+=("$prompt")
+                    ;;
+                *)
+                    fail "agent has no unattended launcher: $id"
+                    ;;
+            esac
             ;;
-        agy)
-            argv=(agy --dangerously-skip-permissions)
-            [[ -n "$prompt" ]] && argv+=(--prompt-interactive "$prompt")
-            ;;
-        claude)
-            argv=(claude --permission-mode auto)
-            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
-            ;;
-        codex)
-            argv=(codex --approve-for-me)
-            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
-            ;;
-        crush)
-            if [[ -n "$prompt" ]]; then argv=(crush run "$prompt"); else argv=(crush --yolo); fi
-            ;;
-        copilot)
-            argv=(copilot --allow-all)
-            [[ -n "$prompt" ]] && argv+=(--interactive "$prompt")
-            ;;
-        grok)
-            argv=(grok --permission-mode bypassPermissions)
-            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
-            ;;
-        omp)
-            argv=(omp --auto-approve)
-            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
-            ;;
-        ori)
-            argv=(ori code)
-            [[ -n "$prompt" ]] && argv+=(--interactive --prompt "$prompt")
-            ;;
-        hermes)
-            if [[ -n "$prompt" ]]; then
-                argv=(env -u HERMES_SESSION_SOURCE hermes chat --yolo --tui "--query=$prompt")
-            else
-                argv=(hermes --yolo)
-            fi
-            ;;
-        muse)
-            argv=(muse --approval-mode never)
-            [[ -n "$prompt" ]] && argv+=(-- "$prompt")
-            ;;
-        cursor-agent)
-            argv=(cursor-agent --yolo --trust)
-            [[ -n "$prompt" ]] && argv+=(agent -- "$prompt")
-            ;;
-        pi)
-            argv=(pi)
-            [[ -n "$prompt" ]] && argv+=("$prompt")
+        readonly)
+            # Crash diagnosis reads evidence; it must never be handed the
+            # unattended/bypass flags above. Prefer an explicit read-only or
+            # plan mode where the agent documents one, and otherwise fall back
+            # to the plain interactive command (no auto-approval), which is the
+            # most restricted invocation the agent exposes.
+            case "$id" in
+                agy)
+                    argv=(agy --mode plan --sandbox)
+                    [[ -n "$prompt" ]] && argv+=(--prompt-interactive "$prompt")
+                    ;;
+                claude)
+                    argv=(claude --permission-mode plan)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                codex)
+                    argv=(codex --sandbox read-only)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                opencode)
+                    argv=(opencode --agent plan)
+                    [[ -n "$prompt" ]] && argv+=(--prompt "$prompt")
+                    ;;
+                grok)
+                    argv=(grok --permission-mode plan)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                omp)
+                    argv=(omp "--approval-mode=always-ask" "--tools=read,bash,grep,glob")
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                cursor-agent)
+                    argv=(cursor-agent --mode plan)
+                    [[ -n "$prompt" ]] && argv+=(agent -- "$prompt")
+                    ;;
+                pi)
+                    argv=(pi --tools "read,bash")
+                    [[ -n "$prompt" ]] && argv+=("$prompt")
+                    ;;
+                crush)
+                    argv=(crush)
+                    [[ -n "$prompt" ]] && argv+=("$prompt")
+                    ;;
+                copilot)
+                    argv=(copilot)
+                    [[ -n "$prompt" ]] && argv+=(--interactive "$prompt")
+                    ;;
+                ori)
+                    argv=(ori code)
+                    [[ -n "$prompt" ]] && argv+=(--interactive --prompt "$prompt")
+                    ;;
+                hermes)
+                    argv=(env -u HERMES_SESSION_SOURCE hermes chat --tui "--query=$prompt")
+                    ;;
+                muse)
+                    argv=(muse)
+                    [[ -n "$prompt" ]] && argv+=(-- "$prompt")
+                    ;;
+                *)
+                    fail "agent has no read-only launcher: $id"
+                    ;;
+            esac
             ;;
         *)
-            fail "agent has no unattended launcher: $id"
+            fail "unknown launch mode: $mode"
             ;;
     esac
 }
 
 cmd_launch() {
-    local prompt=""
+    local prompt="" review_file="" disclosure_file=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --prompt)
                 [[ $# -ge 2 ]] || fail "--prompt needs a value"
                 prompt="$2"
+                shift 2
+                ;;
+            --review)
+                [[ $# -ge 2 ]] || fail "--review needs a payload file"
+                review_file="$2"
+                shift 2
+                ;;
+            --disclosure)
+                [[ $# -ge 2 ]] || fail "--disclosure needs a file"
+                disclosure_file="$2"
                 shift 2
                 ;;
             *) fail "unexpected argument: $1" ;;
@@ -273,14 +359,23 @@ cmd_launch() {
     name="$(printf '%s' "$spec" | cut -d'|' -f2)"
     kind="$(printf '%s' "$spec" | cut -d'|' -f4)"
 
-    if [[ "$kind" == "desktop" ]]; then
+    # A reviewed payload is shown in a terminal before the agent starts. The
+    # terminal runs this backend again in its internal __review mode, which is
+    # the only path that may launch the read-only diagnosis agent. There is no
+    # branch that launches the agent directly from a crash payload.
+    if [[ -n "$review_file" ]]; then
+        [[ -f "$review_file" && ! -L "$review_file" && -r "$review_file" ]] ||
+            fail "the crash payload cannot be reviewed; nothing was sent"
+        argv=("$SELF_PATH" __review --payload "$review_file" --agent "$id")
+        [[ -n "$disclosure_file" ]] && argv+=(--disclosure "$disclosure_file")
+    elif [[ "$kind" == "desktop" ]]; then
         if command -v gtk-launch >/dev/null; then
             exec gtk-launch -- "$id.desktop"
         fi
         exec "$id"
+    else
+        build_agent_argv "$id" "$prompt" unattended
     fi
-
-    build_agent_argv "$id" "$prompt"
 
     local prefix terminal
     prefix="$(terminal_prefix)" || fail "no supported terminal found (kitty, ghostty, alacritty, foot, xterm)"
@@ -562,11 +657,162 @@ cmd_prompt() {
     cmd_launch --prompt "$*"
 }
 
-# Diagnose one crash from the systemd core dump, seeded into the default agent.
+# ---------------------------------------------------------------------------
+# Crash payload review: best-effort secret masking and fail-closed consent
+# ---------------------------------------------------------------------------
+# Best-effort masking of common secret shapes in the crash payload. Reads the
+# payload on stdin, writes the masked payload to stdout, and writes a
+# disclosure of every pattern class it masked to stderr. It never edits the
+# original payload in place and never suppresses a match silently; the caller
+# shows the disclosure next to the reviewed bytes.
+mask_secrets() {
+    awk '
+    BEGIN {
+        IGNORECASE = 1
+        PROCINFO["sorted_in"] = "@ind_str_asc"
+        in_private_key = 0
+        total = 0
+    }
+    function note(label) { count[label]++; total++ }
+    {
+        line = $0
+        if (in_private_key) {
+            if (line ~ /-----END [A-Z0-9 ]*PRIVATE KEY-----/) {
+                in_private_key = 0
+            }
+            next
+        }
+        if (line ~ /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/) {
+            in_private_key = 1
+            note("private-key-block")
+            print "[REDACTED PRIVATE KEY]"
+            next
+        }
+        if (line ~ /password[[:space:]]*=[[:space:]]*[^[:space:]]+/) {
+            gsub(/password[[:space:]]*=[[:space:]]*[^[:space:]]+/, "password=[REDACTED]", line)
+            note("password")
+        }
+        if (line ~ /bearer[[:space:]]+[A-Za-z0-9._~+\/=-]+/) {
+            gsub(/bearer[[:space:]]+[A-Za-z0-9._~+\/=-]+/, "Bearer [REDACTED]", line)
+            note("bearer-token")
+        }
+        if (line ~ /authorization:[[:space:]]*[^[:space:]]/) {
+            gsub(/authorization:[[:space:]]*.*/, "Authorization: [REDACTED]", line)
+            note("authorization-header")
+        }
+        if (line ~ /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/) {
+            gsub(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/, "[REDACTED JWT]", line)
+            note("jwt")
+        }
+        if (line ~ /AKIA[0-9A-Z]{16}/) { gsub(/AKIA[0-9A-Z]{16}/, "[REDACTED AWS ACCESS KEY]", line); note("aws-access-key") }
+        if (line ~ /ASIA[0-9A-Z]{16}/) { gsub(/ASIA[0-9A-Z]{16}/, "[REDACTED AWS ACCESS KEY]", line); note("aws-access-key") }
+        if (line ~ /github_pat_[A-Za-z0-9_]{20,}/) { gsub(/github_pat_[A-Za-z0-9_]{20,}/, "[REDACTED GITHUB TOKEN]", line); note("github-token") }
+        if (line ~ /gh[pousr]_[A-Za-z0-9]{36,}/) { gsub(/gh[pousr]_[A-Za-z0-9]{36,}/, "[REDACTED GITHUB TOKEN]", line); note("github-token") }
+        if (line ~ /sk-[A-Za-z0-9]{20,}/) { gsub(/sk-[A-Za-z0-9]{20,}/, "[REDACTED API TOKEN]", line); note("api-token") }
+        if (line ~ /xox[baprs]-[A-Za-z0-9-]{10,}/) { gsub(/xox[baprs]-[A-Za-z0-9-]{10,}/, "[REDACTED SLACK TOKEN]", line); note("slack-token") }
+        if (line ~ /AIza[0-9A-Za-z_-]{35}/) { gsub(/AIza[0-9A-Za-z_-]{35}/, "[REDACTED GOOGLE API KEY]", line); note("google-api-key") }
+        print line
+    }
+    END {
+        if (total == 0) exit 0
+        print "Masked secret patterns (best effort):" > "/dev/stderr"
+        for (label in count) print "  " label " (" count[label] ")" > "/dev/stderr"
+    }
+    '
+}
+
+# Remove only the payload files this backend staged, never an arbitrary tree.
+crash_staging_cleanup() {
+    local dir="${1:-}"
+    [[ -n "$dir" && -d "$dir" ]] || return 0
+    case "${dir##*/}" in
+        workstation-ai-crash.*) ;;
+        *) return 0 ;;
+    esac
+    rm -f -- "$dir/payload" "$dir/disclosure"
+    rmdir --ignore-fail-on-non-empty -- "$dir" || true
+}
+
+# Show the exact staged payload and send it only on an explicit yes. Runs in
+# the terminal opened by cmd_launch --review, so the bytes a person sees are
+# the bytes handed to the agent.
+cmd_review() {
+    local payload_file="" disclosure_file="" agent=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --payload)
+                [[ $# -ge 2 ]] || fail "__review: --payload needs a value"
+                payload_file="$2"; shift 2 ;;
+            --disclosure)
+                [[ $# -ge 2 ]] || fail "__review: --disclosure needs a value"
+                disclosure_file="$2"; shift 2 ;;
+            --agent)
+                [[ $# -ge 2 ]] || fail "__review: --agent needs a value"
+                agent="$2"; shift 2 ;;
+            *) fail "__review: unexpected argument: $1" ;;
+        esac
+    done
+
+    [[ -n "$payload_file" ]] || fail "the crash payload is missing; nothing was sent"
+    [[ -f "$payload_file" && ! -L "$payload_file" && -r "$payload_file" ]] ||
+        fail "the crash payload cannot be reviewed; nothing was sent"
+    [[ -n "$agent" ]] || fail "no agent was named for the review; nothing was sent"
+    is_known "$agent" || fail "unknown agent for the review; nothing was sent"
+
+    local staging
+    staging="$(dirname -- "$payload_file")"
+
+    printf '%s\n' "The following payload will be sent to the AI agent:"
+    printf '%s\n' "----------------------------------------------------------------"
+    cat -- "$payload_file" || {
+        crash_staging_cleanup "$staging"
+        fail "the crash payload could not be shown; nothing was sent"
+    }
+    printf '\n%s\n' "----------------------------------------------------------------"
+    if [[ -n "$disclosure_file" && -s "$disclosure_file" ]]; then
+        cat -- "$disclosure_file" || {
+            crash_staging_cleanup "$staging"
+            fail "the secret disclosure could not be shown; nothing was sent"
+        }
+    else
+        printf '%s\n' "Secret scan: no known secret patterns matched."
+    fi
+
+    local answer=""
+    printf 'Send this payload to the AI agent? [y/N] '
+    if ! read -r answer; then
+        printf '\n%s\n' "No answer was read; nothing was sent."
+        crash_staging_cleanup "$staging"
+        exit 1
+    fi
+    case "$answer" in
+        y|Y|yes|YES|Yes) ;;
+        *)
+            printf '%s\n' "Not sent."
+            crash_staging_cleanup "$staging"
+            exit 1
+            ;;
+    esac
+
+    local prompt
+    prompt="$(cat -- "$payload_file")" || {
+        crash_staging_cleanup "$staging"
+        fail "the crash payload could not be read; nothing was sent"
+    }
+    crash_staging_cleanup "$staging"
+
+    build_agent_argv "$agent" "$prompt" readonly
+    exec "${argv[@]}"
+}
+
+# Diagnose one crash from systemd-coredump metadata. The diagnosis is
+# metadata-only: no core is extracted and no process memory is read.
 #
 # The crash facts arrive as discrete argv words (from the coredump watcher's
 # click-to-diagnose notification, or by hand). They are never interpolated
 # into a shell command, so a hostile process name cannot become an injection.
+# The assembled payload is masked for common secrets and staged for an
+# explicit, fail-closed review before any agent sees it.
 cmd_crash() {
     local pid="${1:-}" comm="${2:-}" exe="${3:-}" signal_name="${4:-}"
     [[ "$pid" =~ ^[0-9]+$ ]] || fail "usage: $PROG crash <pid> [comm] [exe] [signal]"
@@ -574,8 +820,8 @@ cmd_crash() {
     [[ -n "$exe" ]] || exe="unknown"
     [[ -n "$signal_name" ]] || signal_name="unknown"
 
-    # Looked up live so a hand-run PID still gets a timestamp. A rotated-away
-    # core only costs the timestamp, so failure is tolerated.
+    # Looked up live so a hand-run PID still gets a timestamp. This is metadata
+    # only; a core is never dumped.
     local when="unknown"
     if command -v coredumpctl >/dev/null; then
         when="$(coredumpctl list "$pid" --no-pager --no-legend | tail -1 | cut -d' ' -f1-4 || true)"
@@ -597,15 +843,36 @@ What systemd-coredump recorded:
   signal:   $signal_name
   time:     $when
 
-Use the diagnose-crash skill: it covers how to investigate, what to report, and
-when a crash is worth reporting upstream. If your harness has no skill
-mechanism, read the skill files directly and follow them instead:
+Use the diagnose-crash skill. This diagnosis is metadata-only: never extract a
+core dump and never read process memory. Work from coredumpctl info, the
+journal, and package history. The skill covers how to investigate, what to
+report, and when a crash is worth reporting upstream. If your harness has no
+skill mechanism, read the skill files directly and follow them instead:
 
   $skill
 PROMPT
     )
 
-    cmd_launch --prompt "$prompt"
+    # Stage the masked payload. Nothing is sent until the user has seen these
+    # exact bytes and approved them; a failure anywhere here fails closed.
+    local staging payload_file disclosure_file masked
+    staging="$(mktemp -d "${TMPDIR:-/tmp}/workstation-ai-crash.XXXXXX")" ||
+        fail "could not stage the crash review"
+    trap 'crash_staging_cleanup "$staging"' EXIT
+    chmod 700 -- "$staging" || fail "could not secure the crash review"
+    payload_file="$staging/payload"
+    disclosure_file="$staging/disclosure"
+    masked="$(printf '%s' "$prompt" | mask_secrets 2>"$disclosure_file")" ||
+        fail "could not scan the crash payload for secrets"
+    printf '%s' "$masked" >"$payload_file" ||
+        fail "could not stage the crash payload"
+    chmod 600 -- "$payload_file" "$disclosure_file" ||
+        fail "could not secure the crash payload"
+
+    # cmd_launch opens a terminal and execs; on success this process is
+    # replaced, and __review cleans the staged files. If it fails closed, the
+    # EXIT trap above removes them.
+    cmd_launch --review "$payload_file" --disclosure "$disclosure_file"
 }
 
 usage() {
@@ -618,8 +885,9 @@ Usage: workstation-ai <command> [args]
   reset                  Clear the default agent.
   launch [--prompt TEXT] Launch the default agent in a terminal (unattended mode).
   prompt <text>          Launch the default agent seeded with a task.
-  crash <pid> [comm] [exe] [signal]  Diagnose a coredumpctl crash with the
-                         default agent, using the diagnose-crash skill.
+  crash <pid> [comm] [exe] [signal]  Review a masked, metadata-only crash
+                         payload and diagnose it with the default agent in
+                         its most restricted read-only mode.
   subscription [list|set|unset]  Manage subscription plan/renewal metadata.
   usage                  Print collected agent usage records (JSON).
   usage-update [--force] [agent...]  Refresh the usage records.
@@ -646,6 +914,7 @@ main() {
         launch) cmd_launch "$@" ;;
         prompt) cmd_prompt "$@" ;;
         crash) cmd_crash "$@" ;;
+        __review) cmd_review "$@" ;;
         subscription) cmd_subscription "$@" ;;
         usage) cmd_usage ;;
         usage-update) cmd_usage_update "$@" ;;

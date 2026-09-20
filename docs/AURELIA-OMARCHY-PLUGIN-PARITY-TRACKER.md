@@ -13,7 +13,8 @@ repository/static/isolated evidence; T60 native Aurelia lock ownership and
 Fedora-native PAM selection are implemented with credential/live acceptance
 still open; T62 Weather parity is in progress with PanelWindow/live acceptance
 still open. T61 Crash Diagnosis is implemented and covered by repository and
-Aurelia tests, with live-coredump acceptance still separate. Live
+Aurelia tests, with live crash-notification acceptance still separate; the
+diagnosis itself is metadata-only and never extracts a core. Live
 weather-provider availability, visual acceptance,
 configured native lock/unlock, and T42 final acceptance remain pending.
 T30 remains queued as the separately requested plugin-local test-directory
@@ -5349,6 +5350,27 @@ and the existing Aurelia notification/agent boundaries. The implementation
 gate below is resolved; live-coredump acceptance remains a separately
 authorized step and is not claimed.
 
+Privacy-safe divergence (deliberate):
+
+- The diagnosis is **metadata-only**. The reference skill extracts a core and
+  symbolizes it with `gdb`/debuginfod; Aurelia does not. The skill works from
+  `coredumpctl info`, the journal, and package history, and explicitly forbids
+  extracting, copying, or reading a core dump or process memory. No core is
+  ever written to a temporary path.
+- Before anything is sent, the handoff assembles the payload, applies
+  best-effort masking for common secret shapes (`password=`, `Authorization:`,
+  bearer/JWT, private-key blocks, and cloud/API token shapes), and discloses
+  what it masked. The exact bytes are shown in a terminal for explicit review;
+  nothing is sent unless the user approves, and a review that cannot be shown
+  fails closed.
+- The crash handoff launches the agent in its most restricted read-only mode
+  available (for example `--permission-mode plan`, `--sandbox read-only`,
+  `--agent plan`, `--mode plan`, or an interactive no-auto-approval fallback),
+  never the unattended bypass flags used for normal launches.
+- Negative tests prove no core dump is taken (the coredump log shows only
+  `list`, and no debugger is invoked) and that a declined or unanswerable review
+  never launches the agent.
+
 Frozen Aurelia contract:
 
 - Commands: `aurelia crash diagnose <pid> [comm] [exe] [signal]`,
@@ -5383,8 +5405,10 @@ Implementation gate — resolved:
   remains diagnosable and stderr stays observable.
 - [x] User-unit lifecycle, enable-by-default `.wants`, persistent flag,
   bounded restart/dedupe policy, and user ownership frozen.
-- [x] Discrete-argv agent handoff and the evidence-first skill (core secrecy,
-  `mktemp` cleanup, explicit no-mutation rule except user-requested mute).
+- [x] Discrete-argv agent handoff and the metadata-only skill (explicit
+  core-dump prohibition, fail-closed review/consent gate, secret masking with
+  disclosure, read-only agent launch, and explicit no-mutation rule except
+  user-requested mute).
 - [x] Notification, menu, Command Center, default-agent resolver, and
   shell-restart survivability (`aurelia-notification-wait`) integrated.
 - [x] Static, Bash, JSON/parser, negative, watcher, notification, mute
@@ -5393,20 +5417,23 @@ Implementation gate — resolved:
 
 Checkpoint 3 — post-change evidence:
 
-- `aurelia-shell/tests/test_crash_capture.sh`: `40` passed, `0` failed. Drives
+- `aurelia-shell/tests/test_crash_capture.sh`: `51` passed, `0` failed. Drives
   the real watcher through a stubbed journal and recording notification sender;
   covers UID filtering, dedupe, basename/path safety, empty/malformed fields,
   mute persistence, write/symlink failures, discrete argv, unit lifecycle,
-  skill wiring, menu and Command Center wiring, and CLI routing.
-- `tests/test_crash_capture.sh`: `13` passed, `0` failed. Covers installer
+  skill wiring, menu and Command Center wiring, CLI routing, and the crash
+  privacy gate: masking with disclosure, approved/declined/no-answer review,
+  read-only launch, and no core extraction.
+- `tests/test_crash_capture.sh`: `14` passed, `0` failed. Covers installer
   deployment (non-blocking, no recursive ownership), the unit contract, the
-  diagnose-crash skill/reporting files, the extended `workstation-ai crash`
-  handoff, dual-skill install/remove, and CLI routing.
-- Full Aurelia suite: `81` suites, `942` assertions, `930` passed, `12`
+  metadata-only diagnose-crash skill/reporting files, the extended
+  `workstation-ai crash` handoff and its privacy boundary, dual-skill
+  install/remove, and CLI routing.
+- Full Aurelia suite: `81` suites, `953` assertions, `941` passed, `12`
   explicit environment skips, `0` failed (strict mode returns `2` for the
-  skips). Repository suite: `244` passed, `0` failed. Repository-wide `bash -n`
-  across every `*.sh` passed. ShellCheck on changed shell files is clean except
-  the pre-existing `GRAPHICAL_ACTIVATION_STATE` warning in `modules/desktop.sh`.
+  skips). Repository suite: `245` passed, `0` failed. Repository-wide `bash -n`
+  across every `*.sh` passed. ShellCheck on the changed root shell files is
+  clean.
 - Implementation commit: `dca3ca8`.
 - Live coredump generation, notification delivery, and click acceptance were
   not run (not authorized); they remain a separate integration gate.
