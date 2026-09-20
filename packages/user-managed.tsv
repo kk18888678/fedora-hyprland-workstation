@@ -5,3 +5,4 @@
 aurelia	github.com/bjarneo/cliamp	cliamp	user	all	v2.2.0	cliamp-linux-amd64	sha256:60fd335e367d920fbfa898a6c87e419616acb55e712e17b5439ab7573f60d882	.local/bin/cliamp	https://github.com/bjarneo/cliamp/releases/download/v2.2.0/cliamp-linux-amd64
 dnf	updates	gh	system	all
 dnf	updates	openssl	system	all
+dnf	updates	tailscale	system	all
