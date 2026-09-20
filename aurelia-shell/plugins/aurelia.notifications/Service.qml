@@ -5,6 +5,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import "../../theme"
+import "../../services"
 import "ui"
 import "NotificationLogic.js" as Logic
 import "NotificationFileLogic.js" as FileLogic
@@ -85,32 +86,26 @@ Item {
     ListModel { id: popupNotificationsModel }
     ListModel { id: historyEntriesModel }
 
-    property FileView settingsFile: FileView {
+    property OptionalFileStore settingsFile: OptionalFileStore {
         path: service.settingsPath
-        blockLoading: true
-        blockWrites: true
-        atomicWrites: true
+        writable: true
         watchChanges: false
-        printErrors: false
 
-        onLoaded: service.loadSettings(text())
-        onLoadFailed: service.loadSettings("")
+        onLoaded: function(loadedValue) { service.loadSettings(loadedValue) }
+        onLoadFailed: function(reason) { service.loadSettings("") }
         onSaved: console.info("[NOTIFICATIONS] settings.saved")
-        onSaveFailed: console.error("[NOTIFICATIONS] settings_save_failed")
+        onSaveFailed: function(reason) { console.error("[NOTIFICATIONS] settings_save_failed") }
     }
 
-    property FileView historyFile: FileView {
+    property OptionalFileStore historyFile: OptionalFileStore {
         path: service.historyPath
-        blockLoading: true
-        blockWrites: true
-        atomicWrites: true
+        writable: true
         watchChanges: false
-        printErrors: false
 
-        onLoaded: service.loadHistory(text())
-        onLoadFailed: service.loadHistory("")
+        onLoaded: function(loadedValue) { service.loadHistory(loadedValue) }
+        onLoadFailed: function(reason) { service.loadHistory("") }
         onSaved: console.info("[NOTIFICATIONS] history.saved count=" + service.historyEntries.length)
-        onSaveFailed: console.error("[NOTIFICATIONS] history_save_failed")
+        onSaveFailed: function(reason) { console.error("[NOTIFICATIONS] history_save_failed") }
     }
 
     property Process ensureStateDirProcess: Process {
@@ -612,7 +607,10 @@ Item {
         if (!current || !service.hasUsableIdentity(current.originalId, current.timestamp)) return
         var updated
         try { updated = Logic.snapshotOf(notification, current.timestamp) }
-        catch (error) { return }
+        catch (error) {
+            console.warn("[NOTIFICATIONS] notification.snapshot_refresh_failed")
+            return
+        }
         var activeChanged = updateModelRows(activeNotificationsModel, updated, current.originalId, current.timestamp)
         var popupChanged = updateModelRows(popupNotificationsModel, updated, current.originalId, current.timestamp)
         if (activeChanged > 0 || popupChanged > 0) {
@@ -641,14 +639,18 @@ Item {
         var snapshot
         try { snapshot = Logic.snapshotOf(notification, Date.now()) }
         catch (error) {
-            try { notification.tracked = false } catch (releaseError) {}
+            try { notification.tracked = false } catch (releaseError) {
+                console.warn("[NOTIFICATIONS] notification.tracked_release_failed")
+            }
             console.error("[NOTIFICATIONS] notification.rejected reason=snapshot_failed")
             return
         }
         var originalId = snapshot.originalId
         var liveKey = service.identityKey(originalId, snapshot.timestamp)
         if (liveKey === "") {
-            try { notification.tracked = false } catch (releaseError) {}
+            try { notification.tracked = false } catch (releaseError) {
+                console.warn("[NOTIFICATIONS] notification.tracked_release_failed")
+            }
             console.error("[NOTIFICATIONS] notification.rejected reason=invalid_identity")
             return
         }
@@ -663,7 +665,9 @@ Item {
             try {
                 if (previous && typeof previous.dismiss === "function") previous.dismiss()
                 if (previous) previous.tracked = false
-            } catch (replaceError) {}
+            } catch (replaceError) {
+                console.warn("[NOTIFICATIONS] notification.replace_cleanup_failed")
+            }
         }
         liveRefs[liveKey] = notification
         liveSnapshots[liveKey] = snapshot
@@ -700,7 +704,9 @@ Item {
             if (!Logic.isEphemeralApp(snapshot.app) && !isTransient(notification)) recordHistory(snapshot)
             delete liveRefs[liveKey]
             delete liveSnapshots[liveKey]
-            try { notification.tracked = false } catch (releaseError) {}
+            try { notification.tracked = false } catch (releaseError) {
+                console.warn("[NOTIFICATIONS] notification.tracked_release_failed")
+            }
             console.info("[NOTIFICATIONS] notification.silenced app=" + snapshot.app)
             return
         }
@@ -758,7 +764,7 @@ Item {
                 if (reason === "expire" && typeof reference.expire === "function") reference.expire()
                 else if (typeof reference.dismiss === "function") reference.dismiss()
             } catch (error) {
-                // A sender may have already closed the object.
+                console.warn("[NOTIFICATIONS] notification.reference_release_failed")
             }
         }
         if (liveRefs[archiveKey] === reference) delete liveRefs[archiveKey]
@@ -934,6 +940,7 @@ Item {
         try {
             return object && object[name] !== undefined && object[name] !== null ? object[name] : null
         } catch (error) {
+            console.warn("[NOTIFICATIONS] object_property_failed name=" + String(name))
             return null
         }
     }
@@ -971,7 +978,10 @@ Item {
         if (!route || !route.enabled || !Hyprland.toplevels) return null
 
         var values = []
-        try { values = Hyprland.toplevels.values || [] } catch (error) { return null }
+        try { values = Hyprland.toplevels.values || [] } catch (error) {
+            console.warn("[NOTIFICATIONS] workspace.toplevels_failed")
+            return null
+        }
 
         var best = null
         for (var i = 0; i < values.length; i++) {
@@ -1007,7 +1017,9 @@ Item {
         var route = service.pendingWorkspaceRoute
         if (!route) return
 
-        try { Hyprland.refreshToplevels() } catch (error) {}
+        try { Hyprland.refreshToplevels() } catch (error) {
+            console.warn("[NOTIFICATIONS] workspace.refresh_toplevels_failed")
+        }
         var match = service.matchingWorkspaceToplevel(route)
         if (match) {
             if (service.workspaceRouteAttempts >= service.workspaceRouteMaxAttempts) {
@@ -1024,8 +1036,11 @@ Item {
                 try {
                     if (match.workspace && typeof match.workspace.activate === "function") match.workspace.activate()
                     else service.focusWorkspace(match.workspaceId)
-                    try { Hyprland.refreshWorkspaces() } catch (refreshError) {}
+                    try { Hyprland.refreshWorkspaces() } catch (refreshError) {
+                        console.warn("[NOTIFICATIONS] workspace.refresh_workspaces_failed")
+                    }
                 } catch (error) {
+                    console.warn("[NOTIFICATIONS] workspace.activate_failed falling_back")
                     service.focusWorkspace(match.workspaceId)
                 }
                 service.workspaceRouteAttempts++
@@ -1038,11 +1053,12 @@ Item {
                 var handle = match.toplevel && match.toplevel.handle
                 if (handle && typeof handle.activate === "function") handle.activate()
             } catch (error) {
-                // The sender's action remains successful even if activation is
-                // withdrawn before the matching toplevel can be activated.
+                console.warn("[NOTIFICATIONS] workspace.toplevel_activate_failed")
             }
 
-            try { Hyprland.refreshWorkspaces() } catch (refreshError) {}
+            try { Hyprland.refreshWorkspaces() } catch (refreshError) {
+                console.warn("[NOTIFICATIONS] workspace.refresh_workspaces_failed")
+            }
             var focusedAfterActivation = Hyprland.focusedWorkspace
             if (!focusedAfterActivation || Number(focusedAfterActivation.id) !== match.workspaceId) {
                 service.workspaceRouteAttempts++

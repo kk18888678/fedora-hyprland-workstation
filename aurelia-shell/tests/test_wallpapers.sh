@@ -735,13 +735,13 @@ else
     fail "catalog download re-downloaded an unchanged wallpaper"
 fi
 
-if run_wp catalog download '../../etc/passwd' >/dev/null 2>&1; then
+if run_wp catalog download '../../etc/passwd' >/dev/null; then
     fail "catalog accepted an unsafe storage key"
 else
     pass "catalog rejects storage keys with traversal"
 fi
 
-if run_wp catalog download 'dark/blue/missing.jpg' >/dev/null 2>&1; then
+if run_wp catalog download 'dark/blue/missing.jpg' >/dev/null; then
     fail "catalog downloaded a key that is not in the index"
 else
     pass "catalog refuses keys that are not in the index"
@@ -765,7 +765,7 @@ fi
 # A refresh that returns a foreign-host index must fail closed: the rejected
 # index never enters the cache and the session keeps serving the cached copy.
 env "${wp_env[@]}" WP_FIXTURE_CATALOG_JS="$wp_tmp/fixtures/catalog-badhost.js" \
-    "$wallpaper_bin" catalog list --refresh --rows >/dev/null 2>&1 || true
+    "$wallpaper_bin" catalog list --refresh --rows >/dev/null || true
 catalog_cache="$wp_tmp/cache/aurelia/wallpapers/catalog/wallpapers.js"
 if [[ -s "$catalog_cache" ]] &&
    grep -Fq 'window.WALLPAPERS_BASE_URL = "https://wallpapers.hel1.your-objectstorage.com"' \
@@ -924,7 +924,7 @@ else
     fail "blueprint apply did not activate"
 fi
 
-if run_wp blueprint remove forest-look >/dev/null 2>&1; then
+if run_wp blueprint remove forest-look >/dev/null; then
     fail "blueprint removal succeeded without --yes"
 else
     pass "blueprint removal requires --yes"
@@ -952,21 +952,21 @@ else
 fi
 
 if run_wp apps render testapp >/dev/null &&
-   grep -Fq 'background = #' "$wp_tmp/home/.config/testapp-theme.ini" 2>/dev/null ||
-   grep -Fq 'background = "' "$wp_tmp/home/.config/testapp-theme.ini" 2>/dev/null; then
+   grep -Fq 'background = #' "$wp_tmp/home/.config/testapp-theme.ini" ||
+   grep -Fq 'background = "' "$wp_tmp/home/.config/testapp-theme.ini"; then
     pass "apps render substitutes palette variables into the destination"
 else
     fail "apps render failed"
 fi
 
 printf 'bad = {not_a_variable}\n' >"$wp_tmp/config/aurelia/custom-apps/testapp/theme.ini"
-if run_wp apps render testapp >/dev/null 2>&1; then
+if run_wp apps render testapp >/dev/null; then
     fail "apps render accepted an unknown template variable"
 else
     pass "apps render rejects unknown template variables"
 fi
 
-if run_wp apps render-all >/dev/null 2>&1; then
+if run_wp apps render-all >/dev/null; then
     fail "apps render-all succeeded with an unknown variable in the template"
 else
     pass "apps render-all reports template failures"
