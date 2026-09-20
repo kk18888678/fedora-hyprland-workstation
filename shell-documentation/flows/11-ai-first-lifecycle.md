@@ -350,7 +350,11 @@ The user crash watcher runs after graphical-session.target and restarts after
 5 seconds. When enabled it observes the systemd-coredump stream, deduplicates
 by process/minute, and sends a critical notification. Clicking the notification
 passes the process identity as a discrete argument to the crash command, which
-loads the diagnosis skill and gathers coredump facts before proposing a fix.
+assembles a metadata-only payload, masks common secret patterns with a
+disclosure, and opens a terminal review. Only an approved payload is handed to
+the default agent, which runs in its most restricted read-only mode and works
+from `coredumpctl info`, the journal, and package history. No core dump is
+extracted and no process memory is read.
 
 Muting a program stores a narrow name/path rule and suppresses notices only. It
 does not delete coredumps or stop crash collection.
@@ -377,8 +381,8 @@ reported state and invoke external Voxtype commands.
    files.
 6. Exercise Hermes ownership conflict, OpenClaw gateway-down, and removal
    while a gateway is live.
-7. Trigger a crash notification, click it, and verify process identity and
-   diagnosis skill handoff.
+7. Trigger a crash notification, click it, verify the reviewed payload and the
+   read-only diagnosis skill handoff, and confirm no core dump is extracted.
 8. Install/remove dictation separately and verify the shell remains usable
    when Voxtype is absent.
 

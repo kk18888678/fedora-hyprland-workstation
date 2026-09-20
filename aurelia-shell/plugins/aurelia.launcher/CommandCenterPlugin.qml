@@ -35,6 +35,9 @@ Item {
     readonly property string shellRestartBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-restart-shell"
         : "/usr/local/bin/aurelia-restart-shell"
+    readonly property string crashCaptureBin: aureliaPath !== ""
+        ? aureliaPath + "/bin/aurelia-toggle-crash-capture"
+        : "/usr/local/bin/aurelia-toggle-crash-capture"
     readonly property string pluginCliBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-plugin"
         : "/usr/local/bin/aurelia-plugin"
@@ -108,6 +111,7 @@ Item {
         packagesBin: pluginRoot.packagesBin
         shellClientBin: pluginRoot.shellClientBin
         shellRestartBin: pluginRoot.shellRestartBin
+        crashCaptureBin: pluginRoot.crashCaptureBin
         processEnvironment: pluginRoot.processEnvironment
         appLibrary: pluginRoot.appLibrary
         moduleRegistry: moduleRegistry

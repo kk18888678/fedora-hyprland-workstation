@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# aurelia-crash-watch — watch for process crashes and offer an AI diagnosis.
+#
+# systemd-coredump journals every core dump under a known MESSAGE_ID with
+# structured COREDUMP_* fields, which carry more than the core filenames do.
+# This is the Aurelia adaptation of Omarchy's crash watcher: same evidence
+# contract, Aurelia command names, and the same notification path the shell
+# already owns.
+#
+# Ownership: this daemon only reads the journal, the global capture flag, and
+# the per-program mute flags. It never installs, never deletes cores, and
+# never mutates user configuration. The one mutation it can trigger is a
+# notification whose click hands the crash facts to the default agent.
+
+set -uo pipefail
+
+# See systemd.journal-fields(7).
+readonly COREDUMP_MESSAGE_ID=fc2e22bc6ee647b6b90729ab34a250b1
+
+# nf-md-robot_dead, escaped so this file reads without a Nerd Font.
+readonly CRASH_GLYPH=$'\U000f16a1'
+
+# Crash loops dump core repeatedly, so announce each program at most once a
+# window.
+readonly dedupe_seconds=${AURELIA_CRASH_DEDUPE_SECONDS:-60}
+
+# Extended regex of process names never worth announcing.
+readonly ignore_pattern=${AURELIA_CRASH_IGNORE:-}
+
+# The click-to-diagnose handoff. Kept as one argv word so a hostile process
+# name can never be reparsed as a command.
+readonly agent_command=${AURELIA_CRASH_AGENT_COMMAND:-aurelia-agent-crash}
+
+# $HOME is user-owned; the crash state follows the same XDG layout as the bar
+# toggle so a mute written by the CLI is the exact flag this daemon reads.
+state_home=${XDG_STATE_HOME:-${HOME:-}/.local/state}
+if [[ -z "${HOME:-}" || "$state_home" != /* || "$state_home" == "/" ]]; then
+    printf '%s\n' "aurelia-crash-watch: HOME and XDG_STATE_HOME must be absolute" >&2
+    exit 1
+fi
+readonly toggle_dir="${state_home%/}/aurelia/toggles"
+readonly mute_dir="$toggle_dir/crash-ignore"
+
+declare -A last_notified
+
+announce() {
+    local name=$1 pid=$2 exe=$3 signal_name=$4
+
+    # The shell owns org.freedesktop.Notifications, so a shell crash takes the
+    # notification server down with it. Wait for the restarted shell to claim
+    # the name again before offering the diagnosis.
+    aurelia-notification-wait || return 1
+
+    # --exec takes the command as discrete argv words, so a process name that
+    # contains quotes, spaces, or shell metacharacters cannot be reparsed as a
+    # command. The argv vector is stored as a typed D-Bus hint the shell
+    # executes without a shell evaluator.
+    aurelia-notification-send \
+        --urgency critical \
+        --glyph "$CRASH_GLYPH" \
+        "Process crashed: $name" \
+        "Click to diagnose with AI" \
+        --exec "$agent_command" "$pid" "$name" "$exe" "$signal_name"
+}
+
+# -n 0 so a restart does not re-announce crashes already dealt with. journalctl
+# stderr stays observable: a failure to follow the journal is a real diagnostic
+# the service log should carry.
+journalctl -f -n 0 -o json "MESSAGE_ID=$COREDUMP_MESSAGE_ID" |
+    while IFS= read -r entry; do
+        # A dash stands in for a field that is empty as well as one that is
+        # missing: tab is IFS whitespace, so an empty field would collapse
+        # into the next delimiter and shift every field after it along one.
+        # A process can set its own comm to nothing, and that crash must still
+        # be announced rather than silently read as somebody else's.
+        IFS=$'\t' read -r uid comm pid exe signal_name < <(
+            jq -r 'def field: if . == null or . == "" then "-" else . end;
+                   [(._UID | field),
+                    (.COREDUMP_COMM | field),
+                    (.COREDUMP_PID | field),
+                    (.COREDUMP_EXE | field),
+                    (.COREDUMP_SIGNAL_NAME | field)] | @tsv' <<<"$entry"
+        )
+
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+
+        # The toast only offers a diagnosis, so it has nothing to offer until
+        # an agent is chosen. Checked per crash, not at startup, so picking
+        # one takes effect without restarting this service.
+        [[ -n "$(workstation-ai default || true)" ]] || continue
+
+        # Only this user's crashes; a daemon dumping core is a sysadmin's
+        # problem, not this workstation's diagnosis.
+        [[ "$uid" =~ ^[0-9]+$ ]] || continue
+        ((uid == UID)) || continue
+
+        # comm is truncated to 15 characters, so prefer the executable's
+        # basename, which is not.
+        name=$comm
+        [[ "$exe" == /* ]] && name=${exe##*/}
+
+        # A process can set its own comm to anything prctl takes, slashes
+        # included, and a crash with no recorded executable falls back to it.
+        # The mute below turns this name into a path, so keep it one
+        # component: a crash must not reach a flag outside crash-ignore/, nor
+        # have a diagnosis write one there.
+        name=${name##*/}
+
+        # What that leaves is not always a name. "/" leaves nothing, which is
+        # no kind of toast; a dot component names a directory rather than a
+        # flag, so a mute on it would touch that directory and then never
+        # match; and a dash is what the read above puts there when the crash
+        # recorded no name at all.
+        [[ -n "$name" && "$name" != "-" && "$name" != "." && "$name" != ".." ]] || name=unknown
+
+        [[ -n "$ignore_pattern" && "$name" =~ $ignore_pattern ]] && continue
+
+        # Never announce our own machinery, or it notifies about itself.
+        [[ "$name" == aurelia-crash-* || "$name" == aurelia-agent-* ]] && continue
+
+        # Muted at the end of a diagnosis, when the user was offered it and
+        # said yes. A flag per program rather than one list, so the mute
+        # command can lift one without rewriting and re-parsing the rest.
+        [[ -f "$mute_dir/$name" ]] && continue
+
+        now=${EPOCHSECONDS:-$(date +%s)}
+        (((now - ${last_notified[$name]:-0}) < dedupe_seconds)) && continue
+
+        # Only a delivered toast starts the dedupe window. A failed send that
+        # counted would suppress the rest of a crash loop for a minute, and
+        # `journalctl -n 0` never replays what was missed. The `if` also keeps
+        # the loop body succeeding so pipefail still reports a failed
+        # journalctl without a single undelivered toast ending the daemon.
+        if announce "$name" "$pid" "$exe" "$signal_name"; then
+            last_notified[$name]=$now
+        fi
+    done

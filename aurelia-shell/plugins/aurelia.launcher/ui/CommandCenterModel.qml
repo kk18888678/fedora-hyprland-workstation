@@ -21,6 +21,7 @@ QtObject {
     property string packagesBin: ""
     property string shellClientBin: ""
     property string shellRestartBin: ""
+    property string crashCaptureBin: ""
     property var processEnvironment: ({})
     property var appLibrary: null
     property var moduleRegistry: null
@@ -227,6 +228,25 @@ QtObject {
         return Search.sortRows(rows, queryValue)
     }
 
+    function crashRows(queryValue) {
+        if (!root.providerEnabled("crash")) return []
+        var rows = [
+            {
+                id: "crash:capture-toggle",
+                kind: "shell-action",
+                moduleId: "crash",
+                shellAction: "crash-capture-toggle",
+                label: "Crash Capture",
+                subtitle: "Announce process crashes and offer an AI diagnosis",
+                detail: "Click a crash notification to diagnose it",
+                icon: "system-crash",
+                order: 10,
+                keywords: "crash coredump segfault capture notifications toggle diagnose"
+            }
+        ]
+        return Search.sortRows(rows, queryValue)
+    }
+
     function pluginRows(queryValue) {
         if (!root.moduleEnabled("plugins") || !root.pluginManagement) return []
         return root.pluginManagement.pluginRows(queryValue)
@@ -278,6 +298,7 @@ QtObject {
             .concat(root.actionRows(queryValue))
             .concat(root.shellRows(queryValue))
             .concat(root.settingsRows(queryValue))
+            .concat(root.crashRows(queryValue))
             .concat(root.pluginRows(queryValue))
             .concat(root.calculatorRows(queryValue))
             .concat(root.fileRows(queryValue))
@@ -302,6 +323,8 @@ QtObject {
             rows = root.shellRows(queryValue)
         } else if (root.moduleProvider(root.activeModule) === "settings") {
             rows = root.settingsRows(queryValue)
+        } else if (root.moduleProvider(root.activeModule) === "crash") {
+            rows = root.crashRows(queryValue)
         } else if (root.moduleProvider(root.activeModule) === "plugins") {
             rows = root.pluginRows(queryValue)
         } else if (root.moduleProvider(root.activeModule) === "files") {
@@ -465,6 +488,17 @@ QtObject {
             root.activeLaunchLabel = "Open Settings"
             root.statusMessage = "Opening the Settings hub..."
             shellActionProcess.command = [root.shellClientBin, "shell", "toggle", "aurelia.settings", "{}"]
+            shellActionProcess.running = true
+            return true
+        }
+        if (row.shellAction === "crash-capture-toggle") {
+            if (!root.crashCaptureBin) {
+                root.errorMessage = "Crash capture backend is unavailable."
+                return false
+            }
+            root.activeLaunchLabel = "Crash Capture"
+            root.statusMessage = "Toggling crash capture..."
+            shellActionProcess.command = [root.crashCaptureBin, "toggle"]
             shellActionProcess.running = true
             return true
         }

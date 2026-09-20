@@ -346,13 +346,19 @@ agents, not code executed by the shell host.
 The user crash watcher follows the systemd-coredump stream. When enabled and a
 new process crash is detected, it sends a critical notification whose click
 target runs the crash command with the process identity as a discrete argument.
-The default agent receives the diagnosis skill and gathers coredump facts before
-suggesting a fix or report. Notifications are deduplicated per process/minute.
+The handoff assembles a metadata-only payload, best-effort masks common secret
+patterns and discloses what it masked, then shows the exact bytes in a terminal
+for explicit review. Nothing is sent unless the user approves, and the default
+agent is launched in its most restricted read-only mode to work from
+`coredumpctl info`, the journal, and package history. No core dump is extracted
+and no process memory is read. Notifications are deduplicated per
+process/minute.
 
 The watcher is enabled as a user service after `graphical-session.target`,
 restarts after 5 seconds, and is disabled persistently by a state toggle rather
 than by deleting the unit. Per-program muting stores a narrow name/path rule;
-muting hides notices, not crashes or coredumps.
+muting hides notices, not crashes or coredumps. The diagnosis itself never reads
+a core, so muting and the review gate are the only privacy surfaces.
 
 ## Theme relationship
 
