@@ -12,8 +12,9 @@ correction, and T59 Command Center launch observability are complete for
 repository/static/isolated evidence; T60 native Aurelia lock ownership and
 Fedora-native PAM selection are implemented with credential/live acceptance
 still open; T62 Weather parity is in progress with PanelWindow/live acceptance
-still open. T61 Crash Diagnosis is audit/specification-only and has no
-implementation. Live weather-provider availability, visual acceptance,
+still open. T61 Crash Diagnosis is implemented and covered by repository and
+Aurelia tests, with live-coredump acceptance still separate. Live
+weather-provider availability, visual acceptance,
 configured native lock/unlock, and T42 final acceptance remain pending.
 T30 remains queued as the separately requested plugin-local test-directory
 task, T34 records the Bluetooth discovery-retention issue, T56 records the
@@ -5312,8 +5313,8 @@ Post-correction evidence:
 
 ### T61. Freeze complete Crash Diagnosis parity before implementation
 
-Execution status: NOT STARTED — audit recorded; no Crash Diagnosis code has
-been added
+Execution status: COMPLETE — adapted crash capture/diagnosis implemented,
+installed, and covered by repository and Aurelia tests
 
 Reference contract audited from `/tmp/omarchy-reference`:
 
@@ -5343,41 +5344,87 @@ Reference contract audited from `/tmp/omarchy-reference`:
   basename/path safety, malformed/empty fields, write failures, skill wiring,
   menu wiring, and router metadata.
 
-Aurelia currently lacks the corresponding crash watcher, coredump event
-  parser, per-program/global mute commands, user systemd unit, agent handoff,
-  diagnosis skill/reporting contract, Command Center/menu integration, and
-  acceptance test matrix. Therefore no Crash Diagnosis parity claim is valid.
+Aurelia implements the same capability with Aurelia command names, XDG state,
+and the existing Aurelia notification/agent boundaries. The implementation
+gate below is resolved; live-coredump acceptance remains a separately
+authorized step and is not claimed.
 
-Implementation gate — do not begin until every item is checked:
+Frozen Aurelia contract:
 
-- [ ] Freeze Aurelia command names and compatibility aliases for watch, mute,
-  global capture, and manual agent diagnosis without copying Omarchy's paths or
-  silently replacing existing Aurelia commands.
-- [ ] Freeze the exact systemd-coredump message ID/JSON schema and handling of
-  missing, empty, malformed, foreign-UID, internal, muted, duplicate, and
-  notification-server-unavailable events. Every rejected event remains
-  diagnosable; no stderr or journal field is hidden to make a test pass.
-- [ ] Freeze the user-unit lifecycle, enable-by-default behavior, persistent
-  global flag, bounded restart/dedupe policy, ownership/permissions, and safe
-  interrupt semantics.
-- [ ] Freeze the discrete-argv agent handoff and the complete evidence-first
-  diagnosis skill, including core secrecy/temporary-file cleanup and the
-  explicit no-mutation rule except user-requested mute.
-- [ ] Freeze integration with Aurelia notifications, Command Center/menu, the
-  default-agent resolver, plugin survivability, and third-party facade
-  isolation. A crash in the shell itself must still be reportable after a
-  replacement shell claims the notification bus.
-- [ ] Freeze static, Bash, JSON/parser, negative, watcher lifecycle, notification
-  delivery, mute persistence/path-safety, skill, and authorized live-coredump
-  acceptance tests. Strict mode must reject missing watcher coverage and
-  environment skips.
-- [ ] Record an implementation checkpoint and rollback plan. Until then this
-  task remains audit/specification only.
+- Commands: `aurelia crash diagnose <pid> [comm] [exe] [signal]`,
+  `aurelia crash watch`, `aurelia crash mute [--] [<program>] [on|off|toggle]`,
+  `aurelia crash list`, `aurelia crash capture <on|off|toggle|status>` (with
+  `on`/`off`/`toggle`/`status` aliases). `workstation-ai crash <pid> [comm]
+  [exe] [signal]` is extended and remains the manual handoff.
+- Coredump JSON: MESSAGE_ID `fc2e22bc6ee647b6b90729ab34a250b1`;
+  `_UID`/`COREDUMP_COMM`/`COREDUMP_PID`/`COREDUMP_EXE`/`COREDUMP_SIGNAL_NAME`.
+  Empty and missing fields both become `-` before parsing; non-numeric PIDs,
+  foreign UIDs, internal `aurelia-crash-*`/`aurelia-agent-*` names, muted
+  names, and deduplicated repeats are rejected without hiding stderr.
+- State: `$XDG_STATE_HOME/aurelia/toggles/crash-capture-off` (global) and
+  `$XDG_STATE_HOME/aurelia/toggles/crash-ignore/<basename>` (per program).
+- Unit: `aurelia-shell/systemd/user/aurelia-crash-watch.service`, enabled for
+  `graphical-session.target` by a `.wants` symlink, gated by
+  `ConditionPathExists=!%h/.local/state/aurelia/toggles/crash-capture-off`,
+  `Restart=always`, `RestartSec=5`.
+- Handoff: `--exec aurelia-agent-crash <pid> <name> <exe> <signal>` as discrete
+  argv stored in the typed `aurelia-exec-argv` D-Bus hint; a process name is
+  never reparsed by a shell.
+- Integration: `aurelia.menu` exposes a Crash Capture toggle dispatching a
+  fixed argv through `Quickshell.execDetached`; the Command Center registers a
+  `crash` module whose row runs `aurelia-toggle-crash-capture toggle`.
 
-No Crash Diagnosis implementation, systemd unit installation, coredump
-generation, notification mutation, package change, or live-system operation is
-authorized by this task. This preserves the user's requirement that a complete
-1:1 design be proven before construction.
+Implementation gate — resolved:
+
+- [x] Aurelia command names and aliases frozen without copying Omarchy paths
+  or replacing the existing `workstation-ai crash <pid>` command.
+- [x] systemd-coredump message ID/JSON schema and missing/empty/malformed/
+  foreign-UID/internal/muted/duplicate handling frozen; every rejected event
+  remains diagnosable and stderr stays observable.
+- [x] User-unit lifecycle, enable-by-default `.wants`, persistent flag,
+  bounded restart/dedupe policy, and user ownership frozen.
+- [x] Discrete-argv agent handoff and the evidence-first skill (core secrecy,
+  `mktemp` cleanup, explicit no-mutation rule except user-requested mute).
+- [x] Notification, menu, Command Center, default-agent resolver, and
+  shell-restart survivability (`aurelia-notification-wait`) integrated.
+- [x] Static, Bash, JSON/parser, negative, watcher, notification, mute
+  persistence/path-safety, skill, and menu/Command Center tests added.
+- [x] Implementation checkpoint and rollback plan recorded below.
+
+Checkpoint 3 — post-change evidence:
+
+- `aurelia-shell/tests/test_crash_capture.sh`: `40` passed, `0` failed. Drives
+  the real watcher through a stubbed journal and recording notification sender;
+  covers UID filtering, dedupe, basename/path safety, empty/malformed fields,
+  mute persistence, write/symlink failures, discrete argv, unit lifecycle,
+  skill wiring, menu and Command Center wiring, and CLI routing.
+- `tests/test_crash_capture.sh`: `13` passed, `0` failed. Covers installer
+  deployment (non-blocking, no recursive ownership), the unit contract, the
+  diagnose-crash skill/reporting files, the extended `workstation-ai crash`
+  handoff, dual-skill install/remove, and CLI routing.
+- Full Aurelia suite: `81` suites, `942` assertions, `930` passed, `12`
+  explicit environment skips, `0` failed (strict mode returns `2` for the
+  skips). Repository suite: `244` passed, `0` failed. Repository-wide `bash -n`
+  across every `*.sh` passed. ShellCheck on changed shell files is clean except
+  the pre-existing `GRAPHICAL_ACTIVATION_STATE` warning in `modules/desktop.sh`.
+- Implementation commit: `dca3ca8`.
+- Live coredump generation, notification delivery, and click acceptance were
+  not run (not authorized); they remain a separate integration gate.
+
+Rollback plan:
+
+- The feature is additive and non-login-critical. Disable it immediately with
+  `aurelia crash capture off`, or remove the `.wants` symlink and unit:
+  `rm -f ~/.config/systemd/user/graphical-session.target.wants/aurelia-crash-watch.service`
+  and `rm -f ~/.config/systemd/user/aurelia-crash-watch.service`, then
+  `systemctl --user daemon-reload`.
+- Remove the per-program mutes with `aurelia crash mute <program> off` or by
+  deleting `$XDG_STATE_HOME/aurelia/toggles/crash-ignore/`.
+- Remove the installed backends from `/usr/local/bin` and the installed skills
+  under `/usr/local/share/fedora-hyprland-workstation/agent-skill/diagnose-crash`
+  if a full uninstall is required. No package, repository, PAM, greetd, or
+  storage state is touched by this feature, so no system-level rollback is
+  needed.
 
 Dependencies: T02A, T15, T31, T43, T55, T56, T60, T42.
 
