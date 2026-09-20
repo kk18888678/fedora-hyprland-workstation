@@ -79,6 +79,7 @@ esac
 
 aurelia_wallpaper_require_tools || exit 1
 aurelia_wallpaper_config_load || exit 1
+aurelia_wallpaper_config_load_wallhaven || exit 1
 
 case "$command_name" in
     sources)
@@ -298,6 +299,7 @@ case "$command_name" in
                 seed=""
                 search_mode="plain"
                 thumbs="0"
+                paging="0"
                 while (( $# > 0 )); do
                     case "$1" in
                         --query)
@@ -352,6 +354,10 @@ case "$command_name" in
                             thumbs="1"
                             shift
                             ;;
+                        --paging)
+                            paging="1"
+                            shift
+                            ;;
                         *)
                             printf 'Error: unknown wallhaven search option: %s\n' "$1" >&2
                             usage_exit
@@ -372,7 +378,7 @@ case "$command_name" in
                     aurelia_wallpaper_fail "atleast must look like 1920x1080."
                 aurelia_wallpaper_wallhaven_search \
                     "$query" "$categories" "$purity" "$sorting" "$order" \
-                    "$atleast" "$page" "$seed" "$search_mode" "$thumbs"
+                    "$atleast" "$page" "$seed" "$search_mode" "$thumbs" "$paging"
                 ;;
             download)
                 wallpaper_id="${1:-}"
@@ -404,7 +410,7 @@ case "$command_name" in
         [[ -n "$action" ]] || usage_exit
         shift
         case "$action" in
-            generate|apply)
+            generate|apply|preview)
                 image_argument=""
                 theme_name=""
                 theme_mode=""
@@ -414,6 +420,19 @@ case "$command_name" in
                         --name)
                             require_argument "${2:-}" "--name"
                             theme_name="$2"
+                            shift 2
+                            ;;
+                        --mode)
+                            require_argument "${2:-}" "--mode"
+                            aurelia_wallpaper_palette_validate_mode "$2"
+                            AW_PALETTE_MODE="$2"
+                            shift 2
+                            ;;
+                        --vibrance|--saturation|--contrast|--brightness|--shadows|\
+                        --highlights|--gamma|--black-point|--white-point|--hue-shift|\
+                        --temperature|--tint)
+                            require_argument "${2:-}" "$1"
+                            aurelia_wallpaper_palette_apply_adjustment "${1#--}" "$2"
                             shift 2
                             ;;
                         --light)
@@ -446,6 +465,8 @@ case "$command_name" in
                 if [[ "$action" == "generate" ]]; then
                     aurelia_wallpaper_cmd_theme_generate \
                         "$resolved_image" "$theme_name" "$theme_mode" "$json_flag"
+                elif [[ "$action" == "preview" ]]; then
+                    aurelia_wallpaper_cmd_theme_preview "$resolved_image" "$theme_mode"
                 else
                     aurelia_wallpaper_cmd_theme_apply "$resolved_image" "$theme_name" "$theme_mode"
                 fi

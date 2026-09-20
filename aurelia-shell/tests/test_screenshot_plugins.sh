@@ -45,6 +45,9 @@ if [[ -x "$capture_bin" ]] &&
    grep -q -- '--show-pointer' "$capture_bin" &&
    grep -q -- '--geometry' "$capture_bin" &&
    grep -q '.aurelia-screenshot-XXXXXX.png' "$capture_bin" &&
+   grep -q 'Pictures"' "$capture_bin" &&
+   grep -q 'Screenshots' "$capture_bin" &&
+   ! grep -q 'runtime_dir=.*tmp' "$capture_bin" &&
    grep -q "mv -f -- \"\$capture_path\" \"\$published_path\"" "$capture_bin" &&
    grep -q "\"\$capture_mode\" == \"full\"" "$capture_bin" &&
    ! grep -Eq '(^|[[:space:];])eval([[:space:];]|$)' "$capture_bin"; then

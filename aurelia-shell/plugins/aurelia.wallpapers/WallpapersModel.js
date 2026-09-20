@@ -19,6 +19,45 @@ function safeRowFields(columns) {
     return true
 }
 
+// Optional metadata row emitted by wallhaven searches with --paging:
+//   #meta<TAB>page<TAB>lastPage<TAB>total
+function parseMeta(raw) {
+    var lines = String(raw || "").split("\n")
+    for (var i = 0; i < lines.length; i++) {
+        if (lines[i].indexOf("#meta\t") !== 0) continue
+        var cols = lines[i].split("\t")
+        if (cols.length < 4) continue
+        var page = parseInt(cols[1], 10)
+        var lastPage = parseInt(cols[2], 10)
+        var total = parseInt(cols[3], 10)
+        if (isNaN(page) || isNaN(lastPage)) continue
+        return {
+            page: page > 0 ? page : 1,
+            lastPage: lastPage > 0 ? lastPage : 1,
+            total: isNaN(total) ? 0 : total
+        }
+    }
+    return null
+}
+
+// Append incoming rows, dropping ids already present so a "load more" pass
+// cannot duplicate a result that shifted between page requests.
+function mergeRows(existing, incoming) {
+    var result = Array.isArray(existing) ? existing.slice() : []
+    var seen = {}
+    for (var i = 0; i < result.length; i++) {
+        if (result[i] && result[i].id) seen[result[i].id] = true
+    }
+    var values = Array.isArray(incoming) ? incoming : []
+    for (var j = 0; j < values.length; j++) {
+        var row = values[j]
+        if (!row || !row.id || seen[row.id]) continue
+        seen[row.id] = true
+        result.push(row)
+    }
+    return result
+}
+
 // Local rows: path, thumbnail, label, source, current.
 function loadLocalRows(raw) {
     var rows = []
@@ -54,7 +93,7 @@ function loadWallhavenRows(raw) {
 
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i]
-        if (!line) continue
+        if (!line || line.charAt(0) === "#") continue
         var columns = line.split("\t")
         if (columns.length < 5 || !columns[0]) continue
         if (!safeRowFields(columns)) continue
@@ -142,6 +181,8 @@ if (typeof module !== "undefined") {
         itemMatches: itemMatches,
         loadCatalogRows: loadCatalogRows,
         filteredRows: filteredRows,
-        indexForCurrent: indexForCurrent
+        indexForCurrent: indexForCurrent,
+        parseMeta: parseMeta,
+        mergeRows: mergeRows
     }
 }

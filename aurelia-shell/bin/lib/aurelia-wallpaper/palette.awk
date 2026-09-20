@@ -4,16 +4,24 @@
 # deterministic, data-only colors.toml document to stdout.
 #
 # Inputs (via -v):
-#   mean      #rrggbb average color of the whole image (mode detection)
-#   forced    "dark" | "light" | "" (empty uses the mean luminance)
-#   source    wallpaper path recorded as provenance
-#   digest    sha256 of the wallpaper
-#   name      theme slug
+#   mean        #rrggbb average color of the whole image (mode detection)
+#   forced      "dark" | "light" | "" (empty uses the mean luminance)
+#   source      wallpaper path recorded as provenance
+#   digest      sha256 of the wallpaper
+#   name        theme slug
+#   mode        extraction mode:
+#               normal|monochromatic|analogous|pastel|material|colorful|muted|bright
+#   gamma       lightness curve, 0.5..2.0 (default 1.0)
+#   adj_*       fine-tuning values (0 means "no change"):
+#               adj_vibrance, adj_saturation, adj_contrast, adj_brightness,
+#               adj_shadows, adj_highlights, adj_black_point, adj_white_point,
+#               adj_hue_shift, adj_temperature, adj_tint
 #
 # Determinism: every selection is derived from sorted luminance/saturation
-# order and fixed hue targets, so the same image always produces the same
-# palette. No random, no time, no locale-dependent ordering.
+# order and fixed hue targets, so the same image and the same recipe always
+# produce the same palette. No random, no time, no locale-dependent ordering.
 
+function afabs(value) { return (value < 0) ? -value : value }
 function hex_value(char) { return index("0123456789abcdef", tolower(char)) - 1 }
 function pair(hex, idx) { return hex_value(substr(hex, idx, 1)) * 16 + hex_value(substr(hex, idx + 1, 1)) }
 function rl(rr, gg, bb) {
@@ -35,6 +43,11 @@ function clamp(value) {
     value = int(value + 0.5)
     if (value < 0) return 0
     if (value > 255) return 255
+    return value
+}
+function clamp01(value) {
+    if (value < 0) return 0
+    if (value > 1) return 1
     return value
 }
 function mix(r1, g1, b1, r2, g2, b2, amount) {
@@ -67,6 +80,39 @@ function hue_distance(a, b,   d) {
     if (d > 180) d = 360 - d
     return d
 }
+
+# RGB <-> HSL. Results are returned through the mh/ms/ml and out_r/out_g/out_b
+# globals because awk functions cannot return tuples.
+function rgb_to_hsl(rr, gg, bb,   mx, mn, d, r, g, b) {
+    r = rr / 255; g = gg / 255; b = bb / 255
+    mx = max3(r, g, b); mn = min3(r, g, b)
+    ml = (mx + mn) / 2
+    d = mx - mn
+    if (d == 0) { mh = 0; ms = 0; return }
+    ms = (ml > 0.5) ? d / (2 - mx - mn) : d / (mx + mn)
+    if (mx == r) mh = 60 * (((g - b) / d) % 6)
+    else if (mx == g) mh = 60 * (((b - r) / d) + 2)
+    else mh = 60 * (((r - g) / d) + 4)
+    if (mh < 0) mh += 360
+}
+function hsl_to_rgb(h, s, l,   c, x, m, r, g, b, hp) {
+    h = h % 360
+    if (h < 0) h += 360
+    c = (1 - afabs(2 * l - 1)) * s
+    hp = h / 60
+    x = c * (1 - afabs((hp % 2) - 1))
+    if (hp < 1) { r = c; g = x; b = 0 }
+    else if (hp < 2) { r = x; g = c; b = 0 }
+    else if (hp < 3) { r = 0; g = c; b = x }
+    else if (hp < 4) { r = 0; g = x; b = c }
+    else if (hp < 5) { r = x; g = 0; b = c }
+    else { r = c; g = 0; b = x }
+    m = l - c / 2
+    out_r = clamp((r + m) * 255)
+    out_g = clamp((g + m) * 255)
+    out_b = clamp((b + m) * 255)
+}
+
 function prepare(   i) {
     for (i = 1; i <= count; i++) {
         cr[i] = pair(colors[i], 2)
@@ -104,6 +150,135 @@ function augment(   i, deepest, lightest, before) {
         if (count == before) break
         prepare()
     }
+}
+
+# The hue anchor for monochromatic/analogous modes is the hue of the most
+# saturated extracted color (deterministic tie-break by hex order).
+function base_hue_for(   i, best, best_sat) {
+    best = 0
+    best_sat = -1
+    for (i = 1; i <= count; i++) {
+        if (csat[i] > best_sat) { best_sat = csat[i]; best = i }
+    }
+    if (best == 0) return 0
+    if (chue[best] < 0) return 0
+    return chue[best]
+}
+
+function nearest_material_hue(h,   i, best, best_distance, distance) {
+    best = MAT[1]
+    best_distance = 999
+    for (i = 1; i <= 15; i++) {
+        distance = hue_distance(h, MAT[i])
+        if (distance < best_distance) {
+            best_distance = distance
+            best = MAT[i]
+        }
+    }
+    return best
+}
+
+# Extraction modes change the palette character before fine-tuning.
+function apply_mode(h, s, l) {
+    if (mode == "monochromatic") {
+        h = base_h + ((h - base_h + 540) % 360 - 180) * 0.12
+    } else if (mode == "analogous") {
+        h = base_h + ((h - base_h + 540) % 360 - 180) * 0.28
+    } else if (mode == "pastel") {
+        s = s * 0.55
+        l = 0.56 + l * 0.34
+    } else if (mode == "material") {
+        h = nearest_material_hue(h)
+        s = (s < 0.35) ? 0.35 : ((s > 0.82) ? 0.82 : s)
+        l = 0.34 + l * 0.32
+    } else if (mode == "colorful") {
+        s = clamp01(s * 1.5)
+        if (l < 0.34) l = 0.34
+        if (l > 0.72) l = 0.72
+    } else if (mode == "muted") {
+        s = s * 0.35
+        l = 0.12 + l * 0.78
+    } else if (mode == "bright") {
+        s = s * 0.80
+        l = 0.55 + l * 0.42
+    }
+    mh = h
+    ms = clamp01(s)
+    ml = clamp01(l)
+}
+
+# Twelve fine-tuning controls, applied in HSL plus a final RGB tone step.
+function apply_adjustments(   h, s, l) {
+    h = mh; s = ms; l = ml
+
+    if (adj_saturation != 0) s = s * (1 + adj_saturation / 100)
+    if (adj_vibrance != 0) {
+        if (adj_vibrance > 0)
+            s = s + (adj_vibrance / 50) * (1 - s) * (1 - s) * 0.5
+        else
+            s = s + (adj_vibrance / 50) * s * 0.5
+    }
+    if (adj_contrast != 0) l = 0.5 + (l - 0.5) * (1 + adj_contrast / 30)
+    if (adj_brightness != 0) l = l + adj_brightness / 100 * 0.30
+    if (adj_shadows != 0 && l < 0.5) l = l + (adj_shadows / 50) * (0.5 - l) * 0.5
+    if (adj_highlights != 0 && l >= 0.5) l = l + (adj_highlights / 50) * (1 - l) * 0.5
+    if (gamma > 0 && gamma != 1) l = l ^ (1 / gamma)
+    if (adj_black_point != 0) l = l + adj_black_point / 100 * 0.10
+    if (adj_white_point != 0) l = l + adj_white_point / 100 * 0.10
+    if (adj_hue_shift != 0) h = h + adj_hue_shift
+
+    mh = h
+    ms = clamp01(s)
+    ml = clamp01(l)
+}
+
+# Warm/cool and green/magenta casts are more natural in RGB.
+function apply_rgb_tone() {
+    if (adj_temperature != 0) {
+        out_r = out_r + adj_temperature * 2.2
+        out_b = out_b - adj_temperature * 2.2
+    }
+    if (adj_tint != 0) {
+        out_g = out_g - adj_tint * 1.6
+        out_r = out_r + adj_tint * 0.8
+        out_b = out_b + adj_tint * 0.8
+    }
+    out_r = clamp(out_r)
+    out_g = clamp(out_g)
+    out_b = clamp(out_b)
+}
+
+# Rebuild the palette array from the transformed colors, dropping duplicates
+# that a strong mode (for example monochromatic) may have produced.
+function compact(   i, kept) {
+    delete seen
+    kept = 0
+    for (i = 1; i <= count; i++) {
+        if (seen[colors[i]]++) continue
+        kept++
+        compact_colors[kept] = colors[i]
+    }
+    count = kept
+    for (i = 1; i <= count; i++) colors[i] = compact_colors[i]
+}
+
+function transform_all(   i) {
+    base_h = base_hue_for()
+    for (i = 1; i <= count; i++) {
+        rgb_to_hsl(cr[i], cg[i], cb[i])
+        apply_mode(mh, ms, ml)
+        apply_adjustments()
+        hsl_to_rgb(mh, ms, ml)
+        apply_rgb_tone()
+        cr[i] = out_r
+        cg[i] = out_g
+        cb[i] = out_b
+        colors[i] = hexof(out_r, out_g, out_b)
+    }
+    compact()
+    # A transform can collapse the set below the usable minimum, so top it up
+    # again from the transformed extremes.
+    augment()
 }
 
 function sort_by_luminance(   i, j, key_lum, key_hex, key_r, key_g, key_b, key_s, key_h) {
@@ -167,13 +342,24 @@ function accent_index_for(used,   i, best, best_score, score) {
     if (best == 0) best = most_saturated(used)
     return best
 }
-function emit_roles(   i, slot_index, bright_index, target, pure_hex, normal, bright) {
-    targets[1] = 0;   names[1] = "red";     pure_hex[1] = "#ff0000"
-    targets[2] = 60;  names[2] = "yellow";  pure_hex[2] = "#ffff00"
-    targets[3] = 120; names[3] = "green";   pure_hex[3] = "#00ff00"
-    targets[4] = 180; names[4] = "cyan";    pure_hex[4] = "#00ffff"
-    targets[5] = 240; names[5] = "blue";    pure_hex[5] = "#0000ff"
-    targets[6] = 300; names[6] = "magenta"; pure_hex[6] = "#ff00ff"
+# When the image offers no color near an ANSI hue, derive the slot from the
+# accent by re-hueing it in HSL. This preserves the palette's saturation and
+# lightness character (a desaturated palette stays desaturated) instead of
+# reintroducing a pure primary color.
+function derive_from_accent(target,   s, l) {
+    rgb_to_hsl(pair(accent, 2), pair(accent, 4), pair(accent, 6))
+    s = clamp01(ms * 1.15)
+    l = ml
+    hsl_to_rgb(target, s, l)
+    return hexof(out_r, out_g, out_b)
+}
+function emit_roles(   i, slot_index, bright_index, target, normal, bright) {
+    targets[1] = 0;   names[1] = "red"
+    targets[2] = 60;  names[2] = "yellow"
+    targets[3] = 120; names[3] = "green"
+    targets[4] = 180; names[4] = "cyan"
+    targets[5] = 240; names[5] = "blue"
+    targets[6] = 300; names[6] = "magenta"
 
     for (i = 1; i <= 6; i++) {
         target = targets[i]
@@ -190,16 +376,34 @@ function emit_roles(   i, slot_index, bright_index, target, pure_hex, normal, br
                              toward_r, toward_g, toward_b, 0.2)
             }
         } else {
-            # No extracted color is close enough to this hue: derive it from the
-            # accent so every ANSI slot always exists.
-            normal = mix(pair(accent, 2), pair(accent, 4), pair(accent, 6),
-                         pair(pure_hex[i], 2), pair(pure_hex[i], 4), pair(pure_hex[i], 6), 0.6)
+            normal = derive_from_accent(target)
             bright = mix(pair(normal, 2), pair(normal, 4), pair(normal, 6),
                          toward_r, toward_g, toward_b, 0.2)
         }
         role[names[i]] = normal
         role["bright_" names[i]] = bright
     }
+}
+
+BEGIN {
+    MAT[1] = 0; MAT[2] = 14; MAT[3] = 36; MAT[4] = 45; MAT[5] = 54
+    MAT[6] = 66; MAT[7] = 88; MAT[8] = 122; MAT[9] = 174; MAT[10] = 187
+    MAT[11] = 210; MAT[12] = 230; MAT[13] = 260; MAT[14] = 270; MAT[15] = 330
+    if (mode == "") mode = "normal"
+    if (gamma == "") gamma = 1
+    if (forced != "dark" && forced != "light") forced = ""
+    if (name == "") name = "wallpaper"
+    if (adj_vibrance == "") adj_vibrance = 0
+    if (adj_saturation == "") adj_saturation = 0
+    if (adj_contrast == "") adj_contrast = 0
+    if (adj_brightness == "") adj_brightness = 0
+    if (adj_shadows == "") adj_shadows = 0
+    if (adj_highlights == "") adj_highlights = 0
+    if (adj_black_point == "") adj_black_point = 0
+    if (adj_white_point == "") adj_white_point = 0
+    if (adj_hue_shift == "") adj_hue_shift = 0
+    if (adj_temperature == "") adj_temperature = 0
+    if (adj_tint == "") adj_tint = 0
 }
 
 {
@@ -215,6 +419,8 @@ END {
     }
 
     augment()
+    transform_all()
+    prepare()
     sort_by_luminance()
 
     if (forced == "dark" || forced == "light") {
@@ -266,7 +472,15 @@ END {
     print "# theme = " name
     print "# source = " source
     print "# sha256 = " digest
+    print "# extraction_mode = " mode
+    print "# adjustments = vibrance=" adj_vibrance " saturation=" adj_saturation \
+        " contrast=" adj_contrast " brightness=" adj_brightness \
+        " shadows=" adj_shadows " highlights=" adj_highlights \
+        " gamma=" gamma " black_point=" adj_black_point \
+        " white_point=" adj_white_point " hue_shift=" adj_hue_shift \
+        " temperature=" adj_temperature " tint=" adj_tint
     print "mode = \"" theme_mode "\""
+    print "extraction_mode = \"" mode "\""
     print "accent = \"" accent "\""
     print "selection = \"" mix(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.15) "\""
     print "muted = \"" mix(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.45) "\""

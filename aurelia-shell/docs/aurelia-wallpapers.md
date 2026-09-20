@@ -35,26 +35,55 @@ aurelia-wallpaper random [<source>] | next [<source>]
 aurelia-wallpaper current [--json]
 aurelia-wallpaper import <path> [--to <source>]
 aurelia-wallpaper wallhaven key --status|--set
-aurelia-wallpaper wallhaven search [--query <text>] [--rows|--json] [--thumbs]
+aurelia-wallpaper wallhaven search [--query <text>] [--rows] [--json] [--paging]
+                                  [--page <n>] [--thumbs]
 aurelia-wallpaper wallhaven download <id> [--to <source>]
 aurelia-wallpaper catalog list [--query <text>] [--live] [--refresh] [--rows|--json] [--thumbs]
 aurelia-wallpaper catalog download <key> [--to <source>]
-aurelia-wallpaper theme generate <path> [--name <slug>] [--light|--dark] [--json]
-aurelia-wallpaper theme apply <path> [--name <slug>] [--light|--dark]
+aurelia-wallpaper theme preview <path> [--mode <m>] [--light|--dark] [<adjustments>] --json
+aurelia-wallpaper theme generate <path> [--name <slug>] [--mode <m>] [--light|--dark]
+                                [<adjustments>] [--json]
+aurelia-wallpaper theme apply <path> [--name <slug>] [--mode <m>] [--light|--dark]
+                                [<adjustments>]
 aurelia-wallpaper theme list [--json]
 aurelia-wallpaper theme remove <slug> --yes
 ~~~
 
 Search also accepts `--categories 111`, `--purity 100`, `--sorting <s>`,
 `--order <o>`, `--atleast 1920x1080`, `--page <n>`, and `--seed <text>`.
+`--paging` prepends a single `#meta<TAB>page<TAB>lastPage<TAB>total` row to the
+`--rows` output so a GUI can offer "load more" without a second request.
 
 `--rows` output is the stable TSV contract consumed by the Quickshell panel:
 
 ~~~text
+wallhaven meta row: #meta, page, lastPage, total
 local rows:     path, thumbnail, label, source, current
 wallhaven rows: id, thumbnail, resolution, purity, page URL
 catalog rows:   id, thumbnail, label, resolution, purity, page URL
 ~~~
+
+## Extraction modes and fine-tuning
+
+`theme preview`, `theme generate`, and `theme apply` share one recipe:
+
+- **Extraction modes** (`--mode`): `normal`, `monochromatic`, `analogous`,
+  `pastel`, `material`, `colorful`, `muted`, `bright`. Each is a deterministic
+transform of the extracted colors (hue anchoring, saturation/lightness bands,
+or a Material hue mapping).
+- **Light/dark** (`--light`/`--dark`, or automatic from the image mean): swaps
+  the background/foreground anchors and the contrast direction.
+- **Twelve fine-tuning controls**: `--vibrance`, `--saturation`, `--contrast`,
+  `--brightness`, `--shadows`, `--highlights`, `--gamma`, `--black-point`,
+  `--white-point`, `--hue-shift`, `--temperature`, `--tint`. Values are
+  range-checked and fail closed outside their documented bounds; the defaults
+  are neutral.
+
+The recipe is stored in the generated theme marker, and a generated theme is
+only considered unchanged when both the image digest **and** the recipe match,
+so changing a slider regenerates the palette. `theme preview` is mutation-free:
+it renders the palette JSON for the current recipe without writing any theme,
+which is what the GUI editor uses for live swatches.
 
 ## Files and state
 
@@ -63,6 +92,11 @@ aurelia-shell/bin/aurelia-wallpaper                  CLI entry point
 aurelia-shell/bin/lib/aurelia-wallpaper/*.sh         sourcing, wallhaven, palette
 aurelia-shell/bin/lib/aurelia-wallpaper/palette.awk  deterministic color engine
 aurelia-shell/plugins/aurelia.wallpapers/            Quickshell panel plugin
+  WallpapersPlugin.qml                               resident panel entry point
+  ui/WallpapersPanel.qml                             browser, paging, selection
+  ui/PaletteEditor.qml                               lazily loaded palette editor
+  ui/WallhavenKeyRow.qml                             API-key set/clear controls
+  WallpapersModel.js                                 row parsing and paging merge
 
 ~/.config/aurelia/wallpapers.json   source configuration (version 1)
 ~/.config/aurelia/wallhaven.json    optional API key, 0600
@@ -177,16 +211,27 @@ The panel is a full wallpaper browser, not just a picker:
   source, resolution, and purity, plus the action buttons:
   - **Set wallpaper / Download & apply** — activates the selection (remote
     sources download into the library first, then apply).
-  - **Theme from wallpaper** (local source) — generate and apply a data-only
-    `colors.toml` theme from the selected image.
+  - **Extract colors…** (local source) — open the full palette editor.
   - **Random** (local source) — activate a random wallpaper.
   - **Refresh** — re-read the source.
+- **Wallhaven paging** — the wallhaven tab reports the page window and total,
+  and **Load more** appends the next page until the site is exhausted.
+- **Wallhaven key** — the wallhaven tab shows the stored-key status and offers
+  a password field plus **Save key** / **Clear key**. The key is written
+  through the CLI stdin contract and never appears in argv.
+- **Palette editor** (`ui/PaletteEditor.qml`, lazily loaded) — click the large
+  preview or press `T` on a local wallpaper. It shows the image, live swatches
+  from `theme preview`, the eight extraction modes, the light/dark choice, all
+  twelve fine-tuning sliders, and **Reset** / **Set wallpaper only** /
+  **Apply theme**. Every change re-renders the palette after a short debounce.
 - The keyboard model still works everywhere: arrows move through the grid,
-  `Enter` applies, `T` toggles theme derivation, `Esc` closes, and typing
-  filters while the grid has focus.
+  `Enter` applies, `T` opens the editor, `Esc` closes, and typing filters while
+  the grid has focus.
 
 Every action still goes through the `aurelia-wallpaper` CLI; the GUI owns
-discovery and selection only.
+discovery, preview, and selection only. The editor performs no network access:
+its previews and swatches come from the CLI's local cache and ImageMagick
+pipeline.
 
 ## Shell integration
 
@@ -201,11 +246,13 @@ aurelia-shell shell toggle aurelia.wallpapers '{}'
 ## Tests
 
 `tests/test_wallpapers.sh` (run by `aurelia-shell/tests/run.sh`) covers the
-manifest and delegation contract, the row model, and isolated end-to-end
-behavior for sources, apply, import, palette generation, generated-theme
-lifecycle, configuration failure modes, and the wallhaven integration through
-a stubbed curl with fixture responses. The suite performs no network access
-and never touches live desktop state.
+manifest and delegation contract, the row model and paging metadata, the eight
+extraction modes and adjustment validation, `theme preview` being
+mutation-free, recipe-aware generation, and isolated end-to-end behavior for
+sources, apply, import, palette generation, generated-theme lifecycle,
+configuration failure modes, and the wallhaven integration through a stubbed
+curl with fixture responses. The suite performs no network access and never
+touches live desktop state.
 
 ## Provenance note
 

@@ -18,16 +18,22 @@ Item {
     id: root
 
     property bool opened: false
+    property string aureliaPath: ""
     property string mode: "local" // "local" | "wallhaven" | "catalog"
     property var entries: []
     property int selectedIndex: 0
     property string filterText: ""
     property bool loading: false
     property bool applying: false
-    property bool themeFromWallpaper: false
+    property bool editorOpen: false
+    property string editorImage: ""
     property string errorMessage: ""
     property int requestSerial: 0
     property string applyStage: "idle" // "idle" | "download" | "activate"
+    property bool appending: false
+    property int wallhavenPage: 1
+    property int wallhavenLastPage: 1
+    property int wallhavenTotal: 0
 
     readonly property string wallpaperBin: (aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-wallpaper"
@@ -43,8 +49,9 @@ Item {
     readonly property string searchPlaceholder: root.mode === "wallhaven"
         ? "Search wallhaven…"
         : (root.mode === "catalog" ? "Search catalog…" : "Filter wallpapers…")
-    readonly property string applyLabel: root.remoteMode ? "Download & apply"
-        : (root.themeFromWallpaper ? "Apply as theme" : "Set wallpaper")
+    readonly property string applyLabel: root.remoteMode ? "Download & apply" : "Set wallpaper"
+    readonly property bool canLoadMore: root.mode === "wallhaven" &&
+        root.wallhavenPage < root.wallhavenLastPage && !root.appending
     readonly property var targetScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
 
     function fileUrl(value) {
@@ -62,7 +69,10 @@ Item {
         root.selectedIndex = 0
         root.filterText = ""
         root.errorMessage = ""
-        root.themeFromWallpaper = false
+        root.wallhavenPage = 1
+        root.wallhavenLastPage = 1
+        root.wallhavenTotal = 0
+        root.appending = false
     }
 
     function open(payloadJson) {
@@ -93,30 +103,38 @@ Item {
         return root.opened
     }
 
+    function wallhavenSearchCommand(page) {
+        var query = String(root.filterText || "").trim()
+        var args = [root.wallpaperBin, "wallhaven", "search"]
+        if (query === "") args.push("--sorting", "toplist")
+        else args.push("--query", query)
+        args.push("--page", String(page), "--rows", "--thumbs", "--paging")
+        return args
+    }
+
+    function catalogCommand() {
+        var query = String(root.filterText || "").trim()
+        var args = [root.wallpaperBin, "catalog", "list"]
+        if (query !== "") args.push("--query", query)
+        args.push("--rows", "--thumbs")
+        return args
+    }
+
     function refresh() {
         if (root.applying) return
         root.requestSerial++
         root.loading = true
         root.errorMessage = ""
+        root.appending = false
         if (dataProcess.running) dataProcess.running = false
 
-        var query = String(root.filterText || "").trim()
         if (root.mode === "wallhaven") {
-            if (query === "") {
-                dataProcess.command = [root.wallpaperBin, "wallhaven", "search",
-                    "--sorting", "toplist", "--rows", "--thumbs"]
-            } else {
-                dataProcess.command = [root.wallpaperBin, "wallhaven", "search",
-                    "--query", query, "--rows", "--thumbs"]
-            }
+            root.wallhavenPage = 1
+            root.wallhavenLastPage = 1
+            root.wallhavenTotal = 0
+            dataProcess.command = root.wallhavenSearchCommand(1)
         } else if (root.mode === "catalog") {
-            if (query === "") {
-                dataProcess.command = [root.wallpaperBin, "catalog", "list",
-                    "--rows", "--thumbs"]
-            } else {
-                dataProcess.command = [root.wallpaperBin, "catalog", "list",
-                    "--query", query, "--rows", "--thumbs"]
-            }
+            dataProcess.command = root.catalogCommand()
         } else {
             dataProcess.command = [root.wallpaperBin, "list", "--rows"]
         }
@@ -124,17 +142,52 @@ Item {
         dataProcess.running = true
     }
 
+    function loadMoreWallhaven() {
+        if (root.applying || root.loading || root.mode !== "wallhaven") return
+        if (root.wallhavenPage >= root.wallhavenLastPage) return
+        root.requestSerial++
+        root.loading = true
+        root.appending = true
+        root.errorMessage = ""
+        if (dataProcess.running) dataProcess.running = false
+        dataProcess.command = root.wallhavenSearchCommand(root.wallhavenPage + 1)
+        dataProcess.serial = root.requestSerial
+        dataProcess.running = true
+    }
+
     function loadRows(raw, serial) {
         if (serial !== root.requestSerial) return
         var loaded
-        if (root.mode === "wallhaven") loaded = WallpapersModel.loadWallhavenRows(raw)
-        else if (root.mode === "catalog") loaded = WallpapersModel.loadCatalogRows(raw)
-        else loaded = WallpapersModel.loadLocalRows(raw)
+        var append = root.appending && root.mode === "wallhaven"
+        if (root.mode === "wallhaven") {
+            var meta = WallpapersModel.parseMeta(raw)
+            if (meta) {
+                root.wallhavenPage = meta.page
+                root.wallhavenLastPage = meta.lastPage
+                root.wallhavenTotal = meta.total
+            }
+            loaded = WallpapersModel.loadWallhavenRows(raw)
+            if (append) loaded = WallpapersModel.mergeRows(root.entries, loaded)
+        } else if (root.mode === "catalog") {
+            loaded = WallpapersModel.loadCatalogRows(raw)
+        } else {
+            loaded = WallpapersModel.loadLocalRows(raw)
+        }
         root.entries = loaded
-        root.selectedIndex = WallpapersModel.indexForCurrent(loaded)
-        if (root.selectedIndex >= loaded.length) root.selectedIndex = Math.max(0, loaded.length - 1)
+        if (!append) {
+            root.selectedIndex = WallpapersModel.indexForCurrent(loaded)
+            if (root.selectedIndex >= loaded.length) root.selectedIndex = Math.max(0, loaded.length - 1)
+        }
+        root.appending = false
         root.loading = false
         Qt.callLater(root.focusSurface)
+    }
+
+    function openEditor() {
+        var entry = root.selectedEntry
+        if (!entry || root.remoteMode || String(entry.filePath || "") === "") return
+        root.editorImage = String(entry.filePath)
+        root.editorOpen = true
     }
 
     function select(index) {
@@ -173,9 +226,6 @@ Item {
             } else {
                 applyProcess.command = [root.wallpaperBin, "wallhaven", "download", String(entry.id)]
             }
-        } else if (root.themeFromWallpaper) {
-            root.applyStage = "activate"
-            applyProcess.command = [root.wallpaperBin, "theme", "apply", String(entry.filePath)]
         } else {
             root.applyStage = "activate"
             applyProcess.command = [root.wallpaperBin, "apply", String(entry.filePath)]
@@ -221,7 +271,8 @@ Item {
             if (serial !== root.requestSerial) return
             root.loading = false
             if (code !== 0) {
-                root.entries = []
+                if (!root.appending) root.entries = []
+                root.appending = false
                 root.errorMessage = String(dataError.text || "").trim() ||
                     "Wallpaper sources are unavailable."
                 Qt.callLater(root.focusSurface)
@@ -266,6 +317,29 @@ Item {
 
             root.applyStage = "idle"
             root.refresh()
+        }
+    }
+
+    // The editor is created only while it is open. Instantiating its layer
+    // window eagerly would make the panel depend on a window backend just to
+    // load, which offscreen and headless sessions cannot provide.
+    Loader {
+        id: paletteEditorLoader
+        active: root.editorOpen
+        source: Qt.resolvedUrl("PaletteEditor.qml")
+        onLoaded: {
+            item.aureliaPath = root.aureliaPath
+            item.imagePath = root.editorImage
+            item.opened = root.editorOpen
+            item.closed.connect(function() {
+                Qt.callLater(function() { root.editorOpen = false })
+            })
+            item.applied.connect(function() {
+                Qt.callLater(function() {
+                    root.editorOpen = false
+                    root.refresh()
+                })
+            })
         }
     }
 
@@ -348,7 +422,7 @@ Item {
                         return
                     }
                     if (event.key === Qt.Key_T && root.mode === "local") {
-                        root.themeFromWallpaper = !root.themeFromWallpaper
+                        root.openEditor()
                         event.accepted = true
                         return
                     }
@@ -522,6 +596,14 @@ Item {
                         elide: Text.ElideRight
                     }
 
+                    WallhavenKeyRow {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 30
+                        visible: root.mode === "wallhaven"
+                        wallpaperBin: root.wallpaperBin
+                        onChanged: root.refresh()
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -640,7 +722,13 @@ Item {
 
                         ColumnLayout {
                             id: previewPane
+                            // A nested layout item otherwise stretches to the
+                            // whole row in QtQuick Layouts, which collapses the
+                            // sibling GridView to a few pixels and hides the
+                            // thumbnail grid. Pin the preview column instead.
                             Layout.preferredWidth: 300
+                            Layout.fillWidth: false
+                            Layout.maximumWidth: 300
                             Layout.fillHeight: true
                             spacing: Theme.spacingSm
 
@@ -649,9 +737,12 @@ Item {
                                 Layout.preferredHeight: 190
                                 radius: Theme.radiusMd
                                 color: Theme.controls.normalFill
-                                border.color: Theme.controls.normalBorder
+                                border.color: previewHover.hovered && root.mode === "local"
+                                    ? Theme.accent : Theme.controls.normalBorder
                                 border.width: Theme.borderWidthDefault
                                 clip: true
+
+                                HoverHandler { id: previewHover }
 
                                 Image {
                                     anchors.fill: parent
@@ -675,6 +766,15 @@ Item {
                                         String(root.selectedEntry.thumb || "") === ""
                                     color: Theme.accent
                                     coreColor: Theme.gold
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: root.mode === "local" && root.selectedEntry !== null
+                                        ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    enabled: root.mode === "local" && root.selectedEntry !== null &&
+                                        !root.applying
+                                    onClicked: root.openEditor()
                                 }
                             }
 
@@ -733,15 +833,23 @@ Item {
                                 Layout.fillWidth: true
                                 compact: true
                                 centerLabel: true
-                                label: "Theme from wallpaper"
-                                detail: root.themeFromWallpaper ? "enabled" : "local only"
-                                primary: root.themeFromWallpaper
+                                label: "Extract colors…"
+                                detail: "preview, tune, apply"
                                 visible: root.mode === "local"
                                 enabled: root.selectedEntry !== null && !root.applying && !root.loading
-                                onTriggered: {
-                                    root.themeFromWallpaper = !root.themeFromWallpaper
-                                    surfaceFocus.forceActiveFocus()
-                                }
+                                onTriggered: root.openEditor()
+                            }
+
+                            AureliaActionButton {
+                                Layout.fillWidth: true
+                                compact: true
+                                centerLabel: true
+                                label: root.appending ? "Loading more…" : "Load more"
+                                detail: root.wallhavenTotal > 0
+                                    ? (root.wallhavenTotal + " results") : "next page"
+                                visible: root.canLoadMore || root.appending
+                                enabled: !root.applying && !root.loading
+                                onTriggered: root.loadMoreWallhaven()
                             }
 
                             RowLayout {
@@ -774,8 +882,12 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 22
                         text: root.remoteMode
-                            ? "Click a thumbnail to select, again or Enter to download & apply   •   Tab next source   •   Esc close"
-                            : "Click a thumbnail to select, again or Enter to apply   •   T theme from wallpaper   •   Tab next source   •   Esc close"
+                            ? (root.mode === "wallhaven" && root.wallhavenTotal > 0
+                                ? ("Page " + root.wallhavenPage + " of " + root.wallhavenLastPage +
+                                    "  •  " + root.entries.length + " of " + root.wallhavenTotal +
+                                    "   •   Load more for the next page   •   Tab next source   •   Esc close")
+                                : "Click a thumbnail to select, again or Enter to download & apply   •   Tab next source   •   Esc close")
+                            : "Click a thumbnail to select, again or Enter to apply   •   click the preview or press T to extract colors   •   Tab next source   •   Esc close"
                         color: Theme.textMuted
                         font.family: Theme.fontFamilyProse
                         font.pixelSize: Theme.fontSizeXs

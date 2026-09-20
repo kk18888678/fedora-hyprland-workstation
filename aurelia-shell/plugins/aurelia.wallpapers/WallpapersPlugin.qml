@@ -51,5 +51,6 @@ Item {
 
     WallpapersPanel {
         id: wallpapersPanel
+        aureliaPath: pluginRoot.aureliaPath
     }
 }

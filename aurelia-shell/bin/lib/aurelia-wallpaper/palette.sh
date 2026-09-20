@@ -10,6 +10,101 @@
 # Generated themes are always marked, so a user-authored theme directory can
 # never be overwritten or removed by this capability.
 
+# The active extraction recipe. Every field is neutral by default, and the CLI
+# overrides them from validated user input.
+AW_PALETTE_MODE="normal"
+AW_PALETTE_VIBRANCE=0
+AW_PALETTE_SATURATION=0
+AW_PALETTE_CONTRAST=0
+AW_PALETTE_BRIGHTNESS=0
+AW_PALETTE_SHADOWS=0
+AW_PALETTE_HIGHLIGHTS=0
+AW_PALETTE_GAMMA="1"
+AW_PALETTE_BLACK_POINT=0
+AW_PALETTE_WHITE_POINT=0
+AW_PALETTE_HUE_SHIFT=0
+AW_PALETTE_TEMPERATURE=0
+AW_PALETTE_TINT=0
+
+aurelia_wallpaper_palette_validate_mode() {
+    case "${1:-}" in
+        normal|monochromatic|analogous|pastel|material|colorful|muted|bright) return 0 ;;
+        *) aurelia_wallpaper_fail "Unsupported extraction mode: ${1:-}" ;;
+    esac
+}
+
+# Validate one fine-tuning value and store it. Ranges mirror upstream Aether.
+aurelia_wallpaper_palette_apply_adjustment() {
+    local name="$1"
+    local value="$2"
+    local minimum=""
+    local maximum=""
+    local variable=""
+
+    case "$name" in
+        vibrance) minimum=-50; maximum=50; variable="AW_PALETTE_VIBRANCE" ;;
+        saturation) minimum=-100; maximum=100; variable="AW_PALETTE_SATURATION" ;;
+        contrast) minimum=-30; maximum=30; variable="AW_PALETTE_CONTRAST" ;;
+        brightness) minimum=-30; maximum=30; variable="AW_PALETTE_BRIGHTNESS" ;;
+        shadows) minimum=-50; maximum=50; variable="AW_PALETTE_SHADOWS" ;;
+        highlights) minimum=-50; maximum=50; variable="AW_PALETTE_HIGHLIGHTS" ;;
+        black-point) minimum=-30; maximum=30; variable="AW_PALETTE_BLACK_POINT" ;;
+        white-point) minimum=-30; maximum=30; variable="AW_PALETTE_WHITE_POINT" ;;
+        hue-shift) minimum=-180; maximum=180; variable="AW_PALETTE_HUE_SHIFT" ;;
+        temperature) minimum=-50; maximum=50; variable="AW_PALETTE_TEMPERATURE" ;;
+        tint) minimum=-50; maximum=50; variable="AW_PALETTE_TINT" ;;
+        gamma)
+            [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] ||
+                aurelia_wallpaper_fail "gamma must be a number between 0.5 and 2.0."
+            awk -v v="$value" 'BEGIN { exit !(v >= 0.5 && v <= 2.0) }' ||
+                aurelia_wallpaper_fail "gamma must be between 0.5 and 2.0."
+            AW_PALETTE_GAMMA="$value"
+            return 0
+            ;;
+        *)
+            aurelia_wallpaper_fail "Unknown adjustment: $name"
+            ;;
+    esac
+
+    [[ "$value" =~ ^-?[0-9]+$ ]] ||
+        aurelia_wallpaper_fail "$name must be an integer between $minimum and $maximum."
+    (( value >= minimum && value <= maximum )) ||
+        aurelia_wallpaper_fail "$name must be between $minimum and $maximum."
+    printf -v "$variable" '%s' "$value"
+}
+
+# Canonical recipe used for the generated-theme marker and for idempotency.
+aurelia_wallpaper_palette_recipe_json() {
+    jq -nc \
+        --arg mode "$AW_PALETTE_MODE" \
+        --argjson vibrance "$AW_PALETTE_VIBRANCE" \
+        --argjson saturation "$AW_PALETTE_SATURATION" \
+        --argjson contrast "$AW_PALETTE_CONTRAST" \
+        --argjson brightness "$AW_PALETTE_BRIGHTNESS" \
+        --argjson shadows "$AW_PALETTE_SHADOWS" \
+        --argjson highlights "$AW_PALETTE_HIGHLIGHTS" \
+        --argjson gamma "$AW_PALETTE_GAMMA" \
+        --argjson black_point "$AW_PALETTE_BLACK_POINT" \
+        --argjson white_point "$AW_PALETTE_WHITE_POINT" \
+        --argjson hue_shift "$AW_PALETTE_HUE_SHIFT" \
+        --argjson temperature "$AW_PALETTE_TEMPERATURE" \
+        --argjson tint "$AW_PALETTE_TINT" \
+        '{mode:$mode, vibrance:$vibrance, saturation:$saturation,
+          contrast:$contrast, brightness:$brightness, shadows:$shadows,
+          highlights:$highlights, gamma:$gamma, black_point:$black_point,
+          white_point:$white_point, hue_shift:$hue_shift,
+          temperature:$temperature, tint:$tint}'
+}
+
+aurelia_wallpaper_colors_json() {
+    jq -Rn '
+        [inputs
+         | select(test("^[A-Za-z0-9_-]+ *= *\""))
+         | capture("^(?<k>[A-Za-z0-9_-]+) *= *\"(?<v>[^\"]*)\"")
+         | {(.k): .v}]
+        | add // {}'
+}
+
 aurelia_wallpaper_palette_tool() {
     if command -v magick >/dev/null; then
         printf 'magick\n'
@@ -100,6 +195,19 @@ aurelia_wallpaper_palette_document() {
         -v name="$slug" \
         -v source="$image" \
         -v digest="$digest" \
+        -v mode="$AW_PALETTE_MODE" \
+        -v gamma="$AW_PALETTE_GAMMA" \
+        -v adj_vibrance="$AW_PALETTE_VIBRANCE" \
+        -v adj_saturation="$AW_PALETTE_SATURATION" \
+        -v adj_contrast="$AW_PALETTE_CONTRAST" \
+        -v adj_brightness="$AW_PALETTE_BRIGHTNESS" \
+        -v adj_shadows="$AW_PALETTE_SHADOWS" \
+        -v adj_highlights="$AW_PALETTE_HIGHLIGHTS" \
+        -v adj_black_point="$AW_PALETTE_BLACK_POINT" \
+        -v adj_white_point="$AW_PALETTE_WHITE_POINT" \
+        -v adj_hue_shift="$AW_PALETTE_HUE_SHIFT" \
+        -v adj_temperature="$AW_PALETTE_TEMPERATURE" \
+        -v adj_tint="$AW_PALETTE_TINT" \
         -f "$AW_BIN_ROOT/lib/aurelia-wallpaper/palette.awk")" || status=$?
 
     if (( status != 0 )) || [[ -z "$document" ]]; then
@@ -155,6 +263,10 @@ aurelia_wallpaper_theme_marker() {
     local image="$2"
     local digest="$3"
     local background="$4"
+    local recipe="${5:-}"
+    local recipe_json='{}'
+
+    [[ -n "$recipe" ]] && recipe_json="$recipe"
 
     jq -n \
         --arg slug "$slug" \
@@ -162,7 +274,8 @@ aurelia_wallpaper_theme_marker() {
         --arg sha256 "$digest" \
         --arg background "$background" \
         --arg generator "aurelia-wallpaper" \
-        '{generator:$generator,slug:$slug,source:$source,sha256:$sha256,background:$background,removable:true}'
+        --argjson recipe "$recipe_json" \
+        '{generator:$generator,slug:$slug,source:$source,sha256:$sha256,background:$background,recipe:$recipe,removable:true}'
 }
 
 # Publish a data-only user theme from a ready-made colors.toml document and
@@ -173,6 +286,7 @@ aurelia_wallpaper_theme_publish() {
     local palette_file="$2"
     local wallpaper="${3:-}"
     local digest="${4:-}"
+    local recipe="${5:-}"
     local theme_dir="$AW_THEME_ROOT/$slug"
     local marker="$theme_dir/.generated.json"
     local extension=""
@@ -215,7 +329,7 @@ aurelia_wallpaper_theme_publish() {
     # The marker is written last so an interrupted run is never mistaken for a
     # complete generated theme.
     aurelia_wallpaper_atomic_text \
-        "$(aurelia_wallpaper_theme_marker "$slug" "${wallpaper:-$slug}" "$digest" "${background:-}")" \
+        "$(aurelia_wallpaper_theme_marker "$slug" "${wallpaper:-$slug}" "$digest" "${background:-}" "$recipe")" \
         "$marker" || return 1
 }
 
@@ -230,7 +344,10 @@ aurelia_wallpaper_cmd_theme_generate() {
     local extension=""
     local document=""
     local recorded_digest=""
+    local recorded_recipe=""
+    local wanted_recipe=""
     local background=""
+    local palette_staging=""
 
     [[ "$image" == /* && -f "$image" && ! -L "$image" ]] ||
         aurelia_wallpaper_fail "A readable wallpaper image is required: $image"
@@ -239,6 +356,7 @@ aurelia_wallpaper_cmd_theme_generate() {
     [[ -z "$mode" || "$mode" == "dark" || "$mode" == "light" ]] ||
         aurelia_wallpaper_fail "Unsupported palette mode: $mode"
 
+    wanted_recipe="$(jq -cS . <<<"$(aurelia_wallpaper_palette_recipe_json)")" || return 1
     slug="$(aurelia_wallpaper_theme_slug_for "$image" "$requested_name")" || return 1
     theme_dir="$AW_THEME_ROOT/$slug"
     marker="$theme_dir/.generated.json"
@@ -250,7 +368,11 @@ aurelia_wallpaper_cmd_theme_generate() {
         aurelia_wallpaper_theme_is_managed "$theme_dir" ||
             aurelia_wallpaper_fail "Refusing to overwrite a theme this capability did not generate: $theme_dir"
         recorded_digest="$(jq -r '.sha256 // empty' "$marker" || true)"
-        if [[ "$recorded_digest" == "$digest" && -f "$theme_dir/colors.toml" ]]; then
+        if [[ -f "$marker" ]]; then
+            recorded_recipe="$(jq -cS '.recipe // {}' "$marker" || printf '{}')"
+        fi
+        if [[ "$recorded_digest" == "$digest" && "$recorded_recipe" == "$wanted_recipe" &&
+              -f "$theme_dir/colors.toml" ]]; then
             background="$(jq -r '.background // empty' "$marker" || true)"
             if [[ -n "$background" && -f "$theme_dir/$background" ]]; then
                 if aurelia_wallpaper_setting_is_true "$wants_json"; then
@@ -278,8 +400,20 @@ aurelia_wallpaper_cmd_theme_generate() {
     document="$(aurelia_wallpaper_palette_document "$image" "$slug" "$mode" "$digest")" ||
         return 1
 
-        aurelia_wallpaper_theme_publish "$slug" \
-        <(printf '%s\n' "$document") "$image" "$digest" || return 1
+    # Stage the palette in a real file. Process substitution yields a pipe,
+    # which the theme publisher correctly refuses to treat as a regular file.
+    aurelia_wallpaper_prepare_cache || return 1
+    palette_staging="$(mktemp "$AW_DOWNLOAD_ROOT/palette-XXXXXX.toml")" ||
+        aurelia_wallpaper_fail "Could not create a palette staging file."
+    if ! printf '%s\n' "$document" >"$palette_staging"; then
+        rm -f -- "$palette_staging"
+        aurelia_wallpaper_fail "Could not stage the generated palette."
+    fi
+    if ! aurelia_wallpaper_theme_publish "$slug" "$palette_staging" "$image" "$digest" "$wanted_recipe"; then
+        rm -f -- "$palette_staging"
+        return 1
+    fi
+    rm -f -- "$palette_staging"
 
     if aurelia_wallpaper_setting_is_true "$wants_json"; then
         jq -n \
@@ -302,6 +436,33 @@ aurelia_wallpaper_active_theme_slug() {
     fi
     [[ -n "$slug" ]] || slug="default"
     printf '%s\n' "$slug"
+}
+
+# Render the palette for the current recipe without writing any theme. The
+# Quickshell editor calls this for live swatches; it performs no mutation.
+aurelia_wallpaper_cmd_theme_preview() {
+    local image="$1"
+    local forced="${2:-}"
+    local document=""
+    local colors_json=""
+    local recipe=""
+
+    [[ "$image" == /* && -f "$image" && ! -L "$image" ]] ||
+        aurelia_wallpaper_fail "A readable wallpaper image is required: $image"
+    aurelia_wallpaper_is_still_image "$image" ||
+        aurelia_wallpaper_fail "Palette preview requires a still image: $image"
+    [[ -z "$forced" || "$forced" == "dark" || "$forced" == "light" ]] ||
+        aurelia_wallpaper_fail "Unsupported palette mode: $forced"
+
+    document="$(aurelia_wallpaper_palette_document "$image" "preview" "$forced" "preview")" ||
+        return 1
+    colors_json="$(aurelia_wallpaper_colors_json <<<"$document")" || return 1
+    recipe="$(aurelia_wallpaper_palette_recipe_json)" || return 1
+    jq -n \
+        --arg image "$image" \
+        --argjson colors "$colors_json" \
+        --argjson recipe "$recipe" \
+        '{image:$image, recipe:$recipe, colors:$colors}'
 }
 
 aurelia_wallpaper_cmd_theme_apply() {

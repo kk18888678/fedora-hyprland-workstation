@@ -26,14 +26,14 @@ aurelia_wallpaper_wallhaven_key_status() {
 
 aurelia_wallpaper_wallhaven_key_clear() {
     if [[ ! -f "$AW_WALLHAVEN_KEY_FILE" ]]; then
-        printf No wallhaven API key is configured.\n
+        printf '%s\n' "No wallhaven API key is configured."
         return 0
     fi
     [[ ! -L "$AW_WALLHAVEN_KEY_FILE" ]] ||
         aurelia_wallpaper_fail "Refusing to remove a symlinked key file."
     aurelia_wallpaper_lock || return 1
     rm -f -- "$AW_WALLHAVEN_KEY_FILE"
-    printf Wallhaven API key removed.\n
+    printf '%s\n' "Wallhaven API key removed."
 }
 
 aurelia_wallpaper_wallhaven_key_read() {
@@ -176,6 +176,7 @@ aurelia_wallpaper_wallhaven_search() {
     local seed="$8"
     local mode="$9"
     local with_thumbs="${10:-0}"
+    local paging="${11:-0}"
     local api_key=""
     local url=""
     local response=""
@@ -213,7 +214,14 @@ aurelia_wallpaper_wallhaven_search() {
         # Row shape: id, thumbnail, resolution, purity, page URL.
         # Without --thumbs the thumbnail is the remote preview URL; with
         # --thumbs it is a cached local preview so the UI never fetches the
-        # network itself.
+        # network itself. With --paging a leading #meta row reports the page
+        # window so a GUI can offer "load more" without a second request.
+        if aurelia_wallpaper_setting_is_true "$paging"; then
+            printf '#meta\t%s\t%s\t%s\n' \
+                "$(jq -r '.page' <<<"$normalized")" \
+                "$(jq -r '.lastPage' <<<"$normalized")" \
+                "$(jq -r '.total' <<<"$normalized")"
+        fi
         local id=""
         local resolution=""
         local thumb=""

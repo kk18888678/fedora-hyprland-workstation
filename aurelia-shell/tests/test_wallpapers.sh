@@ -45,19 +45,45 @@ else
     fail "wallpaper panel keyboard, filtering, or preview contract is incomplete"
 fi
 
+# A nested ColumnLayout otherwise stretches to the whole row in QtQuick Layouts,
+# which collapses the sibling GridView and hides the thumbnail grid behind the
+# preview pane. The preview column must therefore be pinned explicitly.
+if grep -q 'Layout.preferredWidth: 300' "$wallpaper_root/ui/WallpapersPanel.qml" &&
+   grep -q 'Layout.fillWidth: false' "$wallpaper_root/ui/WallpapersPanel.qml" &&
+   grep -q 'Layout.maximumWidth: 300' "$wallpaper_root/ui/WallpapersPanel.qml"; then
+    pass "wallpaper panel pins the preview column so the thumbnail grid stays visible"
+else
+    fail "wallpaper panel preview column can collapse the thumbnail grid"
+fi
+
 # The panel is a discovery surface only. It must not write theme or background
 # state and must always delegate to the wallpaper command, which in turn
 # delegates activation to the existing theme commands.
 if grep -q '\[root.wallpaperBin, "list", "--rows"\]' "$wallpaper_root/ui/WallpapersPanel.qml" &&
-   grep -q '\[root.wallpaperBin, "wallhaven", "search",' "$wallpaper_root/ui/WallpapersPanel.qml" &&
+   grep -q '\[root.wallpaperBin, "wallhaven", "search"\]' "$wallpaper_root/ui/WallpapersPanel.qml" &&
    grep -q '\[root.wallpaperBin, "wallhaven", "download", String(entry.id)\]' "$wallpaper_root/ui/WallpapersPanel.qml" &&
    grep -q '\[root.wallpaperBin, "apply", String(entry.filePath)\]' "$wallpaper_root/ui/WallpapersPanel.qml" &&
-   grep -q '\[root.wallpaperBin, "theme", "apply", String(entry.filePath)\]' "$wallpaper_root/ui/WallpapersPanel.qml" &&
+   grep -q '\[editor.wallpaperBin, "theme", "preview", editor.imagePath\]' "$wallpaper_root/ui/PaletteEditor.qml" &&
+   grep -q '\[editor.wallpaperBin, "theme", "apply", editor.imagePath\]' "$wallpaper_root/ui/PaletteEditor.qml" &&
    ! grep -qE 'background\.path|theme\.name|aurelia-theme-bg|aurelia-theme set|curl ' \
-       "$wallpaper_root/ui/WallpapersPanel.qml"; then
+       "$wallpaper_root/ui/WallpapersPanel.qml" "$wallpaper_root/ui/PaletteEditor.qml"; then
     pass "panel delegates every mutation to the aurelia-wallpaper command boundary"
 else
     fail "panel bypasses the wallpaper command mutation boundary"
+fi
+
+# The palette editor and wallhaven key controls are separate components. The
+# panel must lazy-load the editor so a headless session can still load the
+# plugin without a layer-shell window backend.
+if [[ -f "$wallpaper_root/ui/PaletteEditor.qml" &&
+      -f "$wallpaper_root/ui/WallhavenKeyRow.qml" ]] &&
+   grep -q 'source: Qt.resolvedUrl("PaletteEditor.qml")' "$wallpaper_root/ui/WallpapersPanel.qml" &&
+   grep -q 'active: root.editorOpen' "$wallpaper_root/ui/WallpapersPanel.qml" &&
+   grep -q '"theme", "preview"' "$wallpaper_root/ui/PaletteEditor.qml" &&
+   grep -q '"key", "--set"' "$wallpaper_root/ui/WallhavenKeyRow.qml"; then
+    pass "palette editor and wallhaven key controls are separate, lazily loaded components"
+else
+    fail "palette editor or wallhaven key component contract is incomplete"
 fi
 
 if grep -q 'aurelia_wallpaper_activate()' "$wallpaper_lib/library.sh" &&
@@ -126,11 +152,18 @@ const local = model.loadLocalRows(
   '/w/two.webp\t/w/two.webp\tTwo\tlibrary\t1\n'
 );
 const remote = model.loadWallhavenRows(
+  '#meta\t2\t9\t200\n' +
   '111\t/cache/111.jpg\t1920x1080\tsfw\thttps://wallhaven.cc/w/111\n'
 );
 if (local.length !== 2 || model.indexForCurrent(local) !== 1) process.exit(1);
 if (local[0].source !== 'library' || remote[0].kind !== 'wallhaven') process.exit(1);
+if (remote.length !== 1 || remote[0].id !== '111') process.exit(1);
 if (remote[0].thumb !== '/cache/111.jpg' || remote[0].purity !== 'sfw') process.exit(1);
+const meta = model.parseMeta('#meta\t2\t9\t200\n111\t/x\n');
+if (!meta || meta.page !== 2 || meta.lastPage !== 9 || meta.total !== 200) process.exit(1);
+if (model.parseMeta('111\t/x\n') !== null) process.exit(1);
+const merged = model.mergeRows([{ id: '111' }, { id: '222' }], [{ id: '222' }, { id: '333' }]);
+if (merged.map((row) => row.id).join(',') !== '111,222,333') process.exit(1);
 if (model.filteredRows(local, 'two').length !== 1) process.exit(1);
 if (model.filteredRows(local, 'nomatch').length !== 0) process.exit(1);
 if (model.loadLocalRows('only-three-fields\tx\ty\n').length !== 0) process.exit(1);
@@ -467,6 +500,66 @@ else
     fail "theme removal did not remove the generated theme"
 fi
 
+section "Wallpaper color extraction modes and fine-tuning (isolated)"
+
+wallpaper_image="$wp_tmp/home/Pictures/Wallpapers/sunset.jpg"
+
+preview_json="$(run_wp theme preview "$wallpaper_image" --mode pastel --json)"
+if jq -e '.recipe.mode == "pastel" and .colors.extraction_mode == "pastel" and
+          (.colors.background | test("^#[0-9a-f]{6}$")) and
+          (.colors.foreground | test("^#[0-9a-f]{6}$"))' <<<"$preview_json" >/dev/null &&
+   [[ ! -e "$wp_tmp/config/aurelia/themes/preview" ]]; then
+    pass "theme preview renders a palette without writing a theme"
+else
+    fail "theme preview contract is wrong: $preview_json"
+fi
+
+mode_ok=1
+for extraction_mode in normal monochromatic analogous pastel material colorful muted bright; do
+    rendered_mode="$(run_wp theme preview "$wallpaper_image" --mode "$extraction_mode" --json |
+        jq -r '.colors.extraction_mode // empty')"
+    [[ "$rendered_mode" == "$extraction_mode" ]] || mode_ok=0
+done
+if [[ "$mode_ok" == "1" ]]; then
+    pass "all eight extraction modes render a palette"
+else
+    fail "an extraction mode did not render"
+fi
+
+base_colors="$(run_wp theme preview "$wallpaper_image" --mode normal --json | jq -c '.colors')"
+tuned_colors="$(run_wp theme preview "$wallpaper_image" --mode normal --vibrance 40 --saturation -20 --temperature 25 --json |
+    jq -c '.colors')"
+if [[ "$base_colors" != "$tuned_colors" ]]; then
+    pass "fine-tuning adjustments change the rendered palette"
+else
+    fail "fine-tuning adjustments had no effect"
+fi
+
+if run_wp theme preview "$wallpaper_image" --mode bogus >/dev/null; then
+    fail "theme preview accepted an unknown extraction mode"
+else
+    pass "theme preview rejects an unknown extraction mode"
+fi
+if run_wp theme preview "$wallpaper_image" --vibrance 999 >/dev/null; then
+    fail "theme preview accepted an out-of-range vibrance"
+else
+    pass "theme preview rejects an out-of-range adjustment"
+fi
+if run_wp theme preview "$wallpaper_image" --gamma 3.0 >/dev/null; then
+    fail "theme preview accepted an out-of-range gamma"
+else
+    pass "theme preview rejects an out-of-range gamma"
+fi
+
+run_wp theme generate "$wallpaper_image" --mode material --json >/dev/null
+if jq -e '.changed == false' <<<"$(run_wp theme generate "$wallpaper_image" --mode material --json)" >/dev/null &&
+   jq -e '.changed == true' <<<"$(run_wp theme generate "$wallpaper_image" --mode muted --json)" >/dev/null &&
+   jq -e '.recipe.mode == "muted"' "$wp_tmp/config/aurelia/themes/wallpaper-sunset.jpg/.generated.json" >/dev/null; then
+    pass "theme generate treats a recipe change as a new palette"
+else
+    fail "theme recipe idempotency is wrong"
+fi
+
 section "Wallpaper source configuration (isolated)"
 
 if run_wp sources add "$wp_tmp/home/Extra" --id extra >/dev/null &&
@@ -512,6 +605,25 @@ else
 fi
 rm -f -- "$wp_tmp/config/aurelia/wallpapers.json"
 
+# The wallhaven.* block in wallpapers.json must actually be applied. Loading the
+# configuration is fail-closed: an explicit but unsupported value is a
+# configuration error, while a valid block is accepted.
+printf '{"version":1,"wallhaven":{"sorting":"bogus"}}\n' \
+    >"$wp_tmp/config/aurelia/wallpapers.json"
+if run_wp sources >/dev/null; then
+    fail "an unsupported wallhaven.sorting value was silently accepted"
+else
+    pass "wallhaven configuration is validated at load time"
+fi
+printf '{"version":1,"wallhaven":{"sorting":"toplist","atleast":"2560x1440","purity":"100"}}\n' \
+    >"$wp_tmp/config/aurelia/wallpapers.json"
+if run_wp sources >/dev/null; then
+    pass "a valid wallhaven configuration block is accepted"
+else
+    fail "a valid wallhaven configuration block was rejected"
+fi
+rm -f -- "$wp_tmp/config/aurelia/wallpapers.json"
+
 section "Wallhaven integration (isolated, stubbed network)"
 
 search_json="$(run_wp wallhaven search --query mountains --json)"
@@ -529,6 +641,14 @@ if grep -q $'^1111111\t/.*/thumbs/1111111\.jpg\t1920x1080\tsfw\thttps://wallhave
     pass "wallhaven search serves cached local previews to the UI"
 else
     fail "wallhaven search rows did not use cached thumbnails: $search_rows"
+fi
+
+paging_rows="$(run_wp wallhaven search --query mountains --rows --paging)"
+if [[ "$(sed -n '1p' <<<"$paging_rows")" == $'#meta\t1\t3\t60' ]] &&
+   grep -q $'^1111111\t' <<<"$paging_rows"; then
+    pass "wallhaven --paging emits page metadata for load-more"
+else
+    fail "wallhaven --paging metadata is missing: $paging_rows"
 fi
 
 if [[ ! -f "$wp_tmp/config/aurelia/wallhaven.json" ]] &&

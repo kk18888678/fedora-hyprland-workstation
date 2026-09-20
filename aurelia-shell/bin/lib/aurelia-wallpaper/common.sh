@@ -124,12 +124,23 @@ Wallhaven:
                                      Download an SFW wallpaper into the library.
 
 Palette (extract a data-only theme from a wallpaper):
-  theme generate <path> [--name <slug>] [--light] [--json]
+  theme preview <path> [--mode <m>] [--light|--dark] [<adjustments>] --json
+                                     Render the palette for the current recipe
+                                     without writing any theme (UI preview).
+  theme generate <path> [--name <slug>] [--mode <m>] [--light|--dark]
+                                     [<adjustments>] [--json]
                                      Generate a user theme from a wallpaper.
-  theme apply <path> [--name <slug>] [--light]
+  theme apply <path> [--name <slug>] [--mode <m>] [--light|--dark]
+                                     [<adjustments>]
                                      Generate the theme and activate it.
   theme list [--json]                List generated wallpaper themes.
   theme remove <slug> --yes          Remove a generated theme.
+
+  Extraction modes: normal, monochromatic, analogous, pastel, material,
+  colorful, muted, bright.
+  Adjustments: --vibrance, --saturation, --contrast, --brightness,
+  --shadows, --highlights, --gamma, --black-point, --white-point,
+  --hue-shift, --temperature, --tint.
 
 Base16 schemes (tinted-theming):
   base16 import <scheme.yaml> [--name <slug>] [--light] [--apply] [--json]
@@ -467,6 +478,9 @@ aurelia_wallpaper_config_load() {
 }
 
 aurelia_wallpaper_config_load_wallhaven() {
+    # The config file is optional; without it the built-in defaults apply.
+    [[ -f "$AW_CONFIG_FILE" && ! -L "$AW_CONFIG_FILE" ]] || return 0
+
     local categories=""
     local purity=""
     local sorting=""
@@ -493,7 +507,7 @@ aurelia_wallpaper_config_load_wallhaven() {
     fi
     if [[ -n "$sorting" ]]; then
         case "$sorting" in
-            relevance|date_added|views|favorites|random) AW_CFG_WALLHAVEN_SORTING="$sorting" ;;
+            relevance|date_added|views|favorites|toplist|hot|random) AW_CFG_WALLHAVEN_SORTING="$sorting" ;;
             *) aurelia_wallpaper_fail "Unsupported wallhaven.sorting value: $sorting" ;;
         esac
     fi
