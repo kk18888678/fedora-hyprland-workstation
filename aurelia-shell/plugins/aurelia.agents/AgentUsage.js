@@ -23,6 +23,7 @@ function parseRecords(text) {
     try {
         data = JSON.parse(String(text || ""));
     } catch (e) {
+        console.warn("[AGENTS] usage_parse_failed reason=" + String(e && e.message ? e.message : e));
         return [];
     }
     var agents = data && data.agents;

@@ -180,10 +180,12 @@ fi
 
 sandbox="$(mktemp -d)"
 trap 'rm -rf -- "$sandbox" || true' RETURN
+today="$(date +%F)"
+yesterday="$(date -d 'yesterday' +%F)"
 mkdir -p -- "$sandbox/home/.claude/projects/proj" "$sandbox/state" "$sandbox/config"
-cat >"$sandbox/home/.claude/projects/proj/session.jsonl" <<'TRANSCRIPT'
-{"type":"assistant","timestamp":"2026-09-19T10:00:00Z","sessionId":"s1","message":{"id":"m1","role":"assistant","model":"claude-opus-4","usage":{"input_tokens":100,"output_tokens":200,"cache_read_input_tokens":50,"cache_creation_input_tokens":10}}}
-{"type":"assistant","timestamp":"2026-09-18T09:00:00Z","sessionId":"s2","message":{"id":"m2","role":"assistant","model":"claude-sonnet-4","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+cat >"$sandbox/home/.claude/projects/proj/session.jsonl" <<TRANSCRIPT
+{"type":"assistant","timestamp":"${today}T10:00:00","sessionId":"s1","message":{"id":"m1","role":"assistant","model":"claude-opus-4","usage":{"input_tokens":100,"output_tokens":200,"cache_read_input_tokens":50,"cache_creation_input_tokens":10}}}
+{"type":"assistant","timestamp":"${yesterday}T09:00:00","sessionId":"s2","message":{"id":"m2","role":"assistant","model":"claude-sonnet-4","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 {"type":"user","message":{"role":"user"}}
 TRANSCRIPT
 
@@ -234,13 +236,13 @@ fi
 # Codex and Cline fixtures prove the record contract is collector-agnostic.
 # The RPC probe is disabled here (CODEX_BIN points nowhere) so the local-scan
 # assertions stay deterministic; the probe itself is covered below.
-mkdir -p -- "$sandbox/codex/sessions/2026/09/19" \
+mkdir -p -- "$sandbox/codex/sessions/${today//-//}" \
     "$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1" \
     "$sandbox/data"
-cat >"$sandbox/codex/sessions/2026/09/19/rollout-x.jsonl" <<'CODEX_ROLLOUT'
-{"timestamp":"2026-09-19T10:00:00Z","type":"session_meta","payload":{"id":"s1"}}
-{"timestamp":"2026-09-19T10:00:01Z","type":"turn_context","payload":{"turn_id":"t1","model":"gpt-5"}}
-{"timestamp":"2026-09-19T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20,"cache_write_input_tokens":5,"total_tokens":175}}}}
+cat >"$sandbox/codex/sessions/${today//-//}/rollout-x.jsonl" <<CODEX_ROLLOUT
+{"timestamp":"${today}T10:00:00","type":"session_meta","payload":{"id":"s1"}}
+{"timestamp":"${today}T10:00:01","type":"turn_context","payload":{"turn_id":"t1","model":"gpt-5"}}
+{"timestamp":"${today}T10:00:02","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20,"cache_write_input_tokens":5,"total_tokens":175}}}}
 CODEX_ROLLOUT
 cat >"$sandbox/config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1/ui_messages.json" <<'CLINE_MESSAGES'
 [{"ts":1789000000000,"type":"say","say":"api_req_started","text":"{\"tokensIn\":1000,\"tokensOut\":200,\"cacheReads\":50,\"cacheWrites\":10,\"cost\":0}"}]
@@ -270,8 +272,16 @@ mkdir -p -- "$sandbox/bin"
 cat >"$sandbox/bin/codex" <<'MOCK_CODEX'
 #!/usr/bin/env bash
 while IFS= read -r line; do
-    id=$(printf '%s' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
-    method=$(printf '%s' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("method",""))' 2>/dev/null)
+    id=$(printf '%s' "$line" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("id",""))
+except Exception:
+    pass')
+    method=$(printf '%s' "$line" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("method",""))
+except Exception:
+    pass')
     case "$method" in
         account/read) printf '{"id":%s,"result":{"account":{"type":"chatgpt","planType":"plus"}}}\n' "$id" ;;
         account/rateLimits/read) printf '{"id":%s,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":1800000000},"secondary":{"usedPercent":11,"windowDurationMins":10080,"resetsAt":1800600000}}}}\n' "$id" ;;
@@ -280,14 +290,14 @@ while IFS= read -r line; do
 done
 MOCK_CODEX
 chmod 0755 "$sandbox/bin/codex"
-codex_rpc="$(HOME="$sandbox/home" CODEX_HOME="$sandbox/codex" CODEX_BIN="$sandbox/bin/codex" "$repo_root/bin/ai-usage-codex" 2>/dev/null || true)"
+codex_rpc="$(HOME="$sandbox/home" CODEX_HOME="$sandbox/codex" CODEX_BIN="$sandbox/bin/codex" "$repo_root/bin/ai-usage-codex" || true)"
 if printf '%s' "$codex_rpc" | jq -e '
         .tierLabel == "plus" and
         (.limits | length == 2) and
         .limits[0].percent == 0.42 and .limits[0].label == "5h window" and
         .limits[0].windowMinutes == 300 and
         .limits[1].percent == 0.11 and .limits[1].label == "Weekly (7-day)" and
-        (.limits[0].resetsAt | length > 0)' >/dev/null 2>&1; then
+        (.limits[0].resetsAt | length > 0)' >/dev/null; then
     pass "[isolated] Codex collector reads fresh limits from the app-server RPC"
 else
     fail "[isolated] Codex RPC limit contract diverged: $codex_rpc"
@@ -306,12 +316,12 @@ cat >"$sandbox/pi/agent/sessions/proj/s.jsonl" <<'PI_SESSION'
 {"type":"model_change","provider":"openai-codex","modelId":"gpt-5.5"}
 {"type":"message","id":"m3","timestamp":"2026-09-19T09:03:00Z","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.5","usage":{"input":7,"output":3,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":10},"content":[]}}
 PI_SESSION
-pi_opencode="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_DATA_HOME="$sandbox/empty-data" "$repo_root/bin/ai-usage-opencode" 2>/dev/null || true)"
-pi_cline="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_CONFIG_HOME="$sandbox/empty-config" CLINE_DIR="$sandbox/empty-cline" "$repo_root/bin/ai-usage-cline" 2>/dev/null || true)"
-pi_codex="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" CODEX_HOME="$sandbox/no-codex-home" CODEX_BIN="$sandbox/no-codex" "$repo_root/bin/ai-usage-codex" 2>/dev/null || true)"
-if printf '%s' "$pi_opencode" | jq -e '.detected == true and .totalPrompts == 1 and .todayTotalTokens == 128 and .modelUsage["deepseek-v4.1-flash"].inputTokens == 100' >/dev/null 2>&1 &&
-   printf '%s' "$pi_cline" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["cline-pass/glm-5.3"].outputTokens == 10' >/dev/null 2>&1 &&
-   printf '%s' "$pi_codex" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["gpt-5.5"].inputTokens == 7' >/dev/null 2>&1; then
+pi_opencode="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_DATA_HOME="$sandbox/empty-data" "$repo_root/bin/ai-usage-opencode" || true)"
+pi_cline="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_CONFIG_HOME="$sandbox/empty-config" CLINE_DIR="$sandbox/empty-cline" "$repo_root/bin/ai-usage-cline" || true)"
+pi_codex="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" CODEX_HOME="$sandbox/no-codex-home" CODEX_BIN="$sandbox/no-codex" "$repo_root/bin/ai-usage-codex" || true)"
+if printf '%s' "$pi_opencode" | jq -e '.detected == true and .totalPrompts == 1 and .todayTotalTokens == 128 and .modelUsage["deepseek-v4.1-flash"].inputTokens == 100' >/dev/null &&
+   printf '%s' "$pi_cline" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["cline-pass/glm-5.3"].outputTokens == 10' >/dev/null &&
+   printf '%s' "$pi_codex" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["gpt-5.5"].inputTokens == 7' >/dev/null; then
     pass "[isolated] pi session usage is merged into the matching provider collectors"
 else
     fail "[isolated] pi session merge diverged (opencode=$pi_opencode cline=$pi_cline codex=$pi_codex)"
@@ -353,12 +363,12 @@ XDG_CONFIG_HOME="$race_root/config" XDG_CACHE_HOME="$race_root/cache" \
     --path "$ROOT/tests/fixtures/agents-race/shell.qml" \
     >"$race_root/race.log" 2>&1 || race_status=$?
 race_log_ok=0
-runtime_log_is_environment_only "$race_root/race.log" >/dev/null 2>&1 && race_log_ok=1
+runtime_log_is_environment_only "$race_root/race.log" >/dev/null && race_log_ok=1
 if [[ "$race_status" -eq 0 && "$race_log_ok" -eq 1 ]] &&
    jq -e '.loaded == true and .agents == 1 and .hasAgents == true and .lastError == ""' \
-       "$race_result" >/dev/null 2>&1; then
+       "$race_result" >/dev/null; then
     pass "[isolated-runtime] agents widget recovers when the host assigns aureliaPath after construction"
 else
-    details="$(cat "$race_result" 2>/dev/null || true)"
+    details="$(cat "$race_result" || true)"
     fail "[isolated-runtime] agents widget backend-path race regressed (status=$race_status log_ok=$race_log_ok result=$details)"
 fi
