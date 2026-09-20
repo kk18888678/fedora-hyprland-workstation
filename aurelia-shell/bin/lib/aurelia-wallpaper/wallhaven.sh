@@ -194,7 +194,7 @@ aurelia_wallpaper_wallhaven_search() {
         local api_error=""
         api_error="$(jq -r '.error // empty' <<<"$response" || true)"
         if [[ "$api_error" == "Unauthorized" ]]; then
-            if aurelia_wallpaper_wallhaven_key_read >/dev/null 2>&1; then
+            if aurelia_wallpaper_wallhaven_key_read >/dev/null; then
                 aurelia_wallpaper_fail "Wallhaven rejected the configured API key. Fix it with 'wallhaven key --set' or remove it with 'wallhaven key --clear'."
             fi
             aurelia_wallpaper_fail "Wallhaven rejected the request as unauthorized."

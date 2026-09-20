@@ -18,7 +18,11 @@ Item {
     property real sourcePixelRatio: Math.max(1, Screen.devicePixelRatio)
     property bool smooth: true
     property string glyph: ""
-    property string glyphFontFamily: Theme.fontFamily
+    // Qt's font engine expects a single real family name. Theme.fontFamily is a
+    // comma-separated fallback list ("A, B, monospace"); passing it verbatim
+    // makes Qt fail to resolve the family and renders semantic Nerd Font glyphs
+    // as garbled fallback boxes. Feed Qt only the first preference.
+    property string glyphFontFamily: String(Theme.fontFamily).split(",")[0].trim()
     property real glyphPixelSize: 0
     property bool glyphOpticallyCenter: true
 

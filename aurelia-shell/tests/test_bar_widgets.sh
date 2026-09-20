@@ -95,6 +95,20 @@ else
     fail "Shared icon primitive does not expose the crisp physical-pixel and native-glyph contract"
 fi
 
+# Regression: glyph rendering must hand Qt one real font family. Passing the
+# comma-separated Theme.fontFamily list ("A, B, monospace") verbatim makes Qt
+# fail to resolve the family and renders Nerd Font glyphs as garbled boxes.
+glyph_family_line="$(grep -F 'property string glyphFontFamily:' "$ROOT/ui/AureliaIcon.qml" || true)"
+configured_family="$(sed -n 's/^[[:space:]]*fontFamily[[:space:]]*=[[:space:]]*//p' "$ROOT/theme.conf" | head -n1)"
+glyph_family="${configured_family%%,*}"
+glyph_family="$(printf '%s' "$glyph_family" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+if [[ "$glyph_family_line" == *'String(Theme.fontFamily).split(",")[0].trim()'* ]] &&
+   [[ -n "$glyph_family" && "$glyph_family" != *','* ]]; then
+    pass "AureliaIcon glyphFontFamily resolves one comma-free font family for Qt"
+else
+    fail "AureliaIcon glyphFontFamily must extract the first family from Theme.fontFamily, not pass a comma-separated list to Qt"
+fi
+
 if grep -Fq 'glyph: root.networkPanel && root.networkPanel.icon' "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml" &&
    grep -Fq 'glyph: Quickshell.screens.length > 1 ? "󰍺" : "󰍹"' "$ROOT/plugins/aurelia.monitor/DisplayBarWidget.qml" &&
    grep -Fq 'glyph: "󰄀"' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&

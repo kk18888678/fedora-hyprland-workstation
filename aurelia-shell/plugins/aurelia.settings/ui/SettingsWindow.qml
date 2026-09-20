@@ -357,7 +357,10 @@ PanelWindow {
         onExited: function(code) {
             var subs = {}
             if (code === 0) {
-                try { subs = JSON.parse(aiSubscriptionStdout.text || "{}") } catch (error) { subs = {} }
+                try { subs = JSON.parse(aiSubscriptionStdout.text || "{}") } catch (error) {
+                    console.warn("[SETTINGS] ai_subscription_parse_failed")
+                    subs = {}
+                }
             }
             var base = root.aureliaState.ai || {}
             root.applyAureliaPatch({
@@ -389,7 +392,10 @@ PanelWindow {
                         if (agents[i] && agents[i].detected === true && agents[i].id)
                             ids.push(String(agents[i].id))
                     }
-                } catch (error) { ids = [] }
+                } catch (error) {
+                    console.warn("[SETTINGS] ai_usage_parse_failed")
+                    ids = []
+                }
             }
             var base = root.aureliaState.ai || {}
             root.applyAureliaPatch({
