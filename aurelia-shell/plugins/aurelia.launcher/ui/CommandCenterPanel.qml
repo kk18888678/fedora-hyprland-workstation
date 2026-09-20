@@ -17,6 +17,7 @@ PanelWindow {
     property string packagesBin: ""
     property string shellClientBin: ""
     property string shellRestartBin: ""
+    property string crashCaptureBin: ""
     property var processEnvironment: ({})
     property var appLibrary: null
     property var moduleRegistry: null
@@ -56,6 +57,7 @@ PanelWindow {
         packagesBin: panelRoot.packagesBin
         shellClientBin: panelRoot.shellClientBin
         shellRestartBin: panelRoot.shellRestartBin
+        crashCaptureBin: panelRoot.crashCaptureBin
         processEnvironment: panelRoot.processEnvironment
         appLibrary: panelRoot.appLibrary
         moduleRegistry: panelRoot.moduleRegistry

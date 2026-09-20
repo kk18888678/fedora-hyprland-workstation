@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# aurelia-agent-crash — diagnose a crashed process with the default coding
+# agent.
+#
+# Clicked from a "Process crashed:" notification, or run by hand against any
+# PID in `coredumpctl list`. The method lives in the diagnose-crash skill so it
+# is edited in one place and works with whichever agent is default; this only
+# gathers the facts and points at it.
+#
+# Usage: aurelia-agent-crash <pid> [comm] [exe] [signal]
+
+set -Eeuo pipefail
+
+pid=${1:?usage: aurelia-agent-crash <pid> [comm] [exe] [signal]}
+
+if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+    printf 'Not a PID: %s\n' "$pid" >&2
+    printf 'Usage: aurelia-agent-crash <pid>   (see: coredumpctl list)\n' >&2
+    exit 1
+fi
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P)"
+
+# The installed layout places workstation-ai beside this script; a checkout
+# keeps it in the repository bin/ directory.
+candidate="$script_dir/workstation-ai"
+[[ -x "$candidate" ]] || candidate="$script_dir/../../bin/workstation-ai"
+
+if [[ -x "$candidate" ]]; then
+    exec "$candidate" crash "$@"
+fi
+
+if command -v workstation-ai >/dev/null; then
+    exec workstation-ai crash "$@"
+fi
+
+printf 'Error: workstation-ai backend is not installed\n' >&2
+exit 1

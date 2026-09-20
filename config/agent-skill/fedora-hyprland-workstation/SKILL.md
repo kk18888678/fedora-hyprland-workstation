@@ -19,18 +19,25 @@ the bounded, reviewed backends over editing files by hand.
   default terminal, file manager, browser, editor, email client.
 - `workstation-ai agents|default|set|reset|launch|prompt|crash|skill` — AI coding
   agents (detect, choose a default, launch, diagnose a crash, install the
-  workstation skill). This backend never installs agents.
+  workstation skills). This backend never installs agents.
+- `aurelia crash diagnose|watch|mute|list|capture` — crash diagnosis and
+  notification control. The coredump watcher offers a click-to-diagnose
+  notification; `aurelia crash mute <program>` silences one program and
+  `aurelia crash capture off` is the global switch.
 - `aurelia bar|theme|...` — Aurelia shell controls (`aurelia` CLI).
 - `workstation-aurelia preference get|set|unset` — shell preferences (clock
   format, calendar week start, motion, text size).
 
 ## Diagnosing a crash
 
-1. `coredumpctl list` to find the PID.
-2. `workstation-ai crash <pid>` gathers the core dump and hands it to the
-   default agent with the diagnosis task.
-3. Establish the facts from the dump before proposing a fix; only recommend an
-   upstream report when the cause is in the program, not the local setup.
+1. `coredumpctl list` to find the PID (the watcher notification also carries it).
+2. `aurelia crash diagnose <pid>` (or `workstation-ai crash <pid>`) hands the
+   crash facts to the default agent with the evidence-first diagnosis task.
+3. Follow the `diagnose-crash` skill: establish the facts from the dump before
+   proposing a fix; only recommend an upstream report when the cause is in the
+   program, not the local setup.
+4. Offer to mute the program with `aurelia crash mute '<program>'`, and say how
+   to undo it with `off`.
 
 ## Rules
 

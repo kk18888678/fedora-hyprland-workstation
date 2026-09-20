@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# aurelia-crash-mute — silence crash notifications for one program, or list
+# what is silenced.
+#
+# The flag this command writes is the exact flag aurelia-crash-watch reads
+# before announcing a crash. Muting is per program; the global capture switch
+# is `aurelia crash capture off` (see aurelia-toggle-crash-capture).
+#
+# Usage: aurelia-crash-mute [--] [<program>] [on|off|toggle]
+
+set -uo pipefail
+
+PROG="aurelia-crash-mute"
+
+usage() {
+    printf 'Usage: %s [--] [<program>] [on|off|toggle]\n' "$PROG" >&2
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+}
+
+home=${HOME:-}
+if [[ -z "$home" || "$home" != /* || "$home" == "/" ]]; then
+    fail "HOME must be an absolute non-root path"
+    exit 1
+fi
+state_home=${XDG_STATE_HOME:-$home/.local/state}
+if [[ "$state_home" != /* || "$state_home" == "/" ]]; then
+    fail "XDG_STATE_HOME must be an absolute non-root path"
+    exit 1
+fi
+readonly toggle_dir="${state_home%/}/aurelia/toggles"
+readonly mute_dir="$toggle_dir/crash-ignore"
+
+# The mute directory is user-owned state this project owns. Refuse to create
+# or read through a symlinked component so a crash cannot redirect the flag
+# store somewhere unexpected.
+ensure_mute_dir() {
+    if [[ -L "$toggle_dir" || -L "$mute_dir" ]]; then
+        fail "refusing symlinked crash mute state: $mute_dir"
+        return 1
+    fi
+    if [[ -e "$toggle_dir" && ! -d "$toggle_dir" ]]; then
+        fail "crash toggle state parent is not a directory: $toggle_dir"
+        return 1
+    fi
+    if [[ -e "$mute_dir" && ! -d "$mute_dir" ]]; then
+        fail "crash mute state is not a directory: $mute_dir"
+        return 1
+    fi
+    if [[ ! -d "$mute_dir" ]]; then
+        mkdir -p -- "$mute_dir" || {
+            fail "could not create crash mute state: $mute_dir"
+            return 1
+        }
+    fi
+}
+
+flag_path() {
+    printf '%s/%s\n' "$mute_dir" "$1"
+}
+
+mute_enabled() {
+    local path
+    path="$(flag_path "$1")"
+    [[ -f "$path" && ! -L "$path" ]]
+}
+
+# Only regular files, because that is all the watcher honours: anything else
+# in there would be reported as muted while the crashes kept arriving. The
+# dotted glob is for a program legitimately called .hidden, and `.` and `..`
+# fail the same -f test that keeps them out.
+list() {
+    local entry found=0
+
+    for entry in "$mute_dir"/* "$mute_dir"/.*; do
+        [[ -f "$entry" && ! -L "$entry" ]] || continue
+        printf '%s\n' "${entry##*/}"
+        found=1
+    done
+
+    ((found)) || printf 'No programs muted. Crashes all notify.\n'
+}
+
+set_mute() {
+    local name=$1 state=$2 path
+    ensure_mute_dir || return 1
+    path="$(flag_path "$name")"
+
+    if [[ -L "$path" ]]; then
+        fail "refusing symlinked crash mute flag: $path"
+        return 1
+    fi
+
+    case "$state" in
+        on)
+            if [[ ! -f "$path" ]]; then
+                if ! : >"$path"; then
+                    fail "could not write crash mute flag: $path"
+                    return 1
+                fi
+            fi
+            ;;
+        off)
+            if [[ -e "$path" ]]; then
+                rm -f -- "$path" || {
+                    fail "could not remove crash mute flag: $path"
+                    return 1
+                }
+            fi
+            ;;
+        toggle)
+            if [[ -f "$path" ]]; then
+                set_mute "$name" off
+            else
+                set_mute "$name" on
+            fi
+            ;;
+        *)
+            fail "not an action: $state"
+            return 1
+            ;;
+    esac
+}
+
+# A program may be named -h, and the dispatcher answers that with its own help
+# before this ever runs. `aurelia crash mute -- -h` is the way through.
+[[ ${1:-} == "--" ]] && shift
+
+if (($# == 0)); then
+    list
+    exit 0
+fi
+
+program=$1
+action=${2:-on}
+
+# The watcher keys the mute on the executable's basename, so accept the path
+# it reports as readily as the name, and reduce either the same way it does.
+program=${program##*/}
+
+if [[ -z "$program" || "$program" == "." || "$program" == ".." ]]; then
+    fail "not a program name: $1"
+    usage
+    exit 1
+fi
+
+case "$action" in
+    on|off|toggle) ;;
+    *)
+        fail "not an action: $action"
+        usage
+        exit 1
+        ;;
+esac
+
+# Report what is now true rather than what was asked for: the flag is what the
+# watcher reads, and a toggle does not say which way it went.
+if ! set_mute "$program" "$action"; then
+    exit 1
+fi
+
+if mute_enabled "$program"; then
+    printf 'Muted crash notifications for %s.\n' "$program"
+else
+    printf 'Crash notifications for %s are back on.\n' "$program"
+fi

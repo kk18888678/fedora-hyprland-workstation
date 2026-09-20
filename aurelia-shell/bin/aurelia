@@ -239,10 +239,49 @@ cmd_wallpapers() {
     run_backend aurelia-wallpaper "$@"
 }
 
+cmd_crash() {
+    local sub="${1:-help}"
+    shift || true
+    case "$sub" in
+        watch)
+            run_backend aurelia-crash-watch "$@"
+            ;;
+        mute)
+            run_backend aurelia-crash-mute "$@"
+            ;;
+        list|muted)
+            run_backend aurelia-crash-mute
+            ;;
+        capture)
+            run_backend aurelia-toggle-crash-capture "$@"
+            ;;
+        on|off|toggle|status)
+            run_backend aurelia-toggle-crash-capture "$sub" "$@"
+            ;;
+        diagnose|agent)
+            run_backend aurelia-agent-crash "$@"
+            ;;
+        *)
+            cat >&2 <<'HELP'
+Usage: aurelia crash <command> [args...]
+
+Commands:
+  diagnose <pid> [comm] [exe] [signal]  Diagnose a crash with the default agent
+  watch                   Run the coredump watcher in the foreground
+  mute [--] [<program>] [on|off|toggle]  Silence one program, or list mutes
+  list                    List programs whose crash notifications are muted
+  capture <on|off|toggle|status>  Global crash-capture notification switch
+  on|off|toggle|status    Aliases for `capture`
+HELP
+            return 2
+            ;;
+    esac
+}
+
 # ---------------------------------------------------------------
 # Command reference
 # ---------------------------------------------------------------
-AURELIA_CLI_GROUPS=(bar plugin theme settings shell keybindings display capture audio wallpaper logs)
+AURELIA_CLI_GROUPS=(bar plugin theme settings shell keybindings display capture audio wallpaper logs crash)
 
 # machine-readable command reference helpers
 command_names() {
@@ -265,6 +304,7 @@ capture       screenshots
 audio         audio output controls
 wallpaper     wallpaper library and palette generation
 logs          Aurelia WARN/ERROR/FATAL diagnostics and agent triage
+crash         coredump watcher, crash diagnosis, mutes, and global capture
 DESC
 }
 
@@ -350,6 +390,8 @@ Common commands:
   aurelia bar defaults            Restore shipped bar layout
   aurelia plugin list             List plugins
   aurelia capture screenshot      Take a screenshot
+  aurelia crash diagnose <pid>    Diagnose a crash with the default agent
+  aurelia crash mute <program>    Silence one program's crash notifications
 
 Groups:
   bar          bar layout and settings
@@ -362,6 +404,7 @@ Groups:
   capture      screenshots
   audio        audio output controls
   wallpaper    wallpaper library and palettes
+  crash        coredump watcher, diagnosis, mutes, capture
   commands     command reference (--all | --json | --check)
 USAGE
 }
@@ -393,6 +436,7 @@ main() {
         audio) cmd_audio "$@" ;;
         wallpaper|wallpapers) cmd_wallpaper "$@" ;;
         logs) cmd_logs "$@" ;;
+        crash) cmd_crash "$@" ;;
         *)
             fail "unknown group: $group (see 'aurelia --help' or 'aurelia commands')"
             ;;

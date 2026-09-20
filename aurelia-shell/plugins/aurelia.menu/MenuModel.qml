@@ -22,8 +22,11 @@ QtObject {
     readonly property var allowedActions: [
         "open-command-center", "reload-plugins", "toggle-bar", "bar-defaults",
         "bar-position-top", "bar-position-bottom", "bar-position-left",
-        "bar-position-right", "bar-transparent-toggle"
+        "bar-position-right", "bar-transparent-toggle", "toggle-crash-capture"
     ]
+    // A fixed, approved argv vector. The menu never builds a shell string, and
+    // the dispatcher resolves the crash backend through its normal boundary.
+    readonly property var crashCaptureArgv: ["aurelia", "crash", "capture", "toggle"]
     readonly property var allowedProviders: ["plugins", "bar"]
     readonly property var allowedWhen: ["always", "bar-visible", "plugins-present"]
     readonly property var allowedChecked: ["bar-visible", "bar-hidden"]
@@ -286,11 +289,14 @@ QtObject {
             root.lastError = "Menu action is not approved."
             return false
         }
+        var action = String(row.menuAction)
+        // Crash capture is a fixed, detached command owned by the crash
+        // backend; it does not depend on the resident shell API being loaded.
+        if (action === "toggle-crash-capture") return root.toggleCrashCapture()
         if (!root.shell) {
             root.lastError = "Aurelia Shell API is unavailable."
             return false
         }
-        var action = String(row.menuAction)
         var result = "not-loaded"
         try {
             if (action === "open-command-center" && typeof root.shell.summon === "function")
@@ -317,6 +323,17 @@ QtObject {
         }
         if (action === "toggle-bar") return result === "ok" || result === "closed" || result === "pending"
         return result === "ok" || result === "pending"
+    }
+
+    function toggleCrashCapture() {
+        try {
+            Quickshell.execDetached(root.crashCaptureArgv)
+            return true
+        } catch (error) {
+            root.lastError = "Crash capture toggle failed safely."
+            console.warn("[MENU] crash_capture_toggle_failed")
+            return false
+        }
     }
 
     property FileView shippedFile: FileView {

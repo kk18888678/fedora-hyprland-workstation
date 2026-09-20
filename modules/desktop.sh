@@ -87,6 +87,81 @@ install_workstation_ai() {
         return 0
     fi
     record_success "ai-skill"
+
+    # The crash skill is installed alongside the general skill so the agent
+    # handoff can point at a stable absolute path. Failure is deferred.
+    local crash_skill_file
+    for crash_skill_file in SKILL.md reporting.md; do
+        if ! install_root_file_atomically \
+            "$SCRIPT_DIR/config/agent-skill/diagnose-crash/$crash_skill_file" \
+            "/usr/local/share/fedora-hyprland-workstation/agent-skill/diagnose-crash/$crash_skill_file" \
+            0644 root root; then
+            record_deferred "desktop" "diagnose-crash-skill" "Could not install the diagnose-crash skill ($crash_skill_file)."
+            return 0
+        fi
+    done
+    record_success "diagnose-crash-skill"
+}
+
+# Crash-capture/diagnosis: bounded backends, a user systemd unit, and the
+# diagnose-crash skill. The watcher is a workstation capability, not a
+# login-critical prerequisite, so every failure here is deferred rather than
+# blocking graphical activation. The unit is enabled with a graphical-session
+# .wants symlink so it takes effect at the next login without requiring a live
+# user manager during preparation.
+install_crash_capture() {
+    local binary
+    for binary in \
+        aurelia-crash-watch \
+        aurelia-crash-mute \
+        aurelia-toggle-crash-capture \
+        aurelia-agent-crash \
+        aurelia-notification-wait \
+        aurelia-notification-send; do
+        if ! install_root_cli_file \
+            "$SCRIPT_DIR/aurelia-shell/bin/$binary" \
+            "/usr/local/bin/$binary" \
+            "$binary"; then
+            record_deferred "desktop" "crash-$binary" "Could not install $binary."
+            return 0
+        fi
+    done
+
+    local unit_source="$SCRIPT_DIR/aurelia-shell/systemd/user/aurelia-crash-watch.service"
+    local config_home="$TARGET_HOME/.config"
+    local unit_dir="$config_home/systemd/user"
+    local unit_target="$unit_dir/aurelia-crash-watch.service"
+    local wants_link="$unit_dir/graphical-session.target.wants/aurelia-crash-watch.service"
+
+    if [[ ! -f "$unit_source" || -L "$unit_source" ]]; then
+        record_deferred "desktop" "crash-watch-unit" "The crash watcher unit source is missing."
+        return 0
+    fi
+    if declare -F safe_user_config_home >/dev/null &&
+        ! safe_user_config_home "$config_home"; then
+        record_deferred "desktop" "crash-watch-unit" "Unsafe user configuration path for the crash watcher unit."
+        return 0
+    fi
+    if ! ensure_directory "$unit_dir" ||
+        ! ensure_directory "$(dirname -- "$wants_link")"; then
+        record_deferred "desktop" "crash-watch-unit" "Could not create the user unit directory."
+        return 0
+    fi
+
+    local unit_owner="${TARGET_USER:-root}"
+    local unit_group
+    unit_group="$(id -gn "$unit_owner" || printf '%s' "$unit_owner")"
+    if ! install_root_file_atomically "$unit_source" "$unit_target" 0644 "$unit_owner" "$unit_group"; then
+        record_deferred "desktop" "crash-watch-unit" "Could not install the crash watcher unit."
+        return 0
+    fi
+    if ! ensure_symlink "$unit_target" "$wants_link"; then
+        record_deferred "desktop" "crash-watch-unit" "Could not enable the crash watcher for the graphical session."
+        return 0
+    fi
+
+    info "Crash capture watcher installed and enabled for the next login."
+    record_success "crash-capture"
 }
 
 # Unified `aurelia` command center CLI plus the bounded IPC client. Both are
@@ -1284,6 +1359,7 @@ install_desktop() {
     install_workstation_system_settings
     install_workstation_ai
     install_aurelia_cli
+    install_crash_capture
     deploy_session_shell_selection
     if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]]; then
         deploy_noctalia_config

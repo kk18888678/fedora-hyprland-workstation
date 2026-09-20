@@ -65,6 +65,15 @@
       "order": 65
     },
     {
+      "id": "crash",
+      "name": "Crash Capture",
+      "icon": "system-crash",
+      "description": "Announce process crashes and offer an AI diagnosis.",
+      "enabled": true,
+      "implemented": true,
+      "order": 66
+    },
+    {
       "id": "weather",
       "name": "Weather",
       "icon": "weather-clear",

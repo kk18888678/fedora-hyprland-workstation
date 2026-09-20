@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# aurelia-notification-wait — wait for the desktop notification server to
+# accept notifications, bounded by a timeout.
+#
+# The Aurelia shell owns org.freedesktop.Notifications. When the shell crashes
+# and restarts, a toast sent into the gap is lost; the crash least likely to
+# be delivered is the one most worth reporting. Callers wait for the bus name
+# to be claimed again before sending.
+#
+# Usage: aurelia-notification-wait [timeout-seconds]
+
+set -uo pipefail
+
+timeout=${1:-10}
+[[ "$timeout" =~ ^[0-9]+$ ]] || timeout=10
+
+# Each probe is a pure status check: stdout is discarded, and the last stderr
+# is kept so a real bus failure is reported once instead of once per attempt.
+probe_error=""
+notification_server_ready() {
+    command -v busctl >/dev/null || return 1
+    probe_error="$(busctl --user call \
+        org.freedesktop.Notifications \
+        /org/freedesktop/Notifications \
+        org.freedesktop.Notifications \
+        GetServerInformation 2>&1 >/dev/null)" && return 0
+    return 1
+}
+
+attempts=$((timeout * 10))
+while ((attempts > 0)); do
+    if notification_server_ready; then
+        exit 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 0.1
+done
+
+printf 'aurelia-notification-wait: the notification server did not become ready within %ss\n' "$timeout" >&2
+[[ -n "$probe_error" ]] && printf '%s\n' "$probe_error" >&2
+exit 1

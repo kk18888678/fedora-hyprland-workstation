@@ -25,6 +25,7 @@ QtObject {
         { id: "package-manager", name: "Package Manager", icon: "system-software-install", description: "Search Fedora, Flatpak, and Aurelia sources, install, adopt, and track packages.", enabled: true, implemented: true, order: 50 },
         { id: "updates", name: "Updates", icon: "system-software-update", description: "Open the Fedora and Flatpak update workflow.", enabled: true, implemented: true, order: 60 },
         { id: "settings", name: "Settings", icon: "preferences-system", description: "Hyprland and Aurelia Shell settings hub.", enabled: true, implemented: true, order: 65 },
+        { id: "crash", name: "Crash Capture", icon: "system-crash", description: "Announce process crashes and offer an AI diagnosis.", enabled: true, implemented: true, order: 66 },
         { id: "weather", name: "Weather", icon: "weather-clear", description: "Current weather and forecast.", enabled: false, implemented: false, order: 70 },
         { id: "currency", name: "Currency", icon: "wallet", description: "Currency conversion and rates.", enabled: false, implemented: false, order: 80 },
         { id: "metals", name: "Gold & Metals", icon: "emblem-money", description: "Gold and precious-metal prices.", enabled: false, implemented: false, order: 90 },
@@ -39,7 +40,7 @@ QtObject {
     property string lastError: ""
     property bool lastSaveOk: false
     readonly property var supportedProviders: ["apps", "files", "actions", "calculator",
-        "package-manager", "updates", "aurelia-shell", "about", "plugins", "settings"]
+        "package-manager", "updates", "aurelia-shell", "about", "plugins", "settings", "crash"]
 
     function pathFromUrl(value) {
         return SourceUrl.pathFromUrl(value)

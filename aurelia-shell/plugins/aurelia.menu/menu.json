@@ -28,6 +28,14 @@
       "order": 30
     },
     {
+      "id": "trigger.crash-capture",
+      "label": "Crash Capture",
+      "icon": "󱚡",
+      "description": "Announce process crashes and offer an AI diagnosis.",
+      "action": "toggle-crash-capture",
+      "order": 35
+    },
+    {
       "id": "style.bar",
       "label": "Menu Bar",
       "icon": "󰍜",

@@ -45,6 +45,14 @@ skill_source="$SCRIPT_DIR/../config/agent-skill/fedora-hyprland-workstation"
 [[ -d "$skill_source" ]] || skill_source="/usr/local/share/fedora-hyprland-workstation/agent-skill/fedora-hyprland-workstation"
 [[ -d "$skill_source" ]] || skill_source="$config_home/aurelia/agent-skill/fedora-hyprland-workstation"
 
+diagnose_skill_source="$SCRIPT_DIR/../config/agent-skill/diagnose-crash"
+[[ -d "$diagnose_skill_source" ]] || diagnose_skill_source="/usr/local/share/fedora-hyprland-workstation/agent-skill/diagnose-crash"
+[[ -d "$diagnose_skill_source" ]] || diagnose_skill_source="$config_home/aurelia/agent-skill/diagnose-crash"
+
+diagnose_skill_path() {
+    printf '%s/SKILL.md\n' "$diagnose_skill_source"
+}
+
 # ---------------------------------------------------------------------------
 # Agent registry: id|name|command|kind
 # kind is "cli" (runs in a terminal) or "desktop" (a graphical application).
@@ -300,42 +308,62 @@ skill_targets() {
     done
 }
 
+# Skill names installed by this backend, and the source directory for each.
+skill_names() {
+    printf '%s\n' fedora-hyprland-workstation diagnose-crash
+}
+
+skill_source_for() {
+    case "$1" in
+        fedora-hyprland-workstation) printf '%s\n' "$skill_source" ;;
+        diagnose-crash) printf '%s\n' "$diagnose_skill_source" ;;
+        *) fail "unknown skill: $1" ;;
+    esac
+}
+
 cmd_skill() {
     local action="${1:-status}"
     case "$action" in
         status)
-            local target installed=0
+            local target name installed=0
             while IFS= read -r target; do
                 [[ -n "$target" ]] || continue
-                if [[ -L "$target/fedora-hyprland-workstation" ]]; then
-                    installed=1
-                fi
+                while IFS= read -r name; do
+                    if [[ -L "$target/$name" ]]; then
+                        installed=1
+                    fi
+                done < <(skill_names)
             done < <(skill_targets)
             if (( installed )); then printf 'installed\n'; else printf 'not-installed\n'; fi
             ;;
         install)
-            [[ -d "$skill_source" ]] || fail "skill source not found: $skill_source"
-            local target link
+            local target name source link
             while IFS= read -r target; do
                 [[ -n "$target" ]] || continue
                 mkdir -p -- "$target" || fail "could not create $target"
-                link="$target/fedora-hyprland-workstation"
-                if [[ -e "$link" && ! -L "$link" ]]; then
-                    fail "refusing to replace non-symlink: $link"
-                fi
-                rm -f -- "$link"
-                ln -s -- "$skill_source" "$link" || fail "could not link skill into $target"
+                while IFS= read -r name; do
+                    source="$(skill_source_for "$name")"
+                    [[ -d "$source" ]] || fail "skill source not found: $source"
+                    link="$target/$name"
+                    if [[ -e "$link" && ! -L "$link" ]]; then
+                        fail "refusing to replace non-symlink: $link"
+                    fi
+                    rm -f -- "$link"
+                    ln -s -- "$source" "$link" || fail "could not link skill into $target"
+                done < <(skill_names)
             done < <(skill_targets)
             printf 'Skill installed for %s\n' "$(skill_targets | wc -l | tr -d ' ')"
             ;;
         remove)
-            local target link removed=0
+            local target name link removed=0
             while IFS= read -r target; do
                 [[ -n "$target" ]] || continue
-                link="$target/fedora-hyprland-workstation"
-                if [[ -L "$link" ]]; then
-                    rm -f -- "$link" && removed=1
-                fi
+                while IFS= read -r name; do
+                    link="$target/$name"
+                    if [[ -L "$link" ]]; then
+                        rm -f -- "$link" && removed=1
+                    fi
+                done < <(skill_names)
             done < <(skill_targets)
             if (( removed )); then printf 'Skill removed.\n'; else printf 'Skill was not installed.\n'; fi
             ;;
@@ -535,16 +563,48 @@ cmd_prompt() {
 }
 
 # Diagnose one crash from the systemd core dump, seeded into the default agent.
+#
+# The crash facts arrive as discrete argv words (from the coredump watcher's
+# click-to-diagnose notification, or by hand). They are never interpolated
+# into a shell command, so a hostile process name cannot become an injection.
 cmd_crash() {
-    local pid="${1:-}"
-    [[ "$pid" =~ ^[0-9]+$ ]] || fail "usage: $PROG crash <pid>"
-    local info=""
+    local pid="${1:-}" comm="${2:-}" exe="${3:-}" signal_name="${4:-}"
+    [[ "$pid" =~ ^[0-9]+$ ]] || fail "usage: $PROG crash <pid> [comm] [exe] [signal]"
+    [[ -n "$comm" ]] || comm="unknown"
+    [[ -n "$exe" ]] || exe="unknown"
+    [[ -n "$signal_name" ]] || signal_name="unknown"
+
+    # Looked up live so a hand-run PID still gets a timestamp. A rotated-away
+    # core only costs the timestamp, so failure is tolerated.
+    local when="unknown"
     if command -v coredumpctl >/dev/null; then
-        info="$(coredumpctl info "$pid" | head -n 60 || true)"
+        when="$(coredumpctl list "$pid" --no-pager --no-legend | tail -1 | cut -d' ' -f1-4 || true)"
     fi
-    [[ -n "$info" ]] || fail "no core dump found for PID $pid (see: coredumpctl list)"
-    local prompt="Diagnose this process crash. Establish the facts from the core dump, decide whether it is worth reporting upstream, and propose a fix."
-    prompt+=$'\n\n'"$(printf '%s' "$info" | head -n 40)"
+    [[ -n "$when" ]] || when="unknown"
+
+    local skill
+    skill="$(diagnose_skill_path)"
+
+    local prompt
+    prompt=$(
+        cat <<PROMPT
+A process crashed on this Fedora Hyprland workstation and I want to know why.
+
+What systemd-coredump recorded:
+  process:  $comm
+  PID:      $pid
+  binary:   $exe
+  signal:   $signal_name
+  time:     $when
+
+Use the diagnose-crash skill: it covers how to investigate, what to report, and
+when a crash is worth reporting upstream. If your harness has no skill
+mechanism, read the skill files directly and follow them instead:
+
+  $skill
+PROMPT
+    )
+
     cmd_launch --prompt "$prompt"
 }
 
@@ -558,7 +618,8 @@ Usage: workstation-ai <command> [args]
   reset                  Clear the default agent.
   launch [--prompt TEXT] Launch the default agent in a terminal (unattended mode).
   prompt <text>          Launch the default agent seeded with a task.
-  crash <pid>            Diagnose a coredumpctl crash with the default agent.
+  crash <pid> [comm] [exe] [signal]  Diagnose a coredumpctl crash with the
+                         default agent, using the diagnose-crash skill.
   subscription [list|set|unset]  Manage subscription plan/renewal metadata.
   usage                  Print collected agent usage records (JSON).
   usage-update [--force] [agent...]  Refresh the usage records.

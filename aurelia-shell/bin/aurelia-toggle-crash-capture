@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# aurelia-toggle-crash-capture — enable or disable crash-capture notifications.
+#
+# The persistent flag is the source of truth: the user systemd unit checks the
+# same flag with ConditionPathExists, so disabling survives a logout even if
+# the running unit is stopped only for this session. The unit lifecycle calls
+# are best-effort; the flag is what the next login reads.
+#
+# Usage: aurelia-toggle-crash-capture [on|off|toggle|status]
+
+set -uo pipefail
+
+readonly PROG="aurelia-toggle-crash-capture"
+readonly UNIT="aurelia-crash-watch.service"
+
+# nf-md-robot_dead, escaped so this file reads without a Nerd Font.
+readonly CRASH_GLYPH=$'\U000f16a1'
+
+usage() {
+    printf 'Usage: %s [on|off|toggle|status]\n' "$PROG" >&2
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+}
+
+home=${HOME:-}
+if [[ -z "$home" || "$home" != /* || "$home" == "/" ]]; then
+    fail "HOME must be an absolute non-root path"
+    exit 1
+fi
+state_home=${XDG_STATE_HOME:-$home/.local/state}
+if [[ "$state_home" != /* || "$state_home" == "/" ]]; then
+    fail "XDG_STATE_HOME must be an absolute non-root path"
+    exit 1
+fi
+readonly toggle_dir="${state_home%/}/aurelia/toggles"
+readonly flag_path="$toggle_dir/crash-capture-off"
+
+ensure_toggle_dir() {
+    if [[ -L "$toggle_dir" ]]; then
+        fail "refusing symlinked crash toggle state: $toggle_dir"
+        return 1
+    fi
+    if [[ -e "$toggle_dir" && ! -d "$toggle_dir" ]]; then
+        fail "crash toggle state is not a directory: $toggle_dir"
+        return 1
+    fi
+    if [[ ! -d "$toggle_dir" ]]; then
+        mkdir -p -- "$toggle_dir" || {
+            fail "could not create crash toggle state: $toggle_dir"
+            return 1
+        }
+    fi
+}
+
+capture_disabled() {
+    [[ -f "$flag_path" && ! -L "$flag_path" ]]
+}
+
+set_flag() {
+    local disabled=$1
+    ensure_toggle_dir || return 1
+
+    if [[ -L "$flag_path" ]]; then
+        fail "refusing symlinked crash capture flag: $flag_path"
+        return 1
+    fi
+
+    if [[ "$disabled" == "1" ]]; then
+        if [[ ! -f "$flag_path" ]]; then
+            if ! : >"$flag_path"; then
+                fail "could not disable crash capture: $flag_path"
+                return 1
+            fi
+        fi
+    else
+        if [[ -e "$flag_path" ]]; then
+            rm -f -- "$flag_path" || {
+                fail "could not enable crash capture: $flag_path"
+                return 1
+            }
+        fi
+    fi
+}
+
+unit_lifecycle() {
+    local action=$1
+    command -v systemctl >/dev/null || return 0
+    # stderr stays observable: a failed stop/start is a real diagnostic, not
+    # something to hide. The persistent flag is already correct, so the next
+    # login converges regardless.
+    if ! systemctl --user "$action" "$UNIT"; then
+        printf 'Warning: could not %s %s for this session; it will take effect at next login.\n' \
+            "$action" "$UNIT" >&2
+    fi
+}
+
+notify() {
+    local summary=$1
+    command -v aurelia-notification-send >/dev/null || return 0
+    if ! aurelia-notification-send -g "$CRASH_GLYPH" "$summary" >/dev/null; then
+        printf 'Warning: could not send the crash capture notification.\n' >&2
+    fi
+}
+
+action=${1:-toggle}
+
+case "$action" in
+    on)
+        set_flag 0 || exit 1
+        unit_lifecycle start
+        notify "Crash capture enabled"
+        printf 'Crash capture enabled.\n'
+        ;;
+    off)
+        set_flag 1 || exit 1
+        unit_lifecycle stop
+        notify "Crash capture disabled"
+        printf 'Crash capture disabled.\n'
+        ;;
+    toggle)
+        if capture_disabled; then
+            set_flag 0 || exit 1
+            unit_lifecycle start
+            notify "Crash capture enabled"
+            printf 'Crash capture enabled.\n'
+        else
+            set_flag 1 || exit 1
+            unit_lifecycle stop
+            notify "Crash capture disabled"
+            printf 'Crash capture disabled.\n'
+        fi
+        ;;
+    status)
+        if capture_disabled; then
+            printf 'disabled\n'
+        else
+            printf 'enabled\n'
+        fi
+        ;;
+    *)
+        fail "not an action: $action"
+        usage
+        exit 1
+        ;;
+esac
