@@ -176,7 +176,7 @@ _zsh_history_add() {
     [[ ${1[1]} == ' ' ]] && return 1
 
     _zsh_history_first_word_of "$1" || return 1
-    whence -- "$_zsh_history_first_word" >/dev/null 2>&1 || return 1
+    whence -- "$_zsh_history_first_word" >/dev/null || return 1
 
     _zsh_history_candidate=${1%%$'\n'}
     return 1

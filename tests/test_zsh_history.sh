@@ -56,7 +56,7 @@ fi
 if [[ -s "$history_section" ]]; then
     hook_probe="$(
         HOME="$sandbox" ZSH_HISTORY_SECTION="$history_section" \
-            zsh -f 2>/dev/null <<'EOS'
+            zsh -f <<'EOS'
 source "$ZSH_HISTORY_SECTION"
 _zsh_history_add 'zsh_history_unknown_marker_clera'
 unknown_candidate="$_zsh_history_candidate"
@@ -74,7 +74,7 @@ EOS
 
     status_probe="$(
         HOME="$sandbox" ZSH_HISTORY_SECTION="$history_section" \
-            zsh -f 2>/dev/null <<'EOS'
+            zsh -f <<'EOS'
 source "$ZSH_HISTORY_SECTION"
 for candidate_status in 0 1 2 126 127 130 137 143; do
     if _zsh_history_status_ok "$candidate_status"; then
