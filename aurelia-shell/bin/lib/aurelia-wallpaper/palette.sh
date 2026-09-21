@@ -150,7 +150,7 @@ aurelia_wallpaper_palette_colors() {
 
     # A fixed sample grid keeps extraction deterministic across resolutions.
     "$AW_TIMEOUT_BIN" -k 5 60 "$tool" "$image" \
-        -alpha remove -background '#808080' \
+        -background '#808080' -alpha remove \
         -resize 200x200! -colors 16 -unique-colors -depth 8 txt:- |
         grep -oE '#[0-9A-Fa-f]{6}' || status=$?
 
@@ -165,7 +165,7 @@ aurelia_wallpaper_palette_mean() {
     local tool="$2"
 
     "$AW_TIMEOUT_BIN" -k 5 30 "$tool" "$image" \
-        -alpha remove -background '#808080' \
+        -background '#808080' -alpha remove \
         -resize 1x1! -depth 8 txt:- |
         grep -oE '#[0-9A-Fa-f]{6}' | head -n 1
 }
