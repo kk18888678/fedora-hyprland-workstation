@@ -86,6 +86,23 @@ else
     fail "palette editor or wallhaven key component contract is incomplete"
 fi
 
+# A live preview must never terminate the in-flight `theme preview` process:
+# that SIGTERM exit raced the request-serial guard and produced a spurious
+# "Color extraction failed" error. The editor defers instead, and opening it
+# schedules exactly one preview through the debounce rather than an extra
+# immediate `Qt.callLater` trigger.
+if [[ -f "$wallpaper_root/ui/PalettePreview.js" ]] &&
+   grep -q 'property bool previewPending: false' "$wallpaper_root/ui/PaletteEditor.qml" &&
+   grep -q 'PalettePreview.requestAction' "$wallpaper_root/ui/PaletteEditor.qml" &&
+   grep -q 'PalettePreview.shouldReplay' "$wallpaper_root/ui/PaletteEditor.qml" &&
+   grep -q 'PalettePreview.previewError' "$wallpaper_root/ui/PaletteEditor.qml" &&
+   ! grep -q 'previewProcess.running = false' "$wallpaper_root/ui/PaletteEditor.qml" &&
+   ! grep -q 'Qt.callLater(editor.requestPreview)' "$wallpaper_root/ui/PaletteEditor.qml"; then
+    pass "palette editor serializes previews instead of cancelling the in-flight process"
+else
+    fail "palette editor preview serialization or single-trigger contract regressed"
+fi
+
 if grep -q 'aurelia_wallpaper_activate()' "$wallpaper_lib/library.sh" &&
    grep -q '"\$AW_THEME_BG_BIN" set "\$path"' "$wallpaper_lib/library.sh" &&
    grep -q '"\$AW_THEME_BIN" set "\$slug"' "$wallpaper_lib/palette.sh" &&
@@ -582,6 +599,8 @@ fi
 # fully transparent PNG therefore must compose to exactly #808080 in both the
 # computed mean and the extracted candidate colors.
 # shellcheck source=/dev/null
+source "$wallpaper_lib/common.sh"
+# shellcheck source=/dev/null
 source "$wallpaper_lib/palette.sh"
 export AW_TIMEOUT_BIN="timeout"
 palette_tool="$(aurelia_wallpaper_palette_tool)"
@@ -594,6 +613,118 @@ if [[ "$transparent_mean" == "#808080" && "$transparent_colors" == "#808080" ]];
     pass "a fully transparent image is matted against #808080 before alpha removal"
 else
     fail "transparent image matte is wrong: mean=$transparent_mean colors=$transparent_colors"
+fi
+
+section "Wallpaper palette extraction error classification (isolated)"
+
+# A decode failure or timeout is not the same as a successful decode that
+# yielded no candidate colors. The ImageMagick stage's own exit status is the
+# only signal for the former; `grep` returning 1 is the latter. These stubs
+# reproduce both without depending on a particular ImageMagick build failure.
+palette_stub_dir="$wp_tmp/palette-stubs"
+mkdir -p "$palette_stub_dir"
+cat >"$palette_stub_dir/no-candidates" <<'PALETTE_STUB'
+#!/usr/bin/env bash
+printf '%s\n' 'histogram: 1: (0,0,0) gray(0)'
+exit 0
+PALETTE_STUB
+cat >"$palette_stub_dir/decode-failure" <<'PALETTE_STUB'
+#!/usr/bin/env bash
+printf '%s\n' 'magick: unable to read image data' >&2
+exit 1
+PALETTE_STUB
+cat >"$palette_stub_dir/timeout" <<'PALETTE_STUB'
+#!/usr/bin/env bash
+exit 124
+PALETTE_STUB
+# A fake `magick` that identifies an image successfully but extracts no hex
+# candidates, so the document path reports the distinct no-candidates error.
+# Keep it in its own directory: putting the stub directory on PATH would also
+# shadow the real `timeout` used to bound the extraction.
+mkdir -p "$palette_stub_dir/shim"
+cat >"$palette_stub_dir/shim/magick" <<'PALETTE_STUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "identify" ]]; then
+    exit 0
+fi
+printf '%s\n' 'histogram: 1: (0,0,0) gray(0)'
+exit 0
+PALETTE_STUB
+chmod 0755 "$palette_stub_dir/no-candidates" \
+    "$palette_stub_dir/decode-failure" "$palette_stub_dir/timeout" \
+    "$palette_stub_dir/shim/magick"
+
+palette_no_candidates_status=0
+palette_no_candidates_out="$(aurelia_wallpaper_palette_colors "$wallpaper_image" \
+    "$palette_stub_dir/no-candidates")" || palette_no_candidates_status=$?
+palette_decode_status=0
+palette_decode_error="$(aurelia_wallpaper_palette_colors "$wallpaper_image" \
+    "$palette_stub_dir/decode-failure" 2>&1)" || palette_decode_status=$?
+palette_timeout_status=0
+palette_timeout_error="$(aurelia_wallpaper_palette_colors "$wallpaper_image" \
+    "$palette_stub_dir/timeout" 2>&1)" || palette_timeout_status=$?
+
+if [[ "$palette_no_candidates_status" -eq 0 && -z "$palette_no_candidates_out" ]]; then
+    pass "an empty candidate set is a successful extraction, not a failure"
+else
+    fail "empty candidate extraction was misclassified (status=$palette_no_candidates_status out=$palette_no_candidates_out)"
+fi
+
+if [[ "$palette_decode_status" -ne 0 && "$palette_decode_error" == *"Color extraction failed"* &&
+      "$palette_decode_error" != *"timed out"* ]]; then
+    pass "a decode failure is reported specifically, not as missing candidate colors"
+else
+    fail "decode failure was misclassified: $palette_decode_error"
+fi
+
+if [[ "$palette_timeout_status" -ne 0 && "$palette_timeout_error" == *"Color extraction timed out"* ]]; then
+    pass "a decode timeout is reported separately from a decode failure and from no candidates"
+else
+    fail "decode timeout was misclassified: $palette_timeout_error"
+fi
+
+# End-to-end document generation must surface the specific empty-candidate
+# condition rather than the generic extraction failure.
+palette_no_candidates_document="$(
+    PATH="$palette_stub_dir/shim:$PATH"
+    AW_TIMEOUT_BIN="timeout"
+    aurelia_wallpaper_palette_document "$wallpaper_image" "preview" "" "" 2>&1
+)" || true
+if [[ "$palette_no_candidates_document" == *"No candidate colors could be extracted"* ]]; then
+    pass "the palette document reports the specific no-candidate-colors condition"
+else
+    fail "no-candidate-colors document misclassified: $palette_no_candidates_document"
+fi
+
+# The supersede race is encoded in the pure preview state helper: a request
+# that arrives while a preview is running is deferred, not cancelled, and the
+# deferred request replays when the process exits. A successful exit clears an
+# earlier error, and a real failure surfaces the command's own diagnostic.
+palette_preview_output="$(node - "$wallpaper_root/ui/PalettePreview.js" <<'PALETTE_PREVIEW_NODE'
+const preview = require(process.argv[2]);
+const assert = (condition, message) => {
+    if (!condition) { console.error(message); process.exit(1); }
+};
+assert(preview.requestAction(false, false) === "start", "idle request must start");
+assert(preview.requestAction(true, false) === "defer", "in-flight request must defer, not cancel");
+assert(preview.requestAction(false, true) === "ignore", "applying must ignore previews");
+assert(preview.requestAction(true, true) === "ignore", "applying must ignore in-flight previews");
+assert(preview.shouldReplay(true) === true, "deferred request must replay after exit");
+assert(preview.shouldReplay(false) === false, "settled run must not replay");
+assert(preview.previewError(0, "stale error") === "", "success must clear the previous error");
+assert(
+    preview.previewError(1, "Error: Color extraction timed out: /w/x.png") ===
+        "Error: Color extraction timed out: /w/x.png",
+    "failure must surface the command's specific diagnostic"
+);
+assert(preview.previewError(1, "") === "Color extraction failed.", "empty stderr must fall back");
+console.log("ok");
+PALETTE_PREVIEW_NODE
+)"
+if [[ "$palette_preview_output" == "ok" ]]; then
+    pass "preview supersede race defers in-flight work and surfaces specific errors"
+else
+    fail "preview supersede race regressed: $palette_preview_output"
 fi
 
 section "Wallpaper source configuration (isolated)"

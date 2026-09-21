@@ -7,6 +7,7 @@ import Quickshell.Wayland
 import "../../../ui"
 import "../../../theme"
 import "../../../services/SourceUrl.js" as SourceUrl
+import "PalettePreview.js" as PalettePreview
 
 // Full-screen palette editor for one local wallpaper. The editor renders a
 // live palette preview through `aurelia-wallpaper theme preview` and commits
@@ -34,6 +35,7 @@ Item {
     property var colors: ({})
     property bool loading: false
     property bool applying: false
+    property bool previewPending: false
     property string errorMessage: ""
     property int requestSerial: 0
 
@@ -102,8 +104,16 @@ Item {
     }
 
     function requestPreview() {
-        if (!editor.opened || editor.imagePath === "" || editor.applying) return
-        if (previewProcess.running) previewProcess.running = false
+        if (!editor.opened || editor.imagePath === "") return
+        var action = PalettePreview.requestAction(previewProcess.running, editor.applying)
+        if (action === "ignore") return
+        // Never interrupt a preview already in flight: the SIGTERM exit raced
+        // the serial guard and surfaced a spurious "Color extraction failed"
+        // error. The newest request is serialized behind the running one.
+        if (action === "defer") {
+            editor.previewPending = true
+            return
+        }
         editor.requestSerial++
         editor.loading = true
         editor.errorMessage = ""
@@ -133,10 +143,10 @@ Item {
     onOpenedChanged: {
         if (editor.opened) {
             editor.resetAdjustments()
-            Qt.callLater(editor.requestPreview)
         } else {
             editor.colors = ({})
             editor.errorMessage = ""
+            editor.previewPending = false
             editor.applying = false
         }
     }
@@ -144,14 +154,12 @@ Item {
     onImagePathChanged: {
         if (editor.opened) {
             editor.resetAdjustments()
-            Qt.callLater(editor.requestPreview)
         }
     }
 
     Component.onCompleted: {
         if (editor.opened) {
             editor.resetAdjustments()
-            Qt.callLater(editor.requestPreview)
         }
     }
 
@@ -172,18 +180,21 @@ Item {
         onExited: function(code) {
             if (serial !== editor.requestSerial) return
             editor.loading = false
+            editor.errorMessage = PalettePreview.previewError(code, previewError.text)
             if (code !== 0) {
                 editor.colors = ({})
-                editor.errorMessage = String(previewError.text || "").trim() ||
-                    "Color extraction failed."
-                return
+            } else {
+                try {
+                    var parsed = JSON.parse(String(previewOutput.text || "{}"))
+                    editor.colors = parsed.colors || ({})
+                } catch (error) {
+                    editor.colors = ({})
+                    editor.errorMessage = "Color extraction returned invalid data."
+                }
             }
-            try {
-                var parsed = JSON.parse(String(previewOutput.text || "{}"))
-                editor.colors = parsed.colors || ({})
-            } catch (error) {
-                editor.colors = ({})
-                editor.errorMessage = "Color extraction returned invalid data."
+            if (PalettePreview.shouldReplay(editor.previewPending)) {
+                editor.previewPending = false
+                editor.requestPreview()
             }
         }
     }
