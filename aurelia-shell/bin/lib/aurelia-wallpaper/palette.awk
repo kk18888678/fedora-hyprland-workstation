@@ -404,6 +404,9 @@ BEGIN {
     if (adj_hue_shift == "") adj_hue_shift = 0
     if (adj_temperature == "") adj_temperature = 0
     if (adj_tint == "") adj_tint = 0
+    # ImageMagick emits uppercase hex in `txt:` output; the mode gate below is
+    # lowercase, so normalize once here to keep dark wallpapers dark.
+    mean = tolower(mean)
 }
 
 {

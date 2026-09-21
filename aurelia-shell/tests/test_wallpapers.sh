@@ -560,6 +560,42 @@ else
     fail "theme recipe idempotency is wrong"
 fi
 
+section "Wallpaper palette regression: mean casing and alpha matte (isolated)"
+
+# ImageMagick's `txt:` output renders hex in uppercase (for example #FFFFFF),
+# while the awk mode gate matches lowercase. A dark mean must select the dark
+# theme no matter which case it arrives in, even when the image also contains a
+# bright candidate color that the fallback luminance heuristic would misread.
+palette_awk="$wallpaper_lib/palette.awk"
+upper_mode="$(printf '#101010\n#f0f0f0\n' |
+    awk -v mean='#0A0B0C' -f "$palette_awk" | sed -n 's/^mode = "\(.*\)"$/\1/p')"
+lower_mode="$(printf '#101010\n#f0f0f0\n' |
+    awk -v mean='#0a0b0c' -f "$palette_awk" | sed -n 's/^mode = "\(.*\)"$/\1/p')"
+if [[ "$upper_mode" == "dark" && "$lower_mode" == "dark" ]]; then
+    pass "an uppercase ImageMagick mean selects the same dark mode as lowercase"
+else
+    fail "uppercase mean changed mode detection: upper=$upper_mode lower=$lower_mode"
+fi
+
+# `-background` must be set before `-alpha remove`, otherwise a transparent
+# image is matted against ImageMagick's default white instead of #808080. A
+# fully transparent PNG therefore must compose to exactly #808080 in both the
+# computed mean and the extracted candidate colors.
+# shellcheck source=/dev/null
+source "$wallpaper_lib/palette.sh"
+export AW_TIMEOUT_BIN="timeout"
+palette_tool="$(aurelia_wallpaper_palette_tool)"
+transparent_image="$wp_tmp/fixtures/transparent.png"
+"$palette_tool" -size 32x32 'xc:rgba(0,0,0,0)' "PNG32:$transparent_image"
+transparent_mean="$(aurelia_wallpaper_palette_mean "$transparent_image" "$palette_tool")"
+transparent_colors="$(aurelia_wallpaper_palette_colors "$transparent_image" "$palette_tool" |
+    tr 'A-F' 'a-f' | sort -u)"
+if [[ "$transparent_mean" == "#808080" && "$transparent_colors" == "#808080" ]]; then
+    pass "a fully transparent image is matted against #808080 before alpha removal"
+else
+    fail "transparent image matte is wrong: mean=$transparent_mean colors=$transparent_colors"
+fi
+
 section "Wallpaper source configuration (isolated)"
 
 if run_wp sources add "$wp_tmp/home/Extra" --id extra >/dev/null &&
