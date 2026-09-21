@@ -3,12 +3,20 @@
 
 Prints one display-ready JSON record, matching the record contract the
 Aurelia agents panel consumes (the same shape as Omarchy's collector). It
-reads local Claude Code transcripts only and never contacts a network
-endpoint, so authoritative rate-limit meters are omitted rather than
-guessed.
+reads local Claude Code transcripts plus pi's `anthropic` provider sessions
+and never contacts a network endpoint, so authoritative rate-limit meters
+are omitted rather than guessed.
+
+Departure from the usage-only visibility rule: pi keys its credential and
+model stores by provider id (`anthropic`), so an account that has been added
+but has not produced a turn yet has no usage to scan. Such an account is
+surfaced as `detected` with `ready` false and the explicit `usageStatusText`
+"Account configured · no usage yet", instead of being hidden. This is
+intentionally scoped to pi's `anthropic` credentials and never makes empty
+usage look like recorded usage.
 
 Contract (subset implemented here):
-  id, name, updatedAt, ready, hasLocalStats, hasPromptStats,
+  id, name, updatedAt, ready, detected, hasLocalStats, hasPromptStats,
   tierLabel, usageStatusText, authHelpText, limits,
   todayPrompts, todaySessions, todayTotalTokens, todayTokensByModel,
   recentDays, modelUsage, totalPrompts, totalSessions, activeDays, activeDates
@@ -29,6 +37,11 @@ import ai_usage_common as common  # noqa: E402
 AGENT_ID = "claude"
 AGENT_NAME = "Claude Code"
 USAGE_STATUS = "Local usage only"
+# pi records Claude turns under the provider id `anthropic` (not `claude`),
+# so the pi session merge must match on `anthropic` only.
+PI_PROVIDER = "anthropic"
+PI_PROVIDER_MATCHES = [PI_PROVIDER]
+CONFIGURED_STATUS = "Account configured · no usage yet"
 
 
 def config_dir() -> Path:
@@ -175,22 +188,32 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="accepted for collector parity; local scans are always fresh")
     parser.parse_args()
 
-    stats = scan_projects(config_dir() / "projects")
+    stats = common.merge_stats(
+        scan_projects(config_dir() / "projects"),
+        common.scan_pi_sessions(PI_PROVIDER_MATCHES),
+    )
+    has_usage = number(stats.get("totalPrompts")) > 0
+    configured = common.pi_provider_configured(PI_PROVIDER)
+    detected = has_usage or bool(stats.get("detected")) or configured
+
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,
         "name": AGENT_NAME,
         "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "ready": number(stats.get("totalPrompts")) > 0,
-        "detected": number(stats.get("totalPrompts")) > 0,
-        "hasLocalStats": True,
+        "ready": has_usage,
+        "detected": detected,
+        "hasLocalStats": has_usage,
         "hasPromptStats": True,
         "tierLabel": "",
-        "usageStatusText": USAGE_STATUS,
+        "usageStatusText": CONFIGURED_STATUS if (configured and not has_usage) else USAGE_STATUS,
         "authHelpText": "",
         "limits": [],
     }
     record.update(stats)
+    # merge_stats carries its own usage-derived `detected`; re-assert the merged
+    # plus configured visibility decision after the stats update.
+    record["detected"] = detected
     common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0

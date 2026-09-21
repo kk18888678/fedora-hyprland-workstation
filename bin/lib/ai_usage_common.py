@@ -131,9 +131,40 @@ def empty_stats() -> dict:
     }
 
 
-def pi_sessions_root() -> Path:
+def pi_agent_root() -> Path:
     base = os.environ.get("PI_HOME") or str(Path.home() / ".pi")
-    return Path(os.path.expandvars(os.path.expanduser(base))) / "agent" / "sessions"
+    return Path(os.path.expandvars(os.path.expanduser(base))) / "agent"
+
+
+def pi_sessions_root() -> Path:
+    return pi_agent_root() / "sessions"
+
+
+def pi_provider_configured(provider: str) -> bool:
+    """True when pi holds an auth or model-store entry for the provider id.
+
+    pi keys both `agent/auth.json` (credentials) and
+    `agent/models-store.json` (model catalogs) by provider id. An account
+    that is configured but has not produced a turn yet has no usage to scan,
+    so a collector that wants it visible before first use consults this in
+    addition to its usage scans. Only key presence is inspected; credential
+    material is never read or emitted.
+    """
+    wanted = str(provider or "")
+    if not wanted:
+        return False
+    agent = pi_agent_root()
+    for name in ("auth.json", "models-store.json"):
+        path = agent / name
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict) and bool(data.get(wanted)):
+            return True
+    return False
 
 
 def provider_matches(provider: str, substrings: list[str]) -> bool:
