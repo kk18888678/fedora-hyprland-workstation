@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import "../../../ui"
 import "../../../theme"
+import "../NotificationLogic.js" as Logic
 
 // Keyboard-capable, bar-anchored history/controls surface. It is deliberately
 // one compact center rather than a second daemon: the service remains the only
@@ -263,9 +264,7 @@ AureliaKeyboardPanel {
                                 identityOriginalId: activeDelegate.originalId
                                 identityTimestamp: activeDelegate.timestamp
                                 identityIndex: activeDelegate.index
-                                timestampLabel: activeDelegate.timestamp > 0
-                                    ? Qt.formatTime(new Date(activeDelegate.timestamp), "HH:mm")
-                                    : ""
+                                timestampLabel: Logic.timestampLabel(activeDelegate.timestamp, Date.now())
                                 showArchive: false
                                 onDismissed: function(originalId, timestamp, index) {
                                     root.service.dismissAt(index, originalId, timestamp)
@@ -320,9 +319,7 @@ AureliaKeyboardPanel {
                                 showDismiss: false
                                 onDefaultActionInvoked: root.service.invokeHistoryDefault(historyDelegate.index)
                                 onActionInvoked: function(identifier) { root.service.invokeHistoryAction(historyDelegate.index, identifier) }
-                                timestampLabel: historyDelegate.timestamp > 0
-                                    ? Qt.formatTime(new Date(historyDelegate.timestamp), "HH:mm")
-                                    : ""
+                                timestampLabel: Logic.timestampLabel(historyDelegate.timestamp, Date.now())
                             }
                         }
                     }

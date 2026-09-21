@@ -161,6 +161,7 @@ Item {
 
                     Image {
                         id: smallIconImage
+                        objectName: "notificationSourceIcon"
                         anchors.fill: parent
                         source: root.smallIconSource
                         // Decode above display resolution before the thumbnail
@@ -214,6 +215,42 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     Layout.rightMargin: Theme.scaleGeometry(10)
                     spacing: Theme.scaleGeometry(2)
+
+                    // Source attribution: application name on the left, the
+                    // computed timestamp label on the right. Both vanish when
+                    // unknown so the card keeps its compact reference layout.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: Theme.scaleGeometry(1)
+                        spacing: Theme.scaleGeometry(6)
+                        visible: root.app.length > 0 || root.timestampLabel.length > 0
+
+                        Text {
+                            objectName: "notificationSourceApp"
+                            Layout.fillWidth: true
+                            visible: root.app.length > 0
+                            textFormat: Text.PlainText
+                            text: root.app
+                            color: root.dimColor
+                            font.family: "Liberation Sans"
+                            font.pixelSize: Theme.fontSizeXs
+                            font.weight: Theme.fontWeightMedium
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                        }
+
+                        Text {
+                            objectName: "notificationTimestamp"
+                            Layout.alignment: Qt.AlignRight
+                            visible: root.timestampLabel.length > 0
+                            textFormat: Text.PlainText
+                            text: root.timestampLabel
+                            color: root.dimColor
+                            font.family: "Liberation Sans"
+                            font.pixelSize: Theme.fontSizeXs
+                            font.weight: Theme.fontWeightNormal
+                        }
+                    }
 
                     Text {
                         Layout.fillWidth: true
