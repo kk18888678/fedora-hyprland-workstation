@@ -191,6 +191,7 @@ PanelWindow {
                     actions: popupSlot.actions
                     defaultActionText: String(popupSlot.defaultActionText || "")
                     urgency: popupSlot.urgency
+                    timestampLabel: Logic.timestampLabel(popupSlot.timestamp, Date.now())
                     identityOriginalId: popupSlot.originalId
                     identityTimestamp: popupSlot.timestamp
                     identityIndex: popupSlot.index
