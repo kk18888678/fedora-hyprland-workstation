@@ -4,14 +4,15 @@
 #
 # The helper is deliberately read-only. It samples only a validated local
 # wallpaper path and returns one of the two validated theme colors. It measures
-# the darkest and brightest WCAG relative-luminance regions of the bar strip and
-# requires the chosen color to clear 4.5:1 against the worst region. When
-# neither candidate color qualifies (for example over a busy checkerboard) it
-# returns the theme foreground and emits an explicit
-# `fallback reason=insufficient-contrast ... action=opaque` signal on stderr so
-# the resident bar can force an opaque surface. Missing media, tooling,
-# geometry, or malformed input is an expected capability fallback, but remains
-# observable on stderr for the resident bar log.
+# the darkest and brightest WCAG relative-luminance regions of the bar strip,
+# composites the bar-strip scrim the resident bar will draw over that range,
+# and returns the candidate with the maximum worst-case contrast. When even the
+# best candidate cannot clear 4.5:1 against the scrim-composited background it
+# emits an explicit `fallback reason=insufficient-contrast ... action=opaque`
+# signal on stderr so the resident bar can strengthen its legibility scrim. It
+# never forces the surface opaque: the user's transparent-bar choice wins.
+# Missing media, tooling, geometry, or malformed input is an expected capability
+# fallback, but remains observable on stderr for the resident bar log.
 
 set -Eeuo pipefail
 
@@ -23,6 +24,8 @@ shift 4  || true
 
 background_path=""
 screen_size=""
+scrim_color="#000000"
+scrim_alpha="0"
 
 while (( $# > 0 )); do
     case "$1" in
@@ -40,6 +43,22 @@ while (( $# > 0 )); do
                 exit 0
             }
             screen_size="$2"
+            shift 2
+            ;;
+        --scrim)
+            (( $# >= 2 )) || {
+                printf '%s\n' '[AURELIA-BAR-TEXT] fallback reason=missing-scrim-argument' >&2
+                exit 0
+            }
+            scrim_color="$2"
+            shift 2
+            ;;
+        --scrim-alpha)
+            (( $# >= 2 )) || {
+                printf '%s\n' '[AURELIA-BAR-TEXT] fallback reason=missing-scrim-alpha-argument' >&2
+                exit 0
+            }
+            scrim_alpha="$2"
             shift 2
             ;;
         *)
@@ -63,6 +82,8 @@ fallback() {
 
 valid_hex "$text_color" || fallback invalid-text-color
 valid_hex "$background_color" || fallback invalid-background-color
+valid_hex "$scrim_color" || fallback invalid-scrim-color
+[[ "$scrim_alpha" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fallback invalid-scrim-alpha
 [[ "$position" =~ ^(top|bottom|left|right)$ ]] || fallback invalid-position
 [[ "$bar_size" =~ ^[0-9]+$ && "$bar_size" -gt 0 ]] || fallback invalid-bar-size
 
@@ -136,18 +157,21 @@ luminance_range="$(/usr/bin/magick "${background_path}[0]" -auto-orient \
 sample_min="${BASH_REMATCH[1]}"
 sample_max="${BASH_REMATCH[3]}"
 
-# WCAG AA normal text requires a 4.5:1 contrast ratio. Anything below that is
-# not treated as a legible choice, no matter how much better it looks than the
-# other candidate.
+# WCAG AA normal text requires a 4.5:1 contrast ratio. The helper still
+# reports when the best available foreground cannot reach it, but it never
+# substitutes an unreadable colour: the resident bar strengthens its
+# bar-strip scrim in response to the signal.
 minimum_contrast='4.5'
 
-# Worst-case contrast for one candidate across the sampled luminance range.
-# Contrast decreases as a background approaches the candidate's own
-# luminance, so the minimum over the range is always reached at the nearest
-# endpoint. Checking both endpoints therefore covers every sampled region.
-worst_contrast() {
-    local candidate="$1"
-    '/usr/bin/awk' -v fg="$candidate" -v lo="$sample_min" -v hi="$sample_max" '
+# Pick the candidate with the maximum worst-case contrast. The scrim that the
+# resident bar draws behind the strip is composited over the sampled range
+# first, so the foreground is chosen for the background that will actually be
+# rendered. Compositing an opaque scrim over a luminance range is affine, so
+# the darkest and brightest regions remain the endpoints after compositing.
+selection="$(/usr/bin/awk \
+    -v text="$text_color" -v background="$background_color" \
+    -v lo="$sample_min" -v hi="$sample_max" \
+    -v scrim="$scrim_color" -v alpha="$scrim_alpha" '
         function channel(hex, start) {
             return strtonum("0x" substr(hex, start, 2)) / 255
         }
@@ -168,35 +192,38 @@ worst_contrast() {
             }
             return (first + 0.05) / (second + 0.05)
         }
-        BEGIN {
-            fg_luminance = luminance(fg)
-            low_ratio = ratio(fg_luminance, lo + 0)
-            high_ratio = ratio(fg_luminance, hi + 0)
-            printf "%.6f\n", low_ratio < high_ratio ? low_ratio : high_ratio
+        function worst(candidate, candidate_luminance, low_ratio, high_ratio) {
+            candidate_luminance = luminance(candidate)
+            low_ratio = ratio(candidate_luminance, effective_low)
+            high_ratio = ratio(candidate_luminance, effective_high)
+            return low_ratio < high_ratio ? low_ratio : high_ratio
         }
-    '
-}
-
-text_worst="$(worst_contrast "$text_color")"
-background_worst="$(worst_contrast "$background_color")"
-
-# Prefer the higher-contrast candidate, but only when it clears the AA
-# threshold against the worst sampled region. When neither candidate
-# qualifies, return the theme foreground and emit an explicit machine-readable
-# signal so the resident bar can force an opaque surface instead of rendering
-# text on an unreadable wallpaper.
-if '/usr/bin/awk' -v value="$text_worst" -v other="$background_worst" -v minimum="$minimum_contrast" \
-    'BEGIN { exit !(value + 0 >= minimum + 0 && value + 0 >= other + 0) }'; then
-    printf '%s\n' "$text_color"
-elif '/usr/bin/awk' -v value="$background_worst" -v minimum="$minimum_contrast" \
-    'BEGIN { exit !(value + 0 >= minimum + 0) }'; then
-    printf '%s\n' "$background_color"
-else
-    '/usr/bin/awk' -v text="$text_worst" -v background="$background_worst" -v minimum="$minimum_contrast" '
         BEGIN {
-            worst = text + 0 > background + 0 ? text + 0 : background + 0
+            if (alpha + 0 < 0) alpha = 0
+            if (alpha + 0 > 1) alpha = 1
+            scrim_luminance = luminance(scrim)
+            effective_low = alpha * scrim_luminance + (1 - alpha) * (lo + 0)
+            effective_high = alpha * scrim_luminance + (1 - alpha) * (hi + 0)
+            text_worst = worst(text)
+            background_worst = worst(background)
+            if (text_worst >= background_worst) {
+                printf "%s\t%.6f\n", text, text_worst
+            } else {
+                printf "%s\t%.6f\n", background, background_worst
+            }
+        }
+')"
+[[ "$selection" == *$'\t'* ]] || fallback sample-failed
+best_color="${selection%%$'\t'*}"
+best_worst="${selection##*$'\t'}"
+
+if '/usr/bin/awk' -v value="$best_worst" -v minimum="$minimum_contrast" \
+    'BEGIN { exit !(value + 0 < minimum + 0) }'; then
+    '/usr/bin/awk' -v worst="$best_worst" -v minimum="$minimum_contrast" '
+        BEGIN {
             printf "[AURELIA-BAR-TEXT] fallback reason=insufficient-contrast worst=%.2f required=%s action=opaque\n", worst, minimum
         }
     ' >&2
-    printf '%s\n' "$text_color"
 fi
+
+printf '%s\n' "$best_color"
