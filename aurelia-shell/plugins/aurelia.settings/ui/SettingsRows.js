@@ -363,6 +363,21 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
                 effective: (aurelia && aurelia.weekStart) ? aurelia.weekStart : "sunday"
             })
         }
+        // The workspace-overview scope is an Aurelia preference surfaced beside
+        // the reviewed Hyprland workspace options it controls.
+        if (sectionId === "hypr-workspaces") {
+            rows.push({
+                kind: "heading",
+                title: "Overview"
+            })
+            rows.push({
+                kind: "toggle",
+                id: "aurelia.workspaces.only_in_use",
+                title: "Only Workspaces In Use",
+                description: "Show and cycle only workspaces that have windows. Disable to cycle all workspaces 1\u20135.",
+                effective: aurelia ? aurelia.onlyWorkspacesInUse !== false : true
+            })
+        }
         return rows
     }
 
@@ -653,6 +668,7 @@ function emptyAureliaState() {
         clockFormat: "month_day_weekday_time",
         clockHour24: true,
         clockSeconds: false,
+        onlyWorkspacesInUse: true,
         ai: { default: null, agents: [] },
         settingsPath: ""
     }

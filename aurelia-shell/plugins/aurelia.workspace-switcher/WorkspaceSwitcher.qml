@@ -5,6 +5,7 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 import "../../theme"
 import "."
+import "WorkspaceSelection.js" as WorkspaceSelection
 
 // Mission Control-inspired workspace overview. The overlay is resident but
 // hidden, so SUPER+TAB can open it without paying the Loader cost on every
@@ -20,6 +21,10 @@ Item {
     property bool isOpen: false
     property int selectedWorkspaceId: 1
     property int modelRevision: 0
+    // When true (the default), the overview shows and cycles only workspaces
+    // that are actually in use. Users can switch back to the historical
+    // "cycle all workspaces" behaviour from Settings.
+    readonly property bool onlyWorkspacesInUse: Theme.getPreference("aurelia.workspaces.only_in_use", true)
     // Accumulated wheel delta so one physical notch (120) is exactly one
     // cycle, instead of one cycle per high-resolution wheel event.
     property real wheelAccumulator: 0
@@ -50,15 +55,11 @@ Item {
     }
 
     function workspaceIds() {
-        var ids = [1, 2, 3, 4, 5]
-        var values = root.workspaceValues()
-        for (var i = 0; i < values.length; i++) {
-            var id = Number(values[i].id)
-            if (isFinite(id) && Math.floor(id) === id && id >= 1 && id <= 10 && ids.indexOf(id) === -1)
-                ids.push(id)
-        }
-        ids.sort(function(left, right) { return left - right })
-        return ids
+        return WorkspaceSelection.workspaceIds(
+            root.onlyWorkspacesInUse,
+            root.workspaceValues(),
+            root.detectedFocusedWorkspaceId(),
+            [1, 2, 3, 4, 5])
     }
 
     function selectedIndex() {
@@ -129,11 +130,11 @@ Item {
         if (ids.length === 0) return "empty"
 
         var index = root.selectedIndex()
-        var step = Number(delta) < 0 ? -1 : 1
-        var count = ids.length
         // Wrap around so SUPER+TAB from the last workspace returns to the
-        // first (and SUPER+SHIFT+TAB from the first goes to the last).
-        var nextIndex = ((index + step) % count + count) % count
+        // first (and SUPER+SHIFT+TAB from the first goes to the last). The
+        // pure wrap policy is shared with the unit tests via WorkspaceSelection.
+        var nextIndex = WorkspaceSelection.nextIndex(index, delta, ids.length)
+        if (nextIndex < 0) return "empty"
         root.selectedWorkspaceId = ids[nextIndex]
         root.keepSelectionVisible()
         return "cycled"
