@@ -187,21 +187,27 @@ aurelia-shell/
 Rendered text must stay legible over arbitrary wallpapers. Two complementary
 fail-closed guards cover the translucent surfaces:
 
-- **Transparent bar (adaptive foreground + scrim)**: `bin/aurelia-bar-text-color`
-  measures the darkest and brightest WCAG relative-luminance regions of the bar
-  strip instead of collapsing it to one `1x1` average. A single average hides
-  high-variance wallpapers (for example a black/white checkerboard). The helper
-  composites the bar-strip scrim the resident bar will draw over that range and
-  returns the candidate foreground (theme foreground or contrast foreground)
-  with the maximum worst-case contrast; it never silently degenerates to one
+- **Transparent bar (adaptive foreground + non-surface halo)**: With
+  transparency enabled the bar renders **no surface and no scrim** — the
+  wallpaper shows through completely. `bin/aurelia-bar-text-color` measures the
+  darkest and brightest WCAG relative-luminance regions of the bar strip
+  instead of collapsing it to one `1x1` average. A single average hides
+  high-variance wallpapers (for example a black/white checkerboard). Because
+  there is no background plane, the helper selects the candidate foreground
+  (theme foreground or contrast foreground) with the maximum worst-case
+  contrast against the raw wallpaper; it never silently degenerates to one
   candidate. When even the best candidate cannot clear the WCAG AA threshold of
   `4.5:1`, the helper still returns that best candidate and emits an explicit
-  `action=opaque` signal on stderr. The resident bar reads that signal through
-  `BarTransparencyModel.parseForegroundSignal` and strengthens the translucent
-  bar-strip scrim (`Bar.qml` / `BarPanel.qml`, `Theme.bar.scrimAlpha` ->
-  `Theme.bar.scrimStrongAlpha`) instead of forcing an opaque surface, so the
-  user's transparent-bar toggle is always honoured while text and icons keep
-  local contrast. The scrim is an overlay; it is never an opaque surface.
+  `action=halo` signal on stderr. The resident bar reads that signal through
+  `BarTransparencyModel.parseForegroundSignal` and strengthens a **non-surface
+  content halo** (`BarPanel.qml`, a `MultiEffect` shadow applied to the content
+  layer) instead of forcing an opaque surface or drawing a scrim. A soft shadow
+  halo was chosen over a text outline because it covers arbitrary
+  plugin-provided text and image-based icons from one place and paints no
+  background plane; its colour contrasts the resolved foreground so it stays
+  visible over light and dark wallpaper patches. The opaque path continues to
+  render the themed `Theme.bar.background` surface, so the toggle visibly
+  differs (transparent = no surface, opaque = themed surface).
 - **Translucent surfaces (bounded wallpaper contribution)**: Launcher, menu,
   tooltip, popup, notification, and opaque-bar backgrounds resolve through
   `Theme._getSurfaceAlpha`, which clamps the effective opacity up to

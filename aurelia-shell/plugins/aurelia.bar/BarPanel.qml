@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
@@ -129,24 +130,32 @@ PanelWindow {
             ? "transparent" : Theme.bar.border
         border.width: panelRoot.bar && panelRoot.bar.transparent ? 0 : Theme.borderWidthDefault
 
-        // A transparent bar keeps the wallpaper visible but still draws a
-        // subtle scrim behind the strip. The scrim is a translucent overlay,
-        // never an opaque surface, so the user's transparency choice is
-        // preserved while text and icons keep local contrast.
-        // bin/aurelia-bar-text-color strengthens it when the sampled wallpaper
-        // needs it.
-        Rectangle {
-            id: barScrim
-            anchors.fill: parent
-            visible: panelRoot.bar && panelRoot.bar.transparent === true &&
-                panelRoot.bar.transparentScrimAlpha > 0
-            color: panelRoot.bar ? panelRoot.bar.transparentScrim : "transparent"
-        }
-
+        // A transparent bar draws no surface and no scrim at all: the
+        // wallpaper stays fully visible. To keep text and icons legible over
+        // an arbitrary wallpaper without painting a background plane, a soft
+        // shadow halo is applied to the content layer only. The halo hugs the
+        // glyphs and icons and is the least intrusive aid that still covers
+        // arbitrary plugin-provided text and image icons from one place; a
+        // text outline would require per-widget changes and would not cover
+        // image-based icons. bin/aurelia-bar-text-color selects the best
+        // available foreground and its `action=halo` signal selects the
+        // stronger halo when the wallpaper needs it.
         Loader {
             id: contentLoader
             anchors.fill: parent
             sourceComponent: panelRoot.vertical ? verticalBarContent : horizontalBarContent
+            layer.enabled: panelRoot.bar && panelRoot.bar.transparent === true
+            layer.effect: MultiEffect {
+                id: legibilityHalo
+                shadowEnabled: true
+                shadowColor: panelRoot.bar ? panelRoot.bar.transparentHaloColor : "#000000"
+                shadowOpacity: panelRoot.bar && panelRoot.bar.transparentHaloStrong ? 0.95 : 0.75
+                shadowBlur: panelRoot.bar && panelRoot.bar.transparentHaloStrong ? 0.55 : 0.35
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: 0
+                shadowScale: 1.0
+                autoPaddingEnabled: false
+            }
         }
 
         Rectangle {

@@ -295,15 +295,9 @@ QtObject {
         readonly property color foreground: themeRoot._getShellColor("bar.text", themeRoot.text)
         readonly property color active: themeRoot._getShellColor("bar.active", themeRoot.accent)
         readonly property color border: themeRoot._getShellColor("bar.border", themeRoot.border)
-        // Transparent-bar legibility aid. The scrim is a translucent overlay
-        // drawn behind the bar strip, never an opaque surface, so the user's
-        // transparency choice is preserved while text and icons keep local
-        // contrast. The strong alpha is selected by the resident bar when the
-        // wallpaper sampler reports that the best available foreground cannot
-        // clear WCAG AA.
-        readonly property color scrim: themeRoot._getShellColor("bar.scrim", themeRoot.bgBase)
-        readonly property real scrimAlpha: themeRoot._getShellAlpha("bar.scrim-alpha", 0.4)
-        readonly property real scrimStrongAlpha: themeRoot._getShellAlpha("bar.scrim-strong-alpha", 0.85)
+        // The transparent bar deliberately has no scrim or background token:
+        // it must render no surface at all. Its legibility aid is a
+        // non-surface content halo owned by BarPanel.qml.
         readonly property int sizeHorizontal: themeRoot._getScaledInt("barSizeHorizontal", 26)
         readonly property int sizeVertical: themeRoot._getScaledInt("barSizeVertical", 28)
         readonly property int iconSlot: themeRoot._getScaledInt("barIconSlot", 27)

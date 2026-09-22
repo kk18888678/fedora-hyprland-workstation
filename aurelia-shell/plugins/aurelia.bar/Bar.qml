@@ -64,19 +64,25 @@ Item {
     readonly property color barForeground: foreground
     readonly property color background: Theme.bar.background
     readonly property color urgent: Theme.bar.active
-    // The user's explicit transparency choice is always honoured. When the
-    // sampled wallpaper cannot provide a legible foreground the helper emits
-    // its `action=opaque` signal, but the bar keeps the surface transparent and
-    // strengthens the bar-strip scrim instead of silently forcing an opaque
+    // The user's explicit transparency choice is always honoured. A transparent
+    // bar renders no surface and no scrim. When the sampled wallpaper cannot
+    // provide a legible foreground the helper emits its `action=halo` signal;
+    // the bar responds by strengthening the non-surface legibility halo behind
+    // the content, never by drawing a background plane or forcing an opaque
     // surface that would override the user's setting.
     readonly property var transparentRender: BarTransparencyModel.renderState(
-        requestedTransparent, transparentForegroundAidStrong,
-        Theme.bar.scrimAlpha, Theme.bar.scrimStrongAlpha)
+        requestedTransparent, transparentForegroundAidStrong)
     readonly property bool transparent: transparentRender.transparent
-    readonly property real transparentScrimAlpha: transparentRender.scrimAlpha
-    readonly property color transparentScrim: requestedTransparent
-        ? Qt.rgba(Theme.bar.scrim.r, Theme.bar.scrim.g, Theme.bar.scrim.b, transparentScrimAlpha)
-        : "transparent"
+    readonly property bool transparentHalo: transparentRender.halo
+    readonly property bool transparentHaloStrong: transparentRender.haloStrong
+    // The halo colour contrasts the resolved foreground so it stays visible
+    // over both light and dark wallpaper patches. It is a shadow behind glyphs
+    // and icons, never a background plane.
+    readonly property color transparentHaloColor: {
+        var fg = barRoot.barForeground
+        var luminance = 0.2126 * fg.r + 0.7152 * fg.g + 0.0722 * fg.b
+        return luminance > 0.5 ? "#000000" : "#ffffff"
+    }
     readonly property bool barConfigReady: barConfig && barConfig.layout
     readonly property bool vertical: position === "left" || position === "right"
     // The cross-axis size follows the reference bar's structural scale. Popup
@@ -428,11 +434,7 @@ Item {
             barRoot.colorHex(barRoot.themeForeground),
             barRoot.colorHex(barRoot.themeContrastForeground),
             "--screen",
-            barRoot.screenSizeArgument(),
-            "--scrim",
-            barRoot.colorHex(Theme.bar.scrim),
-            "--scrim-alpha",
-            String(Theme.bar.scrimAlpha)
+            barRoot.screenSizeArgument()
         ]
         transparentForegroundProcess.running = true
     }
@@ -652,7 +654,8 @@ Item {
             transparentForeground: String(barRoot.transparentForeground),
             foregroundFallback: barRoot.transparentForegroundFallbackReported,
             foregroundAidStrong: barRoot.transparentForegroundAidStrong,
-            transparentScrimAlpha: barRoot.transparentScrimAlpha,
+            transparentHalo: barRoot.transparentHalo,
+            transparentHaloStrong: barRoot.transparentHaloStrong,
             widgetSlots: barRoot.widgetSlots.length,
             position: barRoot.position,
             size: barRoot.barSize
@@ -789,10 +792,11 @@ Item {
         onExited: function(code) {
             var value = String(transparentForegroundOutput.text || "").trim()
             var detail = String(transparentForegroundError.text || "").trim()
-            // The helper emits `action=opaque` only when the best available
+            // The helper emits `action=halo` only when the best available
             // colour cannot clear the 4.5:1 threshold against the worst
-            // sampled region. The bar responds by strengthening the scrim, not
-            // by abandoning transparency.
+            // sampled region. The bar responds by strengthening the
+            // non-surface content halo, not by drawing a scrim or abandoning
+            // transparency.
             var signal = BarTransparencyModel.parseForegroundSignal(detail)
             if (code === 0 && /^#[0-9A-Fa-f]{6}$/.test(value)) {
                 barRoot.transparentForeground = value

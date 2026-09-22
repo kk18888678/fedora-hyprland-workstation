@@ -46,25 +46,26 @@ else
     fail "[static] scoped plugin bar facade color propagation is incomplete"
 fi
 
-# The helper measures the scrim-composited worst case, returns the
-# best-available foreground (never a silent theme-foreground degeneration),
-# and emits an explicit strengthening signal. The bar keeps its transparent
-# surface and strengthens the bar-strip scrim. The theme still floors
+# The helper returns the best-available foreground (never a silent
+# theme-foreground degeneration) and emits an explicit halo signal. The
+# transparent bar renders no scrim and no surface; its legibility aid is a
+# non-surface MultiEffect shadow on the content layer. The theme still floors
 # translucent surface opacity while wiring the declared scrim tokens.
 if grep -Fq 'reason=insufficient-contrast' "$text_color_bin" &&
-   grep -Fq 'action=opaque' "$text_color_bin" &&
-   grep -Fq -- '--scrim-alpha' "$text_color_bin" &&
+   grep -Fq 'action=halo' "$text_color_bin" &&
    grep -Fq 'grayscale Rec709Luminance' "$text_color_bin" &&
    grep -Fq 'transparentForegroundAidStrong' "$bar_file" &&
    grep -Fq 'transparentRender.transparent' "$bar_file" &&
-   grep -Fq 'barScrim' "$panel_file" &&
-   grep -Fq 'scrimStrongAlpha' "$ROOT/theme/Theme.qml" &&
+   grep -Fq 'layer.effect: MultiEffect' "$panel_file" &&
+   grep -Fq 'shadowEnabled: true' "$panel_file" &&
+   ! grep -Fq 'barScrim' "$panel_file" &&
+   ! grep -Eq 'scrimStrongAlpha|bar\.scrim' "$ROOT/theme/Theme.qml" "$bar_file" "$panel_file" &&
    grep -Fq 'minimumSurfaceOpacity' "$ROOT/theme/Theme.qml" &&
    grep -Fq '_getSurfaceAlpha("launcher.background-alpha"' "$ROOT/theme/Theme.qml" &&
    grep -Fq '_getSurfaceAlpha("tooltip.background-alpha"' "$ROOT/theme/Theme.qml" &&
    grep -Fq 'Theme.launcher.scrim' "$ROOT/plugins/aurelia.launcher/ui/CommandCenterPanel.qml" &&
    grep -Fq 'Theme.menu.scrim' "$ROOT/plugins/aurelia.menu/Menu.qml"; then
-    pass "[static] transparent bar keeps its surface and strengthens the scrim while translucent surfaces stay bounded"
+    pass "[static] transparent bar renders no scrim or surface while its non-surface halo keeps content legible and translucent surfaces stay bounded"
 else
     fail "[static] bar or translucent-surface legibility guard is incomplete"
 fi
@@ -146,42 +147,31 @@ fi
 # The high-variance strip has both a near-black and a near-white region. No
 # single foreground clears 4.5:1 against the raw range, so the helper must
 # return the best available colour (never a silent theme-foreground
-# degeneration) and emit the strengthening signal. Compositing the bar-strip
-# scrim first changes which candidate is best and can satisfy the threshold.
+# degeneration) and emit the halo-strengthening signal. Without a surface there
+# is no background compositing step.
 checker_error="$parity_tmp/checker.err"
 checker_result="$("$text_color_bin" top 20 '#ffffff' '#101010' \
     --background "$parity_tmp/checker.png" --screen 100x100 2>"$checker_error")"
 if [[ "$checker_result" == "#101010" ]] &&
    grep -Fq 'fallback reason=insufficient-contrast' "$checker_error" &&
-   grep -Fq 'action=opaque' "$checker_error"; then
-    pass "[isolated-media] high-variance strip returns the best available foreground and signals for a stronger scrim"
+   grep -Fq 'action=halo' "$checker_error"; then
+    pass "[isolated-media] high-variance strip returns the best available foreground and requests the stronger non-surface halo"
 else
     fail "[isolated-media] high-variance strip selection is incorrect: $checker_result $(tr '\n' ' ' <"$checker_error")"
 fi
 
-# The default scrim darkens the strip enough that the light candidate wins, but
-# it is still short of AA, so the strengthening signal must remain.
-scrim_error="$parity_tmp/checker-scrim.err"
-scrim_result="$("$text_color_bin" top 20 '#ffffff' '#101010' \
+# Legacy --scrim arguments must be ignored rather than reintroducing a surface
+# selection regression: the transparent bar still chooses against the raw
+# wallpaper.
+legacy_error="$parity_tmp/checker-legacy.err"
+legacy_result="$("$text_color_bin" top 20 '#ffffff' '#101010' \
     --background "$parity_tmp/checker.png" --screen 100x100 \
-    --scrim '#232136' --scrim-alpha 0.4 2>"$scrim_error")"
-if [[ "$scrim_result" == "#ffffff" ]] &&
-   grep -Fq 'action=opaque' "$scrim_error"; then
-    pass "[isolated-media] the default scrim changes the best foreground and still reports the strengthening signal"
+    --scrim '#232136' --scrim-alpha 0.85 2>"$legacy_error")"
+if [[ "$legacy_result" == "#101010" ]] &&
+   grep -Fq 'action=halo' "$legacy_error"; then
+    pass "[isolated-media] legacy scrim arguments are ignored so the transparent bar never regains a surface"
 else
-    fail "[isolated-media] scrim-aware selection is incorrect: $scrim_result $(tr '\n' ' ' <"$scrim_error")"
-fi
-
-# The strong scrim makes the best foreground clear AA, so the bar can keep the
-# transparent surface without a further signal.
-strong_error="$parity_tmp/checker-strong.err"
-strong_result="$("$text_color_bin" top 20 '#ffffff' '#101010' \
-    --background "$parity_tmp/checker.png" --screen 100x100 \
-    --scrim '#232136' --scrim-alpha 0.85 2>"$strong_error")"
-if [[ "$strong_result" == "#ffffff" && ! -s "$strong_error" ]]; then
-    pass "[isolated-media] the strong scrim makes the best foreground clear WCAG AA without a signal"
-else
-    fail "[isolated-media] strong-scrim legibility is incorrect: $strong_result $(tr '\n' ' ' <"$strong_error")"
+    fail "[isolated-media] legacy scrim arguments changed surface-less selection: $legacy_result $(tr '\n' ' ' <"$legacy_error")"
 fi
 
 ffmpeg -y -f lavfi -i 'color=c=0x202020:s=100x100:d=1' \
