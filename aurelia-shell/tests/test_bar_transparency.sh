@@ -48,9 +48,30 @@ assert.strictEqual(model.parseForegroundSignal('').strengthenAid, false, 'empty 
 assert.strictEqual(model.parseForegroundSignal(undefined).strengthenAid, false, 'undefined detail');
 assert.strictEqual(model.parseForegroundSignal(null).strengthenAid, false, 'null detail');
 
+// Every fallback diagnostic implies an unverified contrast and therefore a
+// strong halo, even if the explicit `action=halo` token is missing.
+assert.strictEqual(
+  model.parseForegroundSignal('[AURELIA-BAR-TEXT] fallback reason=sample-failed action=halo').strengthenAid,
+  true,
+  'fallback with explicit halo'
+);
+assert.strictEqual(
+  model.parseForegroundSignal('[AURELIA-BAR-TEXT] fallback reason=missing-magick').strengthenAid,
+  true,
+  'fallback without explicit halo still strengthens'
+);
+assert.strictEqual(
+  model.parseForegroundSignal('fallback reason=background-not-file').strengthenAid,
+  true,
+  'bare fallback still strengthens'
+);
+assert.strictEqual(model.parseForegroundSignal('no fallback reason here').strengthenAid, false, 'fallback word alone must not match');
+
 // The rendered surface decision: a requested transparent bar draws no surface
-// and no scrim, only the non-surface halo. The signal only selects the stronger
-// halo. An opaque bar draws the themed surface and no halo.
+// and no scrim, only the non-surface halo. The halo is unconditionally the
+// strong variant: one foreground colour cannot be guaranteed against an
+// arbitrary wallpaper, so legibility must not depend on the signal. An opaque
+// bar draws the themed surface and no halo.
 const opaque = model.renderState(false, false);
 assert.deepStrictEqual(opaque, {transparent: false, drawsSurface: true, drawsScrim: false, halo: false, haloStrong: false});
 assert.deepStrictEqual(model.renderState(false, true), opaque, 'opaque ignores the halo signal');
@@ -59,9 +80,9 @@ assert.strictEqual(transparent.transparent, true, 'requested transparent stays t
 assert.strictEqual(transparent.drawsSurface, false, 'transparent draws no surface');
 assert.strictEqual(transparent.drawsScrim, false, 'transparent draws no scrim');
 assert.strictEqual(transparent.halo, true, 'transparent enables the non-surface halo');
-assert.strictEqual(transparent.haloStrong, false, 'subtle halo by default');
+assert.strictEqual(transparent.haloStrong, true, 'transparent halo is unconditionally strong');
 const strong = model.renderState(true, true);
-assert.strictEqual(strong.haloStrong, true, 'signal selects the stronger halo');
+assert.strictEqual(strong.haloStrong, true, 'signal keeps the strong halo');
 assert.strictEqual(strong.drawsSurface, false, 'stronger halo is still not a surface');
 assert.strictEqual(strong.drawsScrim, false, 'stronger halo is still not a scrim');
 console.log('bar transparency model ok');
@@ -74,32 +95,87 @@ else
 fi
 
 # The host must import the shared model, leave `transparent` bound to the
-# surface decision, and own the contrasting halo colour.
+# surface decision, own the contrasting halo colour, and fail safe to the
+# strong halo whenever the helper emits a diagnostic or exits non-zero.
 if grep -Fq 'import "BarTransparencyModel.js" as BarTransparencyModel' "$bar_file" &&
    grep -Fq 'BarTransparencyModel.parseForegroundSignal' "$bar_file" &&
    grep -Fq 'readonly property bool transparent: transparentRender.transparent' "$bar_file" &&
    grep -Fq 'transparentForegroundAidStrong' "$bar_file" &&
+   grep -Fq 'var contrastUnverified = code !== 0 || detail !== ""' "$bar_file" &&
+   grep -Fq 'barRoot.transparentForegroundAidStrong = contrastUnverified || signal.strengthenAid' "$bar_file" &&
+   grep -Fq 'barRoot.transparentForegroundAidStrong = true' "$bar_file" &&
    grep -Fq 'readonly property color transparentHaloColor' "$bar_file" &&
    ! grep -Fq '[[:space:]]' "$bar_file"; then
-    pass "[static] the bar host parses the halo signal and owns the transparent surface decision"
+    pass "[static] the bar host parses the halo signal, fails safe to the strong halo, and owns the transparent surface decision"
 else
     fail "[static] transparent-bar host decision is incomplete"
 fi
 
 # The transparent path must draw no background rectangle and no scrim, and its
-# only legibility aid is a non-surface MultiEffect shadow on the content.
+# only legibility aid is a non-surface MultiEffect shadow on the content. The
+# shadow is unconditionally strong: legibility cannot depend on a signal that
+# may be missed or malformed.
 if grep -Fq 'layer.effect: MultiEffect' "$panel_file" &&
    grep -Fq 'id: legibilityHalo' "$panel_file" &&
    grep -Fq 'shadowEnabled: true' "$panel_file" &&
+   grep -Fq 'shadowOpacity: 0.95' "$panel_file" &&
+   grep -Fq 'shadowBlur: 0.55' "$panel_file" &&
    grep -Fq '"transparent" : (panelRoot.bar ? panelRoot.bar.background' "$panel_file" &&
    grep -Fq 'border.width: panelRoot.bar && panelRoot.bar.transparent ? 0' "$panel_file" &&
    ! grep -Fq 'barScrim' "$panel_file" &&
    ! grep -Fq 'transparentScrim' "$panel_file" &&
    ! grep -Eq 'scrimAlpha|scrimStrongAlpha|bar\.scrim' "$panel_file" "$bar_file" "$theme_file"; then
-    pass "[static] the transparent bar renders no scrim/background and its legibility aid is not a surface"
+    pass "[static] the transparent bar renders no scrim/background and its unconditionally strong legibility aid is not a surface"
 else
     fail "[static] transparent-bar no-surface contract is incomplete"
 fi
+
+# The luminance sample is parsed as a signed value and clamped to [0,1]. An
+# HDRI `%[fx:minima]` can be marginally negative (for example -0.00147364);
+# the helper must not reject it as `sample-failed`, must still return the best
+# available foreground, and must request the strong halo. A fake sampler is
+# used so the signed sample is exercised without depending on a real image.
+signal_tmp="$(mktemp -d)"
+fake_magick="$signal_tmp/magick"
+background_file="$signal_tmp/background.png"
+: >"$background_file"
+cat >"$fake_magick" <<'EOF_MAGICK'
+#!/usr/bin/env bash
+printf '%s %s' '-0.00147364' '1.00123456'
+EOF_MAGICK
+chmod 0755 "$fake_magick"
+out_of_range_error="$signal_tmp/out-of-range.err"
+out_of_range_color="$(AURELIA_BAR_TEXT_COLOR_MAGICK="$fake_magick" \
+    "$text_color_bin" top 20 '#ffffff' '#101010' \
+    --background "$background_file" --screen 100x100 2>"$out_of_range_error")"
+if [[ "$out_of_range_color" == "#101010" ]] &&
+   ! grep -Fq 'sample-failed' "$out_of_range_error" &&
+   grep -Fq 'action=halo' "$out_of_range_error"; then
+    pass "[isolated-media] a signed out-of-range luminance sample is clamped and still requests the strong halo"
+else
+    fail "[isolated-media] out-of-range luminance sample was rejected: $out_of_range_color $(tr '\n' ' ' <"$out_of_range_error")"
+fi
+
+# Every fallback path must imply the strong halo. A fallback means contrast was
+# never verified, so failing open would leave content unreadable.
+fallback_missing_error="$signal_tmp/missing.err"
+fallback_missing_color="$(AURELIA_BAR_TEXT_COLOR_MAGICK="$signal_tmp/does-not-exist" \
+    "$text_color_bin" top 20 '#ffffff' '#101010' \
+    --background "$background_file" --screen 100x100 2>"$fallback_missing_error")"
+fallback_position_error="$signal_tmp/position.err"
+fallback_position_color="$("$text_color_bin" diagonal 20 '#ffffff' '#101010' \
+    --background "$background_file" --screen 100x100 2>"$fallback_position_error")"
+if [[ "$fallback_missing_color" == "#ffffff" ]] &&
+   grep -Fq 'fallback reason=missing-magick' "$fallback_missing_error" &&
+   grep -Fq 'action=halo' "$fallback_missing_error" &&
+   [[ "$fallback_position_color" == "#ffffff" ]] &&
+   grep -Fq 'fallback reason=invalid-position' "$fallback_position_error" &&
+   grep -Fq 'action=halo' "$fallback_position_error"; then
+    pass "[isolated-media] every helper fallback diagnostic requests the strong halo"
+else
+    fail "[isolated-media] a helper fallback did not request the strong halo"
+fi
+rm -rf -- "$signal_tmp" || true
 
 if [[ ! -x /usr/bin/magick ]]; then
     skip "[isolated-media] ImageMagick is required for the transparent-bar regression"

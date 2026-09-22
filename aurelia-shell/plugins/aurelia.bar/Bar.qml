@@ -420,7 +420,10 @@ Item {
         if (!barRoot.requestedTransparent || transparentForegroundProcess.running) return
         if (barRoot.barTextColorToolPath === "") {
             barRoot.transparentForeground = barRoot.themeForeground
-            barRoot.transparentForegroundAidStrong = false
+            // The helper is unavailable, so contrast is unverified. Fail safe
+            // to the strong halo rather than assuming the theme foreground is
+            // legible over the wallpaper.
+            barRoot.transparentForegroundAidStrong = true
             if (!barRoot.transparentForegroundFallbackReported) {
                 barRoot.transparentForegroundFallbackReported = true
                 console.warn("[BAR] transparent_foreground_fallback reason=helper_unavailable")
@@ -792,15 +795,17 @@ Item {
         onExited: function(code) {
             var value = String(transparentForegroundOutput.text || "").trim()
             var detail = String(transparentForegroundError.text || "").trim()
-            // The helper emits `action=halo` only when the best available
-            // colour cannot clear the 4.5:1 threshold against the worst
-            // sampled region. The bar responds by strengthening the
-            // non-surface content halo, not by drawing a scrim or abandoning
-            // transparency.
+            // Any helper diagnostic or non-zero exit means contrast was not
+            // verified. The helper emits `action=halo` for that case, but the
+            // bar also fails safe on any diagnostic so a missed or malformed
+            // signal can never leave content unreadable. The response is the
+            // stronger non-surface content halo, never a scrim or a forced
+            // opaque surface.
             var signal = BarTransparencyModel.parseForegroundSignal(detail)
+            var contrastUnverified = code !== 0 || detail !== ""
             if (code === 0 && /^#[0-9A-Fa-f]{6}$/.test(value)) {
                 barRoot.transparentForeground = value
-                barRoot.transparentForegroundAidStrong = signal.strengthenAid
+                barRoot.transparentForegroundAidStrong = contrastUnverified || signal.strengthenAid
                 barRoot.reportBarFacadeState()
                 if (detail !== "" && !barRoot.transparentForegroundFallbackReported) {
                     barRoot.transparentForegroundFallbackReported = true
@@ -816,7 +821,9 @@ Item {
                     (detail === "" ? "" : " detail=" + detail))
             }
             barRoot.transparentForeground = barRoot.themeForeground
-            barRoot.transparentForegroundAidStrong = false
+            // A missing or invalid helper result also leaves contrast
+            // unverified, so the strong halo is the fail-safe state.
+            barRoot.transparentForegroundAidStrong = true
             barRoot.reportBarFacadeState()
         }
     }

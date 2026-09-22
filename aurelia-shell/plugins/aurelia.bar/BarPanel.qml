@@ -133,13 +133,13 @@ PanelWindow {
         // A transparent bar draws no surface and no scrim at all: the
         // wallpaper stays fully visible. To keep text and icons legible over
         // an arbitrary wallpaper without painting a background plane, a soft
-        // shadow halo is applied to the content layer only. The halo hugs the
-        // glyphs and icons and is the least intrusive aid that still covers
-        // arbitrary plugin-provided text and image icons from one place; a
-        // text outline would require per-widget changes and would not cover
-        // image-based icons. bin/aurelia-bar-text-color selects the best
-        // available foreground and its `action=halo` signal selects the
-        // stronger halo when the wallpaper needs it.
+        // shadow halo is applied to the content layer only. The halo is
+        // always the strong variant because one sampled foreground colour
+        // cannot be guaranteed legible against an arbitrary wallpaper; the
+        // halo hugs the glyphs and icons and is the least intrusive aid that
+        // still covers arbitrary plugin-provided text and image icons from one
+        // place. A text outline would require per-widget changes and would not
+        // cover image-based icons.
         Loader {
             id: contentLoader
             anchors.fill: parent
@@ -149,8 +149,8 @@ PanelWindow {
                 id: legibilityHalo
                 shadowEnabled: true
                 shadowColor: panelRoot.bar ? panelRoot.bar.transparentHaloColor : "#000000"
-                shadowOpacity: panelRoot.bar && panelRoot.bar.transparentHaloStrong ? 0.95 : 0.75
-                shadowBlur: panelRoot.bar && panelRoot.bar.transparentHaloStrong ? 0.55 : 0.35
+                shadowOpacity: 0.95
+                shadowBlur: 0.55
                 shadowHorizontalOffset: 0
                 shadowVerticalOffset: 0
                 shadowScale: 1.0
