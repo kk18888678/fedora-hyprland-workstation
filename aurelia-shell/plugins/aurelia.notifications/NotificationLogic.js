@@ -96,6 +96,20 @@ function styledBody(body, app, appIcon) {
     return stripImageTags(text.replace(/\r\n|\r|\n/g, "<br/>"))
 }
 
+// Plain-text projection of a notification for the clipboard. The card's Copy
+// action must not leak image markup or Chromium's leading URL chrome.
+function copyText(entry) {
+    var value = entry || {}
+    var app = boundedText(value.app, MAX_APP_LENGTH)
+    var summary = boundedText(value.summary, MAX_TEXT_LENGTH)
+    var body = sanitizeBody(value.body, app, value.appIcon)
+    var parts = []
+    if (app !== "") parts.push(app)
+    if (summary !== "") parts.push(summary)
+    if (body !== "") parts.push(body)
+    return parts.join("\n")
+}
+
 function summaryStartsWithGlyph(summary) {
     var text = String(summary || "").replace(/^\s+/, "")
     if (text === "") return false
@@ -662,6 +676,7 @@ if (typeof module !== "undefined") {
         isChromiumDerived: isChromiumDerived,
         sanitizeBody: sanitizeBody,
         styledBody: styledBody,
+        copyText: copyText,
         stripImageTags: stripImageTags,
         summaryStartsWithGlyph: summaryStartsWithGlyph,
         normalizedIdentity: normalizedIdentity,

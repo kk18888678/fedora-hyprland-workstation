@@ -273,6 +273,7 @@ AureliaKeyboardPanel {
                                 onActivated: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                                 onDefaultActionInvoked: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                                 onActionInvoked: function(identifier) { root.service.invokeAction(activeDelegate.index, identifier, activeDelegate.originalId, activeDelegate.timestamp) }
+                                onCopyRequested: root.service.copyNotificationAt(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                                 onArchiveRequested: root.service.archiveByIdentity(activeDelegate.originalId, activeDelegate.timestamp)
                             }
                         }
@@ -320,6 +321,7 @@ AureliaKeyboardPanel {
                                 showDismiss: false
                                 onDefaultActionInvoked: root.service.invokeHistoryDefault(historyDelegate.index)
                                 onActionInvoked: function(identifier) { root.service.invokeHistoryAction(historyDelegate.index, identifier) }
+                                onCopyRequested: root.service.copyHistoryAt(historyDelegate.index)
                                 timestampLabel: historyDelegate.timestamp > 0
                                     ? Qt.formatTime(new Date(historyDelegate.timestamp), "HH:mm")
                                     : ""
