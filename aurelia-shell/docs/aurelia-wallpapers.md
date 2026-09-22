@@ -85,6 +85,55 @@ so changing a slider regenerates the palette. `theme preview` is mutation-free:
 it renders the palette JSON for the current recipe without writing any theme,
 which is what the GUI editor uses for live swatches.
 
+## Contrast contract and surface tokens
+
+The palette engine emits a **complete** palette, including the surface tokens
+that the shell consumes. Emitting them is what keeps a light-mode generated
+theme from falling back to the shipped Rosé Pine Moon `surface`/`overlay`
+values (dark `#2a273f`/`#393552`), which produced dark-on-dark inputs and
+cards on light wallpapers.
+
+The WCAG contract is enforced in `palette.awk` and is fail-closed: a role can
+never be emitted below its documented minimum.
+
+| Token | Role | Minimum against `background` |
+| --- | --- | --- |
+| `foreground` | primary text | 4.5:1 |
+| `muted` | muted text | 4.5:1 |
+| `light_foreground` | secondary text | 4.5:1 |
+| `dark_foreground` | subtle text | 3.0:1 |
+| `accent` | text/icon accent | 3.0:1 |
+| `selection` | selected-row **surface** | exempt (non-text) |
+| `surface`, `surfaceElevated`, `lighter_background` | elevation **surfaces** | exempt (non-text) |
+
+- `foreground` first runs a bounded, deterministic nudge toward the mode's
+  contrast pole (white for dark, black for light). If the pair is still below
+  4.5:1 after that loop, it is **escalated** to the pure pole with the highest
+  possible contrast. `max(contrast_white, contrast_black)` is always at least
+  ~4.58 for any background, so a sub-4.5 background/foreground pair can never
+  be emitted silently.
+- `muted` and `light_foreground` are mixed from the anchors and pulled toward
+  the foreground until they clear 4.5:1; `dark_foreground` does the same for
+  3.0:1. The requested dimness is preserved whenever it already satisfies the
+  minimum.
+- `accent` is the extracted highlight color, nudged and escalated toward the
+  contrast pole until it clears 3.0:1.
+- `selection` is a **non-text surface**: it is a background for selected rows,
+  not a text color, so it is explicitly exempt from the text minimums. Text is
+  still drawn on it, so the elevation is bounded to keep `foreground` at
+  4.5:1 against it.
+- `surface`, `surfaceElevated`, and `lighter_background` are non-text elevation
+  surfaces derived from the background/foreground anchors. For dark themes the
+  surface moves toward the light foreground; for light themes it moves toward
+  the dark foreground, so it is always distinguishable from the background.
+  Each surface uses the largest elevation that still keeps `foreground` at
+  4.5:1 against it. `lighter_background` is the Omarchy-compatible alias for
+  `surface` and always has the same value.
+
+The contract is covered by a synthetic-wallpaper table in
+`tests/test_wallpapers.sh` (bright, dark, busy, pastel, saturated) that asserts
+every text role's ratio and key completeness in both light and dark modes.
+
 ## Files and state
 
 ~~~text
@@ -185,9 +234,10 @@ aurelia-wallpaper catalog download 'dark/blue/3840x2160_omarchy_nebula__01-nebul
   deterministic `-<sha8>` suffix instead of overwriting user data.
 - **Palette generation is deterministic.** The same image always yields the
   same `colors.toml`: a fixed 200x200 sample grid, luminance-sorted clusters,
-  fixed hue targets for the ANSI slots, WCAG contrast enforcement for the
-  foreground, and no random or time-dependent input. Decoding is bounded by
-  `timeout` and requires ImageMagick (`magick` or `convert`).
+  fixed hue targets for the ANSI slots, a fail-closed WCAG contrast contract
+  for every text role, derived surface tokens, and no random or time-dependent
+  input. Decoding is bounded by `timeout` and requires ImageMagick (`magick` or
+  `convert`).
 - **The UI never touches the network or the state.** The panel renders cached
   thumbnails fetched by the CLI and builds argv for `aurelia-wallpaper` only.
 - **Bounded operations.** Every external operation (curl, ImageMagick,
@@ -247,8 +297,10 @@ aurelia-shell shell toggle aurelia.wallpapers '{}'
 
 `tests/test_wallpapers.sh` (run by `aurelia-shell/tests/run.sh`) covers the
 manifest and delegation contract, the row model and paging metadata, the eight
-extraction modes and adjustment validation, `theme preview` being
-mutation-free, recipe-aware generation, and isolated end-to-end behavior for
+extraction modes and adjustment validation, the WCAG contrast contract and
+surface-token completeness across the synthetic-wallpaper table, `theme
+preview` being mutation-free, recipe-aware generation, and isolated end-to-end
+behavior for
 sources, apply, import, palette generation, generated-theme lifecycle,
 configuration failure modes, and the wallhaven integration through a stubbed
 curl with fixture responses. The suite performs no network access and never
