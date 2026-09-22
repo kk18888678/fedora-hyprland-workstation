@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 
-# Regression suite for the transparent-bar legibility guard.
+# Regression suite for the transparent-bar legibility contract.
 #
-# The user's explicit transparent-bar toggle must stay honoured. The wallpaper
-# sampler picks the best available foreground and its fallback signal only
-# strengthens the translucent bar-strip scrim; it must never force an opaque
-# surface. This suite exercises the real signal parser and render decision at
-# runtime and checks that a transparent bar over a high-variance wallpaper
-# stays transparent and legible.
+# With transparency enabled the bar must render NO surface and NO scrim: the
+# wallpaper shows through completely. Legibility is provided by the
+# best-available foreground from bin/aurelia-bar-text-color plus a non-surface
+# content halo (a MultiEffect shadow) that never paints a background plane.
+# This suite exercises the real signal parser and surface decision at runtime
+# and checks that the transparent path draws no scrim/background and that the
+# legibility aid is not a surface.
 
 set -Eeuo pipefail
 
@@ -20,67 +21,88 @@ model_file="$bar_root/BarTransparencyModel.js"
 text_color_bin="$ROOT/bin/aurelia-bar-text-color"
 theme_file="$ROOT/theme/Theme.qml"
 
-# Runtime exercise of the exact signal parser the resident bar imports. The
-# former `[[:space:]]` POSIX class silently never matched in ECMAScript; these
-# cases fail if the parser regresses to an unsupported token.
+# Runtime exercise of the exact signal parser and surface decision the resident
+# bar imports. The former `[[:space:]]` POSIX class silently never matched in
+# ECMAScript; these cases fail if the parser regresses to an unsupported token.
 model_result="$(node - "$model_file" <<'NODE'
 const assert = require('assert');
 const model = require(process.argv[2]);
 
 // A real helper diagnostic, wrapped in the bar's console.warn prefix.
 const helperLine =
-  '[AURELIA-BAR-TEXT] fallback reason=insufficient-contrast worst=1.17 required=4.5 action=opaque';
+  '[AURELIA-BAR-TEXT] fallback reason=insufficient-contrast worst=1.17 required=4.5 action=halo';
 assert.strictEqual(model.parseForegroundSignal(helperLine).strengthenAid, true, 'space-delimited signal');
 assert.strictEqual(
   model.parseForegroundSignal('WARN [BAR] transparent_foreground_fallback detail=' + helperLine).strengthenAid,
   true,
   'prefixed signal'
 );
-assert.strictEqual(model.parseForegroundSignal('action=opaque').strengthenAid, true, 'bare signal');
-assert.strictEqual(model.parseForegroundSignal('leading\naction=opaque\ntrailing').strengthenAid, true, 'newline-delimited signal');
-assert.strictEqual(model.parseForegroundSignal('leading\taction=opaque\ttrailing').strengthenAid, true, 'tab-delimited signal');
-assert.strictEqual(model.parseForegroundSignal('  action=opaque  ').strengthenAid, true, 'padded signal');
-assert.strictEqual(model.parseForegroundSignal('no-action=opaque-here').strengthenAid, false, 'substring must not match');
-assert.strictEqual(model.parseForegroundSignal('action=opaqueish').strengthenAid, false, 'suffix must not match');
-assert.strictEqual(model.parseForegroundSignal('action=transparent').strengthenAid, false, 'other action');
+assert.strictEqual(model.parseForegroundSignal('action=halo').strengthenAid, true, 'bare signal');
+assert.strictEqual(model.parseForegroundSignal('leading\naction=halo\ntrailing').strengthenAid, true, 'newline-delimited signal');
+assert.strictEqual(model.parseForegroundSignal('leading\taction=halo\ttrailing').strengthenAid, true, 'tab-delimited signal');
+assert.strictEqual(model.parseForegroundSignal('  action=halo  ').strengthenAid, true, 'padded signal');
+assert.strictEqual(model.parseForegroundSignal('no-action=halo-here').strengthenAid, false, 'substring must not match');
+assert.strictEqual(model.parseForegroundSignal('action=haloish').strengthenAid, false, 'suffix must not match');
+assert.strictEqual(model.parseForegroundSignal('action=opaque').strengthenAid, false, 'legacy surface action must not match');
 assert.strictEqual(model.parseForegroundSignal('').strengthenAid, false, 'empty detail');
 assert.strictEqual(model.parseForegroundSignal(undefined).strengthenAid, false, 'undefined detail');
 assert.strictEqual(model.parseForegroundSignal(null).strengthenAid, false, 'null detail');
 
-// The rendered surface decision: a requested transparent bar is never made
-// opaque, and the signal only selects the stronger scrim.
-assert.deepStrictEqual(model.renderState(true, false, 0.4, 0.85), {transparent: true, scrimAlpha: 0.4});
-assert.deepStrictEqual(model.renderState(true, true, 0.4, 0.85), {transparent: true, scrimAlpha: 0.85});
-assert.deepStrictEqual(model.renderState(false, false, 0.4, 0.85), {transparent: false, scrimAlpha: 0});
-assert.deepStrictEqual(model.renderState(false, true, 0.4, 0.85), {transparent: false, scrimAlpha: 0});
-assert.deepStrictEqual(model.renderState(true, true, 0.4, 5), {transparent: true, scrimAlpha: 1});
-assert.deepStrictEqual(model.renderState(true, true, 0.4, -1), {transparent: true, scrimAlpha: 0});
+// The rendered surface decision: a requested transparent bar draws no surface
+// and no scrim, only the non-surface halo. The signal only selects the stronger
+// halo. An opaque bar draws the themed surface and no halo.
+const opaque = model.renderState(false, false);
+assert.deepStrictEqual(opaque, {transparent: false, drawsSurface: true, drawsScrim: false, halo: false, haloStrong: false});
+assert.deepStrictEqual(model.renderState(false, true), opaque, 'opaque ignores the halo signal');
+const transparent = model.renderState(true, false);
+assert.strictEqual(transparent.transparent, true, 'requested transparent stays transparent');
+assert.strictEqual(transparent.drawsSurface, false, 'transparent draws no surface');
+assert.strictEqual(transparent.drawsScrim, false, 'transparent draws no scrim');
+assert.strictEqual(transparent.halo, true, 'transparent enables the non-surface halo');
+assert.strictEqual(transparent.haloStrong, false, 'subtle halo by default');
+const strong = model.renderState(true, true);
+assert.strictEqual(strong.haloStrong, true, 'signal selects the stronger halo');
+assert.strictEqual(strong.drawsSurface, false, 'stronger halo is still not a surface');
+assert.strictEqual(strong.drawsScrim, false, 'stronger halo is still not a scrim');
 console.log('bar transparency model ok');
 NODE
 )"
 if [[ "$model_result" == *"bar transparency model ok"* ]]; then
-    pass "[isolated-node] the resident signal parser and render decision keep a requested transparent bar transparent"
+    pass "[isolated-node] the resident signal parser and surface decision render no scrim/background and keep the halo non-surface"
 else
     fail "[isolated-node] bar transparency model assertions failed: $model_result"
 fi
 
 # The host must import the shared model, leave `transparent` bound to the
-# render decision, and the panel must own the translucent scrim overlay.
+# surface decision, and own the contrasting halo colour.
 if grep -Fq 'import "BarTransparencyModel.js" as BarTransparencyModel' "$bar_file" &&
    grep -Fq 'BarTransparencyModel.parseForegroundSignal' "$bar_file" &&
    grep -Fq 'readonly property bool transparent: transparentRender.transparent' "$bar_file" &&
    grep -Fq 'transparentForegroundAidStrong' "$bar_file" &&
-   grep -Fq 'barScrim' "$panel_file" &&
-   grep -Fq 'panelRoot.bar.transparentScrimAlpha' "$panel_file" &&
-   grep -Fq 'scrimStrongAlpha' "$theme_file" &&
+   grep -Fq 'readonly property color transparentHaloColor' "$bar_file" &&
    ! grep -Fq '[[:space:]]' "$bar_file"; then
-    pass "[static] the bar host owns the scrim decision and the panel renders the translucent overlay"
+    pass "[static] the bar host parses the halo signal and owns the transparent surface decision"
 else
-    fail "[static] transparent-bar scrim ownership is incomplete"
+    fail "[static] transparent-bar host decision is incomplete"
+fi
+
+# The transparent path must draw no background rectangle and no scrim, and its
+# only legibility aid is a non-surface MultiEffect shadow on the content.
+if grep -Fq 'layer.effect: MultiEffect' "$panel_file" &&
+   grep -Fq 'id: legibilityHalo' "$panel_file" &&
+   grep -Fq 'shadowEnabled: true' "$panel_file" &&
+   grep -Fq '"transparent" : (panelRoot.bar ? panelRoot.bar.background' "$panel_file" &&
+   grep -Fq 'border.width: panelRoot.bar && panelRoot.bar.transparent ? 0' "$panel_file" &&
+   ! grep -Fq 'barScrim' "$panel_file" &&
+   ! grep -Fq 'transparentScrim' "$panel_file" &&
+   ! grep -Eq 'scrimAlpha|scrimStrongAlpha|bar\.scrim' "$panel_file" "$bar_file" "$theme_file"; then
+    pass "[static] the transparent bar renders no scrim/background and its legibility aid is not a surface"
+else
+    fail "[static] transparent-bar no-surface contract is incomplete"
 fi
 
 if [[ ! -x /usr/bin/magick ]]; then
-    skip "[isolated-media] ImageMagick is required for the high-variance transparent-bar regression"
+    skip "[isolated-media] ImageMagick is required for the transparent-bar regression"
     return 0
 fi
 
@@ -88,84 +110,53 @@ media_tmp="$(mktemp -d)"
 trap 'rm -rf -- "$media_tmp" || true' EXIT
 
 # A high-variance strip: alternating near-black and pure-white columns in the
-# bar region. No single foreground clears 4.5:1 against the raw range.
+# bar region. No single foreground clears 4.5:1 against the raw range, so the
+# helper must return the best available colour (never a silent theme-foreground
+# degeneration) and ask for the stronger non-surface halo.
 magick -size 100x100 xc:'#202020' -fill '#ffffff' \
     -draw 'rectangle 0,0 9,19' -draw 'rectangle 20,0 29,19' \
     -draw 'rectangle 40,0 49,19' -draw 'rectangle 60,0 69,19' \
     -draw 'rectangle 80,0 89,19' "$media_tmp/checker.png"
 
-# Independent WCAG relative-luminance contrast of a foreground against the
-# scrim-composited bar strip. Mirrors the helper's affine compositing so the
-# assertion checks the emitted contract, not a second workflow.
-rendered_contrast() {
-    local fg="$1" lo="$2" hi="$3" scrim="$4" alpha="$5"
-    awk -v fg="$fg" -v lo="$lo" -v hi="$hi" -v scrim="$scrim" -v alpha="$alpha" '
-        function hv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
-        function pair(h, i) { return hv(substr(h, i, 1)) * 16 + hv(substr(h, i + 1, 1)) }
-        function lin(v) { v = v / 255; return (v <= 0.03928) ? v / 12.92 : ((v + 0.055) / 1.055) ^ 2.4 }
-        function lum(h) { return 0.2126 * lin(pair(h, 2)) + 0.7152 * lin(pair(h, 4)) + 0.0722 * lin(pair(h, 6)) }
-        function ratio(first, second, swap) {
-            if (first < second) { swap = first; first = second; second = swap }
-            return (first + 0.05) / (second + 0.05)
-        }
-        BEGIN {
-            scrim_luminance = lum(scrim)
-            effective_low = alpha * scrim_luminance + (1 - alpha) * (lo + 0)
-            effective_high = alpha * scrim_luminance + (1 - alpha) * (hi + 0)
-            fg_luminance = lum(fg)
-            low_ratio = ratio(fg_luminance, effective_low)
-            high_ratio = ratio(fg_luminance, effective_high)
-            printf "%.4f\n", low_ratio < high_ratio ? low_ratio : high_ratio
-        }'
-}
-
-raw_range="$(magick "$media_tmp/checker.png" -auto-orient \
-    -resize '100x100^' -gravity center -extent '100x100' \
-    -gravity NorthWest -crop '100x20+0+0' +repage \
-    -colorspace sRGB -background '#808080' -alpha remove \
-    -grayscale Rec709Luminance \
-    -format '%[fx:minima] %[fx:maxima]' info:-)"
-raw_low="${raw_range%% *}"
-raw_high="${raw_range##* }"
-
-# Default scrim: the light candidate wins, but the strip is still short of AA,
-# so the helper emits the strengthening signal the bar uses to select the
-# strong scrim alpha.
-default_error="$media_tmp/default.err"
-default_color="$("$text_color_bin" top 20 '#ffffff' '#101010' \
-    --background "$media_tmp/checker.png" --screen 100x100 \
-    --scrim '#232136' --scrim-alpha 0.4 2>"$default_error")"
-if [[ "$default_color" == "#ffffff" ]] &&
-   grep -Fq 'fallback reason=insufficient-contrast' "$default_error" &&
-   grep -Fq 'action=opaque' "$default_error"; then
-    pass "[isolated-media] the high-variance strip signals a stronger scrim for the light best-available foreground"
+checker_error="$media_tmp/checker.err"
+checker_color="$("$text_color_bin" top 20 '#ffffff' '#101010' \
+    --background "$media_tmp/checker.png" --screen 100x100 2>"$checker_error")"
+if [[ "$checker_color" == "#101010" ]] &&
+   grep -Fq 'fallback reason=insufficient-contrast' "$checker_error" &&
+   grep -Fq 'action=halo' "$checker_error"; then
+    pass "[isolated-media] the transparent bar keeps the best available foreground and requests only a stronger halo"
 else
-    fail "[isolated-media] default-scrim selection is incorrect: $default_color $(tr '\n' ' ' <"$default_error")"
+    fail "[isolated-media] best-available foreground selection is incorrect: $checker_color $(tr '\n' ' ' <"$checker_error")"
 fi
 
-# Strong scrim: the same transparent surface now clears AA. Assert the helper
-# emits no signal and independently verify the rendered contrast.
-strong_error="$media_tmp/strong.err"
-strong_color="$("$text_color_bin" top 20 '#ffffff' '#101010' \
+# Legacy scrim arguments must not reintroduce a surface-selection regression:
+# the transparent bar still chooses against the raw wallpaper.
+legacy_error="$media_tmp/legacy.err"
+legacy_color="$("$text_color_bin" top 20 '#ffffff' '#101010' \
     --background "$media_tmp/checker.png" --screen 100x100 \
-    --scrim '#232136' --scrim-alpha 0.85 2>"$strong_error")"
-strong_ratio="$(rendered_contrast "$strong_color" "$raw_low" "$raw_high" '#232136' 0.85)"
-if [[ "$strong_color" == "#ffffff" && ! -s "$strong_error" ]] &&
-   awk -v ratio="$strong_ratio" 'BEGIN { exit !(ratio + 0 >= 4.5) }'; then
-    pass "[isolated-media] the transparent bar over the high-variance wallpaper stays transparent and clears WCAG AA (ratio=$strong_ratio)"
+    --scrim '#232136' --scrim-alpha 0.85 2>"$legacy_error")"
+if [[ "$legacy_color" == "#101010" ]] &&
+   grep -Fq 'action=halo' "$legacy_error"; then
+    pass "[isolated-media] legacy scrim arguments are ignored so the transparent bar never regains a surface"
 else
-    fail "[isolated-media] strong-scrim legibility is incorrect: color=$strong_color ratio=$strong_ratio $(tr '\n' ' ' <"$strong_error")"
+    fail "[isolated-media] legacy scrim arguments changed surface-less selection: $legacy_color $(tr '\n' ' ' <"$legacy_error")"
 fi
 
-# The helper must never silently degenerate to the theme foreground: on the
-# raw high-variance strip the best available candidate is the contrast colour
-# (#101010), so that is what it returns even though it still signals.
-still_error="$media_tmp/still.err"
-still_result="$("$text_color_bin" top 20 '#ffffff' '#101010' \
-    --background "$media_tmp/checker.png" --screen 100x100 2>"$still_error")"
-if [[ "$still_result" == "#101010" ]] &&
-   grep -Fq 'action=opaque' "$still_error"; then
-    pass "[isolated-media] the best available candidate is returned instead of degenerating to the theme foreground"
+# Uniform strips clear WCAG AA against the raw wallpaper: the wallpaper itself
+# carries the contrast without any surface or halo request.
+magick -size 100x100 xc:'#202020' -fill '#f5f5f5' \
+    -draw 'rectangle 0,0 99,19' "$media_tmp/light.png"
+magick -size 100x100 xc:'#f5f5f5' -fill '#202020' \
+    -draw 'rectangle 0,0 99,19' "$media_tmp/dark.png"
+light_error="$media_tmp/light.err"
+dark_error="$media_tmp/dark.err"
+light_color="$("$text_color_bin" top 20 '#ffffff' '#101010' \
+    --background "$media_tmp/light.png" --screen 100x100 2>"$light_error")"
+dark_color="$("$text_color_bin" top 20 '#ffffff' '#101010' \
+    --background "$media_tmp/dark.png" --screen 100x100 2>"$dark_error")"
+if [[ "$light_color" == "#101010" && "$dark_color" == "#ffffff" &&
+      ! -s "$light_error" && ! -s "$dark_error" ]]; then
+    pass "[isolated-media] a uniform wallpaper resolves a legible foreground with no surface and no halo request"
 else
-    fail "[isolated-media] best-available selection degenerated: raw=$still_result $(tr '\n' ' ' <"$still_error")"
+    fail "[isolated-media] uniform-wallpaper selection is incorrect: light=$light_color dark=$dark_color"
 fi
