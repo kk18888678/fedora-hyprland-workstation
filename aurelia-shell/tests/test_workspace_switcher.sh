@@ -109,10 +109,48 @@ if [[ -f "$binding_lua" ]] &&
    grep -q 'target = "aurelia.workspace-switcher"' "$binding_lua" &&
    grep -q 'method = "toggle"' "$binding_lua" &&
    grep -q '"shell", "call", "aurelia.workspace-switcher", "toggle"' "$binding_lua" &&
-   grep -q 'runnable = true' "$binding_lua"; then
+   grep -q 'runnable = true' "$binding_lua" &&
+   grep -q 'release_commit = {' "$binding_lua" &&
+   grep -q 'modifier = "SUPER"' "$binding_lua" &&
+   grep -q '"shell", "call", "aurelia.workspace-switcher", "release"' "$binding_lua"; then
     pass "SUPER+TAB is owned by the workspace overview through provider-registered plugin IPC"
 else
     fail "SUPER+TAB workspace overview binding is incomplete"
+fi
+
+# Alt+Tab-style commit-on-modifier-release is established in the Hyprland Lua
+# provider, not as a declarative `release = true` bind. A `SUPER + TAB` release
+# bind would fire on TAB release (committing mid-cycle), so the provider instead
+# observes the input.keyboard.key event and forwards a bounded plugin IPC.
+provider_lua="$ROOT/dotfiles/hypr/keybind.lua"
+if [[ -f "$provider_lua" ]] &&
+   grep -q 'MODIFIER_XKB_KEYCODES' "$provider_lua" &&
+   grep -q '\[133\] = true, \[134\] = true' "$provider_lua" &&
+   grep -q 'hl.on("input.keyboard.key"' "$provider_lua" &&
+   grep -q 'state ~= 0' "$provider_lua" &&
+   grep -q 'armed_release_commit' "$provider_lua" &&
+   grep -q 'function release_commit_for(item)' "$provider_lua" &&
+   grep -q 'register_release_commit()' "$provider_lua" &&
+   grep -q 'release_commit has an unsupported modifier' "$provider_lua" &&
+   grep -q 'bindr' "$provider_lua"; then
+    pass "provider observes the SUPER release through input.keyboard.key and gates a bounded plugin IPC"
+else
+    fail "commit-on-release provider mechanism is missing or uses a declarative release bind"
+fi
+
+if grep -q 'function release()' "$switcher_qml" &&
+   grep -q 'WorkspaceSelection.releaseCommitWorkspace(' "$switcher_qml" &&
+   grep -q 'return root.activateWorkspace(id)' "$switcher_qml"; then
+    pass "workspace overview exposes a release commit that converges on activateWorkspace"
+else
+    fail "workspace overview release commit path is incomplete"
+fi
+
+if grep -q 'event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space' "$switcher_qml" &&
+   grep -q 'root.activateWorkspace(root.selectedWorkspaceId)' "$switcher_qml"; then
+    pass "Enter activation is retained alongside the new release commit"
+else
+    fail "Enter activation path was removed or altered"
 fi
 
 binding_fixture="$(mktemp -d)"
@@ -140,7 +178,8 @@ if [[ -f "$selection_js" ]] &&
    grep -q 'readonly property bool onlyWorkspacesInUse' "$switcher_qml" &&
    grep -q 'Theme.getPreference("aurelia.workspaces.only_in_use", true)' "$switcher_qml" &&
    grep -q 'WorkspaceSelection.workspaceIds(' "$switcher_qml" &&
-   grep -q 'function workspaceIds()' "$switcher_qml"; then
+   grep -q 'function workspaceIds()' "$switcher_qml" &&
+   grep -q 'function releaseCommitWorkspace(isOpen, selectedWorkspaceId, workspaceIds)' "$selection_js"; then
     pass "workspace overview exposes a configurable in-use-only selection policy"
 else
     fail "workspace overview does not expose the configurable in-use-only selection policy"
@@ -187,6 +226,153 @@ process.exit(ok ? 0 : 1);
     else
         fail "workspace selection policy is wrong for the all/in-use modes"
     fi
+
+    if node -e '
+const S = require(process.argv[1]);
+// A release while open commits the selected navigable workspace.
+// A release while closed, a malformed selection, or a workspace that left the
+// navigable set is ignored so an unrelated SUPER release cannot activate.
+const ok = S.releaseCommitWorkspace(true, 3, [1, 3, 5]) === 3 &&
+    S.releaseCommitWorkspace(true, "4", [4]) === 4 &&
+    S.releaseCommitWorkspace(false, 3, [1, 3, 5]) === 0 &&
+    S.releaseCommitWorkspace(true, 7, [1, 3, 5]) === 0 &&
+    S.releaseCommitWorkspace(true, 0, [1, 3, 5]) === 0 &&
+    S.releaseCommitWorkspace(true, 2, []) === 0 &&
+    S.releaseCommitWorkspace(true, 11, [11]) === 0 &&
+    S.releaseCommitWorkspace(true, NaN, [1]) === 0;
+process.exit(ok ? 0 : 1);
+' "$selection_js" >/dev/null; then
+        pass "release commit activates only an open, still-navigable selection"
+    else
+        fail "release commit decision is wrong for the closed/stale selection cases"
+    fi
 else
     skip "workspace selection policy (node unavailable)"
+fi
+
+# Exercise the provider release wiring with a mocked `hl` surface. This proves
+# the gated press arms the SUPER release companion, that unrelated releases are
+# ignored, that the companion fires exactly once, and that a malformed
+# companion declaration falls back to the plain press binding.
+if command -v luajit >/dev/null; then
+    lua_fixture="$(mktemp -d)"
+    cat >"$lua_fixture/release_provider_test.lua" <<'LUA'
+local keybind_path = os.getenv("KEYBIND_LUA")
+assert(keybind_path and keybind_path ~= "", "KEYBIND_LUA missing")
+
+local registered = {}
+local listeners = {}
+local executed = {}
+
+hl = {
+    bind = function(keys, dispatcher, opts)
+        registered[keys] = registered[keys] or {}
+        table.insert(registered[keys], { dispatcher = dispatcher, opts = opts or {} })
+        return { remove = function() end }
+    end,
+    on = function(event, callback)
+        listeners[event] = callback
+        return { remove = function() end }
+    end,
+    exec_cmd = function(command)
+        table.insert(executed, tostring(command))
+    end,
+}
+local function dsp_proxy(name)
+    local proxy = {}
+    setmetatable(proxy, {
+        __index = function(_, key) return dsp_proxy(name .. "." .. key) end,
+        __call = function(_, ...) return { mock = name } end,
+    })
+    return proxy
+end
+hl.dsp = dsp_proxy("dsp")
+
+local function mock_bindings(entries)
+    package.loaded["keybindings_manifest"] = { mainMod = "SUPER" }
+    package.loaded["effective_bindings"] = {
+        resolve_bindings = function()
+            return { mainMod = "SUPER", bindings = entries }
+        end,
+    }
+end
+
+mock_bindings({
+    {
+        id = "aurelia.workspace_switcher.toggle",
+        key = "SUPER + TAB",
+        action_type = "plugin_ipc",
+        command_argv = { "/bin/true", "toggle" },
+        release_commit = {
+            modifier = "SUPER",
+            command_argv = { "/bin/true", "release" },
+        },
+    },
+})
+
+local chunk, err = loadfile(keybind_path)
+assert(chunk, "keybind.lua failed to load: " .. tostring(err))
+local ok, run_err = pcall(chunk)
+assert(ok, "keybind.lua failed to run: " .. tostring(run_err))
+
+local press = registered["SUPER + TAB"]
+assert(press and #press == 1, "SUPER + TAB press binding not registered")
+local release = listeners["input.keyboard.key"]
+assert(type(release) == "function", "input.keyboard.key listener not registered")
+assert(type(press[1].dispatcher) == "function", "gated press dispatcher must arm through a Lua function")
+
+-- An unrelated release before any press must not dispatch anything.
+release(133, 1000, 0)
+assert(#executed == 0, "release without an armed interaction dispatched something")
+
+-- A non-SUPER release while armed must not dispatch the release companion.
+press[1].dispatcher()
+assert(#executed == 1 and executed[1]:find("toggle", 1, true), "press did not dispatch toggle")
+release(30, 1001, 0)
+assert(#executed == 1, "non-SUPER release dispatched the release companion")
+
+-- A pressed state must not dispatch the release companion.
+release(133, 1002, 1)
+assert(#executed == 1, "pressed state dispatched the release companion")
+
+-- The SUPER release commits once and disarms.
+release(133, 1003, 0)
+assert(#executed == 2, "SUPER release did not dispatch the release companion")
+assert(executed[2]:find("release", 1, true), "release companion command is wrong")
+release(134, 1004, 0)
+assert(#executed == 2, "release companion dispatched more than once")
+
+-- Re-arming with another cycle then releasing commits again.
+press[1].dispatcher()
+release(134, 1005, 0)
+assert(#executed == 4 and executed[4]:find("release", 1, true), "re-armed release did not commit")
+
+-- A malformed companion falls back to the plain press binding.
+registered = {}
+listeners = {}
+executed = {}
+mock_bindings({
+    {
+        id = "bad.modifier",
+        key = "SUPER + F5",
+        action_type = "plugin_ipc",
+        command_argv = { "/bin/true", "toggle" },
+        release_commit = { modifier = "HYPER", command_argv = { "/bin/true", "release" } },
+    },
+})
+local bad_chunk = assert(loadfile(keybind_path))
+assert(pcall(bad_chunk))
+local bad = registered["SUPER + F5"]
+assert(bad and type(bad[1].dispatcher) ~= "function", "malformed companion must keep the plain dispatcher")
+
+print("release provider ok")
+LUA
+    if KEYBIND_LUA="$provider_lua" luajit "$lua_fixture/release_provider_test.lua" >/dev/null; then
+        pass "provider arms and dispatches the SUPER release companion exactly once"
+    else
+        fail "provider release wiring does not arm, gate, or dispatch correctly"
+    fi
+    rm -rf -- "$lua_fixture"
+else
+    skip "provider release wiring (luajit unavailable)"
 fi

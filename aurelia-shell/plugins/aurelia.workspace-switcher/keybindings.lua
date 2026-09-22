@@ -24,5 +24,14 @@ return {
         target = "aurelia.workspace-switcher",
         method = "toggle",
         command_argv = { shell_client, "shell", "call", "aurelia.workspace-switcher", "toggle", "{}" },
+        -- Alt+Tab-style commit-on-release. The keybinding provider observes the
+        -- SUPER release with the `input.keyboard.key` event (see keybind.lua
+        -- for why a declarative `release = true` bind cannot express this) and
+        -- forwards it as this bounded plugin IPC. The plugin stays the single
+        -- owner of whether the overview is open and what should activate.
+        release_commit = {
+            modifier = "SUPER",
+            command_argv = { shell_client, "shell", "call", "aurelia.workspace-switcher", "release", "{}" },
+        },
     },
 }
