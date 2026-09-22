@@ -25,6 +25,8 @@ Item {
     property bool interactive: true
     property bool showDismiss: true
     property bool showArchive: false
+    // Every card exposes a Copy affordance unless a surface explicitly opts out.
+    property bool showCopy: true
     property bool showActions: defaultActionText !== ""
     property bool defaultActionEnabled: true
     property bool actionButtonsEnabled: true
@@ -36,7 +38,8 @@ Item {
     property int identityIndex: -1
 
     readonly property bool hovered: toastHover.hovered
-    readonly property int actionCount: (root.defaultActionText !== "" ? 1 : 0)
+    readonly property int actionCount: (root.showCopy ? 1 : 0)
+        + (root.defaultActionText !== "" ? 1 : 0)
         + (root.actions && typeof root.actions.length === "number" ? root.actions.length : 0)
         + (root.showArchive ? 1 : 0)
     readonly property int actionGroupWidth: root.actionCount > 0
@@ -64,6 +67,7 @@ Item {
     signal defaultActionInvoked()
     signal actionInvoked(string identifier)
     signal archiveRequested()
+    signal copyRequested()
 
     implicitWidth: 416
     implicitHeight: toastCard.implicitHeight
@@ -294,8 +298,8 @@ Item {
                 // Leave breathing room between the action row and the card's
                 // bottom border so the button never touches the edge.
                 Layout.bottomMargin: visible ? Theme.scaleGeometry(6) : 0
-                visible: root.showActions && (root.defaultActionText !== "" ||
-                    (root.actions && root.actions.length > 0) || root.showArchive)
+                visible: root.showCopy || (root.showActions && (root.defaultActionText !== "" ||
+                    (root.actions && root.actions.length > 0) || root.showArchive))
 
                 ColumnLayout {
                     id: actionToolbar
@@ -311,6 +315,19 @@ Item {
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: Math.min(parent.width, root.actionGroupWidth)
                             spacing: Theme.spacingXs
+
+                            AureliaActionButton {
+                                visible: root.showCopy
+                                enabled: root.actionButtonsEnabled
+                                compact: true
+                                centerLabel: true
+                                border.width: 0
+                                border.color: "transparent"
+                                width: Theme.scaleGeometry(64)
+                                height: Theme.scaleGeometry(28)
+                                label: "Copy"
+                                onTriggered: root.copyRequested()
+                            }
 
                             AureliaActionButton {
                                 visible: root.defaultActionText !== ""
