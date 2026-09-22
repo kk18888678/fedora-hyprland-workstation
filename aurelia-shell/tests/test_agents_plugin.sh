@@ -189,7 +189,7 @@ cat >"$sandbox/home/.claude/projects/proj/session.jsonl" <<TRANSCRIPT
 {"type":"user","message":{"role":"user"}}
 TRANSCRIPT
 
-collector_out="$(CLAUDE_CONFIG_DIR="$sandbox/home/.claude" "$collector"  || true)"
+collector_out="$(PI_HOME="$sandbox/no-pi" CLAUDE_CONFIG_DIR="$sandbox/home/.claude" "$collector"  || true)"
 if printf '%s' "$collector_out" | jq -e '
         .id == "claude" and
         .ready == true and
@@ -315,16 +315,50 @@ cat >"$sandbox/pi/agent/sessions/proj/s.jsonl" <<'PI_SESSION'
 {"type":"message","id":"m2","timestamp":"2026-09-19T09:02:00Z","message":{"role":"assistant","provider":"clinepass","model":"cline-pass/glm-5.3","usage":{"input":50,"output":10,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":60},"content":[]}}
 {"type":"model_change","provider":"openai-codex","modelId":"gpt-5.5"}
 {"type":"message","id":"m3","timestamp":"2026-09-19T09:03:00Z","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.5","usage":{"input":7,"output":3,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":10},"content":[]}}
+{"type":"model_change","provider":"anthropic","modelId":"claude-opus-4-5"}
+{"type":"message","id":"m4","timestamp":"2026-09-19T09:04:00Z","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-4-5","usage":{"input":100,"output":20,"cacheRead":5,"cacheWrite":0,"reasoning":3,"totalTokens":128},"content":[]}}
 PI_SESSION
 pi_opencode="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_DATA_HOME="$sandbox/empty-data" "$repo_root/bin/ai-usage-opencode" || true)"
 pi_cline="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" XDG_CONFIG_HOME="$sandbox/empty-config" CLINE_DIR="$sandbox/empty-cline" "$repo_root/bin/ai-usage-cline" || true)"
 pi_codex="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" CODEX_HOME="$sandbox/no-codex-home" CODEX_BIN="$sandbox/no-codex" "$repo_root/bin/ai-usage-codex" || true)"
+pi_claude="$(HOME="$sandbox/home" PI_HOME="$sandbox/pi" CLAUDE_CONFIG_DIR="$sandbox/no-claude-projects" "$collector" || true)"
 if printf '%s' "$pi_opencode" | jq -e '.detected == true and .totalPrompts == 1 and .todayTotalTokens == 128 and .modelUsage["deepseek-v4.1-flash"].inputTokens == 100' >/dev/null &&
    printf '%s' "$pi_cline" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["cline-pass/glm-5.3"].outputTokens == 10' >/dev/null &&
-   printf '%s' "$pi_codex" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["gpt-5.5"].inputTokens == 7' >/dev/null; then
+   printf '%s' "$pi_codex" | jq -e '.detected == true and .totalPrompts == 1 and .modelUsage["gpt-5.5"].inputTokens == 7' >/dev/null &&
+   printf '%s' "$pi_claude" | jq -e '.detected == true and .ready == true and .totalPrompts == 1 and .todayTotalTokens == 128 and .modelUsage["claude-opus-4-5"].inputTokens == 100 and .usageStatusText == "Local usage only"' >/dev/null; then
     pass "[isolated] pi session usage is merged into the matching provider collectors"
 else
-    fail "[isolated] pi session merge diverged (opencode=$pi_opencode cline=$pi_cline codex=$pi_codex)"
+    fail "[isolated] pi session merge diverged (opencode=$pi_opencode cline=$pi_cline codex=$pi_codex claude=$pi_claude)"
+fi
+
+# An `anthropic` account that pi is configured for but that has no recorded
+# turn yet must stay visible (detected, not ready) with an explicit label,
+# instead of being hidden by the usage-only visibility rule. The credential
+# may appear in either auth.json or models-store.json; a different provider id
+# must not be mistaken for Claude.
+mkdir -p -- "$sandbox/configured-pi/agent" "$sandbox/models-pi/agent" "$sandbox/other-pi/agent" \
+    "$sandbox/no-claude-projects"
+printf '%s\n' '{"anthropic":{"type":"oauth","access":"placeholder"}}' \
+    >"$sandbox/configured-pi/agent/auth.json"
+printf '%s\n' '{"anthropic":{"models":[{"id":"claude-opus-4"}]}}' \
+    >"$sandbox/models-pi/agent/models-store.json"
+printf '%s\n' '{"openai-codex":{"type":"oauth"}}' \
+    >"$sandbox/other-pi/agent/auth.json"
+configured_auth="$(HOME="$sandbox/home" PI_HOME="$sandbox/configured-pi" CLAUDE_CONFIG_DIR="$sandbox/no-claude-projects" "$collector" || true)"
+configured_models="$(HOME="$sandbox/home" PI_HOME="$sandbox/models-pi" CLAUDE_CONFIG_DIR="$sandbox/no-claude-projects" "$collector" || true)"
+other_only="$(HOME="$sandbox/home" PI_HOME="$sandbox/other-pi" CLAUDE_CONFIG_DIR="$sandbox/no-claude-projects" "$collector" || true)"
+if printf '%s' "$configured_auth" | jq -e '
+        .detected == true and .ready == false and
+        .totalPrompts == 0 and .hasLocalStats == false and
+        .usageStatusText == "Account configured · no usage yet"' >/dev/null &&
+   printf '%s' "$configured_models" | jq -e '
+        .detected == true and .ready == false and .totalPrompts == 0 and
+        .usageStatusText == "Account configured · no usage yet"' >/dev/null &&
+   printf '%s' "$other_only" | jq -e '
+        .detected == false and .ready == false and .totalPrompts == 0' >/dev/null; then
+    pass "[isolated] pi-configured anthropic accounts are visible before first use"
+else
+    fail "[isolated] pi-configured anthropic visibility diverged (auth=$configured_auth models=$configured_models other=$other_only)"
 fi
 
 # ---------------------------------------------------------------------------

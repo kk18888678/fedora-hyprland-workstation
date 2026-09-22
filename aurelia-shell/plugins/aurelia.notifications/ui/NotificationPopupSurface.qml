@@ -191,6 +191,7 @@ PanelWindow {
                     actions: popupSlot.actions
                     defaultActionText: String(popupSlot.defaultActionText || "")
                     urgency: popupSlot.urgency
+                    timestampLabel: Logic.timestampLabel(popupSlot.timestamp, Date.now())
                     identityOriginalId: popupSlot.originalId
                     identityTimestamp: popupSlot.timestamp
                     identityIndex: popupSlot.index
@@ -201,6 +202,7 @@ PanelWindow {
                     onActivated: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onDefaultActionInvoked: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onActionInvoked: function(identifier) { root.notificationService.invokeAction(popupSlot.index, identifier, popupSlot.originalId, popupSlot.timestamp) }
+                    onCopyRequested: root.notificationService.copyNotificationAt(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onArchiveRequested: root.notificationService.archiveByIdentity(popupSlot.originalId, popupSlot.timestamp)
                 }
             }

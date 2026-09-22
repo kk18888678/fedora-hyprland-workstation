@@ -136,6 +136,14 @@ M.SCHEMA = {
         scope = "shell",
         description = "Show seconds in the Aurelia bar clock",
     },
+    ["aurelia.workspaces.only_in_use"] = {
+        canonical_key = "aurelia.workspaces.only_in_use",
+        type = "boolean",
+        default = true,
+        portable = true,
+        scope = "shell",
+        description = "Show and cycle only workspaces that are in use in the workspace overview",
+    },
 }
 
 -- Shipped Defaults derived authoritatively from the schema registry

@@ -260,7 +260,7 @@ The implementation must retain these data ownership boundaries:
 
 | Provider | Local scan | Remote/account source |
 |---|---|---|
-| Claude | Claude projects JSONL, stats cache/history, and supported external session sources | OAuth usage endpoint |
+| Claude | Claude projects JSONL, stats cache/history, and supported external session sources (pi sessions match the `anthropic` provider id); a configured pi `anthropic` credential is surfaced as detected-but-unused | OAuth usage endpoint |
 | Codex | CODEX_HOME sessions and archived sessions, plus supported external sessions | app-server account/rate-limits RPC |
 | Fireworks | local prompt/session data where present | billing pages and balance/funding data |
 

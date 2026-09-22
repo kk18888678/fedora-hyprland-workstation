@@ -98,7 +98,12 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'label: "Archive"' "$plugin_root/ui/NotificationToast.qml" &&
    ! grep -q 'timestamp: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    ! grep -q 'timestamp: historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'timestampLabel: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'timestampLabel: Logic.timestampLabel(activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'timestampLabel: Logic.timestampLabel(historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'timestampLabel: Logic.timestampLabel(popupSlot.timestamp' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'objectName: "notificationSourceApp"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationTimestamp"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationSourceIcon"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'actions: historyDelegate.actions' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'invokeHistoryDefault' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'implicitHeight: toastCard.implicitHeight' "$plugin_root/ui/NotificationToast.qml" &&
@@ -106,6 +111,36 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
     pass "Active and History views share one notification card presentation"
 else
     fail "Notification center still has a divergent or dead history-row presentation"
+fi
+
+if grep -q 'property bool showCopy: true' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'signal copyRequested()' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'label: "Copy"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'onTriggered: root.copyRequested()' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'root.showCopy ? 1 : 0' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'function copyToClipboard' "$plugin_root/Service.qml" &&
+   grep -q 'function copyNotificationAt' "$plugin_root/Service.qml" &&
+   grep -q 'function copyHistoryAt' "$plugin_root/Service.qml" &&
+   grep -q 'property string lastCopiedText' "$plugin_root/Service.qml" &&
+   grep -q 'Logic.copyText' "$plugin_root/Service.qml" &&
+   grep -q 'wl-copy' "$plugin_root/Service.qml" &&
+   grep -q 'Quickshell.execDetached' "$plugin_root/Service.qml" &&
+   grep -q 'function copyText' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'onCopyRequested: root.notificationService.copyNotificationAt' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'onCopyRequested: root.service.copyNotificationAt' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'onCopyRequested: root.service.copyHistoryAt' "$plugin_root/ui/NotificationCenterPanel.qml"; then
+    pass "Every notification card offers a Copy action routed through the service clipboard path"
+else
+    fail "Notification card Copy action or clipboard mutation owner is incomplete"
+fi
+
+if grep -q 'function restorePopups' "$plugin_root/Service.qml" &&
+   ! grep -q 'insertPopupSnapshot(restored)' "$plugin_root/Service.qml" &&
+   grep -q 'activeNotificationsModel.append(restored)' "$plugin_root/Service.qml" &&
+   grep -q 'restoredPopups\[Logic.popupFileName(restored)\] = true' "$plugin_root/Service.qml"; then
+    pass "Shell reload restores the Inbox without replaying rows as transient popups"
+else
+    fail "Inbox restore still re-inserts restored rows into the popup toast model"
 fi
 
 if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
@@ -312,6 +347,15 @@ if (logic.historyKey({ originalId: 2, timestamp: 10 }) !== "10|2") process.exit(
 if (logic.identityKey(1, 100) !== "100|1") process.exit(1);
 if (logic.identityKey("1", "100") !== logic.identityKey(1, 100)) process.exit(1);
 if (logic.identityKey(1, 0) !== "" || logic.identityKey(undefined, 100) !== "") process.exit(1);
+const labelNow = new Date(2026, 2, 10, 12, 0, 0).getTime();
+if (logic.timestampLabel(0, labelNow) !== "" || logic.timestampLabel("bad", labelNow) !== "") process.exit(1);
+if (logic.timestampLabel(labelNow - 5000, labelNow) !== "Just now") process.exit(1);
+if (logic.timestampLabel(labelNow - 5 * 60000, labelNow) !== "5m ago") process.exit(1);
+if (logic.timestampLabel(labelNow - 3 * 3600000, labelNow) !== "3h ago") process.exit(1);
+if (logic.timestampLabel(new Date(2026, 2, 9, 14, 30, 0).getTime(), labelNow) !== "Yesterday 14:30") process.exit(1);
+if (logic.timestampLabel(new Date(2026, 2, 7, 9, 5, 0).getTime(), labelNow) !== "Sat 09:05") process.exit(1);
+if (logic.timestampLabel(new Date(2026, 0, 4, 8, 0, 0).getTime(), labelNow) !== "4 Jan 08:00") process.exit(1);
+if (logic.timestampLabel(new Date(2025, 11, 24, 18, 45, 0).getTime(), labelNow) !== "24 Dec 2025") process.exit(1);
 const repeatedIdentityA = logic.snapshotOf({ id: 1, appName: "ChatGPT", summary: "A" }, 100);
 const repeatedIdentityB = logic.snapshotOf({ id: 1, appName: "ChatGPT", summary: "B" }, 200);
 if (logic.identityKey(repeatedIdentityA.originalId, repeatedIdentityA.timestamp) ===
@@ -319,6 +363,10 @@ if (logic.identityKey(repeatedIdentityA.originalId, repeatedIdentityA.timestamp)
 if (logic.busOwnerPid("NAME=org.freedesktop.Notifications\nPID=1234\n") !== 1234) process.exit(1);
 if (logic.busOwnerPid("NAME=org.freedesktop.Notifications\nPID=0\n") !== 0) process.exit(1);
 if (logic.styledBody('<b>bold</b>\n<img src="https://example.invalid/x">second', 'Chromium', '') !== '<b>bold</b><br/>second') process.exit(1);
+if (logic.copyText({ app: 'Signal', summary: 'New message', body: 'Hello there' }) !== 'Signal\nNew message\nHello there') process.exit(1);
+if (logic.copyText({ app: '', summary: 'Only summary', body: '' }) !== 'Only summary') process.exit(1);
+if (logic.copyText({ app: 'Chromium', summary: 'S', body: '<img src="https://example.invalid/x">Real body' }) !== 'Chromium\nS\nReal body') process.exit(1);
+if (logic.copyText({}) !== '') process.exit(1);
 if (JSON.stringify(logic.parseExecArgv('["xdg-open","/tmp/a b"]')) !== '["xdg-open","/tmp/a b"]') process.exit(1);
 if (logic.parseExecArgv('["--bad"]') !== null) process.exit(1);
 const popup = { id: 7, originalId: 7, timestamp: 100, appIcon: sourceUrl.fileUrl('/tmp/avatar.png'), summary: 'Saved' };
@@ -547,6 +595,98 @@ else
     fail "[isolated-runtime] repeated notification identity collision fixture failed (status=$collision_status): $details"
 fi
 
+# Shell reload restores persisted Inbox rows without replaying them as toasts.
+restore_root="$(mktemp -d)"
+mkdir -p -- "$restore_root/runtime" "$restore_root/state" \
+    "$restore_root/config" "$restore_root/cache"
+restore_result="$restore_root/result.json"
+: >"$restore_result"
+mkdir -p -- "$restore_root/state/aurelia"
+: >"$restore_root/state/aurelia/notifications.json"
+: >"$restore_root/state/aurelia/notification-history.json"
+restore_log="$restore_root/runtime.log"
+restore_status=0
+AURELIA_NOTIFICATION_RESTORE_RESULT="$restore_result" \
+AURELIA_NOTIFICATION_RESTORE_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$restore_root/runtime" \
+XDG_STATE_HOME="$restore_root/state" \
+XDG_CONFIG_HOME="$restore_root/config" \
+XDG_CACHE_HOME="$restore_root/cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/notifications/restore-silent.qml" --no-color \
+    >"$restore_log" 2>&1 || restore_status=$?
+
+restore_completed=0
+if [[ "$restore_status" -eq 0 ]]; then
+    restore_completed=1
+elif [[ "$restore_status" -eq 124 && -s "$restore_result" ]] &&
+     grep -Fq 'Signal QQmlEngine::quit() emitted' "$restore_log"; then
+    restore_completed=1
+fi
+if [[ "$restore_completed" -eq 1 ]] && [[ -s "$restore_result" ]] &&
+   runtime_log_is_environment_only "$restore_log" &&
+   ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$restore_log" &&
+   jq -e '.serviceLoaded == true and .restoredActive == 2 and .restoredPopup == 0 and
+          .restoredMarked == true and
+          .restoredSummaries == ["Restored Two", "Restored One"] and
+          .afterNewActive == 3 and .afterNewPopup == 1' \
+       "$restore_result" >/dev/null; then
+    pass "[isolated-runtime] shell reload restores the Inbox silently and only genuinely new notifications toast"
+else
+    details="$(tail -n 48 "$restore_log" || true)"
+    if [[ -s "$restore_result" ]]; then details="$details result=$(tr '\n' ' ' <"$restore_result")"; fi
+    fail "[isolated-runtime] silent Inbox restore fixture failed (status=$restore_status): $details"
+fi
+rm -rf -- "$restore_root"
+
+# The Copy action projects app/summary/body through the service clipboard owner
+# for both Inbox and History rows.
+copy_root="$(mktemp -d)"
+mkdir -p -- "$copy_root/runtime" "$copy_root/state" \
+    "$copy_root/config" "$copy_root/cache"
+copy_result="$copy_root/result.json"
+: >"$copy_result"
+mkdir -p -- "$copy_root/state/aurelia"
+: >"$copy_root/state/aurelia/notifications.json"
+: >"$copy_root/state/aurelia/notification-history.json"
+copy_log="$copy_root/runtime.log"
+copy_status=0
+AURELIA_NOTIFICATION_COPY_RESULT="$copy_result" \
+AURELIA_NOTIFICATION_COPY_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$copy_root/runtime" \
+XDG_STATE_HOME="$copy_root/state" \
+XDG_CONFIG_HOME="$copy_root/config" \
+XDG_CACHE_HOME="$copy_root/cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/notifications/copy-action.qml" --no-color \
+    >"$copy_log" 2>&1 || copy_status=$?
+
+copy_completed=0
+if [[ "$copy_status" -eq 0 ]]; then
+    copy_completed=1
+elif [[ "$copy_status" -eq 124 && -s "$copy_result" ]] &&
+     grep -Fq 'Signal QQmlEngine::quit() emitted' "$copy_log"; then
+    copy_completed=1
+fi
+if [[ "$copy_completed" -eq 1 ]] && [[ -s "$copy_result" ]] &&
+   runtime_log_is_environment_only "$copy_log" &&
+   ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$copy_log" &&
+   jq -e '.serviceLoaded == true and
+          .activeCopy == "Signal\nNew message\nHello there" and .activeCopied == true and
+          .historyCopy == "History App\nArchived\nOld body" and .historyCopied == true and
+          .activeResult == "ok" and .historyResult == "ok" and
+          .missingResult == "none" and .lastCopiedPreserved == true' \
+       "$copy_result" >/dev/null; then
+    pass "[isolated-runtime] notification Copy projects app/summary/body through the service clipboard owner"
+else
+    details="$(tail -n 48 "$copy_log" || true)"
+    if [[ -s "$copy_result" ]]; then details="$details result=$(tr '\n' ' ' <"$copy_result")"; fi
+    fail "[isolated-runtime] notification Copy fixture failed (status=$copy_status): $details"
+fi
+rm -rf -- "$copy_root"
+
 # Herdr (the terminal workspace manager pi runs inside) sends a raw
 # "<label> · <number> · <count>" body with no action. The logic must render
 # that in words and synthesize a jump-back-to-the-chat action.
@@ -580,4 +720,65 @@ process.exit(ok ? 0 : 1);
     rm -f -- "$herdr_logic_test"
 else
     skip "[unit] Herdr notification projection (node unavailable)"
+fi
+
+# The shared card must render the source application name, source application
+# icon, and computed timestamp label. Static property wiring is not enough: an
+# isolated runtime fixture loads the real NotificationToast and records the
+# Text/Image values present in the rendered tree, then clears the fields and
+# proves they disappear.
+render_fixture="$ROOT/tests/fixtures/notifications/render.qml"
+render_icon="$ROOT/config/branding/aurelia-mark.png"
+if [[ ! -f "$render_fixture" || ! -f "$render_icon" ]]; then
+    fail "[static] notification card render fixture or source icon is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification card render fixture (qs or timeout unavailable)"
+else
+    render_root="$(mktemp -d)"
+    trap 'rm -rf -- "$render_root"  || true' RETURN
+    mkdir -p -- "$render_root/runtime" "$render_root/state" \
+        "$render_root/config" "$render_root/cache"
+    render_result="$render_root/result.json"
+    : >"$render_result"
+    render_log="$render_root/runtime.log"
+    render_status=0
+    AURELIA_NOTIFICATION_RENDER_RESULT="$render_result" \
+    AURELIA_NOTIFICATION_RENDER_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+    AURELIA_NOTIFICATION_RENDER_ICON="file://$render_icon" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$render_root/runtime" \
+    XDG_STATE_HOME="$render_root/state" \
+    XDG_CONFIG_HOME="$render_root/config" \
+    XDG_CACHE_HOME="$render_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$render_fixture" --no-color >"$render_log" 2>&1 || render_status=$?
+
+    render_completed=0
+    if [[ "$render_status" -eq 0 ]]; then
+        render_completed=1
+    elif [[ "$render_status" -eq 124 && -s "$render_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$render_log"; then
+        render_completed=1
+    fi
+    if [[ "$render_completed" -eq 1 ]] && [[ -s "$render_result" ]] &&
+       runtime_log_is_environment_only "$render_log" &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$render_log" &&
+       jq -e --arg icon "file://$render_icon" '
+            .loaded == true and
+            .iconReady == true and
+            .appText == "Aurelia Render Fixture" and
+            .appVisible == true and
+            .timestampText == "Yesterday 14:30" and
+            .timestampVisible == true and
+            .iconSource == $icon and
+            .iconVisible == true and
+            .emptyAppHidden == true and
+            .emptyTimestampHidden == true
+       ' "$render_result" >/dev/null; then
+        pass "[isolated-runtime] shared notification card renders the source app name, source icon, and timestamp, and hides them when empty"
+    else
+        details="$(tail -n 48 "$render_log" || true)"
+        if [[ -s "$render_result" ]]; then details="$details result=$(tr '\n' ' ' <"$render_result")"; fi
+        fail "[isolated-runtime] notification card render fixture failed (status=$render_status): $details"
+    fi
 fi

@@ -196,7 +196,7 @@ match = re.search(r"aureliaStateKeys:\s*\[(.*?)\]", src, re.S)
 if not match:
     sys.exit(1)
 keys = set(re.findall(r'"([^"]+)"', match.group(1)))
-need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds"}
+need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse"}
 sys.exit(0 if need <= keys else 1)
 STATE_KEYS
 then
@@ -448,6 +448,56 @@ process.exit(ok ? 0 : 1);
         fail "[unit] Date & Time clock rows are missing"
     fi
     rm -f -- "$time_rows_test"
+fi
+
+# Workspace overview scope: the reviewed Workspaces section exposes the
+# Aurelia in-use-only preference, and the hub routes/persists it.
+if grep -q '\["aurelia.workspaces.only_in_use"\]' "$repo_root/aurelia-shell/core/preferences.lua" &&
+   grep -q 'aurelia.workspaces.only_in_use' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'onlyWorkspacesInUse' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'aurelia.workspaces.only_in_use' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'onlyWorkspacesInUse' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] Workspaces section surfaces the persisted in-use-only preference"
+else
+    fail "[static] in-use-only workspace preference is not wired through the settings hub"
+fi
+
+if "$repo_root/aurelia-shell/bin/workstation-aurelia" preference get aurelia.workspaces.only_in_use |
+       grep -qE '^(true|false)$'; then
+    pass "[unit] aurelia.workspaces.only_in_use preference resolves to a boolean"
+else
+    fail "[unit] aurelia.workspaces.only_in_use preference is unavailable"
+fi
+
+if command -v node >/dev/null; then
+    workspace_rows_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$workspace_rows_test"
+    cat >>"$workspace_rows_test" <<'WORKSPACE_ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState };
+WORKSPACE_ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const schema = [
+    { id: "workspaces.persistent", category: "workspaces", type: "bool", min: "",
+      max: "", enum: "", default: "false", label: "Persistent", description: "" }
+];
+const onState = Object.assign({}, SR.emptyAureliaState(), { onlyWorkspacesInUse: true });
+const offState = Object.assign({}, SR.emptyAureliaState(), { onlyWorkspacesInUse: false });
+const onRows = SR.buildRows("hypr-workspaces", schema, {}, onState);
+const offRows = SR.buildRows("hypr-workspaces", schema, {}, offState);
+const on = onRows.find(r => r.id === "aurelia.workspaces.only_in_use");
+const off = offRows.find(r => r.id === "aurelia.workspaces.only_in_use");
+const ok = on && on.kind === "toggle" && on.effective === true &&
+    off && off.kind === "toggle" && off.effective === false;
+process.exit(ok ? 0 : 1);
+' "$workspace_rows_test" >/dev/null; then
+        pass "[unit] Workspaces section toggles the in-use-only preference in both states"
+    else
+        fail "[unit] Workspaces section in-use-only row projection is wrong"
+    fi
+    rm -f -- "$workspace_rows_test"
+else
+    skip "[unit] Workspaces section in-use-only row projection (node unavailable)"
 fi
 
 # AI section rows: default agent picker, launch, and skill actions.

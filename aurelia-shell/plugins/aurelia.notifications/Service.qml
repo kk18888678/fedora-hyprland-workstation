@@ -74,6 +74,9 @@ Item {
     readonly property int popupFileMaxAttempts: 3
     property bool historyDirectoryLoaded: false
     property bool legacyHistoryMigrationQueued: false
+    // Last text handed to the clipboard path. Production still shells out to
+    // wl-copy; isolated fixtures read this without touching a live clipboard.
+    property string lastCopiedText: ""
 
     property alias activeModel: activeNotificationsModel
     // Inbox rows remain until an explicit user action. The popup model is a
@@ -506,15 +509,15 @@ Item {
             }
             if (manualInbox) {
                 entry.deadline = 0
+                persistPopupFile(entry)
             }
-            // Restored Inbox rows survive a restart. Only their passive popup
-            // gets a fresh bounded lifetime; the Inbox row remains user-owned.
-            if (duration > 0) entry.expireTimeout = duration
-            if (manualInbox) persistPopupFile(entry)
             live.push(entry)
         }
         if (live.length === 0) return
 
+        // A shell reload restores the Inbox silently. Re-inserting restored
+        // rows into popupNotificationsModel would replay the whole Inbox as
+        // transient toasts; only genuinely new notifications belong there.
         Qt.callLater(function() {
             for (var j = 0; j < live.length; j++) {
                 var restored = live[j]
@@ -522,7 +525,6 @@ Item {
                 if (modelIndexByIdentity(activeNotificationsModel, restored.originalId, restored.timestamp) < 0) {
                     activeNotificationsModel.append(restored)
                 }
-                insertPopupSnapshot(restored)
             }
         })
     }
@@ -936,6 +938,20 @@ Item {
         return -1
     }
 
+    // Resolve a notification's authoritative snapshot without depending on the
+    // caller's model index. Inbox rows come first, then the live snapshot, then
+    // a transient popup row for notifications that never entered the Inbox.
+    function snapshotForIdentity(originalId, timestamp) {
+        if (!service.hasUsableIdentity(originalId, timestamp)) return null
+        var activeIndex = activeIndexForIdentity(originalId, timestamp)
+        if (activeIndex >= 0) return activeNotificationsModel.get(activeIndex)
+        var key = service.identityKey(originalId, timestamp)
+        if (key !== "" && liveSnapshots[key]) return liveSnapshots[key]
+        var popupIndex = modelIndexByIdentity(popupNotificationsModel, originalId, timestamp)
+        if (popupIndex >= 0) return popupNotificationsModel.get(popupIndex)
+        return null
+    }
+
     function objectProperty(object, name) {
         try {
             return object && object[name] !== undefined && object[name] !== null ? object[name] : null
@@ -1184,6 +1200,36 @@ Item {
         if (historyPath !== "") historyFile.setText("")
         queueStateSave()
         return "ok"
+    }
+
+    // Copy is a clipboard mutation, so it stays on the service rather than in
+    // the presentational card. The card only emits copyRequested().
+    function copyToClipboard(value) {
+        var text = String(value === undefined || value === null ? "" : value)
+        if (text === "") return "none"
+        lastCopiedText = text
+        if (!service.testMode) {
+            Quickshell.execDetached(["bash", "-c", "printf %s \"$1\" | wl-copy",
+                "aurelia-notification-copy", text])
+        }
+        console.info("[NOTIFICATIONS] copy.performed length=" + text.length)
+        return "ok"
+    }
+
+    function copyNotificationAt(index, originalId, timestamp) {
+        var entry = null
+        if (arguments.length >= 3) {
+            entry = service.snapshotForIdentity(originalId, timestamp)
+        } else if (index >= 0 && index < activeNotificationsModel.count) {
+            entry = activeNotificationsModel.get(index)
+        }
+        if (!entry) return "none"
+        return service.copyToClipboard(Logic.copyText(entry))
+    }
+
+    function copyHistoryAt(index) {
+        if (index < 0 || index >= historyEntriesModel.count) return "none"
+        return service.copyToClipboard(Logic.copyText(historyEntriesModel.get(index)))
     }
 
     function openCenter() {

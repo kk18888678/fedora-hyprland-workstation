@@ -146,18 +146,31 @@ aurelia_wallpaper_palette_identify() {
 aurelia_wallpaper_palette_colors() {
     local image="$1"
     local tool="$2"
-    local status=0
+    local -a pipeline_status=()
 
-    # A fixed sample grid keeps extraction deterministic across resolutions.
-    "$AW_TIMEOUT_BIN" -k 5 60 "$tool" "$image" \
-        -alpha remove -background '#808080' \
+    # `grep` returning 1 means the pipeline produced no hex candidates, which
+    # is "no candidate colors" and is reported distinctly by the caller. It is
+    # only the ImageMagick stage's own exit status (PIPESTATUS[0]) that can
+    # tell us whether the image actually failed to decode or timed out, so the
+    # two conditions must not be conflated.
+    if "$AW_TIMEOUT_BIN" -k 5 60 "$tool" "$image" \
+        -background '#808080' -alpha remove \
         -resize 200x200! -colors 16 -unique-colors -depth 8 txt:- |
-        grep -oE '#[0-9A-Fa-f]{6}' || status=$?
-
-    if (( status == 0 || status == 1 )); then
-        return 0
+        grep -oE '#[0-9A-Fa-f]{6}'; then
+        pipeline_status=("${PIPESTATUS[@]}")
+    else
+        pipeline_status=("${PIPESTATUS[@]}")
     fi
-    aurelia_wallpaper_fail "Color extraction failed: $image"
+
+    case "${pipeline_status[0]}" in
+        0) return 0 ;;
+        124|137)
+            aurelia_wallpaper_fail "Color extraction timed out: $image"
+            ;;
+        *)
+            aurelia_wallpaper_fail "Color extraction failed: $image"
+            ;;
+    esac
 }
 
 aurelia_wallpaper_palette_mean() {
@@ -165,7 +178,7 @@ aurelia_wallpaper_palette_mean() {
     local tool="$2"
 
     "$AW_TIMEOUT_BIN" -k 5 30 "$tool" "$image" \
-        -alpha remove -background '#808080' \
+        -background '#808080' -alpha remove \
         -resize 1x1! -depth 8 txt:- |
         grep -oE '#[0-9A-Fa-f]{6}' | head -n 1
 }
