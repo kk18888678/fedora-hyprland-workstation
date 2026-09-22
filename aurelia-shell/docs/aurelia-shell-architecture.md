@@ -187,16 +187,21 @@ aurelia-shell/
 Rendered text must stay legible over arbitrary wallpapers. Two complementary
 fail-closed guards cover the translucent surfaces:
 
-- **Transparent bar (adaptive foreground)**: `bin/aurelia-bar-text-color`
+- **Transparent bar (adaptive foreground + scrim)**: `bin/aurelia-bar-text-color`
   measures the darkest and brightest WCAG relative-luminance regions of the bar
   strip instead of collapsing it to one `1x1` average. A single average hides
-  high-variance wallpapers (for example a black/white checkerboard), so the
-  helper rejects every candidate foreground whose worst-case contrast against
-  that luminance range is below the WCAG AA threshold of `4.5:1`. When neither
-  the theme foreground nor the contrast foreground qualifies, the helper
-  returns the theme foreground and emits an explicit `action=opaque` signal on
-  stderr. The resident bar reads that signal and forces its opaque themed
-  surface (`Bar.qml`), so text is never rendered over an unreadable region.
+  high-variance wallpapers (for example a black/white checkerboard). The helper
+  composites the bar-strip scrim the resident bar will draw over that range and
+  returns the candidate foreground (theme foreground or contrast foreground)
+  with the maximum worst-case contrast; it never silently degenerates to one
+  candidate. When even the best candidate cannot clear the WCAG AA threshold of
+  `4.5:1`, the helper still returns that best candidate and emits an explicit
+  `action=opaque` signal on stderr. The resident bar reads that signal through
+  `BarTransparencyModel.parseForegroundSignal` and strengthens the translucent
+  bar-strip scrim (`Bar.qml` / `BarPanel.qml`, `Theme.bar.scrimAlpha` ->
+  `Theme.bar.scrimStrongAlpha`) instead of forcing an opaque surface, so the
+  user's transparent-bar toggle is always honoured while text and icons keep
+  local contrast. The scrim is an overlay; it is never an opaque surface.
 - **Translucent surfaces (bounded wallpaper contribution)**: Launcher, menu,
   tooltip, popup, notification, and opaque-bar backgrounds resolve through
   `Theme._getSurfaceAlpha`, which clamps the effective opacity up to

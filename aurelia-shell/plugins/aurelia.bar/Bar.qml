@@ -6,6 +6,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import "../../theme"
 import "BarInteractionModel.js" as BarInteractionModel
+import "BarTransparencyModel.js" as BarTransparencyModel
 import "."
 
 // Aurelia's first bar host follows the Omarchy boundary: the host owns the
@@ -57,17 +58,25 @@ Item {
     property color themeContrastForeground: Theme.background
     property color transparentForeground: Theme.bar.foreground
     property bool transparentForegroundFallbackReported: false
-    property bool transparentForegroundOpaqueRequired: false
+    property bool transparentForegroundAidStrong: false
     property bool foregroundAnimationEnabled: true
     readonly property color foreground: requestedTransparent ? transparentForeground : themeForeground
     readonly property color barForeground: foreground
     readonly property color background: Theme.bar.background
     readonly property color urgent: Theme.bar.active
-    // A transparent bar is only safe while the sampled wallpaper guarantees a
-    // legible foreground. When the helper cannot find one it emits
-    // `action=opaque`; the bar then falls back to its opaque themed surface
-    // instead of rendering text over an unreadable region.
-    readonly property bool transparent: requestedTransparent && !transparentForegroundOpaqueRequired
+    // The user's explicit transparency choice is always honoured. When the
+    // sampled wallpaper cannot provide a legible foreground the helper emits
+    // its `action=opaque` signal, but the bar keeps the surface transparent and
+    // strengthens the bar-strip scrim instead of silently forcing an opaque
+    // surface that would override the user's setting.
+    readonly property var transparentRender: BarTransparencyModel.renderState(
+        requestedTransparent, transparentForegroundAidStrong,
+        Theme.bar.scrimAlpha, Theme.bar.scrimStrongAlpha)
+    readonly property bool transparent: transparentRender.transparent
+    readonly property real transparentScrimAlpha: transparentRender.scrimAlpha
+    readonly property color transparentScrim: requestedTransparent
+        ? Qt.rgba(Theme.bar.scrim.r, Theme.bar.scrim.g, Theme.bar.scrim.b, transparentScrimAlpha)
+        : "transparent"
     readonly property bool barConfigReady: barConfig && barConfig.layout
     readonly property bool vertical: position === "left" || position === "right"
     // The cross-axis size follows the reference bar's structural scale. Popup
@@ -395,7 +404,7 @@ Item {
         if (!barRoot.requestedTransparent) {
             barRoot.transparentForeground = barRoot.themeForeground
             barRoot.transparentForegroundFallbackReported = false
-            barRoot.transparentForegroundOpaqueRequired = false
+            barRoot.transparentForegroundAidStrong = false
             return
         }
         transparentForegroundTimer.restart()
@@ -405,7 +414,7 @@ Item {
         if (!barRoot.requestedTransparent || transparentForegroundProcess.running) return
         if (barRoot.barTextColorToolPath === "") {
             barRoot.transparentForeground = barRoot.themeForeground
-            barRoot.transparentForegroundOpaqueRequired = false
+            barRoot.transparentForegroundAidStrong = false
             if (!barRoot.transparentForegroundFallbackReported) {
                 barRoot.transparentForegroundFallbackReported = true
                 console.warn("[BAR] transparent_foreground_fallback reason=helper_unavailable")
@@ -419,7 +428,11 @@ Item {
             barRoot.colorHex(barRoot.themeForeground),
             barRoot.colorHex(barRoot.themeContrastForeground),
             "--screen",
-            barRoot.screenSizeArgument()
+            barRoot.screenSizeArgument(),
+            "--scrim",
+            barRoot.colorHex(Theme.bar.scrim),
+            "--scrim-alpha",
+            String(Theme.bar.scrimAlpha)
         ]
         transparentForegroundProcess.running = true
     }
@@ -638,6 +651,8 @@ Item {
             themeForeground: String(barRoot.themeForeground),
             transparentForeground: String(barRoot.transparentForeground),
             foregroundFallback: barRoot.transparentForegroundFallbackReported,
+            foregroundAidStrong: barRoot.transparentForegroundAidStrong,
+            transparentScrimAlpha: barRoot.transparentScrimAlpha,
             widgetSlots: barRoot.widgetSlots.length,
             position: barRoot.position,
             size: barRoot.barSize
@@ -774,12 +789,14 @@ Item {
         onExited: function(code) {
             var value = String(transparentForegroundOutput.text || "").trim()
             var detail = String(transparentForegroundError.text || "").trim()
-            // The helper emits `action=opaque` only when no candidate colour
-            // clears the 4.5:1 threshold against the worst sampled region.
-            var opaqueRequired = /(^|[[:space:]])action=opaque([[:space:]]|$)/.test(detail)
+            // The helper emits `action=opaque` only when the best available
+            // colour cannot clear the 4.5:1 threshold against the worst
+            // sampled region. The bar responds by strengthening the scrim, not
+            // by abandoning transparency.
+            var signal = BarTransparencyModel.parseForegroundSignal(detail)
             if (code === 0 && /^#[0-9A-Fa-f]{6}$/.test(value)) {
                 barRoot.transparentForeground = value
-                barRoot.transparentForegroundOpaqueRequired = opaqueRequired
+                barRoot.transparentForegroundAidStrong = signal.strengthenAid
                 barRoot.reportBarFacadeState()
                 if (detail !== "" && !barRoot.transparentForegroundFallbackReported) {
                     barRoot.transparentForegroundFallbackReported = true
@@ -795,7 +812,7 @@ Item {
                     (detail === "" ? "" : " detail=" + detail))
             }
             barRoot.transparentForeground = barRoot.themeForeground
-            barRoot.transparentForegroundOpaqueRequired = false
+            barRoot.transparentForegroundAidStrong = false
             barRoot.reportBarFacadeState()
         }
     }

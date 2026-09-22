@@ -129,6 +129,20 @@ PanelWindow {
             ? "transparent" : Theme.bar.border
         border.width: panelRoot.bar && panelRoot.bar.transparent ? 0 : Theme.borderWidthDefault
 
+        // A transparent bar keeps the wallpaper visible but still draws a
+        // subtle scrim behind the strip. The scrim is a translucent overlay,
+        // never an opaque surface, so the user's transparency choice is
+        // preserved while text and icons keep local contrast.
+        // bin/aurelia-bar-text-color strengthens it when the sampled wallpaper
+        // needs it.
+        Rectangle {
+            id: barScrim
+            anchors.fill: parent
+            visible: panelRoot.bar && panelRoot.bar.transparent === true &&
+                panelRoot.bar.transparentScrimAlpha > 0
+            color: panelRoot.bar ? panelRoot.bar.transparentScrim : "transparent"
+        }
+
         Loader {
             id: contentLoader
             anchors.fill: parent
