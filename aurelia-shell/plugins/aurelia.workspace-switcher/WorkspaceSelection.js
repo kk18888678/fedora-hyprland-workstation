@@ -71,13 +71,31 @@ function nextIndex(currentIndex, delta, count) {
     return ((index + step) % count + count) % count
 }
 
+// Alt+Tab-style commit-on-modifier-release decision. Returns the workspace id
+// a modifier release should activate, or 0 when the release must be ignored
+// (the overview is closed, the selection is malformed, or the selected
+// workspace left the navigable set while the overview was open). Keeping this
+// pure lets the release-commit path be unit tested without a compositor, just
+// like the cycle wrap above.
+function releaseCommitWorkspace(isOpen, selectedWorkspaceId, workspaceIds) {
+    if (isOpen !== true) return 0
+    var selected = workspaceId(selectedWorkspaceId)
+    if (selected === 0) return 0
+    var ids = workspaceIds || []
+    for (var i = 0; i < ids.length; i++) {
+        if (workspaceId(ids[i]) === selected) return selected
+    }
+    return 0
+}
+
 var AureliaWorkspaceSelection = {
     workspaceId: workspaceId,
     hasWindows: hasWindows,
     allWorkspaceIds: allWorkspaceIds,
     inUseWorkspaceIds: inUseWorkspaceIds,
     workspaceIds: workspaceIds,
-    nextIndex: nextIndex
+    nextIndex: nextIndex,
+    releaseCommitWorkspace: releaseCommitWorkspace
 }
 
 if (typeof module !== "undefined" && module.exports) module.exports = AureliaWorkspaceSelection

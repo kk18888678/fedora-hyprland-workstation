@@ -309,10 +309,12 @@ configuration changes.
 
 The workspace overview is provided by `aurelia.workspace-switcher`. Its
 Mission Control-inspired overlay is opened with `SUPER + TAB`; repeated presses
-cycle the selected workspace, while Enter activates it, Escape closes the
-overview, and arrow keys move the selection. Window cards use Quickshell's
-single-frame Hyprland toplevel capture when supported and show a safe app/title
-fallback otherwise.
+cycle the selected workspace, releasing `SUPER` or pressing Enter activates it,
+Escape closes the overview, and arrow keys move the selection. Window cards use
+Quickshell's single-frame Hyprland toplevel capture when supported and show a
+safe app/title fallback otherwise. The commit-on-release mechanism and why it
+travels through the Hyprland Lua keybinding provider are documented in
+[docs/aurelia-workspace-switcher.md](docs/aurelia-workspace-switcher.md).
 
 The `aurelia-plugin` command validates local plugins, lists/rescans the
 resident registry, enables/disables plugins, and can add/update/remove

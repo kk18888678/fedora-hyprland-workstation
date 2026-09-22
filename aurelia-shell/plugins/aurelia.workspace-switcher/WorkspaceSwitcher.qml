@@ -166,6 +166,22 @@ Item {
         return "ok"
     }
 
+    // Alt+Tab-style commit-on-release. The keybinding provider observes the
+    // SUPER release (a declarative Hyprland release bind cannot target the
+    // modifier; see dotfiles/hypr/keybind.lua) and invokes this method through
+    // the bounded plugin IPC. Activation stays in this plugin controller and
+    // shares the same path as Enter, so both routes converge on
+    // activateWorkspace(). A release while the overview is closed, or one whose
+    // selection is stale, is ignored.
+    function release() {
+        var id = WorkspaceSelection.releaseCommitWorkspace(
+            root.isOpen,
+            root.selectedWorkspaceId,
+            root.workspaceIds())
+        if (id === 0) return "ignored"
+        return root.activateWorkspace(id)
+    }
+
     function open(payloadJson) {
         if (root.isOpen) return root.cycle(1)
 
@@ -397,7 +413,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: "Selected: Workspace " + String(root.selectedWorkspaceId) +
-                                "  ·  Tab / arrows to browse  ·  Enter to open  ·  Esc to close"
+                                "  ·  Tab / arrows to browse  ·  Enter or release Super to open  ·  Esc to close"
                             color: Theme.textSecondary
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeXs

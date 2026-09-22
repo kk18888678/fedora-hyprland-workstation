@@ -86,6 +86,65 @@ local function resolve_shell_ipc()
     return nil
 end
 
+-- ---------------------------------------------------------------------------
+-- Alt+Tab-style commit-on-modifier-release.
+--
+-- Alt+Tab semantics require the *modifier* release (SUPER) to commit the
+-- current selection. Hyprland's declarative release flag (`release = true`, the
+-- Lua equivalent of the hyprlang `bindr` keyword) is keyed to the bind's own
+-- key: a `SUPER + TAB` release bind fires when TAB is released, not when SUPER
+-- is, which would commit in the middle of a multi-TAB cycle. A release bind on
+-- the bare SUPER key is layout/keycode specific and cannot be scoped to the
+-- interaction that is actually active. The `input.keyboard.key` event reports
+-- every raw key event, including modifier release, to Lua before keybind
+-- consumption, so the provider can observe the real SUPER release and deliver
+-- it to the plugin as a bounded IPC signal. The plugin remains the single owner
+-- of whether the overview is open and which workspace is selected.
+local MODIFIER_XKB_KEYCODES = {
+    SUPER = { [133] = true, [134] = true }, -- XKB SUPER_L / SUPER_R
+}
+
+-- Companion command armed by the most recent gated press. Nil means no
+-- modifier-release interaction is in flight, so ordinary SUPER shortcuts never
+-- pay an IPC cost on release.
+local armed_release_commit = nil
+
+local function quote_argv(argv)
+    local parts = {}
+    for _, value in ipairs(argv) do
+        table.insert(parts, "'" .. tostring(value):gsub("'", "'\\''") .. "'")
+    end
+    return table.concat(parts, " ")
+end
+
+local function release_commit_for(item)
+    local companion = item.release_commit
+    if type(companion) ~= "table" then return nil, nil end
+
+    local keycodes = MODIFIER_XKB_KEYCODES[tostring(companion.modifier or "")]
+    if not keycodes then
+        print("[BIND] release_commit has an unsupported modifier for " .. tostring(item.id))
+        return nil, nil
+    end
+
+    if type(companion.command_argv) ~= "table" or #companion.command_argv == 0 then
+        print("[BIND] release_commit has no command_argv for " .. tostring(item.id))
+        return nil, nil
+    end
+
+    return keycodes, quote_argv(companion.command_argv)
+end
+
+local function register_release_commit()
+    hl.on("input.keyboard.key", function(keycode, _time, state)
+        if state ~= 0 then return end -- release events only
+        local armed = armed_release_commit
+        if not armed or not armed.keycodes[keycode] then return end
+        armed_release_commit = nil
+        hl.exec_cmd(armed.command)
+    end)
+end
+
 local function register_binding(item)
     if item.generator then
         if item.generator == "workspaces_1_10" then
@@ -155,11 +214,19 @@ local function register_binding(item)
         hl.bind(item.key, hl.dsp.exec_cmd(item.command), flags)
     elseif item.action_type == "plugin_ipc" then
         if type(item.command_argv) ~= "table" or #item.command_argv == 0 then return end
-        local parts = {}
-        for _, value in ipairs(item.command_argv) do
-            table.insert(parts, "'" .. tostring(value):gsub("'", "'\\''") .. "'")
+        local command = quote_argv(item.command_argv)
+        local release_keycodes, release_command = release_commit_for(item)
+        if release_command then
+            -- Arm the companion before dispatching the press so a fast
+            -- SUPER+TAB tap still lets the release commit once the plugin is
+            -- open. The plugin ignores the signal when it is closed.
+            hl.bind(item.key, function()
+                armed_release_commit = { keycodes = release_keycodes, command = release_command }
+                hl.exec_cmd(command)
+            end, flags)
+        else
+            hl.bind(item.key, hl.dsp.exec_cmd(command), flags)
         end
-        hl.bind(item.key, hl.dsp.exec_cmd(table.concat(parts, " ")), flags)
     elseif item.action_type == "dispatch_close" then
         hl.bind(item.key, hl.dsp.window.close(), flags)
     elseif item.action_type == "dispatch_float" then
@@ -195,5 +262,7 @@ end
 for _, item in ipairs(effective.bindings or {}) do
     register_binding(item)
 end
+
+register_release_commit()
 
 return true
