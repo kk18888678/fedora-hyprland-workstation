@@ -557,13 +557,17 @@ PanelWindow {
             var hour24 = String(lines[1] || "").trim() === "true"
             var seconds = String(lines[2] || "").trim() === "true"
             var weekStart = String(lines[3] || "").trim()
+            // Missing output (backend unavailable) fails safe to the default
+            // in-use-only overview rather than silently widening the scope.
+            var onlyWorkspacesInUse = String(lines[4] || "").trim() !== "false"
             if (format === "") format = "month_day_weekday_time"
             if (weekStart !== "monday") weekStart = "sunday"
             root.applyAureliaPatch({
                 clockFormat: format,
                 clockHour24: hour24,
                 clockSeconds: seconds,
-                weekStart: weekStart
+                weekStart: weekStart,
+                onlyWorkspacesInUse: onlyWorkspacesInUse
             })
         }
     }
@@ -686,7 +690,8 @@ PanelWindow {
             "\"$1\" preference get aurelia.clock.format; " +
             "\"$1\" preference get aurelia.clock.hour24; " +
             "\"$1\" preference get aurelia.clock.seconds; " +
-            "\"$1\" preference get aurelia.calendar.week_start",
+            "\"$1\" preference get aurelia.calendar.week_start; " +
+            "\"$1\" preference get aurelia.workspaces.only_in_use",
             "settings", root.helperBin("workstation-aurelia")]
         aureliaPrefsProcess.running = true
         barProcess.command = [root.helperBin("aurelia-bar-hidden"), "read"]
@@ -732,7 +737,8 @@ PanelWindow {
     // is what emptied the AI/defaults dropdowns).
     readonly property var aureliaStateKeys: ["ipcOnline", "themes", "currentTheme",
         "motionEnabled", "motionScale", "textSize", "barHidden", "weekStart",
-        "clockFormat", "clockHour24", "clockSeconds", "defaults", "ai", "settingsPath"]
+        "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse",
+        "defaults", "ai", "settingsPath"]
 
     function applyAureliaPatch(patch) {
         var next = {}
@@ -828,6 +834,10 @@ PanelWindow {
         case "aurelia.clock.seconds":
             runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
                        "aurelia.clock.seconds", value ? "true" : "false"], "Setting clock seconds…")
+            break
+        case "aurelia.workspaces.only_in_use":
+            runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
+                       "aurelia.workspaces.only_in_use", value ? "true" : "false"], "Setting workspace overview…")
             break
         default:
             console.warn("[SETTINGS] unknown aurelia option: " + optionId)

@@ -43,7 +43,7 @@ if grep -q 'Quickshell.Hyprland' "$switcher_qml" &&
    grep -q 'function onFocusedWorkspaceChanged()' "$switcher_qml" &&
    grep -q 'function activateWorkspace(id)' "$switcher_qml" &&
    grep -q 'if (root.isOpen) return root.cycle(1)' "$switcher_qml" &&
-   grep -q '((index + step) % count + count) % count' "$switcher_qml" &&
+   grep -q 'WorkspaceSelection.nextIndex(index, delta, ids.length)' "$switcher_qml" &&
    grep -q 'if (recenter !== false) root.keepSelectionVisible()' "$switcher_qml" &&
    grep -q 'WheelHandler {' "$switcher_qml" &&
    grep -q 'root.wheelAccumulator += event.angleDelta.y' "$switcher_qml" &&
@@ -130,3 +130,63 @@ else
     fail "effective keybinding projection does not contain the workspace overview action"
 fi
 rm -rf -- "$binding_fixture"
+
+# ---------------------------------------------------------------------------
+# Configurable "only workspaces in use" policy
+# ---------------------------------------------------------------------------
+selection_js="$plugin_root/WorkspaceSelection.js"
+if [[ -f "$selection_js" ]] &&
+   grep -q 'import "WorkspaceSelection.js" as WorkspaceSelection' "$switcher_qml" &&
+   grep -q 'readonly property bool onlyWorkspacesInUse' "$switcher_qml" &&
+   grep -q 'Theme.getPreference("aurelia.workspaces.only_in_use", true)' "$switcher_qml" &&
+   grep -q 'WorkspaceSelection.workspaceIds(' "$switcher_qml" &&
+   grep -q 'function workspaceIds()' "$switcher_qml"; then
+    pass "workspace overview exposes a configurable in-use-only selection policy"
+else
+    fail "workspace overview does not expose the configurable in-use-only selection policy"
+fi
+
+if grep -q '\["aurelia.workspaces.only_in_use"\]' "$ROOT/core/preferences.lua" &&
+   grep -A6 '\["aurelia.workspaces.only_in_use"\]' "$ROOT/core/preferences.lua" |
+       grep -q 'default = true'; then
+    pass "aurelia.workspaces.only_in_use is a registered boolean preference defaulting to true"
+else
+    fail "aurelia.workspaces.only_in_use preference is not registered with the safe default"
+fi
+
+if command -v node >/dev/null; then
+    if node -e '
+const S = require(process.argv[1]);
+const ws = (id, n) => ({ id, toplevels: { values: new Array(n).fill({}) } });
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// "all" mode keeps the reviewed 1..5 baseline plus live workspace ids.
+const all = S.workspaceIds(false, [ws(3, 2), ws(7, 1)], 7, [1, 2, 3, 4, 5]);
+// "in use" mode keeps non-empty workspaces plus the focused (possibly empty) one.
+const inUse = S.workspaceIds(true, [ws(3, 2), ws(4, 0), ws(7, 1)], 4);
+// A focused empty workspace must stay reachable so the overlay is never empty.
+const onlyFocus = S.workspaceIds(true, [], 1);
+// Out-of-range workspace ids never leak into either mode.
+const bounded = S.workspaceIds(true, [ws(0, 1), ws(11, 1), ws(2, 1)], 2);
+// Cyclic navigation wraps in both modes: forward past the end returns to the
+// start and backward past the start returns to the end.
+const allCycle = all.map((_, i) => all[S.nextIndex(i, 1, all.length)]);
+const inUseCycle = inUse.map((_, i) => inUse[S.nextIndex(i, -1, inUse.length)]);
+
+const ok = eq(all, [1, 2, 3, 4, 5, 7]) &&
+    eq(inUse, [3, 4, 7]) &&
+    eq(onlyFocus, [1]) &&
+    eq(bounded, [2]) &&
+    eq(allCycle, [2, 3, 4, 5, 7, 1]) &&
+    eq(inUseCycle, [7, 3, 4]) &&
+    S.nextIndex(0, 1, 1) === 0 && S.nextIndex(0, 1, 0) === -1;
+if (!ok) console.error(JSON.stringify({ all, inUse, onlyFocus, bounded, allCycle, inUseCycle }));
+process.exit(ok ? 0 : 1);
+' "$selection_js" >/dev/null; then
+        pass "workspace selection returns all or in-use-only workspaces and cycles cyclically in both modes"
+    else
+        fail "workspace selection policy is wrong for the all/in-use modes"
+    fi
+else
+    skip "workspace selection policy (node unavailable)"
+fi
