@@ -131,6 +131,14 @@ PanelWindow {
         return "󰘦"
     }
 
+    // Full-screen dim behind the translucent command surface. The scrim
+    // reduces how much of an arbitrary wallpaper reaches the card and keeps
+    // the declared text/surface contrast legible after compositing.
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.launcher.scrim
+    }
+
     MouseArea {
         anchors.fill: parent
         z: 0

@@ -615,6 +615,123 @@ else
     fail "transparent image matte is wrong: mean=$transparent_mean colors=$transparent_colors"
 fi
 
+section "Wallpaper palette WCAG contrast contract and surface tokens (isolated)"
+
+# WCAG 2.x relative-luminance contrast helper for the synthetic-wallpaper
+# table below. It mirrors the palette engine's own math so the assertions test
+# the emitted contract rather than a second, divergent formula.
+wcag_contrast() {
+    awk -v fg="$1" -v bg="$2" '
+        function hv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+        function pair(h, i) { return hv(substr(h, i, 1)) * 16 + hv(substr(h, i + 1, 1)) }
+        function lin(v) { v = v / 255; return (v <= 0.04045) ? v / 12.92 : ((v + 0.055) / 1.055) ^ 2.4 }
+        function lum(h) { return 0.2126 * lin(pair(h, 2)) + 0.7152 * lin(pair(h, 4)) + 0.0722 * lin(pair(h, 6)) }
+        BEGIN {
+            l1 = lum(fg); l2 = lum(bg)
+            if (l1 < l2) { t = l1; l1 = l2; l2 = t }
+            printf "%.4f\n", (l1 + 0.05) / (l2 + 0.05)
+        }'
+}
+
+ratio_at_least() {
+    awk -v r="$1" -v m="$2" 'BEGIN { exit !(r + 0 >= m) }'
+}
+
+palette_value() {
+    sed -n "s/^$2 = \"\(#[0-9a-f]\{6\}\)\"$/\1/p" <<<"$1"
+}
+
+# Synthetic wallpapers covering the documented extraction pressures. Each row
+# is the candidate-color set the engine would receive from ImageMagick; the
+# engine is then exercised in both light and dark modes.
+synthetic_names=(bright dark busy pastel saturated)
+synthetic_means=('#fffdf5' '#0a0a12' '#808080' '#f0ece6' '#808080')
+synthetic_colors=(
+    $'#fffdf5\n#f7e8c8\n#e8d5a8\n#f0e0c0\n#faebd7\n#fffaf0\n#f5deb3\n#ffe4b5'
+    $'#050508\n#0a0a12\n#12121c\n#1a1a28\n#222236\n#2a2a40\n#101018\n#181824'
+    $'#ff0044\n#00cc66\n#0066ff\n#ffcc00\n#aa00ff\n#00ffff\n#ff7700\n#33ff99'
+    $'#f6e7f0\n#e7f0f6\n#e7f6ea\n#f6f0e7\n#efe7f6\n#f0f6e7\n#f6e7e7\n#e7e7f6'
+    $'#ff0000\n#00ff00\n#0000ff\n#ffff00\n#ff00ff\n#00ffff\n#ff8000\n#8000ff'
+)
+
+assert_palette_contract() {
+    local label="$1"
+    local forced="$2"
+    local mean="$3"
+    local colors="$4"
+    local doc=""
+    local background foreground muted accent selection surface elevated lighter light_fg dark_fg
+    local ratio=""
+    local missing=""
+    local problems=""
+    local key=""
+    local keys=(background foreground muted accent selection surface surfaceElevated \
+        lighter_background light_foreground dark_foreground bright_foreground)
+
+    doc="$(printf '%s\n' "$colors" | awk -v mean="$mean" -v forced="$forced" \
+        -v name="synthetic" -v source="/synthetic" -v digest="synthetic" \
+        -f "$palette_awk")"
+
+    for key in "${keys[@]}"; do
+        [[ -n "$(palette_value "$doc" "$key")" ]] || missing="$missing $key"
+    done
+    if [[ -n "$missing" ]]; then
+        fail "$label palette is missing keys:$missing"
+        return 0
+    fi
+
+    background="$(palette_value "$doc" background)"
+    foreground="$(palette_value "$doc" foreground)"
+    muted="$(palette_value "$doc" muted)"
+    accent="$(palette_value "$doc" accent)"
+    selection="$(palette_value "$doc" selection)"
+    surface="$(palette_value "$doc" surface)"
+    elevated="$(palette_value "$doc" surfaceElevated)"
+    lighter="$(palette_value "$doc" lighter_background)"
+    light_fg="$(palette_value "$doc" light_foreground)"
+    dark_fg="$(palette_value "$doc" dark_foreground)"
+    bright_fg="$(palette_value "$doc" bright_foreground)"
+
+    ratio="$(wcag_contrast "$foreground" "$background")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems foreground/bg=$ratio"
+    ratio="$(wcag_contrast "$muted" "$background")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems muted/bg=$ratio"
+    ratio="$(wcag_contrast "$light_fg" "$background")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems light_foreground/bg=$ratio"
+    ratio="$(wcag_contrast "$bright_fg" "$background")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems bright_foreground/bg=$ratio"
+    ratio="$(wcag_contrast "$accent" "$background")"
+    ratio_at_least "$ratio" 3.0 || problems="$problems accent/bg=$ratio"
+    ratio="$(wcag_contrast "$dark_fg" "$background")"
+    ratio_at_least "$ratio" 3.0 || problems="$problems dark_foreground/bg=$ratio"
+    ratio="$(wcag_contrast "$foreground" "$surface")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems foreground/surface=$ratio"
+    ratio="$(wcag_contrast "$foreground" "$elevated")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems foreground/surfaceElevated=$ratio"
+    # selection is a non-text surface, but text is drawn on it, so the
+    # foreground must stay readable against it too.
+    ratio="$(wcag_contrast "$foreground" "$selection")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems foreground/selection=$ratio"
+    [[ "$lighter" == "$surface" ]] || problems="$problems lighter_background!=$surface"
+    [[ "$(sed -n 's/^mode = "\(.*\)"$/\1/p' <<<"$doc")" == "$forced" ]] ||
+        problems="$problems mode!=$forced"
+
+    if [[ -z "$problems" ]]; then
+        pass "$label palette satisfies the WCAG text/surface contract"
+    else
+        fail "$label palette violated the WCAG contract:$problems"
+    fi
+}
+
+synthetic_index=0
+for synthetic_name in "${synthetic_names[@]}"; do
+    for synthetic_mode in light dark; do
+        assert_palette_contract "$synthetic_name/$synthetic_mode" "$synthetic_mode" \
+            "${synthetic_means[$synthetic_index]}" "${synthetic_colors[$synthetic_index]}"
+    done
+    synthetic_index=$((synthetic_index + 1))
+done
+
 section "Wallpaper palette extraction error classification (isolated)"
 
 # A decode failure or timeout is not the same as a successful decode that

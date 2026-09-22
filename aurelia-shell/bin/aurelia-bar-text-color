@@ -3,9 +3,15 @@
 # aurelia-bar-text-color — choose a legible foreground for a transparent bar.
 #
 # The helper is deliberately read-only. It samples only a validated local
-# wallpaper path and returns one of the two validated theme colors. Missing
-# media, tooling, geometry, or malformed input is an expected capability
-# fallback, but remains observable on stderr for the resident bar log.
+# wallpaper path and returns one of the two validated theme colors. It measures
+# the darkest and brightest WCAG relative-luminance regions of the bar strip and
+# requires the chosen color to clear 4.5:1 against the worst region. When
+# neither candidate color qualifies (for example over a busy checkerboard) it
+# returns the theme foreground and emits an explicit
+# `fallback reason=insufficient-contrast ... action=opaque` signal on stderr so
+# the resident bar can force an opaque surface. Missing media, tooling,
+# geometry, or malformed input is an expected capability fallback, but remains
+# observable on stderr for the resident bar log.
 
 set -Eeuo pipefail
 
@@ -110,20 +116,38 @@ case "$position" in
 esac
 
 # Selecting frame zero keeps a video wallpaper bounded to one decode frame.
-pixel="$(/usr/bin/magick "${background_path}[0]" -auto-orient \
+# Instead of collapsing the bar strip to one 1x1 average (which hides
+# high-variance regions such as a black/white checkerboard), measure the
+# darkest and brightest WCAG relative-luminance regions across the strip.
+# Rec.709 luminance is the exact WCAG relative luminance, so the two
+# endpoints bound the worst case for any candidate foreground. A transparent
+# image is matted against a neutral mid-grey before measurement so it cannot
+# be silently read as black or white.
+luminance_range="$(/usr/bin/magick "${background_path}[0]" -auto-orient \
     -resize "${screen_width}x${screen_height}^" \
     -gravity center -extent "${screen_width}x${screen_height}" \
     -gravity NorthWest -crop "$crop" +repage \
-    -resize '1x1!' \
-    -format '%[fx:int(255*r)],%[fx:int(255*g)],%[fx:int(255*b)]' info:-  || true)"
-[[ "$pixel" =~ ^([0-9]+),([0-9]+),([0-9]+)$ ]] || fallback sample-failed
+    -colorspace sRGB -background '#808080' -alpha remove \
+    -grayscale Rec709Luminance \
+    -format '%[fx:minima] %[fx:maxima]' info:-  || true)"
+[[ "$luminance_range" =~ ^([0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)[[:space:]]+([0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$ ]] ||
+    fallback sample-failed
 
-sample="$(printf '#%02x%02x%02x' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}")"
+sample_min="${BASH_REMATCH[1]}"
+sample_max="${BASH_REMATCH[3]}"
 
-contrast() {
-    local foreground="$1"
-    local sample_color="$2"
-    '/usr/bin/awk' -v fg="$foreground" -v bg="$sample_color" '
+# WCAG AA normal text requires a 4.5:1 contrast ratio. Anything below that is
+# not treated as a legible choice, no matter how much better it looks than the
+# other candidate.
+minimum_contrast='4.5'
+
+# Worst-case contrast for one candidate across the sampled luminance range.
+# Contrast decreases as a background approaches the candidate's own
+# luminance, so the minimum over the range is always reached at the nearest
+# endpoint. Checking both endpoints therefore covers every sampled region.
+worst_contrast() {
+    local candidate="$1"
+    '/usr/bin/awk' -v fg="$candidate" -v lo="$sample_min" -v hi="$sample_max" '
         function channel(hex, start) {
             return strtonum("0x" substr(hex, start, 2)) / 255
         }
@@ -136,21 +160,43 @@ contrast() {
             blue = linear(channel(hex, 6))
             return 0.2126 * red + 0.7152 * green + 0.0722 * blue
         }
-        BEGIN {
-            first = luminance(fg)
-            second = luminance(bg)
+        function ratio(first, second, swap) {
             if (first < second) {
                 swap = first
                 first = second
                 second = swap
             }
-            printf "%.6f\n", (first + 0.05) / (second + 0.05)
+            return (first + 0.05) / (second + 0.05)
+        }
+        BEGIN {
+            fg_luminance = luminance(fg)
+            low_ratio = ratio(fg_luminance, lo + 0)
+            high_ratio = ratio(fg_luminance, hi + 0)
+            printf "%.6f\n", low_ratio < high_ratio ? low_ratio : high_ratio
         }
     '
 }
 
-text_contrast="$(contrast "$text_color" "$sample")"
-background_contrast="$(contrast "$background_color" "$sample")"
+text_worst="$(worst_contrast "$text_color")"
+background_worst="$(worst_contrast "$background_color")"
 
-'/usr/bin/awk' -v text="$text_contrast" -v background="$background_contrast" \
-    'BEGIN { exit !(background > text) }' && printf '%s\n' "$background_color" || printf '%s\n' "$text_color"
+# Prefer the higher-contrast candidate, but only when it clears the AA
+# threshold against the worst sampled region. When neither candidate
+# qualifies, return the theme foreground and emit an explicit machine-readable
+# signal so the resident bar can force an opaque surface instead of rendering
+# text on an unreadable wallpaper.
+if '/usr/bin/awk' -v value="$text_worst" -v other="$background_worst" -v minimum="$minimum_contrast" \
+    'BEGIN { exit !(value + 0 >= minimum + 0 && value + 0 >= other + 0) }'; then
+    printf '%s\n' "$text_color"
+elif '/usr/bin/awk' -v value="$background_worst" -v minimum="$minimum_contrast" \
+    'BEGIN { exit !(value + 0 >= minimum + 0) }'; then
+    printf '%s\n' "$background_color"
+else
+    '/usr/bin/awk' -v text="$text_worst" -v background="$background_worst" -v minimum="$minimum_contrast" '
+        BEGIN {
+            worst = text + 0 > background + 0 ? text + 0 : background + 0
+            printf "[AURELIA-BAR-TEXT] fallback reason=insufficient-contrast worst=%.2f required=%s action=opaque\n", worst, minimum
+        }
+    ' >&2
+    printf '%s\n' "$text_color"
+fi

@@ -53,6 +53,70 @@ function clamp01(value) {
 function mix(r1, g1, b1, r2, g2, b2, amount) {
     return hexof(r1 + (r2 - r1) * amount, g1 + (g2 - g1) * amount, b1 + (b2 - b1) * amount)
 }
+
+# WCAG text/UI roles derived from the background/foreground anchors. Every
+# helper below is fail-closed: the returned color meets its documented minimum
+# for any background.
+
+# Move a color toward the mode's contrast pole until it clears `minimum`. If the
+# bounded nudge loop is still short, escalate to the pure pole (white or black)
+# that yields the highest possible contrast. Escalation guarantees the minimum
+# because max(contrast_white, contrast_black) is always >= 4.58 for any
+# background, so a sub-4.5 pair can never be emitted silently.
+function enforce_min(hex, bgr, bgg, bgb, minimum, to_r, to_g, to_b,
+                     fgr, fgg, fgb, candidate, steps) {
+    fgr = pair(hex, 2); fgg = pair(hex, 4); fgb = pair(hex, 6)
+    steps = 0
+    while (contrast(bgr, bgg, bgb, fgr, fgg, fgb) < minimum && steps < 12) {
+        candidate = mix(fgr, fgg, fgb, to_r, to_g, to_b, 0.15)
+        fgr = pair(candidate, 2); fgg = pair(candidate, 4); fgb = pair(candidate, 6)
+        steps++
+    }
+    if (contrast(bgr, bgg, bgb, fgr, fgg, fgb) < minimum) {
+        if (contrast(bgr, bgg, bgb, 255, 255, 255) >= contrast(bgr, bgg, bgb, 0, 0, 0)) {
+            fgr = 255; fgg = 255; fgb = 255
+        } else {
+            fgr = 0; fgg = 0; fgb = 0
+        }
+    }
+    return hexof(fgr, fgg, fgb)
+}
+
+# A dimmer text role derived by mixing the background toward the foreground.
+# The requested dimness is preserved unless it would violate `minimum`, in
+# which case the role is pulled toward the foreground (which already clears the
+# text minimum) until the ratio is met.
+function text_role(bgr, bgg, bgb, fgr, fgg, fgb, start, minimum,
+                   t, candidate, ratio) {
+    t = start
+    candidate = mix(bgr, bgg, bgb, fgr, fgg, fgb, t)
+    while (t < 1.0) {
+        ratio = contrast(bgr, bgg, bgb, pair(candidate, 2), pair(candidate, 4), pair(candidate, 6))
+        if (ratio >= minimum) return candidate
+        t = t + 0.05
+        if (t > 1.0) t = 1.0
+        candidate = mix(bgr, bgg, bgb, fgr, fgg, fgb, t)
+    }
+    return hexof(fgr, fgg, fgb)
+}
+
+# An elevation surface between background and foreground. Surfaces are not text
+# colors, but text is commonly drawn on them, so the largest elevation that
+# still keeps the foreground at 4.5:1 is used. The foreground already clears
+# 4.5:1 against the background, so t = 0 is always a valid fallback.
+function elevate_surface(bgr, bgg, bgb, fgr, fgg, fgb, start,
+                         t, candidate, ratio) {
+    t = start
+    while (t > 0) {
+        candidate = mix(bgr, bgg, bgb, fgr, fgg, fgb, t)
+        ratio = contrast(fgr, fgg, fgb, pair(candidate, 2), pair(candidate, 4), pair(candidate, 6))
+        if (ratio >= 4.5) return candidate
+        t = t - 0.02
+        if (t < 0) t = 0
+    }
+    return hexof(bgr, bgg, bgb)
+}
+
 function brightness(rr, gg, bb) { return (rr + gg + bb) / 765 }
 function saturation(rr, gg, bb,   mx, mn) {
     mx = max3(rr, gg, bb)
@@ -448,15 +512,14 @@ END {
     bg_r = cr[bg_index]; bg_g = cg[bg_index]; bg_b = cb[bg_index]
     fg_r = cr[fg_index]; fg_g = cg[fg_index]; fg_b = cb[fg_index]
 
-    # Text must stay readable: nudge the foreground towards the opposite end
-    # until the WCAG contrast ratio reaches 4.5:1 (bounded, deterministic).
-    steps = 0
-    while (contrast(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b) < 4.5 && steps < 12) {
-        normal = mix(fg_r, fg_g, fg_b, toward_r, toward_g, toward_b, 0.15)
-        fg_r = pair(normal, 2); fg_g = pair(normal, 4); fg_b = pair(normal, 6)
-        steps++
-    }
-    foreground = hexof(fg_r, fg_g, fg_b)
+    # Text must stay readable. The bounded nudge loop moves the foreground
+    # toward the mode's contrast pole; if that is still short of 4.5:1 the
+    # foreground is escalated to the pure pole (white or black) with the
+    # highest possible contrast. The contract is therefore fail-closed: the
+    # emitted foreground always meets 4.5:1 against the emitted background.
+    foreground = enforce_min(hexof(fg_r, fg_g, fg_b), bg_r, bg_g, bg_b, 4.5,
+                             toward_r, toward_g, toward_b)
+    fg_r = pair(foreground, 2); fg_g = pair(foreground, 4); fg_b = pair(foreground, 6)
 
     used[bg_index] = 1
     used[fg_index] = 1
@@ -468,6 +531,26 @@ END {
     } else {
         accent = foreground
     }
+    # accent is a text/icon role and must clear the WCAG non-text/UI threshold
+    # of 3.0:1 against the background (see docs/aurelia-wallpapers.md).
+    accent = enforce_min(accent, bg_r, bg_g, bg_b, 3.0, toward_r, toward_g, toward_b)
+
+    # Text-bearing roles, each pinned to its documented minimum:
+    #   muted            >= 4.5:1 against the background
+    #   light_foreground >= 4.5:1 against the background (secondary text)
+    #   dark_foreground  >= 3.0:1 against the background (subtle text)
+    muted = text_role(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.45, 4.5)
+    light_foreground = text_role(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.75, 4.5)
+    dark_foreground = text_role(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.40, 3.0)
+
+    # Non-text surfaces derived from the anchors. selection is a background for
+    # selected rows, not a text color, so it is explicitly exempt from the text
+    # contrast minimums. Every surface is still bounded so text drawn on it
+    # keeps the foreground's 4.5:1 ratio.
+    surface = elevate_surface(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.06)
+    lighter_background = surface
+    surfaceElevated = elevate_surface(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.12)
+    selection = elevate_surface(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.15)
 
     emit_roles()
 
@@ -485,10 +568,15 @@ END {
     print "mode = \"" theme_mode "\""
     print "extraction_mode = \"" mode "\""
     print "accent = \"" accent "\""
-    print "selection = \"" mix(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.15) "\""
-    print "muted = \"" mix(bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, 0.45) "\""
+    print "selection = \"" selection "\""
+    print "muted = \"" muted "\""
     print "background = \"" background "\""
     print "foreground = \"" foreground "\""
+    print "surface = \"" surface "\""
+    print "surfaceElevated = \"" surfaceElevated "\""
+    print "lighter_background = \"" lighter_background "\""
+    print "light_foreground = \"" light_foreground "\""
+    print "dark_foreground = \"" dark_foreground "\""
     print "bright_foreground = \"" mix(fg_r, fg_g, fg_b, toward_r, toward_g, toward_b, 0.15) "\""
     for (i = 1; i <= 6; i++) print names[i] " = \"" role[names[i]] "\""
     for (i = 1; i <= 6; i++) print "bright_" names[i] " = \"" role["bright_" names[i]] "\""
