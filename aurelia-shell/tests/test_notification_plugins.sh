@@ -98,7 +98,12 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'label: "Archive"' "$plugin_root/ui/NotificationToast.qml" &&
    ! grep -q 'timestamp: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    ! grep -q 'timestamp: historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'timestampLabel: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'timestampLabel: Logic.timestampLabel(activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'timestampLabel: Logic.timestampLabel(historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'timestampLabel: Logic.timestampLabel(popupSlot.timestamp' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'objectName: "notificationSourceApp"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationTimestamp"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationSourceIcon"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'actions: historyDelegate.actions' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'invokeHistoryDefault' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'implicitHeight: toastCard.implicitHeight' "$plugin_root/ui/NotificationToast.qml" &&
@@ -312,6 +317,15 @@ if (logic.historyKey({ originalId: 2, timestamp: 10 }) !== "10|2") process.exit(
 if (logic.identityKey(1, 100) !== "100|1") process.exit(1);
 if (logic.identityKey("1", "100") !== logic.identityKey(1, 100)) process.exit(1);
 if (logic.identityKey(1, 0) !== "" || logic.identityKey(undefined, 100) !== "") process.exit(1);
+const labelNow = new Date(2026, 2, 10, 12, 0, 0).getTime();
+if (logic.timestampLabel(0, labelNow) !== "" || logic.timestampLabel("bad", labelNow) !== "") process.exit(1);
+if (logic.timestampLabel(labelNow - 5000, labelNow) !== "Just now") process.exit(1);
+if (logic.timestampLabel(labelNow - 5 * 60000, labelNow) !== "5m ago") process.exit(1);
+if (logic.timestampLabel(labelNow - 3 * 3600000, labelNow) !== "3h ago") process.exit(1);
+if (logic.timestampLabel(new Date(2026, 2, 9, 14, 30, 0).getTime(), labelNow) !== "Yesterday 14:30") process.exit(1);
+if (logic.timestampLabel(new Date(2026, 2, 7, 9, 5, 0).getTime(), labelNow) !== "Sat 09:05") process.exit(1);
+if (logic.timestampLabel(new Date(2026, 0, 4, 8, 0, 0).getTime(), labelNow) !== "4 Jan 08:00") process.exit(1);
+if (logic.timestampLabel(new Date(2025, 11, 24, 18, 45, 0).getTime(), labelNow) !== "24 Dec 2025") process.exit(1);
 const repeatedIdentityA = logic.snapshotOf({ id: 1, appName: "ChatGPT", summary: "A" }, 100);
 const repeatedIdentityB = logic.snapshotOf({ id: 1, appName: "ChatGPT", summary: "B" }, 200);
 if (logic.identityKey(repeatedIdentityA.originalId, repeatedIdentityA.timestamp) ===
@@ -580,4 +594,65 @@ process.exit(ok ? 0 : 1);
     rm -f -- "$herdr_logic_test"
 else
     skip "[unit] Herdr notification projection (node unavailable)"
+fi
+
+# The shared card must render the source application name, source application
+# icon, and computed timestamp label. Static property wiring is not enough: an
+# isolated runtime fixture loads the real NotificationToast and records the
+# Text/Image values present in the rendered tree, then clears the fields and
+# proves they disappear.
+render_fixture="$ROOT/tests/fixtures/notifications/render.qml"
+render_icon="$ROOT/config/branding/aurelia-mark.png"
+if [[ ! -f "$render_fixture" || ! -f "$render_icon" ]]; then
+    fail "[static] notification card render fixture or source icon is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification card render fixture (qs or timeout unavailable)"
+else
+    render_root="$(mktemp -d)"
+    trap 'rm -rf -- "$render_root"  || true' RETURN
+    mkdir -p -- "$render_root/runtime" "$render_root/state" \
+        "$render_root/config" "$render_root/cache"
+    render_result="$render_root/result.json"
+    : >"$render_result"
+    render_log="$render_root/runtime.log"
+    render_status=0
+    AURELIA_NOTIFICATION_RENDER_RESULT="$render_result" \
+    AURELIA_NOTIFICATION_RENDER_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+    AURELIA_NOTIFICATION_RENDER_ICON="file://$render_icon" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$render_root/runtime" \
+    XDG_STATE_HOME="$render_root/state" \
+    XDG_CONFIG_HOME="$render_root/config" \
+    XDG_CACHE_HOME="$render_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$render_fixture" --no-color >"$render_log" 2>&1 || render_status=$?
+
+    render_completed=0
+    if [[ "$render_status" -eq 0 ]]; then
+        render_completed=1
+    elif [[ "$render_status" -eq 124 && -s "$render_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$render_log"; then
+        render_completed=1
+    fi
+    if [[ "$render_completed" -eq 1 ]] && [[ -s "$render_result" ]] &&
+       runtime_log_is_environment_only "$render_log" &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$render_log" &&
+       jq -e --arg icon "file://$render_icon" '
+            .loaded == true and
+            .iconReady == true and
+            .appText == "Aurelia Render Fixture" and
+            .appVisible == true and
+            .timestampText == "Yesterday 14:30" and
+            .timestampVisible == true and
+            .iconSource == $icon and
+            .iconVisible == true and
+            .emptyAppHidden == true and
+            .emptyTimestampHidden == true
+       ' "$render_result" >/dev/null; then
+        pass "[isolated-runtime] shared notification card renders the source app name, source icon, and timestamp, and hides them when empty"
+    else
+        details="$(tail -n 48 "$render_log" || true)"
+        if [[ -s "$render_result" ]]; then details="$details result=$(tr '\n' ' ' <"$render_result")"; fi
+        fail "[isolated-runtime] notification card render fixture failed (status=$render_status): $details"
+    fi
 fi

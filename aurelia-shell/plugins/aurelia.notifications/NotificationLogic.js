@@ -44,6 +44,44 @@ function finiteNumber(value, fallback) {
     return isFinite(number) ? number : fallback
 }
 
+var WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+var MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+function padTwo(value) {
+    var number = Math.floor(Math.abs(Number(value)))
+    return (number < 10 ? "0" : "") + String(number)
+}
+
+function startOfDay(date) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+// Human-readable notification age for the shared card header. Recent items
+// read as a relative age; older items fall back to a calendar-aware label so a
+// history entry stays unambiguous. Kept pure and locale-free so it can be
+// unit-tested in isolation and bound from any surface.
+function timestampLabel(timestamp, now) {
+    var stamp = finiteNumber(timestamp, 0)
+    if (stamp <= 0) return ""
+    var date = new Date(stamp)
+    if (isNaN(date.getTime())) return ""
+    var current = new Date(finiteNumber(now, Date.now()))
+    var elapsedSeconds = Math.floor(Math.max(0, current.getTime() - stamp) / 1000)
+    if (elapsedSeconds < 45) return "Just now"
+    var clock = padTwo(date.getHours()) + ":" + padTwo(date.getMinutes())
+    var dayDiff = Math.round((startOfDay(current) - startOfDay(date)) / 86400000)
+    if (dayDiff <= 0) {
+        if (elapsedSeconds < 3600) return Math.max(1, Math.round(elapsedSeconds / 60)) + "m ago"
+        return Math.max(1, Math.round(elapsedSeconds / 3600)) + "h ago"
+    }
+    if (dayDiff === 1) return "Yesterday " + clock
+    if (dayDiff < 7) return WEEKDAY_LABELS[date.getDay()] + " " + clock
+    if (date.getFullYear() === current.getFullYear())
+        return date.getDate() + " " + MONTH_LABELS[date.getMonth()] + " " + clock
+    return date.getDate() + " " + MONTH_LABELS[date.getMonth()] + " " + date.getFullYear()
+}
+
 function identityKey(originalId, timestamp) {
     var id = Number(originalId)
     var stamp = Number(timestamp)
@@ -659,6 +697,7 @@ function historyRows(raw, liveRows, normalUrgency, limit) {
 if (typeof module !== "undefined") {
     module.exports = {
         boundedText: boundedText,
+        timestampLabel: timestampLabel,
         isChromiumDerived: isChromiumDerived,
         sanitizeBody: sanitizeBody,
         styledBody: styledBody,

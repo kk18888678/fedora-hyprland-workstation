@@ -281,6 +281,12 @@ instead provide `balance` with `remaining`, `funded`, `spent`, `currency`, and
 - records are rescanned after each collector process exits;
 - a provider is shown only when enabled and it has limits, balance, prompts,
   sessions, active days, or other actual usage data;
+  - documented exception: the Claude collector also shows an `anthropic`
+    account that pi is configured for (an `anthropic` entry in pi's
+    `agent/auth.json` or `agent/models-store.json`) but that has recorded no
+    turn yet. Such a record is `detected` with `ready` false and the explicit
+    `usageStatusText` "Account configured · no usage yet", so a newly added
+    account is visible before first use without pretending it has usage;
 - no data means the complete bar module is invisible, not a dim empty icon;
 - multiple providers add a switch row; one provider has no switch row.
 
@@ -295,7 +301,7 @@ columns. These are style units, so the base style scale in
 
 | Provider | Local data | Authoritative limits/balance |
 |---|---|---|
-| Claude | `~/.claude/projects` JSONL; fallback `stats-cache.json` and `history.jsonl`; also Pi/Oh My Pi and OpenCode Anthropic sessions | OAuth usage endpoint; `CLAUDE_CONFIG_DIR` may relocate the home |
+| Claude | `~/.claude/projects` JSONL; fallback `stats-cache.json` and `history.jsonl`; also pi (provider id `anthropic`), Oh My Pi, and OpenCode Anthropic sessions; a pi `anthropic` credential in `agent/auth.json`/`agent/models-store.json` surfaces a configured-but-unused account | OAuth usage endpoint; `CLAUDE_CONFIG_DIR` may relocate the home |
 | Codex | native `CODEX_HOME/sessions` and archived sessions; Pi/Oh My Pi/OpenCode OpenAI sessions | Codex app-server RPC: `initialize`, `account/read`, `account/rateLimits/read` |
 | Fireworks | billing API grouped by day/model over the last 30 days | live balance when permitted, otherwise configured funding minus rated costs; `scope: account` |
 
