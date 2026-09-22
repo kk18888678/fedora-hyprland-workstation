@@ -67,6 +67,13 @@ PanelWindow {
         menuModel.lastError = menuModel.lastError || "Menu action failed."
     }
 
+    // Full-screen dim behind the translucent menu surface; see the launcher
+    // scrim note for the legibility rationale.
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.menu.scrim
+    }
+
     MouseArea {
         anchors.fill: parent
         onClicked: menuRoot.close()

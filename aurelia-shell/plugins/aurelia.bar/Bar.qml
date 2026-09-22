@@ -57,12 +57,17 @@ Item {
     property color themeContrastForeground: Theme.background
     property color transparentForeground: Theme.bar.foreground
     property bool transparentForegroundFallbackReported: false
+    property bool transparentForegroundOpaqueRequired: false
     property bool foregroundAnimationEnabled: true
     readonly property color foreground: requestedTransparent ? transparentForeground : themeForeground
     readonly property color barForeground: foreground
     readonly property color background: Theme.bar.background
     readonly property color urgent: Theme.bar.active
-    readonly property bool transparent: requestedTransparent
+    // A transparent bar is only safe while the sampled wallpaper guarantees a
+    // legible foreground. When the helper cannot find one it emits
+    // `action=opaque`; the bar then falls back to its opaque themed surface
+    // instead of rendering text over an unreadable region.
+    readonly property bool transparent: requestedTransparent && !transparentForegroundOpaqueRequired
     readonly property bool barConfigReady: barConfig && barConfig.layout
     readonly property bool vertical: position === "left" || position === "right"
     // The cross-axis size follows the reference bar's structural scale. Popup
@@ -390,6 +395,7 @@ Item {
         if (!barRoot.requestedTransparent) {
             barRoot.transparentForeground = barRoot.themeForeground
             barRoot.transparentForegroundFallbackReported = false
+            barRoot.transparentForegroundOpaqueRequired = false
             return
         }
         transparentForegroundTimer.restart()
@@ -399,6 +405,7 @@ Item {
         if (!barRoot.requestedTransparent || transparentForegroundProcess.running) return
         if (barRoot.barTextColorToolPath === "") {
             barRoot.transparentForeground = barRoot.themeForeground
+            barRoot.transparentForegroundOpaqueRequired = false
             if (!barRoot.transparentForegroundFallbackReported) {
                 barRoot.transparentForegroundFallbackReported = true
                 console.warn("[BAR] transparent_foreground_fallback reason=helper_unavailable")
@@ -767,8 +774,12 @@ Item {
         onExited: function(code) {
             var value = String(transparentForegroundOutput.text || "").trim()
             var detail = String(transparentForegroundError.text || "").trim()
+            // The helper emits `action=opaque` only when no candidate colour
+            // clears the 4.5:1 threshold against the worst sampled region.
+            var opaqueRequired = /(^|[[:space:]])action=opaque([[:space:]]|$)/.test(detail)
             if (code === 0 && /^#[0-9A-Fa-f]{6}$/.test(value)) {
                 barRoot.transparentForeground = value
+                barRoot.transparentForegroundOpaqueRequired = opaqueRequired
                 barRoot.reportBarFacadeState()
                 if (detail !== "" && !barRoot.transparentForegroundFallbackReported) {
                     barRoot.transparentForegroundFallbackReported = true
@@ -784,6 +795,7 @@ Item {
                     (detail === "" ? "" : " detail=" + detail))
             }
             barRoot.transparentForeground = barRoot.themeForeground
+            barRoot.transparentForegroundOpaqueRequired = false
             barRoot.reportBarFacadeState()
         }
     }
