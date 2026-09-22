@@ -17,6 +17,11 @@
 
 set -Eeuo pipefail
 
+# The sampling binary is overridable so the repository test suite can exercise
+# out-of-range luminance output without a real image. Production never sets
+# this: the transparent bar invokes the helper with the trusted system binary.
+magick_bin="${AURELIA_BAR_TEXT_COLOR_MAGICK:-/usr/bin/magick}"
+
 position="${1:-top}"
 bar_size="${2:-}"
 text_color="${3:-}"
@@ -58,7 +63,10 @@ fallback() {
     local reason="$1"
     local value="#ffffff"
     valid_hex "$text_color" && value="$text_color"
-    printf '[AURELIA-BAR-TEXT] fallback reason=%s\n' "$reason" >&2
+    # Any fallback means contrast could not be verified. Fail safe: always ask
+    # the resident bar for the strong non-surface halo so content stays legible
+    # regardless of the wallpaper behind the transparent bar.
+    printf '[AURELIA-BAR-TEXT] fallback reason=%s action=halo\n' "$reason" >&2
     printf '%s\n' "$value"
     exit 0
 }
@@ -96,7 +104,7 @@ screen_height="${BASH_REMATCH[2]}"
 (( screen_width > 0 && screen_height > 0 && bar_size <= screen_width && bar_size <= screen_height )) ||
     fallback invalid-screen-geometry
 
-if [[ ! -x /usr/bin/magick ]]; then
+if [[ ! -x "$magick_bin" ]]; then
     fallback missing-magick
 fi
 
@@ -125,14 +133,18 @@ esac
 # endpoints bound the worst case for any candidate foreground. A transparent
 # image is matted against a neutral mid-grey before measurement so it cannot
 # be silently read as black or white.
-luminance_range="$(/usr/bin/magick "${background_path}[0]" -auto-orient \
+luminance_range="$("$magick_bin" "${background_path}[0]" -auto-orient \
     -resize "${screen_width}x${screen_height}^" \
     -gravity center -extent "${screen_width}x${screen_height}" \
     -gravity NorthWest -crop "$crop" +repage \
     -colorspace sRGB -background '#808080' -alpha remove \
     -grayscale Rec709Luminance \
     -format '%[fx:minima] %[fx:maxima]' info:-  || true)"
-[[ "$luminance_range" =~ ^([0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)[[:space:]]+([0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$ ]] ||
+# `%[fx:minima]` and `%[fx:maxima]` can land marginally outside [0,1] on an
+# HDRI build (for example `-0.00147364`). Accept a signed sample and clamp both
+# endpoints into the luminance domain before the WCAG math; rejecting the
+# sample would silently abandon contrast selection and never request a halo.
+[[ "$luminance_range" =~ ^([-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)[[:space:]]+([-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$ ]] ||
     fallback sample-failed
 
 sample_min="${BASH_REMATCH[1]}"
@@ -178,6 +190,12 @@ selection="$(/usr/bin/awk \
             return low_ratio < high_ratio ? low_ratio : high_ratio
         }
         BEGIN {
+            lo = lo + 0
+            hi = hi + 0
+            if (lo < 0) lo = 0
+            if (lo > 1) lo = 1
+            if (hi < 0) hi = 0
+            if (hi > 1) hi = 1
             text_worst = worst(text)
             background_worst = worst(background)
             if (text_worst >= background_worst) {
