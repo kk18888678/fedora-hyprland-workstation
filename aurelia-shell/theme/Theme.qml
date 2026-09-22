@@ -35,6 +35,14 @@ QtObject {
     property bool activeShellAvailable: false
     property int _shellReloadToken: 0
 
+    // Minimum effective opacity for a translucent surface background. A
+    // surface that is too transparent lets an arbitrary wallpaper dominate
+    // the composite and can erase the declared text/surface contrast. The
+    // floor keeps the theme surface colour dominant so the declared contrast
+    // survives compositing. Fills, borders, and scrims are intentionally
+    // excluded: only the background plane that carries text is floored.
+    readonly property real minimumSurfaceOpacity: 0.95
+
     property Process themeOverrideProbe: Process {
         command: themeRoot.themePath !== "" ? ["/usr/bin/test", "-f", themeRoot.themePath] : ["/usr/bin/false"]
         running: true
@@ -283,7 +291,7 @@ QtObject {
         readonly property bool scaleWithFont: themeRoot.barScaleWithFont
         readonly property color background: themeRoot._withAlpha(
             themeRoot._getShellColor("bar.background", themeRoot.bgBase),
-            themeRoot._getShellAlpha("bar.background-alpha", 1.0))
+            themeRoot._getSurfaceAlpha("bar.background-alpha", 1.0))
         readonly property color foreground: themeRoot._getShellColor("bar.text", themeRoot.text)
         readonly property color active: themeRoot._getShellColor("bar.active", themeRoot.accent)
         readonly property color border: themeRoot._getShellColor("bar.border", themeRoot.border)
@@ -470,6 +478,12 @@ QtObject {
         return isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback
     }
 
+    // Surface backgrounds are clamped up to the minimum surface opacity so a
+    // low-alpha theme override cannot make text illegible over a wallpaper.
+    function _getSurfaceAlpha(key: string, fallback: real): real {
+        return Math.max(themeRoot.minimumSurfaceOpacity, themeRoot._getShellAlpha(key, fallback))
+    }
+
     function _withAlpha(value: color, alpha: real): color {
         var resolved = value
         return Qt.rgba(resolved.r, resolved.g, resolved.b, Math.max(0, Math.min(1, Number(alpha))))
@@ -546,7 +560,7 @@ QtObject {
     readonly property QtObject popups: QtObject {
         readonly property color background: themeRoot._withAlpha(
             themeRoot._getShellColor("popups.background", themeRoot.bgBase),
-            themeRoot._getShellAlpha("popups.background-alpha", 1.0))
+            themeRoot._getSurfaceAlpha("popups.background-alpha", 1.0))
         readonly property color text: themeRoot._getShellColor("popups.text", themeRoot.text)
         readonly property color border: themeRoot._withAlpha(
             themeRoot._getShellColor("popups.border", themeRoot.borderActive),
@@ -556,7 +570,7 @@ QtObject {
     readonly property QtObject tooltip: QtObject {
         readonly property color background: themeRoot._withAlpha(
             themeRoot._getShellColor("tooltip.background", themeRoot.surfaceElevated),
-            themeRoot._getShellAlpha("tooltip.background-alpha", 0.97))
+            themeRoot._getSurfaceAlpha("tooltip.background-alpha", 0.97))
         readonly property color text: themeRoot._getShellColor("tooltip.text", themeRoot.text)
         readonly property color border: themeRoot._withAlpha(
             themeRoot._getShellColor("tooltip.border", themeRoot.borderActive),
@@ -566,7 +580,7 @@ QtObject {
     readonly property QtObject notifications: QtObject {
         readonly property color background: themeRoot._withAlpha(
             themeRoot._getShellColor("notifications.background", themeRoot.surfaceElevated),
-            themeRoot._getShellAlpha("notifications.background-alpha", 1.0))
+            themeRoot._getSurfaceAlpha("notifications.background-alpha", 1.0))
         readonly property color text: themeRoot._getShellColor("notifications.text", themeRoot.text)
         readonly property color border: themeRoot._withAlpha(
             themeRoot._getShellColor("notifications.border", themeRoot.borderActive),
@@ -577,7 +591,7 @@ QtObject {
     readonly property QtObject launcher: QtObject {
         readonly property color background: themeRoot._withAlpha(
             themeRoot._getShellColor("launcher.background", themeRoot.bgBase),
-            themeRoot._getShellAlpha("launcher.background-alpha", 0.95))
+            themeRoot._getSurfaceAlpha("launcher.background-alpha", 0.95))
         readonly property color text: themeRoot._getShellColor("launcher.text", themeRoot.text)
         readonly property color border: themeRoot._getShellColor("launcher.border", themeRoot.borderActive)
         readonly property color scrim: themeRoot._withAlpha(
@@ -595,7 +609,7 @@ QtObject {
     readonly property QtObject menu: QtObject {
         readonly property color background: themeRoot._withAlpha(
             themeRoot._getShellColor("menu.background", themeRoot.bgBase),
-            themeRoot._getShellAlpha("menu.background-alpha", 1.0))
+            themeRoot._getSurfaceAlpha("menu.background-alpha", 1.0))
         readonly property color text: themeRoot._getShellColor("menu.text", themeRoot.text)
         readonly property color border: themeRoot._getShellColor("menu.border", themeRoot.borderActive)
         readonly property color scrim: themeRoot._withAlpha(

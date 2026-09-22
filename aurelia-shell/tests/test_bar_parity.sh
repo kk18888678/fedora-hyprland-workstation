@@ -46,6 +46,25 @@ else
     fail "[static] scoped plugin bar facade color propagation is incomplete"
 fi
 
+# The helper enforces the WCAG AA threshold against the worst sampled region
+# and emits an explicit opaque signal when no candidate qualifies. The bar
+# honours that signal by falling back to its opaque surface, and the theme
+# floors translucent surface opacity while wiring the declared scrim tokens.
+if grep -Fq 'reason=insufficient-contrast' "$text_color_bin" &&
+   grep -Fq 'action=opaque' "$text_color_bin" &&
+   grep -Fq 'grayscale Rec709Luminance' "$text_color_bin" &&
+   grep -Fq 'transparentForegroundOpaqueRequired' "$bar_file" &&
+   grep -Fq 'requestedTransparent && !transparentForegroundOpaqueRequired' "$bar_file" &&
+   grep -Fq 'minimumSurfaceOpacity' "$ROOT/theme/Theme.qml" &&
+   grep -Fq '_getSurfaceAlpha("launcher.background-alpha"' "$ROOT/theme/Theme.qml" &&
+   grep -Fq '_getSurfaceAlpha("tooltip.background-alpha"' "$ROOT/theme/Theme.qml" &&
+   grep -Fq 'Theme.launcher.scrim' "$ROOT/plugins/aurelia.launcher/ui/CommandCenterPanel.qml" &&
+   grep -Fq 'Theme.menu.scrim' "$ROOT/plugins/aurelia.menu/Menu.qml"; then
+    pass "[static] bar and translucent surfaces enforce the AA legibility guard with a bounded wallpaper contribution"
+else
+    fail "[static] bar or translucent-surface legibility guard is incomplete"
+fi
+
 model_result="$(node - "$bar_root/BarInteractionModel.js" <<'NODE'
 const assert = require('assert');
 const model = require(process.argv[2]);
@@ -99,6 +118,13 @@ magick -size 100x100 xc:'#202020' -fill '#f5f5f5' \
     -draw 'rectangle 0,0 99,19' "$parity_tmp/light.png"
 magick -size 100x100 xc:'#f5f5f5' -fill '#202020' \
     -draw 'rectangle 0,0 99,19' "$parity_tmp/dark.png"
+# A busy high-variance strip. The alternating dark/light blocks average to a
+# misleading mid-tone under a single 1x1 sample, but no candidate foreground
+# can stay legible against both extremes.
+magick -size 100x100 xc:'#202020' -fill '#ffffff' \
+    -draw 'rectangle 0,0 9,19' -draw 'rectangle 20,0 29,19' \
+    -draw 'rectangle 40,0 49,19' -draw 'rectangle 60,0 69,19' \
+    -draw 'rectangle 80,0 89,19' "$parity_tmp/checker.png"
 
 light_error="$parity_tmp/light.err"
 dark_error="$parity_tmp/dark.err"
@@ -111,6 +137,20 @@ if [[ "$light_result" == "#101010" && "$dark_result" == "#ffffff" &&
     pass "[isolated-media] transparent foreground selects the higher-contrast color for light and dark still images"
 else
     fail "[isolated-media] still-image contrast selection is incorrect: light=$light_result dark=$dark_result"
+fi
+
+# Neither candidate clears 4.5:1 against the worst region of a high-variance
+# strip, so the helper must emit an explicit opaque signal rather than a
+# misleading low-contrast colour.
+checker_error="$parity_tmp/checker.err"
+checker_result="$("$text_color_bin" top 20 '#ffffff' '#101010' \
+    --background "$parity_tmp/checker.png" --screen 100x100 2>"$checker_error")"
+if [[ "$checker_result" == "#ffffff" ]] &&
+   grep -Fq 'fallback reason=insufficient-contrast' "$checker_error" &&
+   grep -Fq 'action=opaque' "$checker_error"; then
+    pass "[isolated-media] high-variance strip emits an explicit opaque fallback instead of a low-contrast colour"
+else
+    fail "[isolated-media] high-variance strip fallback is incorrect: $checker_result $(tr '\n' ' ' <"$checker_error")"
 fi
 
 ffmpeg -y -f lavfi -i 'color=c=0x202020:s=100x100:d=1' \

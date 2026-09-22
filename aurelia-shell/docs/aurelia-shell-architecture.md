@@ -182,6 +182,40 @@ aurelia-shell/
 - **User-Owned**: `~/.config/aurelia/theme.conf` (or environment variable `AURELIA_THEME_CONF`) allows overriding specific variables without modifying component QML files.
 - **Fallback Guarantees**: `Theme.qml` guarantees valid fallback values for every token, ensuring zero visual corruption if individual variables are omitted.
 
+### 5.3 Legibility and Translucency Guarantees
+
+Rendered text must stay legible over arbitrary wallpapers. Two complementary
+fail-closed guards cover the translucent surfaces:
+
+- **Transparent bar (adaptive foreground)**: `bin/aurelia-bar-text-color`
+  measures the darkest and brightest WCAG relative-luminance regions of the bar
+  strip instead of collapsing it to one `1x1` average. A single average hides
+  high-variance wallpapers (for example a black/white checkerboard), so the
+  helper rejects every candidate foreground whose worst-case contrast against
+  that luminance range is below the WCAG AA threshold of `4.5:1`. When neither
+  the theme foreground nor the contrast foreground qualifies, the helper
+  returns the theme foreground and emits an explicit `action=opaque` signal on
+  stderr. The resident bar reads that signal and forces its opaque themed
+  surface (`Bar.qml`), so text is never rendered over an unreadable region.
+- **Translucent surfaces (bounded wallpaper contribution)**: Launcher, menu,
+  tooltip, popup, notification, and opaque-bar backgrounds resolve through
+  `Theme._getSurfaceAlpha`, which clamps the effective opacity up to
+  `Theme.minimumSurfaceOpacity` (`0.95`). The floor bounds how much of an
+  arbitrary wallpaper can bleed through a surface and preserves the declared
+  text/surface contrast. The launcher and menu also render their already
+  declared `scrim` tokens as a full-window dim behind the translucent card,
+  further reducing the wallpaper contribution. Fills, borders, and scrim
+  alphas are deliberately excluded from the floor; only the background plane
+  that carries text is floored.
+
+The shipped tokens already satisfy the floor (launcher `0.95`, tooltip `0.97`)
+and clear the AA threshold. The floor is therefore a guard against theme
+overrides that would otherwise silently reduce legibility, not a change to the
+stock palette. A minimum-opacity floor was chosen over relying on the scrim
+tokens alone because a scrim under a near-opaque surface changes the composite
+by only a few percent, while the floor directly bounds the wallpaper term for
+every translucent surface.
+
 ---
 
 ## 6. Failure Domains & Isolation Model
