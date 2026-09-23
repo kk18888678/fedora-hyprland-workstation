@@ -105,10 +105,14 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'objectName: "notificationSourceIcon"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'objectName: "notificationSummary"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'objectName: "notificationBody"' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'horizontalAlignment: Text.AlignHCenter' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'readonly property int actionItemsCount' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'typeof value.count === "number"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'Layout.preferredHeight: visible ? actionFlow.implicitHeight : 0' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'horizontalAlignment: Text.AlignLeft' "$plugin_root/ui/NotificationToast.qml" &&
+   ! grep -q 'horizontalAlignment: Text.AlignHCenter' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'implicitHeight: toastCard.implicitHeight' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'onActivated: root.service.invokeDefault' "$plugin_root/ui/NotificationCenterPanel.qml"; then
-    pass "The Inbox uses the shared notification card with centered wrapped text"
+    pass "The Inbox uses the shared notification card with left-aligned wrapped text"
 else
     fail "Notification center still has a divergent or dead row presentation"
 fi
@@ -819,7 +823,8 @@ else
         render_completed=1
     fi
     if [[ "$render_completed" -eq 1 ]] && [[ -s "$render_result" ]] &&
-       runtime_log_is_environment_only "$render_log" &&
+       runtime_log_is_environment_only "$render_log" \
+           'Created graphical object was not placed in the graphics scene' &&
        ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$render_log" &&
        jq -e --arg icon "file://$render_icon" --arg app "Aurelia Render Fixture With An Extremely Long Application Name" '
             .loaded == true and
@@ -835,21 +840,24 @@ else
             .copyVisibleDefault == false and
             .copyVisibleWhenFocused == true and
             .copyHiddenAfterBlur == true and
+            .actionButtonCountInitial == 2 and
+            .actionButtonsSameRowInitial == true and
             .actionOneRowHeight == 28 and
             .actionWrappedHeight > .actionOneRowHeight and
+            .actionWrappedButtonCount == 7 and
             .actionFlowWidth > 0 and
             .copyIcon == "edit-copy" and
             .copyIsIconControl == true and
             .copySameRowAsTitle == true and
             .copyAfterTitleInRow == true and
-            .summaryCentered == true and
-            .bodyCentered == true and
+            .summaryLeftAligned == true and
+            .bodyLeftAligned == true and
             .fallbackSourcePath == $icon and
             .fallbackName == "" and
             .emptyAppHidden == true and
             .emptyTimestampHidden == true
        ' "$render_result" >/dev/null; then
-        pass "[isolated-runtime] shared notification card centers wrapped text and keeps an icon Copy control with the real app-icon source"
+        pass "[isolated-runtime] shared notification card left-aligns wrapped text and counts every action through the production ListModel path"
     else
         details="$(tail -n 48 "$render_log" || true)"
         if [[ -s "$render_result" ]]; then details="$details result=$(tr '\n' ' ' <"$render_result")"; fi

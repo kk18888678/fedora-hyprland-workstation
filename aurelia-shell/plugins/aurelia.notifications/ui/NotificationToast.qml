@@ -42,8 +42,19 @@ Item {
     // which also keeps it out of hit-testing while invisible.
     readonly property bool copyRevealed: root.hovered || root.focus || copyButton.focus
     activeFocusOnTab: true
+    // Actions arrive either as a plain JS array (fixtures/tests) or as the
+    // nested list model Qt materializes for a ListModel array role (the
+    // production Service path). The latter exposes `.count` and no `.length`,
+    // so count both forms or the toolbar under-measures and wraps.
+    readonly property int actionItemsCount: {
+        var value = root.actions
+        if (!value) return 0
+        if (typeof value.length === "number") return value.length
+        if (typeof value.count === "number") return value.count
+        return 0
+    }
     readonly property int actionCount: (root.defaultActionText !== "" ? 1 : 0)
-        + (root.actions && typeof root.actions.length === "number" ? root.actions.length : 0)
+        + root.actionItemsCount
     readonly property int actionGroupWidth: root.actionCount > 0
         ? root.actionCount * Theme.scaleGeometry(64)
             + (root.actionCount - 1) * Theme.spacingXs
@@ -300,7 +311,6 @@ Item {
                     Text {
                         objectName: "notificationSummary"
                         Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignHCenter
                         visible: root.summary.length > 0
                         textFormat: Text.PlainText
                         text: root.summary
@@ -308,7 +318,7 @@ Item {
                         font.family: "Liberation Sans"
                         font.pixelSize: Theme.fontSizeMd
                         font.weight: Theme.fontWeightBold
-                        horizontalAlignment: Text.AlignHCenter
+                        horizontalAlignment: Text.AlignLeft
                         wrapMode: Text.WordWrap
                         maximumLineCount: 2
                         elide: Text.ElideRight
@@ -317,7 +327,6 @@ Item {
                     Text {
                         objectName: "notificationBody"
                         Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: Theme.scaleGeometry(2)
                         visible: root.sanitizedBody.length > 0
                         text: root.styledBody
@@ -326,7 +335,7 @@ Item {
                         font.family: "Liberation Sans"
                         font.pixelSize: Theme.fontSizeSm
                         font.weight: Theme.fontWeightNormal
-                        horizontalAlignment: Text.AlignHCenter
+                        horizontalAlignment: Text.AlignLeft
                         wrapMode: Text.WordWrap
                         maximumLineCount: 2
                         elide: Text.ElideRight
@@ -341,13 +350,17 @@ Item {
                 id: actionContainer
                 objectName: "notificationActionContainer"
                 Layout.fillWidth: true
-                Layout.preferredHeight: visible ? actionToolbar.implicitHeight : 0
+                // Bind the container height to the Flow's own implicit height.
+                // Routing it through actionToolbar.implicitHeight observed a
+                // stale zero while the nested Flow reflowed, which clipped a
+                // wrapped action row.
+                Layout.preferredHeight: visible ? actionFlow.implicitHeight : 0
                 Layout.topMargin: Theme.scaleGeometry(2)
                 // Leave breathing room between the action row and the card's
                 // bottom border so the button never touches the edge.
                 Layout.bottomMargin: visible ? Theme.scaleGeometry(6) : 0
                 visible: root.showActions && (root.defaultActionText !== "" ||
-                    (root.actions && root.actions.length > 0))
+                    root.actionItemsCount > 0)
 
                 ColumnLayout {
                     id: actionToolbar
