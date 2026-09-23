@@ -22,6 +22,8 @@ ShellRoot {
     property string liveAppIcon: ""
     property string diskAppIcon: ""
     property string diskImage: ""
+    property int activeActionsCount: -1
+    property int popupActionsCount: -1
 
     QtObject {
         id: ephemeralNotification
@@ -37,7 +39,12 @@ ShellRoot {
         property int urgency: 1
         property int expireTimeout: 0
         property var hints: ({})
-        property var actions: []
+        // A non-default action is what the destructive ListModel update used to
+        // drop: the default button survives, the reply button disappears.
+        property var actions: [
+            { identifier: "default", text: "Open" },
+            { identifier: "reply", text: "Reply" }
+        ]
         function dismiss() { closed() }
         function expire() { dismiss() }
     }
@@ -134,6 +141,10 @@ ShellRoot {
         root.activeAppIcon = String(activeRow.appIcon || "")
         root.activeImage = String(activeRow.image || "")
         root.popupAppIcon = String(popupRow.appIcon || "")
+        root.activeActionsCount = activeRow.actions === undefined ? -1
+            : (typeof activeRow.actions.count === "number" ? activeRow.actions.count : -1)
+        root.popupActionsCount = popupRow.actions === undefined ? -1
+            : (typeof popupRow.actions.count === "number" ? popupRow.actions.count : -1)
         var liveKey = root.service.liveKeyForOriginalId(activeRow.originalId)
         var live = liveKey !== "" ? root.service.liveSnapshots[liveKey] : null
         root.liveAppIcon = live ? String(live.appIcon || "") : ""
@@ -163,6 +174,8 @@ ShellRoot {
             activeImage: root.activeImage,
             popupAppIcon: root.popupAppIcon,
             liveAppIcon: root.liveAppIcon,
+            activeActionsCount: root.activeActionsCount,
+            popupActionsCount: root.popupActionsCount,
             diskAppIcon: root.diskAppIcon,
             diskImage: root.diskImage,
             expectedAppIcon: expectedAppIcon,
@@ -174,6 +187,8 @@ ShellRoot {
                 root.activeImage.indexOf("image://") !== 0 &&
                 root.activeImage.indexOf(root.sourceIcon) === -1,
             popupRetained: root.popupAppIcon === expectedAppIcon,
+            activeActionsRetained: root.activeActionsCount === 1,
+            popupActionsRetained: root.popupActionsCount === 1,
             liveRetained: root.liveAppIcon === expectedAppIcon,
             diskMatchesModel: root.diskAppIcon === expectedAppIcon &&
                 root.diskImage === expectedImage

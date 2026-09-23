@@ -177,6 +177,8 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'service.applyDurablePopup(snapshot, persistable.entry)' "$plugin_root/Service.qml" &&
    grep -q 'updateModelRows(activeNotificationsModel, durableEntry' "$plugin_root/Service.qml" &&
    grep -q 'updateModelRows(popupNotificationsModel, durableEntry' "$plugin_root/Service.qml" &&
+   grep -Fq 'if (roles[r] === "actions") model.set(i, { actions: updated.actions || [] })' "$plugin_root/Service.qml" &&
+   grep -Fq 'else model.setProperty(i, roles[r], updated[roles[r]])' "$plugin_root/Service.qml" &&
    grep -q 'function deletePopupFileFor' "$plugin_root/Service.qml" &&
    grep -q 'function restorePopups' "$plugin_root/Service.qml" &&
    grep -q 'function isManualInboxEntry' "$plugin_root/Service.qml" &&
@@ -739,9 +741,10 @@ if [[ "$durable_icon_completed" -eq 1 ]] && [[ -s "$durable_icon_result" ]] &&
    jq -e '.serviceLoaded == true and
           .appIconRetained == true and .imageRetained == true and
           .popupRetained == true and .liveRetained == true and
+          .activeActionsRetained == true and .popupActionsRetained == true and
           .diskMatchesModel == true' \
        "$durable_icon_result" >/dev/null; then
-    pass "[isolated-runtime] ephemeral image:// app icons propagate the durable copied path into the live models, snapshots, and on-disk JSON"
+    pass "[isolated-runtime] ephemeral image:// app icons propagate the durable copied path into the live models, snapshots, and on-disk JSON without dropping non-default actions"
 else
     details="$(tail -n 48 "$durable_icon_log" || true)"
     if [[ -s "$durable_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$durable_icon_result")"; fi
@@ -806,6 +809,7 @@ else
     render_status=0
     AURELIA_NOTIFICATION_RENDER_RESULT="$render_result" \
     AURELIA_NOTIFICATION_RENDER_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+    AURELIA_NOTIFICATION_RENDER_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
     AURELIA_NOTIFICATION_RENDER_ICON="file://$render_icon" \
     QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
     XDG_RUNTIME_DIR="$render_root/runtime" \
@@ -842,6 +846,12 @@ else
             .copyHiddenAfterBlur == true and
             .actionButtonCountInitial == 2 and
             .actionButtonsSameRowInitial == true and
+            .serviceReady == true and
+            .actionButtonCountAfterRawSetProperty == 1 and
+            .rawActionsRoleUndefined == true and
+            .actionButtonCountAfterProductionUpdate == 2 and
+            .actionsCountAfterProductionUpdate == 1 and
+            .actionsRoleUndefinedAfterProductionUpdate == false and
             .actionOneRowHeight == 28 and
             .actionWrappedHeight > .actionOneRowHeight and
             .actionWrappedButtonCount == 7 and
@@ -857,7 +867,7 @@ else
             .emptyAppHidden == true and
             .emptyTimestampHidden == true
        ' "$render_result" >/dev/null; then
-        pass "[isolated-runtime] shared notification card left-aligns wrapped text and counts every action through the production ListModel path"
+        pass "[isolated-runtime] shared notification card keeps every non-default action after the production ListModel update path"
     else
         details="$(tail -n 48 "$render_log" || true)"
         if [[ -s "$render_result" ]]; then details="$details result=$(tr '\n' ' ' <"$render_result")"; fi

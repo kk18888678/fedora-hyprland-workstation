@@ -15,13 +15,21 @@ ShellRoot {
     readonly property string resultPath: Quickshell.env("AURELIA_NOTIFICATION_RENDER_RESULT") || ""
     readonly property string toastSource: Quickshell.env("AURELIA_NOTIFICATION_RENDER_TOAST_SOURCE") || ""
     readonly property string iconSource: Quickshell.env("AURELIA_NOTIFICATION_RENDER_ICON") || ""
+    readonly property string serviceSource: Quickshell.env("AURELIA_NOTIFICATION_RENDER_SERVICE_SOURCE") || ""
     readonly property string longAppName: "Aurelia Render Fixture With An Extremely Long Application Name"
+    // Identity the production updateModelRows path matches on. The row is a
+    // real ListModel snapshot so the actions role is materialized exactly the
+    // way the resident Service materializes it.
+    readonly property int fixtureOriginalId: 1
+    readonly property real fixtureTimestamp: 1700000000000
     // Image.Ready is enum value 1; compare numerically so the fixture stays
     // independent of how the QML type is imported into script scope.
     readonly property int imageReadyStatus: 1
     property bool finished: false
     property var toastComponent: null
     property var toast: null
+    property var service: null
+    property bool serviceReady: false
     property bool loaded: false
     property bool iconReady: false
     property int phase: 0
@@ -46,6 +54,11 @@ ShellRoot {
     property int actionButtonCountInitial: 0
     property bool actionButtonsSameRowInitial: false
     property int actionFlowWidthInitial: 0
+    property int actionButtonCountAfterRawSetProperty: 0
+    property bool rawActionsRoleUndefined: false
+    property int actionButtonCountAfterProductionUpdate: 0
+    property int actionsCountAfterProductionUpdate: -1
+    property bool actionsRoleUndefinedAfterProductionUpdate: false
     property int actionWrappedButtonCount: 0
     property string copyIcon: ""
     property bool copyIsIconControl: false
@@ -63,6 +76,53 @@ ShellRoot {
     // so the fixture must drive the toast from that representation rather than
     // a plain JS array, or it cannot catch the action-undercount regression.
     ListModel { id: actionsModel }
+
+    // Negative control used to prove the destructive operation in isolation.
+    // It is never used to drive the card's real assertions; the production
+    // Service owns the update path that `afterProductionUpdate` measures.
+    ListModel { id: rawActionsModel }
+
+    function baseAction() {
+        return { identifier: "reply", text: "Reply" }
+    }
+
+    function rowSnapshot() {
+        return {
+            id: root.fixtureOriginalId,
+            originalId: root.fixtureOriginalId,
+            timestamp: root.fixtureTimestamp,
+            app: root.longAppName,
+            appIcon: root.iconSource,
+            desktopEntry: "",
+            summary: "Build complete",
+            body: "The render fixture body",
+            image: "",
+            glyph: "",
+            execArgv: "",
+            actions: [root.baseAction()],
+            defaultActionText: "Open",
+            urgency: 1,
+            expireTimeout: 0,
+            deadline: 0,
+            transient: false
+        }
+    }
+
+    // The production Service is loaded in testMode purely so the fixture can
+    // call the real updateModelRows instead of a fixture-local replica.
+    Loader {
+        id: serviceLoader
+        onLoaded: {
+            if (!item) return
+            item.testMode = true
+            root.service = item
+            root.serviceReady = true
+        }
+        Component.onCompleted: {
+            if (root.serviceSource !== "")
+                setSource(root.serviceSource, {testMode: true})
+        }
+    }
 
     // Instantiate the real card with its properties set at creation time, the
     // way the production delegate does. Setting `actions` after construction
@@ -84,7 +144,9 @@ ShellRoot {
         if (root.toast || !root.toastComponent) return
         if (root.toastComponent.status !== Component.Ready) return
         if (actionsModel.count === 0)
-            actionsModel.append({ actions: [{ identifier: "reply", text: "Reply" }] })
+            actionsModel.append(root.rowSnapshot())
+        if (rawActionsModel.count === 0)
+            rawActionsModel.append(root.rowSnapshot())
         root.toast = root.toastComponent.createObject(root, {
             app: root.longAppName,
             appIcon: root.iconSource,
@@ -194,6 +256,7 @@ ShellRoot {
 
     function step() {
         if (root.phase !== 0) return
+        if (!root.serviceReady) return
         if (!root.toast) { root.ensureToast(); return }
         var iconNode = captureVisibleState()
         if (!iconNode || Number(iconNode.status) !== root.imageReadyStatus) return
@@ -215,6 +278,39 @@ ShellRoot {
         root.actionButtonsSameRowInitial = root.actionButtonsSameRow
         root.actionFlowWidthInitial = root.actionFlowWidth
         root.phase = 2
+        // Negative control: the production updateModelRows used to hand a plain
+        // JS array to ListModel.setProperty. Qt then leaves the materialized
+        // array role reading back as undefined, which is what dropped the
+        // non-default action from the card.
+        rawActionsModel.setProperty(0, "actions", [root.baseAction()])
+        root.toast.actions = rawActionsModel.get(0).actions
+        Qt.callLater(root.afterRawSetProperty)
+    }
+
+    function afterRawSetProperty() {
+        if (root.phase !== 2) return
+        captureActionLayout()
+        root.actionButtonCountAfterRawSetProperty = root.actionButtonCount
+        root.rawActionsRoleUndefined = rawActionsModel.get(0).actions === undefined
+        root.phase = 3
+        // Drive the same update through the real production Service so this
+        // fixture follows the service fix instead of re-implementing it.
+        root.service.updateModelRows(actionsModel, root.rowSnapshot(),
+            root.fixtureOriginalId, root.fixtureTimestamp)
+        root.toast.actions = actionsModel.get(0).actions
+        Qt.callLater(root.afterProductionUpdate)
+    }
+
+    function afterProductionUpdate() {
+        if (root.phase !== 3) return
+        captureActionLayout()
+        var updated = actionsModel.get(0).actions
+        root.actionButtonCountAfterProductionUpdate = root.actionButtonCount
+        root.actionsCountAfterProductionUpdate = updated === undefined
+            ? -1
+            : (typeof updated.count === "number" ? updated.count : -1)
+        root.actionsRoleUndefinedAfterProductionUpdate = updated === undefined
+        root.phase = 4
         // Add enough options to exceed the card width and confirm the Flow
         // still wraps instead of overflowing. This phase uses a plain JS array
         // because it exercises Flow geometry, not the ListModel round-trip.
@@ -230,29 +326,29 @@ ShellRoot {
     }
 
     function afterWrap() {
-        if (root.phase !== 2) return
+        if (root.phase !== 4) return
         captureActionLayout()
         root.actionWrappedHeight = root.actionFlowImplicitHeight
         root.actionWrappedButtonCount = root.actionButtonCount
-        root.phase = 3
+        root.phase = 5
         root.toast.forceActiveFocus()
         Qt.callLater(root.afterFocus)
     }
 
     function afterFocus() {
-        if (root.phase !== 3) return
+        if (root.phase !== 5) return
         captureVisibleState()
         root.copyVisibleWhenFocused = root.copyVisible
         root.toast.focus = false
-        root.phase = 4
+        root.phase = 6
         Qt.callLater(root.afterBlur)
     }
 
     function afterBlur() {
-        if (root.phase !== 4) return
+        if (root.phase !== 6) return
         captureVisibleState()
         root.copyHiddenAfterBlur = root.copyVisible === false
-        root.phase = 5
+        root.phase = 7
         // Clear both attribution fields and prove the card stops rendering
         // them, so the visible result above is not a static always-on label.
         root.toast.app = ""
@@ -317,6 +413,12 @@ ShellRoot {
             copyVisibleWhenFocused: root.copyVisibleWhenFocused,
             copyHiddenAfterBlur: root.copyHiddenAfterBlur,
             copyIcon: root.copyIcon,
+            serviceReady: root.serviceReady,
+            actionButtonCountAfterRawSetProperty: root.actionButtonCountAfterRawSetProperty,
+            rawActionsRoleUndefined: root.rawActionsRoleUndefined,
+            actionButtonCountAfterProductionUpdate: root.actionButtonCountAfterProductionUpdate,
+            actionsCountAfterProductionUpdate: root.actionsCountAfterProductionUpdate,
+            actionsRoleUndefinedAfterProductionUpdate: root.actionsRoleUndefinedAfterProductionUpdate,
             actionButtonCount: root.actionButtonCount,
             actionButtonsSameRow: root.actionButtonsSameRow,
             actionButtonCountInitial: root.actionButtonCountInitial,
