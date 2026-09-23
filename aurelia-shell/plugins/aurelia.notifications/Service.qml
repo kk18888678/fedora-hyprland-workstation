@@ -392,7 +392,15 @@ Item {
             updated.id = row.id
             updated.originalId = row.originalId
             updated.timestamp = row.timestamp
-            for (var r = 0; r < roles.length; r++) model.setProperty(i, roles[r], updated[roles[r]])
+            for (var r = 0; r < roles.length; r++) {
+                // A ListModel array role is materialized as a nested list model.
+                // setProperty with a plain JS array leaves that role reading back
+                // as undefined, which silently drops every non-default action
+                // from the card. Re-seed the row with `set` for `actions` so Qt
+                // rematerializes the array role; scalar roles keep setProperty.
+                if (roles[r] === "actions") model.set(i, { actions: updated.actions || [] })
+                else model.setProperty(i, roles[r], updated[roles[r]])
+            }
             changed++
         }
         return changed
