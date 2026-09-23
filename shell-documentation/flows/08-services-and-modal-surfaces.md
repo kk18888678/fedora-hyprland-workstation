@@ -101,9 +101,8 @@ new card fields into the row and rewrites the same popup file.
 
 With DND on, a notification bypasses DND only when the source rules match:
 omarchy-action, or critical urgency from app_name notify-send. A silenced
-non-ephemeral notification is written directly to history; a silenced
-ephemeral notification is discarded after untracking. DND does not mean
-silently dropping every notification.
+notification is discarded after untracking. DND does not mean replaying
+notifications later.
 
 ### Popup presentation
 
@@ -129,30 +128,29 @@ Each passive popup card ticks its remaining lifetime every 50 ms. Hover pauses
 the countdown. A changed summary/body/image resets the popup’s remaining
 lifetime; the corresponding Inbox row remains until explicit user action.
 
-### File and history terminal states
+### File terminal states
 
 Each Inbox notification has one JSON file under the popup state directory. A
-passive popup can expire without changing Inbox. When the user dismisses,
-archives, or acts on a notification:
+passive popup can expire without changing Inbox. When the user dismisses or
+acts on a notification:
 
 ~~~text
-Inbox row  -> serialized file queue -> history directory
+Inbox row  -> serialized file queue -> popup file deleted
              -> Inbox row removed
              -> passive popup row removed
              -> live server object dismissed when still live
 ~~~
 
-The queue serializes writes, copies, moves, deletes, and history reads. Passive
-popup expiry removes only the popup-model row; an explicit Archive action on
-each Inbox card is what moves that notification to history. Image
-files are copied with a five-second, 5 MiB per-file bound before the JSON
-references the copy. Broken or torn JSON lines are skipped on restore.
+The queue serializes writes, copies, moves, and deletes. Passive popup expiry
+removes only the popup-model row; an explicit dismiss on each Inbox card
+removes the Inbox row and its persisted file. Image files are copied with a
+five-second, 5 MiB per-file bound before the JSON references the copy. Broken
+or torn JSON lines are skipped on restore.
 
-The newest ten history entries are retained. showHistory queues a directory
-read as a barrier, carries live rows already on screen, restores newest-first
-rows, and shows No recent notifications when no rows exist. Restored rows are
-marked so their old server ids cannot dismiss an unrelated notification from a
-new server generation.
+On shell reload, persisted Inbox rows are restored newest-first without
+replaying them as transient toasts. Restored rows are marked so their old
+server ids cannot dismiss an unrelated notification from a new server
+generation.
 
 The settings file stores version 3 and the DND boolean. Loading old legacy
 arrays schedules a rewrite that removes the obsolete payload.
@@ -165,8 +163,6 @@ The notifications target provides:
 dndState/isDnd -> on/off
 toggleDnd      -> flip and return new state
 setDnd(value)  -> parse true/1/on/yes or false
-showHistory    -> replay history
-clear          -> clear recorded history but leave current toasts
 dismissAll     -> dismiss current toasts
 dismissOne     -> dismiss newest
 invokeLast     -> invoke newest default action then dismiss
@@ -392,7 +388,7 @@ service rereads state after the final apply.
    instant/reveal branches, 420 ms reveal, 300 ms theme fallback, and
    last-good renderer behavior.
 2. Send normal, low, critical, transient, DND-silenced, replaces_id, image,
-   action, hover, right-click, expiry, and history-replay notifications.
+   action, hover, right-click, and expiry notifications.
 3. Show two OSDs in succession and verify the newest state replaces the old
    timer; verify the OSD input Region is empty.
 4. Lock with no real screen, with a screensaver, with password failure,

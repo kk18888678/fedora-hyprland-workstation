@@ -94,44 +94,58 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'border.width: 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'width: Theme.scaleGeometry(64)' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'centerLabel: true' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'showArchive' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'label: "Archive"' "$plugin_root/ui/NotificationToast.qml" &&
    ! grep -q 'timestamp: activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   ! grep -q 'timestamp: historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'timestampLabel: Logic.timestampLabel(activeDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'timestampLabel: Logic.timestampLabel(historyDelegate.timestamp' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'timestampLabel: Logic.timestampLabel(popupSlot.timestamp' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'objectName: "notificationSourceApp"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'objectName: "notificationTimestamp"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'objectName: "notificationSourceIcon"' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'actions: historyDelegate.actions' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'invokeHistoryDefault' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'objectName: "notificationSummary"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationBody"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'horizontalAlignment: Text.AlignHCenter' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'implicitHeight: toastCard.implicitHeight' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'onActivated: root.service.invokeDefault' "$plugin_root/ui/NotificationCenterPanel.qml"; then
-    pass "Active and History views share one notification card presentation"
+    pass "The Inbox uses the shared notification card with centered wrapped text"
 else
-    fail "Notification center still has a divergent or dead history-row presentation"
+    fail "Notification center still has a divergent or dead row presentation"
 fi
 
 if grep -q 'property bool showCopy: true' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'signal copyRequested()' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'label: "Copy"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationCopyAction"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'icon: "edit-copy"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'onTriggered: root.copyRequested()' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'root.showCopy ? 1 : 0' "$plugin_root/ui/NotificationToast.qml" &&
+   ! grep -q 'label: "Copy"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'activeFocusOnTab: true' "$ROOT/ui/AureliaIconButton.qml" &&
+   grep -q 'Keys.onPressed' "$ROOT/ui/AureliaIconButton.qml" &&
    grep -q 'function copyToClipboard' "$plugin_root/Service.qml" &&
    grep -q 'function copyNotificationAt' "$plugin_root/Service.qml" &&
-   grep -q 'function copyHistoryAt' "$plugin_root/Service.qml" &&
    grep -q 'property string lastCopiedText' "$plugin_root/Service.qml" &&
    grep -q 'Logic.copyText' "$plugin_root/Service.qml" &&
    grep -q 'wl-copy' "$plugin_root/Service.qml" &&
    grep -q 'Quickshell.execDetached' "$plugin_root/Service.qml" &&
    grep -q 'function copyText' "$plugin_root/NotificationLogic.js" &&
    grep -q 'onCopyRequested: root.notificationService.copyNotificationAt' "$plugin_root/ui/NotificationPopupSurface.qml" &&
-   grep -q 'onCopyRequested: root.service.copyNotificationAt' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'onCopyRequested: root.service.copyHistoryAt' "$plugin_root/ui/NotificationCenterPanel.qml"; then
+   grep -q 'onCopyRequested: root.service.copyNotificationAt' "$plugin_root/ui/NotificationCenterPanel.qml"; then
     pass "Every notification card offers a Copy action routed through the service clipboard path"
 else
     fail "Notification card Copy action or clipboard mutation owner is incomplete"
+fi
+
+if ! grep -q 'historyModel' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'History' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'clearHistory' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'StackLayout' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   ! grep -q 'historyModel' "$plugin_root/Service.qml" &&
+   ! grep -q 'historyDir' "$plugin_root/Service.qml" &&
+   ! grep -q 'recordHistory' "$plugin_root/Service.qml" &&
+   ! grep -q 'clearHistory' "$plugin_root/Service.qml" &&
+   ! grep -q 'invokeHistory' "$plugin_root/Service.qml" &&
+   ! grep -q 'showHistory' "$plugin_root/Service.qml" &&
+   grep -q 'currentViewEmpty' "$plugin_root/ui/NotificationCenterPanel.qml"; then
+    pass "Notification center is Inbox-only with no History tab or history model"
+else
+    fail "Notification center still exposes a History tab or history model"
 fi
 
 if grep -q 'function restorePopups' "$plugin_root/Service.qml" &&
@@ -146,24 +160,19 @@ fi
 if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'XDG_STATE_HOME' "$plugin_root/Service.qml" &&
    grep -q 'readonly property string popupStateDir' "$plugin_root/Service.qml" &&
-   grep -q 'readonly property string historyDir' "$plugin_root/Service.qml" &&
    grep -q 'readonly property string imagesDir' "$plugin_root/Service.qml" &&
    grep -q 'function persistPopupFile' "$plugin_root/Service.qml" &&
-   grep -q 'function archivePopupFileFor' "$plugin_root/Service.qml" &&
+   grep -q 'function deletePopupFileFor' "$plugin_root/Service.qml" &&
    grep -q 'function restorePopups' "$plugin_root/Service.qml" &&
    grep -q 'function isManualInboxEntry' "$plugin_root/Service.qml" &&
    grep -q 'var manualInbox = isManualInboxEntry(entry)' "$plugin_root/Service.qml" &&
    grep -q 'function sweepOrphanImages' "$plugin_root/Service.qml" &&
    grep -q 'notificationBusRetryTimer.restart' "$plugin_root/Service.qml" &&
    grep -q 'property OptionalFileStore settingsFile: OptionalFileStore' "$plugin_root/Service.qml" &&
-   grep -q 'property OptionalFileStore historyFile: OptionalFileStore' "$plugin_root/Service.qml" &&
    grep -q 'import "../../services"' "$plugin_root/Service.qml" &&
    grep -q 'writable: true' "$plugin_root/Service.qml" &&
    ! grep -q 'property FileView settingsFile' "$plugin_root/Service.qml" &&
-   ! grep -q 'property FileView historyFile' "$plugin_root/Service.qml" &&
    grep -q 'function toggleDnd' "$plugin_root/Service.qml" &&
-   grep -q 'function showHistory' "$plugin_root/Service.qml" &&
-   grep -q 'function clearHistory' "$plugin_root/Service.qml" &&
    grep -q 'function releaseCenterPopout' "$plugin_root/Service.qml" &&
    grep -q 'onCenterOpenChanged' "$plugin_root/Service.qml" &&
    grep -q 'function dismissAll' "$plugin_root/Service.qml" &&
@@ -180,13 +189,11 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'function insertPopupSnapshot' "$plugin_root/Service.qml" &&
    grep -q 'popup.expired inbox_retained' "$plugin_root/Service.qml" &&
    grep -q 'function flushState' "$plugin_root/Service.qml" &&
-   grep -q 'history.saved count=' "$plugin_root/Service.qml" &&
-   grep -q 'history.recorded key=' "$plugin_root/Service.qml" &&
+   grep -q 'popup.delete:' "$plugin_root/Service.qml" &&
    grep -q 'popup.expire index=' "$plugin_root/Service.qml" &&
    grep -q 'function removeByOriginalId' "$plugin_root/Service.qml" &&
    grep -q 'function removeByIdentity' "$plugin_root/Service.qml" &&
    grep -q 'function activeIndexForIdentity' "$plugin_root/Service.qml" &&
-   grep -q 'popup.archive_skipped' "$plugin_root/Service.qml" &&
    grep -q 'function hasUsableIdentity' "$plugin_root/Service.qml" &&
    grep -q 'popup.identity_recovered' "$plugin_root/Service.qml" &&
    ! grep -q 'removeAt(indexHint, reason, originalId, timestamp)' "$plugin_root/Service.qml" &&
@@ -201,9 +208,9 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'server.bus_available' "$plugin_root/Service.qml" &&
    grep -q 'server.bus_owned external=true' "$plugin_root/Service.qml" &&
    grep -q 'target: "aurelia.notifications"' "$plugin_root/Service.qml"; then
-    pass "DND and bounded history have an XDG-state-backed service API with center actions"
+    pass "DND and popup-file persistence have an XDG-state-backed service API with center actions"
 else
-    fail "Notification DND/history persistence or IPC contract is incomplete"
+    fail "Notification DND/popup-file persistence or IPC contract is incomplete"
 fi
 
 if grep -q 'property bool testMode' "$plugin_root/Service.qml" &&
@@ -233,7 +240,8 @@ if grep -q 'aurelia-action' "$plugin_root/NotificationLogic.js" &&
    grep -q 'shouldBypassDnd(notification, 2)' "$plugin_root/Service.qml" &&
    grep -q 'durationFor' "$plugin_root/NotificationLogic.js" &&
    grep -q 'isInboxPersistent' "$plugin_root/NotificationLogic.js" &&
-   grep -q 'popupSlot.appIcon' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'appIcon: String(popupSlot.appIcon || "")' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'image: String(popupSlot.image || "")' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'MAX_TEXT_LENGTH' "$plugin_root/NotificationLogic.js" &&
    ! grep -R -Eiq 'noctalia' "$plugin_root"; then
     pass "DND bypass, duration bounds, input limits, and Noctalia independence are explicit"
@@ -277,14 +285,11 @@ if [[ -f "$ROOT/ui/AureliaIconButton.qml" ]] &&
    grep -q 'var targetScreen = root.screenModel' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'visible: root.notificationService !== null && root.notificationService.popupModel.count > 0 && root.anchored' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'Math.min(416' "$plugin_root/ui/NotificationPopupSurface.qml" &&
-   grep -q 'showArchive: false' "$plugin_root/ui/NotificationPopupSurface.qml" &&
-   grep -q 'showArchive: false' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'function archiveByIdentity' "$plugin_root/Service.qml" &&
-   grep -q 'inbox.archived' "$plugin_root/Service.qml" &&
    grep -q 'popupOrigin' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   grep -q 'appIconIsLocal' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'sourcePath: root.appIconIsLocal ? root.appIcon : ""' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'AureliaIconButton' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'currentViewEmpty' "$plugin_root/ui/NotificationCenterPanel.qml" &&
-   grep -q 'Layout.maximumHeight: 26' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    caught_up_text=$'You\u2019re all caught up' &&
    grep -q "$caught_up_text" "$plugin_root/ui/NotificationCenterPanel.qml" &&
    ! grep -q 'AureliaActionButton {' "$plugin_root/ui/NotificationCenterPanel.qml"; then
@@ -341,9 +346,6 @@ if (logic.screenshotSnapshot("/tmp/capture.png", 123).image !== sourceUrl.fileUr
 if (logic.screenshotSnapshot("relative.png", 123) !== null) process.exit(1);
 if (logic.parseSettings('{"dnd":true}').dnd !== true) process.exit(1);
 if (logic.parseSettings('{bad').ok) process.exit(1);
-if (logic.isRenderableHistoryEntry({ summary: "" })) process.exit(1);
-if (!logic.isRenderableHistoryEntry({ summary: "Agent complete" })) process.exit(1);
-if (logic.historyKey({ originalId: 2, timestamp: 10 }) !== "10|2") process.exit(1);
 if (logic.identityKey(1, 100) !== "100|1") process.exit(1);
 if (logic.identityKey("1", "100") !== logic.identityKey(1, 100)) process.exit(1);
 if (logic.identityKey(1, 0) !== "" || logic.identityKey(undefined, 100) !== "") process.exit(1);
@@ -374,7 +376,6 @@ if (logic.popupFileName(popup) !== '100-7.json') process.exit(1);
 if (logic.popupFileName({ summary: 'missing identity' }) !== '') process.exit(1);
 if (!logic.hasPopupIdentity(popup) || logic.hasPopupIdentity({ summary: 'missing identity' })) process.exit(1);
 if (logic.popupFileName({ id: 7, originalId: 7, timestamp: 0, summary: 'zero timestamp' }) !== '') process.exit(1);
-if (logic.parseHistory(JSON.stringify([{ id: 7, originalId: 7, timestamp: 0, summary: 'invalid' }]), 50).length !== 0) process.exit(1);
 if (logic.parsePopupFiles(JSON.stringify({ id: 7, originalId: 7, timestamp: 0, summary: 'invalid' }), 1).length !== 0) process.exit(1);
 const persistable = logic.persistablePopup(popup, '/tmp/state/images/');
 if (persistable.copies.length !== 1 || persistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/100-7-appIcon')) process.exit(1);
@@ -389,18 +390,16 @@ if (logic.snapshotOf({ id: 7, appName: "Mail", summary: "Inbox" }, 789).transien
 if (!logic.screenshotSnapshot("/tmp/capture.png", 789).transient) process.exit(1);
 const actionSnapshot = logic.snapshotOf({ id: 5, actions: [{ identifier: "default", text: "" }] }, 456);
 if (actionSnapshot.actions.length !== 0 || actionSnapshot.defaultActionText !== "Open") process.exit(1);
-const historySnapshot = logic.historyEntry({
+const normalizedEntry = logic.popupEntry({
     id: 8,
     originalId: 8,
     timestamp: 777,
     summary: "Saved",
-    body: "A historical notification",
+    body: "A notification",
     actions: [{ identifier: "default", text: "Open" }, { identifier: "reply", text: "Reply" }],
     defaultActionText: "Open"
-});
-if (historySnapshot.defaultActionText !== "Open" || historySnapshot.actions.length !== 1 || historySnapshot.actions[0].identifier !== "reply") process.exit(1);
-const parsedHistory = logic.parseHistory(JSON.stringify({ notifications: [historySnapshot] }), 50);
-if (parsedHistory.length !== 1 || parsedHistory[0].actions.length !== 1 || parsedHistory[0].defaultActionText !== "Open") process.exit(1);
+}, 1);
+if (normalizedEntry.defaultActionText !== "Open" || normalizedEntry.actions.length !== 1 || normalizedEntry.actions[0].identifier !== "reply") process.exit(1);
 const chatRoute = logic.workspaceRouteData({ desktopEntry: "chatgpt.desktop", appName: "ChatGPT" });
 if (!chatRoute.enabled || logic.workspaceRouteScore(chatRoute, { appId: "chatgpt", className: "chatgpt", activated: false }) <= 0) process.exit(1);
 const nativeChatScore = logic.workspaceRouteScore(chatRoute, { appId: "chatgpt", className: "Chatgpt", title: "ChatGPT", activated: false });
@@ -428,7 +427,6 @@ const logic = require(process.argv[2]);
 const fileLogic = require(process.argv[3]);
 const root = fs.mkdtempSync("/tmp/aurelia-notification-files-");
 const live = path.join(root, "live");
-const history = path.join(root, "history");
 const images = path.join(root, "images");
 
 function run(command) {
@@ -456,7 +454,6 @@ function entry(id, timestamp) {
 
 try {
     fs.mkdirSync(live, { recursive: true });
-    fs.mkdirSync(history, { recursive: true });
     fs.mkdirSync(images, { recursive: true });
     const first = entry(1, 100);
     const firstPersistable = logic.persistablePopup(first, `${images}/`);
@@ -467,19 +464,12 @@ try {
     if (!fs.existsSync(path.join(live, "100-1.json"))) throw new Error("live popup was not persisted");
     if (fs.readdirSync(live).some(name => name.includes(".tmp."))) throw new Error("live temp file remained");
     if (!run(fileLogic.readDirectory(`${live}/`)).includes("Notification 1")) throw new Error("live popup was not readable");
-    run(fileLogic.archivePopup(`${history}/`, `${live}/`, `${images}/`, "100-1.json", 2));
-    if (!fs.existsSync(path.join(history, "100-1.json"))) throw new Error("popup archive failed");
-    for (const value of [entry(2, 200), entry(3, 300), entry(4, 400)]) {
-        const persistable = logic.persistablePopup(value, `${images}/`);
-        run(fileLogic.writeHistory(
-            { ...persistable, json: logic.serializePopup(persistable.entry, 1) },
-            `${history}/`, `${images}/`, logic.popupFileName(value), 2
-        ));
-    }
-    const names = fs.readdirSync(history).filter(name => name.endsWith(".json")).sort();
-    if (JSON.stringify(names) !== JSON.stringify(["300-3.json", "400-4.json"])) throw new Error(`history trim failed: ${names}`);
-    run(fileLogic.clearHistory(`${history}/`, `${images}/`));
-    if (fs.readdirSync(history).some(name => name.endsWith(".json"))) throw new Error("history clear failed");
+    // An orphan image not referenced by any live popup is swept.
+    fs.writeFileSync(path.join(images, "999-9-appIcon"), "orphan");
+    run(fileLogic.sweepImages(`${live}/`, `${images}/`));
+    if (fs.existsSync(path.join(images, "999-9-appIcon"))) throw new Error("orphan image was not swept");
+    run(fileLogic.deletePopup(`${live}/`, `${images}/`, "100-1.json"));
+    if (fs.existsSync(path.join(live, "100-1.json"))) throw new Error("popup delete failed");
 } finally {
     fs.rmSync(root, { recursive: true, force: true });
 }
@@ -506,7 +496,6 @@ dismissal_result="$dismissal_root/result.json"
 : >"$dismissal_result"
 mkdir -p -- "$dismissal_root/state/aurelia"
 : >"$dismissal_root/state/aurelia/notifications.json"
-: >"$dismissal_root/state/aurelia/notification-history.json"
 dismissal_log="$dismissal_root/runtime.log"
 dismissal_status=0
 AURELIA_NOTIFICATION_DISMISSAL_RESULT="$dismissal_result" \
@@ -532,7 +521,7 @@ if [[ "$dismissal_completed" -eq 1 ]] && [[ -s "$dismissal_result" ]] &&
    runtime_log_is_environment_only "$dismissal_log" &&
    ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$dismissal_log" &&
    jq -e '.serviceLoaded == true and .activeCount == 0 and .popupCount == 0 and
-          .historyCount == 3 and .popupFiles == 0 and .historyFiles == 3 and
+          .popupFiles == 0 and
           .dismissedIds == [42, 41, 43] and
           .malformedFallback == true and .mismatchedIdentityPreserved == true and
           .pointerPathCovered == true and .popupMalformedIdentityCovered == true and
@@ -554,7 +543,6 @@ collision_result="$collision_root/result.json"
 : >"$collision_result"
 mkdir -p -- "$collision_root/state/aurelia"
 : >"$collision_root/state/aurelia/notifications.json"
-: >"$collision_root/state/aurelia/notification-history.json"
 collision_log="$collision_root/runtime.log"
 collision_status=0
 AURELIA_NOTIFICATION_COLLISION_RESULT="$collision_result" \
@@ -580,9 +568,7 @@ if [[ "$collision_completed" -eq 1 ]] && [[ -s "$collision_result" ]] &&
    runtime_log_is_environment_only "$collision_log" &&
    ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$collision_log" &&
    jq -e '.loaded == true and .phase == 4 and .activeCount == 0 and
-          .popupCount == 0 and .historyCount == 3 and .popupFiles == 0 and
-          .historyFiles == 3 and
-          .historySummaries == ["live-two", "restored-a", "restored-b"] and
+          .popupCount == 0 and .popupFiles == 0 and
           .popupMalformedCovered == true and
           .secondPopupMalformedCovered == true and
           .replacementPreservedRestored == true and
@@ -603,7 +589,6 @@ restore_result="$restore_root/result.json"
 : >"$restore_result"
 mkdir -p -- "$restore_root/state/aurelia"
 : >"$restore_root/state/aurelia/notifications.json"
-: >"$restore_root/state/aurelia/notification-history.json"
 restore_log="$restore_root/runtime.log"
 restore_status=0
 AURELIA_NOTIFICATION_RESTORE_RESULT="$restore_result" \
@@ -641,7 +626,7 @@ fi
 rm -rf -- "$restore_root"
 
 # The Copy action projects app/summary/body through the service clipboard owner
-# for both Inbox and History rows.
+# for the transient toast and the Inbox.
 copy_root="$(mktemp -d)"
 mkdir -p -- "$copy_root/runtime" "$copy_root/state" \
     "$copy_root/config" "$copy_root/cache"
@@ -649,7 +634,6 @@ copy_result="$copy_root/result.json"
 : >"$copy_result"
 mkdir -p -- "$copy_root/state/aurelia"
 : >"$copy_root/state/aurelia/notifications.json"
-: >"$copy_root/state/aurelia/notification-history.json"
 copy_log="$copy_root/runtime.log"
 copy_status=0
 AURELIA_NOTIFICATION_COPY_RESULT="$copy_result" \
@@ -675,11 +659,11 @@ if [[ "$copy_completed" -eq 1 ]] && [[ -s "$copy_result" ]] &&
    ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$copy_log" &&
    jq -e '.serviceLoaded == true and
           .activeCopy == "Signal\nNew message\nHello there" and .activeCopied == true and
-          .historyCopy == "History App\nArchived\nOld body" and .historyCopied == true and
-          .activeResult == "ok" and .historyResult == "ok" and
+          .popupCopy == "Signal\nNew message\nHello there" and .popupCopied == true and
+          .activeResult == "ok" and .popupResult == "ok" and
           .missingResult == "none" and .lastCopiedPreserved == true' \
        "$copy_result" >/dev/null; then
-    pass "[isolated-runtime] notification Copy projects app/summary/body through the service clipboard owner"
+    pass "[isolated-runtime] notification Copy projects app/summary/body through the service clipboard owner in the toast and Inbox"
 else
     details="$(tail -n 48 "$copy_log" || true)"
     if [[ -s "$copy_result" ]]; then details="$details result=$(tr '\n' ' ' <"$copy_result")"; fi
@@ -763,19 +747,30 @@ else
     if [[ "$render_completed" -eq 1 ]] && [[ -s "$render_result" ]] &&
        runtime_log_is_environment_only "$render_log" &&
        ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$render_log" &&
-       jq -e --arg icon "file://$render_icon" '
+       jq -e --arg icon "file://$render_icon" --arg app "Aurelia Render Fixture With An Extremely Long Application Name" '
             .loaded == true and
             .iconReady == true and
-            .appText == "Aurelia Render Fixture" and
+            .appText == $app and
             .appVisible == true and
+            .appElideRight == true and
+            .appMaxLines == 1 and
             .timestampText == "Yesterday 14:30" and
             .timestampVisible == true and
             .iconSource == $icon and
             .iconVisible == true and
+            .copyVisible == true and
+            .copyIcon == "edit-copy" and
+            .copyIsIconControl == true and
+            .copySameRowAsTitle == true and
+            .copyAfterTitleInRow == true and
+            .summaryCentered == true and
+            .bodyCentered == true and
+            .fallbackSourcePath == $icon and
+            .fallbackName == "" and
             .emptyAppHidden == true and
             .emptyTimestampHidden == true
        ' "$render_result" >/dev/null; then
-        pass "[isolated-runtime] shared notification card renders the source app name, source icon, and timestamp, and hides them when empty"
+        pass "[isolated-runtime] shared notification card centers wrapped text and keeps an icon Copy control with the real app-icon source"
     else
         details="$(tail -n 48 "$render_log" || true)"
         if [[ -s "$render_result" ]]; then details="$details result=$(tr '\n' ' ' <"$render_result")"; fi

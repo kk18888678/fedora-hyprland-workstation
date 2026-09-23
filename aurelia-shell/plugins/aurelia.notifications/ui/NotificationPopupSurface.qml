@@ -180,22 +180,21 @@ PanelWindow {
                 NotificationToast {
                     id: notificationToast
                     anchors.fill: parent
-                    app: popupSlot.app
-                    appIcon: popupSlot.appIcon
-                    desktopEntry: popupSlot.desktopEntry
-                    summary: popupSlot.summary
-                    body: popupSlot.body
-                    image: popupSlot.image
-                    glyph: popupSlot.glyph
-                    execArgv: popupSlot.execArgv
-                    actions: popupSlot.actions
+                    app: String(popupSlot.app || "")
+                    appIcon: String(popupSlot.appIcon || "")
+                    desktopEntry: String(popupSlot.desktopEntry || "")
+                    summary: String(popupSlot.summary || "")
+                    body: String(popupSlot.body || "")
+                    image: String(popupSlot.image || "")
+                    glyph: String(popupSlot.glyph || "")
+                    execArgv: String(popupSlot.execArgv || "")
+                    actions: popupSlot.actions || []
                     defaultActionText: String(popupSlot.defaultActionText || "")
                     urgency: popupSlot.urgency
                     timestampLabel: Logic.timestampLabel(popupSlot.timestamp, Date.now())
                     identityOriginalId: popupSlot.originalId
                     identityTimestamp: popupSlot.timestamp
                     identityIndex: popupSlot.index
-                    showArchive: false
                     onDismissed: function(originalId, timestamp, index) {
                         root.notificationService.dismissPopupAt(index, originalId, timestamp)
                     }
@@ -203,7 +202,6 @@ PanelWindow {
                     onDefaultActionInvoked: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onActionInvoked: function(identifier) { root.notificationService.invokeAction(popupSlot.index, identifier, popupSlot.originalId, popupSlot.timestamp) }
                     onCopyRequested: root.notificationService.copyNotificationAt(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
-                    onArchiveRequested: root.notificationService.archiveByIdentity(popupSlot.originalId, popupSlot.timestamp)
                 }
             }
         }

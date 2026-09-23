@@ -5,9 +5,9 @@ import "../../../ui"
 import "../../../theme"
 import "../NotificationLogic.js" as Logic
 
-// Shared presentational card for popup, Active, and History. Its visual layout
-// follows the Omarchy NotificationCard: a compact leading image/glyph slot,
-// Liberation Sans title/body text, and a restrained close affordance.
+// Shared presentational card for the transient popup and the Inbox. Its visual
+// layout follows the Omarchy NotificationCard: a compact leading image/glyph
+// slot, Liberation Sans title/body text, and a restrained close affordance.
 Item {
     id: root
 
@@ -24,7 +24,6 @@ Item {
     property int urgency: 1
     property bool interactive: true
     property bool showDismiss: true
-    property bool showArchive: false
     // Every card exposes a Copy affordance unless a surface explicitly opts out.
     property bool showCopy: true
     property bool showActions: defaultActionText !== ""
@@ -38,10 +37,8 @@ Item {
     property int identityIndex: -1
 
     readonly property bool hovered: toastHover.hovered
-    readonly property int actionCount: (root.showCopy ? 1 : 0)
-        + (root.defaultActionText !== "" ? 1 : 0)
+    readonly property int actionCount: (root.defaultActionText !== "" ? 1 : 0)
         + (root.actions && typeof root.actions.length === "number" ? root.actions.length : 0)
-        + (root.showArchive ? 1 : 0)
     readonly property int actionGroupWidth: root.actionCount > 0
         ? root.actionCount * Theme.scaleGeometry(64)
             + (root.actionCount - 1) * Theme.spacingXs
@@ -51,6 +48,8 @@ Item {
         ? root.image
         : root.iconSource(root.appIcon)
     readonly property bool hasSmallIcon: root.smallIconSource.length > 0
+    readonly property bool appIconIsLocal: root.appIcon.indexOf("file://") === 0 ||
+        root.appIcon.indexOf("image://") === 0 || root.appIcon.charAt(0) === "/"
     readonly property bool compactGlyph: Logic.shouldRenderCompactGlyph(
         root.glyph, root.smallIconSource, root.singleLineToast)
     readonly property bool summaryStartsWithGlyph: Logic.summaryStartsWithGlyph(root.summary)
@@ -66,7 +65,6 @@ Item {
     signal activated()
     signal defaultActionInvoked()
     signal actionInvoked(string identifier)
-    signal archiveRequested()
     signal copyRequested()
 
     implicitWidth: 416
@@ -146,6 +144,8 @@ Item {
             spacing: 0
 
             RowLayout {
+                id: mainRow
+                objectName: "notificationMainRow"
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.spacingMd
                 Layout.rightMargin: Theme.spacingMd
@@ -156,6 +156,7 @@ Item {
 
                 Item {
                     id: smallIconSlot
+                    objectName: "notificationIconSlot"
                     Layout.preferredWidth: visible ? Theme.scaleGeometry(40) : 0
                     Layout.preferredHeight: visible ? Theme.scaleGeometry(40) : 0
                     Layout.alignment: Qt.AlignVCenter
@@ -183,11 +184,15 @@ Item {
                     // when the image cannot be resolved; semantic names such
                     // as camera-photo still use Aurelia's native glyph map.
                     AureliaIcon {
+                        objectName: "notificationSourceIconFallback"
                         anchors.centerIn: parent
                         width: Theme.scaleGeometry(24)
                         height: Theme.scaleGeometry(24)
                         visible: !root.hasGlyph && smallIconImage.status !== Image.Ready && root.appIcon !== ""
-                        name: root.iconName(root.appIcon)
+                        // Resolve a real local/file app icon directly instead of
+                        // collapsing it to the generic executable fallback.
+                        name: root.appIconIsLocal ? "" : root.iconName(root.appIcon)
+                        sourcePath: root.appIconIsLocal ? root.appIcon : ""
                         iconSize: Theme.scaleGeometry(24)
                         preserveColors: true
                         tint: root.urgency === 2 ? Theme.error : Theme.notifications.text
@@ -215,19 +220,24 @@ Item {
                 }
 
                 ColumnLayout {
+                    id: contentColumn
+                    objectName: "notificationContentColumn"
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
                     Layout.rightMargin: Theme.scaleGeometry(10)
                     spacing: Theme.scaleGeometry(2)
 
                     // Source attribution: application name on the left, the
-                    // computed timestamp label on the right. Both vanish when
-                    // unknown so the card keeps its compact reference layout.
+                    // computed timestamp label next to it, and the icon-only
+                    // Copy affordance pinned to the right edge of the title
+                    // row. The app name is the only flexible cell, so it
+                    // elides first and the Copy icon stays reachable even
+                    // when the app name is very long.
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.bottomMargin: Theme.scaleGeometry(1)
                         spacing: Theme.scaleGeometry(6)
-                        visible: root.app.length > 0 || root.timestampLabel.length > 0
+                        visible: root.app.length > 0 || root.timestampLabel.length > 0 || root.showCopy
 
                         Text {
                             objectName: "notificationSourceApp"
@@ -254,10 +264,26 @@ Item {
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightNormal
                         }
+
+                        // Icon-only Copy. It deliberately carries no text
+                        // label and is not a link; the tooltip keeps it
+                        // discoverable and keyboard activation matches the
+                        // pointer path.
+                        AureliaIconButton {
+                            objectName: "notificationCopyAction"
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: root.showCopy
+                            enabled: root.actionButtonsEnabled
+                            icon: "edit-copy"
+                            tooltip: "Copy notification"
+                            onTriggered: root.copyRequested()
+                        }
                     }
 
                     Text {
+                        objectName: "notificationSummary"
                         Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignHCenter
                         visible: root.summary.length > 0
                         textFormat: Text.PlainText
                         text: root.summary
@@ -265,13 +291,16 @@ Item {
                         font.family: "Liberation Sans"
                         font.pixelSize: Theme.fontSizeMd
                         font.weight: Theme.fontWeightBold
+                        horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                         maximumLineCount: 2
                         elide: Text.ElideRight
                     }
 
                     Text {
+                        objectName: "notificationBody"
                         Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: Theme.scaleGeometry(2)
                         visible: root.sanitizedBody.length > 0
                         text: root.styledBody
@@ -280,6 +309,7 @@ Item {
                         font.family: "Liberation Sans"
                         font.pixelSize: Theme.fontSizeSm
                         font.weight: Theme.fontWeightNormal
+                        horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                         maximumLineCount: 2
                         elide: Text.ElideRight
@@ -298,8 +328,8 @@ Item {
                 // Leave breathing room between the action row and the card's
                 // bottom border so the button never touches the edge.
                 Layout.bottomMargin: visible ? Theme.scaleGeometry(6) : 0
-                visible: root.showCopy || (root.showActions && (root.defaultActionText !== "" ||
-                    (root.actions && root.actions.length > 0) || root.showArchive))
+                visible: root.showActions && (root.defaultActionText !== "" ||
+                    (root.actions && root.actions.length > 0))
 
                 ColumnLayout {
                     id: actionToolbar
@@ -315,19 +345,6 @@ Item {
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: Math.min(parent.width, root.actionGroupWidth)
                             spacing: Theme.spacingXs
-
-                            AureliaActionButton {
-                                visible: root.showCopy
-                                enabled: root.actionButtonsEnabled
-                                compact: true
-                                centerLabel: true
-                                border.width: 0
-                                border.color: "transparent"
-                                width: Theme.scaleGeometry(64)
-                                height: Theme.scaleGeometry(28)
-                                label: "Copy"
-                                onTriggered: root.copyRequested()
-                            }
 
                             AureliaActionButton {
                                 visible: root.defaultActionText !== ""
@@ -357,19 +374,6 @@ Item {
                                     label: modelData.text || "Action"
                                     onTriggered: root.actionInvoked(String(modelData.identifier || ""))
                                 }
-                            }
-
-                            AureliaActionButton {
-                                visible: root.showArchive
-                                enabled: root.actionButtonsEnabled
-                                compact: true
-                                centerLabel: true
-                                border.width: 0
-                                border.color: "transparent"
-                                width: Theme.scaleGeometry(64)
-                                height: Theme.scaleGeometry(28)
-                                label: "Archive"
-                                onTriggered: root.archiveRequested()
                             }
                         }
                     }

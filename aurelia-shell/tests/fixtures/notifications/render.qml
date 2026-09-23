@@ -3,16 +3,19 @@ import Quickshell
 import Quickshell.Io
 
 // Isolated render fixture for the shared notification card. It loads the real
-// NotificationToast, drives it with a known source app, timestamp label, and
-// icon, then records the Text/Image values actually present in the rendered
-// tree. This proves the card renders the attribution rather than merely
-// accepting the properties.
+// NotificationToast, drives it with a deliberately long source app name, a
+// timestamp label, and an icon, then records the Text/Image values actually
+// present in the rendered tree. This proves the card renders the attribution
+// rather than merely accepting the properties. It also proves the Copy
+// affordance is an icon control placed after the app name in the same title
+// row, so a text button or a toolbar-only Copy cannot silently return.
 ShellRoot {
     id: root
 
     readonly property string resultPath: Quickshell.env("AURELIA_NOTIFICATION_RENDER_RESULT") || ""
     readonly property string toastSource: Quickshell.env("AURELIA_NOTIFICATION_RENDER_TOAST_SOURCE") || ""
     readonly property string iconSource: Quickshell.env("AURELIA_NOTIFICATION_RENDER_ICON") || ""
+    readonly property string longAppName: "Aurelia Render Fixture With An Extremely Long Application Name"
     // Image.Ready is enum value 1; compare numerically so the fixture stays
     // independent of how the QML type is imported into script scope.
     readonly property int imageReadyStatus: 1
@@ -22,10 +25,21 @@ ShellRoot {
     property int phase: 0
     property string appText: ""
     property bool appVisible: false
+    property bool appElideRight: false
+    property int appMaxLines: 0
     property string timestampText: ""
     property bool timestampVisible: false
     property string renderedIconSource: ""
     property bool renderedIconVisible: false
+    property bool copyVisible: false
+    property string copyIcon: ""
+    property bool copyIsIconControl: false
+    property bool copySameRowAsTitle: false
+    property bool copyAfterTitleInRow: false
+    property bool summaryCentered: false
+    property bool bodyCentered: false
+    property string fallbackSourcePath: ""
+    property string fallbackName: ""
     property bool emptyAppHidden: false
     property bool emptyTimestampHidden: false
 
@@ -36,7 +50,7 @@ ShellRoot {
         onLoaded: {
             if (!item) return
             root.loaded = true
-            item.app = "Aurelia Render Fixture"
+            item.app = root.longAppName
             item.appIcon = root.iconSource
             item.summary = "Build complete"
             item.body = "The render fixture body"
@@ -65,13 +79,28 @@ ShellRoot {
         return null
     }
 
+    function childIndex(node, parent) {
+        var children = parent ? parent.children : null
+        if (!children) return -1
+        for (var i = 0; i < children.length; i++) {
+            if (children[i] === node) return i
+        }
+        return -1
+    }
+
     function captureVisibleState() {
         var nodes = nodesUnder(toastLoader.item, [])
         var appNode = nodeNamed("notificationSourceApp", nodes)
         var timestampNode = nodeNamed("notificationTimestamp", nodes)
         var iconNode = nodeNamed("notificationSourceIcon", nodes)
+        var copyNode = nodeNamed("notificationCopyAction", nodes)
+        var summaryNode = nodeNamed("notificationSummary", nodes)
+        var bodyNode = nodeNamed("notificationBody", nodes)
+        var fallbackNode = nodeNamed("notificationSourceIconFallback", nodes)
         root.appText = appNode ? String(appNode.text) : ""
         root.appVisible = appNode ? appNode.visible === true : false
+        root.appElideRight = appNode ? appNode.elide === Text.ElideRight : false
+        root.appMaxLines = appNode ? Number(appNode.maximumLineCount) : 0
         root.timestampText = timestampNode ? String(timestampNode.text) : ""
         root.timestampVisible = timestampNode ? timestampNode.visible === true : false
         root.renderedIconSource = iconNode ? String(iconNode.source) : ""
@@ -81,6 +110,26 @@ ShellRoot {
         root.renderedIconVisible = iconNode
             ? (iconNode.visible === true && iconNode.parent && iconNode.parent.visible === true)
             : false
+        // Copy must be an icon control (non-empty icon glyph, no text label)
+        // that shares the title row with the app name and follows it.
+        root.copyVisible = copyNode ? copyNode.visible === true : false
+        root.copyIcon = copyNode ? String(copyNode.icon || "") : ""
+        root.copyIsIconControl = copyNode
+            ? (String(copyNode.icon || "").length > 0 &&
+               (copyNode.label === undefined || String(copyNode.label || "").length === 0))
+            : false
+        root.copySameRowAsTitle = !!(copyNode && appNode &&
+            copyNode.parent === appNode.parent)
+        root.copyAfterTitleInRow = !!(copyNode && appNode &&
+            childIndex(copyNode, copyNode.parent) > childIndex(appNode, appNode.parent))
+        root.summaryCentered = summaryNode
+            ? summaryNode.horizontalAlignment === Text.AlignHCenter
+            : false
+        root.bodyCentered = bodyNode
+            ? bodyNode.horizontalAlignment === Text.AlignHCenter
+            : false
+        root.fallbackSourcePath = fallbackNode ? String(fallbackNode.sourcePath || "") : ""
+        root.fallbackName = fallbackNode ? String(fallbackNode.name || "") : ""
         return iconNode
     }
 
@@ -143,10 +192,21 @@ ShellRoot {
             iconReady: root.iconReady,
             appText: root.appText,
             appVisible: root.appVisible,
+            appElideRight: root.appElideRight,
+            appMaxLines: root.appMaxLines,
             timestampText: root.timestampText,
             timestampVisible: root.timestampVisible,
             iconSource: root.renderedIconSource,
             iconVisible: root.renderedIconVisible,
+            copyVisible: root.copyVisible,
+            copyIcon: root.copyIcon,
+            copyIsIconControl: root.copyIsIconControl,
+            copySameRowAsTitle: root.copySameRowAsTitle,
+            copyAfterTitleInRow: root.copyAfterTitleInRow,
+            summaryCentered: root.summaryCentered,
+            bodyCentered: root.bodyCentered,
+            fallbackSourcePath: root.fallbackSourcePath,
+            fallbackName: root.fallbackName,
             emptyAppHidden: root.emptyAppHidden,
             emptyTimestampHidden: root.emptyTimestampHidden
         }) + "\n")

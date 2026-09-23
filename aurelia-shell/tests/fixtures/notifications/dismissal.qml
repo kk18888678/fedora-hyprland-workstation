@@ -27,7 +27,6 @@ ShellRoot {
     property bool dismissalComplete: false
     property bool stateCountRequested: false
     property int popupFiles: -1
-    property int historyFiles: -1
 
     QtObject {
         id: first
@@ -240,23 +239,6 @@ ShellRoot {
             }
             var output = String(popupCountProcess.stdout.text || "").trim()
             root.popupFiles = output === "" ? 0 : output.split("\n").length
-            historyCountProcess.command = ["/usr/bin/find", root.service.historyDir,
-                "-maxdepth", "1", "-type", "f", "-name", "*.json"]
-            historyCountProcess.running = true
-        }
-    }
-
-    Process {
-        id: historyCountProcess
-        running: false
-        stdout: StdioCollector { waitForEnd: true }
-        onExited: function(code) {
-            if (code !== 0) {
-                root.writeResult()
-                return
-            }
-            var output = String(historyCountProcess.stdout.text || "").trim()
-            root.historyFiles = output === "" ? 0 : output.split("\n").length
             root.writeResult()
         }
     }
@@ -332,9 +314,6 @@ ShellRoot {
     function writeResult() {
         if (root.finished || !root.service || root.resultPath === "") return
         root.finished = true
-        var rows = []
-        for (var i = 0; i < root.service.historyModel.count; i++)
-            rows.push(root.service.historyModel.get(i))
         var activeRows = []
         for (var j = 0; j < root.service.activeModel.count; j++)
             activeRows.push(root.service.activeModel.get(j))
@@ -345,10 +324,7 @@ ShellRoot {
             serviceLoaded: root.serviceLoaded,
             activeCount: root.service.activeModel.count,
             popupCount: root.service.popupModel.count,
-            historyCount: root.service.historyModel.count,
             popupFiles: root.popupFiles,
-            historyFiles: root.historyFiles,
-            historyRows: rows,
             activeRows: activeRows,
             popupRows: popupRows,
             dismissedIds: root.dismissedIds,

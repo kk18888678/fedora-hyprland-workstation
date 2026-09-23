@@ -12,7 +12,7 @@ import "NotificationFileLogic.js" as FileLogic
 
 // Resident notification daemon. It keeps live Quickshell Notification objects
 // in a private map and exposes only bounded snapshots to UI models and state
-// files. The service owns its own popups, history, and Do Not Disturb state.
+// files. The service owns its own popups, Inbox, and Do Not Disturb state.
 Item {
     id: service
 
@@ -33,11 +33,7 @@ Item {
     readonly property string stateDir: stateHome !== "" ? stateHome + "/aurelia" : ""
     readonly property string settingsPath: stateDir !== "" ? stateDir + "/notifications.json" : ""
     readonly property string popupStateDir: stateDir !== "" ? stateDir + "/notifications/" : ""
-    readonly property string historyDir: popupStateDir !== "" ? popupStateDir + "history/" : ""
     readonly property string imagesDir: popupStateDir !== "" ? popupStateDir + "images/" : ""
-    // Kept as a read-only migration source for the pre-reference JSON history.
-    readonly property string historyPath: stateDir !== "" ? stateDir + "/notification-history.json" : ""
-    readonly property int historyLimit: 10
     readonly property int barClearance: bar && bar.position === "top"
         ? Math.max(26, Number(bar.barSize || 26)) + Theme.spacingMd
         : Theme.spacingMd
@@ -52,14 +48,10 @@ Item {
 
     property bool doNotDisturb: false
     property bool centerOpen: false
-    property string centerMode: "active"
     property bool stateDirectoryReady: false
     property bool settingsLoaded: false
-    property bool historyLoaded: false
     property bool settingsDirty: false
-    property bool historyDirty: false
     property bool stateSaveQueued: false
-    property var historyEntries: []
     property var liveRefs: ({})
     property var liveSnapshots: ({})
     property bool notificationBusAvailable: false
@@ -72,22 +64,18 @@ Item {
     property var popupFileQueue: []
     property var runningPopupFileJob: null
     readonly property int popupFileMaxAttempts: 3
-    property bool historyDirectoryLoaded: false
-    property bool legacyHistoryMigrationQueued: false
     // Last text handed to the clipboard path. Production still shells out to
     // wl-copy; isolated fixtures read this without touching a live clipboard.
     property string lastCopiedText: ""
 
     property alias activeModel: activeNotificationsModel
     // Inbox rows remain until an explicit user action. The popup model is a
-    // separate transient presentation queue whose expiry must never archive
+    // separate transient presentation queue whose expiry must never remove
     // the corresponding Inbox row.
     property alias popupModel: popupNotificationsModel
-    property alias historyModel: historyEntriesModel
 
     ListModel { id: activeNotificationsModel }
     ListModel { id: popupNotificationsModel }
-    ListModel { id: historyEntriesModel }
 
     property OptionalFileStore settingsFile: OptionalFileStore {
         path: service.settingsPath
@@ -100,20 +88,9 @@ Item {
         onSaveFailed: function(reason) { console.error("[NOTIFICATIONS] settings_save_failed") }
     }
 
-    property OptionalFileStore historyFile: OptionalFileStore {
-        path: service.historyPath
-        writable: true
-        watchChanges: false
-
-        onLoaded: function(loadedValue) { service.loadHistory(loadedValue) }
-        onLoadFailed: function(reason) { service.loadHistory("") }
-        onSaved: console.info("[NOTIFICATIONS] history.saved count=" + service.historyEntries.length)
-        onSaveFailed: function(reason) { console.error("[NOTIFICATIONS] history_save_failed") }
-    }
-
     property Process ensureStateDirProcess: Process {
         command: service.stateDir !== ""
-            ? ["/usr/bin/mkdir", "-p", service.stateDir, service.popupStateDir, service.historyDir, service.imagesDir]
+            ? ["/usr/bin/mkdir", "-p", service.stateDir, service.popupStateDir, service.imagesDir]
             : ["/usr/bin/false"]
         running: false
 
@@ -124,7 +101,6 @@ Item {
             }
             service.stateDirectoryReady = true
             if (!service.testMode) {
-                service.readHistoryDirectory()
                 service.readPopupDirectory()
                 service.sweepOrphanImages()
             }
@@ -181,16 +157,6 @@ Item {
             service.runNextPopupFileJob()
         }
     }
-    property Process historyDirectoryReadProcess: Process {
-        running: false
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: service.loadHistoryDirectory(historyDirectoryReadProcess.stdout.text)
-        }
-        onExited: function(code) {
-            if (code !== 0) console.error("[NOTIFICATIONS] history_directory_read_failed code=" + code)
-        }
-    }
     property Process restorePopupsProcess: Process {
         running: false
         stdout: StdioCollector {
@@ -216,42 +182,9 @@ Item {
             null, "popup.persist:" + fileName)
     }
 
-    function archivePopupFileFor(snapshot) {
-        if (!snapshot || historyDir === "") return
-        var fileName = Logic.popupFileName(snapshot)
-        if (fileName === "") {
-            console.error("[NOTIFICATIONS] popup.archive_skipped reason=invalid_identity id=" +
-                String(snapshot.originalId) + " timestamp=" + String(snapshot.timestamp))
-            return
-        }
-        enqueuePopupFileJob(FileLogic.archivePopup(
-            historyDir, popupStateDir, imagesDir, fileName, historyLimit),
-            null, "popup.archive:" + fileName)
-    }
-
-    function writeHistoryFile(snapshot) {
-        if (!snapshot || historyDir === "") return
-        var fileName = Logic.popupFileName(snapshot)
-        if (fileName === "") {
-            console.error("[NOTIFICATIONS] history.write_skipped reason=invalid_identity id=" +
-                String(snapshot.originalId) + " timestamp=" + String(snapshot.timestamp))
-            return
-        }
-        var persistable = Logic.persistablePopup(snapshot, imagesDir)
-        persistable.json = Logic.serializePopup(persistable.entry, 1)
-        enqueuePopupFileJob(FileLogic.writeHistory(
-            persistable, historyDir, imagesDir, fileName, historyLimit),
-            null, "history.write:" + fileName)
-    }
-
-    function clearHistoryFiles() {
-        if (historyDir === "") return
-        enqueuePopupFileJob(FileLogic.clearHistory(historyDir, imagesDir), null, "history.clear")
-    }
-
     function sweepOrphanImages() {
         if (imagesDir === "") return
-        enqueuePopupFileJob(FileLogic.sweepImages(popupStateDir, historyDir, imagesDir), null, "images.sweep")
+        enqueuePopupFileJob(FileLogic.sweepImages(popupStateDir, imagesDir), null, "images.sweep")
     }
 
     function deletePopupFileFor(snapshot) {
@@ -261,12 +194,6 @@ Item {
         enqueuePopupFileJob(FileLogic.deletePopup(
             popupStateDir, imagesDir, fileName),
             null, "popup.delete:" + fileName)
-    }
-
-    function readHistoryDirectory() {
-        if (historyDir === "") return
-        historyDirectoryReadProcess.command = FileLogic.readDirectory(historyDir)
-        historyDirectoryReadProcess.running = true
     }
 
     function readPopupDirectory() {
@@ -370,60 +297,13 @@ Item {
         }
     }
 
-    function rebuildHistoryModel() {
-        historyEntriesModel.clear()
-        for (var i = 0; i < historyEntries.length; i++) historyEntriesModel.append(historyEntries[i])
-    }
-
     function loadSettings(raw) {
         if (settingsLoaded) return
         var parsed = Logic.parseSettings(raw)
         if (!parsed.ok) console.info("[NOTIFICATIONS] settings_invalid using_defaults")
         if (!settingsDirty && parsed.dnd !== null) doNotDisturb = parsed.dnd
         settingsLoaded = true
-        if (stateSaveQueued && stateDirectoryReady && historyLoaded) flushState()
-    }
-
-    function loadHistory(raw) {
-        if (historyLoaded) return
-        var diskEntries = Logic.parseHistory(raw, historyLimit)
-        var needsRewrite = String(raw || "").trim() !== "" && diskEntries.length === 0
-        if (historyDirectoryLoaded || historyDirty) {
-            mergeHistoryRows(diskEntries)
-        } else {
-            historyEntries = diskEntries
-        }
-        if (!legacyHistoryMigrationQueued && diskEntries.length > 0 && String(raw || "").trim() !== "") {
-            legacyHistoryMigrationQueued = true
-            for (var i = 0; i < diskEntries.length; i++) writeHistoryFile(diskEntries[i])
-        }
-        rebuildHistoryModel()
-        historyLoaded = true
-        if (needsRewrite) stateSaveQueued = true
-        if (stateSaveQueued && stateDirectoryReady && settingsLoaded) flushState()
-    }
-
-    function mergeHistoryRows(rows) {
-        var merged = historyEntries.slice()
-        for (var i = 0; i < (rows || []).length; i++) {
-            var candidate = rows[i]
-            var exists = false
-            for (var j = 0; j < merged.length; j++) {
-                if (Logic.historyKey(merged[j]) === Logic.historyKey(candidate)) {
-                    exists = true
-                    break
-                }
-            }
-            if (!exists) merged.push(candidate)
-        }
-        merged.sort(function(left, right) { return Number(right.timestamp || 0) - Number(left.timestamp || 0) })
-        historyEntries = merged.slice(0, historyLimit)
-        rebuildHistoryModel()
-    }
-
-    function loadHistoryDirectory(raw) {
-        historyDirectoryLoaded = true
-        mergeHistoryRows(Logic.historyRows(raw, [], 1, historyLimit))
+        if (stateSaveQueued && stateDirectoryReady) flushState()
     }
 
     function modelIndexByIdentity(model, originalId, timestamp) {
@@ -504,7 +384,7 @@ Item {
             var duration = Logic.durationFor(entry.urgency, entry.expireTimeout, entry.app, entry.desktopEntry, entry.appIcon)
             var manualInbox = isManualInboxEntry(entry)
             if (!manualInbox && Logic.popupExpired(entry, duration, now)) {
-                archivePopupFileFor(entry)
+                deletePopupFileFor(entry)
                 continue
             }
             if (manualInbox) {
@@ -531,11 +411,11 @@ Item {
 
     function queueStateSave() {
         stateSaveQueued = true
-        if (stateDirectoryReady && settingsLoaded && historyLoaded) flushState()
+        if (stateDirectoryReady && settingsLoaded) flushState()
     }
 
     function flushState() {
-        if (!stateDirectoryReady || stateDir === "" || !settingsLoaded || !historyLoaded) return
+        if (!stateDirectoryReady || stateDir === "" || !settingsLoaded) return
         stateSaveQueued = false
         settingsFile.setText(JSON.stringify({ version: 3, dnd: doNotDisturb }, null, 2) + "\n")
     }
@@ -560,28 +440,6 @@ Item {
         if (!entry) return false
         return Logic.isInboxPersistent(entry.app, entry.desktopEntry, entry.appIcon) ||
             (!entry.transient && !Logic.isEphemeralApp(entry.app))
-    }
-
-    function recordHistory(snapshot, persist) {
-        var entry = Logic.historyEntry(snapshot)
-        if (!Logic.isRenderableHistoryEntry(entry)) return
-        if (!service.hasUsableIdentity(entry.originalId, entry.timestamp)) {
-            console.error("[NOTIFICATIONS] history.record_skipped reason=invalid_identity")
-            return false
-        }
-        var key = Logic.historyKey(entry)
-        for (var i = 0; i < historyEntries.length; i++) {
-            if (Logic.historyKey(historyEntries[i]) === key) return false
-        }
-        var next = historyEntries.slice()
-        next.unshift(entry)
-        historyEntries = next.slice(0, historyLimit)
-        historyDirty = true
-        rebuildHistoryModel()
-        if (persist !== false) writeHistoryFile(entry)
-        queueStateSave()
-        console.info("[NOTIFICATIONS] history.recorded key=" + key + " count=" + historyEntries.length)
-        return true
     }
 
     function removeLiveRowByKey(liveKey, snapshot) {
@@ -681,7 +539,7 @@ Item {
                 if (closedSnapshot && service.isManualInboxEntry(closedSnapshot)) {
                     // Sender-side closure must not mark a normal Inbox row as
                     // read. It only removes the transient popup; the user can
-                    // archive the retained row later.
+                    // dismiss the retained row later.
                     service.removePopupByIdentity(originalId, closedSnapshot.timestamp)
                     console.info("[NOTIFICATIONS] notification.sender_closed inbox_retained app=" + closedSnapshot.app)
                 } else {
@@ -695,7 +553,7 @@ Item {
                             else service.removeAt(i, "dismiss")
                         }
                     }
-                    if (!removed && closedSnapshot) service.recordHistory(closedSnapshot)
+                    if (!removed && closedSnapshot) service.deletePopupFileFor(closedSnapshot)
                 }
                 delete service.liveRefs[liveKey]
                 delete service.liveSnapshots[liveKey]
@@ -703,7 +561,6 @@ Item {
         }
 
         if (doNotDisturb && !Logic.shouldBypassDnd(notification, 2)) {
-            if (!Logic.isEphemeralApp(snapshot.app) && !isTransient(notification)) recordHistory(snapshot)
             delete liveRefs[liveKey]
             delete liveSnapshots[liveKey]
             try { notification.tracked = false } catch (releaseError) {
@@ -736,31 +593,22 @@ Item {
         var entryHasIdentity = entry && service.hasUsableIdentity(entry.originalId, entry.timestamp)
         // ListModel.get() returns a live role object. Materialize it before
         // removing the model row; otherwise its roles can become undefined
-        // before history/archive serialization runs.
+        // before the persisted popup file is cleaned up.
         var entryIdentity = entryHasIdentity ? Logic.popupEntry(entry, 1) : null
         var liveIdentity = liveSnapshot && service.hasUsableIdentity(liveSnapshot.originalId, liveSnapshot.timestamp) ? liveSnapshot : null
-        var historySnapshot = liveIdentity || entryIdentity
-        var archiveSnapshot = historySnapshot
-        var originalId = archiveSnapshot ? archiveSnapshot.originalId : lookupId
-        var archiveKey = archiveSnapshot
-            ? service.identityKey(archiveSnapshot.originalId, archiveSnapshot.timestamp)
+        var removalSnapshot = liveIdentity || entryIdentity
+        var originalId = removalSnapshot ? removalSnapshot.originalId : lookupId
+        var removalKey = removalSnapshot
+            ? service.identityKey(removalSnapshot.originalId, removalSnapshot.timestamp)
             : liveKey
-        var restored = isRestoredPopup(archiveSnapshot)
-        var reference = restored ? null : liveRefs[archiveKey]
-        var entryRenderable = entry && Logic.isRenderableHistoryEntry(entry)
+        var restored = isRestoredPopup(removalSnapshot)
+        var reference = restored ? null : liveRefs[removalKey]
         activeNotificationsModel.remove(index)
-        if (archiveSnapshot) removePopupByIdentity(originalId, archiveSnapshot.timestamp)
-        if (historySnapshot) {
-            recordHistory(historySnapshot, false)
-            // Always enqueue a complete history write before moving the live
-            // file. This is the fallback when the original persistence job
-            // failed or the popup was dismissed before it completed.
-            writeHistoryFile(historySnapshot)
-        } else if (entryRenderable) {
-            console.error("[NOTIFICATIONS] dismiss.persistence_skipped reason=invalid_identity")
+        if (removalSnapshot) {
+            removePopupByIdentity(originalId, removalSnapshot.timestamp)
+            deletePopupFileFor(removalSnapshot)
         }
-        if (archiveSnapshot) archivePopupFileFor(archiveSnapshot)
-        if (restored) delete restoredPopups[Logic.popupFileName(archiveSnapshot)]
+        if (restored) delete restoredPopups[Logic.popupFileName(removalSnapshot)]
         if (reference) {
             try {
                 if (reason === "expire" && typeof reference.expire === "function") reference.expire()
@@ -769,8 +617,8 @@ Item {
                 console.warn("[NOTIFICATIONS] notification.reference_release_failed")
             }
         }
-        if (liveRefs[archiveKey] === reference) delete liveRefs[archiveKey]
-        delete liveSnapshots[archiveKey]
+        if (liveRefs[removalKey] === reference) delete liveRefs[removalKey]
+        delete liveSnapshots[removalKey]
     }
 
     function removeByIdentity(originalId, timestamp, reason, indexHint) {
@@ -788,18 +636,6 @@ Item {
         // matches. Another notification may now occupy that index; failing
         // closed preserves it for the correct delegate event.
         return false
-    }
-
-    function archiveByIdentity(originalId, timestamp) {
-        if (!service.hasUsableIdentity(originalId, timestamp)) {
-            console.error("[NOTIFICATIONS] inbox.archive_skipped reason=invalid_identity")
-            return "invalid"
-        }
-        var index = activeIndexForIdentity(originalId, timestamp)
-        if (index < 0) return "none"
-        removeAt(index, "archive", originalId, timestamp)
-        console.info("[NOTIFICATIONS] inbox.archived id=" + originalId)
-        return "ok"
     }
 
     function dismissAt(index, originalId, timestamp) {
@@ -871,13 +707,9 @@ Item {
         if (!removeByIdentity(popupId, popupTimestamp, "expire", activeIndex)) {
             // Ephemeral entries such as screenshot confirmations can have
             // already lost their active delegate during a model transition;
-            // persist their snapshot before removing the last popup copy.
+            // drop the last popup copy and its persisted file.
             popupNotificationsModel.remove(popupIndex)
-            if (snapshot) {
-                recordHistory(snapshot)
-                writeHistoryFile(snapshot)
-                archivePopupFileFor(snapshot)
-            }
+            if (snapshot) service.deletePopupFileFor(snapshot)
         }
     }
 
@@ -1170,38 +1002,6 @@ Item {
         return route.enabled ? "ok" : "unavailable"
     }
 
-    // Historical rows no longer own the sender's live action object. Keep the
-    // same action layout, but route an historical action to the sender window
-    // when possible instead of attempting to invoke a stale object.
-    function invokeHistoryAction(index, identifier) {
-        if (index < 0 || index >= historyEntriesModel.count) return "none"
-        var entry = historyEntriesModel.get(index)
-        var argv = Logic.parseExecArgv(entry ? entry.execArgv : "")
-        if (argv) {
-            Quickshell.execDetached(["bash", "-lc", "exec \"$@\"", "aurelia-notification"].concat(argv))
-            console.info("[NOTIFICATIONS] history.action id=" + String(identifier || ""))
-            return "ok"
-        }
-        var route = Logic.workspaceRouteData(entry, entry)
-        if (!route.enabled) return "unavailable"
-        service.startWorkspaceRoute(route)
-        console.info("[NOTIFICATIONS] history.action id=" + String(identifier || ""))
-        return "ok"
-    }
-    function invokeHistoryDefault(index) {
-        return invokeHistoryAction(index, "default")
-    }
-
-    function clearHistory() {
-        historyEntries = []
-        historyDirty = true
-        rebuildHistoryModel()
-        clearHistoryFiles()
-        if (historyPath !== "") historyFile.setText("")
-        queueStateSave()
-        return "ok"
-    }
-
     // Copy is a clipboard mutation, so it stays on the service rather than in
     // the presentational card. The card only emits copyRequested().
     function copyToClipboard(value) {
@@ -1227,19 +1027,7 @@ Item {
         return service.copyToClipboard(Logic.copyText(entry))
     }
 
-    function copyHistoryAt(index) {
-        if (index < 0 || index >= historyEntriesModel.count) return "none"
-        return service.copyToClipboard(Logic.copyText(historyEntriesModel.get(index)))
-    }
-
     function openCenter() {
-        centerMode = "active"
-        centerOpen = true
-        return "ok"
-    }
-
-    function showHistory() {
-        centerMode = "history"
         centerOpen = true
         return "ok"
     }
@@ -1316,8 +1104,6 @@ Item {
         function isDnd(): string { return service.dndState() }
         function toggleDnd(): string { return service.toggleDnd() }
         function setDnd(value: string): string { return service.setDndFromText(value) }
-        function showHistory(): string { return service.showHistory() }
-        function clear(): string { return service.clearHistory() }
         function dismissAll(): string { return service.dismissAll() }
         function dismissOne(): string { return service.dismissOne() }
         function invokeLast(): string { return service.invokeLast() }
@@ -1362,7 +1148,6 @@ Item {
         ensureStateDirProcess.running = true
         Qt.callLater(function() {
             settingsFile.reload()
-            historyFile.reload()
         })
     }
 

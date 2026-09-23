@@ -6,7 +6,6 @@ var MAX_APP_LENGTH = 128
 var MAX_TEXT_LENGTH = 4096
 var MAX_IMAGE_LENGTH = 2048
 var MAX_ACTIONS = 8
-var MAX_HISTORY = 100
 var sharedSourceUrl = null
 
 function loadSourceUrl() {
@@ -59,7 +58,7 @@ function startOfDay(date) {
 
 // Human-readable notification age for the shared card header. Recent items
 // read as a relative age; older items fall back to a calendar-aware label so a
-// history entry stays unambiguous. Kept pure and locale-free so it can be
+// notification stays unambiguous. Kept pure and locale-free so it can be
 // unit-tested in isolation and bound from any surface.
 function timestampLabel(timestamp, now) {
     var stamp = finiteNumber(timestamp, 0)
@@ -460,23 +459,6 @@ function normalizeHistoryEntry(value) {
     }
 }
 
-function historyEntry(value) {
-    return normalizeHistoryEntry(value)
-}
-
-function historyKey(value) {
-    var entry = value || {}
-    return String(entry.timestamp || 0) + "|" + String(entry.originalId || entry.id || 0)
-}
-
-function isRenderableHistoryEntry(value) {
-    var entry = value || {}
-    return String(entry.app || "") !== "" ||
-        String(entry.summary || "") !== "" ||
-        String(entry.body || "") !== "" ||
-        String(entry.image || "") !== ""
-}
-
 function hasPopupIdentity(value) {
     return imageStem(value) !== ""
 }
@@ -496,29 +478,6 @@ function parseSettings(raw) {
             console.warn("[NOTIFICATIONS] settings_parse_failed")
         return { ok: false, dnd: null, legacy: false }
     }
-}
-
-function parseHistory(raw, limit) {
-    var text = String(raw || "").trim()
-    if (text === "") return []
-
-    var parsed
-    try {
-        parsed = JSON.parse(text)
-    } catch (error) {
-        if (typeof console !== "undefined" && console.warn)
-            console.warn("[NOTIFICATIONS] history_parse_failed")
-        return []
-    }
-    var source = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.notifications) ? parsed.notifications : [])
-    var rows = []
-    for (var i = 0; i < source.length && rows.length < MAX_HISTORY; i++) {
-        var row = normalizeHistoryEntry(source[i])
-        if (isRenderableHistoryEntry(row) && hasPopupIdentity(row)) rows.push(row)
-    }
-    rows.sort(function(left, right) { return right.timestamp - left.timestamp })
-    var max = Math.max(0, Math.min(MAX_HISTORY, Math.floor(finiteNumber(limit, 50))))
-    return rows.slice(0, max)
 }
 
 function isInboxPersistent(app, desktopEntry, appIcon) {
@@ -686,28 +645,6 @@ function popupPlacement(barPosition, barClearance, gapsOut) {
     }
 }
 
-function historyRows(raw, liveRows, normalUrgency, limit) {
-    var max = Math.max(0, Math.floor(finiteNumber(limit, 10)))
-    var result = []
-    var seen = {}
-    function collect(rows) {
-        if (!Array.isArray(rows)) return
-        for (var i = 0; i < rows.length; i++) {
-            var row = rows[i]
-            if (!row) continue
-            var key = popupFileName(row)
-            if (key === "") continue
-            if (seen[key]) continue
-            seen[key] = true
-            result.push(normalizeHistoryEntry(row))
-        }
-    }
-    collect(liveRows)
-    collect(parsePopupFiles(raw, normalUrgency))
-    result.sort(function(left, right) { return Number(right.timestamp || 0) - Number(left.timestamp || 0) })
-    return result.slice(0, max)
-}
-
 if (typeof module !== "undefined") {
     module.exports = {
         boundedText: boundedText,
@@ -740,12 +677,7 @@ if (typeof module !== "undefined") {
         parsePopupFiles: parsePopupFiles,
         popupExpired: popupExpired,
         popupPlacement: popupPlacement,
-        historyRows: historyRows,
-        historyEntry: historyEntry,
-        historyKey: historyKey,
-        isRenderableHistoryEntry: isRenderableHistoryEntry,
         parseSettings: parseSettings,
-        parseHistory: parseHistory,
         durationFor: durationFor,
         isInboxPersistent: isInboxPersistent,
         transientFromNotification: transientFromNotification,

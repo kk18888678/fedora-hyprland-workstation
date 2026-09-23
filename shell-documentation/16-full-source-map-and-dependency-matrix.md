@@ -155,7 +155,7 @@ The full plugin manifest catalog is in
 | power | UPower and power-profiles-daemon | battery, AC state, power-saver profile |
 | connectivity | BlueZ/Bluetooth and NetworkManager | paired devices, Wi-Fi scan/connectivity/DNS |
 | authentication | PAM and polkit | lock password/fingerprint and privileged prompts |
-| notification bus | freedesktop Notifications over DBus | notification server, history, DND, actions |
+| notification bus | freedesktop Notifications over DBus | notification server, Inbox, DND, actions |
 | desktop entries | XDG DesktopEntries and application database | launcher, app search, install/remove rows |
 | session | systemd user manager, UWSM, DBus activation | environment import, user services, launcher context |
 | shell scripting | Bash, GNU coreutils, find, awk, sed, grep, Perl | orchestration, parsing, bounded filesystem operations |
@@ -285,7 +285,7 @@ command only clones, validates, and changes shell state.
 | recording/webcam | screenrecording-test.sh | device filtering, menu dimensions, webcam math and rules |
 | themes | theme staging/user/theme-install tests | source filtering, template/staging behavior, user overlay |
 | wallpapers | background-test.sh, video-background-test.sh | background IPC and media/thumbnail/video transitions |
-| notifications | notification send/service tests | bus sender, persistence, DND, actions, history |
+| notifications | notification send/service tests | bus sender, persistence, DND, actions |
 | AI usage | agent-usage-* tests and agent panel source | collector contracts and usage display logic |
 | first-run/update | first-run, update, migration, restart tests | marker/idempotency/order/failure behavior |
 | visual acceptance | test/acceptance.d/, visual-verification skill | actual compositor screenshots and interaction |

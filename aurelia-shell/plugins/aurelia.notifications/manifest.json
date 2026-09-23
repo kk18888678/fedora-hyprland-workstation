@@ -4,7 +4,7 @@
   "name": "Notifications",
   "version": "1.0.0",
   "author": "Aurelia",
-  "description": "Notification popups, history, and Do Not Disturb",
+  "description": "Notification popups, Inbox, and Do Not Disturb",
   "icon": "notifications",
   "kinds": ["service", "bar-widget"],
   "keepLoaded": true,
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Notifications",
-    "description": "Notification popups, history, and Do Not Disturb",
+    "description": "Notification popups, Inbox, and Do Not Disturb",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "center"

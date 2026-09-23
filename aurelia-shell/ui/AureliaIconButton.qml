@@ -17,16 +17,34 @@ Item {
     implicitWidth: Theme.scaleGeometry(22)
     implicitHeight: Theme.scaleGeometry(22)
 
+    // Keyboard parity with the pointer path: the button joins the tab chain
+    // and activates on Return/Enter/Space while focused.
+    activeFocusOnTab: true
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter ||
+            event.key === Qt.Key_Space) {
+            if (root.enabled) root.triggered()
+            event.accepted = true
+        }
+    }
+
     HoverHandler { id: iconHover }
 
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusSm
-        color: root.active || iconHover.hovered ? Theme.controls.hoverFill : "transparent"
-        border.color: root.destructive && iconHover.hovered
+        color: root.active || iconHover.hovered || root.activeFocus
+            ? Theme.controls.hoverFill
+            : "transparent"
+        border.color: root.destructive && (iconHover.hovered || root.activeFocus)
             ? Theme.error
-            : (root.active || iconHover.hovered ? Theme.controls.hoverBorder : "transparent")
-        border.width: root.active || iconHover.hovered ? Theme.borderWidthDefault : 0
+            : (root.activeFocus
+                ? Theme.accent
+                : (root.active || iconHover.hovered ? Theme.controls.hoverBorder : "transparent"))
+        border.width: root.active || iconHover.hovered || root.activeFocus
+            ? Theme.borderWidthDefault
+            : 0
         opacity: root.enabled ? 1.0 : 0.45
 
         AureliaIcon {

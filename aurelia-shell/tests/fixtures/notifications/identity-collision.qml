@@ -5,7 +5,8 @@ import Quickshell.Io
 // T51 fixture. It keeps two restored rows and two successive live rows with
 // the same numeric notification ID, then dismisses the restored rows through
 // the production popup Toast path. This is the collision that distinct-ID
-// fixtures cannot represent.
+// fixtures cannot represent. Dismissal deletes the persisted popup file; there
+// is no history model.
 ShellRoot {
     id: root
 
@@ -21,7 +22,6 @@ ShellRoot {
     property bool secondPopupMalformedCovered: false
     property bool stateCountRequested: false
     property int popupFiles: -1
-    property int historyFiles: -1
 
     QtObject {
         id: liveFirst
@@ -161,21 +161,6 @@ ShellRoot {
             if (code !== 0) return root.writeResult()
             var output = String(popupCountProcess.stdout.text || "").trim()
             root.popupFiles = output === "" ? 0 : output.split("\n").length
-            historyCountProcess.command = ["/usr/bin/find", root.service.historyDir,
-                "-maxdepth", "1", "-type", "f", "-name", "*.json"]
-            historyCountProcess.running = true
-        }
-    }
-
-    Process {
-        id: historyCountProcess
-        running: false
-        stdout: StdioCollector { waitForEnd: true }
-        onExited: function(code) {
-            if (code === 0) {
-                var output = String(historyCountProcess.stdout.text || "").trim()
-                root.historyFiles = output === "" ? 0 : output.split("\n").length
-            }
             root.writeResult()
         }
     }
@@ -254,7 +239,8 @@ ShellRoot {
         }
 
         if (root.phase === 1) {
-            if (root.service.historyModel.count < 1) return root.retryAdvance()
+            if (root.service.activeModel.count !== 2 || root.service.popupModel.count !== 2)
+                return root.retryAdvance()
             root.service.handleNotification(liveSecond)
             root.phase = 2
             return root.retryAdvance()
@@ -271,7 +257,7 @@ ShellRoot {
         }
 
         if (root.phase === 3) {
-            if (root.service.historyModel.count < 2 || root.service.popupModel.count !== 1)
+            if (root.service.activeModel.count !== 1 || root.service.popupModel.count !== 1)
                 return root.retryAdvance()
             var current = popupRepeater.itemAt(0)
             if (!current || !current.emitClose(false)) return root.retryAdvance()
@@ -280,8 +266,7 @@ ShellRoot {
         }
 
         if (root.phase === 4) {
-            if (queuesBusy() || root.service.historyModel.count < 3 ||
-                root.service.activeModel.count !== 0 || root.service.popupModel.count !== 0)
+            if (root.service.activeModel.count !== 0 || root.service.popupModel.count !== 0)
                 return root.retryAdvance()
             if (!root.stateCountRequested) {
                 root.stateCountRequested = true
@@ -295,18 +280,12 @@ ShellRoot {
     function writeResult() {
         if (root.finished || !root.service || root.resultPath === "") return
         root.finished = true
-        var summaries = []
-        for (var i = 0; i < root.service.historyModel.count; i++)
-            summaries.push(String(root.service.historyModel.get(i).summary || ""))
         resultFile.setText(JSON.stringify({
             loaded: root.serviceLoaded,
             phase: root.phase,
             activeCount: root.service.activeModel.count,
             popupCount: root.service.popupModel.count,
-            historyCount: root.service.historyModel.count,
-            historySummaries: summaries,
             popupFiles: root.popupFiles,
-            historyFiles: root.historyFiles,
             popupMalformedCovered: root.popupMalformedCovered,
             secondPopupMalformedCovered: root.secondPopupMalformedCovered,
             replacementPreservedRestored: root.replacementPreservedRestored,
