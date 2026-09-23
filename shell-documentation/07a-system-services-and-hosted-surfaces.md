@@ -148,14 +148,13 @@ server destruction cannot leave dangling model pointers.
 STATE/notifications.json              # version + DND boolean
 STATE/notifications/<timestamp-id>.json
                                       # one file per live toast
-STATE/notifications/history/*.json    # archived newest history
 STATE/notifications/images/*          # copied file-backed images
 ```
 
-A live file exists exactly while its popup is on screen. Dismissal, expiry, or
-action invocation moves it to history and trims history to the newest 10 files.
-The file queue serializes writes, copies, moves, reads, deletes, and clears so
-a later delete cannot race ahead of an earlier write.
+A live file exists exactly while its popup or Inbox row is present. Dismissal,
+expiry, or action invocation deletes it. The file queue serializes writes,
+copies, moves, and deletes so a later delete cannot race ahead of an earlier
+write.
 
 File-backed notification images are copied before the JSON reference is
 written. The source copy is bounded to 5,242,880 bytes; a temporary read may
@@ -169,7 +168,6 @@ low urgency      minimum 5,000 ms
 normal urgency   minimum 8,000 ms
 critical         0 ms (persistent)
 all noncritical  maximum 30,000 ms
-history limit    10
 ```
 
 The popup surface is full-screen per monitor, `Overlay`, `keyboardFocus None`,
@@ -194,10 +192,10 @@ or removing cards never briefly stretches a stale compositor buffer.
 
 ### DND, markup, and actions
 
-Do-not-disturb silences ordinary notifications into history. Only intentional
+Do-not-disturb silences ordinary notifications. Only intentional
 action confirmations and critical CLI notifications from the designated
 notification sender bypass DND. Transient notifications and designated
-ephemeral senders are not recorded when silenced.
+ephemeral senders are discarded when silenced.
 
 Summaries are always plain text. Bodies may use styled markup, but image tags
 are stripped in a conservative single pass before Qt parses the body, including

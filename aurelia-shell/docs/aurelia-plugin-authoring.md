@@ -419,7 +419,7 @@ failure containment, plugin management, clone/update/remove workflow, and
 centralized contract tests.
 
 Aurelia intentionally retains its own feature-level behavior: the Aurelia
-design-token system, notification service and DND/history model, image/video
+design-token system, notification service and DND model, image/video
 background service, Command Center modules, keybindings ownership, network
 and display backends, package-provider boundaries, Hyprland provider bridge,
 and existing IPC aliases.

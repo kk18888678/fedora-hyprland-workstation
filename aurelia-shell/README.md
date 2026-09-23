@@ -258,12 +258,11 @@ The notification center is exposed by `aurelia.notifications`:
 
 ```text
 aurelia-shell aurelia.notifications openCenter
-aurelia-shell aurelia.notifications showHistory
 aurelia-shell aurelia.notifications toggleDnd
 ```
 
 It is an Aurelia-owned Freedesktop notification server, not a Noctalia
-notification surface. Do Not Disturb and bounded notification history are
+notification surface. Do Not Disturb state is
 stored under `${XDG_STATE_HOME:-$HOME/.local/state}/aurelia/`. Screenshot
 success previews now call this service in-process after a successful capture.
 Only one session service can own `org.freedesktop.Notifications`; enable this
@@ -271,9 +270,8 @@ owner after the other notification daemon has been disabled for the session.
 When another owner is detected, Aurelia leaves the standard server unloaded
 and reports the condition through its center instead of generating registration
 warnings; first-party screenshot previews still use the in-process path.
-The center separates Inbox from transient popup lifetime. Popup expiry never
-removes an Inbox row; each Inbox card has an Archive action, and Open/Dismiss
-also archive only that individual notification. ChatGPT completion notices
+The center is Inbox-only. Popup expiry never removes an Inbox row; Open/Dismiss
+removes only that individual notification. ChatGPT completion notices
 remain inbox-persistent while the user is away.
 
 Its normalized layout lives under the `bar` key in

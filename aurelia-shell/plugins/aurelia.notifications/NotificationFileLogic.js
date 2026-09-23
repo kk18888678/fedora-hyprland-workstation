@@ -16,15 +16,6 @@ var COPY_IMAGES_SCRIPT =
     "  shift 2\n" +
     "done\n"
 
-var PRUNE_HISTORY_SCRIPT =
-    "shopt -s nullglob\n" +
-    "history_files=(\"$hist\"/*.json)\n" +
-    "if (( ${#history_files[@]} > limit )); then\n" +
-    "  /usr/bin/printf '%s\\n' \"${history_files[@]##*/}\" | /usr/bin/sort -n | /usr/bin/head -n \"-$limit\" | while IFS= read -r name; do\n" +
-    "    /usr/bin/rm -f -- \"$hist/$name\" \"$imgs/${name%.json}\"-*\n" +
-    "  done\n" +
-    "fi\n"
-
 function withFileTimeout(script, args) {
     return ["/usr/bin/timeout", "--foreground", "--kill-after=1s", "5s", "/usr/bin/bash", "-c", script].concat(args)
 }
@@ -58,74 +49,19 @@ function persistPopup(persistable, popupStateDir, imagesDir, fileName) {
     return appendCopies(command, persistable.copies)
 }
 
-function writeHistory(persistable, historyDir, imagesDir, fileName, limit) {
+function sweepImages(popupStateDir, imagesDir) {
     var script =
         "set -Eeuo pipefail\n" +
-        "hist=\"$1\" limit=\"$2\" name=\"$3\" json=\"$4\" imgs=\"$5\"\n" +
-        "/usr/bin/mkdir -p -- \"$hist\" \"$imgs\"\n" +
-        "shift 5\n" +
-        COPY_IMAGES_SCRIPT +
-        "tmp=\"$hist/.$name.tmp.$$\"\n" +
-        "trap '/usr/bin/rm -f -- \"$tmp\"' EXIT\n" +
-        "/usr/bin/printf '%s\\n' \"$json\" > \"$tmp\"\n" +
-        "/usr/bin/mv -f -- \"$tmp\" \"$hist/$name\"\n" +
-        "trap - EXIT\n" +
-        PRUNE_HISTORY_SCRIPT
-    var command = withFileTimeout(script, [
-        "--",
-        historyDir,
-        String(limit),
-        fileName,
-        persistable.json,
-        imagesDir
-    ])
-    return appendCopies(command, persistable.copies)
-}
-
-function archivePopup(historyDir, popupStateDir, imagesDir, fileName, limit) {
-    var script =
-        "set -Eeuo pipefail\n" +
-        "hist=\"$1\" limit=\"$2\" name=\"$3\" popup=\"$4\" imgs=\"$5\"\n" +
-        "/usr/bin/mkdir -p -- \"$hist\" \"$imgs\"\n" +
-        "source=\"$popup/$name\" target=\"$hist/$name\"\n" +
-        "if [[ -e \"$source\" ]]; then /usr/bin/mv -f -- \"$source\" \"$target\"; elif [[ ! -e \"$target\" ]]; then exit 1; fi\n" +
-        PRUNE_HISTORY_SCRIPT
-    return withFileTimeout(script, [
-        "--",
-        historyDir,
-        String(limit),
-        fileName,
-        popupStateDir,
-        imagesDir
-    ])
-}
-
-function clearHistory(historyDir, imagesDir) {
-    var script =
-        "set -Eeuo pipefail\n" +
-        "hist=\"$1\" imgs=\"$2\"\n" +
+        "live=\"$1\" imgs=\"$2\"\n" +
         "shopt -s nullglob\n" +
-        "for file in \"$hist\"/*.json; do\n" +
-        "  name=\"${file##*/}\"\n" +
-        "  /usr/bin/rm -f -- \"$file\" \"$imgs/${name%.json}\"-*\n" +
-        "done\n" +
-        "for tmp in \"$hist\"/.*.tmp.*; do [[ -e \"$tmp\" ]] || continue; /usr/bin/rm -f -- \"$tmp\"; done\n"
-    return withFileTimeout(script, ["--", historyDir, imagesDir])
-}
-
-function sweepImages(popupStateDir, historyDir, imagesDir) {
-    var script =
-        "set -Eeuo pipefail\n" +
-        "live=\"$1\" hist=\"$2\" imgs=\"$3\"\n" +
-        "shopt -s nullglob\n" +
-        "for tmp in \"$live\"/.*.tmp.* \"$hist\"/.*.tmp.*; do [[ -e \"$tmp\" ]] || continue; /usr/bin/rm -f -- \"$tmp\"; done\n" +
+        "for tmp in \"$live\"/.*.tmp.*; do [[ -e \"$tmp\" ]] || continue; /usr/bin/rm -f -- \"$tmp\"; done\n" +
         "for image in \"$imgs\"/*; do\n" +
         "  [[ -e \"$image\" ]] || continue\n" +
         "  name=\"${image##*/}\"\n" +
         "  stem=\"${name%-*}\"\n" +
-        "  [[ -e \"$live/$stem.json\" || -e \"$hist/$stem.json\" ]] || /usr/bin/rm -f -- \"$image\"\n" +
+        "  [[ -e \"$live/$stem.json\" ]] || /usr/bin/rm -f -- \"$image\"\n" +
         "done\n"
-    return withFileTimeout(script, ["--", popupStateDir, historyDir, imagesDir])
+    return withFileTimeout(script, ["--", popupStateDir, imagesDir])
 }
 
 function deletePopup(popupStateDir, imagesDir, fileName) {
@@ -149,9 +85,6 @@ function readDirectory(directory) {
 if (typeof module !== "undefined") {
     module.exports = {
         persistPopup: persistPopup,
-        writeHistory: writeHistory,
-        archivePopup: archivePopup,
-        clearHistory: clearHistory,
         sweepImages: sweepImages,
         deletePopup: deletePopup,
         readDirectory: readDirectory
