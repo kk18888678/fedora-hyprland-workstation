@@ -20,6 +20,8 @@ ShellRoot {
     // independent of how the QML type is imported into script scope.
     readonly property int imageReadyStatus: 1
     property bool finished: false
+    property var toastComponent: null
+    property var toast: null
     property bool loaded: false
     property bool iconReady: false
     property int phase: 0
@@ -41,36 +43,62 @@ ShellRoot {
     property int actionFlowImplicitHeight: 0
     property int actionOneRowHeight: 0
     property int actionWrappedHeight: 0
+    property int actionButtonCountInitial: 0
+    property bool actionButtonsSameRowInitial: false
+    property int actionFlowWidthInitial: 0
+    property int actionWrappedButtonCount: 0
     property string copyIcon: ""
     property bool copyIsIconControl: false
     property bool copySameRowAsTitle: false
     property bool copyAfterTitleInRow: false
-    property bool summaryCentered: false
-    property bool bodyCentered: false
+    property bool summaryLeftAligned: false
+    property bool bodyLeftAligned: false
     property string fallbackSourcePath: ""
     property string fallbackName: ""
     property bool emptyAppHidden: false
     property bool emptyTimestampHidden: false
 
-    Loader {
-        id: toastLoader
-        active: root.toastSource !== ""
-        source: root.toastSource
-        onLoaded: {
-            if (!item) return
-            root.loaded = true
-            item.app = root.longAppName
-            item.appIcon = root.iconSource
-            item.summary = "Build complete"
-            item.body = "The render fixture body"
-            item.glyph = ""
-            item.image = ""
-            item.timestampLabel = "Yesterday 14:30"
-            item.showDismiss = false
-            item.defaultActionText = "Open"
-            item.actions = [{ identifier: "reply", text: "Reply" }]
-            pollTimer.start()
+    // The production Service stores snapshots in a ListModel. Qt materializes
+    // an array role as a nested list model exposing `.count` (and no `.length`),
+    // so the fixture must drive the toast from that representation rather than
+    // a plain JS array, or it cannot catch the action-undercount regression.
+    ListModel { id: actionsModel }
+
+    // Instantiate the real card with its properties set at creation time, the
+    // way the production delegate does. Setting `actions` after construction
+    // would let the Flow settle around a missing Repeater delegate and mask
+    // the action-undercount regression.
+    function ensureToast() {
+        if (root.toast || root.toastSource === "") return
+        if (!root.toastComponent) {
+            root.toastComponent = Qt.createComponent(root.toastSource)
+            if (root.toastComponent.status === Component.Loading) {
+                root.toastComponent.statusChanged.connect(root.materializeToast)
+                return
+            }
         }
+        root.materializeToast()
+    }
+
+    function materializeToast() {
+        if (root.toast || !root.toastComponent) return
+        if (root.toastComponent.status !== Component.Ready) return
+        if (actionsModel.count === 0)
+            actionsModel.append({ actions: [{ identifier: "reply", text: "Reply" }] })
+        root.toast = root.toastComponent.createObject(root, {
+            app: root.longAppName,
+            appIcon: root.iconSource,
+            summary: "Build complete",
+            body: "The render fixture body",
+            glyph: "",
+            image: "",
+            timestampLabel: "Yesterday 14:30",
+            showDismiss: false,
+            defaultActionText: "Open",
+            actions: actionsModel.get(0).actions
+        })
+        root.loaded = root.toast !== null
+        pollTimer.start()
     }
 
     function nodesUnder(node, output) {
@@ -109,7 +137,7 @@ ShellRoot {
     }
 
     function captureVisibleState() {
-        var nodes = nodesUnder(toastLoader.item, [])
+        var nodes = nodesUnder(root.toast, [])
         var appNode = nodeNamed("notificationSourceApp", nodes)
         var timestampNode = nodeNamed("notificationTimestamp", nodes)
         var iconNode = nodeNamed("notificationSourceIcon", nodes)
@@ -142,11 +170,11 @@ ShellRoot {
             copyNode.parent === appNode.parent)
         root.copyAfterTitleInRow = !!(copyNode && appNode &&
             childIndex(copyNode, copyNode.parent) > childIndex(appNode, appNode.parent))
-        root.summaryCentered = summaryNode
-            ? summaryNode.horizontalAlignment === Text.AlignHCenter
+        root.summaryLeftAligned = summaryNode
+            ? summaryNode.horizontalAlignment === Text.AlignLeft
             : false
-        root.bodyCentered = bodyNode
-            ? bodyNode.horizontalAlignment === Text.AlignHCenter
+        root.bodyLeftAligned = bodyNode
+            ? bodyNode.horizontalAlignment === Text.AlignLeft
             : false
         root.fallbackSourcePath = fallbackNode ? String(fallbackNode.sourcePath || "") : ""
         root.fallbackName = fallbackNode ? String(fallbackNode.name || "") : ""
@@ -154,7 +182,7 @@ ShellRoot {
     }
 
     function captureActionLayout() {
-        var nodes = nodesUnder(toastLoader.item, [])
+        var nodes = nodesUnder(root.toast, [])
         var buttons = nodesNamed("notificationActionButton", nodes)
         root.actionButtonCount = buttons.length
         root.actionButtonsSameRow = buttons.length >= 2 &&
@@ -166,20 +194,31 @@ ShellRoot {
 
     function step() {
         if (root.phase !== 0) return
+        if (!root.toast) { root.ensureToast(); return }
         var iconNode = captureVisibleState()
         if (!iconNode || Number(iconNode.status) !== root.imageReadyStatus) return
         root.iconReady = true
         captureVisibleState()
         // The card is not hovered or focused yet, so Copy must stay hidden.
         root.copyVisibleDefault = root.copyVisible
-        // The action Flow resolved from its initial zero width; two options
-        // must now share a single row.
+        root.phase = 1
+        // Let the Flow settle one event-loop turn so the Repeater delegate is
+        // laid out before measuring the production-path action row.
+        Qt.callLater(root.captureInitial)
+    }
+
+    function captureInitial() {
+        if (root.phase !== 1) return
         captureActionLayout()
         root.actionOneRowHeight = root.actionFlowImplicitHeight
-        root.phase = 1
+        root.actionButtonCountInitial = root.actionButtonCount
+        root.actionButtonsSameRowInitial = root.actionButtonsSameRow
+        root.actionFlowWidthInitial = root.actionFlowWidth
+        root.phase = 2
         // Add enough options to exceed the card width and confirm the Flow
-        // still wraps instead of overflowing.
-        toastLoader.item.actions = [
+        // still wraps instead of overflowing. This phase uses a plain JS array
+        // because it exercises Flow geometry, not the ListModel round-trip.
+        root.toast.actions = [
             { identifier: "a1", text: "One" },
             { identifier: "a2", text: "Two" },
             { identifier: "a3", text: "Three" },
@@ -191,37 +230,38 @@ ShellRoot {
     }
 
     function afterWrap() {
-        if (root.phase !== 1) return
+        if (root.phase !== 2) return
         captureActionLayout()
         root.actionWrappedHeight = root.actionFlowImplicitHeight
-        root.phase = 2
-        toastLoader.item.forceActiveFocus()
+        root.actionWrappedButtonCount = root.actionButtonCount
+        root.phase = 3
+        root.toast.forceActiveFocus()
         Qt.callLater(root.afterFocus)
     }
 
     function afterFocus() {
-        if (root.phase !== 2) return
+        if (root.phase !== 3) return
         captureVisibleState()
         root.copyVisibleWhenFocused = root.copyVisible
-        toastLoader.item.focus = false
-        root.phase = 3
+        root.toast.focus = false
+        root.phase = 4
         Qt.callLater(root.afterBlur)
     }
 
     function afterBlur() {
-        if (root.phase !== 3) return
+        if (root.phase !== 4) return
         captureVisibleState()
         root.copyHiddenAfterBlur = root.copyVisible === false
-        root.phase = 4
+        root.phase = 5
         // Clear both attribution fields and prove the card stops rendering
         // them, so the visible result above is not a static always-on label.
-        toastLoader.item.app = ""
-        toastLoader.item.timestampLabel = ""
+        root.toast.app = ""
+        root.toast.timestampLabel = ""
         Qt.callLater(root.finish)
     }
 
     function finish() {
-        var nodes = nodesUnder(toastLoader.item, [])
+        var nodes = nodesUnder(root.toast, [])
         var appNode = nodeNamed("notificationSourceApp", nodes)
         var timestampNode = nodeNamed("notificationTimestamp", nodes)
         root.emptyAppHidden = !appNode || appNode.visible !== true
@@ -234,6 +274,7 @@ ShellRoot {
         id: pollTimer
         interval: 50
         repeat: true
+        running: true
         onTriggered: root.step()
     }
 
@@ -278,15 +319,19 @@ ShellRoot {
             copyIcon: root.copyIcon,
             actionButtonCount: root.actionButtonCount,
             actionButtonsSameRow: root.actionButtonsSameRow,
+            actionButtonCountInitial: root.actionButtonCountInitial,
+            actionButtonsSameRowInitial: root.actionButtonsSameRowInitial,
             actionFlowWidth: root.actionFlowWidth,
+            actionFlowWidthInitial: root.actionFlowWidthInitial,
             actionFlowImplicitHeight: root.actionFlowImplicitHeight,
             actionOneRowHeight: root.actionOneRowHeight,
             actionWrappedHeight: root.actionWrappedHeight,
+            actionWrappedButtonCount: root.actionWrappedButtonCount,
             copyIsIconControl: root.copyIsIconControl,
             copySameRowAsTitle: root.copySameRowAsTitle,
             copyAfterTitleInRow: root.copyAfterTitleInRow,
-            summaryCentered: root.summaryCentered,
-            bodyCentered: root.bodyCentered,
+            summaryLeftAligned: root.summaryLeftAligned,
+            bodyLeftAligned: root.bodyLeftAligned,
             fallbackSourcePath: root.fallbackSourcePath,
             fallbackName: root.fallbackName,
             emptyAppHidden: root.emptyAppHidden,
