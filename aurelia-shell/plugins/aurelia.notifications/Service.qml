@@ -179,7 +179,35 @@ Item {
         persistable.json = Logic.serializePopup(persistable.entry, 1)
         enqueuePopupFileJob(FileLogic.persistPopup(
             persistable, popupStateDir, imagesDir, fileName),
-            null, "popup.persist:" + fileName)
+            function(success) {
+                // The copied icon path becomes durable only once the file job
+                // succeeds. Push the durable entry back into the live models
+                // and snapshots so a card keeps rendering a retained icon
+                // after Chromium removes its scoped temporary directory.
+                if (success) service.applyDurablePopup(snapshot, persistable.entry)
+            },
+            "popup.persist:" + fileName)
+    }
+
+    // Apply the durable icon/image paths produced by persistablePopup to the
+    // in-memory rows and live snapshots. The on-disk JSON already carries these
+    // paths; without this the UI would keep the sender's ephemeral URL and
+    // render a broken icon once the sender deletes it.
+    function applyDurablePopup(snapshot, durableEntry) {
+        if (!snapshot || !durableEntry) return
+        var originalId = snapshot.originalId
+        var timestamp = snapshot.timestamp
+        if (!service.hasUsableIdentity(originalId, timestamp)) return
+        var liveKey = service.identityKey(originalId, timestamp)
+        if (liveKey !== "" && liveSnapshots[liveKey]) {
+            var live = liveSnapshots[liveKey]
+            var roles = ["app", "appIcon", "desktopEntry", "summary", "body", "image", "glyph",
+                "execArgv", "actions", "defaultActionText", "urgency", "expireTimeout",
+                "deadline", "transient"]
+            for (var r = 0; r < roles.length; r++) live[roles[r]] = durableEntry[roles[r]]
+        }
+        updateModelRows(activeNotificationsModel, durableEntry, originalId, timestamp)
+        updateModelRows(popupNotificationsModel, durableEntry, originalId, timestamp)
     }
 
     function sweepOrphanImages() {

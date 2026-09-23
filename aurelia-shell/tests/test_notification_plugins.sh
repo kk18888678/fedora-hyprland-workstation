@@ -89,7 +89,10 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'property bool showActions: defaultActionText !== ""' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'radius: 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'readonly property int actionGroupWidth' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'anchors.horizontalCenter: parent.horizontalCenter' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'x: Math.max(0, (root.actionContentWidth - width) / 2)' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'onWidthChanged: forceLayout()' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationActionFlow"' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationActionButton"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'primary: false' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'border.width: 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'width: Theme.scaleGeometry(64)' "$plugin_root/ui/NotificationToast.qml" &&
@@ -112,6 +115,10 @@ fi
 
 if grep -q 'property bool showCopy: true' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'signal copyRequested()' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'readonly property bool copyRevealed' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'root.hovered || root.focus || copyButton.focus' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'visible: root.showCopy && root.copyRevealed' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'activeFocusOnTab: true' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'objectName: "notificationCopyAction"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'icon: "edit-copy"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'onTriggered: root.copyRequested()' "$plugin_root/ui/NotificationToast.qml" &&
@@ -162,6 +169,10 @@ if grep -q 'property bool doNotDisturb' "$plugin_root/Service.qml" &&
    grep -q 'readonly property string popupStateDir' "$plugin_root/Service.qml" &&
    grep -q 'readonly property string imagesDir' "$plugin_root/Service.qml" &&
    grep -q 'function persistPopupFile' "$plugin_root/Service.qml" &&
+   grep -q 'function applyDurablePopup' "$plugin_root/Service.qml" &&
+   grep -q 'service.applyDurablePopup(snapshot, persistable.entry)' "$plugin_root/Service.qml" &&
+   grep -q 'updateModelRows(activeNotificationsModel, durableEntry' "$plugin_root/Service.qml" &&
+   grep -q 'updateModelRows(popupNotificationsModel, durableEntry' "$plugin_root/Service.qml" &&
    grep -q 'function deletePopupFileFor' "$plugin_root/Service.qml" &&
    grep -q 'function restorePopups' "$plugin_root/Service.qml" &&
    grep -q 'function isManualInboxEntry' "$plugin_root/Service.qml" &&
@@ -236,6 +247,7 @@ if grep -q 'aurelia-action' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function styledBody' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function parseExecArgv' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function persistablePopup' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'source.indexOf("image://") === 0' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function popupPlacement' "$plugin_root/NotificationLogic.js" &&
    grep -q 'shouldBypassDnd(notification, 2)' "$plugin_root/Service.qml" &&
    grep -q 'durationFor' "$plugin_root/NotificationLogic.js" &&
@@ -379,6 +391,15 @@ if (logic.popupFileName({ id: 7, originalId: 7, timestamp: 0, summary: 'zero tim
 if (logic.parsePopupFiles(JSON.stringify({ id: 7, originalId: 7, timestamp: 0, summary: 'invalid' }), 1).length !== 0) process.exit(1);
 const persistable = logic.persistablePopup(popup, '/tmp/state/images/');
 if (persistable.copies.length !== 1 || persistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/100-7-appIcon')) process.exit(1);
+// Quickshell provider URLs with an embedded absolute path must be copied like
+// appIcon instead of being dropped; themed provider names must stay untouched.
+const imageIconPopup = { id: 9, originalId: 9, timestamp: 200, appIcon: 'image://icon//tmp/org.chromium.Chromium.scoped_dir.abc/logo.png', image: 'image://icon//tmp/org.chromium.Chromium.scoped_dir.abc/icon.png', summary: 'Chromium' };
+const imagePersistable = logic.persistablePopup(imageIconPopup, '/tmp/state/images/');
+if (imagePersistable.copies.length !== 2) process.exit(1);
+if (imagePersistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/200-9-appIcon')) process.exit(1);
+if (imagePersistable.entry.image !== sourceUrl.fileUrl('/tmp/state/images/200-9-image')) process.exit(1);
+const themedIcon = logic.persistablePopup({ id: 10, originalId: 10, timestamp: 201, appIcon: 'image://icon/application-x-executable' }, '/tmp/state/images/');
+if (themedIcon.copies.length !== 0 || themedIcon.entry.appIcon !== '') process.exit(1);
 if (logic.popupExpired({ timestamp: 100 }, 8000, 9000) !== true) process.exit(1);
 if (logic.popupPlacement('top', 32, 6).margins.top !== 32) process.exit(1);
 const snapshot = logic.snapshotOf({ id: 4, appName: "demo", summary: "Hello", body: "World", urgency: 1 }, 123);
@@ -671,6 +692,59 @@ else
 fi
 rm -rf -- "$copy_root"
 
+# The durable app icon must reach the live models, not just the on-disk JSON.
+# Chromium hands the card an ephemeral image://icon//tmp/... path and then
+# deletes it, so the copied path has to be pushed back into the UI state.
+durable_icon_root="$(mktemp -d)"
+mkdir -p -- "$durable_icon_root/runtime" "$durable_icon_root/state" \
+    "$durable_icon_root/config" "$durable_icon_root/cache"
+durable_icon_source="$durable_icon_root/ephemeral-logo.png"
+printf 'ephemeral-image-bytes' > "$durable_icon_source"
+durable_icon_result="$durable_icon_root/result.json"
+: >"$durable_icon_result"
+durable_icon_log="$durable_icon_root/runtime.log"
+durable_icon_status=0
+AURELIA_NOTIFICATION_DURABLE_ICON_RESULT="$durable_icon_result" \
+AURELIA_NOTIFICATION_DURABLE_ICON_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+AURELIA_NOTIFICATION_DURABLE_ICON_SOURCE="$durable_icon_source" \
+QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$durable_icon_root/runtime" \
+XDG_STATE_HOME="$durable_icon_root/state" \
+XDG_CONFIG_HOME="$durable_icon_root/config" \
+XDG_CACHE_HOME="$durable_icon_root/cache" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/notifications/durable-icon.qml" --no-color \
+    >"$durable_icon_log" 2>&1 || durable_icon_status=$?
+
+durable_icon_completed=0
+if [[ "$durable_icon_status" -eq 0 ]]; then
+    durable_icon_completed=1
+elif [[ "$durable_icon_status" -eq 124 && -s "$durable_icon_result" ]] &&
+     grep -Fq 'Signal QQmlEngine::quit() emitted' "$durable_icon_log"; then
+    durable_icon_completed=1
+fi
+durable_icon_images="$durable_icon_root/state/aurelia/notifications/images"
+durable_icon_copy=""
+if [[ -d "$durable_icon_images" ]]; then
+    durable_icon_copy="$(find "$durable_icon_images" -maxdepth 1 -type f -name '*-appIcon' -print -quit)"
+fi
+if [[ "$durable_icon_completed" -eq 1 ]] && [[ -s "$durable_icon_result" ]] &&
+   [[ -n "$durable_icon_copy" ]] &&
+   runtime_log_is_environment_only "$durable_icon_log" &&
+   ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$durable_icon_log" &&
+   jq -e '.serviceLoaded == true and
+          .appIconRetained == true and .imageRetained == true and
+          .popupRetained == true and .liveRetained == true and
+          .diskMatchesModel == true' \
+       "$durable_icon_result" >/dev/null; then
+    pass "[isolated-runtime] ephemeral image:// app icons propagate the durable copied path into the live models, snapshots, and on-disk JSON"
+else
+    details="$(tail -n 48 "$durable_icon_log" || true)"
+    if [[ -s "$durable_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$durable_icon_result")"; fi
+    fail "[isolated-runtime] durable notification icon fixture failed (status=$durable_icon_status): $details"
+fi
+rm -rf -- "$durable_icon_root"
+
 # Herdr (the terminal workspace manager pi runs inside) sends a raw
 # "<label> · <number> · <count>" body with no action. The logic must render
 # that in words and synthesize a jump-back-to-the-chat action.
@@ -758,7 +832,12 @@ else
             .timestampVisible == true and
             .iconSource == $icon and
             .iconVisible == true and
-            .copyVisible == true and
+            .copyVisibleDefault == false and
+            .copyVisibleWhenFocused == true and
+            .copyHiddenAfterBlur == true and
+            .actionOneRowHeight == 28 and
+            .actionWrappedHeight > .actionOneRowHeight and
+            .actionFlowWidth > 0 and
             .copyIcon == "edit-copy" and
             .copyIsIconControl == true and
             .copySameRowAsTitle == true and

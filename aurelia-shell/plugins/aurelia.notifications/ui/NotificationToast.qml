@@ -37,12 +37,26 @@ Item {
     property int identityIndex: -1
 
     readonly property bool hovered: toastHover.hovered
+    // The card itself is a tab stop so keyboard users can reveal the quiet
+    // Copy affordance. Copy stays hidden until the card is hovered or focused,
+    // which also keeps it out of hit-testing while invisible.
+    readonly property bool copyRevealed: root.hovered || root.focus || copyButton.focus
+    activeFocusOnTab: true
     readonly property int actionCount: (root.defaultActionText !== "" ? 1 : 0)
         + (root.actions && typeof root.actions.length === "number" ? root.actions.length : 0)
     readonly property int actionGroupWidth: root.actionCount > 0
         ? root.actionCount * Theme.scaleGeometry(64)
             + (root.actionCount - 1) * Theme.spacingXs
         : 0
+    // The action row is anchored to the stable card width rather than to its
+    // layout-managed parent. A ColumnLayout can leave a child that became
+    // visible after creation at width 0, so `parent.width` is not a reliable
+    // basis for the Flow's layout.
+    readonly property real actionContentWidth: Math.max(0,
+        (toastCard.width > 0 ? toastCard.width : root.implicitWidth)
+            - Theme.borderWidthFocus * 2)
+    readonly property real actionAvailableWidth: Math.max(0,
+        root.actionContentWidth - Theme.spacingMd * 2)
     readonly property bool hasGlyph: root.glyph.length > 0
     readonly property string smallIconSource: root.image.length > 0
         ? root.image
@@ -113,6 +127,7 @@ Item {
 
     Rectangle {
         id: toastCard
+        objectName: "notificationToastCard"
         width: Math.min(root.width > 0 ? root.width : root.implicitWidth, root.implicitWidth)
         implicitHeight: mainColumn.implicitHeight + Theme.borderWidthFocus * 2
         height: implicitHeight
@@ -135,6 +150,7 @@ Item {
 
         ColumnLayout {
             id: mainColumn
+            objectName: "notificationMainColumn"
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
@@ -270,9 +286,10 @@ Item {
                         // discoverable and keyboard activation matches the
                         // pointer path.
                         AureliaIconButton {
+                            id: copyButton
                             objectName: "notificationCopyAction"
                             Layout.alignment: Qt.AlignVCenter
-                            visible: root.showCopy
+                            visible: root.showCopy && root.copyRevealed
                             enabled: root.actionButtonsEnabled
                             icon: "edit-copy"
                             tooltip: "Copy notification"
@@ -322,6 +339,7 @@ Item {
             // whole card remains the primary interaction surface.
             Item {
                 id: actionContainer
+                objectName: "notificationActionContainer"
                 Layout.fillWidth: true
                 Layout.preferredHeight: visible ? actionToolbar.implicitHeight : 0
                 Layout.topMargin: Theme.scaleGeometry(2)
@@ -342,11 +360,19 @@ Item {
 
                         Flow {
                             id: actionFlow
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: Math.min(parent.width, root.actionGroupWidth)
+                            objectName: "notificationActionFlow"
+                            // Derive width and centering from the stable card
+                            // width. QQuickFlow does not re-run its layout when
+                            // its own width later changes, so force a reflow on
+                            // every width change; the explicit width still wraps
+                            // when the options no longer fit.
+                            width: Math.min(root.actionAvailableWidth, root.actionGroupWidth)
+                            x: Math.max(0, (root.actionContentWidth - width) / 2)
                             spacing: Theme.spacingXs
+                            onWidthChanged: forceLayout()
 
                             AureliaActionButton {
+                                objectName: "notificationActionButton"
                                 visible: root.defaultActionText !== ""
                                 enabled: root.defaultActionEnabled
                                 compact: true
@@ -363,6 +389,7 @@ Item {
                             Repeater {
                                 model: root.actions
                                 delegate: AureliaActionButton {
+                                    objectName: "notificationActionButton"
                                     required property var modelData
                                     enabled: root.actionButtonsEnabled
                                     compact: true

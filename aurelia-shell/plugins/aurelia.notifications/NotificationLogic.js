@@ -570,11 +570,29 @@ function popupFileName(entry) {
     return stem === "" ? "" : stem + ".json"
 }
 
+// Resolve the local file backing an icon role. `file://` and absolute paths
+// are returned through the shared path decoder. Quickshell image providers such
+// as Chromium's ephemeral `image://icon//tmp/.../logo.png` embed a local path
+// after the provider segment; extract it so the durable copy still runs instead
+// of the value being dropped. A provider URL that names a themed icon rather
+// than an embedded path (for example `image://icon/application-x-executable`)
+// resolves to "" and is left untouched.
 function localImageFile(value) {
     var source = String(value || "")
     var sourceUrl = loadSourceUrl()
     if (!sourceUrl || typeof sourceUrl.pathFromUrl !== "function") return ""
-    source = sourceUrl.pathFromUrl(source)
+    if (source.indexOf("image://") === 0) {
+        var remainder = source.substring("image://".length)
+        var separator = remainder.indexOf("/")
+        if (separator < 0) return ""
+        source = remainder.substring(separator)
+        // Only a doubled slash denotes an embedded absolute path
+        // (`image://icon//tmp/...`); a single slash names a themed icon.
+        if (source.indexOf("//") !== 0) return ""
+        source = source.substring(1)
+    } else {
+        source = sourceUrl.pathFromUrl(source)
+    }
     return source.charAt(0) === "/" ? source : ""
 }
 
