@@ -32,6 +32,15 @@ ShellRoot {
     property string renderedIconSource: ""
     property bool renderedIconVisible: false
     property bool copyVisible: false
+    property bool copyVisibleDefault: false
+    property bool copyVisibleWhenFocused: false
+    property bool copyHiddenAfterBlur: false
+    property int actionButtonCount: 0
+    property bool actionButtonsSameRow: false
+    property int actionFlowWidth: 0
+    property int actionFlowImplicitHeight: 0
+    property int actionOneRowHeight: 0
+    property int actionWrappedHeight: 0
     property string copyIcon: ""
     property bool copyIsIconControl: false
     property bool copySameRowAsTitle: false
@@ -58,6 +67,8 @@ ShellRoot {
             item.image = ""
             item.timestampLabel = "Yesterday 14:30"
             item.showDismiss = false
+            item.defaultActionText = "Open"
+            item.actions = [{ identifier: "reply", text: "Reply" }]
             pollTimer.start()
         }
     }
@@ -77,6 +88,15 @@ ShellRoot {
             if (String(nodes[i].objectName) === name) return nodes[i]
         }
         return null
+    }
+
+    function nodesNamed(name, nodes) {
+        var matches = []
+        for (var i = 0; i < nodes.length; i++) {
+            if (String(nodes[i].objectName) === name && nodes[i].visible === true)
+                matches.push(nodes[i])
+        }
+        return matches
     }
 
     function childIndex(node, parent) {
@@ -133,13 +153,66 @@ ShellRoot {
         return iconNode
     }
 
+    function captureActionLayout() {
+        var nodes = nodesUnder(toastLoader.item, [])
+        var buttons = nodesNamed("notificationActionButton", nodes)
+        root.actionButtonCount = buttons.length
+        root.actionButtonsSameRow = buttons.length >= 2 &&
+            Math.abs(Number(buttons[0].y) - Number(buttons[1].y)) < 1
+        var flow = nodeNamed("notificationActionFlow", nodes)
+        root.actionFlowWidth = flow ? Number(flow.width) : 0
+        root.actionFlowImplicitHeight = flow ? Number(flow.implicitHeight) : 0
+    }
+
     function step() {
         if (root.phase !== 0) return
         var iconNode = captureVisibleState()
         if (!iconNode || Number(iconNode.status) !== root.imageReadyStatus) return
         root.iconReady = true
         captureVisibleState()
+        // The card is not hovered or focused yet, so Copy must stay hidden.
+        root.copyVisibleDefault = root.copyVisible
+        // The action Flow resolved from its initial zero width; two options
+        // must now share a single row.
+        captureActionLayout()
+        root.actionOneRowHeight = root.actionFlowImplicitHeight
         root.phase = 1
+        // Add enough options to exceed the card width and confirm the Flow
+        // still wraps instead of overflowing.
+        toastLoader.item.actions = [
+            { identifier: "a1", text: "One" },
+            { identifier: "a2", text: "Two" },
+            { identifier: "a3", text: "Three" },
+            { identifier: "a4", text: "Four" },
+            { identifier: "a5", text: "Five" },
+            { identifier: "a6", text: "Six" }
+        ]
+        Qt.callLater(root.afterWrap)
+    }
+
+    function afterWrap() {
+        if (root.phase !== 1) return
+        captureActionLayout()
+        root.actionWrappedHeight = root.actionFlowImplicitHeight
+        root.phase = 2
+        toastLoader.item.forceActiveFocus()
+        Qt.callLater(root.afterFocus)
+    }
+
+    function afterFocus() {
+        if (root.phase !== 2) return
+        captureVisibleState()
+        root.copyVisibleWhenFocused = root.copyVisible
+        toastLoader.item.focus = false
+        root.phase = 3
+        Qt.callLater(root.afterBlur)
+    }
+
+    function afterBlur() {
+        if (root.phase !== 3) return
+        captureVisibleState()
+        root.copyHiddenAfterBlur = root.copyVisible === false
+        root.phase = 4
         // Clear both attribution fields and prove the card stops rendering
         // them, so the visible result above is not a static always-on label.
         toastLoader.item.app = ""
@@ -199,7 +272,16 @@ ShellRoot {
             iconSource: root.renderedIconSource,
             iconVisible: root.renderedIconVisible,
             copyVisible: root.copyVisible,
+            copyVisibleDefault: root.copyVisibleDefault,
+            copyVisibleWhenFocused: root.copyVisibleWhenFocused,
+            copyHiddenAfterBlur: root.copyHiddenAfterBlur,
             copyIcon: root.copyIcon,
+            actionButtonCount: root.actionButtonCount,
+            actionButtonsSameRow: root.actionButtonsSameRow,
+            actionFlowWidth: root.actionFlowWidth,
+            actionFlowImplicitHeight: root.actionFlowImplicitHeight,
+            actionOneRowHeight: root.actionOneRowHeight,
+            actionWrappedHeight: root.actionWrappedHeight,
             copyIsIconControl: root.copyIsIconControl,
             copySameRowAsTitle: root.copySameRowAsTitle,
             copyAfterTitleInRow: root.copyAfterTitleInRow,
