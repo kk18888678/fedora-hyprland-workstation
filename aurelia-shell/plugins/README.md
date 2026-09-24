@@ -133,6 +133,11 @@ an in-bar controls overlay.
   user-facing app list by the shipped Command Center hide policy.
 - aurelia.workspaces: Hyprland workspace switcher placed immediately after
   the Aurelia logo.
+- aurelia.active-window: signal-driven active Hyprland window label placed
+  immediately after the workspace switcher. It shows the application icon plus
+  the toplevel title, falling back to the Wayland app id and then the XWayland
+  class; the label is elided to a bounded `maxWidth` (default 280 px), hidden on
+  vertical bars, and exposes left-click activate plus middle/right-click close.
 - aurelia.workspace-switcher: resident Mission Control-inspired overlay opened
   with `SUPER + TAB`. It shows workspaces 1–5 plus occupied live workspaces up
   to 10, renders bounded single-frame Hyprland toplevel previews when the

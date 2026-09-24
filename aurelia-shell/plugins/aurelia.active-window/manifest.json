@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "aurelia.active-window",
+  "name": "Active Window",
+  "version": "1.0.0",
+  "author": "Fedora Hyprland Workstation",
+  "description": "Active Hyprland window title with a leading application icon.",
+  "icon": "window-new",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "ActiveWindowBarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Active Window",
+    "description": "Active Hyprland window title with a leading application icon.",
+    "category": "Windows",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": {
+      "maxWidth": 280
+    },
+    "schema": [
+      {
+        "key": "maxWidth",
+        "type": "integer",
+        "label": "Maximum width",
+        "description": "Maximum width in pixels for the active-window label.",
+        "defaultValue": 280,
+        "min": 80,
+        "max": 800,
+        "step": 10
+      }
+    ]
+  }
+}

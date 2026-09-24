@@ -5,7 +5,8 @@
   "centerAnchor": "aurelia.clock",
   "layout": {
     "left": [
-      {"id": "aurelia.workspaces"}
+      {"id": "aurelia.workspaces"},
+      {"id": "aurelia.active-window"}
     ],
     "center": [
       {"id": "aurelia.notifications"},

@@ -1,0 +1,184 @@
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+import "../../theme"
+import "../../ui"
+import "../../services/WindowRouting.js" as WindowRouting
+
+// Active-window label for the bar. State comes from the compositor's active
+// toplevel signal, never from a polling timer or a shell subprocess. The
+// widget hides on vertical bars and when no title/app identity is available.
+Item {
+    id: root
+
+    property var bar: null
+    property var shell: null
+    property string moduleName: "aurelia.active-window"
+    property var settings: ({})
+    property var manifest: ({})
+    property var pluginRegistry: null
+    // The override seam is unused in production. It lets the isolated QML
+    // fixture drive this exact widget with a deterministic toplevel object
+    // without connecting to or mutating the live compositor.
+    property var activeToplevelOverride
+
+    readonly property var activeToplevel: root.activeToplevelOverride !== undefined
+        ? root.activeToplevelOverride : Hyprland.activeToplevel
+    readonly property var routeInfo: WindowRouting.workspaceRouteInfo(root.activeToplevel)
+    readonly property string appId: {
+        var handle = root.activeToplevel ? root.activeToplevel.handle : null
+        if (handle && handle.appId) return String(handle.appId)
+        return String(root.routeInfo.appId || "")
+    }
+    // Title wins, then the Wayland app id, then the XWayland class reported by
+    // the compositor's IPC object. Keep every step null-safe.
+    readonly property string label: {
+        var title = String(root.activeToplevel && root.activeToplevel.title
+            ? root.activeToplevel.title : "").trim()
+        if (title !== "") return title
+        var handle = root.activeToplevel ? root.activeToplevel.handle : null
+        var handleAppId = handle && handle.appId ? String(handle.appId) : ""
+        if (handleAppId !== "") return handleAppId
+        return String(root.routeInfo.className || root.routeInfo.initialClass || "")
+    }
+    readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
+        ? root.bar.barForeground : Theme.text
+    readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : 16
+    readonly property real textMargin: root.bar && root.bar.barTextMargin !== undefined
+        ? root.bar.barTextMargin : Theme.bar.textMargin
+    readonly property int textSize: root.bar && root.bar.barTextSize
+        ? root.bar.barTextSize : Theme.bar.text
+
+    // The manifest default is 280 px. A user-provided value is bounded so a
+    // bad inline setting can never make the bar layout unbounded.
+    readonly property int maxWidth: {
+        var raw = root.settings && root.settings.maxWidth !== undefined
+            ? parseInt(root.settings.maxWidth) : 280
+        if (isNaN(raw) || raw < 80) return 280
+        return Math.min(raw, 800)
+    }
+    // The desktop entry supplies the application artwork. Unknown applications
+    // and missing or invalid icons fall back the same way the task list does,
+    // with a generic executable icon as the final resort.
+    readonly property string desktopIconName: {
+        if (root.appId === "") return ""
+        var entry = DesktopEntries.heuristicLookup(root.appId)
+        return entry && entry.icon ? String(entry.icon) : ""
+    }
+    readonly property string iconName: {
+        if (root.desktopIconName !== "") return root.desktopIconName
+        var normalized = root.appId.toLowerCase()
+        if (normalized.indexOf("chatgpt") >= 0) return "chatgpt"
+        if (normalized.indexOf("chrom") >= 0) return "chromium"
+        if (normalized.indexOf("kate") >= 0) return "kate"
+        if (normalized.indexOf("foot") >= 0) return "utilities-terminal"
+        return "application-x-executable"
+    }
+    readonly property string iconSource: Quickshell.iconPath(root.iconName, "application-x-executable")
+
+    readonly property real measuredLabelWidth: labelMetrics.advanceWidth
+    readonly property real labelWidth: Math.min(root.measuredLabelWidth + root.textMargin * 2, root.maxWidth)
+    property real animatedLabelWidth: root.labelWidth
+    Behavior on animatedLabelWidth {
+        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+    }
+
+    visible: !root.vertical && root.label !== ""
+    implicitWidth: root.visible
+        ? root.iconCanvas + Theme.spacingXs + Math.max(0, root.animatedLabelWidth)
+        : 0
+    implicitHeight: root.bar ? root.bar.barSize : 26
+
+    function activeHandle() {
+        var toplevel = root.activeToplevel
+        return toplevel && toplevel.handle ? toplevel.handle : null
+    }
+
+    function activateWindow() {
+        var handle = root.activeHandle()
+        if (handle && typeof handle.activate === "function") {
+            handle.activate()
+            return "ok"
+        }
+        return "not-available"
+    }
+
+    function closeWindow() {
+        var handle = root.activeHandle()
+        if (handle && typeof handle.close === "function") {
+            handle.close()
+            return "ok"
+        }
+        return "not-available"
+    }
+
+    TextMetrics {
+        id: labelMetrics
+        font.family: Theme.fontFamily
+        font.pixelSize: root.textSize
+        text: root.label
+    }
+
+    Rectangle {
+        id: hoverFill
+        anchors.fill: parent
+        radius: Theme.radiusSm
+        color: pointerHover.hovered ? Theme.selection : "transparent"
+    }
+
+    HoverHandler {
+        id: pointerHover
+    }
+
+    Row {
+        id: contentRow
+        anchors.centerIn: parent
+        spacing: Theme.spacingXs
+
+        AureliaIcon {
+            id: windowIcon
+            anchors.verticalCenter: parent.verticalCenter
+            width: root.iconCanvas
+            height: root.iconCanvas
+            iconSize: root.iconCanvas
+            name: ""
+            sourcePath: root.iconSource
+            tint: root.barForeground
+        }
+
+        Text {
+            id: labelText
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.max(0, root.animatedLabelWidth - root.textMargin * 2)
+            text: root.label
+            color: root.barForeground
+            opacity: 0.85
+            font.family: Theme.fontFamily
+            font.pixelSize: root.textSize
+            elide: Text.ElideRight
+            wrapMode: Text.NoWrap
+            clip: true
+            verticalAlignment: Text.AlignVCenter
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+        cursorShape: Qt.PointingHandCursor
+        onClicked: function(mouse) {
+            mouse.accepted = true
+            if (mouse.button === Qt.LeftButton) root.activateWindow()
+            else root.closeWindow()
+        }
+    }
+
+    AureliaToolTip {
+        triggerItem: root
+        bar: root.bar
+        hovered: pointerHover.hovered
+        text: root.label
+    }
+}
