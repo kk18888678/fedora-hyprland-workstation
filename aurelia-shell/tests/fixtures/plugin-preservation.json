@@ -1,5 +1,6 @@
 {
   "plugins": [
+    {"id":"aurelia.active-window","kinds":["bar-widget"],"entryPoints":{"barWidget":"ActiveWindowBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Active Window","description":"Active Hyprland window title with a leading application icon.","category":"Windows","allowMultiple":false,"defaultSection":"left","defaults":{"maxWidth":280},"schema":[{"key":"maxWidth","type":"integer","label":"Maximum width","description":"Maximum width in pixels for the active-window label.","defaultValue":280,"min":80,"max":800,"step":10}]}},
     {"id":"aurelia.agents","kinds":["bar-widget"],"entryPoints":{"barWidget":"AgentsBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Agents","description":"AI agent token usage panel backed by local session stats.","category":"AI","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.audio","kinds":["bar-widget"],"entryPoints":{"barWidget":"AudioBarWidget.qml"},"keepLoaded":false,"barWidget":{"displayName":"Audio","description":"Volume slider, output picker, and per-application mixer.","category":"Audio","allowMultiple":false,"defaultSection":"right"}},
     {"id":"aurelia.background","kinds":["service"],"entryPoints":{"service":"Background.qml"},"keepLoaded":true,"barWidget":null},
@@ -35,6 +36,9 @@
       "left": [
         {
           "id": "aurelia.workspaces"
+        },
+        {
+          "id": "aurelia.active-window"
         }
       ],
       "center": [

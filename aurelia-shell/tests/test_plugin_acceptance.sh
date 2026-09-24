@@ -17,7 +17,7 @@ if jq -e '
         .id == "aurelia.bar" and
         .position == "top" and
         .centerAnchor == "aurelia.clock" and
-        (.layout.left | length) == 1 and
+        (.layout.left | length) == 2 and
         (.layout.center | length) == 3 and
         (.layout.right | length) == 9
     ' "$bar_config" >/dev/null &&

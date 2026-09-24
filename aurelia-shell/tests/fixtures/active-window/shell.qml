@@ -1,0 +1,275 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// T-active-window disposable entry-point fixture. It loads only the real
+// Active Window bar widget and drives it with deterministic fake toplevels so
+// no live Hyprland socket, bar layout, or compositor state is touched.
+ShellRoot {
+    id: root
+
+    readonly property string widgetSource: Quickshell.env("AURELIA_ACTIVE_WINDOW_SOURCE") || ""
+    readonly property string resultPath: Quickshell.env("AURELIA_ACTIVE_WINDOW_RESULT") || ""
+    readonly property string longTitle: "A deliberately long active window title that must be elided by the widget instead of expanding the bar without bound"
+    property bool finished: false
+
+    QtObject {
+        id: clickState
+        property int activates: 0
+        property int closes: 0
+    }
+
+    QtObject {
+        id: fakeHandle
+        property string appId: "fixture.unknown.app"
+    }
+
+    QtObject {
+        id: classHandle
+        property string appId: ""
+    }
+
+    QtObject {
+        id: clickHandle
+        property string appId: "fixture.unknown.app"
+        function activate() { clickState.activates = clickState.activates + 1 }
+        function close() { clickState.closes = clickState.closes + 1 }
+    }
+
+    QtObject {
+        id: titleToplevel
+        property string title: "Fixture title"
+        property QtObject handle: fakeHandle
+        property var lastIpcObject: ({class: "FixtureClass"})
+    }
+
+    QtObject {
+        id: appIdToplevel
+        property string title: ""
+        property QtObject handle: fakeHandle
+        property var lastIpcObject: ({})
+    }
+
+    QtObject {
+        id: classToplevel
+        property string title: ""
+        property QtObject handle: classHandle
+        property var lastIpcObject: ({class: "FixtureClass"})
+    }
+
+    QtObject {
+        id: longToplevel
+        property string title: root.longTitle
+        property QtObject handle: fakeHandle
+        property var lastIpcObject: ({class: "FixtureClass"})
+    }
+
+    QtObject {
+        id: shortToplevel
+        property string title: "vim"
+        property QtObject handle: fakeHandle
+        property var lastIpcObject: ({})
+    }
+
+    QtObject {
+        id: clickToplevel
+        property string title: "Clickable window"
+        property QtObject handle: clickHandle
+        property var lastIpcObject: ({})
+    }
+
+    QtObject {
+        id: fakeBar
+        property bool vertical: false
+        property bool barVisible: true
+        property int barSize: 26
+        property int barIconCanvas: 16
+        property int barIconFont: 13
+        property int barTextSize: 12
+        property real barTextMargin: 8
+        property color barForeground: "#ffffff"
+    }
+
+    QtObject {
+        id: verticalBar
+        property bool vertical: true
+        property bool barVisible: true
+        property int barSize: 26
+        property int barIconCanvas: 16
+        property int barIconFont: 13
+        property int barTextSize: 12
+        property real barTextMargin: 8
+        property color barForeground: "#ffffff"
+    }
+
+    Loader {
+        id: titleLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = titleToplevel
+        }
+    }
+
+    Loader {
+        id: appIdLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = appIdToplevel
+        }
+    }
+
+    Loader {
+        id: classLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = classToplevel
+        }
+    }
+
+    Loader {
+        id: longLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = longToplevel
+        }
+    }
+
+    Loader {
+        id: cappedLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.settings = ({maxWidth: 100})
+            item.activeToplevelOverride = longToplevel
+        }
+    }
+
+    Loader {
+        id: shortLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = shortToplevel
+        }
+    }
+
+    Loader {
+        id: emptyLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = null
+        }
+    }
+
+    Loader {
+        id: verticalLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = verticalBar
+            item.activeToplevelOverride = titleToplevel
+        }
+    }
+
+    Loader {
+        id: clickLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = clickToplevel
+        }
+    }
+
+    FileView {
+        id: resultFile
+        path: root.resultPath
+        blockLoading: true
+        blockWrites: true
+        atomicWrites: true
+        watchChanges: false
+        printErrors: true
+        onSaved: Qt.quit()
+        onSaveFailed: Qt.quit()
+    }
+
+    function writeResult() {
+        if (root.finished || root.resultPath === "") return
+        var title = titleLoader.item
+        var appId = appIdLoader.item
+        var classItem = classLoader.item
+        var longItem = longLoader.item
+        var capped = cappedLoader.item
+        var shortItem = shortLoader.item
+        var empty = emptyLoader.item
+        var vertical = verticalLoader.item
+        var click = clickLoader.item
+        if (!title || !appId || !classItem || !longItem || !capped || !shortItem || !empty || !vertical || !click) {
+            root.finished = true
+            resultFile.setText(JSON.stringify({loaded: false}) + "\n")
+            return
+        }
+
+        click.activateWindow()
+        click.closeWindow()
+        var activateResult = click.activateWindow()
+        var closeResult = click.closeWindow()
+
+        root.finished = true
+        resultFile.setText(JSON.stringify({
+            loaded: true,
+            labels: {
+                title: String(title.label),
+                appId: String(appId.label),
+                className: String(classItem.label),
+                empty: String(empty.label)
+            },
+            icons: {
+                fallbackName: String(title.iconName),
+                fallbackSource: String(title.iconSource),
+                emptyAppIconName: String(classItem.iconName)
+            },
+            elision: {
+                maxWidth: Number(longItem.maxWidth),
+                longLabelWidth: Number(longItem.labelWidth),
+                longMeasured: Number(longItem.measuredLabelWidth),
+                cappedMaxWidth: Number(capped.maxWidth),
+                cappedLabelWidth: Number(capped.labelWidth),
+                shortLabelWidth: Number(shortItem.labelWidth),
+                shortMeasured: Number(shortItem.measuredLabelWidth),
+                shortMaxWidth: Number(shortItem.maxWidth)
+            },
+            visibility: {
+                emptyVisible: empty.visible === true,
+                emptyImplicitWidth: Number(empty.implicitWidth),
+                verticalVisible: vertical.visible === true,
+                verticalImplicitWidth: Number(vertical.implicitWidth),
+                titleVisible: title.visible === true,
+                titleImplicitWidth: Number(title.implicitWidth)
+            },
+            clicks: {
+                activates: clickState.activates,
+                closes: clickState.closes,
+                activateResult: activateResult,
+                closeResult: closeResult
+            }
+        }) + "\n")
+    }
+
+    Timer {
+        interval: 600
+        running: true
+        repeat: false
+        onTriggered: root.writeResult()
+    }
+
+    Timer {
+        interval: 8000
+        running: true
+        repeat: false
+        onTriggered: Qt.quit()
+    }
+}

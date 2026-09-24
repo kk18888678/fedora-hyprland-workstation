@@ -15,7 +15,10 @@ QtObject {
         transparent: false,
         centerAnchor: "aurelia.clock",
         layout: {
-            left: [{id: "aurelia.workspaces"}],
+            left: [
+                {id: "aurelia.workspaces"},
+                {id: "aurelia.active-window"}
+            ],
             center: [
                 {id: "aurelia.notifications"},
                 {id: "aurelia.clock", format: "auto"},

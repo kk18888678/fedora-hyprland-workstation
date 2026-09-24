@@ -21,6 +21,7 @@ if [[ -f "$default_file" && -f "$default_service" ]] &&
    grep -q 'shellConfig.defaultBarConfig' "$bar_root" &&
    jq -e '.id == "aurelia.bar" and .position == "top" and .centerAnchor == "aurelia.clock" and
           (.layout.left[0].id == "aurelia.workspaces") and
+          (.layout.left[1].id == "aurelia.active-window") and
           ([.layout.center[].id] == ["aurelia.notifications", "aurelia.clock", "aurelia.weather"]) and
           ([.layout.right[].id] == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.agents", "aurelia.session-actions", "aurelia.power"])' \
        "$default_file" >/dev/null; then
@@ -65,7 +66,7 @@ XDG_CONFIG_HOME="$runtime_root/config" XDG_CACHE_HOME="$runtime_root/cache" \
 if [[ "$runtime_status" -eq 0 ]] && runtime_log_is_environment_only "$runtime_log" && jq -e '
     .loaded == true and .id == "aurelia.bar" and .position == "top" and
     .centerAnchor == "aurelia.clock" and
-    .left == ["aurelia.workspaces"] and
+    .left == ["aurelia.workspaces", "aurelia.active-window"] and
     .center == ["aurelia.notifications", "aurelia.clock", "aurelia.weather"] and
     .right == ["aurelia.tray", "aurelia.network", "aurelia.audio", "aurelia.bluetooth", "aurelia.monitor", "aurelia.screenshot", "aurelia.agents", "aurelia.session-actions", "aurelia.power"] and
     .stateRight == .right and .explicitRight == ["aurelia.user-widget"]
