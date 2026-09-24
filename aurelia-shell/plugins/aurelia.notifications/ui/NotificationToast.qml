@@ -26,7 +26,9 @@ Item {
     property bool showDismiss: true
     // Every card exposes a Copy affordance unless a surface explicitly opts out.
     property bool showCopy: true
-    property bool showActions: defaultActionText !== ""
+    // A notification may offer only non-default actions. The action row must
+    // stay visible for those too, not just for an explicit default action.
+    property bool showActions: defaultActionText !== "" || actionItemsCount > 0
     property bool defaultActionEnabled: true
     property bool actionButtonsEnabled: true
     property string timestampLabel: ""

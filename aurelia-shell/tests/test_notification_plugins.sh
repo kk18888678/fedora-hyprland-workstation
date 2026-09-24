@@ -86,7 +86,7 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'readonly property string smallIconSource: root.image.length > 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'implicitWidth: 416' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'sourceSize.width: smallIconSlot.width \* Screen.devicePixelRatio \* 4' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'property bool showActions: defaultActionText !== ""' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -Fq 'property bool showActions: defaultActionText !== "" || actionItemsCount > 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'radius: 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'readonly property int actionGroupWidth' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'x: Math.max(0, (root.actionContentWidth - width) / 2)' "$plugin_root/ui/NotificationToast.qml" &&
@@ -274,7 +274,10 @@ if grep -q 'import Quickshell.Hyprland' "$plugin_root/Service.qml" &&
    grep -q 'workspace.activate' "$plugin_root/Service.qml" &&
    grep -q 'workspace.switch_requested' "$plugin_root/Service.qml" &&
    grep -q 'workspace.routed' "$plugin_root/Service.qml" &&
-   grep -q 'workspace.route_unavailable' "$plugin_root/Service.qml"; then
+   grep -q 'workspace.route_unavailable' "$plugin_root/Service.qml" &&
+   grep -q 'function invokeDurableAction' "$plugin_root/Service.qml" &&
+   grep -q 'return service.invokeDurableAction' "$plugin_root/Service.qml" &&
+   ! grep -q 'if (!reference || !reference.actions) return "unavailable"' "$plugin_root/Service.qml"; then
     pass "Notification actions route to the matching Hyprland workspace with bounded retry"
 else
     fail "Notification workspace routing or bounded fallback is incomplete"
@@ -914,7 +917,7 @@ else
     fi
     if [[ "$invoke_completed" -eq 1 ]] && [[ -s "$invoke_result" ]] &&
        runtime_log_is_environment_only "$invoke_log" \
-           'Created graphical object was not placed in the graphics scene' &&
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
        ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$invoke_log" &&
        jq -e '
             .serviceLoaded == true and
