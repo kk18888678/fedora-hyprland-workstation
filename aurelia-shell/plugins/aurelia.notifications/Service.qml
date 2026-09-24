@@ -975,6 +975,12 @@ Item {
         service.resolvePendingWorkspaceRoute()
     }
 
+    // Resolve a non-default action without depending on the sender's live
+    // Quickshell object. A retained Inbox row can outlive its sender: Chromium
+    // destroys its notification object on send, which deletes the live
+    // reference while the Settings button stays rendered, and the destroyed
+    // object refuses invoke(). The durable snapshot is the authoritative
+    // fallback, exactly as invokeDefault already treats the live object.
     function invokeAction(index, identifier, originalId, timestamp) {
         if (arguments.length >= 4) {
             index = activeIndexForIdentity(originalId, timestamp)
@@ -986,18 +992,47 @@ Item {
         var resolvedTimestamp = entry && Number(entry.timestamp) > 0 ? entry.timestamp : timestamp
         var actionKey = service.identityKey(resolvedOriginalId, resolvedTimestamp)
         var reference = actionKey !== "" ? liveRefs[actionKey] : null
-        if (!reference || !reference.actions) return "unavailable"
-        for (var i = 0; i < reference.actions.length; i++) {
-            var action = reference.actions[i]
-            if (action && action.identifier === identifier && typeof action.invoke === "function") {
-                var route = Logic.workspaceRouteData(reference, entry)
-                action.invoke()
-                service.startWorkspaceRoute(route)
-                removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
-                return "ok"
+        if (reference && reference.actions) {
+            for (var i = 0; i < reference.actions.length; i++) {
+                var action = reference.actions[i]
+                if (action && action.identifier === identifier && typeof action.invoke === "function") {
+                    var liveRoute = Logic.workspaceRouteData(reference, entry)
+                    try {
+                        action.invoke()
+                    } catch (error) {
+                        console.warn("[NOTIFICATIONS] action.invoke_failed falling_back")
+                        return service.invokeDurableAction(index, resolvedOriginalId, resolvedTimestamp, entry)
+                    }
+                    service.startWorkspaceRoute(liveRoute)
+                    removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
+                    return "ok"
+                }
             }
         }
-        return "not-found"
+        return service.invokeDurableAction(index, resolvedOriginalId, resolvedTimestamp, entry)
+    }
+
+    // Durable fallback for invokeAction. The live reference may be absent (the
+    // sender closed a retained Inbox row) or unusable (the notification object
+    // was destroyed). Resolve the durable snapshot, run any explicit exec argv,
+    // route the sender window, and remove the row. This mirrors invokeDefault.
+    function invokeDurableAction(index, originalId, timestamp, entry) {
+        var actionKey = service.identityKey(originalId, timestamp)
+        var durable = service.snapshotForIdentity(originalId, timestamp) ||
+            (actionKey !== "" ? service.liveSnapshots[actionKey] : null) || entry
+        if (!durable) return "unavailable"
+        var argv = Logic.parseExecArgv(durable.execArgv)
+        if (argv) {
+            var execRoute = Logic.workspaceRouteData(durable, entry)
+            if (execRoute.enabled) service.startWorkspaceRoute(execRoute)
+            Quickshell.execDetached(["bash", "-lc", "exec \"$@\"", "aurelia-notification"].concat(argv))
+            removeByIdentity(originalId, timestamp, "action", index)
+            return "ok"
+        }
+        var route = Logic.workspaceRouteData(durable, entry)
+        if (route.enabled) service.startWorkspaceRoute(route)
+        removeByIdentity(originalId, timestamp, "action", index)
+        return route.enabled ? "ok" : "unavailable"
     }
 
     function invokeDefault(index, originalId, timestamp) {

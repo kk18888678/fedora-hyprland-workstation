@@ -86,7 +86,7 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'readonly property string smallIconSource: root.image.length > 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'implicitWidth: 416' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'sourceSize.width: smallIconSlot.width \* Screen.devicePixelRatio \* 4' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'property bool showActions: defaultActionText !== ""' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -Fq 'property bool showActions: defaultActionText !== "" || actionItemsCount > 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'radius: 0' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'readonly property int actionGroupWidth' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'x: Math.max(0, (root.actionContentWidth - width) / 2)' "$plugin_root/ui/NotificationToast.qml" &&
@@ -274,7 +274,10 @@ if grep -q 'import Quickshell.Hyprland' "$plugin_root/Service.qml" &&
    grep -q 'workspace.activate' "$plugin_root/Service.qml" &&
    grep -q 'workspace.switch_requested' "$plugin_root/Service.qml" &&
    grep -q 'workspace.routed' "$plugin_root/Service.qml" &&
-   grep -q 'workspace.route_unavailable' "$plugin_root/Service.qml"; then
+   grep -q 'workspace.route_unavailable' "$plugin_root/Service.qml" &&
+   grep -q 'function invokeDurableAction' "$plugin_root/Service.qml" &&
+   grep -q 'return service.invokeDurableAction' "$plugin_root/Service.qml" &&
+   ! grep -q 'if (!reference || !reference.actions) return "unavailable"' "$plugin_root/Service.qml"; then
     pass "Notification actions route to the matching Hyprland workspace with bounded retry"
 else
     fail "Notification workspace routing or bounded fallback is incomplete"
@@ -872,5 +875,67 @@ else
         details="$(tail -n 48 "$render_log" || true)"
         if [[ -s "$render_result" ]]; then details="$details result=$(tr '\n' ' ' <"$render_result")"; fi
         fail "[isolated-runtime] notification card render fixture failed (status=$render_status): $details"
+    fi
+fi
+
+# A retained Inbox row must keep resolving its non-default action after the
+# sender destroys the live notification. Chromium closes its notification
+# object on send, which deletes the live reference while the Inbox row stays
+# rendered. invokeAction must resolve the durable snapshot, route the sender
+# window, remove the row, and report success instead of "unavailable".
+invoke_fixture="$ROOT/tests/fixtures/notifications/invoke-action.qml"
+if [[ ! -f "$invoke_fixture" ]]; then
+    fail "[static] notification retained-action invoke fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification retained-action invoke fixture (qs or timeout unavailable)"
+else
+    invoke_root="$(mktemp -d)"
+    trap 'rm -rf -- "$invoke_root"  || true' RETURN
+    mkdir -p -- "$invoke_root/runtime" "$invoke_root/state" \
+        "$invoke_root/config" "$invoke_root/cache"
+    invoke_result="$invoke_root/result.json"
+    : >"$invoke_result"
+    invoke_log="$invoke_root/runtime.log"
+    invoke_status=0
+    AURELIA_NOTIFICATION_INVOKE_RESULT="$invoke_result" \
+    AURELIA_NOTIFICATION_INVOKE_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_INVOKE_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$invoke_root/runtime" \
+    XDG_STATE_HOME="$invoke_root/state" \
+    XDG_CONFIG_HOME="$invoke_root/config" \
+    XDG_CACHE_HOME="$invoke_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$invoke_fixture" --no-color >"$invoke_log" 2>&1 || invoke_status=$?
+
+    invoke_completed=0
+    if [[ "$invoke_status" -eq 0 ]]; then
+        invoke_completed=1
+    elif [[ "$invoke_status" -eq 124 && -s "$invoke_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$invoke_log"; then
+        invoke_completed=1
+    fi
+    if [[ "$invoke_completed" -eq 1 ]] && [[ -s "$invoke_result" ]] &&
+       runtime_log_is_environment_only "$invoke_log" \
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$invoke_log" &&
+       jq -e '
+            .serviceLoaded == true and
+            .senderClosed == true and
+            .activeCountAfterClose == 1 and
+            .actionsCountAfterClose == 1 and
+            .actionsRoleUndefinedAfterClose == false and
+            .firstActionIdentifier == "settings" and
+            .invokeResult == "ok" and
+            .routeStarted == true and
+            .retainedSettingsButtonCount == 1 and
+            .nonDefaultOnlyContainerVisible == true and
+            .nonDefaultOnlySettingsButtonCount == 1
+       ' "$invoke_result" >/dev/null; then
+        pass "[isolated-runtime] retained Inbox row resolves its non-default action after the sender closes and the card renders the settings identifier"
+    else
+        details="$(tail -n 48 "$invoke_log" || true)"
+        if [[ -s "$invoke_result" ]]; then details="$details result=$(tr '\n' ' ' <"$invoke_result")"; fi
+        fail "[isolated-runtime] retained notification action fixture failed (status=$invoke_status): $details"
     fi
 fi
