@@ -874,3 +874,65 @@ else
         fail "[isolated-runtime] notification card render fixture failed (status=$render_status): $details"
     fi
 fi
+
+# A retained Inbox row must keep resolving its non-default action after the
+# sender destroys the live notification. Chromium closes its notification
+# object on send, which deletes the live reference while the Inbox row stays
+# rendered. invokeAction must resolve the durable snapshot, route the sender
+# window, remove the row, and report success instead of "unavailable".
+invoke_fixture="$ROOT/tests/fixtures/notifications/invoke-action.qml"
+if [[ ! -f "$invoke_fixture" ]]; then
+    fail "[static] notification retained-action invoke fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification retained-action invoke fixture (qs or timeout unavailable)"
+else
+    invoke_root="$(mktemp -d)"
+    trap 'rm -rf -- "$invoke_root"  || true' RETURN
+    mkdir -p -- "$invoke_root/runtime" "$invoke_root/state" \
+        "$invoke_root/config" "$invoke_root/cache"
+    invoke_result="$invoke_root/result.json"
+    : >"$invoke_result"
+    invoke_log="$invoke_root/runtime.log"
+    invoke_status=0
+    AURELIA_NOTIFICATION_INVOKE_RESULT="$invoke_result" \
+    AURELIA_NOTIFICATION_INVOKE_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_INVOKE_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$invoke_root/runtime" \
+    XDG_STATE_HOME="$invoke_root/state" \
+    XDG_CONFIG_HOME="$invoke_root/config" \
+    XDG_CACHE_HOME="$invoke_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$invoke_fixture" --no-color >"$invoke_log" 2>&1 || invoke_status=$?
+
+    invoke_completed=0
+    if [[ "$invoke_status" -eq 0 ]]; then
+        invoke_completed=1
+    elif [[ "$invoke_status" -eq 124 && -s "$invoke_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$invoke_log"; then
+        invoke_completed=1
+    fi
+    if [[ "$invoke_completed" -eq 1 ]] && [[ -s "$invoke_result" ]] &&
+       runtime_log_is_environment_only "$invoke_log" \
+           'Created graphical object was not placed in the graphics scene' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$invoke_log" &&
+       jq -e '
+            .serviceLoaded == true and
+            .senderClosed == true and
+            .activeCountAfterClose == 1 and
+            .actionsCountAfterClose == 1 and
+            .actionsRoleUndefinedAfterClose == false and
+            .firstActionIdentifier == "settings" and
+            .invokeResult == "ok" and
+            .routeStarted == true and
+            .retainedSettingsButtonCount == 1 and
+            .nonDefaultOnlyContainerVisible == true and
+            .nonDefaultOnlySettingsButtonCount == 1
+       ' "$invoke_result" >/dev/null; then
+        pass "[isolated-runtime] retained Inbox row resolves its non-default action after the sender closes and the card renders the settings identifier"
+    else
+        details="$(tail -n 48 "$invoke_log" || true)"
+        if [[ -s "$invoke_result" ]]; then details="$details result=$(tr '\n' ' ' <"$invoke_result")"; fi
+        fail "[isolated-runtime] retained notification action fixture failed (status=$invoke_status): $details"
+    fi
+fi
