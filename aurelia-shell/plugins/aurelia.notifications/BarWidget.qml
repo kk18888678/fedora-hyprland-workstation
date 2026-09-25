@@ -18,6 +18,11 @@ Item {
     property bool doNotDisturb: false
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
+    // literal icon sizes. The only non-foreground tint is the documented DND
+    // alert state; hover is expressed by the slot fill, not the glyph.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     implicitWidth: bar ? bar.barSize : 26
     implicitHeight: bar ? bar.barSize : 26
@@ -60,11 +65,11 @@ Item {
 
         AureliaIcon {
             anchors.centerIn: parent
-            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
+            width: root.iconCanvas
+            height: root.iconCanvas
             name: root.doNotDisturb ? "notifications-disabled" : "notifications"
-            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
-            tint: hover.hovered ? root.barForeground : (root.doNotDisturb ? Theme.warning : Theme.accent)
+            iconSize: root.iconCanvas
+            tint: root.doNotDisturb ? Theme.warning : root.barForeground
         }
 
         AureliaToolTip {

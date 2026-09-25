@@ -190,11 +190,12 @@ These dimensions are independent named tokens and scale with font by default:
 | vertical bar cross-axis size | 28 px |
 | icon slot | 27 px |
 | icon canvas | 16 px |
-| icon font | 13 px |
+| icon font | 13 px (legacy; vertical clock stack only) |
 | status slot | 21 px |
 
 The horizontal bar uses the 26 px cross-axis surface while most fixed icon
-slots are 27 px. A vertical bar uses 28 px width. Text-bearing widgets collapse
+slots are 27 px. Bar widget icons use `barIconCanvas`; `barIconFont` remains
+only as the legacy token for the vertical clock's stacked text. A vertical bar uses 28 px width. Text-bearing widgets collapse
 or switch to icon-only/stacked forms in vertical orientation; a widget should
 not rotate an entire card to make text fit.
 
@@ -256,6 +257,37 @@ Use `Text.NativeRendering` and the shared font family. `OpticalGlyph` measures
 `TextMetrics.tightBoundingRect`, applies a horizontal correction to center ink
 rather than the advance box, and exposes painted center/baseline diagnostics.
 Keep the text line box and baseline fixed; correct horizontal optical drift only.
+
+### Uniform bar-icon contract
+
+Every first-party bar widget follows one icon contract:
+
+- **Ink canvas**: each icon is a `barIconCanvas` (16 px at the base font
+  scale) ink box centred in a `barIconSlot` (27 px at base) interaction slot.
+  No widget hard-codes a literal icon width, height, or `iconSize`; the box
+  scales with the bar font through the shared theme token.
+- **Glyphs**: Nerd Font glyphs render through the shared `AureliaIcon`
+  primitive with `width`, `height`, and `iconSize` all bound to
+  `barIconCanvas`. The primitive multiplies the canvas by `0.9` for the
+  effective glyph font (14 px at base) and optically centres the measured ink.
+  A raw `Text` glyph (the focused-workspace mark) uses
+  `round(barIconCanvas * 0.9)`, `Theme.fontFamily`, and
+  `Text.NativeRendering` so it matches the primitive exactly.
+- **Images**: symbolic and application artwork fills the same
+  `barIconCanvas` box with `Image.PreserveAspectFit`.
+- **Rest colour**: every icon rests at `barForeground`. `Theme.accent` is
+  permitted in at most one documented active state per widget (audio,
+  bluetooth, display, and microphone open/in-use), `Theme.warning` marks the
+  documented DND and restricted-network alerts, and no widget tints with
+  `Theme.accent` at rest.
+- **Tint policy**: glyphs and symbolic images are always tinted to the bar
+  foreground. Multi-colour brand and tray artwork is the single documented
+  exception and keeps `preserveColors: true`.
+- **Opacity**: icons rest at full opacity. Genuinely inactive targets use the
+  one documented dim (the tasklist's running-but-unfocused windows).
+
+The active-window label is intentionally outside this contract until its own
+follow-up review lands.
 
 Source-level branding assets, retained here as exact reference facts, are:
 

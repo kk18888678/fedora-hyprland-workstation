@@ -22,6 +22,12 @@ Item {
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     readonly property int barSize: root.bar && root.bar.barSize ? root.bar.barSize : 26
     readonly property real trailingGap: root.vertical ? 0 : Theme.spacingXs / 2
+    // The focused-workspace glyph is a raw Text icon and therefore uses the
+    // same canvas-derived optical font size as AureliaIcon (canvas * 0.9)
+    // instead of a literal or the plain bar text size.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
+    readonly property int focusedGlyphSize: Math.round(root.iconCanvas * 0.9)
 
     implicitWidth: workspaceGrid.implicitWidth + root.trailingGap
     // In a vertical bar the five workspace cells form the widget's actual
@@ -142,7 +148,8 @@ Item {
                     font.family: Theme.fontFamily
                     font.pixelSize: !focused && !occupied
                         ? (root.bar && root.bar.barTextSize ? root.bar.barTextSize + 5 : Theme.fontSizeSm + 5)
-                        : (root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.fontSizeSm)
+                        : (focused ? root.focusedGlyphSize
+                            : (root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.fontSizeSm))
                     font.weight: Theme.fontWeightMedium
                     renderType: Text.NativeRendering
                     horizontalAlignment: Text.AlignHCenter

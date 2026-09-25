@@ -14,6 +14,10 @@ Item {
     property bool hovered: logoHover.hovered
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    // Uniform bar-icon contract: the brand mark uses the shared 16 px ink
+    // canvas and the rest colour is the bar foreground, at full opacity.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     function shellOwner() {
         if (root.shell && typeof root.shell.summon === "function") return root.shell
@@ -67,11 +71,10 @@ Item {
         AureliaMark {
             id: logoMark
             anchors.centerIn: parent
-            width: 20
-            height: 20
-            color: root.hovered ? root.barForeground : Theme.accent
-            coreColor: root.hovered ? root.barForeground : Theme.gold
-            opacity: root.hovered ? 1.0 : 0.92
+            width: root.iconCanvas
+            height: root.iconCanvas
+            color: root.barForeground
+            coreColor: root.barForeground
         }
 
     HoverHandler { id: logoHover }
