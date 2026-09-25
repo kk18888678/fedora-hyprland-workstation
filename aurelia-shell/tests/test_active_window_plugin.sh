@@ -51,16 +51,33 @@ fi
 if grep -Fq 'Text.ElideRight' "$widget_file" &&
    grep -Fq 'wrapMode: Text.NoWrap' "$widget_file" &&
    grep -Fq 'clip: true' "$widget_file" &&
-   grep -Fq 'opacity: 0.85' "$widget_file" &&
+   ! grep -Eq '(^|[^[:alnum:]_])opacity:' "$widget_file" &&
    grep -Fq 'duration: 180' "$widget_file" &&
    grep -Fq 'Easing.OutCubic' "$widget_file" &&
    grep -Fq 'bar.barIconCanvas' "$widget_file" &&
    grep -Fq 'bar.barTextMargin' "$widget_file" &&
    grep -Fq 'bar.barTextSize' "$widget_file" &&
    grep -Fq 'application-x-executable' "$widget_file"; then
-    pass "[static] Active Window elides its label to the bounded width, animates at 180 ms, and uses the shared icon/text canvas tokens"
+    pass "[static] Active Window elides its label at full opacity, animates at 180 ms, and uses the shared icon/text canvas tokens"
 else
-    fail "[static] Active Window elision, animation, or bar token contract is incomplete"
+    fail "[static] Active Window elision, full-opacity label, animation, or bar token contract is incomplete"
+fi
+
+if grep -Fq 'bar.barTrayIcon' "$widget_file" &&
+   grep -Fq 'Theme.bar.trayIcon' "$widget_file" &&
+   grep -Fq 'width: root.trayIcon' "$widget_file" &&
+   grep -Fq 'height: root.trayIcon' "$widget_file" &&
+   grep -Fq 'iconSize: root.trayIcon' "$widget_file" &&
+   grep -Fq 'width: root.iconCanvas' "$widget_file" &&
+   grep -Fq 'height: root.iconCanvas' "$widget_file" &&
+   grep -Fq 'visible: root.hasIcon' "$widget_file" &&
+   grep -Fq 'font.weight: Theme.fontWeightMedium' "$widget_file" &&
+   grep -Fq 'renderType: Text.NativeRendering' "$widget_file" &&
+   ! grep -Fq 'shadowEnabled' "$widget_file" &&
+   ! grep -Fq 'preserveColors' "$widget_file"; then
+    pass "[static] Active Window renders tray-sized image ink centred in the unchanged icon-canvas slot, hides the slot without an icon, and keeps colorization-only artwork with medium native-rendered text"
+else
+    fail "[static] Active Window icon ink/slot sizing, missing-icon hide, text crispness, or colorization-only artwork contract is incomplete"
 fi
 
 if grep -Fq 'AureliaToolTip' "$widget_file" &&
@@ -138,6 +155,15 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .elision.cappedLabelWidth == 100 and
         .elision.shortMaxWidth == 280 and
         .elision.shortLabelWidth == (.elision.shortMeasured + 16) and
+        .elision.longVisibleWidth == (.elision.maxWidth - 2 * .elision.longTextMargin) and
+        .render.iconInk == 12 and
+        .render.iconSlot == 16 and
+        .render.iconSlotVisible == true and
+        .render.labelOpacity == 1.0 and
+        .render.implicitWidth == (.render.iconSlot + .render.iconSpacing + .render.outerLabelWidth) and
+        .missingIcon.slotVisible == false and
+        .missingIcon.visible == true and
+        .missingIcon.implicitWidth == .missingIcon.labelWidth and
         .visibility.emptyVisible == false and
         .visibility.emptyImplicitWidth == 0 and
         .visibility.verticalVisible == false and

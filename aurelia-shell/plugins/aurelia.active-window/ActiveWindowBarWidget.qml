@@ -50,6 +50,7 @@ Item {
         ? root.bar.barTextMargin : Theme.bar.textMargin
     readonly property int textSize: root.bar && root.bar.barTextSize
         ? root.bar.barTextSize : Theme.bar.text
+    readonly property int iconSpacing: Theme.spacingXs
 
     // The manifest default is 280 px. A user-provided value is bounded so a
     // bad inline setting can never make the bar layout unbounded.
@@ -76,7 +77,28 @@ Item {
         if (normalized.indexOf("foot") >= 0) return "utilities-terminal"
         return "application-x-executable"
     }
-    readonly property string iconSource: Quickshell.iconPath(root.iconName, "application-x-executable")
+    // The isolated fixture can force an empty source so the no-icon slot-hide
+    // path is exercised without depending on a live icon-theme lookup. The
+    // override is unused in production.
+    property var iconSourceOverride
+    readonly property string iconSource: root.iconSourceOverride !== undefined
+        ? String(root.iconSourceOverride)
+        : Quickshell.iconPath(root.iconName, "application-x-executable")
+    // A resolved icon keeps the shared tray-sized image ink so the artwork has
+    // the same visual mass as a peer bar glyph, while the slot stays the icon
+    // canvas so the layout rhythm and hit area do not change.
+    readonly property int trayIcon: root.bar && root.bar.barTrayIcon
+        ? root.bar.barTrayIcon : Theme.bar.trayIcon
+    readonly property bool hasIcon: root.iconSource !== ""
+
+    // Isolated-fixture seam: the rendered icon ink/slot and label metrics. The
+    // production bar never reads these; they let the QML runtime test assert
+    // the rendered geometry without re-implementing the layout.
+    readonly property real iconInkSize: windowIcon.width
+    readonly property real iconSlotSize: iconSlot.width
+    readonly property bool iconSlotVisible: iconSlot.visible
+    readonly property real labelOpacity: labelText.opacity
+    readonly property real visibleLabelWidth: labelText.width
 
     readonly property real measuredLabelWidth: labelMetrics.advanceWidth
     readonly property real labelWidth: Math.min(root.measuredLabelWidth + root.textMargin * 2, root.maxWidth)
@@ -87,7 +109,8 @@ Item {
 
     visible: !root.vertical && root.label !== ""
     implicitWidth: root.visible
-        ? root.iconCanvas + Theme.spacingXs + Math.max(0, root.animatedLabelWidth)
+        ? (root.hasIcon ? root.iconCanvas + root.iconSpacing : 0)
+            + Math.max(0, root.animatedLabelWidth)
         : 0
     implicitHeight: root.bar ? root.bar.barSize : 26
 
@@ -135,17 +158,25 @@ Item {
     Row {
         id: contentRow
         anchors.centerIn: parent
-        spacing: Theme.spacingXs
+        spacing: root.iconSpacing
 
-        AureliaIcon {
-            id: windowIcon
+        Item {
+            id: iconSlot
             anchors.verticalCenter: parent.verticalCenter
             width: root.iconCanvas
             height: root.iconCanvas
-            iconSize: root.iconCanvas
-            name: ""
-            sourcePath: root.iconSource
-            tint: root.barForeground
+            visible: root.hasIcon
+
+            AureliaIcon {
+                id: windowIcon
+                anchors.centerIn: parent
+                width: root.trayIcon
+                height: root.trayIcon
+                iconSize: root.trayIcon
+                name: ""
+                sourcePath: root.iconSource
+                tint: root.barForeground
+            }
         }
 
         Text {
@@ -154,9 +185,10 @@ Item {
             width: Math.max(0, root.animatedLabelWidth - root.textMargin * 2)
             text: root.label
             color: root.barForeground
-            opacity: 0.85
             font.family: Theme.fontFamily
             font.pixelSize: root.textSize
+            font.weight: Theme.fontWeightMedium
+            renderType: Text.NativeRendering
             elide: Text.ElideRight
             wrapMode: Text.NoWrap
             clip: true
