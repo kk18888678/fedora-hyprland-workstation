@@ -21,6 +21,10 @@ Item {
     readonly property var menuPanel: menuLoader.item
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
+    // literal sizes. Icon artwork stays tinted to the bar foreground.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     implicitWidth: root.vertical ? (bar ? bar.barSize : 26) : taskRow.implicitWidth
@@ -107,12 +111,13 @@ Item {
 
                 AureliaIcon {
                     anchors.centerIn: parent
-                    width: 20
-                    height: 20
-                    iconSize: 20
+                    width: root.iconCanvas
+                    height: root.iconCanvas
+                    iconSize: root.iconCanvas
                     name: ""
                     sourcePath: root.iconSourceFor(modelData, appEntry)
                     tint: root.barForeground
+                    // The single documented inactive dim: running but unfocused.
                     opacity: modelData.activated ? 1.0 : 0.65
                 }
 

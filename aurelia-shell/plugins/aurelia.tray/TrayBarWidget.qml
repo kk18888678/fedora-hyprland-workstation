@@ -5,6 +5,7 @@ import Quickshell.Services.SystemTray
 import "../../theme"
 import "../../ui"
 import "../../services/WindowRouting.js" as WindowRouting
+import "TrayIconPolicy.js" as TrayIconPolicy
 
 // Quickshell's SystemTray singleton tracks StatusNotifier applications. This
 // is deliberately a bar widget; it does not become a second tray process.
@@ -22,31 +23,14 @@ Item {
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    // Uniform bar-icon contract: every tray item renders in the same 16 px ink
+    // canvas scaled by the bar, with no per-item special cases.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     implicitWidth: root.vertical ? (bar ? bar.barSize : 32) : trayRow.implicitWidth
     implicitHeight: root.vertical ? trayRow.implicitHeight : (bar ? bar.barSize : 32)
     visible: SystemTray.items && SystemTray.items.values.length > 0
-
-    function isSymbolicIcon(icon) {
-        var name = String(icon || "").split("?")[0]
-        return name.slice(-9) === "-symbolic"
-    }
-
-    function isChatGptItem(item) {
-        var identity = [
-            item && item.id ? item.id : "",
-            item && item.title ? item.title : "",
-            item && item.tooltipTitle ? item.tooltipTitle : "",
-            item && item.tooltipDescription ? item.tooltipDescription : ""
-        ].join("|").toLowerCase()
-        return identity.indexOf("chatgpt") >= 0 || identity.indexOf("openai") >= 0
-    }
-
-    function trayIconSize(item) {
-        var normal = root.bar && root.bar.barTrayIcon ? root.bar.barTrayIcon : Theme.bar.trayIcon
-        var optical = root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : Theme.bar.iconCanvas
-        return root.isChatGptItem(item) ? Math.max(normal, optical) : normal
-    }
 
     function configureTrayMenu(target) {
         if (!target) return
@@ -137,14 +121,16 @@ Item {
 
                 AureliaIcon {
                     anchors.centerIn: parent
-                    width: root.trayIconSize(modelData)
-                    height: root.trayIconSize(modelData)
-                    iconSize: width
+                    width: root.iconCanvas
+                    height: root.iconCanvas
+                    iconSize: root.iconCanvas
                     name: ""
                     sourcePath: modelData && modelData.icon ? String(modelData.icon) : ""
                     sourcePixelRatio: Screen.devicePixelRatio
                     smooth: false
-                    preserveColors: !root.isSymbolicIcon(modelData && modelData.icon ? String(modelData.icon) : "")
+                    // Multi-colour brand/tray art is the single documented
+                    // exception to the always-tint glyph policy.
+                    preserveColors: TrayIconPolicy.preserveColors(modelData && modelData.icon ? String(modelData.icon) : "")
                     tint: root.barForeground
                 }
 

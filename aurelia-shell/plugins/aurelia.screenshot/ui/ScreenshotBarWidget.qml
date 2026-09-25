@@ -26,6 +26,11 @@ Item {
     readonly property var screenshotPanel: panelLoader.item
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
+    // literal sizes. Screenshot has no active/alert state, so the glyph is
+    // always the bar foreground colour.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     readonly property string backendBin: aureliaPath !== ""
         ? aureliaPath + "/bin/aurelia-screenshot"
@@ -202,11 +207,11 @@ Item {
 
         AureliaIcon {
             anchors.centerIn: parent
-            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+            width: root.iconCanvas
+            height: root.iconCanvas
+            iconSize: root.iconCanvas
             glyph: "󰄀"
-            tint: hover.hovered ? root.barForeground : Theme.accent
+            tint: root.barForeground
         }
 
         AureliaToolTip {

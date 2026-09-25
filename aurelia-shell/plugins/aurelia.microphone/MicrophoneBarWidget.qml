@@ -39,6 +39,11 @@ Item {
         : (root.inUse ? "Microphone in use" : "Microphone live")
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
+    // literal sizes. The only non-foreground tint is the documented in-use
+    // capture state.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     implicitWidth: root.hasSource ? (root.bar ? root.bar.barSize : 32) : 0
     implicitHeight: root.bar ? root.bar.barSize : 32
@@ -84,9 +89,9 @@ Item {
 
         AureliaIcon {
             anchors.centerIn: parent
-            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+            width: root.iconCanvas
+            height: root.iconCanvas
+            iconSize: root.iconCanvas
             glyph: Model.microphoneGlyph(root.muted)
             tint: root.inUse ? Theme.accent : root.barForeground
         }

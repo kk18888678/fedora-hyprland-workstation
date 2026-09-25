@@ -53,6 +53,11 @@ Item {
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
+    // literal sizes. The only non-foreground tint is the documented restricted
+    // connectivity alert.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     implicitWidth: showLabel && !root.vertical
         ? barContent.implicitWidth + Theme.spacingSm * 2 : (bar ? bar.barSize : 32)
@@ -158,9 +163,9 @@ Item {
 
             AureliaIcon {
                 anchors.verticalCenter: parent.verticalCenter
-                width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-                height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-                iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+                width: root.iconCanvas
+                height: root.iconCanvas
+                iconSize: root.iconCanvas
                 glyph: root.networkPanel && root.networkPanel.icon
                     ? root.networkPanel.icon : "󰤮"
                 tint: root.networkPanel && root.networkPanel.restricted
