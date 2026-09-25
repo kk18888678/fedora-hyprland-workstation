@@ -22,6 +22,11 @@ Item {
     readonly property var displayPanel: panelLoader.item
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
+    // literal sizes. The only non-foreground tint is the documented open-panel
+    // active state.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
     readonly property string sourceBinRoot: decodeURIComponent(
         String(Qt.resolvedUrl("../../bin")).replace(/^file:\/\//, "")
     )
@@ -97,9 +102,9 @@ Item {
 
         AureliaIcon {
             anchors.centerIn: parent
-            width: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-            height: root.bar && root.bar.barIconCanvas ? root.bar.barIconCanvas : 16
-            iconSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
+            width: root.iconCanvas
+            height: root.iconCanvas
+            iconSize: root.iconCanvas
             glyph: Quickshell.screens.length > 1 ? "󰍺" : "󰍹"
             tint: root.isVisible() ? Theme.accent : root.barForeground
         }

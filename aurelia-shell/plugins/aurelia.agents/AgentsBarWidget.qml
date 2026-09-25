@@ -86,6 +86,10 @@ Item {
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    // Uniform bar-icon contract: the usage glyph renders through the shared
+    // AureliaIcon primitive at the 16 px ink canvas, not a raw Text glyph.
+    readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
+        ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     visible: root.hasAgents
     implicitWidth: root.hasAgents && !root.vertical ? agentRow.implicitWidth + Theme.spacingSm * 2
@@ -214,13 +218,14 @@ Item {
         anchors.centerIn: parent
         spacing: Theme.spacingXs
 
-        Text {
+        AureliaIcon {
             id: agentGlyph
             anchors.verticalCenter: parent.verticalCenter
-            text: "󰚩"
-            font.family: Theme.fontFamily
-            font.pixelSize: root.bar && root.bar.barIconFont ? root.bar.barIconFont : 13
-            color: root.barForeground
+            width: root.iconCanvas
+            height: root.iconCanvas
+            iconSize: root.iconCanvas
+            glyph: "󰚩"
+            tint: root.barForeground
         }
 
         Text {

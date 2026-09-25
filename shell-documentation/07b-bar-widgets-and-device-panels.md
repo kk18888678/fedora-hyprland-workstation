@@ -100,7 +100,7 @@ entry.
 tray item extent       Style.bar.iconSlot = 27 px
 tray item gap          0 px
 tray join gap          0 px
-tray icon in slot      12 × 12 px
+tray icon in slot      16 × 16 px (barIconCanvas)
 drawer animation       600 ms, OutCubic
 ```
 

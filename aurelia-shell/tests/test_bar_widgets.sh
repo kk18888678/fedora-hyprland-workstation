@@ -69,14 +69,19 @@ if [[ -f "$bar_root/AureliaLogo.qml" ]] &&
    grep -q 'implicitWidth: bar && bar.barIconSlot ? bar.barIconSlot : 27' "$bar_root/AureliaLogo.qml" &&
    grep -q 'implicitHeight: bar && bar.barSize ? bar.barSize : 26' "$bar_root/AureliaLogo.qml" &&
    grep -q 'AureliaMark {' "$bar_root/AureliaLogo.qml" &&
-   grep -q 'color: root.hovered ? root.barForeground : Theme.accent' "$bar_root/AureliaLogo.qml" &&
-   grep -q 'coreColor: root.hovered ? root.barForeground : Theme.gold' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'width: root.iconCanvas' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'height: root.iconCanvas' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'color: root.barForeground' "$bar_root/AureliaLogo.qml" &&
+   grep -q 'coreColor: root.barForeground' "$bar_root/AureliaLogo.qml" &&
+   ! grep -q 'Theme.accent' "$bar_root/AureliaLogo.qml" &&
+   ! grep -q 'Theme.gold' "$bar_root/AureliaLogo.qml" &&
+   ! grep -q '0.92' "$bar_root/AureliaLogo.qml" &&
    grep -q 'AureliaMark 1.0 AureliaMark.qml' "$ROOT/ui/qmldir" &&
    [[ -f "$ROOT/config/branding/aurelia-mark.svg" ]] &&
    grep -q 'viewBox="0 0 256 256"' "$ROOT/config/branding/aurelia-mark.svg" &&
    grep -q 'aria-label="Aurelia"' "$ROOT/config/branding/aurelia-mark.svg" &&
    grep -q 'controller.summon("aurelia.launcher"' "$bar_root/AureliaLogo.qml"; then
-    pass "Aurelia logo uses one vector brand mark with a theme-aware hover state"
+    pass "Aurelia logo uses the shared ink canvas, bar-foreground brand colour, and full opacity"
 else
     fail "Aurelia logo sizing, monogram rendering, or launcher action is incomplete"
 fi
@@ -215,8 +220,10 @@ if grep -Fq 'columnSpacing: 0' "$tray_root/TrayBarWidget.qml" &&
    grep -Fq 'rowSpacing: 0' "$tray_root/TrayBarWidget.qml" &&
    grep -Fq 'root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : 27' "$tray_root/TrayBarWidget.qml" &&
    grep -Fq 'root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot' "$tray_root/TrayBarWidget.qml" &&
-   grep -Fq 'root.bar && root.bar.barTrayIcon ? root.bar.barTrayIcon : Theme.bar.trayIcon' "$tray_root/TrayBarWidget.qml"; then
-    pass "Tray items use the reference slot width, 27px item extent, 12px icon, and zero inter-item gap"
+   grep -Fq 'width: root.iconCanvas' "$tray_root/TrayBarWidget.qml" &&
+   grep -Fq 'height: root.iconCanvas' "$tray_root/TrayBarWidget.qml" &&
+   ! grep -Fq 'barTrayIcon' "$tray_root/TrayBarWidget.qml"; then
+    pass "Tray items use the reference slot width, 27px item extent, canvas-sized icon, and zero inter-item gap"
 else
     fail "Tray bar geometry does not match the reference slot contract"
 fi
@@ -340,7 +347,8 @@ if grep -q 'AureliaIcon {' "$ROOT/plugins/aurelia.monitor/DisplayBarWidget.qml" 
    grep -q 'AureliaIcon {' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'name: root.iconName' "$weather_root/WeatherBarWidget.qml" &&
    grep -q 'fallbackName: "weather-clear"' "$weather_root/WeatherBarWidget.qml" &&
-   grep -q 'tint: Theme.accent' "$weather_root/WeatherBarWidget.qml"; then
+   grep -q 'iconSize: root.iconCanvas' "$weather_root/WeatherBarWidget.qml" &&
+   grep -q 'tint: root.barForeground' "$weather_root/WeatherBarWidget.qml"; then
     pass "Display and weather bar icons resolve through the theme-aware icon primitive"
 else
     fail "Display or weather bar icon theme integration is incomplete"
@@ -351,13 +359,13 @@ if grep -q 'AureliaIcon {' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'tint: root.barForeground' "$tasklist_root/TasklistBarWidget.qml" &&
    ! grep -q '^                Image {' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'AureliaIcon {' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'function isSymbolicIcon' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'function isChatGptItem' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'function trayIconSize' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'root.bar && root.bar.barTrayIcon ? root.bar.barTrayIcon : Theme.bar.trayIcon' "$tray_root/TrayBarWidget.qml" &&
+   grep -q 'TrayIconPolicy.preserveColors' "$tray_root/TrayBarWidget.qml" &&
+   [[ -f "$tray_root/TrayIconPolicy.js" ]] &&
+   grep -q 'width: root.iconCanvas' "$tray_root/TrayBarWidget.qml" &&
+   grep -q 'height: root.iconCanvas' "$tray_root/TrayBarWidget.qml" &&
+   grep -q 'iconSize: root.iconCanvas' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'sourcePixelRatio: Screen.devicePixelRatio' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'smooth: false' "$tray_root/TrayBarWidget.qml" &&
-   grep -q 'preserveColors: !root.isSymbolicIcon' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'modelData && modelData.icon ? String(modelData.icon) : ""' "$tray_root/TrayBarWidget.qml" &&
    grep -q 'tint: root.barForeground' "$tray_root/TrayBarWidget.qml" &&
    ! grep -q '^                Image {' "$tray_root/TrayBarWidget.qml"; then
@@ -513,3 +521,201 @@ if grep -q 'AureliaKeyboardPanel' "$calendar_root/ui/CalendarPanel.qml" &&
 else
     fail "Anchored bar-owned popup surface contract is incomplete"
 fi
+
+section "Uniform Bar-Icon Contract"
+
+icon_widget_files=(
+    "$ROOT/plugins/aurelia.notifications/BarWidget.qml"
+    "$ROOT/plugins/aurelia.weather/WeatherBarWidget.qml"
+    "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml"
+    "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml"
+    "$ROOT/plugins/aurelia.audio/AudioBarWidget.qml"
+    "$ROOT/plugins/aurelia.bluetooth/BluetoothBarWidget.qml"
+    "$ROOT/plugins/aurelia.monitor/DisplayBarWidget.qml"
+    "$ROOT/plugins/aurelia.power/PowerBarWidget.qml"
+    "$ROOT/plugins/aurelia.microphone/MicrophoneBarWidget.qml"
+    "$ROOT/plugins/aurelia.session-actions/SessionActionsBarWidget.qml"
+    "$ROOT/plugins/aurelia.tasklist/TasklistBarWidget.qml"
+    "$ROOT/plugins/aurelia.tray/TrayBarWidget.qml"
+    "$ROOT/plugins/aurelia.agents/AgentsBarWidget.qml"
+    "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml"
+)
+
+# Extract only the body of each AureliaIcon { ... } declaration so the
+# literal-size and tint assertions cannot be fooled by unrelated geometry.
+extract_aurelia_icon_blocks() {
+    awk '
+        /AureliaIcon[[:space:]]*\{/ { inblock = 1; depth = 0 }
+        inblock {
+            print
+            line = $0
+            opens = gsub(/\{/, "{", line)
+            closes = gsub(/\}/, "}", line)
+            depth += opens - closes
+            if (depth <= 0) inblock = 0
+        }
+    ' "$1"
+}
+
+icon_canvas_failures=0
+icon_literal_failures=0
+icon_tint_failures=0
+icon_accent_failures=0
+for widget_file in "${icon_widget_files[@]}"; do
+    if [[ ! -f "$widget_file" ]] || ! grep -q 'barIconCanvas' "$widget_file"; then
+        icon_canvas_failures=$((icon_canvas_failures + 1))
+    fi
+    icon_blocks="$(extract_aurelia_icon_blocks "$widget_file")"
+    [[ -z "$icon_blocks" ]] && continue
+    if grep -Eq '(^|[^[:alnum:]_])(width|height|iconSize)[[:space:]]*:[[:space:]]*[0-9]' <<<"$icon_blocks"; then
+        icon_literal_failures=$((icon_literal_failures + 1))
+    fi
+    tint_count="$(grep -c 'tint[[:space:]]*:' <<<"$icon_blocks" || true)"
+    fallback_count="$(grep -o 'root.barForeground' <<<"$icon_blocks" | wc -l)"
+    if (( tint_count == 0 )) || (( fallback_count < tint_count )); then
+        icon_tint_failures=$((icon_tint_failures + 1))
+    fi
+    if (( $(grep -c 'Theme.accent' <<<"$icon_blocks" || true) > 1 )); then
+        icon_accent_failures=$((icon_accent_failures + 1))
+    fi
+done
+
+if (( icon_canvas_failures == 0 )); then
+    pass "[static] every first-party bar icon widget derives its ink from barIconCanvas"
+else
+    fail "[static] $icon_canvas_failures first-party bar icon widget(s) do not declare the shared barIconCanvas contract"
+fi
+
+if (( icon_literal_failures == 0 )); then
+    pass "[static] no first-party bar widget AureliaIcon uses a literal width/height/iconSize"
+else
+    fail "[static] $icon_literal_failures first-party bar widget(s) still hard-code an icon ink size"
+fi
+
+if (( icon_tint_failures == 0 )); then
+    pass "[static] every first-party bar widget icon rests at root.barForeground"
+else
+    fail "[static] $icon_tint_failures first-party bar widget tint expression(s) do not fall back to root.barForeground"
+fi
+
+if (( icon_accent_failures == 0 )); then
+    pass "[static] no first-party bar widget exposes more than one Theme.accent icon state"
+else
+    fail "[static] $icon_accent_failures first-party bar widget(s) expose multiple accent icon states"
+fi
+
+if grep -q 'tint: root.doNotDisturb ? Theme.warning : root.barForeground' "$ROOT/plugins/aurelia.notifications/BarWidget.qml" &&
+   grep -Fq 'tint: root.networkPanel && root.networkPanel.restricted' "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml" &&
+   grep -q 'Theme.warning : root.barForeground' "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml" &&
+   grep -q 'tint: root.panelVisible ? Theme.accent : root.barForeground' "$ROOT/plugins/aurelia.audio/AudioBarWidget.qml" &&
+   grep -q 'tint: root.isVisible() ? Theme.accent : root.barForeground' "$ROOT/plugins/aurelia.bluetooth/BluetoothBarWidget.qml" &&
+   grep -q 'tint: root.isVisible() ? Theme.accent : root.barForeground' "$ROOT/plugins/aurelia.monitor/DisplayBarWidget.qml" &&
+   grep -q 'tint: root.inUse ? Theme.accent : root.barForeground' "$ROOT/plugins/aurelia.microphone/MicrophoneBarWidget.qml"; then
+    pass "[static] the only non-foreground icon states are the documented DND, restricted-network, open-panel, and in-use alerts"
+else
+    fail "[static] a documented active/alert icon state is missing or uses the wrong token"
+fi
+
+if grep -q 'focusedGlyphSize: Math.round(root.iconCanvas \* 0.9)' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml" &&
+   grep -q 'font.pixelSize: !focused && !occupied' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml" &&
+   grep -q 'focused ? root.focusedGlyphSize' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml" &&
+   grep -q 'renderType: Text.NativeRendering' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml" &&
+   grep -q 'font.family: Theme.fontFamily' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml"; then
+    pass "[static] the raw focused-workspace Text glyph uses the canvas-derived optical font size with native rendering"
+else
+    fail "[static] focused-workspace glyph does not follow the canvas-derived metric"
+fi
+
+if grep -q 'glyph: "󰚩"' "$ROOT/plugins/aurelia.agents/AgentsBarWidget.qml" &&
+   grep -q 'AureliaIcon {' "$ROOT/plugins/aurelia.agents/AgentsBarWidget.qml" &&
+   ! grep -q 'font.pixelSize: root.bar && root.bar.barIconFont' "$ROOT/plugins/aurelia.agents/AgentsBarWidget.qml"; then
+    pass "[static] the agents usage glyph renders through AureliaIcon instead of a raw Text glyph"
+else
+    fail "[static] the agents usage glyph still bypasses the shared icon primitive"
+fi
+
+# The multi-colour brand/tray exception is the only place preserveColors is
+# allowed; everything else must be tinted to the bar foreground.
+if grep -q 'preserveColors: TrayIconPolicy.preserveColors' "$ROOT/plugins/aurelia.tray/TrayBarWidget.qml" &&
+   [[ -f "$tray_root/TrayIconPolicy.js" ]]; then
+    pass "[static] tray is the single documented preserveColors exception for multi-colour art"
+else
+    fail "[static] tray preserveColors policy is not routed through the shared tray icon policy"
+fi
+
+if command -v node >/dev/null; then
+    tray_policy_status=0
+    node - "$tray_root/TrayIconPolicy.js" <<'NODE_TRAY_ICON_POLICY' || tray_policy_status=$?
+const assert = require('assert')
+const policy = require(process.argv[2])
+assert.strictEqual(policy.isSymbolicIcon('foo-symbolic'), true)
+assert.strictEqual(policy.isSymbolicIcon('foo-symbolic?query=1'), true)
+assert.strictEqual(policy.isSymbolicIcon('foo'), false)
+assert.strictEqual(policy.isSymbolicIcon(''), false)
+assert.strictEqual(policy.preserveColors('foo'), true)
+assert.strictEqual(policy.preserveColors('foo-symbolic'), false)
+console.log('tray icon policy ok')
+NODE_TRAY_ICON_POLICY
+    if (( tray_policy_status == 0 )); then
+        pass "[isolated-node] tray icon policy tints symbolic artwork and preserves multi-colour brand art"
+    else
+        fail "[isolated-node] tray icon policy split failed"
+    fi
+else
+    skip "[isolated-node] tray icon policy split (node unavailable)"
+fi
+
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] bar icon contract fixture (qs or timeout unavailable)"
+    return 0
+fi
+
+bar_icon_runtime_root="$(mktemp -d)"
+trap 'rm -rf -- "$bar_icon_runtime_root" || true' RETURN
+for font_base in 9 12 16; do
+    case_root="$bar_icon_runtime_root/$font_base"
+    mkdir -p "$case_root/config/aurelia" "$case_root/runtime" "$case_root/state" "$case_root/cache" "$case_root/home"
+    printf 'fontBaseSize = %s\n' "$font_base" >"$case_root/config/aurelia/display.conf"
+    : >"$case_root/result.json"
+    runtime_status=0
+    AURELIA_BAR_ICONS_RESULT="$case_root/result.json" \
+    AURELIA_BAR_ICONS_WIDGET_SOURCE="file://$ROOT/plugins/aurelia.notifications/BarWidget.qml" \
+    AURELIA_BAR_ICONS_ICON_SOURCE="file://$ROOT/ui/AureliaIcon.qml" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$case_root/runtime" XDG_CONFIG_HOME="$case_root/config" \
+    XDG_STATE_HOME="$case_root/state" XDG_CACHE_HOME="$case_root/cache" HOME="$case_root/home" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/tests/fixtures/bar-icons/shell.qml" --no-color >"$case_root/runtime.log" 2>&1 || runtime_status=$?
+
+    expected_canvas=$(( (16 * font_base + 6) / 12 ))
+    expected_pixel=$(( (expected_canvas * 9 + 5) / 10 ))
+    if [[ "$runtime_status" -eq 0 && -s "$case_root/result.json" ]] &&
+       jq -e --argjson ec "$expected_canvas" --argjson ep "$expected_pixel" '
+           .loaded == true and
+           .theme.iconCanvas == $ec and
+           .glyph.usingGlyph == true and
+           .glyph.opticallyCentered == true and
+           .glyph.canvasWidth == $ec and
+           .glyph.canvasHeight == $ec and
+           .glyph.iconSize == $ec and
+           .glyph.pixelSize == $ep and
+           .glyph.tint == "#ffffff" and
+           (((.glyph.inkCenterX - .glyph.canvasCenterX) | if . < 0 then -. else . end) < 0.5) and
+           .symbolic.preserveColors == false and
+           .symbolic.imageVisible == false and
+           .symbolic.effectVisible == true and
+           .symbolic.preserveAspectFit == true and
+           .symbolic.imageWidth == 16 and
+           .symbolic.imageHeight == 16 and
+           .brand.preserveColors == true and
+           .brand.imageVisible == true and
+           .brand.effectVisible == false
+       ' "$case_root/result.json" >/dev/null &&
+       runtime_log_is_environment_only "$case_root/runtime.log"; then
+        pass "[isolated-runtime] bar icon contract holds at fontBaseSize $font_base (canvas=$expected_canvas, glyph=$expected_pixel)"
+    else
+        details="$(tr '\n' ' ' <"$case_root/runtime.log")"
+        if [[ -s "$case_root/result.json" ]]; then details="$details result=$(tr '\n' ' ' <"$case_root/result.json")"; fi
+        fail "[isolated-runtime] bar icon contract failed at fontBaseSize $font_base: $details"
+    fi
+done
