@@ -210,6 +210,73 @@ else
     fail "[static] settings state key list can drop fields (empty dropdowns)"
 fi
 
+# Process-id invariant: a renamed Process (barProcess -> defaultsStatusProcess)
+# left refreshAurelia() assigning an undeclared id, so the whole refresh threw
+# a ReferenceError and the Bar Hidden toggle never reflected the real state.
+# Every <id>.command / <id>.running reference must resolve to a declared Process.
+if python3 - "$plugin_dir/ui/SettingsWindow.qml" <<'PROCESS_IDS'
+import re, sys
+src = open(sys.argv[1]).read()
+declared = set()
+for match in re.finditer(r'\bProcess\s*\{', src):
+    depth = 0
+    i = match.end() - 1
+    body = []
+    while i < len(src):
+        char = src[i]
+        if char == '{':
+            depth += 1
+        elif char == '}':
+            depth -= 1
+            if depth == 0:
+                break
+        body.append(char)
+        i += 1
+    id_match = re.search(r'\bid\s*:\s*([A-Za-z_]\w*)', ''.join(body))
+    if id_match:
+        declared.add(id_match.group(1))
+refs = set(re.findall(r'\b([A-Za-z_]\w*)\.(?:command|running)\b', src))
+missing = sorted(refs - declared)
+if not declared or missing:
+    print("undeclared process ids: " + ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+sys.exit(0)
+PROCESS_IDS
+then
+    pass "[static] every process id referenced in SettingsWindow.qml is declared"
+else
+    fail "[static] SettingsWindow.qml references an undeclared process id"
+fi
+
+# Bar Hidden row invariant: the toggle must project the real hidden state, not
+# a hardcoded false, once the dedicated barHiddenProcess reports it.
+if command -v node >/dev/null; then
+    bar_rows_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$bar_rows_test"
+    cat >>"$bar_rows_test" <<'BAR_ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState };
+BAR_ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const hidden = Object.assign({}, SR.emptyAureliaState(), { barHidden: true });
+const visible = Object.assign({}, SR.emptyAureliaState(), { barHidden: false });
+const hiddenRows = SR.buildRows("aurelia", [], {}, hidden);
+const visibleRows = SR.buildRows("aurelia", [], {}, visible);
+const h = hiddenRows.find(r => r.id === "aurelia.bar");
+const v = visibleRows.find(r => r.id === "aurelia.bar");
+const ok = h && h.kind === "toggle" && h.effective === true &&
+    v && v.kind === "toggle" && v.effective === false;
+process.exit(ok ? 0 : 1);
+' "$bar_rows_test" >/dev/null; then
+        pass "[unit] Bar Hidden row effective state reflects the hidden bar"
+    else
+        fail "[unit] Bar Hidden row does not reflect the hidden bar"
+    fi
+    rm -f -- "$bar_rows_test"
+else
+    skip "[unit] Bar Hidden row state (node unavailable)"
+fi
+
 # ColorUtils is pure JS; exercise its parse/format/validate contract directly.
 if command -v node >/dev/null; then
     color_utils_test="$(mktemp --suffix=.js)"

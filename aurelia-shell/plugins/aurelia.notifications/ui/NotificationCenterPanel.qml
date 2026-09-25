@@ -172,7 +172,12 @@ AureliaKeyboardPanel {
                             }
                             onActivated: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                             onDefaultActionInvoked: root.service.invokeDefault(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
-                            onActionInvoked: function(identifier) { root.service.invokeAction(activeDelegate.index, identifier, activeDelegate.originalId, activeDelegate.timestamp) }
+                            onActionInvoked: function(identifier) {
+                                var status = root.service.invokeAction(activeDelegate.index, identifier, activeDelegate.originalId, activeDelegate.timestamp)
+                                // Do not let a sender-window route read as a delivered action.
+                                if (status !== "delivered" && status !== "executed")
+                                    console.info("[NOTIFICATIONS] action.outcome status=" + status + " identifier=" + identifier)
+                            }
                             onCopyRequested: root.service.copyNotificationAt(activeDelegate.index, activeDelegate.originalId, activeDelegate.timestamp)
                         }
                     }

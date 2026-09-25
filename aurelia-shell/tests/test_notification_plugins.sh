@@ -882,7 +882,8 @@ fi
 # sender destroys the live notification. Chromium closes its notification
 # object on send, which deletes the live reference while the Inbox row stays
 # rendered. invokeAction must resolve the durable snapshot, route the sender
-# window, remove the row, and report success instead of "unavailable".
+# window, and remove the row. The result must be the honest "routed" (only the
+# sender window was focused), never a false "ok"/"delivered".
 invoke_fixture="$ROOT/tests/fixtures/notifications/invoke-action.qml"
 if [[ ! -f "$invoke_fixture" ]]; then
     fail "[static] notification retained-action invoke fixture is missing"
@@ -926,7 +927,7 @@ else
             .actionsCountAfterClose == 1 and
             .actionsRoleUndefinedAfterClose == false and
             .firstActionIdentifier == "settings" and
-            .invokeResult == "ok" and
+            .invokeResult == "routed" and
             .routeStarted == true and
             .retainedSettingsButtonCount == 1 and
             .nonDefaultOnlyContainerVisible == true and
@@ -937,5 +938,61 @@ else
         details="$(tail -n 48 "$invoke_log" || true)"
         if [[ -s "$invoke_result" ]]; then details="$details result=$(tr '\n' ' ' <"$invoke_result")"; fi
         fail "[isolated-runtime] retained notification action fixture failed (status=$invoke_status): $details"
+    fi
+fi
+
+# The action-result contract must be honest. A live action.invoke() that ran is
+# "delivered"; a notification-level execArgv that was merely spawned is
+# "executed"; an index/identity miss is "none". None of these may collapse back
+# into a blanket "ok".
+outcomes_fixture="$ROOT/tests/fixtures/notifications/invoke-outcomes.qml"
+if [[ ! -f "$outcomes_fixture" ]]; then
+    fail "[static] notification action-outcome fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification action-outcome fixture (qs or timeout unavailable)"
+else
+    outcomes_root="$(mktemp -d)"
+    trap 'rm -rf -- "$outcomes_root"  || true' RETURN
+    mkdir -p -- "$outcomes_root/runtime" "$outcomes_root/state" \
+        "$outcomes_root/config" "$outcomes_root/cache"
+    outcomes_result="$outcomes_root/result.json"
+    : >"$outcomes_result"
+    outcomes_log="$outcomes_root/runtime.log"
+    outcomes_status=0
+    AURELIA_NOTIFICATION_INVOKE_RESULT="$outcomes_result" \
+    AURELIA_NOTIFICATION_INVOKE_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$outcomes_root/runtime" \
+    XDG_STATE_HOME="$outcomes_root/state" \
+    XDG_CONFIG_HOME="$outcomes_root/config" \
+    XDG_CACHE_HOME="$outcomes_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$outcomes_fixture" --no-color >"$outcomes_log" 2>&1 || outcomes_status=$?
+
+    outcomes_completed=0
+    if [[ "$outcomes_status" -eq 0 ]]; then
+        outcomes_completed=1
+    elif [[ "$outcomes_status" -eq 124 && -s "$outcomes_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$outcomes_log"; then
+        outcomes_completed=1
+    fi
+    if [[ "$outcomes_completed" -eq 1 ]] && [[ -s "$outcomes_result" ]] &&
+       runtime_log_is_environment_only "$outcomes_log" \
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$outcomes_log" &&
+       jq -e '
+            .serviceLoaded == true and
+            .liveActionInvoked == true and
+            .liveDeliveredResult == "delivered" and
+            .liveRowRemoved == true and
+            .executedResult == "executed" and
+            .noneIndexResult == "none" and
+            .noneIdentityResult == "none"
+       ' "$outcomes_result" >/dev/null; then
+        pass "[isolated-runtime] notification action results distinguish delivered, executed, and none"
+    else
+        details="$(tail -n 48 "$outcomes_log" || true)"
+        if [[ -s "$outcomes_result" ]]; then details="$details result=$(tr '\n' ' ' <"$outcomes_result")"; fi
+        fail "[isolated-runtime] notification action-outcome fixture failed (status=$outcomes_status): $details"
     fi
 fi
