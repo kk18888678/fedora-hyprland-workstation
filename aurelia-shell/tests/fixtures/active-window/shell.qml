@@ -194,6 +194,16 @@ ShellRoot {
         }
     }
 
+    Loader {
+        id: symbolicIconLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.iconNameOverride = "fixture-app-symbolic?theme=dark"
+            item.activeToplevelOverride = titleToplevel
+        }
+    }
+
     FileView {
         id: resultFile
         path: root.resultPath
@@ -218,7 +228,8 @@ ShellRoot {
         var vertical = verticalLoader.item
         var click = clickLoader.item
         var missing = missingIconLoader.item
-        if (!title || !appId || !classItem || !longItem || !capped || !shortItem || !empty || !vertical || !click || !missing) {
+        var symbolic = symbolicIconLoader.item
+        if (!title || !appId || !classItem || !longItem || !capped || !shortItem || !empty || !vertical || !click || !missing || !symbolic) {
             root.finished = true
             resultFile.setText(JSON.stringify({loaded: false}) + "\n")
             return
@@ -283,6 +294,13 @@ ShellRoot {
                 closes: clickState.closes,
                 activateResult: activateResult,
                 closeResult: closeResult
+            },
+            policy: {
+                symbolicIcon: title.symbolicIcon === true,
+                preserveColors: title.iconPreservesColors === true,
+                symbolicName: String(symbolic.iconName),
+                symbolicIconFlag: symbolic.symbolicIcon === true,
+                symbolicPreserveColors: symbolic.iconPreservesColors === true
             }
         }) + "\n")
     }

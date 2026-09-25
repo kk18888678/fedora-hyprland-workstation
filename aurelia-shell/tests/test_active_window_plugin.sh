@@ -74,10 +74,19 @@ if grep -Fq 'bar.barTrayIcon' "$widget_file" &&
    grep -Fq 'font.weight: Theme.fontWeightMedium' "$widget_file" &&
    grep -Fq 'renderType: Text.NativeRendering' "$widget_file" &&
    ! grep -Fq 'shadowEnabled' "$widget_file" &&
-   ! grep -Fq 'preserveColors' "$widget_file"; then
-    pass "[static] Active Window renders tray-sized image ink centred in the unchanged icon-canvas slot, hides the slot without an icon, and keeps colorization-only artwork with medium native-rendered text"
+   grep -Fq 'preserveColors: !root.symbolicIcon' "$widget_file" &&
+   grep -Fq 'readonly property bool symbolicIcon' "$widget_file"; then
+    pass "[static] Active Window renders tray-sized image ink centred in the unchanged icon-canvas slot, hides the slot without an icon, and preserves real application logo colours while tinting only symbolic masks"
 else
-    fail "[static] Active Window icon ink/slot sizing, missing-icon hide, text crispness, or colorization-only artwork contract is incomplete"
+    fail "[static] Active Window icon ink/slot sizing, missing-icon hide, text crispness, or symbolic-icon colour policy contract is incomplete"
+fi
+
+if grep -Fq 'split("?")[0]' "$widget_file" &&
+   grep -Fq 'slice(-9) === "-symbolic"' "$widget_file" &&
+   grep -Fq 'preserveColors: !root.symbolicIcon' "$widget_file"; then
+    pass "[static] Active Window symbolic-icon contract strips the query string, tints -symbolic masks, and preserves real application logo colours like the tray"
+else
+    fail "[static] Active Window symbolic-icon predicate or colour-binding contract is incomplete"
 fi
 
 if grep -Fq 'AureliaToolTip' "$widget_file" &&
@@ -173,9 +182,14 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .clicks.activates == 2 and
         .clicks.closes == 2 and
         .clicks.activateResult == "ok" and
-        .clicks.closeResult == "ok"
+        .clicks.closeResult == "ok" and
+        .policy.symbolicIcon == false and
+        .policy.preserveColors == true and
+        .policy.symbolicName == "fixture-app-symbolic?theme=dark" and
+        .policy.symbolicIconFlag == true and
+        .policy.symbolicPreserveColors == false
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] real Active Window widget resolves the title/app-id/class label, icon fallback, elision cap, activate/close dispatch, and hidden-when-empty state"
+    pass "[isolated-runtime] real Active Window widget resolves the title/app-id/class label, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, and the symbolic-only colour policy"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Active Window entry-point fixture cannot create a disposable runtime backend"; then
     :

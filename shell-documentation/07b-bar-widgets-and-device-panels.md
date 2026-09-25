@@ -14,7 +14,11 @@ ellipsized at full opacity, medium-weight native-rendered text, and bounded by a
 `maxWidth` setting (default `280 px`). It has `8 px` left/right content
 margins. The application icon renders at the shared `12 px` tray-image ink
 centred in the unchanged `16 px` icon-canvas slot; the slot is hidden when no
-icon resolves. Left click activates the window; middle/right click closes it.
+icon resolves. Real application logos preserve their own colours; only
+`-symbolic` icon masks are tinted with `barForeground`, matching the tray's
+`isSymbolicIcon` policy, so the shared luminance-duotone colorization never
+collapses a multi-colour application logo onto the bar foreground. Left click
+activates the window; middle/right click closes it.
 
 ### Workspace switcher
 
