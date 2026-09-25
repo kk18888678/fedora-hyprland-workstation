@@ -146,6 +146,54 @@ else
     fail "workspace overview release commit path is incomplete"
 fi
 
+# Quick-tap (fast ALT+TAB) interaction contract. The overlay opens without
+# revealing, the timer defers the reveal, navigation reveals immediately, and
+# both the resident surface visibility and keyboard focus are gated on the
+# revealed flag so a tap never renders the overlay.
+if grep -q 'property int activeWorkspaceId: 0' "$switcher_qml" &&
+   grep -q 'property int previousWorkspaceId: 0' "$switcher_qml" &&
+   grep -q 'property bool interactionRevealed: false' "$switcher_qml" &&
+   grep -q 'property bool interactionNavigated: false' "$switcher_qml" &&
+   grep -q 'function knownWorkspaceIds()' "$switcher_qml" &&
+   grep -q 'function recordFocusedWorkspace()' "$switcher_qml" &&
+   grep -q 'function toggleToPrevious()' "$switcher_qml" &&
+   grep -q 'function revealInteraction()' "$switcher_qml" &&
+   grep -q 'function noteInteraction()' "$switcher_qml" &&
+   grep -q 'WorkspaceSelection.toggleTarget(' "$switcher_qml" &&
+   grep -q 'WorkspaceSelection.isQuickTap(root.isOpen, root.interactionRevealed, root.interactionNavigated)' "$switcher_qml" &&
+   grep -q 'id: revealTimer' "$switcher_qml" &&
+   grep -q 'interval: WorkspaceSelection.TAP_HOLD_THRESHOLD_MS' "$switcher_qml" &&
+   grep -q 'onTriggered: root.revealInteraction()' "$switcher_qml" &&
+   grep -q 'visible: root.isOpen && root.interactionRevealed' "$switcher_qml" &&
+   grep -q 'WlrLayershell.keyboardFocus: (root.isOpen && root.interactionRevealed)' "$switcher_qml" &&
+   grep -q 'Component.onCompleted: root.recordFocusedWorkspace()' "$switcher_qml" &&
+   grep -q 'revealTimer.stop()' "$switcher_qml" &&
+   grep -q 'revealTimer.restart()' "$switcher_qml"; then
+    pass "quick tap defers the overlay reveal and gates visibility/focus on the revealed flag"
+else
+    fail "quick-tap interaction contract is incomplete"
+fi
+
+# The pair must be swapped before activation, otherwise the asynchronous
+# Hyprland focus signal would overwrite the previous workspace while a rapid
+# second tap is still in flight.
+toggle_swap_line="$(grep -n 'root.previousWorkspaceId = root.activeWorkspaceId' "$switcher_qml" | head -1 | cut -d: -f1)"
+toggle_activate_line="$(grep -n 'return root.activateWorkspace(target)' "$switcher_qml" | head -1 | cut -d: -f1)"
+if [[ -n "$toggle_swap_line" && -n "$toggle_activate_line" && "$toggle_swap_line" -lt "$toggle_activate_line" ]]; then
+    pass "quick-tap pair swap happens before activation to avoid the async focus race"
+else
+    fail "quick-tap pair swap ordering is wrong"
+fi
+
+# open() must not re-read the focused workspace into the pair: a rapid second
+# tap depends on the optimistic swap in toggleToPrevious(), and a focus signal
+# that has not arrived yet would clobber it.
+if awk '/function open\(payloadJson\)/{inside=1} inside && /^    \}/{inside=0} inside && /root\.recordFocusedWorkspace\(\)/{found=1} END{exit found?1:0}' "$switcher_qml"; then
+    pass "open() does not clobber the optimistic quick-tap swap"
+else
+    fail "open() re-seeds the focus pair and can clobber a rapid second tap"
+fi
+
 if grep -q 'event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space' "$switcher_qml" &&
    grep -q 'root.activateWorkspace(root.selectedWorkspaceId)' "$switcher_qml"; then
     pass "Enter activation is retained alongside the new release commit"
@@ -245,6 +293,58 @@ process.exit(ok ? 0 : 1);
         pass "release commit activates only an open, still-navigable selection"
     else
         fail "release commit decision is wrong for the closed/stale selection cases"
+    fi
+
+    if node -e '
+const S = require(process.argv[1]);
+// The hold threshold is pinned. It must be a positive number so the deferred
+// reveal is bounded; the QML timer mirrors this exact value.
+const ok = S.TAP_HOLD_THRESHOLD_MS === 180 && typeof S.TAP_HOLD_THRESHOLD_MS === "number";
+process.exit(ok ? 0 : 1);
+' "$selection_js" >/dev/null; then
+        pass "quick-tap hold threshold is pinned at 180 ms"
+    else
+        fail "quick-tap hold threshold is not the pinned 180 ms"
+    fi
+
+    if node -e '
+const S = require(process.argv[1]);
+// A tap targets the previous workspace only when it is a known, still-live
+// workspace different from the active one; everything else falls back to 0 so
+// the caller keeps the normal commit path.
+const known = [1, 2, 3, 4, 5, 7];
+const ok = S.toggleTarget(3, 5, known) === 3 &&
+    S.toggleTarget("3", "5", known) === 3 &&
+    S.toggleTarget(0, 5, known) === 0 &&
+    S.toggleTarget(5, 5, known) === 0 &&
+    S.toggleTarget(9, 5, known) === 0 &&
+    S.toggleTarget(3, 5, []) === 0 &&
+    S.toggleTarget(11, 5, [11]) === 0 &&
+    S.toggleTarget(null, 5, known) === 0 &&
+    S.toggleTarget(NaN, 5, known) === 0;
+process.exit(ok ? 0 : 1);
+' "$selection_js" >/dev/null; then
+        pass "quick tap targets only a known, non-active previous workspace"
+    else
+        fail "quick tap target decision is wrong"
+    fi
+
+    if node -e '
+const S = require(process.argv[1]);
+// A quick tap is exactly an open interaction that was never revealed and never
+// navigated; any other combination keeps commit-on-release behaviour.
+const ok = S.isQuickTap(true, false, false) === true &&
+    S.isQuickTap(true, true, false) === false &&
+    S.isQuickTap(true, false, true) === false &&
+    S.isQuickTap(true, true, true) === false &&
+    S.isQuickTap(false, false, false) === false &&
+    S.isQuickTap(true, undefined, undefined) === true &&
+    S.isQuickTap(1, 0, 0) === false;
+process.exit(ok ? 0 : 1);
+' "$selection_js" >/dev/null; then
+        pass "quick-tap decision requires an open, unrevealed, unnavigated interaction"
+    else
+        fail "quick-tap decision is wrong"
     fi
 else
     skip "workspace selection policy (node unavailable)"

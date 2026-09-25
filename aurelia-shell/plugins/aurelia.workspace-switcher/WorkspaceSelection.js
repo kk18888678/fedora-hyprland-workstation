@@ -88,6 +88,38 @@ function releaseCommitWorkspace(isOpen, selectedWorkspaceId, workspaceIds) {
     return 0
 }
 
+// Held duration below which a SUPER+TAB interaction is treated as a quick tap.
+// A quick tap must not render the overlay; it flips straight to the previously
+// focused workspace, mirroring the fast ALT+TAB toggle on other desktops. The
+// JSON/QML boundary cannot share a JavaScript constant, so this value is pinned
+// here and mirrored by the static contract tests; update both together.
+var TAP_HOLD_THRESHOLD_MS = 180
+
+// Workspace a quick tap should activate: the previously focused workspace when
+// it is a known, still-live workspace different from the active one. Returns 0
+// when there is nothing sensible to toggle (no previous workspace, the previous
+// workspace is the active one, or the previous workspace no longer exists as a
+// real workspace object). A zero result means "fall back to the normal commit
+// path" rather than "do nothing": the caller still owns that decision.
+function toggleTarget(previousWorkspaceId, activeWorkspaceId, knownIds) {
+    var previous = workspaceId(previousWorkspaceId)
+    if (previous === 0) return 0
+    if (previous === workspaceId(activeWorkspaceId)) return 0
+    var ids = knownIds || []
+    for (var i = 0; i < ids.length; i++) {
+        if (workspaceId(ids[i]) === previous) return previous
+    }
+    return 0
+}
+
+// True when a SUPER release should be interpreted as a quick tap: the overlay
+// interaction is still open, it was never revealed, and no explicit navigation
+// happened. A revealed or navigated interaction keeps the historical
+// commit-on-release behaviour so multi-tab cycling is unchanged.
+function isQuickTap(isOpen, revealed, navigated) {
+    return isOpen === true && revealed !== true && navigated !== true
+}
+
 var AureliaWorkspaceSelection = {
     workspaceId: workspaceId,
     hasWindows: hasWindows,
@@ -95,7 +127,10 @@ var AureliaWorkspaceSelection = {
     inUseWorkspaceIds: inUseWorkspaceIds,
     workspaceIds: workspaceIds,
     nextIndex: nextIndex,
-    releaseCommitWorkspace: releaseCommitWorkspace
+    releaseCommitWorkspace: releaseCommitWorkspace,
+    TAP_HOLD_THRESHOLD_MS: TAP_HOLD_THRESHOLD_MS,
+    toggleTarget: toggleTarget,
+    isQuickTap: isQuickTap
 }
 
 if (typeof module !== "undefined" && module.exports) module.exports = AureliaWorkspaceSelection

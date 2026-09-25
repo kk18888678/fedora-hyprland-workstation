@@ -21,6 +21,19 @@ Item {
     property bool isOpen: false
     property int selectedWorkspaceId: 1
     property int modelRevision: 0
+    // Focused-workspace pair used by the quick-tap toggle. `activeWorkspaceId`
+    // follows the focused workspace; `previousWorkspaceId` is the workspace it
+    // came from. They are updated by recordFocusedWorkspace() (idempotently)
+    // and flipped before a quick-tap activation to avoid racing the async
+    // Hyprland focus signal.
+    property int activeWorkspaceId: 0
+    property int previousWorkspaceId: 0
+    // Interaction state for the quick-tap vs hold decision. `interactionRevealed`
+    // becomes true only once the overlay is actually rendered; `interactionNavigated`
+    // becomes true when any explicit navigation occurs. A fast tap leaves both
+    // false, which is what keeps the overlay from flashing on screen.
+    property bool interactionRevealed: false
+    property bool interactionNavigated: false
     // When true (the default), the overview shows and cycles only workspaces
     // that are actually in use. Users can switch back to the historical
     // "cycle all workspaces" behaviour from Settings.
@@ -62,6 +75,20 @@ Item {
             [1, 2, 3, 4, 5])
     }
 
+    // Real workspace object ids, irrespective of the only_in_use display policy.
+    // A persistent workspace that is currently empty still exists as a Hyprland
+    // workspace object and must remain a valid quick-tap target; `only_in_use`
+    // continues to govern only which workspaces are displayed and cycled.
+    function knownWorkspaceIds() {
+        var ids = []
+        var values = root.workspaceValues()
+        for (var i = 0; i < values.length; i++) {
+            var id = WorkspaceSelection.workspaceId(values[i] && values[i].id)
+            if (id !== 0 && ids.indexOf(id) === -1) ids.push(id)
+        }
+        return ids
+    }
+
     function selectedIndex() {
         var ids = root.workspaceIds()
         var index = ids.indexOf(Number(root.selectedWorkspaceId))
@@ -82,6 +109,18 @@ Item {
         // is catching up with Hyprland's focus event.
         var focused = Hyprland.focusedWorkspace
         return focused ? Number(focused.id) : 0
+    }
+
+    // Track the focused workspace so a quick tap can return to it. Idempotent:
+    // repeated calls with the same focus leave the pair untouched. Out-of-range
+    // focus values (for example while the Hyprland model is still catching up)
+    // are ignored rather than clobbering the previous workspace.
+    function recordFocusedWorkspace() {
+        var next = root.detectedFocusedWorkspaceId()
+        if (!root.validWorkspaceId(next)) return
+        if (next === root.activeWorkspaceId) return
+        root.previousWorkspaceId = root.activeWorkspaceId
+        root.activeWorkspaceId = next
     }
 
     function seedSelection() {
@@ -109,6 +148,9 @@ Item {
 
     function focusSurface() {
         if (!root.isOpen) return
+        // A tap interaction must never take keyboard focus: the overlay is not
+        // rendered until interactionRevealed flips true.
+        if (!root.interactionRevealed) return
         keyboardScope.forceActiveFocus()
         root.keepSelectionVisible()
     }
@@ -116,6 +158,7 @@ Item {
     function selectWorkspace(id, recenter) {
         var numericId = Number(id)
         if (root.workspaceIds().indexOf(numericId) === -1) return false
+        root.noteInteraction()
         root.selectedWorkspaceId = numericId
         // Hover selection must not scroll the list: re-centering moves the
         // cards under a stationary pointer, which re-triggers hover on a new
@@ -129,6 +172,7 @@ Item {
         var ids = root.workspaceIds()
         if (ids.length === 0) return "empty"
 
+        root.noteInteraction()
         var index = root.selectedIndex()
         // Wrap around so SUPER+TAB from the last workspace returns to the
         // first (and SUPER+SHIFT+TAB from the first goes to the last). The
@@ -174,6 +218,14 @@ Item {
     // activateWorkspace(). A release while the overview is closed, or one whose
     // selection is stale, is ignored.
     function release() {
+        if (WorkspaceSelection.isQuickTap(root.isOpen, root.interactionRevealed, root.interactionNavigated)) {
+            // Fast ALT+TAB-style tap: the overlay was never revealed, so flip
+            // straight to the previously focused workspace. close() also stops
+            // the reveal timer so it cannot fire after release.
+            revealTimer.stop()
+            root.close()
+            return root.toggleToPrevious()
+        }
         var id = WorkspaceSelection.releaseCommitWorkspace(
             root.isOpen,
             root.selectedWorkspaceId,
@@ -190,21 +242,70 @@ Item {
         if (typeof Hyprland.refreshToplevels === "function") Hyprland.refreshToplevels()
         root.modelRevision++
         root.seedSelection()
+        // Do NOT re-seed the focus pair here. A rapid second tap depends on the
+        // optimistic swap in toggleToPrevious(); re-reading a focus signal that
+        // has not arrived yet would clobber that swap. The pair is maintained
+        // only by recordFocusedWorkspace() from focus events and startup.
+        root.interactionRevealed = false
+        root.interactionNavigated = false
         root.isOpen = true
+        // Deferred reveal: the overlay stays invisible until the hold threshold
+        // elapses. A second press or any navigation reveals immediately through
+        // noteInteraction().
+        revealTimer.restart()
         Qt.callLater(function() {
             if (!root.isOpen) return
             // refreshWorkspaces may publish its model on the next event turn;
             // seed once more so the first visible selection is never stale.
             root.modelRevision++
             root.seedSelection()
-            root.focusSurface()
+            if (root.interactionRevealed) root.focusSurface()
         })
         return "ok"
+    }
+
+    // Second half of the deferred reveal: the overlay becomes visible and takes
+    // keyboard focus only after the hold threshold elapses or as soon as the
+    // user navigates. Separating reveal from open() is what makes a fast tap
+    // invisible.
+    function revealInteraction() {
+        if (!root.isOpen || root.interactionRevealed) return
+        root.interactionRevealed = true
+        // Defer focus one event turn, matching the original open() path: the
+        // visible binding has to map the surface before it can hold keyboard
+        // focus.
+        Qt.callLater(function() { root.focusSurface() })
+    }
+
+    // Called for every explicit navigation during an interaction. Navigation
+    // always reveals immediately and marks the interaction as navigated so the
+    // eventual SUPER release commits (multi-tab cycling) instead of being
+    // mistaken for a quick tap.
+    function noteInteraction() {
+        root.interactionNavigated = true
+        root.revealInteraction()
+    }
+
+    // Quick-tap toggle. The pair is updated BEFORE activation because the focus
+    // change arrives asynchronously: flipping first keeps a rapid second tap
+    // aimed at the workspace we just left.
+    function toggleToPrevious() {
+        var target = WorkspaceSelection.toggleTarget(
+            root.previousWorkspaceId,
+            root.activeWorkspaceId,
+            root.knownWorkspaceIds())
+        if (target === 0) return "ignored"
+        root.previousWorkspaceId = root.activeWorkspaceId
+        root.activeWorkspaceId = target
+        return root.activateWorkspace(target)
     }
 
     function close() {
         root.isOpen = false
         root.wheelAccumulator = 0
+        revealTimer.stop()
+        root.interactionRevealed = false
+        root.interactionNavigated = false
         return "closed"
     }
 
@@ -217,6 +318,16 @@ Item {
         return root.isOpen
     }
 
+    // Deferred-reveal timer. open() starts it; a quick tap stops it before it
+    // fires. The interval is the pinned pure-JS threshold so the policy and the
+    // timer cannot drift apart.
+    Timer {
+        id: revealTimer
+        interval: WorkspaceSelection.TAP_HOLD_THRESHOLD_MS
+        repeat: false
+        onTriggered: root.revealInteraction()
+    }
+
     Connections {
         target: Hyprland
         function onRawEvent(event) {
@@ -224,16 +335,19 @@ Item {
         }
         function onFocusedWorkspaceChanged() {
             root.modelRevision++
+            root.recordFocusedWorkspace()
             if (!root.isOpen) root.seedSelection()
         }
     }
+
+    Component.onCompleted: root.recordFocusedWorkspace()
 
     PanelWindow {
         id: overviewWindow
 
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "aurelia-workspace-overview"
-        WlrLayershell.keyboardFocus: root.isOpen
+        WlrLayershell.keyboardFocus: (root.isOpen && root.interactionRevealed)
             ? WlrKeyboardFocus.Exclusive
             : WlrKeyboardFocus.OnDemand
         anchors.top: true
@@ -242,7 +356,9 @@ Item {
         anchors.right: true
         exclusionMode: ExclusionMode.Ignore
         color: "transparent"
-        visible: root.isOpen
+        // A tap never renders the overlay; only a held or navigated interaction
+        // makes the resident surface visible and focusable.
+        visible: root.isOpen && root.interactionRevealed
 
         Rectangle {
             anchors.fill: parent
@@ -426,6 +542,7 @@ Item {
     }
 
     onIsOpenChanged: {
-        if (root.isOpen) Qt.callLater(function() { root.focusSurface() })
+        if (root.isOpen && root.interactionRevealed)
+            Qt.callLater(function() { root.focusSurface() })
     }
 }
