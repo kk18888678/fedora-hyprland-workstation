@@ -184,6 +184,16 @@ ShellRoot {
         }
     }
 
+    Loader {
+        id: missingIconLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.iconSourceOverride = ""
+            item.activeToplevelOverride = titleToplevel
+        }
+    }
+
     FileView {
         id: resultFile
         path: root.resultPath
@@ -207,7 +217,8 @@ ShellRoot {
         var empty = emptyLoader.item
         var vertical = verticalLoader.item
         var click = clickLoader.item
-        if (!title || !appId || !classItem || !longItem || !capped || !shortItem || !empty || !vertical || !click) {
+        var missing = missingIconLoader.item
+        if (!title || !appId || !classItem || !longItem || !capped || !shortItem || !empty || !vertical || !click || !missing) {
             root.finished = true
             resultFile.setText(JSON.stringify({loaded: false}) + "\n")
             return
@@ -232,6 +243,21 @@ ShellRoot {
                 fallbackSource: String(title.iconSource),
                 emptyAppIconName: String(classItem.iconName)
             },
+            render: {
+                iconInk: Number(title.iconInkSize),
+                iconSlot: Number(title.iconSlotSize),
+                iconSlotVisible: title.iconSlotVisible === true,
+                labelOpacity: Number(title.labelOpacity),
+                implicitWidth: Number(title.implicitWidth),
+                outerLabelWidth: Number(title.labelWidth),
+                iconSpacing: Number(title.iconSpacing)
+            },
+            missingIcon: {
+                slotVisible: missing.iconSlotVisible === true,
+                visible: missing.visible === true,
+                implicitWidth: Number(missing.implicitWidth),
+                labelWidth: Number(missing.labelWidth)
+            },
             elision: {
                 maxWidth: Number(longItem.maxWidth),
                 longLabelWidth: Number(longItem.labelWidth),
@@ -240,7 +266,9 @@ ShellRoot {
                 cappedLabelWidth: Number(capped.labelWidth),
                 shortLabelWidth: Number(shortItem.labelWidth),
                 shortMeasured: Number(shortItem.measuredLabelWidth),
-                shortMaxWidth: Number(shortItem.maxWidth)
+                shortMaxWidth: Number(shortItem.maxWidth),
+                longVisibleWidth: Number(longItem.visibleLabelWidth),
+                longTextMargin: Number(longItem.textMargin)
             },
             visibility: {
                 emptyVisible: empty.visible === true,

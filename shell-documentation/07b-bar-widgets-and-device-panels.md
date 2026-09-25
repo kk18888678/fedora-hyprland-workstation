@@ -10,9 +10,11 @@ the feature-specific constants that sit above the global tokens.
 
 Reads the compositor's active toplevel title, falling back to app id. It is
 hidden on vertical bars and when there is no title. The label is clipped,
-ellipsized, opacity `0.85`, body font, and bounded by a `maxWidth` setting
-(default `280 px`). It has `8 px` left/right content margins. Left click
-activates the window; middle/right click closes it.
+ellipsized at full opacity, medium-weight native-rendered text, and bounded by a
+`maxWidth` setting (default `280 px`). It has `8 px` left/right content
+margins. The application icon renders at the shared `12 px` tray-image ink
+centred in the unchanged `16 px` icon-canvas slot; the slot is hidden when no
+icon resolves. Left click activates the window; middle/right click closes it.
 
 ### Workspace switcher
 
