@@ -305,13 +305,16 @@ is limited to plugin roots and is not a replacement for the explicit host
 restart boundary. `hyprctl reload` remains specifically for Hyprland/Lua
 configuration changes.
 
-The workspace overview is provided by `aurelia.workspace-switcher`. Its
-Mission Control-inspired overlay is opened with `SUPER + TAB`; repeated presses
-cycle the selected workspace, releasing `SUPER` or pressing Enter activates it,
-Escape closes the overview, and arrow keys move the selection. Window cards use
+The workspace overview is provided by `aurelia.workspace-switcher`. A quick
+`SUPER + TAB` tap toggles straight to the previously focused workspace without
+rendering the overlay; holding `SUPER` (or navigating) opens the Mission
+Control-inspired overlay after 180 ms, where repeated presses cycle the
+selected workspace, releasing `SUPER` or pressing Enter activates it, Escape
+closes the overview, and arrow keys move the selection. Window cards use
 Quickshell's single-frame Hyprland toplevel capture when supported and show a
-safe app/title fallback otherwise. The commit-on-release mechanism and why it
-travels through the Hyprland Lua keybinding provider are documented in
+safe app/title fallback otherwise. The quick-tap threshold, state model,
+`only_in_use` interaction, and why commit-on-release travels through the
+Hyprland Lua keybinding provider are documented in
 [docs/aurelia-workspace-switcher.md](docs/aurelia-workspace-switcher.md).
 
 The `aurelia-plugin` command validates local plugins, lists/rescans the
