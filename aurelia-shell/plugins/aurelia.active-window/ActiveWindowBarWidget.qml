@@ -68,7 +68,12 @@ Item {
         var entry = DesktopEntries.heuristicLookup(root.appId)
         return entry && entry.icon ? String(entry.icon) : ""
     }
+    // The isolated fixture can pin the resolved icon name so the symbolic-icon
+    // colour policy is exercised deterministically without a live icon-theme
+    // lookup. The override is unused in production.
+    property var iconNameOverride
     readonly property string iconName: {
+        if (root.iconNameOverride !== undefined) return String(root.iconNameOverride)
         if (root.desktopIconName !== "") return root.desktopIconName
         var normalized = root.appId.toLowerCase()
         if (normalized.indexOf("chatgpt") >= 0) return "chatgpt"
@@ -91,12 +96,24 @@ Item {
         ? root.bar.barTrayIcon : Theme.bar.trayIcon
     readonly property bool hasIcon: root.iconSource !== ""
 
+    // Real application logos are multi-colour artwork, but the shared icon
+    // primitive colorizes with Qt's luminance-multiplied duotone, which
+    // collapses every logo onto a monochrome ramp of the tint. Only genuine
+    // symbolic masks (an icon name ending in "-symbolic", ignoring any query
+    // string) may keep that tint. This mirrors the tray's isSymbolicIcon
+    // contract so both surfaces treat real logos the same way.
+    readonly property bool symbolicIcon: {
+        var name = String(root.iconName || "").split("?")[0]
+        return name.slice(-9) === "-symbolic"
+    }
+
     // Isolated-fixture seam: the rendered icon ink/slot and label metrics. The
     // production bar never reads these; they let the QML runtime test assert
     // the rendered geometry without re-implementing the layout.
     readonly property real iconInkSize: windowIcon.width
     readonly property real iconSlotSize: iconSlot.width
     readonly property bool iconSlotVisible: iconSlot.visible
+    readonly property bool iconPreservesColors: windowIcon.preserveColors
     readonly property real labelOpacity: labelText.opacity
     readonly property real visibleLabelWidth: labelText.width
 
@@ -175,6 +192,7 @@ Item {
                 iconSize: root.trayIcon
                 name: ""
                 sourcePath: root.iconSource
+                preserveColors: !root.symbolicIcon
                 tint: root.barForeground
             }
         }
