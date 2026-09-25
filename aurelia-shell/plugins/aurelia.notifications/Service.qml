@@ -981,6 +981,15 @@ Item {
     // reference while the Settings button stays rendered, and the destroyed
     // object refuses invoke(). The durable snapshot is the authoritative
     // fallback, exactly as invokeDefault already treats the live object.
+    // The returned status is deliberately explicit so a caller cannot mistake a
+    // sender-window route for the clicked action:
+    //   delivered   - the live action.invoke() ran, or a genuine per-action
+    //                 durable command was spawned
+    //   executed    - only the notification-level execArgv was spawned
+    //                 (fire-and-forget, not the clicked action)
+    //   routed      - only the sender window was focused and the row removed
+    //   unavailable - nothing could be delivered or routed
+    //   none        - index/identity miss
     function invokeAction(index, identifier, originalId, timestamp) {
         if (arguments.length >= 4) {
             index = activeIndexForIdentity(originalId, timestamp)
@@ -1001,38 +1010,69 @@ Item {
                         action.invoke()
                     } catch (error) {
                         console.warn("[NOTIFICATIONS] action.invoke_failed falling_back")
-                        return service.invokeDurableAction(index, resolvedOriginalId, resolvedTimestamp, entry)
+                        return service.invokeDurableAction(index, resolvedOriginalId, resolvedTimestamp, entry, identifier)
                     }
                     service.startWorkspaceRoute(liveRoute)
                     removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
-                    return "ok"
+                    return "delivered"
                 }
             }
         }
-        return service.invokeDurableAction(index, resolvedOriginalId, resolvedTimestamp, entry)
+        return service.invokeDurableAction(index, resolvedOriginalId, resolvedTimestamp, entry, identifier)
+    }
+
+    // HOLD: the (app, action) -> argv/URI action registry is a separate
+    // reviewed change. This seam only honours a per-action command already
+    // present on the durable row; today the durable snapshot carries none, so
+    // it returns null and the caller falls back to the notification-level
+    // execArgv or sender routing.
+    function durableActionCommand(entry, identifier) {
+        if (!entry || !entry.actions) return null
+        var actions = entry.actions
+        var count = typeof actions.count === "number" ? actions.count : actions.length
+        if (count === undefined) return null
+        for (var i = 0; i < count; i++) {
+            var action = typeof actions.get === "function" ? actions.get(i) : actions[i]
+            if (!action || String(action.identifier || "") !== String(identifier || "")) continue
+            var argv = Logic.parseExecArgv(action.execArgv || "")
+            if (argv) return argv
+            if (Array.isArray(action.argv) && action.argv.length > 0) return action.argv
+            return null
+        }
+        return null
     }
 
     // Durable fallback for invokeAction. The live reference may be absent (the
     // sender closed a retained Inbox row) or unusable (the notification object
-    // was destroyed). Resolve the durable snapshot, run any explicit exec argv,
-    // route the sender window, and remove the row. This mirrors invokeDefault.
-    function invokeDurableAction(index, originalId, timestamp, entry) {
+    // was destroyed). Resolve the durable snapshot, run any explicit per-action
+    // command, then the notification-level exec argv, then route the sender
+    // window. The row is removed only when something was actually done.
+    function invokeDurableAction(index, originalId, timestamp, entry, identifier) {
         var actionKey = service.identityKey(originalId, timestamp)
         var durable = service.snapshotForIdentity(originalId, timestamp) ||
             (actionKey !== "" ? service.liveSnapshots[actionKey] : null) || entry
         if (!durable) return "unavailable"
+        var actionArgv = service.durableActionCommand(durable, identifier)
+        if (actionArgv) {
+            var actionRoute = Logic.workspaceRouteData(durable, entry)
+            if (actionRoute.enabled) service.startWorkspaceRoute(actionRoute)
+            Quickshell.execDetached(["bash", "-lc", "exec \"$@\"", "aurelia-notification"].concat(actionArgv))
+            removeByIdentity(originalId, timestamp, "action", index)
+            return "delivered"
+        }
         var argv = Logic.parseExecArgv(durable.execArgv)
         if (argv) {
             var execRoute = Logic.workspaceRouteData(durable, entry)
             if (execRoute.enabled) service.startWorkspaceRoute(execRoute)
             Quickshell.execDetached(["bash", "-lc", "exec \"$@\"", "aurelia-notification"].concat(argv))
             removeByIdentity(originalId, timestamp, "action", index)
-            return "ok"
+            return "executed"
         }
         var route = Logic.workspaceRouteData(durable, entry)
-        if (route.enabled) service.startWorkspaceRoute(route)
+        if (!route.enabled) return "unavailable"
+        service.startWorkspaceRoute(route)
         removeByIdentity(originalId, timestamp, "action", index)
-        return route.enabled ? "ok" : "unavailable"
+        return "routed"
     }
 
     function invokeDefault(index, originalId, timestamp) {

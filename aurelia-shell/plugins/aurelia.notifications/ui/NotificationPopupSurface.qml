@@ -200,7 +200,12 @@ PanelWindow {
                     }
                     onActivated: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                     onDefaultActionInvoked: root.notificationService.invokeDefault(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
-                    onActionInvoked: function(identifier) { root.notificationService.invokeAction(popupSlot.index, identifier, popupSlot.originalId, popupSlot.timestamp) }
+                    onActionInvoked: function(identifier) {
+                        var status = root.notificationService.invokeAction(popupSlot.index, identifier, popupSlot.originalId, popupSlot.timestamp)
+                        // Do not let a sender-window route read as a delivered action.
+                        if (status !== "delivered" && status !== "executed")
+                            console.info("[NOTIFICATIONS] action.outcome status=" + status + " identifier=" + identifier)
+                    }
                     onCopyRequested: root.notificationService.copyNotificationAt(popupSlot.index, popupSlot.originalId, popupSlot.timestamp)
                 }
             }
