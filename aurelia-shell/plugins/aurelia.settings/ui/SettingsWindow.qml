@@ -572,6 +572,31 @@ PanelWindow {
         }
     }
 
+    // Dedicated reader for the persisted bar-hidden state. This used to share
+    // the process that now serves defaults; it patches barHidden ONLY on a
+    // successful hidden|visible read so an unreadable result can never make
+    // the Bar Hidden toggle lie about the real state.
+    Process {
+        id: barHiddenProcess
+        command: []
+        environment: root.backendEnvironment
+        clearEnvironment: false
+        stdout: StdioCollector { id: barHiddenStdout; waitForEnd: true }
+        stderr: StdioCollector { id: barHiddenStderr; waitForEnd: true }
+        onExited: function(code) {
+            var state = String(barHiddenStdout.text || "").trim()
+            if (code === 0 && (state === "hidden" || state === "visible")) {
+                root.applyAureliaPatch({ barHidden: state === "hidden" })
+            } else {
+                // Bounded warning: never echo unbounded reader output.
+                var detail = String(barHiddenStderr.text || "").trim()
+                if (detail.length > 120) detail = detail.slice(0, 120)
+                console.warn("[SETTINGS] bar_hidden_read_failed code=" + code +
+                    " detail=" + (detail || "unreadable"))
+            }
+        }
+    }
+
     Process {
         id: defaultsStatusProcess
         command: []
@@ -694,8 +719,8 @@ PanelWindow {
             "\"$1\" preference get aurelia.workspaces.only_in_use",
             "settings", root.helperBin("workstation-aurelia")]
         aureliaPrefsProcess.running = true
-        barProcess.command = [root.helperBin("aurelia-bar-hidden"), "read"]
-        barProcess.running = true
+        barHiddenProcess.command = [root.helperBin("aurelia-bar-hidden"), "read"]
+        barHiddenProcess.running = true
         root.refreshAi()
     }
 
