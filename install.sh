@@ -278,6 +278,7 @@ run_classified_step optional "Installing workstation applications" install_appli
 run_classified_step workstation "Configuring Flatpak" configure_flatpak
 run_classified_step optional "Installing Flatpak applications" install_flatpak_applications
 run_classified_step login "Installing Hyprland desktop" install_desktop
+run_classified_step optional "Installing crash capture" install_crash_capture
 run_classified_step workstation "Installing Aurelia network DNS authorization" install_aurelia_network_dns_authorization
 run_classified_step workstation "Installing Nix and devenv support" install_nix
 run_classified_step workstation "Configuring containers" configure_containers

@@ -18,6 +18,22 @@ deploy_hyprland_config() {
     info "Hyprland configuration linked."
 }
 
+# Report a managed CLI deployment failure with the caller's failure class.
+# Workstation-required is the default. Optional capabilities (for example the
+# crash watcher, which is a diagnostic convenience) pass "optional" so a
+# failure is deferred and cannot look like a required exit-1 failure.
+report_cli_file_failure() {
+    local failure_class="$1"
+    local label="$2"
+    local reason="$3"
+
+    if [[ "$failure_class" == "optional" ]]; then
+        record_deferred "desktop" "$label" "$reason"
+    else
+        record_required "desktop" "$label" "$reason"
+    fi
+}
+
 # Prepare the shared Hyprland settings backend used by the Aurelia Settings
 # hub and by terminal/CLI workflows in any session. The backend owns the
 # user-level settings overlay (workstation-hypr-settings clear resets it) and
@@ -27,10 +43,11 @@ install_root_cli_file() {
     local source="$1"
     local target="$2"
     local label="$3"
+    local failure_class="${4:-required}"
 
     [[ -f "$source" && ! -L "$source" ]] || {
-        record_required \
-            "desktop" \
+        report_cli_file_failure \
+            "$failure_class" \
             "$label" \
             "The CLI backend source is missing: $source"
         return 1
@@ -38,17 +55,28 @@ install_root_cli_file() {
 
     if declare -F validate_mutation_path >/dev/null &&
         { ! validate_mutation_path /usr/local/bin; }; then
-        record_required \
-            "desktop" \
+        report_cli_file_failure \
+            "$failure_class" \
             "$label" \
             "/usr/local/bin contains an unsafe symlinked path component."
         return 1
     fi
 
+    # A converged root-owned executable is already the desired state. Avoid
+    # rewriting it on every rerun while still repairing a wrong mode, owner,
+    # symlink, or stale content.
+    if [[ -f "$target" && ! -L "$target" && -x "$target" ]] &&
+        [[ "$(stat -c '%u:%g:%a' -- "$target" || true)" == "0:0:755" ]] &&
+        cmp -s -- "$source" "$target"; then
+        info "$label already converged."
+        record_success "$label"
+        return 0
+    fi
+
     if ! install_root_file_atomically \
         "$source" "$target" 0755 root root; then
-        record_required \
-            "desktop" \
+        report_cli_file_failure \
+            "$failure_class" \
             "$label" \
             "Could not install the root-owned CLI backend $target."
         return 1
@@ -87,45 +115,112 @@ install_workstation_ai() {
         return 0
     fi
     record_success "ai-skill"
+}
 
-    # The crash skill is installed alongside the general skill so the agent
-    # handoff can point at a stable absolute path. Failure is deferred.
+# The bounded crash-capture/diagnosis backends. The watcher, the mute/toggle
+# owners, the discrete-argv handoff, and the notification helpers are all
+# user-level executables installed to the same root-owned /usr/local/bin
+# namespace as every other managed CLI.
+CRASH_CAPTURE_BACKENDS=(
+    aurelia-crash-watch
+    aurelia-crash-mute
+    aurelia-toggle-crash-capture
+    aurelia-agent-crash
+    aurelia-notification-wait
+    aurelia-notification-send
+)
+
+# Every backend must be present as a regular, executable, non-symlink file
+# before the unit is enabled. Enabling a watcher around a missing backend would
+# create a restart loop, so a partial install stays deferred.
+validate_crash_capture_installation() {
+    local bin_dir="${1:-/usr/local/bin}"
+    local binary
+    local target
+
+    for binary in "${CRASH_CAPTURE_BACKENDS[@]}"; do
+        target="$bin_dir/$binary"
+        if [[ ! -f "$target" || -L "$target" || ! -x "$target" ]]; then
+            return 1
+        fi
+    done
+}
+
+# True when a root-managed destination already is the desired regular file:
+# same bytes, mode, owner, and group. Reruns then leave it untouched instead of
+# replacing a converged file.
+root_managed_file_is_converged() {
+    local source="$1"
+    local target="$2"
+    local expected="$3"
+
+    [[ -f "$target" && ! -L "$target" ]] || return 1
+    cmp -s -- "$source" "$target" || return 1
+    [[ "$(stat -c '%U:%G:%a' -- "$target" || true)" == "$expected" ]]
+}
+
+# The user unit is validated with systemd-analyze before it is enabled. This
+# proves the unit parses and its ExecStart resolves without needing a live user
+# manager during preparation.
+validate_crash_watch_unit() {
+    local unit_file="$1"
+    local analyzer
+
+    [[ -f "$unit_file" && ! -L "$unit_file" ]] || return 1
+    analyzer="$(command -v systemd-analyze || true)"
+    [[ -n "$analyzer" ]] || return 1
+    # Keep systemd-analyze stderr observable; only a successful parse's stdout
+    # is discarded.
+    "$analyzer" verify "$unit_file" >/dev/null
+}
+
+# Crash-capture/diagnosis: bounded backends, a user systemd unit, and the
+# diagnose-crash skill. The watcher is a diagnostic convenience, not a
+# login-critical prerequisite, so every failure here is deferred rather than
+# blocking graphical activation. install.sh runs this as its own optional
+# classified step. The unit is enabled with a graphical-session .wants symlink
+# so it takes effect at the next login without requiring a live user manager
+# during preparation.
+install_crash_capture() {
+    local binary
+    for binary in "${CRASH_CAPTURE_BACKENDS[@]}"; do
+        if ! install_root_cli_file \
+            "$SCRIPT_DIR/aurelia-shell/bin/$binary" \
+            "/usr/local/bin/$binary" \
+            "$binary" \
+            optional; then
+            return 0
+        fi
+    done
+
+    # The diagnose-crash skill is installed alongside the general workstation
+    # skill so the agent handoff can point at a stable absolute path.
     local crash_skill_file
+    local crash_skill_source
+    local crash_skill_target
     for crash_skill_file in SKILL.md reporting.md; do
+        crash_skill_source="$SCRIPT_DIR/config/agent-skill/diagnose-crash/$crash_skill_file"
+        crash_skill_target="/usr/local/share/fedora-hyprland-workstation/agent-skill/diagnose-crash/$crash_skill_file"
+        if root_managed_file_is_converged "$crash_skill_source" "$crash_skill_target" "root:root:644"; then
+            continue
+        fi
         if ! install_root_file_atomically \
-            "$SCRIPT_DIR/config/agent-skill/diagnose-crash/$crash_skill_file" \
-            "/usr/local/share/fedora-hyprland-workstation/agent-skill/diagnose-crash/$crash_skill_file" \
+            "$crash_skill_source" \
+            "$crash_skill_target" \
             0644 root root; then
             record_deferred "desktop" "diagnose-crash-skill" "Could not install the diagnose-crash skill ($crash_skill_file)."
             return 0
         fi
     done
     record_success "diagnose-crash-skill"
-}
 
-# Crash-capture/diagnosis: bounded backends, a user systemd unit, and the
-# diagnose-crash skill. The watcher is a workstation capability, not a
-# login-critical prerequisite, so every failure here is deferred rather than
-# blocking graphical activation. The unit is enabled with a graphical-session
-# .wants symlink so it takes effect at the next login without requiring a live
-# user manager during preparation.
-install_crash_capture() {
-    local binary
-    for binary in \
-        aurelia-crash-watch \
-        aurelia-crash-mute \
-        aurelia-toggle-crash-capture \
-        aurelia-agent-crash \
-        aurelia-notification-wait \
-        aurelia-notification-send; do
-        if ! install_root_cli_file \
-            "$SCRIPT_DIR/aurelia-shell/bin/$binary" \
-            "/usr/local/bin/$binary" \
-            "$binary"; then
-            record_deferred "desktop" "crash-$binary" "Could not install $binary."
-            return 0
-        fi
-    done
+    if ! validate_crash_capture_installation /usr/local/bin; then
+        record_deferred \
+            "desktop" \
+            "crash-capture" \
+            "A crash backend is missing or is not an executable regular file under /usr/local/bin."
+        return 0
+    fi
 
     local unit_source="$SCRIPT_DIR/aurelia-shell/systemd/user/aurelia-crash-watch.service"
     local config_home="$TARGET_HOME/.config"
@@ -133,8 +228,11 @@ install_crash_capture() {
     local unit_target="$unit_dir/aurelia-crash-watch.service"
     local wants_link="$unit_dir/graphical-session.target.wants/aurelia-crash-watch.service"
 
-    if [[ ! -f "$unit_source" || -L "$unit_source" ]]; then
-        record_deferred "desktop" "crash-watch-unit" "The crash watcher unit source is missing."
+    if ! validate_crash_watch_unit "$unit_source"; then
+        record_deferred \
+            "desktop" \
+            "crash-watch-unit" \
+            "The crash watcher unit is missing or failed systemd-analyze verification."
         return 0
     fi
     if declare -F safe_user_config_home >/dev/null &&
@@ -151,9 +249,11 @@ install_crash_capture() {
     local unit_owner="${TARGET_USER:-root}"
     local unit_group
     unit_group="$(id -gn "$unit_owner" || printf '%s' "$unit_owner")"
-    if ! install_root_file_atomically "$unit_source" "$unit_target" 0644 "$unit_owner" "$unit_group"; then
-        record_deferred "desktop" "crash-watch-unit" "Could not install the crash watcher unit."
-        return 0
+    if ! root_managed_file_is_converged "$unit_source" "$unit_target" "$unit_owner:$unit_group:644"; then
+        if ! install_root_file_atomically "$unit_source" "$unit_target" 0644 "$unit_owner" "$unit_group"; then
+            record_deferred "desktop" "crash-watch-unit" "Could not install the crash watcher unit."
+            return 0
+        fi
     fi
     if ! ensure_symlink "$unit_target" "$wants_link"; then
         record_deferred "desktop" "crash-watch-unit" "Could not enable the crash watcher for the graphical session."
@@ -1359,7 +1459,6 @@ install_desktop() {
     install_workstation_system_settings
     install_workstation_ai
     install_aurelia_cli
-    install_crash_capture
     deploy_session_shell_selection
     if [[ "${DESKTOP_SHELL:-}" == "noctalia" ]]; then
         deploy_noctalia_config

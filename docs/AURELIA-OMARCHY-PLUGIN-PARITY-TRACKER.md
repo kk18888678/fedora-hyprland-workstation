@@ -5388,7 +5388,12 @@ Frozen Aurelia contract:
 - Unit: `aurelia-shell/systemd/user/aurelia-crash-watch.service`, enabled for
   `graphical-session.target` by a `.wants` symlink, gated by
   `ConditionPathExists=!%h/.local/state/aurelia/toggles/crash-capture-off`,
-  `Restart=always`, `RestartSec=5`.
+  `Restart=always`, `RestartSec=5`. The installer deploys the five backends
+  plus the `aurelia-notification-send` dependency as root-owned
+  `/usr/local/bin` executables, then verifies every backend is an executable
+  regular file and runs `systemd-analyze verify` on the unit **before**
+  creating the `.wants` symlink. A failed check defers the whole watcher
+  instead of enabling a restart loop.
 - Handoff: `--exec aurelia-agent-crash <pid> <name> <exe> <signal>` as discrete
   argv stored in the typed `aurelia-exec-argv` D-Bus hint; a process name is
   never reparsed by a shell.
@@ -5414,6 +5419,12 @@ Implementation gate — resolved:
 - [x] Static, Bash, JSON/parser, negative, watcher, notification, mute
   persistence/path-safety, skill, and menu/Command Center tests added.
 - [x] Implementation checkpoint and rollback plan recorded below.
+- [x] Installer ownership hardening: `install_crash_capture` runs as its own
+  `run_classified_step optional "Installing crash capture"` after
+  `install_desktop`, so a missing backend or invalid unit is deferred (exit
+  `2`) and can never be mistaken for a login-critical failure. `desktop.sh`
+  accepts an `optional` failure class for managed CLI installation, and the
+  backend/unit validation helpers are covered by an isolated fail-closed test.
 
 Checkpoint 3 — post-change evidence:
 
@@ -5424,17 +5435,18 @@ Checkpoint 3 — post-change evidence:
   skill wiring, menu and Command Center wiring, CLI routing, and the crash
   privacy gate: masking with disclosure, approved/declined/no-answer review,
   read-only launch, and no core extraction.
-- `tests/test_crash_capture.sh`: `14` passed, `0` failed. Covers installer
-  deployment (non-blocking, no recursive ownership), the unit contract, the
+- `tests/test_crash_capture.sh`: `16` passed, `0` failed. Covers installer
+  deployment (non-blocking, no recursive ownership), the non-login `optional`
+  classified step, fail-closed backend/unit validation, the unit contract, the
   metadata-only diagnose-crash skill/reporting files, the extended
   `workstation-ai crash` handoff and its privacy boundary, dual-skill
   install/remove, and CLI routing.
-- Full Aurelia suite: `81` suites, `953` assertions, `941` passed, `12`
+- Full Aurelia suite: `84` suites, `1038` assertions, `1025` passed, `13`
   explicit environment skips, `0` failed (strict mode returns `2` for the
-  skips). Repository suite: `245` passed, `0` failed. Repository-wide `bash -n`
-  across every `*.sh` passed. ShellCheck on the changed root shell files is
-  clean.
-- Implementation commit: `dca3ca8`.
+  skips). Repository suite: `263` passed, `0` failed. Repository-wide `bash -n`
+  across every `*.sh` passed.
+- Implementation commit: `dca3ca8` (feature) and the installer-ownership
+  hardening merge on `main`.
 - Live coredump generation, notification delivery, and click acceptance were
   not run (not authorized); they remain a separate integration gate.
 
