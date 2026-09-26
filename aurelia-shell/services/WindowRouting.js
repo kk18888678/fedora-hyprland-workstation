@@ -129,6 +129,47 @@ function workspaceIdForToplevel(toplevel) {
     return isFinite(id) && Math.floor(id) === id && id !== 0 ? id : 0
 }
 
+// Derive the currently-focused toplevel from the compositor's toplevel model.
+// Quickshell 0.3.1 only assigns Hyprland.activeToplevel inside its
+// activewindowv2 event handler: refreshToplevels() parses j/clients but never
+// assigns the active toplevel, Hyprland does not replay the focused window to
+// a newly connected client, and creating a bar layer surface emits no such
+// event. A shell started or reloaded while a window is already focused
+// therefore has Hyprland.activeToplevel === null until some later focus or
+// title change. Hyprland marks the focused window as the entry whose
+// lastIpcObject.focusHistoryID is numerically 0, so this helper recovers it
+// from the model itself. It fails closed (returns null) whenever the marker
+// is absent, malformed, or ambiguous, so a wrong window is never chosen and
+// the widget stays hidden instead of showing the wrong application.
+//
+// Multi-monitor limitation: this helper only had a single-monitor runtime to
+// exercise against. It therefore makes no assumption about per-monitor focus
+// and fails closed if more than one entry ever reports focusHistoryID 0. A
+// future multi-monitor investigation must confirm Hyprland's focus-history
+// semantics before relaxing that guard.
+function focusedToplevel(values) {
+    if (!values) return null
+    var count = Number(objectProperty(values, "length"))
+    if (!isFinite(count) || count < 0 || Math.floor(count) !== count) return null
+    var found = null
+    for (var i = 0; i < count; i++) {
+        var candidate = values[i]
+        if (!candidate) continue
+        var ipc = objectProperty(candidate, "lastIpcObject")
+        if (!ipc) continue
+        var marker = objectProperty(ipc, "focusHistoryID")
+        if (marker === null) continue
+        var focusId = Number(marker)
+        if (!isFinite(focusId) || Math.floor(focusId) !== focusId) continue
+        if (focusId !== 0) continue
+        // A second entry claiming focus is ambiguous; return null rather than
+        // guess which window the user is interacting with.
+        if (found !== null) return null
+        found = candidate
+    }
+    return found
+}
+
 function workspaceRouteScore(route, windowInfo) {
     var requested = route && Array.isArray(route.identities) ? route.identities : []
     var routeSource = route || {}
@@ -215,6 +256,7 @@ if (typeof module !== "undefined" && module.exports) {
         workspaceRouteDataForTrayIdentity: workspaceRouteDataForTrayIdentity,
         workspaceRouteInfo: workspaceRouteInfo,
         workspaceIdForToplevel: workspaceIdForToplevel,
+        focusedToplevel: focusedToplevel,
         workspaceRouteScore: workspaceRouteScore,
         matchingWorkspaceToplevel: matchingWorkspaceToplevel
     }

@@ -97,6 +97,46 @@ ShellRoot {
         property var lastIpcObject: ({})
     }
 
+    // Deterministic toplevels model for the startup fallback. The focused
+    // entry is marked with focusHistoryID 0 and deliberately carries an empty
+    // handle.appId (the wlr handle is not linked yet at shell start), so the
+    // class fallback must supply the identity. The sibling entry has no
+    // focusHistoryID at all and must be ignored rather than mistaken for the
+    // focused window.
+    QtObject {
+        id: modelFocusedHandle
+        property string appId: ""
+    }
+
+    QtObject {
+        id: modelFocusedToplevel
+        property string title: ""
+        property QtObject handle: modelFocusedHandle
+        property var lastIpcObject: ({class: "FixtureClass", focusHistoryID: 0})
+    }
+
+    QtObject {
+        id: modelUnfocusedToplevel
+        property string title: "Unfocused"
+        property QtObject handle: fakeHandle
+        property var lastIpcObject: ({class: "UnfocusedClass"})
+    }
+
+    // Two entries both claiming focus must fail closed.
+    QtObject {
+        id: modelAmbiguousOne
+        property string title: ""
+        property QtObject handle: fakeHandle
+        property var lastIpcObject: ({focusHistoryID: 0})
+    }
+
+    QtObject {
+        id: modelAmbiguousTwo
+        property string title: ""
+        property QtObject handle: fakeHandle
+        property var lastIpcObject: ({focusHistoryID: 0})
+    }
+
     QtObject {
         id: longToplevel
         property string title: root.longTitle
@@ -225,6 +265,38 @@ ShellRoot {
         }
     }
 
+    // Startup fallback through the toplevels model. No activeToplevelOverride
+    // is set, so the widget must recover the focusHistoryID 0 entry itself.
+    Loader {
+        id: modelFallbackLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.toplevelsOverride = [modelUnfocusedToplevel, modelFocusedToplevel]
+        }
+    }
+
+    // Ambiguous focus markers must fail closed and leave the widget hidden.
+    Loader {
+        id: modelAmbiguousLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.toplevelsOverride = [modelAmbiguousOne, modelAmbiguousTwo]
+        }
+    }
+
+    // An empty model means there is no focused window, so the widget stays
+    // hidden exactly as it does today.
+    Loader {
+        id: modelEmptyLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.toplevelsOverride = []
+        }
+    }
+
     // The elision contract is exercised through title mode so the long title
     // (rather than a short app id) is the measured label.
     Loader {
@@ -344,6 +416,9 @@ ShellRoot {
         var chromiumItem = chromiumLoader.item
         var appId = appIdLoader.item
         var classItem = classLoader.item
+        var modelFallback = modelFallbackLoader.item
+        var modelAmbiguous = modelAmbiguousLoader.item
+        var modelEmpty = modelEmptyLoader.item
         var longItem = longLoader.item
         var capped = cappedLoader.item
         var shortItem = shortLoader.item
@@ -353,7 +428,8 @@ ShellRoot {
         var missing = missingIconLoader.item
         var symbolic = symbolicIconLoader.item
         if (!title || !titleMode || !invalidMode || !fixtureApp || !footItem || !chromiumItem ||
-                !appId || !classItem || !longItem || !capped || !shortItem || !empty ||
+                !appId || !classItem || !modelFallback || !modelAmbiguous || !modelEmpty ||
+                !longItem || !capped || !shortItem || !empty ||
                 !vertical || !click || !missing || !symbolic) {
             root.finished = true
             resultFile.setText(JSON.stringify({loaded: false}) + "\n")
@@ -373,10 +449,21 @@ ShellRoot {
                 appId: String(appId.label),
                 className: String(classItem.label),
                 empty: String(empty.label),
+                modelFallback: String(modelFallback.label),
+                modelAmbiguous: String(modelAmbiguous.label),
+                modelEmpty: String(modelEmpty.label),
                 titleMode: String(titleMode.label),
                 titleModeTitle: String(titleMode.titleLabel),
                 invalidMode: String(invalidMode.label),
                 fixtureApp: String(fixtureApp.label)
+            },
+            fallback: {
+                modelFallbackLabel: String(modelFallback.label),
+                modelFallbackIcon: String(modelFallback.iconName),
+                modelFallbackHasIcon: modelFallback.hasIcon === true,
+                modelFallbackAppEntry: modelFallback.appEntry !== null && modelFallback.appEntry !== undefined,
+                modelAmbiguousLabel: String(modelAmbiguous.label),
+                modelEmptyLabel: String(modelEmpty.label)
             },
             icons: {
                 fallbackName: String(title.iconName),
@@ -426,7 +513,10 @@ ShellRoot {
                 verticalVisible: vertical.visible === true,
                 verticalImplicitWidth: Number(vertical.implicitWidth),
                 titleVisible: title.visible === true,
-                titleImplicitWidth: Number(title.implicitWidth)
+                titleImplicitWidth: Number(title.implicitWidth),
+                modelFallbackVisible: modelFallback.visible === true,
+                modelAmbiguousVisible: modelAmbiguous.visible === true,
+                modelEmptyVisible: modelEmpty.visible === true
             },
             clicks: {
                 activates: clickState.activates,

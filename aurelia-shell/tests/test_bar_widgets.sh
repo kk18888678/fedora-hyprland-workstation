@@ -310,9 +310,32 @@ assert(!routing.matchingWorkspaceToplevel(
   routing.workspaceRouteDataForTrayItem({ id: 'chat', title: 'Chat' }),
   [{ workspace: { id: 4 }, handle: { appId: 'chatgpt' }, title: 'ChatGPT' }]
 ), 'generic chat identity must not route to ChatGPT')
+
+// Startup focus fallback: select the single entry marked focusHistoryID 0,
+// ignore entries without the marker, and fail closed when the marker is
+// missing or ambiguous so a wrong window is never chosen.
+const focusedToplevel = { lastIpcObject: { focusHistoryID: 0 } }
+const otherToplevel = { lastIpcObject: { focusHistoryID: 2 } }
+const noMarkerToplevel = { lastIpcObject: {} }
+assert(routing.focusedToplevel([otherToplevel, focusedToplevel, noMarkerToplevel]) === focusedToplevel,
+  'focused toplevel should be selected by focusHistoryID 0')
+assert(routing.focusedToplevel([otherToplevel, noMarkerToplevel]) === null,
+  'no focusHistoryID 0 must fail closed')
+assert(routing.focusedToplevel([]) === null,
+  'empty toplevel list must fail closed')
+assert(routing.focusedToplevel(null) === null,
+  'absent toplevel list must fail closed')
+assert(routing.focusedToplevel([
+  { lastIpcObject: { focusHistoryID: 0 } },
+  { lastIpcObject: { focusHistoryID: 0 } }
+]) === null, 'ambiguous focus markers must fail closed')
+assert(routing.focusedToplevel([{ lastIpcObject: { focusHistoryID: '0' } }]) !== null,
+  'numeric-string focus marker should resolve')
+assert(routing.focusedToplevel({ 0: focusedToplevel, length: 1 }) === focusedToplevel,
+  'array-like toplevels should resolve')
 NODE_WINDOW_ROUTING
     if (( window_routing_status == 0 )); then
-        pass "[isolated-runtime] Tray identity matching locates ChatGPT's workspace and rejects generic false matches"
+        pass "[isolated-runtime] Tray identity matching locates ChatGPT's workspace, rejects generic false matches, and the startup focus fallback selects focusHistoryID 0 while failing closed on absent or ambiguous markers"
     else
         fail "[isolated-runtime] Tray identity matching failed"
     fi

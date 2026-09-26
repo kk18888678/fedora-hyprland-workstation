@@ -50,13 +50,25 @@ fi
 if grep -Fq 'import Quickshell.Hyprland' "$widget_file" &&
    grep -Fq 'Hyprland.activeToplevel' "$widget_file" &&
    grep -Fq 'property var activeToplevelOverride' "$widget_file" &&
+   grep -Fq 'property var toplevelsOverride' "$widget_file" &&
+   grep -Fq 'Hyprland.toplevels' "$widget_file" &&
+   grep -Fq 'WindowRouting.focusedToplevel' "$widget_file" &&
    grep -Fq 'DesktopEntries.heuristicLookup' "$widget_file" &&
    grep -Fq 'Quickshell.iconPath' "$widget_file" &&
    grep -Fq 'AureliaIcon' "$widget_file" &&
    grep -Fq 'WindowRouting.workspaceRouteInfo' "$widget_file"; then
-    pass "[static] Active Window reads compositor state through the Hyprland active toplevel and the shared routing/icon boundaries"
+    pass "[static] Active Window reads compositor state through the Hyprland active toplevel, the model-derived focused-toplevel fallback, and the shared routing/icon boundaries"
 else
-    fail "[static] Active Window compositor, routing, or icon boundary is incomplete"
+    fail "[static] Active Window compositor, startup fallback, routing, or icon boundary is incomplete"
+fi
+
+window_routing_file="$ROOT/services/WindowRouting.js"
+if grep -Fq 'function focusedToplevel' "$window_routing_file" &&
+   grep -Fq 'focusHistoryID' "$window_routing_file" &&
+   grep -Fq 'focusedToplevel: focusedToplevel' "$window_routing_file"; then
+    pass "[static] WindowRouting exposes the pure model-derived focusedToplevel helper keyed on focusHistoryID"
+else
+    fail "[static] WindowRouting focusedToplevel helper is missing or not keyed on focusHistoryID"
 fi
 
 if grep -Fq 'Text.ElideRight' "$widget_file" &&
@@ -117,10 +129,12 @@ else
     fail "[static] Active Window tooltip, hover, visibility, or click contract is incomplete"
 fi
 
-if ! grep -Eq 'Timer[[:space:]]*\{|interval:|repeat: true|hyprctl|Quickshell\.execDetached|Process[[:space:]]*\{' "$widget_file"; then
-    pass "[static] Active Window is signal-driven with no polling timer, subprocess, or hyprctl fallback"
+if ! grep -Eq 'Timer[[:space:]]*\{|interval:|repeat: true|hyprctl|Quickshell\.execDetached|Process[[:space:]]*\{' "$widget_file" &&
+   grep -Fq 'Hyprland.toplevels' "$widget_file" &&
+   grep -Fq 'WindowRouting.focusedToplevel' "$widget_file"; then
+    pass "[static] Active Window is signal-driven with no polling timer, subprocess, or hyprctl fallback; the startup fallback is model-derived through Hyprland.toplevels and the focusHistoryID helper"
 else
-    fail "[static] Active Window introduced a polling timer, subprocess, or hyprctl dependency"
+    fail "[static] Active Window introduced a polling timer, subprocess, or hyprctl dependency, or lost the model-derived fallback"
 fi
 
 if grep -Fq 'property string displayMode' "$widget_file" &&
@@ -129,13 +143,26 @@ if grep -Fq 'property string displayMode' "$widget_file" &&
    grep -Fq 'DesktopEntries.heuristicLookup' "$widget_file" &&
    grep -Fq 'appEntry.name' "$widget_file" &&
    grep -Fq 'root.appId !== ""' "$widget_file" &&
+   grep -Fq 'Quickshell.hasThemeIcon(root.appId)' "$widget_file" &&
    grep -Fq 'root.routeInfo.className || root.routeInfo.initialClass' "$widget_file" &&
    grep -Fq 'readonly property string titleLabel' "$widget_file" &&
    grep -Fq 'readonly property string appName' "$widget_file" &&
    grep -Fq 'label: root.displayMode === "title" ? root.titleLabel : root.appName' "$widget_file"; then
-    pass "[static] Active Window defaults to app name, resolves it from the desktop entry (then appId, then class), keeps title-first titleLabel, and selects label by displayMode"
+    pass "[static] Active Window defaults to app name, resolves it from the desktop entry (then appId, then IPC class), prefers a real theme icon for the raw app id before the substring heuristics, keeps title-first titleLabel, and selects label by displayMode"
 else
-    fail "[static] Active Window display-mode selection, desktop-entry lookup, or identity fallback contract is incomplete"
+    fail "[static] Active Window display-mode selection, desktop-entry lookup, theme-icon step, or identity fallback contract is incomplete"
+fi
+
+if grep -Fq 'property bool labelWidthInitialized' "$widget_file" &&
+   grep -Fq 'enabled: root.labelWidthInitialized' "$widget_file" &&
+   grep -Fq 'onLabelChanged' "$widget_file" &&
+   grep -Fq 'Qt.callLater' "$widget_file" &&
+   ! grep -Fq 'onAnimatedLabelWidthChanged' "$widget_file" &&
+   grep -Fq 'duration: 180' "$widget_file" &&
+   grep -Fq 'Easing.OutCubic' "$widget_file"; then
+    pass "[static] Active Window suppresses the width animation for the first non-empty label only, then keeps the 180 ms OutCubic transition"
+else
+    fail "[static] Active Window first-population width animation gate is missing or the later animation contract regressed"
 fi
 
 if python3 - "$widget_file" <<'TITLE_IDENTITY'
@@ -268,10 +295,19 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .labels.titleModeTitle == "Fixture title" and
         .labels.invalidMode == "fixture.unknown.app" and
         .labels.fixtureApp == "Fixture App" and
+        .labels.modelFallback == "FixtureClass" and
+        .labels.modelAmbiguous == "" and
+        .labels.modelEmpty == "" and
         .icons.fallbackName == "application-x-executable" and
         (.icons.fallbackSource | contains("application-x-executable")) and
         .icons.emptyAppIconName == "application-x-executable" and
         .icons.fixtureAppName == "fixture-app" and
+        .fallback.modelFallbackLabel == "FixtureClass" and
+        .fallback.modelFallbackIcon == "application-x-executable" and
+        .fallback.modelFallbackHasIcon == true and
+        .fallback.modelFallbackAppEntry == false and
+        .fallback.modelAmbiguousLabel == "" and
+        .fallback.modelEmptyLabel == "" and
         .elision.maxWidth == 280 and
         .elision.longLabelWidth == 280 and
         .elision.longMeasured > 280 and
@@ -294,6 +330,9 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .visibility.verticalImplicitWidth == 0 and
         .visibility.titleVisible == true and
         .visibility.titleImplicitWidth > 0 and
+        .visibility.modelFallbackVisible == true and
+        .visibility.modelAmbiguousVisible == false and
+        .visibility.modelEmptyVisible == false and
         .clicks.activates == 2 and
         .clicks.closes == 2 and
         .clicks.activateResult == "ok" and
@@ -322,7 +361,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .rendered.titleMode.elided == false and
         .rendered.titleMode.contentDelta < 0.5
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, the symbolic-only colour policy, and renders 'Foot' and 'Chromium Web Browser' un-elided with the metric matching the render"
+    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, the symbolic-only colour policy, the model-derived focused-toplevel fallback (class identity, missing marker ignored, ambiguity fail-closed, empty model hidden), and renders 'Foot' and 'Chromium Web Browser' un-elided with the metric matching the render"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Active Window entry-point fixture cannot create a disposable runtime backend"; then
     :
@@ -330,4 +369,50 @@ else
     details="$(tr '\n' ' ' <"$runtime_log")"
     if [[ -s "$result_file" ]]; then details="$details result=$(tr '\n' ' ' <"$result_file")"; fi
     fail "[isolated-runtime] Active Window entry-point fixture failed (status=$runtime_status): $details"
+fi
+
+# The earliest-population fixture. It loads the real widget only after the
+# deterministic desktop-entry scan is ready, publishes the focused fake
+# toplevel as the compositor model, and snapshots synchronously inside the
+# widget's onLoaded. This is the assertion that fails without the startup
+# fallback: at shell start there is no activewindowv2 event, so the label,
+# icon, app entry, visibility and final width must all come from the model.
+startup_result="$runtime_root/startup-result.json"
+startup_log="$runtime_root/startup.log"
+startup_status=0
+: >"$startup_result"
+AURELIA_ACTIVE_WINDOW_SOURCE="file://$widget_file" \
+AURELIA_ACTIVE_WINDOW_STARTUP_RESULT="$startup_result" \
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$runtime_root/runtime" \
+XDG_STATE_HOME="$runtime_root/state" \
+XDG_CONFIG_HOME="$runtime_root/config" \
+XDG_CACHE_HOME="$runtime_root/cache" \
+XDG_DATA_HOME="$runtime_root/data-home" \
+XDG_DATA_DIRS="$runtime_root/data:/usr/local/share:/usr/share" \
+    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+    --path "$fixture_root/startup.qml" --no-color >"$startup_log" 2>&1 || startup_status=$?
+
+if [[ "$startup_status" -eq 0 ]] && [[ -s "$startup_result" ]] &&
+   runtime_log_is_environment_only "$startup_log" 'hyprland|Hyprland' &&
+   jq -e '
+        .loaded == true and
+        .snapshot.label == "Fixture App" and
+        .snapshot.iconName == "fixture-app" and
+        .snapshot.hasIcon == true and
+        .snapshot.appEntry == true and
+        .snapshot.appEntryName == "Fixture App" and
+        .snapshot.visible == true and
+        .snapshot.implicitWidth > 0 and
+        .snapshot.animatedMatchesLabel == true
+   ' "$startup_result" >/dev/null; then
+    pass "[isolated-runtime] Active Window discovers an already-focused window from the toplevel model synchronously at load (no settle timer): final app label, desktop-entry theme icon, resolved app entry, visible state and final width are all present"
+elif runtime_log_has_environment_diagnostic "$startup_log" &&
+     runtime_skip_if_environment_only "$startup_log" "[isolated-runtime] Active Window startup fixture cannot create a disposable runtime backend"; then
+    :
+else
+    details="$(tr '\n' ' ' <"$startup_log")"
+    if [[ -s "$startup_result" ]]; then details="$details result=$(tr '\n' ' ' <"$startup_result")"; fi
+    fail "[isolated-runtime] Active Window startup fixture failed (status=$startup_status): $details"
 fi
