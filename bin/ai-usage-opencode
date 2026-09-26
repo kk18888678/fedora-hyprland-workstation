@@ -2,10 +2,13 @@
 """Local-stats OpenCode usage collector for the Aurelia agents panel.
 
 OpenCode keeps per-session token totals in its SQLite database
-($XDG_DATA_HOME/opencode/opencode.db, table `session`). Because the database
-runs in WAL mode and may be open, this collector copies the database (and its
-WAL sidecars) into a private temporary directory and reads the copy, so the
-live database is never written to or checkpointed.
+($XDG_DATA_HOME/opencode/opencode.db, table `session`) and per-turn totals in
+the `message` table. Usage is bucketed by each assistant message's own
+activity time, falling back to the session's last update, so a session that
+spans days is not attributed entirely to its creation day. Because the
+database runs in WAL mode and may be open, this collector copies the database
+(and its WAL sidecars) into a private temporary directory and reads the copy,
+so the live database is never written to or checkpointed.
 
 Prints one display-ready JSON record (the same contract as the other
 ai-usage-* collectors). No network calls and no credentials.
@@ -61,7 +64,7 @@ def fetch_go_limits() -> dict:
     """Live OpenCode Go subscription windows (rolling 5h / weekly / monthly)."""
     key = opencode_go_key()
     if not key:
-        return {"limits": [], "usageStatusText": "", "authHelpText": ""}
+        return {"limits": [], "usageStatusText": "", "authHelpText": "", "retryAdvised": False}
     try:
         request = urllib.request.Request(
             GO_USAGE_URL,
@@ -74,11 +77,16 @@ def fetch_go_limits() -> dict:
         with urllib.request.urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8", "replace"))
     except Exception as exc:
-        return {"limits": [], "usageStatusText": "OpenCode Go limits unavailable", "authHelpText": str(exc)}
+        return {
+            "limits": [],
+            "usageStatusText": "OpenCode Go limits unavailable",
+            "authHelpText": str(exc),
+            "retryAdvised": common.retry_advised_from_error(exc),
+        }
 
     usage = payload.get("usage") if isinstance(payload, dict) else None
     if not isinstance(usage, dict):
-        return {"limits": [], "usageStatusText": "OpenCode Go limits unavailable", "authHelpText": ""}
+        return {"limits": [], "usageStatusText": "OpenCode Go limits unavailable", "authHelpText": "", "retryAdvised": False}
 
     limits = []
     for name, label, minutes in GO_WINDOWS:
@@ -91,10 +99,12 @@ def fetch_go_limits() -> dict:
         limits.append({
             "label": label,
             "percent": float(percent) / 100.0,
-            "resetsAt": str(window.get("resetsAt") or ""),
+            # Upstream may send epoch seconds, epoch milliseconds or ISO-8601;
+            # normalise so the UI can always derive a reset countdown.
+            "resetsAt": common.normalize_resets_at(window.get("resetsAt")),
             "windowMinutes": minutes,
         })
-    return {"limits": limits, "usageStatusText": "", "authHelpText": ""}
+    return {"limits": limits, "usageStatusText": "", "authHelpText": "", "retryAdvised": False}
 
 
 def number(value) -> int:
@@ -142,6 +152,8 @@ def empty_bucket() -> dict[str, int]:
 
 
 def model_name(value) -> str:
+    if isinstance(value, dict):
+        return str(value.get("id") or value.get("modelID") or value.get("name") or "opencode")
     text = str(value or "").strip()
     if not text:
         return "opencode"
@@ -164,55 +176,133 @@ def copy_database(source: Path, staging: Path) -> Path:
     return target
 
 
+def _scan_messages(con, add) -> bool:
+    """Bucket per-assistant-message usage by its real activity time.
+
+    OpenCode stores cumulative token totals on the `session` row, but each
+    assistant `message` row carries the tokens produced by that turn and the
+    time it ran. Using the message time keeps a session that spans days from
+    attributing every token to the session's creation day.
+    """
+    try:
+        rows = con.execute("select id, session_id, time_created, data from message")
+    except sqlite3.Error:
+        return False
+    found = False
+    for message_id, session_id, created, data in rows:
+        try:
+            document = json.loads(data)
+        except Exception:
+            continue
+        if not isinstance(document, dict) or document.get("role") != "assistant":
+            continue
+        tokens = document.get("tokens") if isinstance(document.get("tokens"), dict) else None
+        if not tokens:
+            continue
+        cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+        input_tokens = number(tokens.get("input"))
+        output_tokens = number(tokens.get("output")) + number(tokens.get("reasoning"))
+        cache_read = number(cache.get("read"))
+        cache_write = number(cache.get("write"))
+        model = model_name(document.get("modelID") or document.get("model") or "opencode")
+        activity = document.get("time") if isinstance(document.get("time"), dict) else {}
+        timestamp = activity.get("created") or activity.get("completed") or created
+        if add(
+            local_date_from_millis(timestamp),
+            model,
+            str(session_id or message_id),
+            input_tokens,
+            output_tokens,
+            cache_read,
+            cache_write,
+        ):
+            found = True
+    return found
+
+
+def _scan_sessions(con, add) -> bool:
+    """Fallback for databases without per-message usage: last activity time.
+
+    `time_updated` is the session's most recent activity, so it is a better
+    day bucket than `time_created` even though it cannot split a multi-day
+    session.
+    """
+    try:
+        rows = con.execute(
+            "select id, model, tokens_input, tokens_output, tokens_reasoning, "
+            "tokens_cache_read, tokens_cache_write, time_created, time_updated "
+            "from session"
+        )
+    except sqlite3.Error:
+        return False
+    found = False
+    for session_id, model_raw, input_tokens, output_tokens, reasoning, cache_read, cache_write, created, updated in rows:
+        input_tokens = number(input_tokens)
+        output_tokens = number(output_tokens) + number(reasoning)
+        cache_read = number(cache_read)
+        cache_write = number(cache_write)
+        if add(
+            local_date_from_millis(updated or created),
+            model_name(model_raw),
+            str(session_id),
+            input_tokens,
+            output_tokens,
+            cache_read,
+            cache_write,
+        ):
+            found = True
+    return found
+
+
 def scan() -> dict:
     today = local_date_string()
     recent_dates = recent_date_strings()
-    recent = {day: {"date": day, "messageCount": 0} for day in recent_dates}
+    recent = {day: common.empty_day(day) for day in recent_dates}
 
-    sessions = 0
+    sessions: set[str] = set()
     active_days: set[str] = set()
-    today_sessions = 0
-    today_tokens: dict[str, int] = {}
+    today_sessions: set[str] = set()
+    today_by_model: dict[str, dict[str, int]] = {}
     usage_by_model: dict[str, dict[str, int]] = {}
-    today_token_total = 0
+
+    def add(day, model, session_key, input_tokens, output_tokens, cache_read, cache_write) -> bool:
+        total = input_tokens + output_tokens + cache_read + cache_write
+        if total <= 0:
+            return False
+        sessions.add(session_key)
+        active_days.add(day)
+        billable = input_tokens + output_tokens
+        cache = cache_read + cache_write
+        bucket = usage_by_model.setdefault(model, empty_bucket())
+        bucket["inputTokens"] += input_tokens
+        bucket["outputTokens"] += output_tokens
+        bucket["cacheReadInputTokens"] += cache_read
+        bucket["cacheCreationInputTokens"] += cache_write
+        if day in recent:
+            entry = recent[day]
+            entry["tokens"] += total
+            entry["billableTokens"] += billable
+            entry["cacheTokens"] += cache
+        if day == today:
+            today_sessions.add(session_key)
+            today_bucket = today_by_model.setdefault(model, empty_bucket())
+            today_bucket["inputTokens"] += input_tokens
+            today_bucket["outputTokens"] += output_tokens
+            today_bucket["cacheReadInputTokens"] += cache_read
+            today_bucket["cacheCreationInputTokens"] += cache_write
+        return True
 
     source = database_path()
     if not source.is_file():
-        return _result(recent, recent_dates, usage_by_model, today_tokens, sessions, active_days, today_token_total, today_sessions)
+        return _result(recent, recent_dates, usage_by_model, today_by_model, sessions, active_days, today_sessions)
 
     staging = Path(tempfile.mkdtemp(prefix="aurelia-opencode-"))
     try:
         copy = copy_database(source, staging)
         con = sqlite3.connect(copy)
         try:
-            rows = con.execute(
-                "select model, tokens_input, tokens_output, tokens_reasoning, "
-                "tokens_cache_read, tokens_cache_write, time_created "
-                "from session"
-            )
-            for model_raw, input_tokens, output_tokens, reasoning, cache_read, cache_write, created in rows:
-                input_tokens = number(input_tokens)
-                output_tokens = number(output_tokens) + number(reasoning)
-                cache_read = number(cache_read)
-                cache_write = number(cache_write)
-                total = input_tokens + output_tokens + cache_read + cache_write
-                if total <= 0:
-                    continue
-                model = model_name(model_raw)
-                day = local_date_from_millis(created)
-                sessions += 1
-                active_days.add(day)
-                bucket = usage_by_model.setdefault(model, empty_bucket())
-                bucket["inputTokens"] += input_tokens
-                bucket["outputTokens"] += output_tokens
-                bucket["cacheReadInputTokens"] += cache_read
-                bucket["cacheCreationInputTokens"] += cache_write
-                if day in recent:
-                    recent[day]["messageCount"] += total
-                if day == today:
-                    today_sessions += 1
-                    today_token_total += total
-                    today_tokens[model] = today_tokens.get(model, 0) + total
+            if not _scan_messages(con, add):
+                _scan_sessions(con, add)
         finally:
             con.close()
     except Exception as exc:  # pragma: no cover - locked or corrupt database only
@@ -220,19 +310,22 @@ def scan() -> dict:
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
-    return _result(recent, recent_dates, usage_by_model, today_tokens, sessions, active_days, today_token_total, today_sessions)
+    return _result(recent, recent_dates, usage_by_model, today_by_model, sessions, active_days, today_sessions)
 
 
-def _result(recent, recent_dates, usage_by_model, today_tokens, sessions, active_days, today_token_total, today_sessions) -> dict:
+def _result(recent, recent_dates, usage_by_model, today_by_model, sessions, active_days, today_sessions) -> dict:
+    today_split = common.today_model_split(today_by_model)
     return {
-        "todayPrompts": today_sessions,
-        "todaySessions": today_sessions,
-        "todayTotalTokens": today_token_total,
-        "todayTokensByModel": today_tokens,
-        "recentDays": [recent[day] for day in recent_dates],
-        "modelUsage": usage_by_model,
-        "totalPrompts": sessions,
-        "totalSessions": sessions,
+        "todayPrompts": len(today_sessions),
+        "todaySessions": len(today_sessions),
+        "todayTotalTokens": sum(v["totalTokens"] for v in today_split.values()),
+        "todayBillableTokens": sum(v["billableTokens"] for v in today_split.values()),
+        "todayCacheTokens": sum(v["cacheTokens"] for v in today_split.values()),
+        "todayTokensByModel": today_split,
+        "recentDays": [common.finalize_day(recent[day]) for day in recent_dates],
+        "modelUsage": common.finalize_model_buckets(usage_by_model),
+        "totalPrompts": len(sessions),
+        "totalSessions": len(sessions),
         "activeDays": len(active_days),
         "activeDates": sorted(active_days),
     }
@@ -256,6 +349,9 @@ def main() -> int:
         "hasLocalStats": detected,
         "hasPromptStats": True,
         "tierLabel": "OpenCode Go" if go["limits"] else "",
+        # OpenCode records one session, not a chat prompt.
+        "todayLabel": "sessions",
+        "retryAdvised": bool(go.get("retryAdvised")),
         "usageStatusText": go["usageStatusText"],
         "authHelpText": go["authHelpText"],
         "limits": go["limits"],

@@ -17,8 +17,9 @@ usage look like recorded usage.
 
 Contract (subset implemented here):
   id, name, updatedAt, ready, detected, hasLocalStats, hasPromptStats,
-  tierLabel, usageStatusText, authHelpText, limits,
-  todayPrompts, todaySessions, todayTotalTokens, todayTokensByModel,
+  tierLabel, todayLabel, retryAdvised, usageStatusText, authHelpText, limits,
+  todayPrompts, todaySessions, todayTotalTokens, todayBillableTokens,
+  todayCacheTokens, todayTokensByModel,
   recentDays, modelUsage, totalPrompts, totalSessions, activeDays, activeDates
 """
 
@@ -98,17 +99,16 @@ def empty_bucket() -> dict[str, int]:
 def scan_projects(projects_path: Path) -> dict:
     today = local_date_string()
     recent_dates = recent_date_strings()
-    recent = {day: {"date": day, "messageCount": 0} for day in recent_dates}
+    recent = {day: common.empty_day(day) for day in recent_dates}
 
     seen: set[str] = set()
     sessions: set[str] = set()
     active_days: set[str] = set()
     today_sessions: set[str] = set()
-    today_tokens: dict[str, int] = {}
+    today_by_model: dict[str, dict[str, int]] = {}
     usage_by_model: dict[str, dict[str, int]] = {}
     prompts = 0
     today_prompt_count = 0
-    today_token_total = 0
 
     files = projects_path.rglob("*.jsonl") if projects_path.is_dir() else []
     for path in files:
@@ -158,24 +158,35 @@ def scan_projects(projects_path: Path) -> dict:
                     bucket["cacheReadInputTokens"] += cache_read
                     bucket["cacheCreationInputTokens"] += cache_write
 
+                    billable = input_tokens + output_tokens
+                    cache = cache_read + cache_write
                     if day in recent:
-                        recent[day]["messageCount"] += total
+                        entry = recent[day]
+                        entry["tokens"] += total
+                        entry["billableTokens"] += billable
+                        entry["cacheTokens"] += cache
 
                     if day == today:
                         today_prompt_count += 1
                         today_sessions.add(session_key)
-                        today_token_total += total
-                        today_tokens[model] = today_tokens.get(model, 0) + total
+                        today_bucket = today_by_model.setdefault(model, empty_bucket())
+                        today_bucket["inputTokens"] += input_tokens
+                        today_bucket["outputTokens"] += output_tokens
+                        today_bucket["cacheReadInputTokens"] += cache_read
+                        today_bucket["cacheCreationInputTokens"] += cache_write
         except Exception as exc:  # pragma: no cover - unreadable files only
             print(f"Ignoring unreadable Claude project file {path}: {exc}", file=sys.stderr)
 
+    today_split = common.today_model_split(today_by_model)
     return {
         "todayPrompts": today_prompt_count,
         "todaySessions": len(today_sessions),
-        "todayTotalTokens": today_token_total,
-        "todayTokensByModel": today_tokens,
-        "recentDays": [recent[day] for day in recent_dates],
-        "modelUsage": usage_by_model,
+        "todayTotalTokens": sum(v["totalTokens"] for v in today_split.values()),
+        "todayBillableTokens": sum(v["billableTokens"] for v in today_split.values()),
+        "todayCacheTokens": sum(v["cacheTokens"] for v in today_split.values()),
+        "todayTokensByModel": today_split,
+        "recentDays": [common.finalize_day(recent[day]) for day in recent_dates],
+        "modelUsage": common.finalize_model_buckets(usage_by_model),
         "totalPrompts": prompts,
         "totalSessions": len(sessions),
         "activeDays": len(active_days),
@@ -206,6 +217,9 @@ def main() -> int:
         "hasLocalStats": has_usage,
         "hasPromptStats": True,
         "tierLabel": "",
+        # Claude records one turn per assistant message, not a chat prompt.
+        "todayLabel": "turns",
+        "retryAdvised": False,
         "usageStatusText": CONFIGURED_STATUS if (configured and not has_usage) else USAGE_STATUS,
         "authHelpText": "",
         "limits": [],

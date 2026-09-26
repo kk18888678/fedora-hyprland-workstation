@@ -94,7 +94,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, bindingWindow, resetMsFor, formatDuration, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, paceInfo, elapsedFraction, billingText, renewalReminders };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingWindow, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -117,6 +117,16 @@ const nowMs = 1700000000000;
 const future = new Date(nowMs + 3.5 * 86400000).toISOString();
 const paceEven = A.paceInfo({percent: 0.5, resetsAt: future, windowMinutes: 10080}, nowMs);
 const paceBehind = A.paceInfo({percent: 0.7, resetsAt: future, windowMinutes: 10080}, nowMs);
+// A nearly-drained 5h window that is about to reset must not outrank a weekly
+// window that is off-pace and will lock the account out far longer.
+const fiveHourWin = {label: "5h", percent: 0.88, windowMinutes: 300, resetsAt: new Date(nowMs + 5 * 60000).toISOString()};
+const weeklyWin = {label: "weekly", percent: 0.70, windowMinutes: 10080, resetsAt: new Date(nowMs + 4 * 86400000).toISOString()};
+const tieShort = {label: "short", percent: 0.5, windowMinutes: 300};
+const tieLong = {label: "long", percent: 0.5, windowMinutes: 10080};
+const noDuration = {label: "nodur", percent: 0.9};
+const durated = {label: "durated", percent: 0.2, windowMinutes: 300, resetsAt: new Date(nowMs + 60000).toISOString()};
+const chartBars = A.dayChartBars([{date: "d0", tokens: 0}, {date: "d1", tokens: 10}], 100);
+const countdownIso = "2040-01-01T00:00:00+00:00";
 const ok =
     A.billingText({subscription: {renew: "2030-01-01", daysLeft: 5}}) === "Renews 2030-01-01 · in 5 days" &&
     A.billingText({}) === "" &&
@@ -128,7 +138,24 @@ const ok =
     A.severityFor(50) === "ok" && A.severityFor(80) === "warn" && A.severityFor(95) === "critical" &&
     A.severityForLimit({percent: 0.95}) === "critical" &&
     paceEven && Math.abs(paceEven.elapsed - 0.5) < 0.01 && paceEven.behind === false &&
+    paceEven.onPace === true && paceEven.state === "on-pace" &&
     paceBehind && paceBehind.behind === true &&
+    A.bindingLimit({limits: [fiveHourWin, weeklyWin]}, nowMs).label === "weekly" &&
+    A.bindingLimit({limits: [tieShort, tieLong]}, nowMs).label === "long" &&
+    A.bindingLimit({limits: [noDuration, durated]}, nowMs).label === "nodur" &&
+    A.overallSeverity([{id: "a", ready: true, limits: [durated]}], nowMs) === "ok" &&
+    A.overallSeverity([{id: "a", ready: true, limits: [{percent: 0.8, windowMinutes: 300, resetsAt: new Date(nowMs + 60000).toISOString()}]}], nowMs) === "warn" &&
+    A.overallSeverity([{id: "a", ready: true, limits: [{percent: 0.95, windowMinutes: 300, resetsAt: new Date(nowMs + 60000).toISOString()}]}], nowMs) === "critical" &&
+    A.overallSeverity([], nowMs) === "unknown" &&
+    A.overallSeverity([{id: "a", ready: true, limits: []}], nowMs) === "unknown" &&
+    chartBars[0].barHeight === 0 && chartBars[0].hasUsage === false && chartBars[1].barHeight === 100 &&
+    A.parseRecords("{\"agents\":[{\"id\":\"good\",\"ready\":true}, BAD_RECORD, {\"id\":\"good2\"}]}").length === 2 &&
+    A.resetMsFor({resetsAt: countdownIso}, nowMs) > 0 &&
+    A.formatDuration(A.resetMsFor({resetsAt: countdownIso}, nowMs)) !== "now" &&
+    A.recordAgeMs({updatedAt: new Date(nowMs - 5 * 60000).toISOString()}, nowMs) === 5 * 60000 &&
+    A.isRecordStale({updatedAt: new Date(nowMs - 10 * 60000).toISOString()}, nowMs, 5 * 60000) === true &&
+    A.isRecordStale({updatedAt: new Date(nowMs).toISOString()}, nowMs, 5 * 60000) === false &&
+    A.freshnessText({updatedAt: new Date(nowMs - 5 * 60000).toISOString()}, nowMs) === "5m ago" &&
     first.notifications.length === 0 &&
     reset.notifications.length === 1 && reset.notifications[0].title.indexOf("reset") >= 0 &&
     exhausted.notifications.length === 1 && exhausted.notifications[0].title.indexOf("critical") >= 0 &&
@@ -194,11 +221,21 @@ if printf '%s' "$collector_out" | jq -e '
         .id == "claude" and
         .ready == true and
         .hasLocalStats == true and
+        .todayLabel == "turns" and
+        .retryAdvised == false and
         .totalPrompts == 2 and
         .totalSessions == 2 and
         .todayPrompts == 1 and
         .todayTotalTokens == 360 and
-        .todayTokensByModel["claude-opus-4"] == 360 and
+        .todayBillableTokens == 300 and
+        .todayCacheTokens == 60 and
+        (.todayBillableTokens + .todayCacheTokens == .todayTotalTokens) and
+        .todayTokensByModel["claude-opus-4"].totalTokens == 360 and
+        .todayTokensByModel["claude-opus-4"].billableTokens == 300 and
+        .todayTokensByModel["claude-opus-4"].cacheTokens == 60 and
+        ([.recentDays[] | (.billableTokens + .cacheTokens == .tokens)] | all) and
+        ([.recentDays[] | .messageCount == .tokens] | all) and
+        ([.modelUsage[] | (.billableTokens + .cacheTokens == .totalTokens)] | all) and
         (.recentDays | length == 7) and
         .modelUsage["claude-sonnet-4"].outputTokens == 20 and
         .limits == []' >/dev/null; then
@@ -257,9 +294,18 @@ if XDG_STATE_HOME="$sandbox/state" "$backend" usage | jq -e '
         ([.agents[] | select(.id == "codex")][0]) as $c |
         ([.agents[] | select(.id == "cline")][0]) as $l |
         $c.detected == true and $c.totalPrompts == 1 and $c.todayTotalTokens == 175 and
+        $c.todayLabel == "turns" and
+        $c.todayBillableTokens == 150 and $c.todayCacheTokens == 25 and
+        ($c.todayBillableTokens + $c.todayCacheTokens == $c.todayTotalTokens) and
         $c.modelUsage["gpt-5"].inputTokens == 100 and
         $l.detected == true and $l.totalPrompts == 1 and
-        $l.modelUsage["cline-pass/glm-5.3-flash"].outputTokens == 200' >/dev/null; then
+        $l.todayLabel == "requests" and
+        $l.modelUsage["cline-pass/glm-5.3-flash"].outputTokens == 200 and
+        $l.modelUsage["cline-pass/glm-5.3-flash"].billableTokens == 1200 and
+        $l.modelUsage["cline-pass/glm-5.3-flash"].cacheTokens == 60 and
+        ($l.modelUsage["cline-pass/glm-5.3-flash"].billableTokens +
+            $l.modelUsage["cline-pass/glm-5.3-flash"].cacheTokens ==
+            $l.modelUsage["cline-pass/glm-5.3-flash"].totalTokens)' >/dev/null; then
     pass "[isolated] Codex and Cline collectors populate the same record contract"
 else
     fail "[isolated] Codex/Cline collector record contract diverged"
@@ -293,6 +339,7 @@ chmod 0755 "$sandbox/bin/codex"
 codex_rpc="$(HOME="$sandbox/home" CODEX_HOME="$sandbox/codex" CODEX_BIN="$sandbox/bin/codex" "$repo_root/bin/ai-usage-codex" || true)"
 if printf '%s' "$codex_rpc" | jq -e '
         .tierLabel == "plus" and
+        .todayLabel == "turns" and
         (.limits | length == 2) and
         .limits[0].percent == 0.42 and .limits[0].label == "5h window" and
         .limits[0].windowMinutes == 300 and
@@ -359,6 +406,124 @@ if printf '%s' "$configured_auth" | jq -e '
     pass "[isolated] pi-configured anthropic accounts are visible before first use"
 else
     fail "[isolated] pi-configured anthropic visibility diverged (auth=$configured_auth models=$configured_models other=$other_only)"
+fi
+
+# OpenCode upstream may send resetsAt as epoch seconds, epoch milliseconds or
+# ISO-8601; the collector must normalise all three into a parseable timestamp
+# from which the panel can derive a reset countdown, and must advise the single
+# documented retry on a rate-limit/timeout response.
+resets_out="$(python3 - "$repo_root/bin/ai-usage-opencode" <<'OPENCODE_RESETS'
+import datetime as dt
+import importlib.machinery
+import importlib.util
+import json
+import sys
+
+loader = importlib.machinery.SourceFileLoader("aoc", sys.argv[1])
+spec = importlib.util.spec_from_loader("aoc", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+module.opencode_go_key = lambda: "fake"
+
+
+class Response:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def read(self):
+        return json.dumps(self.payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+payload = {"usage": {
+    "rolling": {"percent": 10, "resetsAt": 2208988800},
+    "weekly": {"percent": 20, "resetsAt": 2208988800000},
+    "monthly": {"percent": 30, "resetsAt": "2040-01-01T00:00:00Z"},
+}}
+module.urllib.request.urlopen = lambda *args, **kwargs: Response(payload)
+now = dt.datetime.now(dt.timezone.utc)
+countdowns = {}
+for limit in module.fetch_go_limits()["limits"]:
+    parsed = dt.datetime.fromisoformat(limit["resetsAt"])
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    countdowns[limit["label"]] = (parsed - now).total_seconds() > 0
+module.urllib.request.urlopen = lambda *args, **kwargs: (_ for _ in ()).throw(
+    Exception("HTTP Error 429: Too Many Requests")
+)
+rate_retry = module.fetch_go_limits()["retryAdvised"]
+module.urllib.request.urlopen = lambda *args, **kwargs: (_ for _ in ()).throw(
+    TimeoutError("timed out")
+)
+timeout_retry = module.fetch_go_limits()["retryAdvised"]
+print(json.dumps({"countdowns": countdowns, "rateRetry": rate_retry, "timeoutRetry": timeout_retry}))
+OPENCODE_RESETS
+)"
+if printf '%s' "$resets_out" | jq -e '
+        (.countdowns | length == 3) and
+        ([.countdowns[]] | all) and
+        .rateRetry == true and .timeoutRetry == true' >/dev/null; then
+    pass "[isolated] OpenCode normalises epoch-second, epoch-millisecond and ISO resetsAt into a countdown"
+else
+    fail "[isolated] OpenCode resetsAt normalisation diverged: $resets_out"
+fi
+
+# OpenCode buckets usage by the assistant message's own activity time. A
+# session created today whose only turn ran six days ago must not report the
+# tokens as today's usage.
+mkdir -p -- "$sandbox/oc-data/opencode"
+python3 - "$sandbox/oc-data/opencode/opencode.db" <<'OPENCODE_DB'
+import datetime as dt
+import json
+import sqlite3
+import sys
+
+now = dt.datetime.now()
+today_ms = int(now.timestamp() * 1000)
+six_days_ms = int((now - dt.timedelta(days=6)).timestamp() * 1000)
+connection = sqlite3.connect(sys.argv[1])
+connection.execute(
+    "create table session (id text primary key, model text, tokens_input integer, "
+    "tokens_output integer, tokens_reasoning integer, tokens_cache_read integer, "
+    "tokens_cache_write integer, time_created integer, time_updated integer)"
+)
+connection.execute(
+    "create table message (id text primary key, session_id text, time_created integer, "
+    "time_updated integer, data text)"
+)
+connection.execute(
+    "insert into session values (?,?,?,?,?,?,?,?,?)",
+    ("ses1", '{"id":"big-pickle"}', 10, 20, 5, 100, 0, today_ms, today_ms),
+)
+connection.execute(
+    "insert into message values (?,?,?,?,?)",
+    ("msg1", "ses1", six_days_ms, six_days_ms, json.dumps({
+        "role": "assistant", "modelID": "big-pickle",
+        "tokens": {"input": 10, "output": 20, "reasoning": 5, "cache": {"read": 100, "write": 0}},
+        "time": {"created": six_days_ms, "completed": six_days_ms},
+    })),
+)
+connection.commit()
+connection.close()
+OPENCODE_DB
+opencode_out="$(HOME="$sandbox/home" PI_HOME="$sandbox/no-pi" XDG_DATA_HOME="$sandbox/oc-data" "$repo_root/bin/ai-usage-opencode" || true)"
+if printf '%s' "$opencode_out" | jq -e '
+        .todayLabel == "sessions" and
+        .todayTotalTokens == 0 and
+        .todayBillableTokens == 0 and
+        .todayCacheTokens == 0 and
+        .totalPrompts == 1 and
+        ([.recentDays[].tokens] | add) == 135 and
+        ([.recentDays[].billableTokens] | add) == 35 and
+        ([.recentDays[].cacheTokens] | add) == 100' >/dev/null; then
+    pass "[isolated] OpenCode buckets usage by the assistant turn activity time, not session creation"
+else
+    fail "[isolated] OpenCode activity-time bucketing diverged: $opencode_out"
 fi
 
 # ---------------------------------------------------------------------------

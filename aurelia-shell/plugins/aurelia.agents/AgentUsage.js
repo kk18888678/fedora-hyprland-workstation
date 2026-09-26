@@ -16,13 +16,68 @@ function formatTokens(value) {
     return String(Math.round(n));
 }
 
-// Parse `workstation-ai usage` output. Any malformed input yields [] so the
-// widget self-hides rather than showing garbage.
+// Parse `workstation-ai usage` output. A single corrupt record must not hide
+// every provider: if the payload is not valid JSON as a whole, salvage the
+// individually-parseable records from the `agents` array instead of returning
+// an empty list. Any fully malformed input still yields [] so the widget
+// self-hides rather than showing garbage.
+function extractAgentObjects(text) {
+    var raw = String(text || "");
+    var marker = raw.indexOf('"agents"');
+    if (marker < 0) return [];
+    var start = raw.indexOf("[", marker);
+    if (start < 0) return [];
+    var out = [];
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    var objectStart = -1;
+    for (var i = start + 1; i < raw.length; i++) {
+        var ch = raw.charAt(i);
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (ch === "\\") escaped = true;
+            else if (ch === '"') inString = false;
+            continue;
+        }
+        if (ch === '"') { inString = true; continue; }
+        if (ch === "{") {
+            if (depth === 0) objectStart = i;
+            depth += 1;
+            continue;
+        }
+        if (ch === "}") {
+            if (depth > 0) depth -= 1;
+            if (depth === 0 && objectStart >= 0) {
+                try {
+                    var candidate = JSON.parse(raw.slice(objectStart, i + 1));
+                    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+                        out.push(candidate);
+                    }
+                } catch (e) {
+                    console.warn("[AGENTS] usage_parse_record_skipped reason=" +
+                        String(e && e.message ? e.message : e));
+                }
+                objectStart = -1;
+            }
+            continue;
+        }
+        if (ch === "]" && depth === 0) break;
+    }
+    return out;
+}
+
 function parseRecords(text) {
+    var raw = String(text || "");
     var data;
     try {
-        data = JSON.parse(String(text || ""));
+        data = JSON.parse(raw);
     } catch (e) {
+        var salvaged = extractAgentObjects(raw);
+        if (salvaged.length > 0) {
+            console.warn("[AGENTS] usage_parse_salvaged count=" + salvaged.length);
+            return salvaged;
+        }
         console.warn("[AGENTS] usage_parse_failed reason=" + String(e && e.message ? e.message : e));
         return [];
     }
@@ -77,18 +132,42 @@ function sortedModels(modelUsage) {
     return list;
 }
 
-// Normalise the 7-day window into bar fractions. `messageCount` is a token
-// total despite the legacy field name shared with synced snapshots.
+// Normalise the 7-day window into bar fractions. `tokens` is the
+// cache-inclusive total; `messageCount` is the deprecated alias emitted by the
+// collectors for the current panel. Zero-usage days report `hasUsage: false`
+// so the chart can emit no bar rather than a minimum-height stub.
 function recentBars(recentDays) {
     var days = Array.isArray(recentDays) ? recentDays : [];
-    var values = days.map(function (day) { return number(day && day.messageCount); });
+    var values = days.map(function (day) {
+        if (!day) return 0;
+        if (day.tokens !== undefined && day.tokens !== null) return number(day.tokens);
+        return number(day.messageCount);
+    });
     var max = 1;
     values.forEach(function (value) { if (value > max) max = value; });
     return days.map(function (day, index) {
         return {
             date: String((day && day.date) || ""),
             tokens: values[index],
-            fraction: values[index] / max
+            fraction: values[index] / max,
+            hasUsage: values[index] > 0
+        };
+    });
+}
+
+// Bar geometry for the 7-day chart. Zero-usage days emit no bar at all
+// (`barHeight` 0) instead of the legacy `Math.max(2, ...)` 2px stub.
+function dayChartBars(recentDays, maxBarHeight) {
+    var bars = recentBars(recentDays);
+    var height = number(maxBarHeight);
+    if (!(height > 0)) height = 0;
+    return bars.map(function (bar) {
+        return {
+            date: bar.date,
+            tokens: bar.tokens,
+            fraction: bar.fraction,
+            hasUsage: bar.hasUsage,
+            barHeight: bar.hasUsage ? Math.max(1, height * bar.fraction) : 0
         };
     });
 }
@@ -97,16 +176,51 @@ function clamp(value, lo, hi) {
     return Math.max(lo, Math.min(hi, value));
 }
 
-// `limits[].percent` is the fraction of the window already used (0..1).
-function bindingWindow(record) {
+// `limits[].percent` is the fraction of the window already used (0..1). The
+// binding limit is the one most likely to stop the next account, which is not
+// simply the highest percent: a window that is nearly drained is about to
+// reset, while a long window that is off-pace will lock the account out
+// longer. Score by `percent - elapsedFraction` and, on a tie, prefer the
+// longer window. Fall back to the raw percent when the window duration or
+// reset time is missing.
+var PACE_EPSILON = 1e-6;
+
+function limitScore(limit, nowMs) {
+    var percent = Number(limit && limit.percent);
+    if (!isFinite(percent)) return NaN;
+    var elapsed = elapsedFraction(limit, nowMs);
+    if (!isFinite(elapsed)) return percent;
+    return percent - elapsed;
+}
+
+function bindingLimit(record, nowMs) {
     var windows = (record && record.limits) || [];
     var best = null;
+    var bestScore = -Infinity;
+    var bestMinutes = -Infinity;
     for (var i = 0; i < windows.length; i++) {
-        var percent = Number(windows[i] && windows[i].percent);
+        var window = windows[i];
+        var percent = Number(window && window.percent);
         if (!isFinite(percent)) continue;
-        if (!best || percent > Number(best.percent)) best = windows[i];
+        var score = limitScore(window, nowMs);
+        var minutes = Number(window && window.windowMinutes);
+        if (!isFinite(minutes)) minutes = -1;
+        if (best === null || score > bestScore + PACE_EPSILON) {
+            best = window;
+            bestScore = score;
+            bestMinutes = minutes;
+        } else if (Math.abs(score - bestScore) <= PACE_EPSILON && minutes > bestMinutes) {
+            // Tie on pace: the longer window locks the account out longest.
+            best = window;
+            bestMinutes = minutes;
+        }
     }
     return best;
+}
+
+// Backwards-compatible alias: the current widget still calls bindingWindow.
+function bindingWindow(record, nowMs) {
+    return bindingLimit(record, nowMs);
 }
 
 function resetMsFor(window, nowMs) {
@@ -126,23 +240,69 @@ function formatDuration(ms) {
     return Math.max(1, minutes) + "m";
 }
 
-function heroMeta(record) {
-    if (!record) return "";
-    if (String(record.usageStatusText || "") !== "") return String(record.usageStatusText);
-    var tier = String(record.tierLabel || "");
-    if (tier === "") return "Subscription";
-    return tier.charAt(0).toUpperCase() + tier.slice(1);
+// Freshness is derived from the `updatedAt` timestamp every collector emits.
+// A record without a parseable timestamp has unknown age, not zero age.
+function updatedAtMs(record) {
+    if (!record || !record.updatedAt) return NaN;
+    var parsed = Date.parse(String(record.updatedAt));
+    return isFinite(parsed) ? parsed : NaN;
 }
 
-// "Renews 2026-10-18 · in 29 days" from the user-owned subscription metadata.
+function recordAgeMs(record, nowMs) {
+    var updated = updatedAtMs(record);
+    if (!isFinite(updated) || !isFinite(nowMs)) return NaN;
+    return Math.max(0, nowMs - updated);
+}
+
+// Unknown freshness is not treated as stale; callers decide a max age.
+function isRecordStale(record, nowMs, maxAgeMs) {
+    var age = recordAgeMs(record, nowMs);
+    if (!isFinite(age)) return false;
+    var maxAge = Number(maxAgeMs);
+    if (!isFinite(maxAge) || maxAge <= 0) return false;
+    return age > maxAge;
+}
+
+function freshnessText(record, nowMs) {
+    var age = recordAgeMs(record, nowMs);
+    if (!isFinite(age)) return "";
+    if (age < 60000) return "just now";
+    return formatDuration(age) + " ago";
+}
+
+function heroMeta(record) {
+    if (!record) return "";
+    var plan = String(record.tierLabel || "");
+    if (plan === "" && record.subscription) plan = String(record.subscription.plan || "");
+    if (plan !== "") return plan.charAt(0).toUpperCase() + plan.slice(1);
+    if (String(record.usageStatusText || "") !== "") return String(record.usageStatusText);
+    return "Subscription";
+}
+
+// "Max · USD 20.00 · monthly · Renews 2026-10-18 · in 29 days" from the
+// user-owned subscription metadata. Targets cost, currency and cycle as well
+// as the renewal date; empty parts are omitted.
 function billingText(record) {
     var sub = record && record.subscription;
-    if (!sub || !sub.renew) return "";
-    var days = Number(sub.daysLeft);
-    if (!isFinite(days)) return "Renews " + String(sub.renew);
-    if (days < 0) return "Renewal date passed · " + String(sub.renew);
-    var when = days === 0 ? "today" : (days === 1 ? "in 1 day" : "in " + days + " days");
-    return "Renews " + String(sub.renew) + " · " + when;
+    if (!sub) return "";
+    var parts = [];
+    if (String(sub.plan || "") !== "") parts.push(String(sub.plan));
+    if (sub.cost !== undefined && sub.cost !== null && String(sub.cost) !== "" && isFinite(Number(sub.cost))) {
+        parts.push(String(sub.currency || "USD") + " " + Number(sub.cost).toFixed(2));
+    }
+    if (String(sub.cycle || "") !== "") parts.push(String(sub.cycle));
+    if (sub.renew) {
+        var days = Number(sub.daysLeft);
+        if (!isFinite(days)) {
+            parts.push("Renews " + String(sub.renew));
+        } else if (days < 0) {
+            parts.push("Renewal date passed · " + String(sub.renew));
+        } else {
+            var when = days === 0 ? "today" : (days === 1 ? "in 1 day" : "in " + days + " days");
+            parts.push("Renews " + String(sub.renew) + " · " + when);
+        }
+    }
+    return parts.join(" · ");
 }
 
 // Notify once per day while a subscription is within its reminder window.
@@ -194,7 +354,12 @@ function dayLabel(date, today) {
 function weekPeak(record) {
     var days = (record && record.recentDays) || [];
     var peak = 0;
-    for (var i = 0; i < days.length; i++) peak = Math.max(peak, number(days[i] && days[i].messageCount));
+    for (var i = 0; i < days.length; i++) {
+        var day = days[i] || {};
+        var value = (day.tokens !== undefined && day.tokens !== null)
+            ? number(day.tokens) : number(day.messageCount);
+        peak = Math.max(peak, value);
+    }
     return peak;
 }
 
@@ -208,9 +373,13 @@ function modelRows(record, limit) {
         var output = number(bucket.outputTokens);
         var cacheRead = number(bucket.cacheReadInputTokens);
         var cacheWrite = number(bucket.cacheCreationInputTokens);
+        var billable = input + output;
+        var cache = cacheRead + cacheWrite;
         rows.push({
             name: String(id),
-            total: input + output + cacheRead + cacheWrite,
+            total: billable + cache,
+            billableTokens: billable,
+            cacheTokens: cache,
             input: input,
             output: output,
             cacheRead: cacheRead,
@@ -245,6 +414,22 @@ function severityForLimit(limit, warn, critical) {
     return severityFor(isFinite(percent) ? percent * 100 : NaN, warn, critical);
 }
 
+// Bar-wide status: the worst severity across the binding limit of every ready
+// agent, or "unknown" when no ready agent reports a limit.
+function overallSeverity(records, nowMs) {
+    var ready = readyAgents(records);
+    var severity = "unknown";
+    for (var i = 0; i < ready.length; i++) {
+        var limit = bindingLimit(ready[i], nowMs);
+        if (!limit) continue;
+        var current = severityForLimit(limit);
+        if (current === "critical") return "critical";
+        if (current === "warn") severity = "warn";
+        else if (severity !== "warn") severity = "ok";
+    }
+    return severity;
+}
+
 // Fraction of the limit window that has already elapsed, from its reset time
 // and duration. NaN when the collector did not report a window duration.
 function elapsedFraction(limit, nowMs) {
@@ -258,16 +443,22 @@ function elapsedFraction(limit, nowMs) {
 }
 
 // Pace compares the used fraction against the elapsed fraction: positive delta
-// means the account is burning faster than the window is draining.
+// means the account is burning faster than the window is draining. Exactly on
+// pace is reported as `onPace` rather than as "ahead".
 function paceInfo(limit, nowMs) {
     var percent = Number(limit && limit.percent);
     var elapsed = elapsedFraction(limit, nowMs);
     if (!isFinite(percent) || !isFinite(elapsed)) return null;
+    var delta = percent - elapsed;
+    var onPace = Math.abs(delta) <= PACE_EPSILON;
     return {
         used: percent,
         elapsed: elapsed,
-        delta: percent - elapsed,
-        behind: percent > elapsed,
+        delta: delta,
+        onPace: onPace,
+        behind: !onPace && delta > 0,
+        ahead: !onPace && delta < 0,
+        state: onPace ? "on-pace" : (delta > 0 ? "behind" : "ahead"),
         expectedUsed: elapsed
     };
 }
