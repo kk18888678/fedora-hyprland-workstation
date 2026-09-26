@@ -17,25 +17,50 @@ Item {
     property var settings: ({})
     property var manifest: ({})
     property var pluginRegistry: null
-    // The override seam is unused in production. It lets the isolated QML
-    // fixture drive this exact widget with a deterministic toplevel object
-    // without connecting to or mutating the live compositor.
+    // The override seams are unused in production. They let the isolated QML
+    // fixture drive this exact widget with a deterministic toplevel object and
+    // toplevel model without connecting to or mutating the live compositor.
     property var activeToplevelOverride
+    property var toplevelsOverride
 
-    readonly property var activeToplevel: root.activeToplevelOverride !== undefined
-        ? root.activeToplevelOverride : Hyprland.activeToplevel
+    // The bar's compositor source is derived reactively. Hyprland.activeToplevel
+    // is authoritative once its activewindowv2 signal has arrived, but it is
+    // null for an unbounded time when the shell starts or reloads while a
+    // window is already focused. The fallback recovers the focused toplevel
+    // from the compositor's toplevel model, which refreshToplevels() populates
+    // independently of that event. It fails closed to null when the model
+    // offers no unambiguous focused entry, so the widget remains hidden rather
+    // than naming the wrong window. The binding is reactive, so the fallback
+    // appears as soon as the model is available and gives way to the real
+    // signal when the event finally arrives.
+    readonly property var toplevelValues: root.toplevelsOverride !== undefined
+        ? root.toplevelsOverride
+        : (Hyprland.toplevels ? Hyprland.toplevels.values : null)
+    readonly property var activeToplevel: {
+        if (root.activeToplevelOverride !== undefined) return root.activeToplevelOverride
+        if (Hyprland.activeToplevel) return Hyprland.activeToplevel
+        return WindowRouting.focusedToplevel(root.toplevelValues)
+    }
     readonly property var routeInfo: WindowRouting.workspaceRouteInfo(root.activeToplevel)
     readonly property string appId: {
         var handle = root.activeToplevel ? root.activeToplevel.handle : null
         if (handle && handle.appId) return String(handle.appId)
-        return String(root.routeInfo.appId || "")
+        if (root.routeInfo.appId) return String(root.routeInfo.appId)
+        // The model-derived fallback toplevel often has an empty handle.appId
+        // because the wlr handle is not linked yet, so the compositor's IPC
+        // class is the reliable identity in that window.
+        return String(root.routeInfo.className || root.routeInfo.initialClass || "")
     }
     // The desktop entry supplies both the application artwork and its name.
     // Resolve it once and reuse it so the icon and the label can never
     // disagree about which application they describe. Unknown applications
     // resolve to null and fall back below. The count keeps the lookup reactive
     // to the asynchronous desktop-entry scan, which can finish after the
-    // widget is first bound (a plain heuristicLookup is not reactive).
+    // widget is first bound (a plain heuristicLookup is not reactive). The
+    // lookup itself is synchronous and, on a pathologically large database,
+    // can block briefly; the raw app id/class label and an interim theme or
+    // generic icon are derived independently, so the widget never disappears
+    // while that scan resolves.
     readonly property int desktopEntryCount: DesktopEntries.applications.values.length
     readonly property var appEntry: {
         var entryCount = root.desktopEntryCount
@@ -108,6 +133,14 @@ Item {
     readonly property string iconName: {
         if (root.iconNameOverride !== undefined) return String(root.iconNameOverride)
         if (root.desktopIconName !== "") return root.desktopIconName
+        // Prefer the raw application id when the icon theme provides it
+        // directly. This is a real icon lookup, not a placeholder, and it
+        // resolves ids such as foot, chromium-browser, firefox, kitty, vscode,
+        // co.anysphere.cursor, org.gnome.Nautilus and chatgpt that the
+        // substring heuristics below would otherwise flatten to a generic
+        // executable glyph. It has no effect when the theme lacks the id, so
+        // the heuristics and final fallback still run.
+        if (root.appId !== "" && Quickshell.hasThemeIcon(root.appId)) return root.appId
         var normalized = root.appId.toLowerCase()
         if (normalized.indexOf("chatgpt") >= 0) return "chatgpt"
         if (normalized.indexOf("chrom") >= 0) return "chromium"
@@ -170,8 +203,25 @@ Item {
         || root.renderContentWidth > root.visibleLabelWidth + 0.001
     readonly property real labelWidth: Math.min(root.measuredLabelWidth + root.textMargin * 2, root.maxWidth)
     property real animatedLabelWidth: root.labelWidth
+    // The first non-empty label (the startup fallback resolving) must adopt
+    // its final width immediately. Animating from the empty width makes the
+    // widget slide open for no reason on shell start or reload. The label
+    // metric can settle across several synchronous binding updates within
+    // that one population, so the gate is released only after the current
+    // event-loop turn rather than on the first width change. Every later
+    // label change then keeps the 180 ms OutCubic transition.
+    property bool labelWidthInitialized: false
     Behavior on animatedLabelWidth {
+        enabled: root.labelWidthInitialized
         NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+    }
+    onLabelChanged: {
+        if (!root.labelWidthInitialized && root.label !== "")
+            Qt.callLater(function() { root.labelWidthInitialized = true })
+    }
+    Component.onCompleted: {
+        if (!root.labelWidthInitialized && root.label !== "")
+            Qt.callLater(function() { root.labelWidthInitialized = true })
     }
 
     visible: !root.vertical && root.label !== ""
