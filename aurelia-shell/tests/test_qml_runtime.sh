@@ -34,6 +34,25 @@ ShellRoot {
 
     Loader {
         active: true
+        source: "file://$ROOT/services/ScreenshotService.qml"
+        onLoaded: {
+            item.aureliaPath = "$ROOT"
+            item.testMode = true
+        }
+    }
+
+    Loader {
+        active: true
+        source: "file://$ROOT/ui/ScreenshotMenuPopup.qml"
+    }
+
+    Loader {
+        active: true
+        source: "file://$ROOT/ui/ScreenshotSelectionOverlay.qml"
+    }
+
+    Loader {
+        active: true
         source: "file://$ROOT/plugins/aurelia.weather/WeatherBarWidget.qml"
     }
 
@@ -106,7 +125,7 @@ XDG_STATE_HOME="$smoke_dir/state" XDG_CONFIG_HOME="$smoke_dir/config" XDG_CACHE_
 
 if [[ "$runtime_status" -eq 0 ]] &&
    runtime_log_is_environment_only "$smoke_output"; then
-    pass "Screenshot, weather, notification, workspace, workspace-overview, and image-picker surfaces instantiate in QuickShell without QML warnings or errors"
+    pass "Screenshot core service/UI, thin widget, weather, notification, workspace, workspace-overview, and image-picker surfaces instantiate in QuickShell without QML warnings or errors"
 elif grep -Eq 'Failed to create wl_display|Could not create instance runtime directory|Could not load the Qt platform plugin' "$smoke_output" &&
      runtime_skip_if_environment_only "$smoke_output" "QML runtime smoke (test runner cannot create an additional Wayland QuickShell surface)"; then
     :

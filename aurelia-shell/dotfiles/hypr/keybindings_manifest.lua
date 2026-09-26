@@ -6,6 +6,26 @@ local M = {}
 
 M.mainMod = "SUPER"
 
+-- Resolve the bounded Aurelia Shell IPC client for the core screenshot
+-- shortcuts. The screenshot capability is owned by the resident core service,
+-- not by the `aurelia.screenshot` bar-widget plugin, so the binding must stay
+-- valid when the plugin is disabled, removed from the bar layout, or
+-- uninstalled. Resolution never goes through PATH or user-local shadowing.
+local function resolve_core_shell_client()
+    local source = debug.getinfo(1, "S").source or ""
+    source = source:gsub("^@", "")
+    local shell_root = source:gsub("/dotfiles/hypr/keybindings_manifest%.lua$", "")
+    local candidate = shell_root .. "/bin/aurelia-shell"
+    local handle = io.open(candidate, "rb")
+    if handle then
+        handle:close()
+        return candidate
+    end
+    return "/usr/local/bin/aurelia-shell"
+end
+
+local core_shell_client = resolve_core_shell_client()
+
 M.categories = {
     "Applications & Launchers",
     "Window Management",
@@ -112,6 +132,41 @@ M.bindings = {
         display_key = "Super + L",
         description = "Lock Screen",
         runnable = true,
+    },
+    -- Core-owned screenshot shortcuts. These are intentionally declared in the
+    -- core manifest rather than a plugin so they survive plugin disable,
+    -- plugin uninstall, and a missing or malformed plugin keybindings file.
+    {
+        id = "aurelia.screenshot.quick_region",
+        key = "SUPER + SHIFT + R",
+        description = "Quick Screenshot Region",
+        category = "Applications & Launchers",
+        priority = 75,
+        editable = true,
+        runnable = true,
+        keyboard_bindable = true,
+        trigger_type = "keyboard",
+        action_type = "plugin_ipc",
+        target = "aurelia.screenshot",
+        method = "quickRegion",
+        display_key = "Super + Shift + R",
+        command_argv = { core_shell_client, "shell", "call", "aurelia.screenshot", "quickRegion", "{}" },
+    },
+    {
+        id = "aurelia.screenshot.quick_screen",
+        key = "SUPER + SHIFT + S",
+        description = "Quick Screenshot Screen",
+        category = "Applications & Launchers",
+        priority = 76,
+        editable = true,
+        runnable = true,
+        keyboard_bindable = true,
+        trigger_type = "keyboard",
+        action_type = "plugin_ipc",
+        target = "aurelia.screenshot",
+        method = "quickScreen",
+        display_key = "Super + Shift + S",
+        command_argv = { core_shell_client, "shell", "call", "aurelia.screenshot", "quickScreen", "{}" },
     },
 
     -- Window Management

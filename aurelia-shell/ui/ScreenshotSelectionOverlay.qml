@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import "../../../theme"
+import "../theme"
 
 // The selection surface is deliberately separate from the bar-owned menu.
 // It is a short-lived compositor overlay used only while the user drags a

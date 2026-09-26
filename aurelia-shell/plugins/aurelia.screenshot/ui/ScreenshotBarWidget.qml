@@ -1,13 +1,16 @@
 import QtQuick
-import QtQuick.Controls
-import Quickshell
-import Quickshell.Io
 import "../../../theme"
 import "../../../ui"
 
-// Screenshot is a first-class bar widget. It owns the controller, capture
-// process, and keyboard panel directly, matching the lifecycle used by the
-// Weather and Power bar widgets.
+// Screenshot is a first-class bar affordance only.
+//
+// The capture state machine, the bounded capture Process over
+// bin/aurelia-screenshot, the region-selection overlay, the menu popup, and
+// the notification publish all live in the resident core ScreenshotService.
+// This view deliberately owns no Process, no overlay/menu loading, no
+// controller state, and no notification call, so disabling this widget,
+// removing it from the bar layout, or uninstalling the plugin can never
+// unregister the SUPER+SHIFT+R/S shortcut capability.
 Item {
     id: root
 
@@ -19,189 +22,35 @@ Item {
     property var manifest: ({})
     property var pluginRegistry: null
     property var barAnchorItem: null
-    property double captureStartedAt: 0
-    property bool capturePending: false
-    property var pendingCaptureRequest: null
 
-    readonly property var screenshotPanel: panelLoader.item
+    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
+    // literal sizes. Screenshot has no alert state, so the glyph rests at the
+    // bar foreground colour.
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
-    // Uniform bar-icon contract: one 16 px ink canvas scaled by the bar, no
-    // literal sizes. Screenshot has no active/alert state, so the glyph is
-    // always the bar foreground colour.
     readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
         ? root.bar.barIconCanvas : Theme.bar.iconCanvas
-
-    readonly property string backendBin: aureliaPath !== ""
-        ? aureliaPath + "/bin/aurelia-screenshot"
-        : "/usr/local/bin/aurelia-screenshot"
-    readonly property var processEnvironment: {
-        var env = {
-            "PATH": "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : ""),
-            "HOME": Quickshell.env("HOME") || "",
-            "WAYLAND_DISPLAY": Quickshell.env("WAYLAND_DISPLAY") || "",
-            "XDG_RUNTIME_DIR": Quickshell.env("XDG_RUNTIME_DIR") || "",
-            "DISPLAY": Quickshell.env("DISPLAY") || "",
-            "HYPRLAND_INSTANCE_SIGNATURE": Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "",
-            "XDG_PICTURES_DIR": Quickshell.env("XDG_PICTURES_DIR") || ""
-        }
-        return env
-    }
+    // Active state mirrors the bar's single-popout owner. The core menu popup
+    // requests ownership with this plugin id, so the affordance reflects the
+    // live capture surface without polling the IPC and without owning state.
+    readonly property bool active: !!root.bar && root.bar.activePopoutId === "aurelia.screenshot"
 
     implicitWidth: bar ? bar.barSize : 38
     implicitHeight: bar ? bar.barSize : 38
 
-    function configurePanel(target) {
-        if (!target) return
-        if ("backendBin" in target) target.backendBin = root.backendBin
-        if ("bar" in target) target.bar = root.bar
-        if ("anchorItem" in target) target.anchorItem = root.barAnchorItem || root
-    }
-
-    function open(payloadJson) {
-        screenshotPanel.open(payloadJson || "{}")
-        return "ok"
-    }
-
-    function close() {
-        capturePending = false
-        pendingCaptureRequest = null
-        if (captureProcess.running) captureProcess.running = false
-        screenshotPanel.close()
-        return "ok"
-    }
-
-    function toggle(payloadJson) {
-        if (isVisible()) return close()
-        return open(payloadJson || "{}")
-    }
-
-    function isVisible() {
-        return screenshotPanel.isVisible()
-    }
-
-    function quickRegion() {
-        screenshotPanel.quickRegion()
-        return "started"
-    }
-
-    function quickScreen() {
-        screenshotPanel.quickScreen()
-        return "started"
-    }
-
-    function capture(payloadJson) {
-        screenshotPanel.capturePayload(payloadJson || "{}")
-        return "started"
-    }
-
-    Loader {
-        id: panelLoader
-        active: true
-        source: Qt.resolvedUrl("ScreenshotPanel.qml")
-        onLoaded: root.configurePanel(item)
-        onStatusChanged: {
-            if (status === Loader.Error) console.error("[SCREENSHOT] panel_load_failed")
+    function invokeCore(method, payloadJson) {
+        if (!root.shell || typeof root.shell.call !== "function") {
+            console.error("[SCREENSHOT] widget_core_call_unavailable method=" + String(method || ""))
+            return "not-loaded"
         }
-    }
-
-    Component {
-        id: menuComponent
-        ScreenshotMenuPopup { controller: root.screenshotPanel }
-    }
-
-    Loader {
-        id: menuLoader
-        active: true
-        sourceComponent: menuComponent
-    }
-
-    Component {
-        id: selectionComponent
-        ScreenshotSelectionOverlay { controller: root.screenshotPanel }
-    }
-
-    Loader {
-        id: selectionLoader
-        active: root.screenshotPanel && root.screenshotPanel.captureStage === "region-selecting"
-        sourceComponent: selectionComponent
-    }
-
-    onAureliaPathChanged: root.configurePanel(panelLoader.item)
-    onBarChanged: root.configurePanel(panelLoader.item)
-    onBarAnchorItemChanged: root.configurePanel(panelLoader.item)
-
-    function startPendingCapture() {
-        if (!root.pendingCaptureRequest) return
-        var menu = menuLoader.item
-        // ScreenshotPanel has already requested closure. Wait for the actual
-        // layer-shell backing surface to disappear before freezing the frame.
-        if (menu && (menu.visible || menu.backingWindowVisible)) return
-        var request = root.pendingCaptureRequest
-        root.pendingCaptureRequest = null
-        root.capturePending = false
-        var command = [root.backendBin, "capture", request.mode, "--delay", String(request.delay)]
-        command.push(request.pointer ? "--show-pointer" : "--hide-pointer")
-        if (request.geometry && request.geometry.length > 0) command.push("--geometry", request.geometry)
-        root.captureStartedAt = Date.now()
-        console.info("[SCREENSHOT] capture.begin mode=" + request.mode + " delay=" + request.delay + " geometry=" + request.geometry + " pointer=" + request.pointer)
-        captureProcess.command = command
-        captureProcess.running = true
-    }
-
-    Process {
-        id: captureProcess
-        command: []
-        environment: root.processEnvironment
-        stdout: StdioCollector {
-            id: captureStdout
-            waitForEnd: true
-        }
-        stderr: StdioCollector {
-            id: captureStderr
-            waitForEnd: true
-        }
-
-        onExited: function(code) {
-            var duration = captureStartedAt > 0 ? (Date.now() - captureStartedAt) : 0
-            var capturePath = captureStdout.text.trim()
-            console.info("[SCREENSHOT] capture.end code=" + code + " duration_ms=" + duration + " path=" + capturePath + " error=" + captureStderr.text.trim())
-            if (code === 0 && capturePath !== "" && root.shell && typeof root.shell.call === "function") {
-                var notificationResult = String(root.shell.call("aurelia.notifications", "publishScreenshot", capturePath) || "")
-                console.info("[SCREENSHOT] notification.publish result=" + notificationResult)
-            }
-            screenshotPanel.captureCompleted(code, captureStdout.text, captureStderr.text, duration)
-        }
-    }
-
-    Connections {
-        target: panelLoader.item
-
-        function onCaptureRequested(mode, delay, geometry, pointer) {
-            if (captureProcess.running || root.capturePending) return
-            root.capturePending = true
-            root.pendingCaptureRequest = {
-                mode: mode,
-                delay: delay,
-                geometry: geometry,
-                pointer: pointer
-            }
-            Qt.callLater(function() {
-                root.startPendingCapture()
-            })
-        }
-    }
-
-    Connections {
-        target: menuLoader.item
-        function onVisibleChanged() { root.startPendingCapture() }
-        function onBackingWindowVisibleChanged() { root.startPendingCapture() }
+        return String(root.shell.call("aurelia.screenshot", String(method || ""),
+            String(payloadJson || "{}")) || "")
     }
 
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusSm
-        color: hover.hovered ? Theme.selection : "transparent"
+        color: (hover.hovered || root.active) ? Theme.selection : "transparent"
 
         HoverHandler { id: hover }
 
@@ -227,7 +76,7 @@ Item {
             cursorShape: Qt.PointingHandCursor
             onClicked: function(mouse) {
                 mouse.accepted = true
-                root.open("{\"mode\":\"menu\"}")
+                root.invokeCore(root.active ? "close" : "open", "{\"mode\":\"menu\"}")
             }
         }
     }
