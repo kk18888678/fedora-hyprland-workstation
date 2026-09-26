@@ -478,6 +478,21 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
         })
         rows.push({
             kind: "heading",
+            title: "Bar"
+        })
+        rows.push({
+            kind: "combo",
+            id: "aurelia.active-window.displayMode",
+            title: "Active Window Display",
+            description: "Show the application name or the full active-window title in the bar.",
+            enumOptions: [
+                { value: "app", label: "Application name" },
+                { value: "title", label: "Window title" }
+            ],
+            effective: (aurelia && aurelia.activeWindowDisplayMode) ? aurelia.activeWindowDisplayMode : "app"
+        })
+        rows.push({
+            kind: "heading",
             title: "Keybindings"
         })
         rows.push({
@@ -664,6 +679,7 @@ function emptyAureliaState() {
         motionScale: 1,
         textSize: 12,
         barHidden: false,
+        activeWindowDisplayMode: "app",
         weekStart: "sunday",
         clockFormat: "month_day_weekday_time",
         clockHour24: true,

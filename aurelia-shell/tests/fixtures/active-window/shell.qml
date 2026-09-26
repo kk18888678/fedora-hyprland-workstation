@@ -11,6 +11,10 @@ ShellRoot {
     readonly property string widgetSource: Quickshell.env("AURELIA_ACTIVE_WINDOW_SOURCE") || ""
     readonly property string resultPath: Quickshell.env("AURELIA_ACTIVE_WINDOW_RESULT") || ""
     readonly property string longTitle: "A deliberately long active window title that must be elided by the widget instead of expanding the bar without bound"
+    // Touching the applications model at construction starts the asynchronous
+    // desktop-entry scan; DesktopEntries.heuristicLookup alone does not trigger
+    // it, so an isolated shell that only renders this widget must kick it off.
+    readonly property int desktopEntryCount: DesktopEntries.applications.values.length
     property bool finished: false
 
     QtObject {
@@ -27,6 +31,11 @@ ShellRoot {
     QtObject {
         id: classHandle
         property string appId: ""
+    }
+
+    QtObject {
+        id: fixtureAppHandle
+        property string appId: "fixture-app"
     }
 
     QtObject {
@@ -55,6 +64,13 @@ ShellRoot {
         property string title: ""
         property QtObject handle: classHandle
         property var lastIpcObject: ({class: "FixtureClass"})
+    }
+
+    QtObject {
+        id: fixtureAppToplevel
+        property string title: ""
+        property QtObject handle: fixtureAppHandle
+        property var lastIpcObject: ({})
     }
 
     QtObject {
@@ -111,6 +127,39 @@ ShellRoot {
         }
     }
 
+    // Explicit legacy identity: the widget must still render the title-first
+    // label (title -> appId -> class) when the user selects title mode.
+    Loader {
+        id: titleModeLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.settings = ({displayMode: "title", maxWidth: 280})
+            item.activeToplevelOverride = titleToplevel
+        }
+    }
+
+    // An unknown mode must fail closed to the app-name default, never to the
+    // title and never to an empty label.
+    Loader {
+        id: invalidModeLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.settings = ({displayMode: "bogus", maxWidth: 280})
+            item.activeToplevelOverride = titleToplevel
+        }
+    }
+
+    Loader {
+        id: fixtureAppLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.activeToplevelOverride = fixtureAppToplevel
+        }
+    }
+
     Loader {
         id: appIdLoader
         source: root.widgetSource
@@ -129,11 +178,14 @@ ShellRoot {
         }
     }
 
+    // The elision contract is exercised through title mode so the long title
+    // (rather than a short app id) is the measured label.
     Loader {
         id: longLoader
         source: root.widgetSource
         onLoaded: {
             item.bar = fakeBar
+            item.settings = ({displayMode: "title", maxWidth: 280})
             item.activeToplevelOverride = longToplevel
         }
     }
@@ -143,7 +195,7 @@ ShellRoot {
         source: root.widgetSource
         onLoaded: {
             item.bar = fakeBar
-            item.settings = ({maxWidth: 100})
+            item.settings = ({displayMode: "title", maxWidth: 100})
             item.activeToplevelOverride = longToplevel
         }
     }
@@ -219,6 +271,9 @@ ShellRoot {
     function writeResult() {
         if (root.finished || root.resultPath === "") return
         var title = titleLoader.item
+        var titleMode = titleModeLoader.item
+        var invalidMode = invalidModeLoader.item
+        var fixtureApp = fixtureAppLoader.item
         var appId = appIdLoader.item
         var classItem = classLoader.item
         var longItem = longLoader.item
@@ -229,7 +284,9 @@ ShellRoot {
         var click = clickLoader.item
         var missing = missingIconLoader.item
         var symbolic = symbolicIconLoader.item
-        if (!title || !appId || !classItem || !longItem || !capped || !shortItem || !empty || !vertical || !click || !missing || !symbolic) {
+        if (!title || !titleMode || !invalidMode || !fixtureApp || !appId || !classItem ||
+                !longItem || !capped || !shortItem || !empty || !vertical || !click ||
+                !missing || !symbolic) {
             root.finished = true
             resultFile.setText(JSON.stringify({loaded: false}) + "\n")
             return
@@ -244,15 +301,21 @@ ShellRoot {
         resultFile.setText(JSON.stringify({
             loaded: true,
             labels: {
-                title: String(title.label),
+                app: String(title.label),
                 appId: String(appId.label),
                 className: String(classItem.label),
-                empty: String(empty.label)
+                empty: String(empty.label),
+                titleMode: String(titleMode.label),
+                titleModeTitle: String(titleMode.titleLabel),
+                invalidMode: String(invalidMode.label),
+                fixtureApp: String(fixtureApp.label)
             },
             icons: {
                 fallbackName: String(title.iconName),
                 fallbackSource: String(title.iconSource),
-                emptyAppIconName: String(classItem.iconName)
+                emptyAppIconName: String(classItem.iconName),
+                fixtureAppName: String(fixtureApp.iconName),
+                fixtureAppSource: String(fixtureApp.iconSource)
             },
             render: {
                 iconInk: Number(title.iconInkSize),
@@ -305,15 +368,47 @@ ShellRoot {
         }) + "\n")
     }
 
+    // Desktop-entry scanning is asynchronous and can take a moment on a cold
+    // cache. Wait until the deterministic fixture entry the test installed
+    // under XDG_DATA_DIRS resolves before snapshotting, with a bounded fallback
+    // so a broken scan still produces a result instead of hanging the suite.
     Timer {
-        interval: 600
+        id: entryReady
+        interval: 150
         running: true
+        repeat: true
+        property int attempts: 0
+        onTriggered: {
+            attempts = attempts + 1
+            if ((root.desktopEntryCount > 0 &&
+                    DesktopEntries.heuristicLookup("fixture-app") !== null) || attempts >= 40) {
+                running = false
+                settleTimer.running = true
+            }
+        }
+    }
+
+    // Let the 180 ms width animation settle before snapshotting so the geometry
+    // assertions see final widths instead of an in-flight interpolated value.
+    Timer {
+        id: settleTimer
+        interval: 400
+        running: false
         repeat: false
         onTriggered: root.writeResult()
     }
 
     Timer {
-        interval: 8000
+        interval: 7000
+        running: true
+        repeat: false
+        onTriggered: {
+            if (!root.finished) root.writeResult()
+        }
+    }
+
+    Timer {
+        interval: 7800
         running: true
         repeat: false
         onTriggered: Qt.quit()

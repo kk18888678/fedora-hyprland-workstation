@@ -26,12 +26,23 @@ if [[ -f "$manifest_file" && -f "$widget_file" ]] &&
        .barWidget.allowMultiple == false and
        .barWidget.defaultSection == "left" and
        .barWidget.defaults.maxWidth == 280 and
+       .barWidget.defaults.displayMode == "app" and
        (.barWidget.schema | map(.key) | index("maxWidth")) and
+       (.barWidget.schema | map(.key) | index("displayMode")) and
+       .barWidget.schema[0].key == "maxWidth" and
        .barWidget.schema[0].type == "integer" and
-       .barWidget.schema[0].defaultValue == 280
+       .barWidget.schema[0].defaultValue == 280 and
+       .barWidget.schema[1].key == "displayMode" and
+       .barWidget.schema[1].type == "enum" and
+       .barWidget.schema[1].label == "Display" and
+       .barWidget.schema[1].defaultValue == "app" and
+       .barWidget.schema[1].options[0].value == "app" and
+       .barWidget.schema[1].options[0].label == "Application name" and
+       .barWidget.schema[1].options[1].value == "title" and
+       .barWidget.schema[1].options[1].label == "Window title"
    ' "$manifest_file" >/dev/null &&
    "$ROOT/bin/aurelia-plugin" validate --first-party "$active_root" >/dev/null; then
-    pass "[static] Active Window has a validated left bar-widget manifest with a bounded maxWidth default and schema"
+    pass "[static] Active Window has a validated left bar-widget manifest with a bounded maxWidth default and a displayMode enum (maxWidth first)"
 else
     fail "[static] Active Window manifest, entry point, default section, or maxWidth schema is incomplete"
 fi
@@ -112,6 +123,39 @@ else
     fail "[static] Active Window introduced a polling timer, subprocess, or hyprctl dependency"
 fi
 
+if grep -Fq 'property string displayMode' "$widget_file" &&
+   grep -Fq 'settings.displayMode' "$widget_file" &&
+   grep -Fq 'return raw === "title" ? "title" : "app"' "$widget_file" &&
+   grep -Fq 'DesktopEntries.heuristicLookup' "$widget_file" &&
+   grep -Fq 'appEntry.name' "$widget_file" &&
+   grep -Fq 'root.appId !== ""' "$widget_file" &&
+   grep -Fq 'root.routeInfo.className || root.routeInfo.initialClass' "$widget_file" &&
+   grep -Fq 'readonly property string titleLabel' "$widget_file" &&
+   grep -Fq 'readonly property string appName' "$widget_file" &&
+   grep -Fq 'label: root.displayMode === "title" ? root.titleLabel : root.appName' "$widget_file"; then
+    pass "[static] Active Window defaults to app name, resolves it from the desktop entry (then appId, then class), keeps title-first titleLabel, and selects label by displayMode"
+else
+    fail "[static] Active Window display-mode selection, desktop-entry lookup, or identity fallback contract is incomplete"
+fi
+
+if python3 - "$widget_file" <<'TITLE_IDENTITY'
+import re, sys
+src = open(sys.argv[1]).read()
+match = re.search(r"readonly property string titleLabel:\s*\{(.*?)\n    \}", src, re.S)
+if not match:
+    sys.exit(1)
+body = match.group(1)
+i_title = body.find("return title")
+i_appid = body.find("return handleAppId")
+i_class = body.find("return String(root.routeInfo.className || root.routeInfo.initialClass")
+sys.exit(0 if 0 <= i_title < i_appid < i_class else 1)
+TITLE_IDENTITY
+then
+    pass "[static] Active Window titleLabel preserves title -> handle.appId -> class preference order"
+else
+    fail "[static] Active Window titleLabel precedence regressed"
+fi
+
 if jq -e '
         .layout.left[0].id == "aurelia.workspaces" and
         .layout.left[1].id == "aurelia.active-window"
@@ -132,8 +176,19 @@ trap 'rm -rf -- "$runtime_root"  || true' RETURN
 result_file="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
-mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache"
+mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache" \
+    "$runtime_root/data/applications" "$runtime_root/data-home"
 : >"$result_file"
+# Deterministic desktop-entry resolution: a minimal fixture entry in an
+# isolated XDG data dir proves the app-name and icon branch without depending
+# on the host application database.
+cat >"$runtime_root/data/applications/fixture-app.desktop" <<'FIXTURE_APP'
+[Desktop Entry]
+Type=Application
+Name=Fixture App
+Icon=fixture-app
+Exec=fixture-app
+FIXTURE_APP
 
 AURELIA_ACTIVE_WINDOW_SOURCE="file://$widget_file" \
 AURELIA_ACTIVE_WINDOW_RESULT="$result_file" \
@@ -143,6 +198,8 @@ XDG_RUNTIME_DIR="$runtime_root/runtime" \
 XDG_STATE_HOME="$runtime_root/state" \
 XDG_CONFIG_HOME="$runtime_root/config" \
 XDG_CACHE_HOME="$runtime_root/cache" \
+XDG_DATA_HOME="$runtime_root/data-home" \
+XDG_DATA_DIRS="$runtime_root/data:/usr/local/share:/usr/share" \
     /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
     --path "$fixture_root/shell.qml" --no-color >"$runtime_log" 2>&1 || runtime_status=$?
 
@@ -150,13 +207,18 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
    runtime_log_is_environment_only "$runtime_log" 'hyprland|Hyprland' &&
    jq -e '
         .loaded == true and
-        .labels.title == "Fixture title" and
+        .labels.app == "fixture.unknown.app" and
         .labels.appId == "fixture.unknown.app" and
         .labels.className == "FixtureClass" and
         .labels.empty == "" and
+        .labels.titleMode == "Fixture title" and
+        .labels.titleModeTitle == "Fixture title" and
+        .labels.invalidMode == "fixture.unknown.app" and
+        .labels.fixtureApp == "Fixture App" and
         .icons.fallbackName == "application-x-executable" and
         (.icons.fallbackSource | contains("application-x-executable")) and
         .icons.emptyAppIconName == "application-x-executable" and
+        .icons.fixtureAppName == "fixture-app" and
         .elision.maxWidth == 280 and
         .elision.longLabelWidth == 280 and
         .elision.longMeasured > 280 and
@@ -189,7 +251,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .policy.symbolicIconFlag == true and
         .policy.symbolicPreserveColors == false
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] real Active Window widget resolves the title/app-id/class label, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, and the symbolic-only colour policy"
+    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, and the symbolic-only colour policy"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Active Window entry-point fixture cannot create a disposable runtime backend"; then
     :

@@ -196,7 +196,7 @@ match = re.search(r"aureliaStateKeys:\s*\[(.*?)\]", src, re.S)
 if not match:
     sys.exit(1)
 keys = set(re.findall(r'"([^"]+)"', match.group(1)))
-need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse"}
+need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse", "activeWindowDisplayMode"}
 sys.exit(0 if need <= keys else 1)
 STATE_KEYS
 then
@@ -275,6 +275,49 @@ process.exit(ok ? 0 : 1);
     rm -f -- "$bar_rows_test"
 else
     skip "[unit] Bar Hidden row state (node unavailable)"
+fi
+
+# Active Window display-mode row invariant: the existing Aurelia section must
+# expose the combo row, read the effective mode from the registry overlay, and
+# route its write through the canonical aurelia-bar CLI (never mutate config
+# directly from the settings hub).
+if grep -q 'aurelia.active-window.displayMode' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'activeWindowDisplayMode' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'aurelia.active-window.displayMode' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'settingsForEntry("aurelia.active-window", {})' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'helperBin("aurelia-bar"), "set", "aurelia.active-window"' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] Active Window display mode row reads the registry overlay and writes through the aurelia-bar CLI"
+else
+    fail "[static] Active Window display mode row wiring is incomplete"
+fi
+
+if command -v node >/dev/null; then
+    active_window_rows_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$active_window_rows_test"
+    cat >>"$active_window_rows_test" <<'ACTIVE_WINDOW_ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState };
+ACTIVE_WINDOW_ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const appState = Object.assign({}, SR.emptyAureliaState(), { activeWindowDisplayMode: "app" });
+const titleState = Object.assign({}, SR.emptyAureliaState(), { activeWindowDisplayMode: "title" });
+const appRow = SR.buildRows("aurelia", [], {}, appState).find(r => r.id === "aurelia.active-window.displayMode");
+const titleRow = SR.buildRows("aurelia", [], {}, titleState).find(r => r.id === "aurelia.active-window.displayMode");
+const ok = appRow && appRow.kind === "combo" &&
+    appRow.enumOptions.length === 2 &&
+    appRow.enumOptions[0].value === "app" && appRow.enumOptions[0].label === "Application name" &&
+    appRow.enumOptions[1].value === "title" && appRow.enumOptions[1].label === "Window title" &&
+    appRow.effective === "app" &&
+    titleRow && titleRow.kind === "combo" && titleRow.effective === "title";
+process.exit(ok ? 0 : 1);
+' "$active_window_rows_test" >/dev/null; then
+        pass "[unit] Active Window display mode row offers app/title options and reflects both modes"
+    else
+        fail "[unit] Active Window display mode row projection is wrong"
+    fi
+    rm -f -- "$active_window_rows_test"
+else
+    skip "[unit] Active Window display mode row (node unavailable)"
 fi
 
 # ColorUtils is pure JS; exercise its parse/format/validate contract directly.
