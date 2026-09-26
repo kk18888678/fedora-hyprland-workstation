@@ -1,0 +1,58 @@
+{
+  "limits": [
+    {
+      "kind": "session",
+      "group": "session",
+      "percent": 25,
+      "resets_at": "2026-09-26T17:15:41.129154652Z",
+      "severity": "normal",
+      "is_active": true
+    },
+    {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 67,
+      "resets_at": "2026-09-30T15:13:55.131223642Z",
+      "severity": "normal",
+      "is_active": true
+    },
+    {
+      "kind": "weekly_scoped",
+      "group": "weekly",
+      "scope": "claude-opus-4-1",
+      "percent": 84,
+      "resets_at": "2026-09-30T15:13:55.131223642Z",
+      "severity": "normal",
+      "is_active": false
+    }
+  ],
+  "five_hour": {
+    "utilization": 25,
+    "resets_at": "2026-09-26T17:15:41.129154652Z",
+    "status": "within_limit"
+  },
+  "seven_day": {
+    "utilization": 67,
+    "resets_at": "2026-09-30T15:13:55.131223642Z",
+    "status": "within_limit"
+  },
+  "seven_day_overage_included": true,
+  "seven_day_breakdown": [
+    {
+      "model": "claude-opus-4-1",
+      "percent": 84,
+      "resets_at": "2026-09-30T15:13:55.131223642Z"
+    }
+  ],
+  "spend": {
+    "amount_cents": 0,
+    "currency": "USD"
+  },
+  "extra_usage": {
+    "enabled": false
+  },
+  "feature_flags": {
+    "usage_limits_endpoint": true,
+    "seven_day_breakdown": true
+  }
+}

@@ -1,25 +1,41 @@
 #!/usr/bin/env python3
-"""Local-stats Claude Code usage collector for the Aurelia agents panel.
+"""Local-stats + live-limit Claude Code usage collector for the Aurelia agents panel.
 
 Prints one display-ready JSON record, matching the record contract the
 Aurelia agents panel consumes (the same shape as Omarchy's collector). It
-reads local Claude Code transcripts plus pi's `anthropic` provider sessions
-and never contacts a network endpoint, so authoritative rate-limit meters
-are omitted rather than guessed.
+reads local Claude Code transcripts plus pi's `anthropic` provider sessions,
+and — when a read-only OAuth credential is present — the account-wide 5-hour
+and weekly windows from Anthropic's OAuth usage endpoint.
+
+The endpoint `GET https://api.anthropic.com/api/oauth/usage` was captured live
+(authenticated HTTP 200). Its real body carries a CANONICAL `limits[]` array
+whose rows are `{"kind": "session"|"weekly_all"|"weekly_scoped", "group": ...,
+"percent": <0-100 USED>, "resets_at": <ISO-8601 string>, ...}`, plus top-level
+`five_hour`/`seven_day` objects. It does NOT carry `unifiedWindows`, top-level
+`status`/`utilization`/`rateLimitType`/`overageStatus`, a 0..1 fraction or an
+epoch-seconds reset; those earlier assumptions came from
+`anthropic-ratelimit-unified-*` HTTP response headers and are wrong here. The
+body also carries no plan/tier field, so `tierLabel` is never fabricated.
+
+Credential handling is strictly read-only. There is deliberately NO refresh
+logic anywhere: Anthropic rotates OAuth refresh tokens, so a read-only
+collector that refreshed without atomically persisting the new refresh token
+would invalidate the user's pi AND Claude Code logins. A missing, expired or
+rejected token fails closed and leaves the credential file untouched. The token
+value is never printed, logged or written.
 
 Departure from the usage-only visibility rule: pi keys its credential and
 model stores by provider id (`anthropic`), so an account that has been added
 but has not produced a turn yet has no usage to scan. Such an account is
 surfaced as `detected` with `ready` false and the explicit `usageStatusText`
-"Account configured · no usage yet", instead of being hidden. This is
-intentionally scoped to pi's `anthropic` credentials and never makes empty
-usage look like recorded usage.
+"Account configured · no usage yet", instead of being hidden. An account with
+live limits but no local history is both `detected` and `ready`.
 
 Contract (subset implemented here):
   id, name, updatedAt, ready, detected, hasLocalStats, hasPromptStats,
   tierLabel, todayLabel, retryAdvised, usageStatusText, authHelpText, limits,
-  todayPrompts, todaySessions, todayTotalTokens, todayBillableTokens,
-  todayCacheTokens, todayTokensByModel,
+  supportedWindowMinutes, todayPrompts, todaySessions, todayTotalTokens,
+  todayBillableTokens, todayCacheTokens, todayTokensByModel,
   recentDays, modelUsage, totalPrompts, totalSessions, activeDays, activeDates
 """
 
@@ -28,8 +44,12 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
+import ssl
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
@@ -43,11 +63,279 @@ USAGE_STATUS = "Local usage only"
 PI_PROVIDER = "anthropic"
 PI_PROVIDER_MATCHES = [PI_PROVIDER]
 CONFIGURED_STATUS = "Account configured · no usage yet"
+AUTH_FAILURE_STATUS = "Claude authentication failed"
+UNAVAILABLE_STATUS = "Claude limits unavailable"
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+# Claude's canonical windows: the 5-hour session window and the weekly (7-day)
+# window. There is no monthly window, so the dashboard's MONTH column stays
+# empty ("not offered") rather than being filled with a fabricated value.
+SUPPORTED_WINDOW_MINUTES = [300, 10080]
+AUTH_HELP = (
+    "Claude rejected the stored OAuth token. Re-authenticate Claude in pi, or "
+    "sign in again with Claude Code. The collector never refreshes or rewrites "
+    "the credential."
+)
+# `kind` -> (collector label, window length in minutes). The labels match the
+# Codex and Cline collectors so the matrix, tooltips and notifications read
+# identically. Classification is on `kind`, never on a label: the server's own
+# schema says "Classify a row on this, never on a label".
+CLAUDE_WINDOWS = {"session": ("5h window", 300), "weekly_all": ("Weekly (7-day)", 10080)}
+# Fallback keys used only when `limits` is absent.
+CLAUDE_FALLBACK_WINDOWS = (("five_hour", "5h window", 300), ("seven_day", "Weekly (7-day)", 10080))
 
 
 def config_dir() -> Path:
     value = os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"
     return Path(os.path.expandvars(os.path.expanduser(value)))
+
+
+# -------------------------------------------------------- credential (read-only)
+
+
+def claude_credential_paths() -> list[Path]:
+    """The read-only Claude Code credential locations, highest precedence first."""
+    primary = config_dir() / ".credentials.json"
+    paths = [primary]
+    home_credential = Path(os.path.expanduser("~/.claude/.credentials.json"))
+    if home_credential != primary:
+        paths.append(home_credential)
+    return paths
+
+
+def _read_document(path: Path):
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def claude_access_token() -> str:
+    """Return the user's own stored Claude OAuth access token, or "".
+
+    Precedence: `$CLAUDE_CONFIG_DIR/.credentials.json` ->
+    `~/.claude/.credentials.json` (both `claudeAiOauth.accessToken`), then
+    `$PI_HOME/agent/auth.json` -> `anthropic.access` (PI_HOME default
+    `~/.pi`). Read-only: only the token's presence is inspected here and the
+    value is never logged, emitted or rewritten. There is deliberately no
+    token refresh because Anthropic rotates the refresh token; a read-only
+    collector that refreshed without atomically persisting the new token would
+    invalidate the user's login and break their CLI.
+    """
+    for path in claude_credential_paths():
+        document = _read_document(path)
+        oauth = document.get("claudeAiOauth") if isinstance(document, dict) else None
+        token = oauth.get("accessToken") if isinstance(oauth, dict) else None
+        if token is not None:
+            text = str(token).strip()
+            if text:
+                return text
+    auth_path = common.pi_agent_root() / "auth.json"
+    document = _read_document(auth_path)
+    entry = document.get(PI_PROVIDER) if isinstance(document, dict) else None
+    token = entry.get("access") if isinstance(entry, dict) else None
+    if token is not None:
+        text = str(token).strip()
+        if text:
+            return text
+    return ""
+
+
+def claude_tier_label() -> str:
+    """Read the plan/tier from Claude Code credentials, or "".
+
+    The usage body carries no tier field, so a plan must only ever come from
+    the user's own credential (`claudeAiOauth.rateLimitTier` /
+    `subscriptionType`) or from the user-owned `ai.conf` subscription via
+    `apply_subscription`. It is never fabricated.
+    """
+    for path in claude_credential_paths():
+        document = _read_document(path)
+        oauth = document.get("claudeAiOauth") if isinstance(document, dict) else None
+        if not isinstance(oauth, dict):
+            continue
+        for key in ("rateLimitTier", "subscriptionType"):
+            value = oauth.get(key)
+            if value is not None:
+                text = str(value).strip()
+                if text:
+                    return text
+    return ""
+
+
+# ---------------------------------------------------------------- live limits
+
+
+def _used_fraction(percent):
+    """USED percent (0..100) -> emitted USED fraction in [0,1], or None.
+
+    `percent`/`utilization` is a 0-100 PERCENTAGE, not a 0..1 fraction, so the
+    emitted contract value is `percent / 100.0`. The clamp is applied to the
+    FINAL emitted fraction only: Anthropic documents that usage can legitimately
+    run past a window cap, so a server `150` becomes `1.0`. The clamp never
+    fabricates headroom. A negative, non-numeric or non-finite value is skipped
+    (returns None) rather than being emitted as a fabricated `0%`.
+    """
+    if isinstance(percent, bool):
+        return None
+    try:
+        value = float(percent)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    fraction = value / 100.0
+    if fraction > 1.0:
+        fraction = 1.0
+    return fraction
+
+
+def _limit_entry(label: str, minutes: int, percent, resets):
+    fraction = _used_fraction(percent)
+    if fraction is None:
+        return None
+    return {
+        "label": label,
+        # `percent` is USED; the panel inverts to display remaining.
+        "percent": fraction,
+        # The live ISO-8601 string (and any epoch form) goes through the one
+        # shared normaliser; never a custom parser.
+        "resetsAt": common.normalize_resets_at(resets),
+        "windowMinutes": minutes,
+    }
+
+
+def parse_claude_limits(payload):
+    """Return the canonical live window list, or None for an unknown shape.
+
+    PREFER `body["limits"]` and classify on `kind`. `weekly_scoped` rows and the
+    `seven_day_overage_included` bucket are deliberately IGNORED by default: the
+    overage/scope buckets are per-model sub-buckets, not the account-wide weekly
+    meter, and emitting one as a second 10080-minute window would collide with
+    `Weekly (7-day)` in the WEEK column and conflate two distinct limits.
+
+    FALLBACK ONLY IF `limits` is absent: read top-level `five_hour`/`seven_day`
+    `utilization`/`resets_at`, which are on the same 0-100 scale.
+    """
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("limits")
+    if isinstance(raw, list):
+        limits = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("kind") or "")
+            # Classify on `kind`, never on a label.
+            if kind == "session":
+                label, minutes = CLAUDE_WINDOWS["session"]
+            elif kind == "weekly_all":
+                label, minutes = CLAUDE_WINDOWS["weekly_all"]
+            else:
+                # `weekly_scoped` (per-model overage) and unknown kinds are skipped.
+                continue
+            entry = _limit_entry(label, minutes, item.get("percent"), item.get("resets_at"))
+            if entry:
+                limits.append(entry)
+        return limits
+    if "limits" in payload:
+        # Present but not a list: a changed shape, not a genuinely empty account.
+        return None
+    if "five_hour" in payload or "seven_day" in payload:
+        limits = []
+        for key, label, minutes in CLAUDE_FALLBACK_WINDOWS:
+            block = payload.get(key)
+            if not isinstance(block, dict):
+                continue
+            entry = _limit_entry(label, minutes, block.get("utilization"), block.get("resets_at"))
+            if entry:
+                limits.append(entry)
+        return limits
+    return None
+
+
+def fetch_claude_limits(access_token: str | None = None) -> dict:
+    """Live Claude 5-hour and weekly windows from Anthropic's OAuth endpoint.
+
+    A missing credential skips the request entirely (local-only accounts make
+    no network call) and never fabricates a window. The request is bounded by an
+    explicit `timeout=10`; TLS verification is never disabled. When upstream
+    returns only some windows, only those are emitted: a missing window is
+    never reported as a fabricated `0%`.
+    """
+    result = {
+        "limits": [],
+        "supportedWindowMinutes": list(SUPPORTED_WINDOW_MINUTES),
+        "tierLabel": "",
+        "usageStatusText": USAGE_STATUS,
+        "authHelpText": "",
+        "retryAdvised": False,
+    }
+    token = claude_access_token() if access_token is None else access_token
+    if not token:
+        # No credential: no network call at all, and no error. Local-only is a
+        # normal state, not a failure.
+        return result
+    try:
+        request = urllib.request.Request(
+            CLAUDE_USAGE_URL,
+            headers={
+                "Authorization": "Bearer " + token,
+                "Accept": "application/json",
+                # Kept for fidelity; the endpoint returned 200 with and without
+                # this beta header, so no code depends on it.
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "oauth-2025-04-20",
+                "User-Agent": "aurelia-agent-usage/1.0",
+            },
+        )
+        # TLS verification is never disabled.
+        context = ssl.create_default_context()
+        with urllib.request.urlopen(request, timeout=10, context=context) as response:
+            raw_body = response.read()
+    except urllib.error.HTTPError as exc:
+        status = int(getattr(exc, "code", 0) or 0)
+        if status in (401, 403):
+            # Retrying a rejected credential cannot help and no refresh is
+            # attempted, so the credential file stays untouched.
+            result["usageStatusText"] = AUTH_FAILURE_STATUS
+            result["authHelpText"] = AUTH_HELP
+            result["retryAdvised"] = False
+            return result
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = status == 429 or status >= 500 or common.retry_advised_from_error(exc)
+        return result
+    except Exception:
+        # Timeout, DNS or any other transport failure: the only retryable class.
+        # Deliberately no authHelpText, so a rate-limit/transport state is never
+        # mistaken for a credential error.
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = True
+        return result
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8", "replace"))
+    except Exception:
+        # Malformed body: a changed shape is not retryable.
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = False
+        return result
+
+    limits = parse_claude_limits(payload)
+    if limits is None:
+        # Malformed or changed shape: fail closed, never fabricate a `0%`.
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = False
+        return result
+    result["limits"] = limits
+    # A valid 200 with no window rows is a configured account that has not used
+    # the account-wide meters yet, not an error.
+    result["usageStatusText"] = "" if limits else CONFIGURED_STATUS
+    return result
+
+
+# ---------------------------------------------------------------- local scan
 
 
 def number(value) -> int:
@@ -203,31 +491,55 @@ def main() -> int:
         scan_projects(config_dir() / "projects"),
         common.scan_pi_sessions(PI_PROVIDER_MATCHES),
     )
+    # `hasLocalStats` keeps its meaning: LOCAL usage really exists. An account
+    # known only from a credential or from live limits is `detected`/`ready`
+    # but has no local stats.
     has_usage = number(stats.get("totalPrompts")) > 0
     configured = common.pi_provider_configured(PI_PROVIDER)
-    detected = has_usage or bool(stats.get("detected")) or configured
+    claude = fetch_claude_limits()
+    limits = claude.get("limits") or []
+    detected = has_usage or bool(stats.get("detected")) or configured or len(limits) > 0
+
+    # Status precedence: live windows -> no status; an explicit auth/transport
+    # failure -> that status; otherwise a configured account with no usage is
+    # labelled, and a local-only account stays "Local usage only".
+    claude_status = claude.get("usageStatusText") or ""
+    if claude_status == "":
+        usage_status = ""
+    elif claude_status in (AUTH_FAILURE_STATUS, UNAVAILABLE_STATUS):
+        usage_status = claude_status
+    else:
+        usage_status = CONFIGURED_STATUS if (configured and not has_usage) else USAGE_STATUS
 
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,
         "name": AGENT_NAME,
         "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "ready": has_usage,
+        # A limits-only account with no local history is still ready.
+        "ready": has_usage or len(limits) > 0,
         "detected": detected,
         "hasLocalStats": has_usage,
         "hasPromptStats": True,
-        "tierLabel": "",
+        # The usage body carries no tier: only the user's credential or the
+        # user-owned ai.conf subscription may set this, and apply_subscription
+        # fills it when the credential has none.
+        "tierLabel": claude.get("tierLabel") or claude_tier_label(),
         # Claude records one turn per assistant message, not a chat prompt.
         "todayLabel": "turns",
-        "retryAdvised": False,
-        "usageStatusText": CONFIGURED_STATUS if (configured and not has_usage) else USAGE_STATUS,
-        "authHelpText": "",
-        "limits": [],
+        "retryAdvised": bool(claude.get("retryAdvised")),
+        "usageStatusText": usage_status,
+        "authHelpText": claude.get("authHelpText") or "",
+        "limits": limits,
+        # Claude's 5h and weekly windows only; no monthly window exists, so the
+        # dashboard marks MONTH as "not offered" rather than a failure.
+        "supportedWindowMinutes": claude.get("supportedWindowMinutes") or list(SUPPORTED_WINDOW_MINUTES),
     }
     record.update(stats)
     # merge_stats carries its own usage-derived `detected`; re-assert the merged
-    # plus configured visibility decision after the stats update.
+    # plus configured plus live-limits visibility decision after the update.
     record["detected"] = detected
+    record["hasLocalStats"] = has_usage
     common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0

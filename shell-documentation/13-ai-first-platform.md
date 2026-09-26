@@ -331,9 +331,22 @@ the bar font through one local `Label` primitive (numeric cells derive from
 closes, Tab/Shift+Tab cycles regions (matrix -> tabs -> detail -> actions),
 `j`/`k` and arrows move the row cursor, `h`/`l` switch the selected account,
 Enter/Space activates, and `r` refreshes. A no-limits provider renders `—` and
-one muted `no live limits` tag, never a fabricated `0%`, and every unmet
-condition also records an observable `[AGENTS] unmet_condition ...` diagnostic
-through the shell log read by `aurelia logs`. These are style units, so the
+one muted `no live limits` tag, never a fabricated `0%`. Each collector declares
+its capability as `supportedWindowMinutes` (the canonical window lengths it can
+actually report: Claude `[300, 10080]`, Codex/OpenCode/Cline
+`[300, 10080, 43200]`). A canonical column that is NOT in that set is
+**not offered** by the provider: it renders a distinct muted en-dash (`–`) and
+a "not offered by this provider" tooltip, and it emits no diagnostic. A column
+that IS supported but not reported (empty `limits[]`, a partial response, an
+auth failure, a rate limit or a timeout) is a real unmet condition that keeps
+its `[AGENTS] unmet_condition provider=... condition=missing_window` diagnostic
+and is never rendered as a fabricated `0%`. Records without the capability field
+stay capability-unknown (legacy behaviour), so a column is never mislabelled
+"not offered". Every other unmet condition (missing `limits[]`,
+missing/zero/unparseable `windowMinutes`, missing/unparseable `resetsAt`,
+absent `balance`, failed collector run) also records an observable
+`[AGENTS] unmet_condition ...` diagnostic through the shell log read by
+`aurelia logs`. These are style units, so the
 base style scale in
 [05-ui-kit-and-measurements.md](05-ui-kit-and-measurements.md) still applies.
 

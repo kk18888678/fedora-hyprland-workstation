@@ -355,6 +355,8 @@ def main() -> int:
         "usageStatusText": go["usageStatusText"],
         "authHelpText": go["authHelpText"],
         "limits": go["limits"],
+        # The OpenCode Go source can report the 5h, weekly and monthly windows.
+        "supportedWindowMinutes": [300, 10080, 43200],
     }
     record.update(stats)
     record["detected"] = detected
