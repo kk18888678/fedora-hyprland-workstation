@@ -193,6 +193,28 @@ Item {
             dashboard.actionTargets[dashboard.focusRow] === name
     }
 
+    // Pointer interaction never creates, moves or retains the keyboard cursor.
+    // Every pointer entry point clears it so the focus ring disappears the
+    // moment the user reaches for the mouse; only real key handlers set it.
+    function notePointerInteraction() {
+        cursorActive = false
+    }
+
+    function selectAccountByPointer(index) {
+        notePointerInteraction()
+        selectAccount(index)
+    }
+
+    function clearSelectionByPointer() {
+        notePointerInteraction()
+        clearSelection()
+    }
+
+    function refreshByPointer() {
+        notePointerInteraction()
+        refreshNow(true)
+    }
+
     function selectAccount(index) {
         if (rows.length === 0) return
         var next = ((index % rows.length) + rows.length) % rows.length
@@ -203,7 +225,6 @@ Item {
         selectedFallbackIndex = next
         selectedAccountId = rows[next].id
         if (focusRegion === "matrix") focusRow = next
-        cursorActive = true
         Qt.callLater(ensureFocusVisible)
     }
 
@@ -216,7 +237,6 @@ Item {
         selectedFallbackIndex = -1
         detailItems = []
         if (focusRegion === "detail") focusRegion = "matrix"
-        cursorActive = true
         clampFocus()
     }
 
@@ -226,6 +246,7 @@ Item {
             return
         }
         if (rows.length <= 1) return
+        cursorActive = true
         selectAccount((selectedIndex < 0 ? 0 : selectedIndex) + delta)
     }
 
@@ -251,6 +272,9 @@ Item {
     }
 
     function activateFocus() {
+        // Enter/Space is a real key handler: the keyboard cursor is established
+        // here exactly as it is for the motion keys.
+        cursorActive = true
         if (focusRegion === "matrix") {
             selectAccount(focusRow)
         } else if (focusRegion === "actions") {
@@ -968,7 +992,8 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: dashboard.selectAccount(matrixRow.index)
+                            onPressed: dashboard.notePointerInteraction()
+                            onClicked: dashboard.selectAccountByPointer(matrixRow.index)
                         }
                     }
 
@@ -1014,8 +1039,6 @@ Item {
                 visible: dashboard.hasSelection
                 radius: Theme.radiusSm
                 color: "transparent"
-                border.width: dashboard.actionFocus("close") ? Theme.borderWidthFocus : 0
-                border.color: Theme.controls.focusBorder
 
                 AureliaIconButton {
                     id: closeButton
@@ -1023,7 +1046,9 @@ Item {
                     anchors.centerIn: parent
                     icon: "window-close"
                     tooltip: "Collapse account details"
-                    onTriggered: dashboard.clearSelection()
+                    // The ring is the dashboard's keyboard cursor, not Qt focus.
+                    keyboardFocus: dashboard.actionFocus("close")
+                    onTriggered: dashboard.clearSelectionByPointer()
                 }
             }
 
@@ -1032,8 +1057,6 @@ Item {
                 Layout.preferredHeight: refreshButton.implicitHeight
                 radius: Theme.radiusSm
                 color: "transparent"
-                border.width: dashboard.actionFocus("refresh") ? Theme.borderWidthFocus : 0
-                border.color: Theme.controls.focusBorder
 
                 AureliaIconButton {
                     id: refreshButton
@@ -1043,7 +1066,9 @@ Item {
                     tooltip: dashboard.refreshing ? "Refreshing usage…" : "Refresh usage"
                     active: dashboard.refreshing
                     enabled: !dashboard.refreshing
-                    onTriggered: dashboard.refreshNow(true)
+                    // The ring is the dashboard's keyboard cursor, not Qt focus.
+                    keyboardFocus: dashboard.actionFocus("refresh")
+                    onTriggered: dashboard.refreshByPointer()
                 }
             }
         }
@@ -1125,7 +1150,7 @@ Item {
                                     label: "Retry"
                                     compact: true
                                     Layout.preferredWidth: 84
-                                    onTriggered: dashboard.refreshNow(true)
+                                    onTriggered: dashboard.refreshByPointer()
                                 }
                             }
 
@@ -1307,6 +1332,14 @@ Item {
                 border.color: Theme.controls.focusBorder
             }
         }
+    }
+
+    // Any real pointer movement over the panel drops the keyboard cursor, so a
+    // ring never lingers while the user is working with the mouse. The handler
+    // is passive and does not consume events or steal hover from the children.
+    HoverHandler {
+        id: pointerHover
+        onPointChanged: if (pointerHover.hovered) dashboard.notePointerInteraction()
     }
 
     FocusScope {
