@@ -27,6 +27,11 @@ Window {
 
     property var records: []
     property var result: ({})
+    // Focus-ring policy: captured independently of the close/refresh flow so a
+    // pointer selection can be shown to leave no keyboard cursor and a real
+    // key press can be shown to establish one. The object is referenced by
+    // root.result, so later mutations are still serialised.
+    property var focusPolicy: ({})
     property bool written: false
 
     visible: true
@@ -85,7 +90,7 @@ Window {
             try {
                 var parsed = JSON.parse(fixtureFile.text())
                 root.records = (parsed && parsed.agents) ? parsed.agents : []
-                selectTimer.restart()
+                focusRestTimer.restart()
             } catch (e) {
                 console.error("[AGENTS-INTERACT] fixture_parse_failed " + e)
             }
@@ -107,6 +112,25 @@ Window {
         }
         if (root.dashboard) walk(root.dashboard)
         return found
+    }
+
+    // At-rest policy: the panel opens with no keyboard cursor, so neither the
+    // dashboard ring nor the shared primitive's ring may be active.
+    Timer {
+        id: focusRestTimer
+        interval: 250
+        repeat: false
+        onTriggered: {
+            var d = root.dashboard
+            var refresh = root.findByObjectName("agentsRefreshButton")
+            var close = root.findByObjectName("agentsCloseButton")
+            root.focusPolicy.atRestCursorActive = d ? d.cursorActive === true : null
+            root.focusPolicy.atRestRefreshRing = d ? d.actionFocus("refresh") === true : null
+            root.focusPolicy.atRestCloseRing = d ? d.actionFocus("close") === true : null
+            root.focusPolicy.atRestRefreshKeyboardFocus = refresh ? refresh.keyboardFocus === true : null
+            root.focusPolicy.atRestCloseKeyboardFocus = close ? close.keyboardFocus === true : null
+            selectTimer.restart()
+        }
     }
 
     Timer {
@@ -133,7 +157,8 @@ Window {
                 detailVisibleBefore: detail ? detail.visible === true : false,
                 closePresent: close !== null,
                 refreshPresent: refresh !== null,
-                refreshEnabledBefore: refresh ? refresh.enabled === true : false
+                refreshEnabledBefore: refresh ? refresh.enabled === true : false,
+                focusPolicy: root.focusPolicy
             }
             if (close) close.triggered()
             afterCloseTimer.restart()
@@ -177,8 +202,62 @@ Window {
             var refresh = root.findByObjectName("agentsRefreshButton")
             root.result.refreshEnabledAfter = refresh ? refresh.enabled === true : false
             root.result.refreshActiveAfter = refresh ? refresh.active === true : false
-            root.writeResult()
+            focusPointerTimer.restart()
         }
+    }
+
+    // Pointer policy: selecting a row through the pointer entry point must not
+    // create a keyboard cursor or a ring on either action control.
+    Timer {
+        id: focusPointerTimer
+        interval: 250
+        repeat: false
+        onTriggered: {
+            var d = root.dashboard
+            var refresh = root.findByObjectName("agentsRefreshButton")
+            var close = root.findByObjectName("agentsCloseButton")
+            if (d) d.selectAccountByPointer(1)
+            root.focusPolicy.afterPointerCursorActive = d ? d.cursorActive === true : null
+            root.focusPolicy.afterPointerRefreshRing = d ? d.actionFocus("refresh") === true : null
+            root.focusPolicy.afterPointerCloseRing = d ? d.actionFocus("close") === true : null
+            root.focusPolicy.afterPointerRefreshKeyboardFocus = refresh ? refresh.keyboardFocus === true : null
+            root.focusPolicy.afterPointerCloseKeyboardFocus = close ? close.keyboardFocus === true : null
+            focusKeyboardTimer.restart()
+        }
+    }
+
+    // Keyboard policy: a real key handler establishes the cursor and therefore
+    // a visible ring. Tab exercises the real region cycling (at least one
+    // press, then until the action region is reached) and j would move within
+    // the region; the ring must be on the focused action.
+    Timer {
+        id: focusKeyboardTimer
+        interval: 250
+        repeat: false
+        onTriggered: {
+            var d = root.dashboard
+            var refresh = root.findByObjectName("agentsRefreshButton")
+            if (d) {
+                d.handleKey({ key: Qt.Key_Tab, modifiers: 0, text: "", accepted: false })
+                var guard = 0
+                while (d.focusRegion !== "actions" && guard < 4) {
+                    d.handleKey({ key: Qt.Key_Tab, modifiers: 0, text: "", accepted: false })
+                    guard++
+                }
+            }
+            root.focusPolicy.afterKeyboardCursorActive = d ? d.cursorActive === true : null
+            root.focusPolicy.afterKeyboardFocusRegion = d ? d.focusRegion : null
+            root.focusPolicy.afterKeyboardRefreshRing = d ? d.actionFocus("refresh") === true : null
+            root.focusPolicy.afterKeyboardRefreshKeyboardFocus = refresh ? refresh.keyboardFocus === true : null
+            writeTimer.restart()
+        }
+    }
+
+    Timer {
+        id: writeTimer
+        interval: 150
+        repeat: false
+        onTriggered: root.writeResult()
     }
 
     function writeResult() {

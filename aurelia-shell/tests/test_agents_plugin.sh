@@ -931,6 +931,61 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Focus-ring policy (isolated runtime)
+# ---------------------------------------------------------------------------
+# A focus ring is a keyboard affordance. This drives the real dashboard body
+# offscreen, performs a pointer selection through the dashboard's pointer entry
+# point, and verifies it leaves no keyboard cursor and no ring on either the
+# dashboard-owned wrapper or the shared AureliaIconButton primitive
+# (`keyboardFocus`). It then performs a real keyboard navigation and verifies
+# the ring returns. The rendered pixels are not asserted; the booleans that
+# drive the border are.
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] agents focus-ring policy (qs or timeout unavailable)"
+    return 0
+fi
+
+focus_root="$(mktemp -d)"
+trap 'rm -rf -- "$focus_root" || true' RETURN
+focus_result="$focus_root/focus.json"
+focus_log="$focus_root/runtime.log"
+focus_status=0
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$focus_root/runtime" \
+XDG_CONFIG_HOME="$focus_root/config" \
+XDG_STATE_HOME="$focus_root/state" \
+XDG_CACHE_HOME="$focus_root/cache" \
+AGENTS_DASHBOARD_PLUGIN="$plugin_dir/AgentsDashboard.qml" \
+AGENTS_DASHBOARD_FIXTURE="$ROOT/tests/fixtures/agents-dashboard/records.json" \
+AGENTS_DASHBOARD_RESULT="$focus_result" \
+    /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/agents-dashboard/interaction.qml" >"$focus_log" 2>&1 || focus_status=$?
+
+if [[ "$focus_status" -eq 0 && -s "$focus_result" ]] &&
+   jq -e '
+        .focusPolicy.atRestCursorActive == false and
+        .focusPolicy.atRestRefreshRing == false and
+        .focusPolicy.atRestCloseRing == false and
+        .focusPolicy.atRestRefreshKeyboardFocus == false and
+        .focusPolicy.atRestCloseKeyboardFocus == false and
+        .focusPolicy.afterPointerCursorActive == false and
+        .focusPolicy.afterPointerRefreshRing == false and
+        .focusPolicy.afterPointerCloseRing == false and
+        .focusPolicy.afterPointerRefreshKeyboardFocus == false and
+        .focusPolicy.afterPointerCloseKeyboardFocus == false and
+        .focusPolicy.afterKeyboardCursorActive == true and
+        .focusPolicy.afterKeyboardFocusRegion == "actions" and
+        .focusPolicy.afterKeyboardRefreshRing == true and
+        .focusPolicy.afterKeyboardRefreshKeyboardFocus == true' \
+       "$focus_result" >/dev/null &&
+   runtime_log_is_environment_only "$focus_log" '(\[AGENTS\]|@interaction\.qml)' >/dev/null; then
+    pass "[isolated-runtime] a pointer selection leaves no keyboard focus ring while real keyboard navigation establishes and shows one"
+else
+    fail "[isolated-runtime] focus-ring policy regressed (status=$focus_status result=$(cat "$focus_result" 2>&1 || true))"
+fi
+
+# ---------------------------------------------------------------------------
 # Backend-path race (isolated runtime)
 # ---------------------------------------------------------------------------
 if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then

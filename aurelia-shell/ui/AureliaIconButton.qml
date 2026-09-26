@@ -11,6 +11,13 @@ Item {
     property string tooltip: ""
     property bool active: false
     property bool destructive: false
+    // The focus ring is a keyboard affordance, never a pointer one. By default
+    // it follows Qt's active focus, which is how the tab-focusable panels keep
+    // their ring. A panel that owns its own keyboard cursor (for example a
+    // dashboard that moves focus itself) can bind this to that cursor so the
+    // ring follows genuine keyboard navigation and can never be created or
+    // moved by a mouse click.
+    property bool keyboardFocus: activeFocus
 
     signal triggered()
 
@@ -34,15 +41,15 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusSm
-        color: root.active || iconHover.hovered || root.activeFocus
+        color: root.active || iconHover.hovered || root.keyboardFocus
             ? Theme.controls.hoverFill
             : "transparent"
-        border.color: root.destructive && (iconHover.hovered || root.activeFocus)
+        border.color: root.destructive && (iconHover.hovered || root.keyboardFocus)
             ? Theme.error
-            : (root.activeFocus
+            : (root.keyboardFocus
                 ? Theme.accent
                 : (root.active || iconHover.hovered ? Theme.controls.hoverBorder : "transparent"))
-        border.width: root.active || iconHover.hovered || root.activeFocus
+        border.width: root.active || iconHover.hovered || root.keyboardFocus
             ? Theme.borderWidthDefault
             : 0
         opacity: root.enabled ? 1.0 : 0.45
