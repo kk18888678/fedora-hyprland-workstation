@@ -707,6 +707,7 @@ PanelWindow {
     function refreshAurelia() {
         refreshDefaults()
         loadAureliaThemes()
+        root.applyAureliaPatch({ activeWindowDisplayMode: root.readActiveWindowDisplayMode() })
         motionProcess.command = [root.helperBin("workstation-aurelia"), "motion", "status"]
         motionProcess.running = true
         textSizeProcess.command = [root.helperBin("aurelia-display-text-size")]
@@ -722,6 +723,19 @@ PanelWindow {
         barHiddenProcess.command = [root.helperBin("aurelia-bar-hidden"), "read"]
         barHiddenProcess.running = true
         root.refreshAi()
+    }
+
+    // Effective active-window display mode read straight from the registry's
+    // manifest-default overlay (read-only; the hub never mutates config). Any
+    // value that is not an explicit "title" reports the "app" default, which
+    // matches the widget's own fail-closed normalization.
+    function readActiveWindowDisplayMode() {
+        var registry = pluginRoot ? pluginRoot.pluginRegistry : null
+        var settings = registry && typeof registry.settingsForEntry === "function"
+            ? registry.settingsForEntry("aurelia.active-window", {}) : null
+        var mode = settings && settings.displayMode !== undefined
+            ? String(settings.displayMode).toLowerCase() : ""
+        return mode === "title" ? "title" : "app"
     }
 
     function refreshAi() {
@@ -761,7 +775,8 @@ PanelWindow {
     // field can never be dropped when one patcher rebuilds the state (which
     // is what emptied the AI/defaults dropdowns).
     readonly property var aureliaStateKeys: ["ipcOnline", "themes", "currentTheme",
-        "motionEnabled", "motionScale", "textSize", "barHidden", "weekStart",
+        "motionEnabled", "motionScale", "textSize", "barHidden",
+        "activeWindowDisplayMode", "weekStart",
         "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse",
         "defaults", "ai", "settingsPath"]
 
@@ -843,6 +858,10 @@ PanelWindow {
             break
         case "aurelia.bar":
             runHelper([root.helperBin("aurelia-bar-hidden"), value ? "on" : "off"], "Toggling bar…")
+            break
+        case "aurelia.active-window.displayMode":
+            runHelper([root.helperBin("aurelia-bar"), "set", "aurelia.active-window",
+                       "displayMode", String(value)], "Setting active window display…")
             break
         case "aurelia.calendar.weekStart":
             runHelper([root.helperBin("workstation-aurelia"), "preference", "set",

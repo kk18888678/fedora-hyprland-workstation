@@ -30,9 +30,30 @@ Item {
         if (handle && handle.appId) return String(handle.appId)
         return String(root.routeInfo.appId || "")
     }
-    // Title wins, then the Wayland app id, then the XWayland class reported by
-    // the compositor's IPC object. Keep every step null-safe.
-    readonly property string label: {
+    // The desktop entry supplies both the application artwork and its name.
+    // Resolve it once and reuse it so the icon and the label can never
+    // disagree about which application they describe. Unknown applications
+    // resolve to null and fall back below. The count keeps the lookup reactive
+    // to the asynchronous desktop-entry scan, which can finish after the
+    // widget is first bound (a plain heuristicLookup is not reactive).
+    readonly property int desktopEntryCount: DesktopEntries.applications.values.length
+    readonly property var appEntry: {
+        var entryCount = root.desktopEntryCount
+        if (root.appId === "") return null
+        return DesktopEntries.heuristicLookup(root.appId)
+    }
+    // Display mode defaults to the application name. Anything that is not an
+    // explicit "title" fails closed to "app", so an unknown or absent setting
+    // can never hide the label.
+    readonly property string displayMode: {
+        var raw = root.settings && root.settings.displayMode !== undefined
+            ? String(root.settings.displayMode).toLowerCase() : ""
+        return raw === "title" ? "title" : "app"
+    }
+    // Historical title-first identity: title wins, then the Wayland app id,
+    // then the XWayland class reported by the compositor's IPC object. Keep
+    // every step null-safe.
+    readonly property string titleLabel: {
         var title = String(root.activeToplevel && root.activeToplevel.title
             ? root.activeToplevel.title : "").trim()
         if (title !== "") return title
@@ -41,6 +62,19 @@ Item {
         if (handleAppId !== "") return handleAppId
         return String(root.routeInfo.className || root.routeInfo.initialClass || "")
     }
+    // Application-name identity. The desktop entry's own name is authoritative
+    // (upstream does not title-case consistently: foot ships "Foot" while kitty
+    // ships "kitty"), then the app id, then the compositor's class.
+    readonly property string appName: {
+        var name = root.appEntry && root.appEntry.name ? String(root.appEntry.name).trim() : ""
+        if (name !== "") return name
+        if (root.appId !== "") return root.appId
+        return String(root.routeInfo.className || root.routeInfo.initialClass || "")
+    }
+    // The rendered label follows the configured display mode. The tooltip
+    // binds to `label`, so title mode still exposes the full, un-elided title
+    // while app mode names the application.
+    readonly property string label: root.displayMode === "title" ? root.titleLabel : root.appName
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
@@ -64,8 +98,7 @@ Item {
     // and missing or invalid icons fall back the same way the task list does,
     // with a generic executable icon as the final resort.
     readonly property string desktopIconName: {
-        if (root.appId === "") return ""
-        var entry = DesktopEntries.heuristicLookup(root.appId)
+        var entry = root.appEntry
         return entry && entry.icon ? String(entry.icon) : ""
     }
     // The isolated fixture can pin the resolved icon name so the symbolic-icon
