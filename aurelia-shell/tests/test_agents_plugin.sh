@@ -117,77 +117,107 @@ else
     fail "[static] usage backend or collector wiring is missing"
 fi
 
-if grep -q 'AgentUsage.providerState' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.paceInfo' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.paceLabel' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.formatResetAbsolute' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.todayUsage' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.subscriptionRows' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.severityForLimit' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'property real marker' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'LAST 7 DAYS' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'MODELS · TODAY' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'MODELS · ALL TIME' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AureliaActionButton' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'PROVIDERS' "$plugin_dir/AgentsPanel.qml" &&
-   ! grep -q 'ALL ACCOUNTS' "$plugin_dir/AgentsPanel.qml" &&
-   ! grep -q 'tokens today · ' "$plugin_dir/AgentsPanel.qml"; then
-    pass "[static] agents panel renders the redesigned hero/providers/banner/limits/today/week/models/subscription sections"
+dashboard="$plugin_dir/AgentsDashboard.qml"
+
+if [[ -f "$dashboard" ]]; then
+    pass "[static] agents dashboard ships as a dedicated panel body surface"
 else
-    fail "[static] agents panel section redesign is incomplete"
+    fail "[static] agents dashboard surface is missing"
 fi
 
-if grep -q 'key === "unknown" || key === "error" || key === "rate-limited"' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'providerStateInfo.retry' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'providerStateInfo.help' "$plugin_dir/AgentsPanel.qml"; then
-    pass "[static] agents panel shows the state banner only for unknown/error/rate-limited with auth help and Retry"
-else
-    fail "[static] agents panel state banner contract is incomplete"
-fi
-
-if grep -q 'popupWidth: 380' "$plugin_dir/AgentsPanel.qml" &&
+if grep -q 'popupWidth: 460' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'contentSizingItem: dashboardLoader.item' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'focusTarget: dashboardLoader.item ? dashboardLoader.item.keyTarget : null' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'source: Qt.resolvedUrl("AgentsDashboard.qml")' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'ownerId: "aurelia.agents"' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'minPopupHeight: 220' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'maxPopupHeight: 640' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'maxBodyHeight: Math.max(0, maxPopupHeight - contentPadding \* 2)' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'todayModels(provider, 4)' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'modelRows(provider, 4)' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'Math.max(30, Math.min(3600, raw))' "$plugin_dir/AgentsBarWidget.qml"; then
-    pass "[static] agents panel container contract derives the body cap and clamps refresh to [30, 3600]"
+    pass "[static] agents popup becomes the 460-unit dashboard and keeps the shared keyboard/placement policy"
 else
     fail "[static] agents panel container contract is incomplete"
 fi
 
-# Every text node derives from the local Label primitive (which sets
-# font.family), no node uses the deprecated font.bold flag, and the meter uses
-# the shared control fill with at least 4 px thickness.
-raw_text_count="$(grep -cE '(^|[[:space:]])Text \{' "$plugin_dir/AgentsPanel.qml" || true)"
-if grep -q 'component Label: Text {' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'font.family: Theme.fontFamily' "$plugin_dir/AgentsPanel.qml" &&
-   ! grep -q 'font.bold' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Theme.fontWeightBold' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Theme.controls.normalFill' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'implicitHeight: Math.max(4, Theme.spacingXs)' "$plugin_dir/AgentsPanel.qml" &&
-   (( raw_text_count <= 1 )); then
-    pass "[static] agents panel inherits the bar font through one Label primitive and uses the weight/track tokens"
+if grep -q 'AgentUsage.matrixRows' "$dashboard" &&
+   grep -q 'AgentUsage.canonicalWindowOrder' "$dashboard" &&
+   grep -q 'AgentUsage.limitDetailRows' "$dashboard" &&
+   grep -q 'AgentUsage.windowColumnLabel' "$dashboard" &&
+   grep -q 'AgentUsage.balanceHeader' "$dashboard" &&
+   grep -q 'AgentUsage.anyBalance' "$dashboard" &&
+   grep -q 'ACCOUNT' "$dashboard" &&
+   grep -q 'TODAY' "$dashboard" &&
+   grep -q 'BALANCE' "$dashboard" &&
+   grep -q 'no live limits' "$dashboard" &&
+   grep -q 'duration not reported' "$dashboard" &&
+   grep -q 'LAST 7 DAYS' "$dashboard" &&
+   grep -q 'MODELS · TODAY' "$dashboard" &&
+   grep -q 'MODELS · ALL TIME' "$dashboard" &&
+   grep -q 'AureliaActionButton' "$dashboard" &&
+   ! grep -q 'PROVIDERS' "$plugin_dir/AgentsPanel.qml" "$dashboard" &&
+   ! grep -q 'ALL ACCOUNTS' "$plugin_dir/AgentsPanel.qml" "$dashboard" &&
+   ! grep -q 'tokens today · ' "$dashboard"; then
+    pass "[static] agents dashboard renders the pinned matrix, tabs, per-account detail and actions"
 else
-    fail "[static] agents panel typography contract is incomplete (rawText=$raw_text_count)"
+    fail "[static] agents dashboard section redesign is incomplete"
 fi
 
-if grep -q 'focusTarget: keyScope' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Qt.Key_Escape' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Qt.Key_Tab' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Qt.Key_J' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Qt.Key_K' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Qt.Key_H' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Qt.Key_L' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'Qt.Key_Return' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'text === "r"' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'function ensureCursorVisible()' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'function moveSection(delta)' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'function moveCursor(delta)' "$plugin_dir/AgentsPanel.qml"; then
-    pass "[static] agents panel adopts the peer focus cursor, Tab/Shift+Tab sections, j/k/h/l motion and r refresh"
+if grep -q 'stateInfo.key === "unknown"' "$dashboard" &&
+   grep -q 'stateInfo.key === "rate-limited"' "$dashboard" &&
+   grep -q 'stateInfo.retry' "$dashboard" &&
+   grep -q 'stateInfo.help' "$dashboard"; then
+    pass "[static] agents dashboard shows the state banner only for unknown/error/rate-limited with auth help and Retry"
 else
-    fail "[static] agents panel keyboard model is incomplete"
+    fail "[static] agents dashboard state banner contract is incomplete"
+fi
+
+# Every unmet condition logs a diagnostic through the shell's standard
+# console.warn channel (read by `aurelia logs`); the visible labels stay too.
+if grep -q 'AgentUsage.diagnoseRecords' "$dashboard" &&
+   grep -q 'AgentUsage.collectorDiagnostic' "$dashboard" &&
+   grep -q 'console.warn(AgentUsage.diagnosticLine' "$dashboard" &&
+   grep -q 'function emitDiagnostics()' "$dashboard" &&
+   grep -q 'absent_balance' "$plugin_dir/AgentUsage.js" &&
+   grep -q 'collector_failed' "$plugin_dir/AgentUsage.js"; then
+    pass "[static] agents dashboard logs every unmet condition while keeping the user-facing honesty labels"
+else
+    fail "[static] agents dashboard diagnostics contract is incomplete"
+fi
+
+# Every text node derives from the local Label primitive (which sets
+# font.family); numeric cells derive from NumericLabel; no node uses the
+# deprecated font.bold flag; the meter uses the shared control fill at
+# max(3, spacingXs) px.
+raw_text_count="$(grep -cE '(^|[[:space:]])Text \{' "$dashboard" || true)"
+if grep -q 'component Label: Text {' "$dashboard" &&
+   grep -q 'component NumericLabel: Label {' "$dashboard" &&
+   grep -q 'font.family: Theme.fontFamily' "$dashboard" &&
+   ! grep -q 'font.bold' "$dashboard" &&
+   grep -q 'Theme.fontWeightBold' "$dashboard" &&
+   grep -q 'Theme.controls.normalFill' "$dashboard" &&
+   grep -q 'Math.max(3, Theme.spacingXs)' "$dashboard" &&
+   (( raw_text_count <= 1 )); then
+    pass "[static] agents dashboard inherits the bar font through one Label primitive and uses the weight/track tokens"
+else
+    fail "[static] agents dashboard typography contract is incomplete (rawText=$raw_text_count)"
+fi
+
+if grep -q 'Qt.Key_Escape' "$dashboard" &&
+   grep -q 'Qt.Key_Tab' "$dashboard" &&
+   grep -q 'Qt.Key_J' "$dashboard" &&
+   grep -q 'Qt.Key_K' "$dashboard" &&
+   grep -q 'Qt.Key_H' "$dashboard" &&
+   grep -q 'Qt.Key_L' "$dashboard" &&
+   grep -q 'Qt.Key_Return' "$dashboard" &&
+   grep -q 'text === "r"' "$dashboard" &&
+   grep -q 'function moveRegion(delta)' "$dashboard" &&
+   grep -q 'function moveRow(delta)' "$dashboard" &&
+   grep -q 'function switchAccount(delta)' "$dashboard" &&
+   grep -q 'function ensureTabVisible()' "$dashboard" &&
+   grep -q 'function ensureFocusVisible()' "$dashboard" &&
+   grep -q 'function reconcileSelection' "$plugin_dir/AgentUsage.js"; then
+    pass "[static] agents dashboard adopts the peer focus regions, Tab/Shift+Tab, j/k/h/l motion, id-based selection and r refresh"
+else
+    fail "[static] agents dashboard keyboard model is incomplete"
 fi
 
 # PanelWindow's default property only accepts QQuickItem children, so a
@@ -207,7 +237,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, todayModels, modelRowsFrom, dayTokens, todayUsage, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, todayModels, modelRowsFrom, dayTokens, todayUsage, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders, classifyWindow, canonicalWindowOrder, windowColumnLabel, windowDescription, defaultWindowName, limitIsLive, liveLimits, hasLiveLimits, worstLimitFor, severityGlyph, paceWord, cellCountdown, matrixCell, matrixRow, matrixRows, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticKey, diagnosticLine };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -389,6 +419,124 @@ process.exit(ok ? 0 : 1);
         fail "[unit] agents UI projection contract failed"
     fi
     rm -f -- "$ui_test"
+
+    # Consolidated dashboard projection, the realistic multi-account fixture,
+    # worst-in-cell duplicate buckets, no-limits `—` semantics, balance
+    # presence, id-based tab reconciliation and fail-safe diagnostics.
+    dashboard_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$dashboard_test"
+    cat >>"$dashboard_test" <<'AGENT_DASHBOARD_EXPORTS'
+module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, matrixRows, matrixRow, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, paceWord, worstLimitFor, todayUsage, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey };
+AGENT_DASHBOARD_EXPORTS
+    if node -e '
+const fs = require("fs");
+const A = require(process.argv[1]);
+const records = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).agents;
+const now = Date.parse("2026-09-19T12:00:00Z");
+const assert = (c, m) => { if (!c) throw new Error(m); };
+// Numeric classification from windowMinutes only.
+assert(A.classifyWindow({windowMinutes: 300}) === "five_hour");
+assert(A.classifyWindow({windowMinutes: 10080}) === "week");
+assert(A.classifyWindow({windowMinutes: 43200}) === "month");
+assert(A.classifyWindow({windowMinutes: 1440}) === "other");
+assert(A.classifyWindow({windowMinutes: 0}) === "unknown");
+assert(A.classifyWindow({windowMinutes: NaN}) === "unknown");
+assert(A.classifyWindow({}) === "unknown");
+assert(A.classifyWindow(null) === "unknown");
+assert(A.windowDescription("month") === "30-day rolling window");
+assert(A.windowColumnLabel("five_hour") === "5H");
+// Fixed deterministic order: name ascending, id tiebreak.
+const rows = A.matrixRows(records, now);
+assert(rows.length === 6, "6 rows");
+assert(rows.map(r => r.name).join(",") === "Augment,Claude Code,Cline,Codex,Fireworks,OpenCode", "order");
+assert(A.accountOrder(records).map(r => r.id).join(",") === "augment,claude,cline,codex,fireworks,opencode", "ids");
+assert(A.accountOrder([{id: "b", name: "Same", ready: true}, {id: "a", name: "Same", ready: true}]).map(r => r.id).join(",") === "a,b", "id tiebreak");
+const byId = {};
+rows.forEach(r => { byId[r.id] = r; });
+assert(byId.codex.windows.five_hour.percentText === "42%");
+assert(byId.codex.windows.week.percentText === "55%", "worst-in-cell duplicate bucket");
+assert(byId.codex.windows.month === null, "no month bucket");
+assert(byId.codex.todayTokens === "5.4k");
+assert(byId.codex.noLiveLimits === false);
+assert(byId.opencode.windows.five_hour.percentText === "90%");
+assert(byId.opencode.windows.week.percentText === "35%");
+assert(byId.opencode.windows.month.percentText === "18%");
+assert(byId.claude.windows.five_hour === null && byId.claude.windows.week === null && byId.claude.windows.month === null);
+assert(byId.claude.noLiveLimits === true, "no live limits semantics");
+assert(byId.claude.todayTokens === "1.2k", "no-limits account still shows today tokens");
+assert(byId.fireworks.balance === "USD 12.50");
+assert(byId.fireworks.hasBalance === true);
+assert(byId.claude.balance === "");
+assert(A.anyBalance(records) === true, "balance column present");
+assert(A.anyBalance([{id: "x", name: "X"}]) === false, "balance column absent");
+assert(A.hasBalance({id: "x", subscription: {cost: "20"}}) === false, "subscription.cost is not balance");
+assert(A.balanceText({subscription: {cost: "20"}}) === "");
+assert(A.balanceHeader([{balance: {spent: 3}}]) === "SPEND");
+assert(A.balanceHeader([{balance: {remaining: 3}}]) === "BALANCE");
+// Partially-available record: every field it has renders; nothing suppressed.
+const partial = {id: "partial", name: "Partial", ready: true, detected: true,
+  todayBillableTokens: 42, limits: [{label: "5h", percent: 0.5, windowMinutes: 300}]};
+const pr = A.matrixRow(partial, now);
+assert(pr.windows.five_hour.percentText === "50%", "partial 5h percent");
+assert(pr.windows.five_hour.countdown === "", "percent without resetsAt keeps the percent, drops only the countdown");
+assert(pr.windows.five_hour.elapsed === -1, "no pace marker without resetsAt");
+assert(pr.windows.week === null && pr.windows.month === null);
+assert(pr.todayTokens === "42", "partial today tokens render");
+assert(pr.noLiveLimits === false);
+const pdetail = A.limitDetailRows(partial, now);
+assert(pdetail.length === 1 && pdetail[0].percentText === "50%" && pdetail[0].countdown === "");
+// Unusual / missing durations are never dropped from the detail list.
+const unusual = A.limitDetailRows({id: "u", limits: [
+  {label: "Weird", percent: 0.3, windowMinutes: 999, resetsAt: "2026-09-19T13:30:00Z"},
+  {label: "Zero", percent: 0.4, windowMinutes: 0, resetsAt: "2026-09-19T13:00:00Z"},
+  {label: "Missing", percent: 0.6}
+]}, now);
+assert(unusual.length === 3, "all unusual/unknown windows kept");
+assert(unusual[0].isOther === true);
+assert(unusual[1].isUnknown === true && unusual[1].title === "duration not reported");
+assert(unusual[2].isUnknown === true && unusual[2].title === "duration not reported");
+// A total-only record shows its available tokens rather than a fabricated zero.
+const totalOnly = {id: "t", name: "TotalOnly", ready: true, todayTotalTokens: 777, limits: []};
+assert(A.matrixRow(totalOnly, now).todayTokens === "777", "total-only record shows available tokens");
+assert(A.todayUsage(totalOnly).billable === 777, "total-only fallback");
+assert(A.todayUsage(totalOnly).cache === 0);
+// Tab selection reconciliation is by id, then a clamped index.
+assert(A.reconcileSelection("claude", 9, rows) === 1, "id wins over stale index");
+assert(A.reconcileSelection("gone", 4, rows) === 4, "clamped fallback index");
+assert(A.reconcileSelection("gone", 99, rows) === 5, "clamped to last");
+assert(A.reconcileSelection("", 0, rows) === 0);
+assert(A.reconcileSelection("x", 0, []) === -1);
+// Non-colour severity glyphs.
+assert(A.severityGlyph("warn") === "\u25b2");
+assert(A.severityGlyph("critical") === "\u25cf");
+assert(A.severityGlyph("ok") === "");
+// Pace word only when both percent and elapsed are finite.
+const paceFuture = new Date(now + 3.5 * 86400000).toISOString();
+assert(A.paceWord({percent: 0.5, windowMinutes: 10080, resetsAt: paceFuture}, now) === "on pace");
+assert(A.paceWord({percent: 0.7, windowMinutes: 10080, resetsAt: paceFuture}, now) === "behind");
+assert(A.paceWord({percent: 0.2, windowMinutes: 10080, resetsAt: paceFuture}, now) === "ahead");
+assert(A.paceWord({percent: 0.5}, now) === "", "no pace word without elapsed");
+// Diagnostics name every unmet condition and the provider.
+const codexDiags = A.diagnoseRecord(records.find(r => r.id === "codex"));
+const codexConds = codexDiags.map(d => d.condition);
+["missing_window_minutes", "zero_window_minutes", "missing_resets_at", "absent_balance"].forEach(c => assert(codexConds.includes(c), "codex diag " + c));
+assert(codexDiags.every(d => d.provider === "codex"));
+assert(A.diagnoseRecord(records.find(r => r.id === "claude")).some(d => d.condition === "missing_limits"));
+const unparse = A.diagnoseRecord({id: "x", name: "X", limits: [{label: "weird", windowMinutes: "abc", percent: 0.5, resetsAt: "nope"}]});
+const unparseConds = unparse.map(d => d.condition);
+assert(unparseConds.includes("unparseable_window_minutes"));
+assert(unparseConds.includes("unparseable_resets_at"));
+assert(A.collectorDiagnostic("usage backend failed")[0].condition === "collector_failed");
+assert(A.collectorDiagnostic("").length === 0);
+assert(A.diagnosticLine({provider: "codex", condition: "zero_window_minutes", detail: "Rate window"}) === "[AGENTS] unmet_condition provider=codex condition=zero_window_minutes detail=Rate window");
+assert(A.diagnoseRecord({id: "clean", name: "Clean", balance: {remaining: 1}, limits: [{label: "5h", percent: 0.1, windowMinutes: 300, resetsAt: new Date(now + 60000).toISOString()}]}).length === 0);
+process.exit(0);
+' "$dashboard_test" "$ROOT/tests/fixtures/agents-dashboard/records.json" >/dev/null; then
+        pass "[unit] agents dashboard projection orders accounts, classifies windows, keeps available data and names every unmet condition"
+    else
+        fail "[unit] agents dashboard projection contract failed"
+    fi
+    rm -f -- "$dashboard_test"
 else
     skip "[unit] agents record projection (node unavailable)"
 fi
@@ -720,6 +868,54 @@ if printf '%s' "$opencode_out" | jq -e '
     pass "[isolated] OpenCode buckets usage by the assistant turn activity time, not session creation"
 else
     fail "[isolated] OpenCode activity-time bucketing diverged: $opencode_out"
+fi
+
+# ---------------------------------------------------------------------------
+# Offscreen dashboard preview + fail-safe diagnostics (isolated runtime)
+# ---------------------------------------------------------------------------
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] agents dashboard preview (qs or timeout unavailable)"
+    return 0
+fi
+
+preview_root="$(mktemp -d)"
+trap 'rm -rf -- "$preview_root" || true' RETURN
+preview_image="$preview_root/dashboard.png"
+preview_result="$preview_root/result.json"
+preview_log="$preview_root/runtime.log"
+preview_status=0
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$preview_root/runtime" \
+XDG_CONFIG_HOME="$preview_root/config" \
+XDG_STATE_HOME="$preview_root/state" \
+XDG_CACHE_HOME="$preview_root/cache" \
+AGENTS_DASHBOARD_PLUGIN="$plugin_dir/AgentsDashboard.qml" \
+AGENTS_DASHBOARD_FIXTURE="$ROOT/tests/fixtures/agents-dashboard/records.json" \
+AGENTS_DASHBOARD_IMAGE="$preview_image" \
+AGENTS_DASHBOARD_RESULT="$preview_result" \
+AGENTS_DASHBOARD_BACKEND_ERROR="usage backend failed" \
+    /usr/bin/timeout --kill-after=1s 16s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/agents-dashboard/shell.qml" >"$preview_log" 2>&1 || preview_status=$?
+
+if [[ "$preview_status" -eq 0 && -s "$preview_image" && -s "$preview_result" ]] &&
+   jq -e '.records == 6 and .rows == 6 and .showBalance == true and
+          .selected == "codex" and .imageSaved == true' "$preview_result" >/dev/null &&
+   runtime_log_is_environment_only "$preview_log" '(\[AGENTS\]|result\.json)' >/dev/null &&
+   grep -q '\[AGENTS\] unmet_condition provider=codex condition=missing_window_minutes' "$preview_log" &&
+   grep -q 'provider=codex condition=zero_window_minutes' "$preview_log" &&
+   grep -q 'provider=codex condition=missing_resets_at' "$preview_log" &&
+   grep -q 'provider=codex condition=absent_balance' "$preview_log" &&
+   grep -q 'provider=claude condition=missing_limits' "$preview_log" &&
+   grep -q 'provider=backend condition=collector_failed' "$preview_log"; then
+    pass "[isolated-runtime] offscreen dashboard preview renders the fixture and logs every unmet condition and the collector failure"
+else
+    preview_log_ok=0
+    runtime_log_is_environment_only "$preview_log" '(\[AGENTS\]|result\.json)' >/dev/null && preview_log_ok=1
+    preview_image_state="no"
+    [[ -s "$preview_image" ]] && preview_image_state="yes"
+    preview_result_detail="$(cat "$preview_result" 2>&1 || true)"
+    fail "[isolated-runtime] dashboard preview or diagnostics regressed (status=$preview_status log_ok=$preview_log_ok image=$preview_image_state result=$preview_result_detail)"
 fi
 
 # ---------------------------------------------------------------------------

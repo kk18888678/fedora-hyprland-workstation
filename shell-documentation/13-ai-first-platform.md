@@ -307,19 +307,34 @@ instead provide `balance` with `remaining`, `funded`, `spent`, `currency`, and
     `usageStatusText` "Account configured · no usage yet", so a newly added
     account is visible before first use without pretending it has usage;
 - no data means the complete bar module is invisible, not a dim empty icon;
-- multiple providers add a switch row; one provider has no switch row.
+- the panel is a single consolidated multi-account `Usage` dashboard; there is
+  no per-provider switch row.
 
 The bar affordance is icon-only: one shared `AureliaIcon` glyph in a square
 slot, no text, no percentage and no countdown. State is tint + a 4 px dot
-(warn/critical/error only) + opacity. The panel is a 380-unit fitted-width
-dashboard (minimum 220, maximum 640) whose body cap is derived from the
+(warn/critical/error only) + opacity. The panel is a 460-unit fitted-width
+`Usage` dashboard (minimum 220, maximum 640) whose body cap is derived from the
 maximum, with a 160 ms OutCubic meter-width animation and up to four model rows
-per window. Every text node inherits the bar font through one local `Label`
-primitive, and the meter track is `Theme.controls.normalFill` at least 4 px
-thick. The keyboard model matches the Audio/Power/Bluetooth panels: Escape
-closes, Tab/Shift+Tab cycles sections, `j`/`k` and arrows move, `h`/`l` switch
-provider, Enter/Space activates, and `r` refreshes. These are style units, so
-the base style scale in
+per window. A pin-stable matrix lists every detected account in a fixed
+`name`/`id` order with `ACCOUNT | 5H | WEEK | MONTH | TODAY [| BALANCE]`
+columns; the window class is derived from `windowMinutes` alone (300 -> five
+hour, 10080 -> week, 43200 -> month, anything else present -> `other`,
+missing/0/NaN -> `unknown`). `MONTH` is a 30-day rolling window and is never
+described as "this month". One tab per account renders the full limits list
+(including `other`, `unknown` and duplicate buckets), today's billable/cache
+split, the 7-day chart, both model windows and the subscription rows. The
+matrix and tab strip are pinned; only the per-account detail scrolls. When
+there is exactly one account the tab strip is hidden. Every text node inherits
+the bar font through one local `Label` primitive (numeric cells derive from
+`NumericLabel`), and the meter track is `Theme.controls.normalFill` at least
+3 px thick. The keyboard model matches the Audio/Power/Bluetooth panels: Escape
+closes, Tab/Shift+Tab cycles regions (matrix -> tabs -> detail -> actions),
+`j`/`k` and arrows move the row cursor, `h`/`l` switch the selected account,
+Enter/Space activates, and `r` refreshes. A no-limits provider renders `—` and
+one muted `no live limits` tag, never a fabricated `0%`, and every unmet
+condition also records an observable `[AGENTS] unmet_condition ...` diagnostic
+through the shell log read by `aurelia logs`. These are style units, so the
+base style scale in
 [05-ui-kit-and-measurements.md](05-ui-kit-and-measurements.md) still applies.
 
 ### Provider-specific source behavior

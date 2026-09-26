@@ -413,11 +413,20 @@ function dayTokens(day) {
 
 // Today's billable/cache/count projection. `noun` is the provider-specific
 // count noun the collector advertises; `sessions` is reported separately so a
-// provider that counts sessions does not present the same number twice.
+// provider that counts sessions does not present the same number twice. When a
+// partial record has only `todayTotalTokens`, that available total is shown as
+// billable rather than a fabricated zero, so usable data is never suppressed.
 function todayUsage(record) {
+    var billableRaw = record ? record.todayBillableTokens : undefined;
+    var cacheRaw = record ? record.todayCacheTokens : undefined;
+    var billable = (billableRaw === undefined || billableRaw === null || String(billableRaw) === "")
+        ? number(record && record.todayTotalTokens)
+        : number(billableRaw);
+    var cache = (cacheRaw === undefined || cacheRaw === null || String(cacheRaw) === "")
+        ? 0 : number(cacheRaw);
     return {
-        billable: number(record && record.todayBillableTokens),
-        cache: number(record && record.todayCacheTokens),
+        billable: billable,
+        cache: cache,
         count: number(record && record.todayPrompts),
         noun: String((record && record.todayLabel) || "sessions"),
         sessions: number(record && record.todaySessions)
@@ -740,4 +749,360 @@ function subscriptionRows(record) {
         rows.push(renewal);
     }
     return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Consolidated usage dashboard projection
+//
+// The dashboard replaces the one-account-at-a-time switch with a pin-stable
+// matrix. Rows are accounts in a FIXED deterministic order (name ascending,
+// id tiebreak) and never reorder by severity: jumping rows destroy comparison
+// and make keyboard selection unpredictable. Columns are the canonical 5h /
+// weekly / 30-day rolling windows plus today's billable tokens. Window
+// classification is numeric from `windowMinutes` only; a window whose
+// duration is missing, zero or non-finite is `unknown` and can never be
+// forced into a canonical column. A provider that reports no limits renders
+// `—`, never a fabricated `0%`.
+// ---------------------------------------------------------------------------
+
+var CANONICAL_WINDOW_ORDER = ["five_hour", "week", "month"];
+var CANONICAL_WINDOW_MINUTES = { five_hour: 300, week: 10080, month: 43200 };
+var CANONICAL_COLUMN_LABEL = { five_hour: "5H", week: "WEEK", month: "MONTH" };
+var CANONICAL_WINDOW_NAME = { five_hour: "5h", week: "Weekly", month: "30-day" };
+
+// Numeric classification from `windowMinutes` alone. 300 -> five_hour,
+// 10080 -> week, 43200 -> month, any other present value -> other. A missing,
+// zero or NaN duration is `unknown` because the window cannot be placed on the
+// time axis at all.
+function classifyWindow(limit) {
+    if (!limit) return "unknown";
+    var raw = limit.windowMinutes;
+    if (raw === undefined || raw === null || raw === "") return "unknown";
+    var minutes = Number(raw);
+    if (!isFinite(minutes) || minutes === 0) return "unknown";
+    if (minutes === 300) return "five_hour";
+    if (minutes === 10080) return "week";
+    if (minutes === 43200) return "month";
+    return "other";
+}
+
+function canonicalWindowOrder() {
+    return CANONICAL_WINDOW_ORDER.slice();
+}
+
+function windowColumnLabel(windowClass) {
+    return CANONICAL_COLUMN_LABEL[windowClass] || "";
+}
+
+function defaultWindowName(windowClass) {
+    return CANONICAL_WINDOW_NAME[windowClass] || "Window";
+}
+
+// Human description used for the matrix column tooltips. MONTH is a 30-day
+// rolling window and is never described as "this month".
+function windowDescription(windowClass) {
+    if (windowClass === "five_hour") return "5-hour rolling window";
+    if (windowClass === "week") return "7-day rolling window";
+    if (windowClass === "month") return "30-day rolling window";
+    return "";
+}
+
+// A limit entry is only renderable when it carries a finite percent. Anything
+// else is a duration report without a usable number and must not be coerced
+// into 0%.
+function limitIsLive(limit) {
+    return !!limit && isFinite(Number(limit.percent));
+}
+
+function liveLimits(record) {
+    return ((record && record.limits) || []).filter(limitIsLive);
+}
+
+function hasLiveLimits(record) {
+    return liveLimits(record).length > 0;
+}
+
+// Worst-in-cell: when a provider reports the same canonical bucket more than
+// once, the matrix column compares the highest used percent so the alarm is
+// never hidden behind a duplicate. Non-finite percents are ignored.
+function worstLimitFor(limits, windowClass) {
+    var best = null;
+    for (var i = 0; i < (limits || []).length; i++) {
+        var limit = limits[i];
+        if (classifyWindow(limit) !== windowClass) continue;
+        var percent = Number(limit && limit.percent);
+        if (!isFinite(percent)) continue;
+        if (best === null || percent > Number(best.percent)) best = limit;
+    }
+    return best;
+}
+
+var SEVERITY_GLYPH = { warn: "▲", critical: "●" };
+
+// A non-colour severity glyph for warn and critical only. Warning-gold versus
+// error-red is the hardest pair for protan/deuteran vision, so the matrix must
+// never rely on colour alone; `ok` carries no glyph.
+function severityGlyph(severity) {
+    return SEVERITY_GLYPH[severity] || "";
+}
+
+// The pace word shown inside a cell, only when BOTH percent and elapsed are
+// finite. Deliberately short (`behind`/`ahead`/`on pace`) so it fits beside a
+// relative countdown in a narrow numeric column.
+function paceWord(limit, nowMs) {
+    var pace = paceInfo(limit, nowMs);
+    if (!pace) return "";
+    if (pace.onPace) return "on pace";
+    return pace.behind ? "behind" : "ahead";
+}
+
+function cellCountdown(limit, nowMs) {
+    var remaining = resetMsFor(limit, nowMs);
+    return remaining > 0 ? formatDuration(remaining) : "";
+}
+
+// One canonical matrix cell. `percent` is the always-present, colour-
+// independent signal; the glyph/meter are secondary. Kept free of the
+// absolute reset timestamp so 18 timestamps never clutter the grid; the
+// absolute time lives in the per-account tab and the cell tooltip.
+function matrixCell(limit, windowClass, nowMs) {
+    if (!limit || !isFinite(Number(limit.percent))) return null;
+    var percent = Number(limit.percent);
+    var severity = severityForLimit(limit);
+    var pace = paceInfo(limit, nowMs);
+    return {
+        windowClass: windowClass,
+        label: String(limit.label || defaultWindowName(windowClass)),
+        percent: percent,
+        percentText: Math.round(percent * 100) + "%",
+        severity: severity,
+        glyph: severityGlyph(severity),
+        elapsed: pace ? pace.elapsed : -1,
+        paceWord: paceWord(limit, nowMs),
+        countdown: cellCountdown(limit, nowMs),
+        resetsAt: String(limit.resetsAt || ""),
+        absoluteReset: formatResetAbsolute(limit.resetsAt)
+    };
+}
+
+// A prepaid balance is only present when the record carries an actual
+// `balance` object. `subscription.cost` describes what the user pays and must
+// NEVER populate the balance column.
+function hasBalance(record) {
+    var balance = record && record.balance;
+    return !!(balance && typeof balance === "object" && !Array.isArray(balance));
+}
+
+function anyBalance(records) {
+    return (records || []).some(hasBalance);
+}
+
+function balanceText(record) {
+    var balance = record && record.balance;
+    if (!balance || typeof balance !== "object" || Array.isArray(balance)) return "";
+    var currency = String(balance.currency || "");
+    var remaining = Number(balance.remaining);
+    if (!isFinite(remaining)) remaining = NaN;
+    var spent = Number(balance.spent);
+    if (!isFinite(spent)) spent = NaN;
+    var value = isFinite(remaining) ? remaining : spent;
+    if (!isFinite(value)) return "";
+    var text = value.toFixed(2);
+    return currency !== "" ? currency + " " + text : text;
+}
+
+function balanceHeader(records) {
+    var anyRemaining = false;
+    var anySpent = false;
+    (records || []).forEach(function (record) {
+        var balance = record && record.balance;
+        if (!balance || typeof balance !== "object") return;
+        if (isFinite(Number(balance.remaining))) anyRemaining = true;
+        if (isFinite(Number(balance.spent))) anySpent = true;
+    });
+    if (!anyRemaining && anySpent) return "SPEND";
+    return "BALANCE";
+}
+
+// A single account row for the matrix. `windows` keys are the canonical
+// classes; a missing class is `null` and renders `—`. `noLiveLimits` is true
+// only when the provider reports no usable limit at all, which is a NORMAL
+// state and gets one muted tag rather than fabricated percentages.
+function matrixRow(record, nowMs) {
+    var limits = (record && record.limits) || [];
+    var windows = {};
+    CANONICAL_WINDOW_ORDER.forEach(function (windowClass) {
+        windows[windowClass] = matrixCell(worstLimitFor(limits, windowClass), windowClass, nowMs);
+    });
+    return {
+        id: String((record && record.id) || ""),
+        name: String((record && (record.name || record.id)) || ""),
+        record: record || null,
+        windows: windows,
+        todayTokens: formatTokens(todayUsage(record).billable),
+        noLiveLimits: !hasLiveLimits(record),
+        hasBalance: hasBalance(record),
+        balance: balanceText(record)
+    };
+}
+
+// Accounts the user actually has, in the fixed deterministic order. The order
+// never depends on severity or freshness.
+function accountOrder(records) {
+    var list = detectedAgents(records).slice();
+    list.sort(function (a, b) {
+        var an = String((a && (a.name || a.id)) || "");
+        var bn = String((b && (b.name || b.id)) || "");
+        if (an < bn) return -1;
+        if (an > bn) return 1;
+        var aid = String((a && a.id) || "");
+        var bid = String((b && b.id) || "");
+        if (aid < bid) return -1;
+        if (aid > bid) return 1;
+        return 0;
+    });
+    return list;
+}
+
+function matrixRows(records, nowMs) {
+    return accountOrder(records).map(function (record) {
+        return matrixRow(record, nowMs);
+    });
+}
+
+// Selection reconciliation is BY ID, not index: a removed account falls back
+// by id first and then to a clamped previous index, so the detail pane never
+// blanks and a blunt `selectedIndex = 0` reset never surprises the user.
+function reconcileSelection(previousId, previousIndex, rows) {
+    if (!rows || rows.length === 0) return -1;
+    if (previousId !== null && previousId !== undefined && String(previousId) !== "") {
+        for (var i = 0; i < rows.length; i++) {
+            if (String(rows[i].id) === String(previousId)) return i;
+        }
+    }
+    var index = Number(previousIndex);
+    if (!isFinite(index)) index = 0;
+    return Math.max(0, Math.min(Math.round(index), rows.length - 1));
+}
+
+// Detail rows for the per-account tab: the FULL limits list, including `other`
+// windows and any duplicate bucket. `unknown` durations render as a
+// full-width `duration not reported` row. Input order is preserved so the tab
+// stays stable and never reshuffles between refreshes.
+function limitDetailRows(record, nowMs) {
+    return ((record && record.limits) || []).map(function (limit) {
+        var windowClass = classifyWindow(limit);
+        var live = limitIsLive(limit);
+        var percent = Number(limit && limit.percent);
+        var severity = live ? severityForLimit(limit) : "unknown";
+        return {
+            windowClass: windowClass,
+            isUnknown: windowClass === "unknown",
+            isOther: windowClass === "other",
+            title: windowClass === "unknown"
+                ? "duration not reported"
+                : (String(limit && limit.label || "") || defaultWindowName(windowClass)),
+            percent: live ? percent : -1,
+            percentText: live ? Math.round(percent * 100) + "%" : "—",
+            severity: severity,
+            glyph: live ? severityGlyph(severity) : "",
+            elapsed: paceInfo(limit, nowMs) ? paceInfo(limit, nowMs).elapsed : -1,
+            paceWord: live ? paceWord(limit, nowMs) : "",
+            countdown: live ? cellCountdown(limit, nowMs) : "",
+            resetsAt: String(limit && limit.resetsAt || ""),
+            absoluteReset: formatResetAbsolute(limit && limit.resetsAt)
+        };
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Conditional fail-safe diagnostics
+//
+// The dashboard shows available data whenever it exists and degrades to honest
+// user-facing labels (`—`, `no live limits`, `duration not reported`) only for
+// the fields that are genuinely absent. Every unmet condition that produces
+// such a label also produces an observable diagnostic naming the condition and
+// the provider, so a silent `—` is never the only record. The dashboard emits
+// these through the shell's standard `console.warn("[AGENTS] ...")` channel,
+// which `aurelia logs` reads from the Quickshell runtime log. This function is
+// pure so the diagnostic contract is unit-testable.
+
+function trimmedString(value) {
+    if (value === undefined || value === null) return "";
+    return String(value);
+}
+
+function diagnosticProvider(record) {
+    return String((record && (record.id || record.name)) || "unknown");
+}
+
+function pushDiagnostic(out, record, condition, detail) {
+    out.push({
+        provider: diagnosticProvider(record),
+        condition: condition,
+        detail: trimmedString(detail)
+    });
+}
+
+function limitDiagnosticLabel(limit, index) {
+    var label = trimmedString(limit && limit.label);
+    return label !== "" ? label : "limit[" + index + "]";
+}
+
+function diagnoseRecord(record) {
+    var out = [];
+    var limits = record ? record.limits : null;
+    if (!Array.isArray(limits) || limits.length === 0) {
+        pushDiagnostic(out, record, "missing_limits", "");
+    } else {
+        limits.forEach(function (limit, index) {
+            var raw = limit ? limit.windowMinutes : undefined;
+            if (raw === undefined || raw === null || String(raw) === "") {
+                pushDiagnostic(out, record, "missing_window_minutes", limitDiagnosticLabel(limit, index));
+            } else if (!isFinite(Number(raw))) {
+                pushDiagnostic(out, record, "unparseable_window_minutes", limitDiagnosticLabel(limit, index));
+            } else if (Number(raw) === 0) {
+                pushDiagnostic(out, record, "zero_window_minutes", limitDiagnosticLabel(limit, index));
+            }
+            var resetsAt = limit ? limit.resetsAt : undefined;
+            if (resetsAt === undefined || resetsAt === null || String(resetsAt) === "") {
+                pushDiagnostic(out, record, "missing_resets_at", limitDiagnosticLabel(limit, index));
+            } else if (!isFinite(Date.parse(String(resetsAt)))) {
+                pushDiagnostic(out, record, "unparseable_resets_at", limitDiagnosticLabel(limit, index));
+            }
+        });
+    }
+    if (!hasBalance(record)) {
+        pushDiagnostic(out, record, "absent_balance", "");
+    }
+    return out;
+}
+
+function diagnoseRecords(records) {
+    var out = [];
+    (records || []).forEach(function (record) {
+        out = out.concat(diagnoseRecord(record));
+    });
+    return out;
+}
+
+// A collector run that failed is diagnosable independent of any record.
+function collectorDiagnostic(errorText) {
+    var message = trimmedString(errorText);
+    if (message === "") return [];
+    return [{ provider: "backend", condition: "collector_failed", detail: message }];
+}
+
+function diagnosticKey(diagnostic) {
+    return trimmedString(diagnostic && diagnostic.provider) + "|" +
+        trimmedString(diagnostic && diagnostic.condition) + "|" +
+        trimmedString(diagnostic && diagnostic.detail);
+}
+
+function diagnosticLine(diagnostic) {
+    var line = "[AGENTS] unmet_condition provider=" + trimmedString(diagnostic && diagnostic.provider) +
+        " condition=" + trimmedString(diagnostic && diagnostic.condition);
+    var detail = trimmedString(diagnostic && diagnostic.detail);
+    if (detail !== "") line += " detail=" + detail;
+    return line;
 }

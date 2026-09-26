@@ -1,0 +1,257 @@
+{
+  "agents": [
+    {
+      "schemaVersion": 1,
+      "id": "codex",
+      "name": "Codex",
+      "updatedAt": "2026-09-19T11:55:00Z",
+      "ready": true,
+      "detected": true,
+      "hasLocalStats": true,
+      "hasPromptStats": true,
+      "scope": "device",
+      "tierLabel": "plus",
+      "todayLabel": "turns",
+      "retryAdvised": false,
+      "usageStatusText": "",
+      "authHelpText": "",
+      "limits": [
+        { "label": "5h window", "percent": 0.42, "windowMinutes": 300, "resetsAt": "2026-09-19T14:30:00Z" },
+        { "label": "Weekly (7-day)", "percent": 0.11, "windowMinutes": 10080, "resetsAt": "2026-09-24T00:00:00Z" },
+        { "label": "Weekly (secondary)", "percent": 0.55, "windowMinutes": 10080, "resetsAt": "2026-09-23T12:00:00Z" },
+        { "label": "Custom window", "percent": 0.30, "windowMinutes": 999, "resetsAt": "2026-09-19T13:30:00Z" },
+        { "label": "Rate window", "percent": 0.20, "windowMinutes": 0, "resetsAt": "2026-09-19T13:00:00Z" },
+        { "label": "Unreported", "percent": 0.60 }
+      ],
+      "todayPrompts": 12,
+      "todaySessions": 5,
+      "todayTotalTokens": 6000,
+      "todayBillableTokens": 5400,
+      "todayCacheTokens": 600,
+      "todayTokensByModel": {
+        "gpt-5.5": { "inputTokens": 4200, "outputTokens": 900, "cacheReadInputTokens": 600, "cacheCreationInputTokens": 300, "billableTokens": 5400, "cacheTokens": 600, "totalTokens": 6000 }
+      },
+      "recentDays": [
+        { "date": "2026-09-13", "tokens": 1200, "billableTokens": 1000, "cacheTokens": 200, "messageCount": 1200 },
+        { "date": "2026-09-14", "tokens": 0, "billableTokens": 0, "cacheTokens": 0, "messageCount": 0 },
+        { "date": "2026-09-15", "tokens": 3400, "billableTokens": 3000, "cacheTokens": 400, "messageCount": 3400 },
+        { "date": "2026-09-16", "tokens": 2800, "billableTokens": 2500, "cacheTokens": 300, "messageCount": 2800 },
+        { "date": "2026-09-17", "tokens": 0, "billableTokens": 0, "cacheTokens": 0, "messageCount": 0 },
+        { "date": "2026-09-18", "tokens": 4100, "billableTokens": 3600, "cacheTokens": 500, "messageCount": 4100 },
+        { "date": "2026-09-19", "tokens": 6000, "billableTokens": 5400, "cacheTokens": 600, "messageCount": 6000 }
+      ],
+      "totalPrompts": 128,
+      "totalSessions": 41,
+      "activeDays": 5,
+      "activeDates": ["2026-09-13", "2026-09-15", "2026-09-16", "2026-09-18", "2026-09-19"],
+      "modelUsage": {
+        "gpt-5.5": { "inputTokens": 32000, "outputTokens": 8000, "cacheReadInputTokens": 4000, "cacheCreationInputTokens": 2000, "billableTokens": 40000, "cacheTokens": 6000, "totalTokens": 46000 }
+      },
+      "subscription": { "plan": "Plus", "cost": "20", "currency": "USD", "cycle": "monthly", "renew": "2026-10-05", "daysLeft": 16 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "opencode",
+      "name": "OpenCode",
+      "updatedAt": "2026-09-19T11:58:00Z",
+      "ready": true,
+      "detected": true,
+      "hasLocalStats": true,
+      "hasPromptStats": true,
+      "scope": "device",
+      "tierLabel": "Go",
+      "todayLabel": "sessions",
+      "retryAdvised": false,
+      "usageStatusText": "",
+      "authHelpText": "",
+      "limits": [
+        { "label": "5h window", "percent": 0.90, "windowMinutes": 300, "resetsAt": "2026-09-19T15:00:00Z" },
+        { "label": "Weekly (7-day)", "percent": 0.35, "windowMinutes": 10080, "resetsAt": "2026-09-23T00:00:00Z" },
+        { "label": "Monthly (30-day)", "percent": 0.18, "windowMinutes": 43200, "resetsAt": "2026-10-14T00:00:00Z" }
+      ],
+      "todayPrompts": 3,
+      "todaySessions": 3,
+      "todayTotalTokens": 12800,
+      "todayBillableTokens": 11800,
+      "todayCacheTokens": 1000,
+      "todayTokensByModel": {
+        "deepseek-v4.1-flash": { "inputTokens": 9000, "outputTokens": 2800, "cacheReadInputTokens": 1000, "cacheCreationInputTokens": 0, "billableTokens": 11800, "cacheTokens": 1000, "totalTokens": 12800 }
+      },
+      "recentDays": [
+        { "date": "2026-09-13", "tokens": 2200, "billableTokens": 2000, "cacheTokens": 200, "messageCount": 2200 },
+        { "date": "2026-09-14", "tokens": 1800, "billableTokens": 1600, "cacheTokens": 200, "messageCount": 1800 },
+        { "date": "2026-09-15", "tokens": 5200, "billableTokens": 4800, "cacheTokens": 400, "messageCount": 5200 },
+        { "date": "2026-09-16", "tokens": 6400, "billableTokens": 6000, "cacheTokens": 400, "messageCount": 6400 },
+        { "date": "2026-09-17", "tokens": 3100, "billableTokens": 2900, "cacheTokens": 200, "messageCount": 3100 },
+        { "date": "2026-09-18", "tokens": 4400, "billableTokens": 4100, "cacheTokens": 300, "messageCount": 4400 },
+        { "date": "2026-09-19", "tokens": 12800, "billableTokens": 11800, "cacheTokens": 1000, "messageCount": 12800 }
+      ],
+      "totalPrompts": 96,
+      "totalSessions": 38,
+      "activeDays": 7,
+      "activeDates": ["2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19"],
+      "modelUsage": {
+        "deepseek-v4.1-flash": { "inputTokens": 88000, "outputTokens": 22000, "cacheReadInputTokens": 8000, "cacheCreationInputTokens": 2000, "billableTokens": 110000, "cacheTokens": 10000, "totalTokens": 120000 }
+      },
+      "subscription": { "plan": "Go", "cost": "10", "currency": "USD", "cycle": "monthly", "renew": "2026-10-01", "daysLeft": 12 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "claude",
+      "name": "Claude Code",
+      "updatedAt": "2026-09-19T11:52:00Z",
+      "ready": true,
+      "detected": true,
+      "hasLocalStats": true,
+      "hasPromptStats": true,
+      "scope": "device",
+      "tierLabel": "Max",
+      "todayLabel": "turns",
+      "retryAdvised": false,
+      "usageStatusText": "",
+      "authHelpText": "",
+      "limits": [],
+      "todayPrompts": 4,
+      "todaySessions": 2,
+      "todayTotalTokens": 1500,
+      "todayBillableTokens": 1200,
+      "todayCacheTokens": 300,
+      "todayTokensByModel": {
+        "claude-opus-4": { "inputTokens": 600, "outputTokens": 300, "cacheReadInputTokens": 200, "cacheCreationInputTokens": 100, "billableTokens": 900, "cacheTokens": 300, "totalTokens": 1200 }
+      },
+      "recentDays": [
+        { "date": "2026-09-13", "tokens": 880, "billableTokens": 700, "cacheTokens": 180, "messageCount": 880 },
+        { "date": "2026-09-14", "tokens": 0, "billableTokens": 0, "cacheTokens": 0, "messageCount": 0 },
+        { "date": "2026-09-15", "tokens": 2100, "billableTokens": 1800, "cacheTokens": 300, "messageCount": 2100 },
+        { "date": "2026-09-16", "tokens": 950, "billableTokens": 800, "cacheTokens": 150, "messageCount": 950 },
+        { "date": "2026-09-17", "tokens": 1420, "billableTokens": 1200, "cacheTokens": 220, "messageCount": 1420 },
+        { "date": "2026-09-18", "tokens": 0, "billableTokens": 0, "cacheTokens": 0, "messageCount": 0 },
+        { "date": "2026-09-19", "tokens": 1500, "billableTokens": 1200, "cacheTokens": 300, "messageCount": 1500 }
+      ],
+      "totalPrompts": 42,
+      "totalSessions": 9,
+      "activeDays": 5,
+      "activeDates": ["2026-09-13", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-19"],
+      "modelUsage": {
+        "claude-opus-4": { "inputTokens": 12000, "outputTokens": 6000, "cacheReadInputTokens": 2000, "cacheCreationInputTokens": 1000, "billableTokens": 18000, "cacheTokens": 3000, "totalTokens": 21000 }
+      },
+      "subscription": { "plan": "Max", "cost": "100", "currency": "USD", "cycle": "monthly", "renew": "2026-10-18", "daysLeft": 29 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "fireworks",
+      "name": "Fireworks",
+      "updatedAt": "2026-09-19T11:57:00Z",
+      "ready": true,
+      "detected": true,
+      "hasLocalStats": true,
+      "hasPromptStats": true,
+      "scope": "account",
+      "tierLabel": "Scale",
+      "todayLabel": "requests",
+      "retryAdvised": false,
+      "usageStatusText": "",
+      "authHelpText": "",
+      "balance": { "remaining": 12.5, "funded": 80.0, "spent": 67.5, "currency": "USD", "estimated": false },
+      "limits": [
+        { "label": "Daily window", "percent": 0.72, "windowMinutes": 1440, "resetsAt": "2026-09-20T00:00:00Z" }
+      ],
+      "todayPrompts": 7,
+      "todaySessions": 4,
+      "todayTotalTokens": 920000,
+      "todayBillableTokens": 820000,
+      "todayCacheTokens": 100000,
+      "todayTokensByModel": {
+        "llama-v3p1-70b": { "inputTokens": 600000, "outputTokens": 220000, "cacheReadInputTokens": 100000, "cacheCreationInputTokens": 0, "billableTokens": 820000, "cacheTokens": 100000, "totalTokens": 920000 }
+      },
+      "recentDays": [
+        { "date": "2026-09-13", "tokens": 210000, "billableTokens": 190000, "cacheTokens": 20000, "messageCount": 210000 },
+        { "date": "2026-09-14", "tokens": 450000, "billableTokens": 410000, "cacheTokens": 40000, "messageCount": 450000 },
+        { "date": "2026-09-15", "tokens": 380000, "billableTokens": 340000, "cacheTokens": 40000, "messageCount": 380000 },
+        { "date": "2026-09-16", "tokens": 620000, "billableTokens": 560000, "cacheTokens": 60000, "messageCount": 620000 },
+        { "date": "2026-09-17", "tokens": 700000, "billableTokens": 630000, "cacheTokens": 70000, "messageCount": 700000 },
+        { "date": "2026-09-18", "tokens": 510000, "billableTokens": 460000, "cacheTokens": 50000, "messageCount": 510000 },
+        { "date": "2026-09-19", "tokens": 920000, "billableTokens": 820000, "cacheTokens": 100000, "messageCount": 920000 }
+      ],
+      "totalPrompts": 64,
+      "totalSessions": 21,
+      "activeDays": 7,
+      "activeDates": ["2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19"],
+      "modelUsage": {
+        "llama-v3p1-70b": { "inputTokens": 3200000, "outputTokens": 1200000, "cacheReadInputTokens": 400000, "cacheCreationInputTokens": 0, "billableTokens": 4400000, "cacheTokens": 400000, "totalTokens": 4800000 }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "augment",
+      "name": "Augment",
+      "updatedAt": "2026-09-19T11:49:00Z",
+      "ready": true,
+      "detected": true,
+      "hasLocalStats": true,
+      "hasPromptStats": true,
+      "scope": "device",
+      "tierLabel": "Indie",
+      "todayLabel": "turns",
+      "retryAdvised": true,
+      "usageStatusText": "Rate limited",
+      "authHelpText": "Run `augment login` to refresh this account.",
+      "limits": [
+        { "label": "Weekly (7-day)", "percent": 0.93, "windowMinutes": 10080, "resetsAt": "2026-09-22T00:00:00Z" }
+      ],
+      "todayPrompts": 2,
+      "todaySessions": 1,
+      "todayTotalTokens": 2600,
+      "todayBillableTokens": 2100,
+      "todayCacheTokens": 500,
+      "todayTokensByModel": {
+        "augment-code": { "inputTokens": 1500, "outputTokens": 600, "cacheReadInputTokens": 300, "cacheCreationInputTokens": 200, "billableTokens": 2100, "cacheTokens": 500, "totalTokens": 2600 }
+      },
+      "recentDays": [
+        { "date": "2026-09-13", "tokens": 0, "billableTokens": 0, "cacheTokens": 0, "messageCount": 0 },
+        { "date": "2026-09-14", "tokens": 900, "billableTokens": 700, "cacheTokens": 200, "messageCount": 900 },
+        { "date": "2026-09-15", "tokens": 1400, "billableTokens": 1100, "cacheTokens": 300, "messageCount": 1400 },
+        { "date": "2026-09-16", "tokens": 700, "billableTokens": 600, "cacheTokens": 100, "messageCount": 700 },
+        { "date": "2026-09-17", "tokens": 0, "billableTokens": 0, "cacheTokens": 0, "messageCount": 0 },
+        { "date": "2026-09-18", "tokens": 1600, "billableTokens": 1300, "cacheTokens": 300, "messageCount": 1600 },
+        { "date": "2026-09-19", "tokens": 2600, "billableTokens": 2100, "cacheTokens": 500, "messageCount": 2600 }
+      ],
+      "totalPrompts": 18,
+      "totalSessions": 6,
+      "activeDays": 4,
+      "activeDates": ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-18", "2026-09-19"],
+      "modelUsage": {
+        "augment-code": { "inputTokens": 7200, "outputTokens": 2800, "cacheReadInputTokens": 1200, "cacheCreationInputTokens": 600, "billableTokens": 10000, "cacheTokens": 1800, "totalTokens": 11800 }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "cline",
+      "name": "Cline",
+      "updatedAt": "2026-09-19T11:50:00Z",
+      "ready": false,
+      "detected": true,
+      "hasLocalStats": false,
+      "hasPromptStats": false,
+      "scope": "device",
+      "tierLabel": "",
+      "todayLabel": "requests",
+      "retryAdvised": false,
+      "usageStatusText": "Account configured · no usage yet",
+      "authHelpText": "",
+      "limits": [],
+      "todayPrompts": 0,
+      "todaySessions": 0,
+      "todayTotalTokens": 0,
+      "todayBillableTokens": 0,
+      "todayCacheTokens": 0,
+      "todayTokensByModel": {},
+      "recentDays": [],
+      "totalPrompts": 0,
+      "totalSessions": 0,
+      "activeDays": 0,
+      "activeDates": [],
+      "modelUsage": {}
+    }
+  ]
+}
