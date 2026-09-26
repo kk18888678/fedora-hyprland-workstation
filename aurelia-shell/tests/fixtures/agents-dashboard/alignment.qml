@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Offscreen alignment probe for the consolidated Usage dashboard matrix.
+// Offscreen alignment probe for the consolidated AI Usage dashboard matrix.
 //
 // It loads the exact panel body (AgentsDashboard.qml) with the shared fixture
 // data, walks the live item tree, and reports the measured geometry of the
@@ -27,6 +27,9 @@ Window {
             .replace(/^file:\/\//, "")
     }
     readonly property string selectId: Quickshell.env("AGENTS_DASHBOARD_SELECT") || ""
+    // Percentage presentation to measure; the same dashboard body renders both
+    // modes so a test can prove the number and the meter fill agree.
+    readonly property string percentMode: Quickshell.env("AGENTS_DASHBOARD_PERCENT_MODE") || "remaining"
     // Default panel width; the test also measures a deliberately narrow width.
     readonly property int windowWidth: {
         var raw = parseInt(Quickshell.env("AGENTS_DASHBOARD_WIDTH") || "480")
@@ -48,6 +51,7 @@ Window {
         property string lastError: ""
         property bool refreshing: false
         property int staleMs: 1800000
+        property string percentMode: root.percentMode
         property var bar: null
         function refresh(force) {}
         function maybeRefresh(age) {}
@@ -143,6 +147,18 @@ Window {
         }
     }
 
+    // Depth-first search for the named descendant; used to measure the meter
+    // fill rectangle that the Meter component declares as `meterFill`.
+    function findDescendant(node, name) {
+        var kids = node.children || []
+        for (var i = 0; i < kids.length; i++) {
+            if (String(kids[i].objectName) === name) return kids[i]
+            var found = root.findDescendant(kids[i], name)
+            if (found) return found
+        }
+        return null
+    }
+
     function capture() {
         var d = root.dashboard
         if (!d) return
@@ -152,6 +168,7 @@ Window {
         var cells = []
         var percentages = []
         var meters = []
+        var meterFills = []
         var rows = []
 
         root.collect("matrixAccountHeader").forEach(function (item) {
@@ -173,6 +190,7 @@ Window {
             var rest = String(item.objectName).slice("matrixPercent-".length).split("-")
             var geo = root.geometry(item)
             percentages.push({ row: parseInt(rest[0]), column: rest.slice(1).join("-"),
+                text: String(item.text),
                 x: geo.x, width: geo.width, right: Math.round((geo.x + geo.width) * 100) / 100 })
         })
         root.collect("matrixMeter-").forEach(function (item) {
@@ -180,6 +198,12 @@ Window {
             var geo = root.geometry(item)
             meters.push({ row: parseInt(rest[0]), column: rest.slice(1).join("-"),
                 x: geo.x, width: geo.width, visible: item.visible === true })
+            var fill = root.findDescendant(item, "meterFill")
+            if (fill) {
+                var fillGeo = root.geometry(fill)
+                meterFills.push({ row: parseInt(rest[0]), column: rest.slice(1).join("-"),
+                    x: fillGeo.x, width: fillGeo.width })
+            }
         })
         root.collect("matrixRowRect-").forEach(function (item) {
             var geo = root.geometry(item)
@@ -190,12 +214,14 @@ Window {
         var payload = {
             columns: Quickshell.env("AGENTS_DASHBOARD_COLUMNS") || "five_hour,week,month",
             windowWidth: root.windowWidth,
+            percentMode: root.percentMode,
             accountHeader: accountHeader,
             accountCells: accountCells,
             headers: headers,
             cells: cells,
             percentages: percentages,
             meters: meters,
+            meterFills: meterFills,
             rows: rows
         }
         resultFile.setText(JSON.stringify(payload) + "\n")

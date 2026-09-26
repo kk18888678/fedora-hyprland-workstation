@@ -44,6 +44,7 @@ fi
 
 measure() {
     local width="$1" result="$2" log="$3"
+    local mode="${4:-remaining}"
     local sandbox
     sandbox="$(mktemp -d)"
     local status=0
@@ -57,6 +58,7 @@ measure() {
     AGENTS_DASHBOARD_FIXTURE="$fixture" \
     AGENTS_DASHBOARD_RESULT="$result" \
     AGENTS_DASHBOARD_WIDTH="$width" \
+    AGENTS_DASHBOARD_PERCENT_MODE="$mode" \
     AGENTS_DASHBOARD_SELECT="codex" \
         /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
         --path "$harness" >"$log" 2>&1 || status=$?
@@ -178,6 +180,34 @@ else
 fi
 assert_runtime_log_clean "$narrow_log" "narrow-width"
 
+# Mode consistency: the meter fill width must equal the displayed percentage
+# for BOTH presentations. This is the strongest proof that the number and the
+# visual cannot disagree, because the fill and the text are driven by the same
+# displayPercent() result.
+for percent_mode in remaining used; do
+    mode_result="$alignment_root/mode-$percent_mode.json"
+    mode_log="$alignment_root/mode-$percent_mode.log"
+    mode_status=0
+    measure 480 "$mode_result" "$mode_log" "$percent_mode" || mode_status=$?
+    if [[ "$mode_status" -eq 0 && -s "$mode_result" ]] &&
+       jq -e --arg mode "$percent_mode" '
+            . as $r
+            | ($r.percentMode == $mode) and
+              ([ $r.meterFills[] as $fill
+                 | ([$r.percentages[] | select(.row == $fill.row and .column == $fill.column)][0]) as $pct
+                 | ([$r.meters[] | select(.row == $fill.row and .column == $fill.column)][0]) as $meter
+                 | select($pct != null and $meter != null and $meter.width > 0 and
+                          ($pct.text | test("^[0-9]+%$")))
+                 | ((((($pct.text | sub("%";"") | tonumber) / 100) * $meter.width) - $fill.width) | fabs) <= 1.5
+               ] | all)
+           ' "$mode_result" >/dev/null; then
+        pass "[isolated-runtime] $percent_mode mode: every meter fill width matches its displayed percentage"
+    else
+        fail "[isolated-runtime] $percent_mode mode: a meter fill does not match its displayed percentage (status=$mode_status result=$(jq -c '.meterFills, .percentages' "$mode_result" || true))"
+    fi
+    assert_runtime_log_clean "$mode_log" "$percent_mode mode"
+done
+
 # Close/refresh interaction: the close control collapses the detail and the
 # icon-only refresh disables and shows its busy state while a probe runs.
 interaction_harness="$ROOT/tests/fixtures/agents-dashboard/interaction.qml"
@@ -211,7 +241,9 @@ if [[ "$interaction_status" -eq 0 && -s "$interaction_result" ]] &&
         .refreshEnabledWhileBusy == false and
         .refreshActiveWhileBusy == true and
         .refreshEnabledAfter == true and
-        .refreshActiveAfter == false' \
+        .refreshActiveAfter == false and
+        .refreshY < .matrixY and
+        .matrixY < .closeY' \
        "$interaction_result" >/dev/null; then
     pass "[isolated-runtime] close collapses the detail and the icon-only refresh disables and shows busy while running"
 else

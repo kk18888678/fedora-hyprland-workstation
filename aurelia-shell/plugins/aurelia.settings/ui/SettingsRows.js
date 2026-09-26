@@ -492,6 +492,17 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
             effective: (aurelia && aurelia.activeWindowDisplayMode) ? aurelia.activeWindowDisplayMode : "app"
         })
         rows.push({
+            kind: "combo",
+            id: "aurelia.agents.percentMode",
+            title: "AI Usage Percentage",
+            description: "Show what is remaining (100% = fully available) or what has been used (100% = exhausted) in the AI Usage panel.",
+            enumOptions: [
+                { value: "remaining", label: "Remaining (100% = fully available)" },
+                { value: "used", label: "Used (100% = exhausted)" }
+            ],
+            effective: (aurelia && aurelia.agentsPercentMode) ? aurelia.agentsPercentMode : "remaining"
+        })
+        rows.push({
             kind: "heading",
             title: "Keybindings"
         })
@@ -680,6 +691,7 @@ function emptyAureliaState() {
         textSize: 12,
         barHidden: false,
         activeWindowDisplayMode: "app",
+        agentsPercentMode: "remaining",
         weekStart: "sunday",
         clockFormat: "month_day_weekday_time",
         clockHour24: true,

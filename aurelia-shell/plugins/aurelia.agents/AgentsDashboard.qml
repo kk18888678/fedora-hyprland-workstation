@@ -5,7 +5,7 @@ import "../../theme"
 import "../../ui"
 import "AgentUsage.js" as AgentUsage
 
-// Consolidated multi-account Usage dashboard surface.
+// Consolidated multi-account AI Usage dashboard surface.
 //
 // This is the panel body, extracted from the layer-shell wrapper so the same
 // pixels can be rendered offscreen for a preview. The layout is deliberately
@@ -60,7 +60,12 @@ Item {
     implicitHeight: body.implicitHeight
 
     readonly property var accounts: agentsWidget ? agentsWidget.visibleAgents : []
-    readonly property var rows: AgentUsage.matrixRows(accounts, nowMs)
+    // Fail-closed: a missing/unknown widget mode resolves to the remaining
+    // default. AgentUsage is the one normalization point, so the rendered
+    // number and the meter fill can never disagree.
+    readonly property string percentMode: AgentUsage.normalizePercentMode(
+        agentsWidget ? agentsWidget.percentMode : "remaining")
+    readonly property var rows: AgentUsage.matrixRows(accounts, nowMs, percentMode)
     readonly property bool showBalance: AgentUsage.anyBalance(accounts)
     readonly property bool refreshing: !!(agentsWidget && agentsWidget.refreshing === true)
 
@@ -76,10 +81,12 @@ Item {
     readonly property int matrixColumnSpacing: Theme.spacingXs
     readonly property int matrixWindowCount: AgentUsage.canonicalWindowOrder().length
     readonly property real matrixContentWidth: Math.max(0, body.width - matrixRowMargin * 2)
-    // The action cluster belongs to the detail card; it is always present so
-    // Refresh stays reachable when no account is expanded. Close collapses the
-    // detail and is offered only while an account is expanded.
-    readonly property var actionTargets: hasSelection ? ["close", "refresh"] : ["refresh"]
+    // The action cluster belongs to the detail card; Refresh lives in the
+    // always-present header so it is reachable in every state, while Close
+    // collapses the detail and is offered only while an account is expanded.
+    // Targets are ordered top-to-bottom so entering the region lands on
+    // Refresh rather than on an absent Close.
+    readonly property var actionTargets: hasSelection ? ["refresh", "close"] : ["refresh"]
 
     // Windows get the shared width that remains after the fixed columns and
     // spacing. When even the minimum window width cannot fit, the ACCOUNT
@@ -127,9 +134,12 @@ Item {
         backendError: agentsWidget ? agentsWidget.lastError : "",
         staleMs: staleMs
     })
-    readonly property var limitDetails: AgentUsage.limitDetailRows(selectedRecord, nowMs)
+    readonly property var limitDetails: AgentUsage.limitDetailRows(selectedRecord, nowMs, percentMode)
     readonly property var today: AgentUsage.todayUsage(selectedRecord)
     readonly property var freshness: AgentUsage.freshnessPill(selectedRecord, nowMs, staleMs)
+    // Header freshness spans every account, not just the selected one, so the
+    // resting consolidated matrix never says "Freshness unknown".
+    readonly property var overallFreshness: AgentUsage.overallFreshnessPill(accounts, nowMs, staleMs)
     readonly property var todayModelRows: AgentUsage.todayModels(selectedRecord, 4)
     readonly property var allTimeModelRows: AgentUsage.modelRows(selectedRecord, 4)
     readonly property var weekBars: AgentUsage.dayChartBars(
@@ -471,6 +481,7 @@ Item {
             radius: height / 2
             width: Math.max(0, parent.width * AgentUsage.clamp(meter.value, 0, 1))
             color: meter.alarming ? Theme.error : Theme.accent
+            objectName: "meterFill"
 
             Behavior on width {
                 NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
@@ -497,10 +508,16 @@ Item {
         property var cell: null
         property string columnClass: ""
         property int rowIndex: -1
-        property string tooltipText: cell
-            ? (String(cell.label) + " · " + cell.percentText +
-                (cell.absoluteReset !== "" ? "\nResets " + cell.absoluteReset : ""))
-            : ""
+        readonly property bool isBinding: cell ? cell.isBinding === true : false
+        readonly property bool muted: cell ? cell.muted === true : false
+        property string tooltipText: {
+            if (!cell) return ""
+            var unit = dashboard.percentMode === "used" ? " used" : " remaining"
+            var text = String(cell.label) + " · " + cell.percentText + unit +
+                (cell.absoluteReset !== "" ? "\nResets " + cell.absoluteReset : "")
+            if (cell.isBinding === true) text += "\nBinding window · blocks this account"
+            return text
+        }
 
         objectName: "matrixCell-" + rowIndex + "-" + columnClass
         Layout.preferredWidth: dashboard.matrixWindowColumnWidth
@@ -508,6 +525,9 @@ Item {
         Layout.maximumWidth: dashboard.matrixWindowColumnWidth
         Layout.fillWidth: false
         spacing: 1
+        // When the account is blocked, non-binding windows dim so the eye goes
+        // to the binding window; the percentage stays legible either way.
+        opacity: matrixCell.muted ? 0.45 : 1.0
 
         RowLayout {
             Layout.fillWidth: true
@@ -630,6 +650,15 @@ Item {
                         font.pixelSize: Theme.fontSizeMd
                         font.weight: Theme.fontWeightMedium
                         elide: Text.ElideRight
+                    }
+
+                    Label {
+                        objectName: "limitBindingTag"
+                        visible: limitRow.detail && limitRow.detail.isBinding === true
+                        text: "Binding"
+                        color: dashboard.sectionColor(limitRow.detail ? limitRow.detail.severity : "ok")
+                        font.pixelSize: Theme.fontSizeXs
+                        font.weight: Theme.fontWeightBold
                     }
 
                     Label {
@@ -787,26 +816,56 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingSm
 
-        // HEADER (pinned): title and freshness only. The extended-card actions
-        // live in the action row below the matrix, next to the detail they act on.
+        // HEADER (pinned): title, percentage-mode legend and account-wide
+        // freshness. Refresh lives here so it is reachable in EVERY state;
+        // Close stays in the action row below the matrix.
         RowLayout {
             id: headerRow
             Layout.fillWidth: true
             spacing: Theme.spacingSm
 
             Label {
-                text: "Usage"
+                text: "AI Usage"
                 color: Theme.text
                 font.pixelSize: Theme.fontSizeMd
                 font.weight: Theme.fontWeightBold
             }
 
+            // The single legend that makes a bare percentage unambiguous. It
+            // is driven by the same resolved mode as the numbers and meters.
+            Label {
+                objectName: "agentsModeChip"
+                text: dashboard.percentMode === "used" ? "· % used" : "· % remaining"
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSizeXs
+            }
+
             Label {
                 Layout.fillWidth: true
-                text: dashboard.freshness.text
-                color: dashboard.freshness.stale ? Theme.warning : Theme.textMuted
+                text: dashboard.overallFreshness.text
+                color: dashboard.overallFreshness.stale ? Theme.warning : Theme.textMuted
                 font.pixelSize: Theme.fontSizeXs
                 elide: Text.ElideRight
+            }
+
+            Rectangle {
+                Layout.preferredWidth: headerRefreshButton.implicitWidth
+                Layout.preferredHeight: headerRefreshButton.implicitHeight
+                radius: Theme.radiusSm
+                color: "transparent"
+
+                AureliaIconButton {
+                    id: headerRefreshButton
+                    objectName: "agentsRefreshButton"
+                    anchors.centerIn: parent
+                    icon: "view-refresh"
+                    tooltip: dashboard.refreshing ? "Refreshing usage…" : "Refresh usage"
+                    active: dashboard.refreshing
+                    enabled: !dashboard.refreshing
+                    // The ring is the dashboard's keyboard cursor, not Qt focus.
+                    keyboardFocus: dashboard.actionFocus("refresh")
+                    onTriggered: dashboard.refreshByPointer()
+                }
             }
         }
 
@@ -945,10 +1004,18 @@ Item {
 
                                 Label {
                                     Layout.fillWidth: true
+                                    objectName: "matrixHeadline-" + matrixRow.index
                                     // Always present with a space fallback so the
                                     // optional tag never changes the row height.
-                                    text: matrixRow.modelData.noLiveLimits ? "no live limits" : " "
-                                    color: Theme.textMuted
+                                    // The word is severity-derived and therefore
+                                    // mode-INDEPENDENT; the binding window's
+                                    // number carries the mode. It never claims a
+                                    // window is "available" or "usable".
+                                    text: matrixRow.modelData.headlineText !== ""
+                                        ? matrixRow.modelData.headlineText : " "
+                                    color: matrixRow.modelData.headlineText === "no live limits"
+                                        ? Theme.textMuted
+                                        : dashboard.sectionColor(matrixRow.modelData.headlineSeverity)
                                     font.pixelSize: Theme.fontSizeXs
                                     elide: Text.ElideRight
                                 }
@@ -1014,10 +1081,10 @@ Item {
             }
         }
 
-        // ACTIONS (pinned): the extended-card action cluster. It sits directly
-        // above the detail so it clearly belongs to the region it acts on, and
-        // it is always present so Refresh is reachable even when nothing is
-        // expanded. Close is offered only while an account is expanded.
+        // ACTIONS (pinned): Close sits directly below the matrix so it clearly
+        // belongs to the detail it collapses. Refresh is in the header above
+        // and is therefore always reachable. Close is offered only while an
+        // account is expanded.
         RowLayout {
             id: actionRow
             Layout.fillWidth: true
@@ -1049,26 +1116,6 @@ Item {
                     // The ring is the dashboard's keyboard cursor, not Qt focus.
                     keyboardFocus: dashboard.actionFocus("close")
                     onTriggered: dashboard.clearSelectionByPointer()
-                }
-            }
-
-            Rectangle {
-                Layout.preferredWidth: refreshButton.implicitWidth
-                Layout.preferredHeight: refreshButton.implicitHeight
-                radius: Theme.radiusSm
-                color: "transparent"
-
-                AureliaIconButton {
-                    id: refreshButton
-                    objectName: "agentsRefreshButton"
-                    anchors.centerIn: parent
-                    icon: "view-refresh"
-                    tooltip: dashboard.refreshing ? "Refreshing usage…" : "Refresh usage"
-                    active: dashboard.refreshing
-                    enabled: !dashboard.refreshing
-                    // The ring is the dashboard's keyboard cursor, not Qt focus.
-                    keyboardFocus: dashboard.actionFocus("refresh")
-                    onTriggered: dashboard.refreshByPointer()
                 }
             }
         }

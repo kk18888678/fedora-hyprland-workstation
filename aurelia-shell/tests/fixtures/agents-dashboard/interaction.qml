@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Offscreen interaction probe for the consolidated Usage dashboard.
+// Offscreen interaction probe for the consolidated AI Usage dashboard.
 //
 // Verifies the runtime behaviour the static greps cannot: the close control
 // clears the selection and hides the detail pane, and the icon-only refresh
@@ -27,6 +27,8 @@ Window {
 
     property var records: []
     property var result: ({})
+    // The dashboard percentage presentation; default matches production.
+    readonly property string percentMode: Quickshell.env("AGENTS_DASHBOARD_PERCENT_MODE") || "remaining"
     // Focus-ring policy: captured independently of the close/refresh flow so a
     // pointer selection can be shown to leave no keyboard cursor and a real
     // key press can be shown to establish one. The object is referenced by
@@ -46,6 +48,7 @@ Window {
         property string lastError: ""
         property bool refreshing: false
         property int staleMs: 1800000
+        property string percentMode: root.percentMode
         property var bar: null
         function refresh(force) {}
         function maybeRefresh(age) {}
@@ -114,6 +117,12 @@ Window {
         return found
     }
 
+    function topY(item) {
+        if (!item || !root.dashboard) return null
+        var point = item.mapToItem(root.dashboard, 0, 0)
+        return Math.round(point.y * 100) / 100
+    }
+
     // At-rest policy: the panel opens with no keyboard cursor, so neither the
     // dashboard ring nor the shared primitive's ring may be active.
     Timer {
@@ -152,12 +161,18 @@ Window {
             var detail = root.findByObjectName("agentsDetailPane")
             var close = root.findByObjectName("agentsCloseButton")
             var refresh = root.findByObjectName("agentsRefreshButton")
+            var matrixHeader = root.findByObjectName("matrixAccountHeader")
             root.result = {
                 hasSelectionBefore: d ? d.hasSelection === true : false,
                 detailVisibleBefore: detail ? detail.visible === true : false,
                 closePresent: close !== null,
                 refreshPresent: refresh !== null,
                 refreshEnabledBefore: refresh ? refresh.enabled === true : false,
+                // Placement: Refresh is in the always-present header ABOVE the
+                // matrix; Close is in the action row BELOW it.
+                refreshY: root.topY(refresh),
+                matrixY: root.topY(matrixHeader),
+                closeY: root.topY(close),
                 focusPolicy: root.focusPolicy
             }
             if (close) close.triggered()

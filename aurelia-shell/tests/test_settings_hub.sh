@@ -196,7 +196,7 @@ match = re.search(r"aureliaStateKeys:\s*\[(.*?)\]", src, re.S)
 if not match:
     sys.exit(1)
 keys = set(re.findall(r'"([^"]+)"', match.group(1)))
-need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse", "activeWindowDisplayMode"}
+need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse", "activeWindowDisplayMode", "agentsPercentMode"}
 sys.exit(0 if need <= keys else 1)
 STATE_KEYS
 then
@@ -318,6 +318,50 @@ process.exit(ok ? 0 : 1);
     rm -f -- "$active_window_rows_test"
 else
     skip "[unit] Active Window display mode row (node unavailable)"
+fi
+
+# AI Usage percentage-mode row invariant: mirrors the Active Window precedent.
+# The combo reads the effective mode from the registry overlay and writes
+# through the canonical aurelia-bar CLI (never mutating config directly).
+if grep -q 'aurelia.agents.percentMode' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'agentsPercentMode' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'aurelia.agents.percentMode' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'settingsForEntry("aurelia.agents", {})' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'helperBin("aurelia-bar"), "set", "aurelia.agents"' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] AI Usage percentage mode row reads the registry overlay and writes through the aurelia-bar CLI"
+else
+    fail "[static] AI Usage percentage mode row wiring is incomplete"
+fi
+
+if command -v node >/dev/null; then
+    agents_rows_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$agents_rows_test"
+    cat >>"$agents_rows_test" <<'AGENTS_ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState };
+AGENTS_ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const remainingState = Object.assign({}, SR.emptyAureliaState(), { agentsPercentMode: "remaining" });
+const usedState = Object.assign({}, SR.emptyAureliaState(), { agentsPercentMode: "used" });
+const remainingRow = SR.buildRows("aurelia", [], {}, remainingState).find(r => r.id === "aurelia.agents.percentMode");
+const usedRow = SR.buildRows("aurelia", [], {}, usedState).find(r => r.id === "aurelia.agents.percentMode");
+const ok = remainingRow && remainingRow.kind === "combo" &&
+    remainingRow.enumOptions.length === 2 &&
+    remainingRow.enumOptions[0].value === "remaining" &&
+    remainingRow.enumOptions[0].label === "Remaining (100% = fully available)" &&
+    remainingRow.enumOptions[1].value === "used" &&
+    remainingRow.enumOptions[1].label === "Used (100% = exhausted)" &&
+    remainingRow.effective === "remaining" &&
+    usedRow && usedRow.kind === "combo" && usedRow.effective === "used";
+process.exit(ok ? 0 : 1);
+' "$agents_rows_test" >/dev/null; then
+        pass "[unit] AI Usage percentage mode row offers remaining/used options and reflects both modes"
+    else
+        fail "[unit] AI Usage percentage mode row projection is wrong"
+    fi
+    rm -f -- "$agents_rows_test"
+else
+    skip "[unit] AI Usage percentage mode row (node unavailable)"
 fi
 
 # ColorUtils is pure JS; exercise its parse/format/validate contract directly.

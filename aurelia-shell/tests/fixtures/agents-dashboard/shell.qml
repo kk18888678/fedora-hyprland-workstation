@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Offscreen preview harness for the consolidated Usage dashboard.
+// Offscreen preview harness for the consolidated AI Usage dashboard.
 //
 // A PanelWindow does not render offscreen, so this fixture loads
 // AgentsDashboard (the exact panel body) inside a plain QtQuick.Window and
@@ -31,6 +31,9 @@ Window {
 
     property var records: []
     property bool grabbed: false
+    // Percentage presentation for the offscreen render; defaults to the
+    // user-facing remaining mode (100% = fully available).
+    readonly property string percentMode: Quickshell.env("AGENTS_DASHBOARD_PERCENT_MODE") || "remaining"
     readonly property string backendError: Quickshell.env("AGENTS_DASHBOARD_BACKEND_ERROR") || ""
     // Empty means the resting consolidated matrix (no account expanded).
     readonly property string selectId: Quickshell.env("AGENTS_DASHBOARD_SELECT") || ""
@@ -47,6 +50,7 @@ Window {
         property string lastError: root.backendError
         property bool refreshing: false
         property int staleMs: 1800000
+        property string percentMode: root.percentMode
         property var bar: null
         function refresh(force) {}
         function maybeRefresh(age) {}

@@ -176,6 +176,36 @@ function clamp(value, lo, hi) {
     return Math.max(lo, Math.min(hi, value));
 }
 
+// ---------------------------------------------------------------------------
+// Percentage presentation mode
+//
+// `limits[].percent` is the fraction USED (0..1), and severity is a RISK
+// threshold derived from it (see severityForLimit). That internal meaning is
+// never inverted. What the user sees can be either the remaining headroom
+// (the default: 100% = fully available, 0% = exhausted) or the consumed
+// fraction (100% = exhausted). normalizePercentMode is the SINGLE place that
+// decides which mode applies, and displayPercent/displayMarker are the SINGLE
+// place that inverts, so the rendered number and its meter can never disagree.
+function normalizePercentMode(value) {
+    // Fail closed: only an explicit "used" selects the used presentation.
+    // undefined/null/empty/numbers/unknown strings all map to "remaining".
+    return String(value).toLowerCase() === "used" ? "used" : "remaining";
+}
+
+function displayPercent(usedFraction, mode) {
+    var used = Number(usedFraction);
+    // The -1 sentinel means "no live limit" and must survive unchanged.
+    if (!isFinite(used) || used < 0) return used;
+    return normalizePercentMode(mode) === "used" ? used : 1 - used;
+}
+
+function displayMarker(elapsedFraction, mode) {
+    var elapsed = Number(elapsedFraction);
+    // The -1 sentinel means "no pace marker" and must survive unchanged.
+    if (!isFinite(elapsed) || elapsed < 0) return elapsed;
+    return normalizePercentMode(mode) === "used" ? elapsed : 1 - elapsed;
+}
+
 // `limits[].percent` is the fraction of the window already used (0..1). The
 // binding limit is the one most likely to stop the next account, which is not
 // simply the highest percent: a window that is nearly drained is about to
@@ -458,6 +488,39 @@ function freshnessPill(record, nowMs, staleMs) {
     return { text: stale ? "Stale · " + text : text, stale: stale, known: true };
 }
 
+// The most recently WRITTEN record's `updatedAt`. This is the last collector
+// write, NOT proof that the upstream quota query succeeded: a failed query is
+// surfaced separately through the record error state, while a stale write is
+// still the best available freshness signal.
+function newestRecord(records) {
+    var best = null;
+    var bestMs = -Infinity;
+    (records || []).forEach(function (record) {
+        var ms = updatedAtMs(record);
+        if (!isFinite(ms)) return;
+        if (best === null || ms > bestMs) {
+            best = record;
+            bestMs = ms;
+        }
+    });
+    return best;
+}
+
+// Freshness across every account, independent of which record is expanded, so
+// the resting consolidated matrix is never "Freshness unknown". Uses the same
+// `updated` wording as the bar tooltip and the same future-timestamp clamp
+// (`just now`) via recordAgeMs.
+function overallFreshnessPill(records, nowMs, staleMs) {
+    var newest = newestRecord(records);
+    if (!newest) return { text: "never updated", stale: false, known: false };
+    var age = recordAgeMs(newest, nowMs);
+    if (!isFinite(age)) return { text: "never updated", stale: false, known: false };
+    var stale = isRecordStale(newest, nowMs, staleMs);
+    var ageText = age < 60000 ? "just now" : formatDuration(age) + " ago";
+    var text = "updated " + ageText;
+    return { text: stale ? "stale · " + text : text, stale: stale, known: true };
+}
+
 // Absolute reset time in deterministic UTC so the panel can show a fixed clock
 // time next to the relative countdown without depending on the host timezone.
 function formatResetAbsolute(resetsAt) {
@@ -477,13 +540,13 @@ function paceLabel(pace) {
 }
 
 // The worst window for a provider, used to label the provider switch.
-function providerWorstLabel(record, nowMs) {
+function providerWorstLabel(record, nowMs, mode) {
     var limit = bindingLimit(record, nowMs);
     if (!limit) return "";
     var label = String(limit.label || "Limit");
-    var percent = Number(limit.percent);
-    if (!isFinite(percent)) return label;
-    return label + " " + Math.round(percent * 100) + "%";
+    var used = Number(limit.percent);
+    if (!isFinite(used)) return label;
+    return label + " " + Math.round(displayPercent(used, mode) * 100) + "%";
 }
 
 // A collector error is explicit: either an `error` flag, or an auth help
@@ -865,19 +928,28 @@ function cellCountdown(limit, nowMs) {
 // independent signal; the glyph/meter are secondary. Kept free of the
 // absolute reset timestamp so 18 timestamps never clutter the grid; the
 // absolute time lives in the per-account tab and the cell tooltip.
-function matrixCell(limit, windowClass, nowMs) {
+function matrixCell(limit, windowClass, nowMs, mode) {
     if (!limit || !isFinite(Number(limit.percent))) return null;
-    var percent = Number(limit.percent);
+    var used = Number(limit.percent);
+    // SEVERITY IS DERIVED FROM USED, NOT FROM THE DISPLAYED NUMBER. The warn /
+    // critical thresholds are risk thresholds about consumed headroom, so a
+    // cell reading "10% remaining" is MORE dangerous than one reading "10%
+    // used". Keeping severity used-based means the critical `●` glyph agrees
+    // with the red tint and a real alarm is never hidden by the mode
+    // inversion. Do NOT invert severity to match the displayed percentage.
     var severity = severityForLimit(limit);
     var pace = paceInfo(limit, nowMs);
     return {
         windowClass: windowClass,
         label: String(limit.label || defaultWindowName(windowClass)),
-        percent: percent,
-        percentText: Math.round(percent * 100) + "%",
+        // `usedPercent` is the raw risk fraction for non-visual consumers;
+        // `percent` is the mode-aware meter fill the dashboard renders.
+        usedPercent: used,
+        percent: displayPercent(used, mode),
+        percentText: Math.round(displayPercent(used, mode) * 100) + "%",
         severity: severity,
         glyph: severityGlyph(severity),
-        elapsed: pace ? pace.elapsed : -1,
+        elapsed: pace ? displayMarker(pace.elapsed, mode) : -1,
         paceWord: paceWord(limit, nowMs),
         countdown: cellCountdown(limit, nowMs),
         resetsAt: String(limit.resetsAt || ""),
@@ -928,19 +1000,50 @@ function balanceHeader(records) {
 // classes; a missing class is `null` and renders `—`. `noLiveLimits` is true
 // only when the provider reports no usable limit at all, which is a NORMAL
 // state and gets one muted tag rather than fabricated percentages.
-function matrixRow(record, nowMs) {
+// Severity-derived headline for an account row. The word is deliberately
+// mode-INDEPENDENT: "Blocked" states the account's risk, not how the binding
+// window's percentage is displayed. It must never say "available" or
+// "usable", which would contradict "Blocked" when another window is exhausted.
+function headlineFor(severity, hasLimits) {
+    if (!hasLimits) return "no live limits";
+    if (severity === "critical") return "Blocked";
+    if (severity === "warn") return "Near limit";
+    return "";
+}
+
+function matrixRow(record, nowMs, mode) {
     var limits = (record && record.limits) || [];
+    var binding = bindingLimit(record, nowMs);
+    var bindingClass = binding ? classifyWindow(binding) : "";
+    var bindingLabel = binding ? String(binding.label || "") : "";
+    var severity = binding ? severityForLimit(binding) : "unknown";
+    var hasLimits = hasLiveLimits(record);
     var windows = {};
     CANONICAL_WINDOW_ORDER.forEach(function (windowClass) {
-        windows[windowClass] = matrixCell(worstLimitFor(limits, windowClass), windowClass, nowMs);
+        var worst = worstLimitFor(limits, windowClass);
+        var cell = matrixCell(worst, windowClass, nowMs, mode);
+        if (cell) {
+            // Pin to the binding limit's class AND label so a duplicate bucket
+            // in the same class cannot mis-mark the window that is actually
+            // limiting the account.
+            cell.isBinding = binding !== null && windowClass === bindingClass &&
+                String(worst.label || "") === bindingLabel;
+            // When the account is blocked, dim every non-binding window so the
+            // eye goes to the window that is doing the blocking.
+            cell.muted = severity === "critical" && cell.isBinding !== true;
+        }
+        windows[windowClass] = cell;
     });
     return {
         id: String((record && record.id) || ""),
         name: String((record && (record.name || record.id)) || ""),
         record: record || null,
         windows: windows,
+        bindingWindowClass: bindingClass,
+        headlineText: headlineFor(severity, hasLimits),
+        headlineSeverity: severity,
         todayTokens: formatTokens(todayUsage(record).billable),
-        noLiveLimits: !hasLiveLimits(record),
+        noLiveLimits: !hasLimits,
         hasBalance: hasBalance(record),
         balance: balanceText(record)
     };
@@ -964,9 +1067,9 @@ function accountOrder(records) {
     return list;
 }
 
-function matrixRows(records, nowMs) {
+function matrixRows(records, nowMs, mode) {
     return accountOrder(records).map(function (record) {
-        return matrixRow(record, nowMs);
+        return matrixRow(record, nowMs, mode);
     });
 }
 
@@ -989,24 +1092,30 @@ function reconcileSelection(previousId, previousIndex, rows) {
 // windows and any duplicate bucket. `unknown` durations render as a
 // full-width `duration not reported` row. Input order is preserved so the tab
 // stays stable and never reshuffles between refreshes.
-function limitDetailRows(record, nowMs) {
+function limitDetailRows(record, nowMs, mode) {
+    var binding = bindingLimit(record, nowMs);
+    var bindingClass = binding ? classifyWindow(binding) : "";
+    var bindingLabel = binding ? String(binding.label || "") : "";
     return ((record && record.limits) || []).map(function (limit) {
         var windowClass = classifyWindow(limit);
         var live = limitIsLive(limit);
-        var percent = Number(limit && limit.percent);
+        var used = Number(limit && limit.percent);
         var severity = live ? severityForLimit(limit) : "unknown";
+        var pace = paceInfo(limit, nowMs);
         return {
             windowClass: windowClass,
             isUnknown: windowClass === "unknown",
             isOther: windowClass === "other",
+            isBinding: binding !== null && windowClass === bindingClass &&
+                String(limit && limit.label || "") === bindingLabel,
             title: windowClass === "unknown"
                 ? "duration not reported"
                 : (String(limit && limit.label || "") || defaultWindowName(windowClass)),
-            percent: live ? percent : -1,
-            percentText: live ? Math.round(percent * 100) + "%" : "—",
+            percent: live ? displayPercent(used, mode) : -1,
+            percentText: live ? Math.round(displayPercent(used, mode) * 100) + "%" : "—",
             severity: severity,
             glyph: live ? severityGlyph(severity) : "",
-            elapsed: paceInfo(limit, nowMs) ? paceInfo(limit, nowMs).elapsed : -1,
+            elapsed: pace ? displayMarker(pace.elapsed, mode) : -1,
             paceWord: live ? paceWord(limit, nowMs) : "",
             countdown: live ? cellCountdown(limit, nowMs) : "",
             resetsAt: String(limit && limit.resetsAt || ""),
