@@ -212,7 +212,7 @@ service’s own main PID to answer on its port, and stops the wizard after a
 3-second settle period. A gateway that will not stop blocks package removal so
 no live process is left running against deleted code.
 
-## Usage dashboard and collector contract
+## AI Usage dashboard and collector contract
 
 The AI bar widget is a display/controller, not the source of usage truth. Its
 data path is:

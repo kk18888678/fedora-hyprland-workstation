@@ -71,6 +71,12 @@ Item {
         if (isNaN(raw)) return 1800 * 1000
         return Math.max(60, Math.min(86400, raw)) * 1000
     }
+    // Resolved, fail-closed presentation mode for the panel and the tooltip.
+    // `remaining` (100% = fully available) is the default; only an explicit
+    // `used` switches to the consumed-fraction presentation.
+    readonly property string percentMode: AgentUsage.normalizePercentMode(
+        root.settings && root.settings.percentMode !== undefined
+            ? root.settings.percentMode : "remaining")
     readonly property var readyAgents: AgentUsage.readyAgents(root.agents)
     readonly property var visibleAgents: AgentUsage.detectedAgents(root.agents)
     readonly property bool hasAgents: root.loaded && root.visibleAgents.length > 0
@@ -178,9 +184,11 @@ Item {
             var name = String(agent.name || agent.id)
             var limit = AgentUsage.bindingLimit(agent, root.nowMs)
             if (limit) {
-                var percent = Math.round(Number(limit.percent) * 100)
+                var percent = Math.round(
+                    AgentUsage.displayPercent(Number(limit.percent), root.percentMode) * 100)
                 var label = String(limit.label || "limit")
-                var line = name + " · " + label + " " + percent + "% used"
+                var unit = root.percentMode === "used" ? "used" : "remaining"
+                var line = name + " · " + label + " " + percent + "% " + unit
                 var remaining = AgentUsage.resetMsFor(limit, root.nowMs)
                 if (remaining > 0) line += " · resets in " + AgentUsage.formatDuration(remaining)
                 lines.push(line)
@@ -188,8 +196,10 @@ Item {
                 lines.push(name + " · " + AgentUsage.formatTokens(agent.todayBillableTokens) + " billable tokens today")
             }
         }
-        var freshness = AgentUsage.freshnessPill(root.readyAgents[0], root.nowMs, root.staleMs)
-        if (freshness.text !== "") lines.push("Updated " + freshness.text)
+        // Freshness is across every ready account, not just the first one, and
+        // the helper already supplies the `updated …` prefix.
+        var freshness = AgentUsage.overallFreshnessPill(root.readyAgents, root.nowMs, root.staleMs)
+        if (freshness.text !== "") lines.push(freshness.text)
         return lines.join("\n")
     }
 

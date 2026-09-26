@@ -24,13 +24,52 @@ else
     fail "[static] agents plugin files are incomplete"
 fi
 
-if jq -e '.id == "aurelia.agents" and .kinds == ["bar-widget"] and
+if jq -e '.id == "aurelia.agents" and .name == "AI Usage" and .kinds == ["bar-widget"] and
           .entryPoints.barWidget == "AgentsBarWidget.qml" and
-          .barWidget.defaultSection == "right"' \
+          .barWidget.defaultSection == "right" and
+          .barWidget.displayName == "AI Usage" and
+          .barWidget.defaults.percentMode == "remaining" and
+          (.barWidget.schema | length == 1) and
+          .barWidget.schema[0].key == "percentMode" and
+          .barWidget.schema[0].type == "enum" and
+          .barWidget.schema[0].defaultValue == "remaining" and
+          .barWidget.schema[0].options[0].value == "remaining" and
+          .barWidget.schema[0].options[1].value == "used"' \
        "$plugin_dir/manifest.json" >/dev/null; then
-    pass "[static] agents manifest is a self-hiding bar widget registered for the right section"
+    pass "[static] agents manifest is the AI Usage bar widget with a remaining-default percentage setting"
 else
     fail "[static] agents manifest contract is invalid"
+fi
+
+# Percentage presentation is normalized in exactly one place so the number and
+# the meter fill can never disagree, and the setting is overlaid from manifest
+# defaults (which reach an existing shell.json with an explicit bar).
+if grep -q 'function normalizePercentMode(value)' "$plugin_dir/AgentUsage.js" &&
+   grep -q 'normalizePercentMode(mode) === "used" ? used : 1 - used' "$plugin_dir/AgentUsage.js" &&
+   grep -q 'normalizePercentMode(mode) === "used" ? elapsed : 1 - elapsed' "$plugin_dir/AgentUsage.js" &&
+   grep -q 'percentMode: AgentUsage.normalizePercentMode' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'percentMode: AgentUsage.normalizePercentMode' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'AgentUsage.overallFreshnessPill' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q '"Updated " + freshness.text' "$plugin_dir/AgentsBarWidget.qml"; then
+    pass "[static] agents percentage mode has one normalization/inversion point and a truthful unit-aware tooltip"
+else
+    fail "[static] agents percentage-mode normalization or freshness wiring is incomplete"
+fi
+
+if grep -q 'text: "AI Usage"' "$plugin_dir/AgentsDashboard.qml" &&
+   ! grep -qE 'text: "Usage"' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'agentsModeChip' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q '· % remaining' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'bindingWindowClass' "$plugin_dir/AgentUsage.js" &&
+   grep -q 'headlineText' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'headlineSeverity' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'AgentUsage.overallFreshnessPill' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'actionTargets: hasSelection ? \["refresh", "close"\] : \["refresh"\]' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'id: headerRefreshButton' "$plugin_dir/AgentsDashboard.qml" &&
+   ! grep -q 'id: refreshButton' "$plugin_dir/AgentsDashboard.qml"; then
+    pass "[static] AI Usage dashboard titles the panel, legends the mode, communicates the binding window and pins refresh above the matrix"
+else
+    fail "[static] AI Usage dashboard title/mode/binding/refresh contract is incomplete"
 fi
 
 if grep -q 'visible: root.hasAgents' "$plugin_dir/AgentsBarWidget.qml" &&
@@ -147,7 +186,7 @@ if grep -q 'AgentUsage.matrixRows' "$dashboard" &&
    grep -q 'ACCOUNT' "$dashboard" &&
    grep -q 'TODAY' "$dashboard" &&
    grep -q 'BALANCE' "$dashboard" &&
-   grep -q 'no live limits' "$dashboard" &&
+   grep -q 'no live limits' "$plugin_dir/AgentUsage.js" &&
    grep -q 'duration not reported' "$dashboard" &&
    grep -q 'LAST 7 DAYS' "$dashboard" &&
    grep -q 'MODELS · TODAY' "$dashboard" &&
@@ -248,7 +287,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, todayModels, modelRowsFrom, dayTokens, todayUsage, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders, classifyWindow, canonicalWindowOrder, windowColumnLabel, windowDescription, defaultWindowName, limitIsLive, liveLimits, hasLiveLimits, worstLimitFor, severityGlyph, paceWord, cellCountdown, matrixCell, matrixRow, matrixRows, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticKey, diagnosticLine };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, todayModels, modelRowsFrom, dayTokens, todayUsage, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders, classifyWindow, canonicalWindowOrder, windowColumnLabel, windowDescription, defaultWindowName, limitIsLive, liveLimits, hasLiveLimits, worstLimitFor, severityGlyph, paceWord, cellCountdown, matrixCell, matrixRow, matrixRows, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticKey, diagnosticLine, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, headlineFor };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -354,7 +393,7 @@ process.exit(ok ? 0 : 1);
     ui_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$ui_test"
     cat >>"$ui_test" <<'AGENT_UI_EXPORTS'
-module.exports = { dayTokens, todayUsage, todayModels, modelRowsFrom, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, bindingLimit, severityForLimit, overallSeverity, paceInfo };
+module.exports = { dayTokens, todayUsage, todayModels, modelRowsFrom, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, bindingLimit, severityForLimit, overallSeverity, paceInfo, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill };
 AGENT_UI_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -386,7 +425,8 @@ const ok =
     A.formatResetAbsolute(soon).endsWith("UTC") && A.formatResetAbsolute("nonsense") === "" &&
     A.paceLabel({ onPace: true }) === "on pace" &&
     A.paceLabel({ behind: true }) === "behind pace" &&
-    A.providerWorstLabel(base, now) === "Weekly 82%" &&
+    A.providerWorstLabel(base, now) === "Weekly 18%" &&
+    A.providerWorstLabel(base, now, "used") === "Weekly 82%" &&
     A.recordHasError({ authHelpText: "codex not found" }) === true &&
     A.recordHasError({ usageStatusText: "Local usage only" }) === false &&
     A.recordHasError({ usageStatusText: "Account configured · no usage yet" }) === false &&
@@ -437,7 +477,7 @@ process.exit(ok ? 0 : 1);
     dashboard_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$dashboard_test"
     cat >>"$dashboard_test" <<'AGENT_DASHBOARD_EXPORTS'
-module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, matrixRows, matrixRow, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, paceWord, worstLimitFor, todayUsage, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey };
+module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, matrixRows, matrixRow, matrixCell, bindingLimit, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, headlineFor, paceWord, worstLimitFor, todayUsage, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey };
 AGENT_DASHBOARD_EXPORTS
     if node -e '
 const fs = require("fs");
@@ -458,20 +498,58 @@ assert(A.windowDescription("month") === "30-day rolling window");
 assert(A.windowColumnLabel("five_hour") === "5H");
 // Fixed deterministic order: name ascending, id tiebreak.
 const rows = A.matrixRows(records, now);
-assert(rows.length === 6, "6 rows");
-assert(rows.map(r => r.name).join(",") === "Augment,Claude Code,Cline,Codex,Fireworks,OpenCode", "order");
-assert(A.accountOrder(records).map(r => r.id).join(",") === "augment,claude,cline,codex,fireworks,opencode", "ids");
+assert(rows.length === 7, "7 rows");
+assert(rows.map(r => r.name).join(",") === "Augment,Claude Code,Cline,Codex,Fireworks,OpenCode,OpenCode Blocked", "order");
+assert(A.accountOrder(records).map(r => r.id).join(",") === "augment,claude,cline,codex,fireworks,opencode,opencode-blocked", "ids");
 assert(A.accountOrder([{id: "b", name: "Same", ready: true}, {id: "a", name: "Same", ready: true}]).map(r => r.id).join(",") === "a,b", "id tiebreak");
 const byId = {};
 rows.forEach(r => { byId[r.id] = r; });
-assert(byId.codex.windows.five_hour.percentText === "42%");
-assert(byId.codex.windows.week.percentText === "55%", "worst-in-cell duplicate bucket");
+// Default presentation is remaining (100% = fully available); the fixture
+// used fractions invert only at the display boundary.
+assert(byId.codex.windows.five_hour.percentText === "58%");
+assert(byId.codex.windows.week.percentText === "45%", "worst-in-cell duplicate bucket");
 assert(byId.codex.windows.month === null, "no month bucket");
 assert(byId.codex.todayTokens === "5.4k");
 assert(byId.codex.noLiveLimits === false);
-assert(byId.opencode.windows.five_hour.percentText === "90%");
-assert(byId.opencode.windows.week.percentText === "35%");
-assert(byId.opencode.windows.month.percentText === "18%");
+assert(byId.opencode.windows.five_hour.percentText === "10%");
+assert(byId.opencode.windows.week.percentText === "65%");
+assert(byId.opencode.windows.month.percentText === "82%");
+// The user case: a fresh 5h window alongside an exhausted weekly
+// window still blocks the account, and the eye is sent to the weekly window.
+assert(byId["opencode-blocked"].headlineText === "Blocked");
+assert(byId["opencode-blocked"].headlineSeverity === "critical");
+assert(byId["opencode-blocked"].bindingWindowClass === "week");
+assert(byId["opencode-blocked"].windows.five_hour.muted === true, "non-binding fresh window is muted");
+assert(byId["opencode-blocked"].windows.week.isBinding === true, "exhausted weekly window is the binding cell");
+assert(byId["opencode-blocked"].windows.week.percentText === "0%");
+assert(byId.augment.headlineText === "Blocked" && byId.augment.headlineSeverity === "critical");
+assert(byId.claude.headlineText === "no live limits");
+// BOTH MODES: the SAME limit renders 90% used and 10% remaining, and severity
+// stays critical (used-based) in both. This proves the number and the alarm
+// cannot disagree.
+const bothModeLimit = {label: "Both", percent: 0.9, windowMinutes: 300,
+  resetsAt: new Date(now + 60000).toISOString()};
+const usedCell = A.matrixCell(bothModeLimit, "five_hour", now, "used");
+const remainingCell = A.matrixCell(bothModeLimit, "five_hour", now, "remaining");
+assert(usedCell.percentText === "90%" && Math.abs(usedCell.percent - 0.9) < 1e-9, "used mode fill");
+assert(remainingCell.percentText === "10%" && Math.abs(remainingCell.percent - 0.1) < 1e-9, "remaining mode fill");
+assert(usedCell.severity === "critical" && remainingCell.severity === "critical", "severity stays used-based");
+assert(usedCell.usedPercent === 0.9 && remainingCell.usedPercent === 0.9, "usedPercent retained for risk");
+assert(A.normalizePercentMode("used") === "used" && A.normalizePercentMode("USED") === "used");
+[undefined, null, "", 0, 1, "remaining", "weird", {}].forEach(function (value) {
+    assert(A.normalizePercentMode(value) === "remaining", "fail-closed mode for " + String(value));
+});
+assert(A.displayMarker(0.25, "used") === 0.25);
+assert(Math.abs(A.displayMarker(0.25, "remaining") - 0.75) < 1e-9);
+assert(A.displayMarker(-1, "remaining") === -1, "marker sentinel survives");
+assert(A.displayPercent(-1, "remaining") === -1, "percent sentinel survives");
+// Header freshness spans every account; it never says "Freshness unknown".
+assert(A.newestRecord(records).id === "opencode-blocked");
+assert(A.newestRecord([{id: "x"}, {id: "y"}]) === null);
+assert(A.overallFreshnessPill([], now, 1800000).text === "never updated");
+assert(A.overallFreshnessPill(records, now, 1800000).text === "updated 1m ago");
+assert(A.overallFreshnessPill(records, now, 30000).text.indexOf("stale · updated ") === 0);
+assert(A.overallFreshnessPill([{updatedAt: new Date(now + 60000).toISOString()}], now, 1800000).text === "updated just now", "future clamp");
 assert(byId.claude.windows.five_hour === null && byId.claude.windows.week === null && byId.claude.windows.month === null);
 assert(byId.claude.noLiveLimits === true, "no live limits semantics");
 assert(byId.claude.todayTokens === "1.2k", "no-limits account still shows today tokens");
@@ -514,7 +592,7 @@ assert(A.todayUsage(totalOnly).cache === 0);
 // Tab selection reconciliation is by id, then a clamped index.
 assert(A.reconcileSelection("claude", 9, rows) === 1, "id wins over stale index");
 assert(A.reconcileSelection("gone", 4, rows) === 4, "clamped fallback index");
-assert(A.reconcileSelection("gone", 99, rows) === 5, "clamped to last");
+assert(A.reconcileSelection("gone", 99, rows) === 6, "clamped to last");
 assert(A.reconcileSelection("", 0, rows) === 0);
 assert(A.reconcileSelection("x", 0, []) === -1);
 // Non-colour severity glyphs.
@@ -911,7 +989,7 @@ AGENTS_DASHBOARD_BACKEND_ERROR="usage backend failed" \
     --path "$ROOT/tests/fixtures/agents-dashboard/shell.qml" >"$preview_log" 2>&1 || preview_status=$?
 
 if [[ "$preview_status" -eq 0 && -s "$preview_image" && -s "$preview_result" ]] &&
-   jq -e '.records == 6 and .rows == 6 and .showBalance == true and
+   jq -e '.records == 7 and .rows == 7 and .showBalance == true and
           .selected == "codex" and .imageSaved == true' "$preview_result" >/dev/null &&
    runtime_log_is_environment_only "$preview_log" '(\[AGENTS\]|result\.json)' >/dev/null &&
    grep -q '\[AGENTS\] unmet_condition provider=codex condition=missing_window_minutes' "$preview_log" &&

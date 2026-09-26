@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "aurelia.agents",
-  "name": "Agents",
+  "name": "AI Usage",
   "version": "1.0.0",
   "author": "Fedora Hyprland Workstation",
   "description": "AI coding subscription usage (local token stats) in an Aurelia bar panel.",
@@ -11,10 +11,26 @@
     "barWidget": "AgentsBarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Agents",
+    "displayName": "AI Usage",
     "description": "AI agent token usage panel backed by local session stats.",
     "category": "AI",
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "percentMode": "remaining"
+    },
+    "schema": [
+      {
+        "key": "percentMode",
+        "type": "enum",
+        "label": "Percentage display",
+        "description": "Show what is remaining (100% = fully available) or what has been used (100% = exhausted) in the AI Usage panel.",
+        "defaultValue": "remaining",
+        "options": [
+          { "value": "remaining", "label": "Remaining (100% = fully available)" },
+          { "value": "used", "label": "Used (100% = exhausted)" }
+        ]
+      }
+    ]
   }
 }

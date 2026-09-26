@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Render the consolidated Usage dashboard preview offscreen, in both the
+# Render the consolidated AI Usage dashboard preview offscreen, in both the
 # resting (no account expanded) and the expanded states.
 #
 # A PanelWindow cannot render offscreen, so the fixture renders the exact panel

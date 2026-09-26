@@ -707,7 +707,10 @@ PanelWindow {
     function refreshAurelia() {
         refreshDefaults()
         loadAureliaThemes()
-        root.applyAureliaPatch({ activeWindowDisplayMode: root.readActiveWindowDisplayMode() })
+        root.applyAureliaPatch({
+            activeWindowDisplayMode: root.readActiveWindowDisplayMode(),
+            agentsPercentMode: root.readAgentsPercentMode()
+        })
         motionProcess.command = [root.helperBin("workstation-aurelia"), "motion", "status"]
         motionProcess.running = true
         textSizeProcess.command = [root.helperBin("aurelia-display-text-size")]
@@ -736,6 +739,19 @@ PanelWindow {
         var mode = settings && settings.displayMode !== undefined
             ? String(settings.displayMode).toLowerCase() : ""
         return mode === "title" ? "title" : "app"
+    }
+
+    // Effective AI Usage percentage mode read straight from the registry's
+    // manifest-default overlay (read-only; the hub never mutates config). Any
+    // value that is not an explicit "used" reports the "remaining" default,
+    // matching AgentUsage.normalizePercentMode().
+    function readAgentsPercentMode() {
+        var registry = pluginRoot ? pluginRoot.pluginRegistry : null
+        var settings = registry && typeof registry.settingsForEntry === "function"
+            ? registry.settingsForEntry("aurelia.agents", {}) : null
+        var mode = settings && settings.percentMode !== undefined
+            ? String(settings.percentMode).toLowerCase() : ""
+        return mode === "used" ? "used" : "remaining"
     }
 
     function refreshAi() {
@@ -776,7 +792,7 @@ PanelWindow {
     // is what emptied the AI/defaults dropdowns).
     readonly property var aureliaStateKeys: ["ipcOnline", "themes", "currentTheme",
         "motionEnabled", "motionScale", "textSize", "barHidden",
-        "activeWindowDisplayMode", "weekStart",
+        "activeWindowDisplayMode", "agentsPercentMode", "weekStart",
         "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse",
         "defaults", "ai", "settingsPath"]
 
@@ -862,6 +878,10 @@ PanelWindow {
         case "aurelia.active-window.displayMode":
             runHelper([root.helperBin("aurelia-bar"), "set", "aurelia.active-window",
                        "displayMode", String(value)], "Setting active window display…")
+            break
+        case "aurelia.agents.percentMode":
+            runHelper([root.helperBin("aurelia-bar"), "set", "aurelia.agents",
+                       "percentMode", String(value)], "Setting AI usage percentage…")
             break
         case "aurelia.calendar.weekStart":
             runHelper([root.helperBin("workstation-aurelia"), "preference", "set",

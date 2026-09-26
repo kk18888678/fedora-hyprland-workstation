@@ -252,6 +252,38 @@
       "activeDays": 0,
       "activeDates": [],
       "modelUsage": {}
+    },
+    {
+      "schemaVersion": 1,
+      "id": "opencode-blocked",
+      "name": "OpenCode Blocked",
+      "updatedAt": "2026-09-19T11:59:00Z",
+      "ready": true,
+      "detected": true,
+      "hasLocalStats": true,
+      "hasPromptStats": true,
+      "scope": "device",
+      "tierLabel": "Go",
+      "todayLabel": "sessions",
+      "retryAdvised": false,
+      "usageStatusText": "",
+      "authHelpText": "",
+      "limits": [
+        { "label": "5h window", "percent": 0.05, "windowMinutes": 300, "resetsAt": "2026-09-19T15:00:00Z" },
+        { "label": "Weekly (7-day)", "percent": 1.0, "windowMinutes": 10080, "resetsAt": "2026-09-23T00:00:00Z" }
+      ],
+      "todayPrompts": 1,
+      "todaySessions": 1,
+      "todayTotalTokens": 200,
+      "todayBillableTokens": 200,
+      "todayCacheTokens": 0,
+      "todayTokensByModel": {},
+      "recentDays": [],
+      "totalPrompts": 1,
+      "totalSessions": 1,
+      "activeDays": 1,
+      "activeDates": ["2026-09-19"],
+      "modelUsage": {}
     }
   ]
 }
