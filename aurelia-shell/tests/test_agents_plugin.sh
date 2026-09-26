@@ -477,7 +477,7 @@ process.exit(ok ? 0 : 1);
     dashboard_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$dashboard_test"
     cat >>"$dashboard_test" <<'AGENT_DASHBOARD_EXPORTS'
-module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, matrixRows, matrixRow, matrixCell, bindingLimit, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, headlineFor, paceWord, worstLimitFor, todayUsage, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey };
+module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, supportedWindowClasses, windowIsOffered, matrixRows, matrixRow, matrixCell, matrixCellMarker, matrixCellTooltip, matrixCellAccessibility, bindingLimit, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, headlineFor, paceWord, worstLimitFor, todayUsage, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey };
 AGENT_DASHBOARD_EXPORTS
     if node -e '
 const fs = require("fs");
@@ -619,6 +619,65 @@ assert(A.collectorDiagnostic("usage backend failed")[0].condition === "collector
 assert(A.collectorDiagnostic("").length === 0);
 assert(A.diagnosticLine({provider: "codex", condition: "zero_window_minutes", detail: "Rate window"}) === "[AGENTS] unmet_condition provider=codex condition=zero_window_minutes detail=Rate window");
 assert(A.diagnoseRecord({id: "clean", name: "Clean", balance: {remaining: 1}, limits: [{label: "5h", percent: 0.1, windowMinutes: 300, resetsAt: new Date(now + 60000).toISOString()}]}).length === 0);
+// Not offered versus not reported. A declared-but-unreported canonical window
+// is a REAL unmet condition (and still emits its diagnostic); a window the
+// provider does not offer is a non-problem and must never be logged.
+assert(A.windowIsOffered({supportedWindowMinutes: [300, 10080]}, "month") === false);
+assert(A.windowIsOffered({supportedWindowMinutes: [300, 10080]}, "week") === true);
+assert(A.windowIsOffered({}, "month") === null, "no declaration stays unknown");
+assert(A.supportedWindowClasses({supportedWindowMinutes: [300, 10080, 99999]}).join(",") === "five_hour,week");
+assert(A.supportedWindowClasses({}) === null);
+const missingRec = {id: "claude", name: "Claude Code", supportedWindowMinutes: [300, 10080],
+  limits: [{label: "Weekly (7-day)", percent: 0.67, windowMinutes: 10080, resetsAt: new Date(now + 60000).toISOString()}]};
+const missingConds = A.diagnoseRecord(missingRec).map(d => d.condition);
+assert(missingConds.includes("missing_window"), "supported but unreported still logs");
+assert(A.diagnoseRecord(missingRec).some(d => d.condition === "missing_window" && d.detail === "5h"));
+assert(!missingConds.includes("undeclared_window"));
+const notOfferedRec = {id: "claude", name: "Claude Code", supportedWindowMinutes: [10080],
+  limits: [{label: "Weekly (7-day)", percent: 0.67, windowMinutes: 10080, resetsAt: new Date(now + 60000).toISOString()}]};
+assert(!A.diagnoseRecord(notOfferedRec).map(d => d.condition).includes("missing_window"), "a not-offered window never logs");
+const undeclaredRec = {id: "x", name: "X", supportedWindowMinutes: [300],
+  limits: [{label: "Monthly (30-day)", percent: 0.2, windowMinutes: 43200, resetsAt: new Date(now + 60000).toISOString()}]};
+assert(A.diagnoseRecord(undeclaredRec).some(d => d.condition === "undeclared_window"), "an undeclared reported window is observable");
+// Legacy records without the capability field keep the old behaviour: no
+// per-column diagnostics, only the whole-array `missing_limits`.
+assert(!A.diagnoseRecord({id: "legacy", limits: []}).map(d => d.condition).includes("missing_window"));
+// A plan change between runs recomputes the columns from the current support set.
+const twoWindows = [
+  {label: "5h window", percent: 0.1, windowMinutes: 300, resetsAt: new Date(now + 60000).toISOString()},
+  {label: "Weekly (7-day)", percent: 0.2, windowMinutes: 10080, resetsAt: new Date(now + 60000).toISOString()}];
+assert(A.diagnoseRecord({id: "p", supportedWindowMinutes: [300, 10080, 43200], limits: twoWindows})
+  .some(d => d.condition === "missing_window" && d.detail === "30-day"), "month added but not reported");
+assert(!A.diagnoseRecord({id: "p", supportedWindowMinutes: [300, 10080], limits: twoWindows})
+  .map(d => d.condition).includes("missing_window"), "month dropped is not offered");
+// Exact markers, tooltips and accessibility text for all three states.
+assert(A.matrixCellMarker({percentText: "42%"}, false) === "42%");
+assert(A.matrixCellMarker(null, false) === "—", "not reported marker");
+assert(A.matrixCellMarker(null, true) === "–", "not offered marker is distinct");
+assert(A.matrixCellTooltip(null, "month", true, "remaining") === "30-day · not offered by this provider");
+assert(A.matrixCellTooltip(null, "week", false, "remaining") === "Weekly · not reported by this provider");
+const reportedTooltip = A.matrixCellTooltip({label: "Weekly (7-day)", percentText: "33%", absoluteReset: "2026-09-30 15:13 UTC", isBinding: false}, "week", false, "remaining");
+assert(reportedTooltip.indexOf("remaining") >= 0 && reportedTooltip.indexOf("Resets 2026-09-30 15:13 UTC") >= 0);
+assert(A.matrixCellAccessibility(null, "month", true, "remaining") === "MONTH window not offered by this provider");
+assert(A.matrixCellAccessibility(null, "week", false, "remaining") === "WEEK window not reported by this provider");
+assert(A.matrixCellAccessibility({label: "5h window", percentText: "75%", isBinding: true}, "five_hour", false, "remaining")
+  === "5H 5h window: 75% remaining, binding window for this account");
+// matrixRow exposes notOffered per column and never fabricates a cell.
+const offRow = A.matrixRow({id: "claude", name: "Claude Code", ready: true, limits: [],
+  supportedWindowMinutes: [300, 10080]}, now);
+assert(offRow.windows.five_hour === null && offRow.windows.week === null && offRow.windows.month === null);
+assert(offRow.notOffered.five_hour === false && offRow.notOffered.week === false && offRow.notOffered.month === true);
+const reportedRow = A.matrixRow({id: "x", name: "X", ready: true, supportedWindowMinutes: [300, 10080],
+  limits: [{label: "5h window", percent: 0.1, windowMinutes: 300, resetsAt: new Date(now + 60000).toISOString()}]}, now);
+assert(reportedRow.notOffered.month === true && reportedRow.notOffered.five_hour === false);
+// USED direction: 25/100 and 67/100 stay USED; remaining mode inverts for
+// display only, and severity stays used-based under both modes.
+assert(A.displayPercent(0.25, "remaining") === 0.75);
+assert(A.displayPercent(0.25, "used") === 0.25);
+const claudeUsedCell = A.matrixCell({label: "5h window", percent: 0.25, windowMinutes: 300, resetsAt: new Date(now + 60000).toISOString()}, "five_hour", now, "remaining");
+assert(claudeUsedCell.percentText === "75%" && claudeUsedCell.severity === "ok" && claudeUsedCell.usedPercent === 0.25);
+const criticalCell = A.matrixCell({label: "Weekly (7-day)", percent: 0.95, windowMinutes: 10080, resetsAt: new Date(now + 7100000).toISOString()}, "week", now, "remaining");
+assert(criticalCell.severity === "critical" && criticalCell.percentText === "5%", "severity stays used-based under remaining mode");
 process.exit(0);
 ' "$dashboard_test" "$ROOT/tests/fixtures/agents-dashboard/records.json" >/dev/null; then
         pass "[unit] agents dashboard projection orders accounts, classifies windows, keeps available data and names every unmet condition"
@@ -649,7 +708,7 @@ cat >"$sandbox/home/.claude/projects/proj/session.jsonl" <<TRANSCRIPT
 {"type":"user","message":{"role":"user"}}
 TRANSCRIPT
 
-collector_out="$(PI_HOME="$sandbox/no-pi" CLAUDE_CONFIG_DIR="$sandbox/home/.claude" "$collector"  || true)"
+collector_out="$(HOME="$sandbox/home" PI_HOME="$sandbox/no-pi" CLAUDE_CONFIG_DIR="$sandbox/home/.claude" "$collector"  || true)"
 if printf '%s' "$collector_out" | jq -e '
         .id == "claude" and
         .ready == true and
@@ -815,10 +874,12 @@ fi
 # turn yet must stay visible (detected, not ready) with an explicit label,
 # instead of being hidden by the usage-only visibility rule. The credential
 # may appear in either auth.json or models-store.json; a different provider id
-# must not be mistaken for Claude.
+# must not be mistaken for Claude. Deliberately no `access` token is present so
+# this subprocess cannot reach the network; the credential-bearing probe below
+# monkeypatches urlopen instead.
 mkdir -p -- "$sandbox/configured-pi/agent" "$sandbox/models-pi/agent" "$sandbox/other-pi/agent" \
     "$sandbox/no-claude-projects"
-printf '%s\n' '{"anthropic":{"type":"oauth","access":"placeholder"}}' \
+printf '%s\n' '{"anthropic":{"type":"oauth"}}' \
     >"$sandbox/configured-pi/agent/auth.json"
 printf '%s\n' '{"anthropic":{"models":[{"id":"claude-opus-4"}]}}' \
     >"$sandbox/models-pi/agent/models-store.json"
@@ -1199,6 +1260,359 @@ if printf '%s' "$cline_nocred_out" | jq -e '
 else
     fail "[isolated] Cline local-only behaviour diverged: $cline_nocred_out"
 fi
+
+# ---------------------------------------------------------------------------
+# Claude 5-hour and weekly limits (live-captured body, entirely offline)
+# ---------------------------------------------------------------------------
+# The fixture below is the live-captured shape of `GET
+# https://api.anthropic.com/api/oauth/usage`: a canonical `limits[]` classified
+# on `kind`, top-level `five_hour`/`seven_day` with 0-100 USED percentages and
+# ISO-8601 `resets_at` strings, plus `seven_day_overage_included` and a
+# `weekly_scoped` row that must NOT become a third window. urlopen is
+# monkey-patched, so this section performs no network I/O.
+claude_fixture="$ROOT/tests/fixtures/agents-claude/usage.json"
+mkdir -p -- "$sandbox/claude-cred-a" "$sandbox/claude-cred-b" "$sandbox/claude-empty" \
+    "$sandbox/claude-home/.claude" "$sandbox/claude-pi/agent" \
+    "$sandbox/claude-pi-empty/agent" "$sandbox/claude-pi-configured/agent" \
+    "$sandbox/claude-config"
+cat >"$sandbox/claude-cred-a/.credentials.json" <<'CLAUDE_CRED_A'
+{"claudeAiOauth":{"accessToken":"primary-token","rateLimitTier":"default_claude_max_20x"}}
+CLAUDE_CRED_A
+cat >"$sandbox/claude-cred-b/.credentials.json" <<'CLAUDE_CRED_B'
+{"claudeAiOauth":{"accessToken":"home-token","subscriptionType":"pro"}}
+CLAUDE_CRED_B
+printf '%s\n' '{"anthropic":{"type":"oauth","access":"pi-access-token"}}' \
+    >"$sandbox/claude-pi/agent/auth.json"
+printf '%s\n' '{"anthropic":{"type":"oauth"}}' \
+    >"$sandbox/claude-pi-configured/agent/auth.json"
+
+claude_limits_out="$(HOME="$sandbox/claude-home" python3 - \
+        "$repo_root/bin/ai-usage-claude" "$claude_fixture" \
+        "$sandbox/claude-cred-a" "$sandbox/claude-cred-b" "$sandbox/claude-empty" \
+        "$sandbox/claude-pi" "$sandbox/claude-pi-empty" "$sandbox/claude-pi-configured" \
+        "$sandbox/claude-config" <<'CLAUDE_LIMITS'
+import contextlib
+import importlib.machinery
+import importlib.util
+import io
+import json
+import os
+import sys
+import urllib.error
+
+loader = importlib.machinery.SourceFileLoader("aclaude", sys.argv[1])
+spec = importlib.util.spec_from_loader("aclaude", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+fixture_path = sys.argv[2]
+cred_a, cred_b, empty_dir, pi_dir, pi_empty, pi_configured, config_dir = sys.argv[3:10]
+os.environ.pop("WORKSTATION_AI_CONF", None)
+os.environ["XDG_CONFIG_HOME"] = config_dir
+with open(fixture_path, encoding="utf-8") as handle:
+    CAPTURED = json.load(handle)
+
+
+class Response:
+    def __init__(self, payload, raw=None):
+        self.payload = payload
+        self.raw = raw
+
+    def read(self):
+        if self.raw is not None:
+            return self.raw
+        return json.dumps(self.payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def serve(payload):
+    return lambda *args, **kwargs: Response(payload)
+
+
+def serve_raw(raw):
+    return lambda *args, **kwargs: Response(None, raw)
+
+
+def http_error(status, message):
+    def raiser(*args, **kwargs):
+        raise urllib.error.HTTPError("https://api.anthropic.com/x", status, message, {}, None)
+    return raiser
+
+
+def network_error(message):
+    def raiser(*args, **kwargs):
+        raise urllib.error.URLError(message)
+    return raiser
+
+
+# Credential precedence: $CLAUDE_CONFIG_DIR -> ~/.claude -> PI_HOME/agent/auth.json.
+def token_with(claude_home, pi_home):
+    if claude_home is None:
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+    else:
+        os.environ["CLAUDE_CONFIG_DIR"] = claude_home
+    os.environ["PI_HOME"] = pi_home
+    return module.claude_access_token()
+
+
+credential = {
+    "primary": token_with(cred_a, pi_dir),
+    "home": token_with(cred_b, pi_dir),
+    "pi": token_with(empty_dir, pi_dir),
+    "absent": token_with(empty_dir, pi_empty),
+}
+# Plan/tier only ever comes from the user's own credential (never the body).
+token_with(cred_a, pi_empty)
+tier_max = module.claude_tier_label()
+token_with(cred_b, pi_empty)
+tier_pro = module.claude_tier_label()
+
+# Regression: the credential reader must never mutate the credential file.
+cred_path = os.path.join(cred_a, ".credentials.json")
+with open(cred_path, encoding="utf-8") as handle:
+    credential_bytes_before = handle.read()
+token_with(cred_a, pi_empty)
+with open(cred_path, encoding="utf-8") as handle:
+    credential_bytes_after = handle.read()
+
+# Happy path: classify on `kind`, emit USED fractions, ignore the scoped bucket.
+module.urllib.request.urlopen = serve(CAPTURED)
+happy = module.fetch_claude_limits("fake")
+mapped = happy["limits"]
+
+# resets_at normalisation: ISO / epoch seconds / epoch millis / string epoch / junk.
+module.urllib.request.urlopen = serve({"limits": [
+    {"kind": "session", "percent": 10, "resets_at": "2040-01-01T00:00:00Z"},
+    {"kind": "weekly_all", "percent": 20, "resets_at": 2208988800},
+]})
+iso_and_epoch = module.fetch_claude_limits("fake")["limits"]
+module.urllib.request.urlopen = serve({"limits": [
+    {"kind": "session", "percent": 5, "resets_at": 2208988800000}]})
+millis_reset = module.fetch_claude_limits("fake")["limits"][0]["resetsAt"]
+module.urllib.request.urlopen = serve({"limits": [
+    {"kind": "session", "percent": 5, "resets_at": "2208988800"}]})
+string_epoch_reset = module.fetch_claude_limits("fake")["limits"][0]["resetsAt"]
+module.urllib.request.urlopen = serve({"limits": [
+    {"kind": "session", "percent": 5, "resets_at": "not-a-date"}]})
+junk_reset = module.fetch_claude_limits("fake")["limits"][0]["resetsAt"]
+
+# Clamp after division (150 -> 1.0); skip negative / non-numeric / non-finite.
+module.urllib.request.urlopen = serve({"limits": [
+    {"kind": "session", "percent": 150, "resets_at": "2040-01-01T00:00:00Z"},
+    {"kind": "weekly_all", "percent": -5, "resets_at": "2040-01-01T00:00:00Z"},
+    {"kind": "session", "percent": "abc", "resets_at": "2040-01-01T00:00:00Z"},
+    {"kind": "weekly_all", "percent": float("nan"), "resets_at": "2040-01-01T00:00:00Z"},
+]})
+clamped = module.fetch_claude_limits("fake")["limits"]
+
+# Fallback only when `limits` is absent, and the overage field adds no window.
+fallback_payload = {
+    "five_hour": {"utilization": 25, "resets_at": "2040-01-01T00:00:00Z"},
+    "seven_day": {"utilization": 67, "resets_at": "2040-01-01T00:00:00Z"},
+    "seven_day_overage_included": {"utilization": 84, "resets_at": "2040-01-01T00:00:00Z"},
+}
+module.urllib.request.urlopen = serve(fallback_payload)
+fallback = module.fetch_claude_limits("fake")["limits"]
+
+# Failure states.
+module.urllib.request.urlopen = http_error(401, "Unauthorized")
+unauth = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = http_error(403, "Forbidden")
+forbidden = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = http_error(429, "Too Many Requests")
+rate = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("timed out"))
+timeout = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = network_error("Name or service not known")
+dns = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = serve_raw(b"not json")
+malformed_body = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = serve({"success": True})
+changed = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = serve({"limits": "nope"})
+changed_limits = module.fetch_claude_limits("fake")
+module.urllib.request.urlopen = serve({"limits": []})
+configured = module.fetch_claude_limits("fake")
+
+
+# Record-level integration: a limits-only account with no local history is
+# both detected and ready, and never fabricates a plan.
+def run_record():
+    sys.argv = ["ai-usage-claude"]
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        module.main()
+    return json.loads(buffer.getvalue())
+
+
+os.environ["CLAUDE_CONFIG_DIR"] = empty_dir
+os.environ["PI_HOME"] = pi_dir
+module.urllib.request.urlopen = serve(CAPTURED)
+limits_only = run_record()
+
+# No credential: NO network call at all, and an honest local-only status. The
+# sentinel fails the test if urlopen is ever reached.
+calls = []
+
+
+def sentinel(*args, **kwargs):
+    calls.append(args)
+    raise AssertionError("network call attempted without a credential")
+
+
+os.environ["CLAUDE_CONFIG_DIR"] = empty_dir
+os.environ["PI_HOME"] = pi_empty
+module.urllib.request.urlopen = sentinel
+local_only = run_record()
+no_credential_calls = len(calls)
+
+# A pi-configured anthropic account with no credential is visible but not
+# ready, and still makes no network call.
+os.environ["CLAUDE_CONFIG_DIR"] = empty_dir
+os.environ["PI_HOME"] = pi_configured
+module.urllib.request.urlopen = sentinel
+configured_record = run_record()
+configured_calls = len(calls) - no_credential_calls
+
+# 401 at record level: an actionable, redacted auth failure with no retry.
+os.environ["CLAUDE_CONFIG_DIR"] = empty_dir
+os.environ["PI_HOME"] = pi_dir
+module.urllib.request.urlopen = http_error(401, "Unauthorized")
+auth_record = run_record()
+
+print(json.dumps({
+    "credential": credential,
+    "tierMax": tier_max,
+    "tierPro": tier_pro,
+    "credentialUntouched": credential_bytes_before == credential_bytes_after,
+    "happy": happy,
+    "mapped": mapped,
+    "isoReset": iso_and_epoch[0]["resetsAt"] if iso_and_epoch else "",
+    "epochReset": iso_and_epoch[1]["resetsAt"] if len(iso_and_epoch) > 1 else "",
+    "millisReset": millis_reset,
+    "stringEpochReset": string_epoch_reset,
+    "junkReset": junk_reset,
+    "clamped": clamped,
+    "fallback": fallback,
+    "unauth": unauth,
+    "forbidden": forbidden,
+    "rate": rate,
+    "timeout": timeout,
+    "dns": dns,
+    "malformedBody": malformed_body,
+    "changed": changed,
+    "changedLimits": changed_limits,
+    "configured": configured,
+    "limitsOnly": limits_only,
+    "localOnly": local_only,
+    "noCredentialCalls": no_credential_calls,
+    "configuredRecord": configured_record,
+    "configuredCalls": configured_calls,
+    "authRecord": auth_record,
+}))
+CLAUDE_LIMITS
+)"
+if printf '%s' "$claude_limits_out" | jq -e '
+        .credential.primary == "primary-token" and
+        .credential.home == "home-token" and
+        .credential.pi == "pi-access-token" and
+        .credential.absent == "" and
+        .tierMax == "default_claude_max_20x" and
+        .tierPro == "pro" and
+        .credentialUntouched == true and
+        .happy.usageStatusText == "" and
+        .happy.authHelpText == "" and
+        .happy.retryAdvised == false and
+        .happy.supportedWindowMinutes == [300,10080] and
+        (.mapped | length == 2) and
+        .mapped[0].label == "5h window" and
+        .mapped[0].windowMinutes == 300 and
+        .mapped[0].percent == 0.25 and
+        .mapped[1].label == "Weekly (7-day)" and
+        .mapped[1].windowMinutes == 10080 and
+        .mapped[1].percent == 0.67 and
+        (.isoReset | length > 0) and
+        .isoReset == .epochReset and
+        .epochReset == .millisReset and
+        .millisReset == .stringEpochReset and
+        .junkReset == "" and
+        (.clamped | length == 1) and .clamped[0].percent == 1.0 and
+        (.fallback | length == 2) and
+        .fallback[0].percent == 0.25 and .fallback[1].percent == 0.67 and
+        (.unauth.limits | length == 0) and
+        .unauth.retryAdvised == false and
+        (.unauth.authHelpText | length > 0) and
+        (.unauth.usageStatusText | test("auth"; "i")) and
+        (.forbidden.limits | length == 0) and
+        .forbidden.retryAdvised == false and
+        (.forbidden.authHelpText | length > 0) and
+        (.rate.limits | length == 0) and
+        .rate.retryAdvised == true and
+        .rate.authHelpText == "" and
+        .rate.usageStatusText == "Claude limits unavailable" and
+        (.timeout.limits | length == 0) and .timeout.retryAdvised == true and
+        .timeout.authHelpText == "" and
+        (.dns.limits | length == 0) and .dns.retryAdvised == true and
+        .dns.authHelpText == "" and
+        (.malformedBody.limits | length == 0) and .malformedBody.retryAdvised == false and
+        (.changed.limits | length == 0) and .changed.retryAdvised == false and
+        (.changedLimits.limits | length == 0) and .changedLimits.retryAdvised == false and
+        (.configured.limits | length == 0) and
+        .configured.usageStatusText == "Account configured · no usage yet" and
+        .configured.retryAdvised == false and
+        .limitsOnly.ready == true and
+        .limitsOnly.hasLocalStats == false and
+        .limitsOnly.detected == true and
+        .limitsOnly.totalPrompts == 0 and
+        (.limitsOnly.limits | length == 2) and
+        .limitsOnly.usageStatusText == "" and
+        .limitsOnly.supportedWindowMinutes == [300,10080] and
+        .limitsOnly.tierLabel == "" and
+        .localOnly.ready == false and .localOnly.detected == false and
+        .localOnly.limits == [] and .localOnly.retryAdvised == false and
+        .localOnly.supportedWindowMinutes == [300,10080] and
+        .localOnly.usageStatusText == "Local usage only" and
+        .noCredentialCalls == 0 and
+        .configuredRecord.ready == false and .configuredRecord.detected == true and
+        .configuredRecord.hasLocalStats == false and
+        .configuredRecord.usageStatusText == "Account configured · no usage yet" and
+        .configuredCalls == 0 and
+        (.authRecord.limits | length == 0) and
+        .authRecord.retryAdvised == false and
+        (.authRecord.usageStatusText | test("auth"; "i")) and
+        (.authRecord.authHelpText | length > 0) and
+        (.authRecord | tostring | test("fake") | not)' >/dev/null; then
+    pass "[isolated] Claude collector maps the live oauth limits body, emits USED, normalises resetsAt and fails closed without a credential"
+else
+    fail "[isolated] Claude limit contract diverged: $claude_limits_out"
+fi
+
+# The Claude endpoint is read-only: no refresh token is ever read or written,
+# the request is bounded, TLS stays verified and the capability field names the
+# two windows Claude actually has (no monthly).
+if grep -q 'api/oauth/usage' "$collector" &&
+   grep -q 'supportedWindowMinutes' "$collector" &&
+   grep -q 'kind == "session"' "$collector" &&
+   grep -q 'ssl.create_default_context()' "$collector" &&
+   grep -q 'timeout=10' "$collector" &&
+   ! grep -q 'refreshToken\|refresh_token' "$collector"; then
+    pass "[static] Claude collector is read-only, bounded, TLS-verified and declares its two supported windows"
+else
+    fail "[static] Claude collector safety or capability contract is incomplete"
+fi
+
+for collector_file in claude codex opencode cline; do
+    if grep -q 'supportedWindowMinutes' "$repo_root/bin/ai-usage-$collector_file"; then
+        pass "[static] $collector_file collector declares supportedWindowMinutes"
+    else
+        fail "[static] $collector_file collector does not declare supportedWindowMinutes"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # Offscreen dashboard preview + fail-safe diagnostics (isolated runtime)

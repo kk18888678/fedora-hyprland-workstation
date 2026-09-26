@@ -457,7 +457,10 @@ the `behind`/`ahead`/`on pace` word (only when both percent and elapsed are
 finite). The absolute reset time lives in the tab and the cell tooltip, not in
 the grid. A provider that reports no limits shows `—` in the window columns and
 one muted `no live limits` tag while still showing its today tokens; it is
-never rendered as a fabricated `0%`. Window classification is numeric from
+never rendered as a fabricated `0%`. A canonical window the provider does not
+offer (absent from its `supportedWindowMinutes`) renders the de-emphasised
+en-dash `–` instead, with a "not offered by this provider" tooltip and no
+diagnostic. Window classification is numeric from
 `windowMinutes` only: 300 -> five-hour, 10080 -> week, 43200 -> 30-day, any
 other present value -> `other`, and missing/0/NaN -> `unknown`. `MONTH` is
 labelled as a 30-day rolling window and is never described as "this month".
@@ -481,11 +484,16 @@ labelled with the provider `name`) renders:
 6. **SUBSCRIPTION** - plan/cost/cycle/renewal, only when a subscription record
    exists.
 
-Every unmet condition (missing `limits[]`, missing/zero/unparseable
-`windowMinutes`, missing/unparseable `resetsAt`, absent `balance`, failed
-collector run) logs an observable `[AGENTS] unmet_condition provider=...
-condition=...` diagnostic through the shell log read by `aurelia logs`, so the
-user-facing `—` is always accompanied by a maintainer-facing reason.
+Every unmet condition (missing `limits[]`, a `supportedWindowMinutes` window
+that was not reported, missing/zero/unparseable `windowMinutes`,
+missing/unparseable `resetsAt`, absent `balance`, failed collector run) logs an
+observable `[AGENTS] unmet_condition provider=... condition=...` diagnostic
+through the shell log read by `aurelia logs`, so the user-facing `—` is always
+accompanied by a maintainer-facing reason. A canonical window the provider does
+not offer is distinguished from one it does offer-but-did-not-report: the
+former is a de-emphasised en-dash (`–`) with a "not offered by this provider"
+tooltip and no diagnostic; the latter is the plain `—` and does emit
+`missing_window`.
 
 The panel inherits the bar font: every text node derives from one local
 `Label` primitive that sets `font.family: Theme.fontFamilyResolved`, and numeric cells

@@ -849,6 +849,40 @@ function classifyWindow(limit) {
     return "other";
 }
 
+// Collector-declared capability: the canonical window lengths (in minutes) the
+// provider can actually report. Returns an array of canonical classes, or null
+// when the record declares nothing (legacy/unknown capability). A declared
+// non-canonical duration is ignored because it cannot map to a column.
+function supportedWindowClasses(record) {
+    var raw = record ? record.supportedWindowMinutes : undefined;
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    var out = [];
+    for (var i = 0; i < raw.length; i++) {
+        var windowClass = windowClassForMinutes(raw[i]);
+        if (windowClass !== "" && out.indexOf(windowClass) === -1) out.push(windowClass);
+    }
+    return out.length > 0 ? out : null;
+}
+
+function windowClassForMinutes(minutes) {
+    var value = Number(minutes);
+    if (!isFinite(value)) return "";
+    if (value === 300) return "five_hour";
+    if (value === 10080) return "week";
+    if (value === 43200) return "month";
+    return "";
+}
+
+// Tri-state capability for one canonical column: true (offered), false (not
+// offered by this provider) or null (capability unknown because the record
+// predates the field). A null capability must never be treated as "not
+// offered", so legacy records keep their existing behaviour.
+function windowIsOffered(record, windowClass) {
+    var supported = supportedWindowClasses(record);
+    if (supported === null) return null;
+    return supported.indexOf(windowClass) !== -1;
+}
+
 function canonicalWindowOrder() {
     return CANONICAL_WINDOW_ORDER.slice();
 }
@@ -957,6 +991,48 @@ function matrixCell(limit, windowClass, nowMs, mode) {
     };
 }
 
+// Exact marker glyph for one matrix column. Three visibly distinct states:
+//   * a reported window renders its mode-aware percentage;
+//   * a supported-but-unreported window renders the em dash `—` (a real gap);
+//   * a window the provider does not offer renders the en dash `–` (muted,
+//     never a diagnostic). The two dashes are deliberately different code
+//     points so the states are distinguishable without relying on colour.
+function matrixCellMarker(cell, notOffered) {
+    if (cell) return String(cell.percentText || "—");
+    return notOffered ? "–" : "—";
+}
+
+// Exact tooltip for one matrix column, including the not-offered versus
+// not-reported distinction. A not-offered column says the provider does not
+// offer the window; a supported-but-missing one says it was not reported.
+function matrixCellTooltip(cell, windowClass, notOffered, mode) {
+    var name = defaultWindowName(windowClass);
+    if (cell) {
+        var unit = normalizePercentMode(mode) === "used" ? " used" : " remaining";
+        var text = String(cell.label) + " · " + cell.percentText + unit +
+            (cell.absoluteReset !== "" ? "\nResets " + cell.absoluteReset : "");
+        if (cell.isBinding === true) text += "\nBinding window · blocks this account";
+        return text;
+    }
+    if (notOffered) return name + " · not offered by this provider";
+    return name + " · not reported by this provider";
+}
+
+// Screen-reader text for one matrix column, covering all three states with the
+// same wording as the tooltip so the visual and non-visual contracts agree.
+function matrixCellAccessibility(cell, windowClass, notOffered, mode) {
+    var column = windowColumnLabel(windowClass) || defaultWindowName(windowClass);
+    if (cell) {
+        var unit = normalizePercentMode(mode) === "used" ? "used" : "remaining";
+        var text = column + " " + String(cell.label || defaultWindowName(windowClass)) +
+            ": " + cell.percentText + " " + unit;
+        if (cell.isBinding === true) text += ", binding window for this account";
+        return text;
+    }
+    if (notOffered) return column + " window not offered by this provider";
+    return column + " window not reported by this provider";
+}
+
 // A prepaid balance is only present when the record carries an actual
 // `balance` object. `subscription.cost` describes what the user pays and must
 // NEVER populate the balance column.
@@ -1018,7 +1094,9 @@ function matrixRow(record, nowMs, mode) {
     var bindingLabel = binding ? String(binding.label || "") : "";
     var severity = binding ? severityForLimit(binding) : "unknown";
     var hasLimits = hasLiveLimits(record);
+    var supported = supportedWindowClasses(record);
     var windows = {};
+    var notOffered = {};
     CANONICAL_WINDOW_ORDER.forEach(function (windowClass) {
         var worst = worstLimitFor(limits, windowClass);
         var cell = matrixCell(worst, windowClass, nowMs, mode);
@@ -1033,12 +1111,19 @@ function matrixRow(record, nowMs, mode) {
             cell.muted = severity === "critical" && cell.isBinding !== true;
         }
         windows[windowClass] = cell;
+        // Only a declared capability can mark a column "not offered". A column
+        // outside the provider's set is a non-problem (a distinct muted marker
+        // and no unmet-condition diagnostic); a declared column with no report
+        // is a real gap. A record that declares nothing stays legacy-unknown.
+        notOffered[windowClass] = cell === null && supported !== null &&
+            supported.indexOf(windowClass) === -1;
     });
     return {
         id: String((record && record.id) || ""),
         name: String((record && (record.name || record.id)) || ""),
         record: record || null,
         windows: windows,
+        notOffered: notOffered,
         bindingWindowClass: bindingClass,
         headlineText: headlineFor(severity, hasLimits),
         headlineSeverity: severity,
@@ -1178,6 +1263,33 @@ function diagnoseRecord(record) {
                 pushDiagnostic(out, record, "missing_resets_at", limitDiagnosticLabel(limit, index));
             } else if (!isFinite(Date.parse(String(resetsAt)))) {
                 pushDiagnostic(out, record, "unparseable_resets_at", limitDiagnosticLabel(limit, index));
+            }
+        });
+    }
+    // "Not reported" versus "not offered". A canonical column the provider
+    // declares as supported but does not include is a REAL unmet condition and
+    // keeps its diagnostic; a column the provider does not offer is a
+    // non-problem and must never be logged (logging a non-problem trains the
+    // user and the log to ignore real ones). A record with no declared
+    // capability keeps the legacy behaviour and logs neither.
+    var supported = supportedWindowClasses(record);
+    if (supported !== null) {
+        supported.forEach(function (windowClass) {
+            var reported = (limits || []).some(function (limit) {
+                return classifyWindow(limit) === windowClass;
+            });
+            if (!reported) {
+                pushDiagnostic(out, record, "missing_window", defaultWindowName(windowClass));
+            }
+        });
+        (limits || []).forEach(function (limit, index) {
+            var windowClass = classifyWindow(limit);
+            if (windowClass !== "five_hour" && windowClass !== "week" && windowClass !== "month") return;
+            if (supported.indexOf(windowClass) === -1) {
+                // The server reported a window the collector did not declare:
+                // keep rendering the real data, but make the inconsistency
+                // observable instead of hiding it.
+                pushDiagnostic(out, record, "undeclared_window", limitDiagnosticLabel(limit, index));
             }
         });
     }

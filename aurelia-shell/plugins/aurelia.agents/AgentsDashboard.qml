@@ -508,16 +508,17 @@ Item {
         property var cell: null
         property string columnClass: ""
         property int rowIndex: -1
+        // True when the provider declared that it does not offer this canonical
+        // window. That is a non-problem: it renders a distinct muted marker and
+        // a "not offered" tooltip, and never emits an unmet-condition
+        // diagnostic. A supported window that was not reported keeps the plain
+        // `—` and does emit one.
+        property bool notOffered: false
         readonly property bool isBinding: cell ? cell.isBinding === true : false
         readonly property bool muted: cell ? cell.muted === true : false
-        property string tooltipText: {
-            if (!cell) return ""
-            var unit = dashboard.percentMode === "used" ? " used" : " remaining"
-            var text = String(cell.label) + " · " + cell.percentText + unit +
-                (cell.absoluteReset !== "" ? "\nResets " + cell.absoluteReset : "")
-            if (cell.isBinding === true) text += "\nBinding window · blocks this account"
-            return text
-        }
+        readonly property string markerText: AgentUsage.matrixCellMarker(cell, notOffered)
+        property string tooltipText: AgentUsage.matrixCellTooltip(
+            cell, columnClass, notOffered, dashboard.percentMode)
 
         objectName: "matrixCell-" + rowIndex + "-" + columnClass
         Layout.preferredWidth: dashboard.matrixWindowColumnWidth
@@ -525,9 +526,15 @@ Item {
         Layout.maximumWidth: dashboard.matrixWindowColumnWidth
         Layout.fillWidth: false
         spacing: 1
-        // When the account is blocked, non-binding windows dim so the eye goes
-        // to the binding window; the percentage stays legible either way.
-        opacity: matrixCell.muted ? 0.45 : 1.0
+        // A not-offered window is de-emphasised more than a dimmed non-binding
+        // one so it reads as "not applicable", not "danger elsewhere". When
+        // the account is blocked, non-binding windows dim so the eye goes to
+        // the binding window; the percentage stays legible either way.
+        opacity: matrixCell.notOffered ? 0.4 : (matrixCell.muted ? 0.45 : 1.0)
+        // Non-visual consumers get the same three-state wording as the tooltip.
+        Accessible.role: Accessible.StaticText
+        Accessible.name: AgentUsage.matrixCellAccessibility(
+            cell, columnClass, notOffered, dashboard.percentMode)
 
         RowLayout {
             Layout.fillWidth: true
@@ -544,7 +551,7 @@ Item {
 
             NumericLabel {
                 objectName: "matrixPercent-" + matrixCell.rowIndex + "-" + matrixCell.columnClass
-                text: matrixCell.cell ? matrixCell.cell.percentText : "—"
+                text: matrixCell.markerText
                 color: matrixCell.cell
                     ? dashboard.sectionColor(matrixCell.cell.severity) : Theme.textMuted
                 font.pixelSize: Theme.fontSizeSm
@@ -1030,6 +1037,7 @@ Item {
                                     columnClass: modelData
                                     rowIndex: matrixRow.index
                                     cell: matrixRow.modelData.windows[modelData]
+                                    notOffered: matrixRow.modelData.notOffered[modelData] === true
                                 }
                             }
 

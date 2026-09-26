@@ -321,6 +321,8 @@ def main() -> int:
         "retryAdvised": bool(rpc.get("retryAdvised")),
         "usageStatusText": rpc.get("usageStatusText") or "",
         "authHelpText": rpc.get("authHelpText") or "",
+        # The Codex source can report the 5h, weekly and monthly windows.
+        "supportedWindowMinutes": [300, 10080, 43200],
     }
     record.update(stats)
     record["detected"] = detected

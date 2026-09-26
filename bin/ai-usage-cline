@@ -426,6 +426,9 @@ def main() -> int:
         "usageStatusText": cline.get("usageStatusText") or "",
         "authHelpText": cline.get("authHelpText") or "",
         "limits": limits,
+        # ClinePass can report all three canonical windows; a column outside
+        # this set is "not offered" rather than "not reported".
+        "supportedWindowMinutes": [300, 10080, 43200],
     }
     record.update(stats)
     # `stats` carries its own usage-derived `detected`; re-assert the merged
