@@ -42,6 +42,7 @@ Item {
         if (n === "camera" || n === "camera-photo") return "󰄀"
         if (n === "system-shutdown" || n === "system-power-off" || n === "poweroff") return "󰐥"
         if (n === "window-close") return "󰅖"
+        if (n === "view-refresh") return "󰑐"
         if (n === "weather-clear" || n === "weather-clear-wind") return ""
         if (n === "weather-clear-wind-night") return ""
         if (n === "weather-few-clouds-wind") return ""

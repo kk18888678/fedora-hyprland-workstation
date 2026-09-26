@@ -34,12 +34,13 @@ Item {
     // The panel passes its body cap so only the detail pane ever scrolls.
     property real maxHeight: 620
     property int staleMs: 1800000
-    // Focus regions: matrix -> tabs -> detail -> actions.
+    // Focus regions: matrix -> detail -> actions.
     property string focusRegion: "matrix"
     property int focusRow: 0
     property bool cursorActive: false
     property string selectedAccountId: ""
-    property int selectedFallbackIndex: 0
+    // -1 means deliberately no selection (the resting consolidated matrix).
+    property int selectedFallbackIndex: -1
     property var detailItems: []
     // Dedupes observed unmet conditions so a persistent condition is logged
     // once per session instead of on every 30 s tick.
@@ -61,8 +62,62 @@ Item {
     readonly property var accounts: agentsWidget ? agentsWidget.visibleAgents : []
     readonly property var rows: AgentUsage.matrixRows(accounts, nowMs)
     readonly property bool showBalance: AgentUsage.anyBalance(accounts)
-    readonly property int selectedIndex: AgentUsage.reconcileSelection(
-        selectedAccountId, selectedFallbackIndex, rows)
+    readonly property bool refreshing: !!(agentsWidget && agentsWidget.refreshing === true)
+
+    // Single source of truth for the matrix column geometry. The header and
+    // every account row use these exact widths, so no row can compute its own
+    // column boundaries from its own (varying) cell content.
+    readonly property int matrixAccountRequestedWidth: 108
+    readonly property int matrixAccountMinWidth: 56
+    readonly property int matrixTodayWidth: 52
+    readonly property int matrixBalanceWidth: 66
+    readonly property int matrixMinWindowWidth: 44
+    readonly property int matrixRowMargin: Theme.spacingXs
+    readonly property int matrixColumnSpacing: Theme.spacingXs
+    readonly property int matrixWindowCount: AgentUsage.canonicalWindowOrder().length
+    readonly property real matrixContentWidth: Math.max(0, body.width - matrixRowMargin * 2)
+    // The action cluster belongs to the detail card; it is always present so
+    // Refresh stays reachable when no account is expanded. Close collapses the
+    // detail and is offered only while an account is expanded.
+    readonly property var actionTargets: hasSelection ? ["close", "refresh"] : ["refresh"]
+
+    // Windows get the shared width that remains after the fixed columns and
+    // spacing. When even the minimum window width cannot fit, the ACCOUNT
+    // column shrinks first; the window width never varies per row.
+    function matrixWindowWidthForAccountWidth(accountWidth) {
+        if (matrixWindowCount <= 0) return 0
+        var items = 2 + matrixWindowCount + (showBalance ? 1 : 0)
+        var spacingCount = Math.max(0, items - 1)
+        var fixed = accountWidth + matrixTodayWidth +
+            (showBalance ? matrixBalanceWidth : 0) +
+            matrixColumnSpacing * spacingCount
+        var available = matrixContentWidth - fixed
+        if (available <= 0) return 0
+        return Math.floor(available / matrixWindowCount)
+    }
+
+    readonly property int matrixAccountWidth: {
+        if (matrixWindowWidthForAccountWidth(matrixAccountRequestedWidth) >= matrixMinWindowWidth)
+            return matrixAccountRequestedWidth
+        var items = 2 + matrixWindowCount + (showBalance ? 1 : 0)
+        var spacingCount = Math.max(0, items - 1)
+        var fixedWithoutAccount = matrixTodayWidth +
+            (showBalance ? matrixBalanceWidth : 0) +
+            matrixColumnSpacing * spacingCount
+        var roomForAccount = matrixContentWidth - fixedWithoutAccount -
+            matrixMinWindowWidth * matrixWindowCount
+        return Math.max(matrixAccountMinWidth,
+            Math.min(matrixAccountRequestedWidth, Math.floor(roomForAccount)))
+    }
+
+    readonly property int matrixWindowColumnWidth:
+        matrixWindowWidthForAccountWidth(matrixAccountWidth)
+    readonly property int selectedIndex: {
+        // The -1 fallback index is the explicit "nothing selected" sentinel;
+        // reconcileSelection() would otherwise clamp it to the first row.
+        if (String(selectedAccountId) === "" && selectedFallbackIndex < 0) return -1
+        return AgentUsage.reconcileSelection(selectedAccountId, selectedFallbackIndex, rows)
+    }
     readonly property var selectedRow: selectedIndex >= 0 && selectedIndex < rows.length
         ? rows[selectedIndex] : null
     readonly property var selectedRecord: selectedRow ? selectedRow.record : null
@@ -82,11 +137,11 @@ Item {
     readonly property bool hasSubscription: !!(selectedRecord && selectedRecord.subscription)
     readonly property bool bannerVisible: stateInfo.key === "unknown" ||
         stateInfo.key === "error" || stateInfo.key === "rate-limited"
-    // The detail pane is capped so matrix + tabs + detail always fit the card.
+    // The detail pane is capped so the pinned header, matrix and action row
+    // plus the detail always fit the card.
     readonly property real maxDetailHeight: Math.max(0,
-        maxHeight - matrixBlock.implicitHeight
-        - (tabStrip.visible ? tabStrip.implicitHeight : 0)
-        - actionsRow.implicitHeight - body.spacing * 3)
+        maxHeight - headerRow.implicitHeight - matrixBlock.implicitHeight
+        - actionRow.implicitHeight - body.spacing * 3)
 
     function sectionColor(severity) {
         if (severity === "critical") return Theme.error
@@ -97,7 +152,6 @@ Item {
     function visibleRegions() {
         var regions = []
         if (rows.length > 0) regions.push("matrix")
-        if (rows.length > 1) regions.push("tabs")
         if (hasSelection) regions.push("detail")
         regions.push("actions")
         return regions
@@ -111,8 +165,8 @@ Item {
         }
         if (focusRegion === "matrix") {
             focusRow = Math.max(0, Math.min(Math.max(0, rows.length - 1), focusRow))
-        } else if (focusRegion === "tabs") {
-            focusRow = Math.max(0, selectedIndex)
+        } else if (focusRegion === "actions") {
+            focusRow = Math.max(0, Math.min(Math.max(0, actionTargets.length - 1), focusRow))
         } else if (focusRegion === "detail") {
             focusRow = Math.max(0, Math.min(Math.max(0, detailItems.length - 1), focusRow))
         } else {
@@ -126,29 +180,59 @@ Item {
         var index = regions.indexOf(focusRegion)
         if (index < 0) index = delta > 0 ? -1 : 0
         focusRegion = regions[(index + delta + regions.length) % regions.length]
-        focusRow = (focusRegion === "tabs" && selectedIndex >= 0) ? selectedIndex : 0
+        focusRow = focusRegion === "actions"
+            ? Math.max(0, actionTargets.indexOf("refresh")) : 0
         cursorActive = true
         Qt.callLater(ensureFocusVisible)
+    }
+
+    // True when the named action in the always-present action row owns the
+    // keyboard cursor.
+    function actionFocus(name) {
+        return dashboard.cursorActive && dashboard.focusRegion === "actions" &&
+            dashboard.actionTargets[dashboard.focusRow] === name
     }
 
     function selectAccount(index) {
         if (rows.length === 0) return
         var next = ((index % rows.length) + rows.length) % rows.length
+        if (hasSelection && selectedIndex === next) {
+            clearSelection()
+            return
+        }
         selectedFallbackIndex = next
         selectedAccountId = rows[next].id
-        if (focusRegion === "matrix" || focusRegion === "tabs") focusRow = next
+        if (focusRegion === "matrix") focusRow = next
         cursorActive = true
         Qt.callLater(ensureFocusVisible)
     }
 
+    // Collapse the extended detail back to the consolidated matrix. This is
+    // the sole behaviour shared by the close control and re-clicking the
+    // selected row; it never closes the panel.
+    function clearSelection() {
+        if (!hasSelection) return
+        selectedAccountId = ""
+        selectedFallbackIndex = -1
+        detailItems = []
+        if (focusRegion === "detail") focusRegion = "matrix"
+        cursorActive = true
+        clampFocus()
+    }
+
     function switchAccount(delta) {
+        if (focusRegion === "actions") {
+            moveRow(delta)
+            return
+        }
         if (rows.length <= 1) return
         selectAccount((selectedIndex < 0 ? 0 : selectedIndex) + delta)
     }
 
     function moveRow(delta) {
-        if (focusRegion === "tabs") {
-            switchAccount(delta)
+        if (focusRegion === "actions") {
+            focusRow = Math.max(0, Math.min(actionTargets.length - 1, focusRow + delta))
+            cursorActive = true
             return
         }
         if (focusRegion === "detail") {
@@ -167,10 +251,11 @@ Item {
     }
 
     function activateFocus() {
-        if (focusRegion === "matrix" || focusRegion === "tabs") {
+        if (focusRegion === "matrix") {
             selectAccount(focusRow)
         } else if (focusRegion === "actions") {
-            refreshNow(true)
+            if (actionTargets[focusRow] === "close") clearSelection()
+            else refreshNow(true)
         } else if (focusRegion === "detail") {
             var item = detailItems[focusRow]
             if (item && typeof item.activate === "function") item.activate()
@@ -261,7 +346,6 @@ Item {
     }
 
     function ensureFocusVisible() {
-        if (focusRegion === "tabs") Qt.callLater(ensureTabVisible)
         if (focusRegion === "detail" && detailItems[focusRow])
             scrollItemIntoView(detailItems[focusRow])
     }
@@ -278,25 +362,16 @@ Item {
         }
     }
 
-    function ensureTabVisible() {
-        if (!tabStrip || selectedIndex < 0) return
-        var child = tabRow.children[selectedIndex]
-        if (!child) return
-        var left = child.x
-        var right = child.x + child.width
-        if (left < tabStrip.contentX) {
-            tabStrip.contentX = Math.max(0, left - Theme.spacingXs)
-        } else if (right > tabStrip.contentX + tabStrip.width) {
-            var maxX = Math.max(0, tabRow.width - tabStrip.width)
-            tabStrip.contentX = Math.min(maxX, right - tabStrip.width + Theme.spacingXs)
-        }
-    }
-
     onRowsChanged: {
+        if (selectedAccountId === "" && selectedFallbackIndex < 0) {
+            clampFocus()
+            emitDiagnostics()
+            return
+        }
         var index = AgentUsage.reconcileSelection(selectedAccountId, selectedFallbackIndex, rows)
         if (index < 0) {
             selectedAccountId = ""
-            selectedFallbackIndex = 0
+            selectedFallbackIndex = -1
         } else {
             selectedFallbackIndex = index
             if (String(selectedAccountId) !== rows[index].id) selectedAccountId = rows[index].id
@@ -307,8 +382,8 @@ Item {
     onStateInfoChanged: emitDiagnostics()
     onSelectedIndexChanged: {
         detailItems = []
-        if (focusRegion === "tabs") focusRow = Math.max(0, selectedIndex)
-        Qt.callLater(ensureTabVisible)
+        if (!hasSelection && focusRegion === "detail") focusRegion = "matrix"
+        clampFocus()
     }
     onDetailItemsChanged: {
         if (focusRegion === "detail" && focusRow >= detailItems.length)
@@ -396,12 +471,18 @@ Item {
     component MatrixCell: ColumnLayout {
         id: matrixCell
         property var cell: null
+        property string columnClass: ""
+        property int rowIndex: -1
         property string tooltipText: cell
             ? (String(cell.label) + " · " + cell.percentText +
                 (cell.absoluteReset !== "" ? "\nResets " + cell.absoluteReset : ""))
             : ""
 
-        Layout.fillWidth: true
+        objectName: "matrixCell-" + rowIndex + "-" + columnClass
+        Layout.preferredWidth: dashboard.matrixWindowColumnWidth
+        Layout.minimumWidth: dashboard.matrixWindowColumnWidth
+        Layout.maximumWidth: dashboard.matrixWindowColumnWidth
+        Layout.fillWidth: false
         spacing: 1
 
         RowLayout {
@@ -418,6 +499,7 @@ Item {
             Item { Layout.fillWidth: true }
 
             NumericLabel {
+                objectName: "matrixPercent-" + matrixCell.rowIndex + "-" + matrixCell.columnClass
                 text: matrixCell.cell ? matrixCell.cell.percentText : "—"
                 color: matrixCell.cell
                     ? dashboard.sectionColor(matrixCell.cell.severity) : Theme.textMuted
@@ -425,8 +507,14 @@ Item {
             }
         }
 
+        // The track is always present so the reserved meter line keeps every
+        // row the same height and the track width is measurable per column. A
+        // cell with no live limit leaves the track empty (value -1): the
+        // honest `—` percent and `no live limits` tag carry the meaning, no
+        // fabricated 0% fill is drawn.
         Meter {
-            visible: matrixCell.cell !== null
+            objectName: "matrixMeter-" + matrixCell.rowIndex + "-" + matrixCell.columnClass
+            visible: true
             value: matrixCell.cell ? matrixCell.cell.percent : -1
             marker: matrixCell.cell ? matrixCell.cell.elapsed : -1
             alarming: matrixCell.cell && matrixCell.cell.severity === "critical"
@@ -435,11 +523,12 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingXs
-            visible: matrixCell.cell !== null
+            visible: true
 
             Label {
                 Layout.fillWidth: true
-                text: matrixCell.cell ? matrixCell.cell.countdown : ""
+                text: matrixCell.cell && matrixCell.cell.countdown !== ""
+                    ? matrixCell.cell.countdown : " "
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSizeXs
                 elide: Text.ElideRight
@@ -674,6 +763,29 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingSm
 
+        // HEADER (pinned): title and freshness only. The extended-card actions
+        // live in the action row below the matrix, next to the detail they act on.
+        RowLayout {
+            id: headerRow
+            Layout.fillWidth: true
+            spacing: Theme.spacingSm
+
+            Label {
+                text: "Usage"
+                color: Theme.text
+                font.pixelSize: Theme.fontSizeMd
+                font.weight: Theme.fontWeightBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: dashboard.freshness.text
+                color: dashboard.freshness.stale ? Theme.warning : Theme.textMuted
+                font.pixelSize: Theme.fontSizeXs
+                elide: Text.ElideRight
+            }
+        }
+
         // MATRIX (pinned).
         ColumnLayout {
             id: matrixBlock
@@ -681,12 +793,19 @@ Item {
             spacing: 0
 
             RowLayout {
+                id: matrixHeader
                 Layout.fillWidth: true
+                Layout.leftMargin: dashboard.matrixRowMargin
+                Layout.rightMargin: dashboard.matrixRowMargin
                 Layout.bottomMargin: Theme.spacingXs
-                spacing: Theme.spacingXs
+                spacing: dashboard.matrixColumnSpacing
 
                 Label {
-                    Layout.preferredWidth: 108
+                    objectName: "matrixAccountHeader"
+                    Layout.preferredWidth: dashboard.matrixAccountWidth
+                    Layout.minimumWidth: dashboard.matrixAccountWidth
+                    Layout.maximumWidth: dashboard.matrixAccountWidth
+                    Layout.fillWidth: false
                     text: "ACCOUNT"
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeXs
@@ -700,12 +819,18 @@ Item {
                     delegate: Label {
                         id: columnHeader
                         required property string modelData
-                        Layout.fillWidth: true
+                        objectName: "matrixHeader-" + modelData
+                        Layout.preferredWidth: dashboard.matrixWindowColumnWidth
+                        Layout.minimumWidth: dashboard.matrixWindowColumnWidth
+                        Layout.maximumWidth: dashboard.matrixWindowColumnWidth
+                        Layout.fillWidth: false
                         text: AgentUsage.windowColumnLabel(modelData)
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                         font.letterSpacing: 1
+                        // Right edge matches the right-aligned percentage and
+                        // the right end of the meter it labels.
                         horizontalAlignment: Text.AlignRight
 
                         HoverHandler { id: headerHover }
@@ -716,7 +841,10 @@ Item {
                 }
 
                 Label {
-                    Layout.preferredWidth: 52
+                    Layout.preferredWidth: dashboard.matrixTodayWidth
+                    Layout.minimumWidth: dashboard.matrixTodayWidth
+                    Layout.maximumWidth: dashboard.matrixTodayWidth
+                    Layout.fillWidth: false
                     text: "TODAY"
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeXs
@@ -726,7 +854,10 @@ Item {
                 }
 
                 Label {
-                    Layout.preferredWidth: 66
+                    Layout.preferredWidth: dashboard.matrixBalanceWidth
+                    Layout.minimumWidth: dashboard.matrixBalanceWidth
+                    Layout.maximumWidth: dashboard.matrixBalanceWidth
+                    Layout.fillWidth: false
                     visible: dashboard.showBalance
                     text: AgentUsage.balanceHeader(dashboard.accounts)
                     color: Theme.textMuted
@@ -754,6 +885,7 @@ Item {
                         dashboard.focusRegion === "matrix" && dashboard.focusRow === index
 
                     Rectangle {
+                        objectName: "matrixRowRect-" + matrixRow.index
                         Layout.fillWidth: true
                         implicitHeight: matrixRowContent.implicitHeight + Theme.spacingSm
                         radius: Theme.radiusSm
@@ -771,7 +903,11 @@ Item {
                             spacing: Theme.spacingXs
 
                             ColumnLayout {
-                                Layout.preferredWidth: 108
+                                objectName: "matrixAccountCell-" + matrixRow.index
+                                Layout.preferredWidth: dashboard.matrixAccountWidth
+                                Layout.minimumWidth: dashboard.matrixAccountWidth
+                                Layout.maximumWidth: dashboard.matrixAccountWidth
+                                Layout.fillWidth: false
                                 spacing: 0
 
                                 Label {
@@ -785,8 +921,9 @@ Item {
 
                                 Label {
                                     Layout.fillWidth: true
-                                    visible: matrixRow.modelData.noLiveLimits
-                                    text: "no live limits"
+                                    // Always present with a space fallback so the
+                                    // optional tag never changes the row height.
+                                    text: matrixRow.modelData.noLiveLimits ? "no live limits" : " "
                                     color: Theme.textMuted
                                     font.pixelSize: Theme.fontSizeXs
                                     elide: Text.ElideRight
@@ -798,19 +935,28 @@ Item {
 
                                 delegate: MatrixCell {
                                     required property string modelData
+                                    required property int index
+                                    columnClass: modelData
+                                    rowIndex: matrixRow.index
                                     cell: matrixRow.modelData.windows[modelData]
                                 }
                             }
 
                             NumericLabel {
-                                Layout.preferredWidth: 52
+                                Layout.preferredWidth: dashboard.matrixTodayWidth
+                                Layout.minimumWidth: dashboard.matrixTodayWidth
+                                Layout.maximumWidth: dashboard.matrixTodayWidth
+                                Layout.fillWidth: false
                                 text: matrixRow.modelData.todayTokens
                                 color: Theme.textMuted
                                 font.pixelSize: Theme.fontSizeSm
                             }
 
                             NumericLabel {
-                                Layout.preferredWidth: 66
+                                Layout.preferredWidth: dashboard.matrixBalanceWidth
+                                Layout.minimumWidth: dashboard.matrixBalanceWidth
+                                Layout.maximumWidth: dashboard.matrixBalanceWidth
+                                Layout.fillWidth: false
                                 visible: dashboard.showBalance
                                 text: matrixRow.modelData.balance !== ""
                                     ? matrixRow.modelData.balance : "—"
@@ -843,78 +989,74 @@ Item {
             }
         }
 
-        // TAB STRIP (pinned, hidden with a single account).
-        Flickable {
-            id: tabStrip
+        // ACTIONS (pinned): the extended-card action cluster. It sits directly
+        // above the detail so it clearly belongs to the region it acts on, and
+        // it is always present so Refresh is reachable even when nothing is
+        // expanded. Close is offered only while an account is expanded.
+        RowLayout {
+            id: actionRow
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? implicitHeight : 0
-            visible: dashboard.rows.length > 1
-            implicitHeight: 30
-            contentWidth: tabRow.width
-            contentHeight: height
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            interactive: contentWidth > width
+            spacing: Theme.spacingXs
 
-            Row {
-                id: tabRow
-                spacing: Theme.spacingXs
+            Label {
+                visible: !dashboard.hasSelection
+                text: "Select an account for details"
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSizeXs
+                elide: Text.ElideRight
+            }
 
-                Repeater {
-                    model: dashboard.rows
+            Item { Layout.fillWidth: true }
 
-                    delegate: Rectangle {
-                        id: tabButton
-                        required property var modelData
-                        required property int index
+            Rectangle {
+                Layout.preferredWidth: closeButton.implicitWidth
+                Layout.preferredHeight: closeButton.implicitHeight
+                visible: dashboard.hasSelection
+                radius: Theme.radiusSm
+                color: "transparent"
+                border.width: dashboard.actionFocus("close") ? Theme.borderWidthFocus : 0
+                border.color: Theme.controls.focusBorder
 
-                        readonly property bool active: index === dashboard.selectedIndex
-                        readonly property bool tabFocused: dashboard.cursorActive &&
-                            dashboard.focusRegion === "tabs" && dashboard.focusRow === index
+                AureliaIconButton {
+                    id: closeButton
+                    objectName: "agentsCloseButton"
+                    anchors.centerIn: parent
+                    icon: "window-close"
+                    tooltip: "Collapse account details"
+                    onTriggered: dashboard.clearSelection()
+                }
+            }
 
-                        width: Math.max(72, tabLabel.implicitWidth + Theme.spacingMd * 2)
-                        height: tabStrip.height
-                        radius: Theme.radiusSm
-                        color: active ? Theme.controls.selectedFill
-                            : (tabHover.hovered ? Theme.controls.hoverFill : "transparent")
-                        border.width: tabFocused ? Theme.borderWidthFocus
-                            : (active ? Theme.borderWidthDefault : 0)
-                        border.color: tabFocused ? Theme.controls.focusBorder
-                            : Theme.controls.selectedBorder
+            Rectangle {
+                Layout.preferredWidth: refreshButton.implicitWidth
+                Layout.preferredHeight: refreshButton.implicitHeight
+                radius: Theme.radiusSm
+                color: "transparent"
+                border.width: dashboard.actionFocus("refresh") ? Theme.borderWidthFocus : 0
+                border.color: Theme.controls.focusBorder
 
-                        Label {
-                            id: tabLabel
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: Theme.spacingSm
-                            anchors.rightMargin: Theme.spacingSm
-                            text: tabButton.modelData.name
-                            color: tabButton.active ? Theme.accent : Theme.text
-                            font.pixelSize: Theme.fontSizeSm
-                            font.weight: Theme.fontWeightMedium
-                            elide: Text.ElideRight
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-
-                        HoverHandler { id: tabHover }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: dashboard.selectAccount(tabButton.index)
-                        }
-                    }
+                AureliaIconButton {
+                    id: refreshButton
+                    objectName: "agentsRefreshButton"
+                    anchors.centerIn: parent
+                    icon: "view-refresh"
+                    tooltip: dashboard.refreshing ? "Refreshing usage…" : "Refresh usage"
+                    active: dashboard.refreshing
+                    enabled: !dashboard.refreshing
+                    onTriggered: dashboard.refreshNow(true)
                 }
             }
         }
 
-        // DETAIL (the only scrolling region).
+        // DETAIL (the only scrolling region), present only once an account is
+        // expanded so the consolidated matrix is the clean default state.
         Item {
             id: detailWrapper
+            objectName: "agentsDetailPane"
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredHeight: detailFlick.implicitHeight
+            visible: dashboard.hasSelection
 
             Flickable {
                 id: detailFlick
@@ -933,15 +1075,6 @@ Item {
                     id: detailColumn
                     width: detailFlick.width
                     spacing: Theme.spacingMd
-
-                    Label {
-                        Layout.fillWidth: true
-                        visible: !dashboard.hasSelection
-                        text: "No account selected."
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSizeSm
-                        horizontalAlignment: Text.AlignHCenter
-                    }
 
                     // STATE BANNER: error / rate-limited / unknown only, with
                     // auth help and Retry. Error outranks stale.
@@ -1172,40 +1305,6 @@ Item {
                 border.width: dashboard.cursorActive && dashboard.focusRegion === "detail"
                     ? Theme.borderWidthFocus : 0
                 border.color: Theme.controls.focusBorder
-            }
-        }
-
-        // ACTIONS (pinned).
-        RowLayout {
-            id: actionsRow
-            Layout.fillWidth: true
-            spacing: Theme.spacingSm
-
-            Label {
-                Layout.fillWidth: true
-                text: dashboard.freshness.text
-                color: dashboard.freshness.stale ? Theme.warning : Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
-                elide: Text.ElideRight
-            }
-
-            Rectangle {
-                Layout.preferredWidth: refreshButton.implicitWidth + Theme.spacingXs * 2
-                Layout.preferredHeight: refreshButton.implicitHeight
-                radius: Theme.radiusSm
-                color: "transparent"
-                border.width: dashboard.cursorActive && dashboard.focusRegion === "actions"
-                    ? Theme.borderWidthFocus : 0
-                border.color: Theme.controls.focusBorder
-
-                AureliaActionButton {
-                    id: refreshButton
-                    anchors.centerIn: parent
-                    label: "Refresh"
-                    icon: "view-refresh"
-                    compact: true
-                    onTriggered: dashboard.refreshNow(true)
-                }
             }
         }
     }

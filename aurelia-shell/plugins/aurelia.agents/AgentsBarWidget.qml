@@ -34,6 +34,10 @@ Item {
     property bool pendingForce: false
     property var limitState: ({})
     property var renewalState: ({})
+    // Non-visual refresh state exposed to the panel so its icon-only Refresh
+    // control can disable itself and show a busy state while a probe runs.
+    // The bar affordance itself is unchanged.
+    readonly property bool refreshing: usageUpdateProcess.running || usageProcess.running
 
     readonly property string backendBin: {
         var override = Quickshell.env("WORKSTATION_AI_BIN") || ""

@@ -32,6 +32,8 @@ Window {
     property var records: []
     property bool grabbed: false
     readonly property string backendError: Quickshell.env("AGENTS_DASHBOARD_BACKEND_ERROR") || ""
+    // Empty means the resting consolidated matrix (no account expanded).
+    readonly property string selectId: Quickshell.env("AGENTS_DASHBOARD_SELECT") || ""
 
     visible: true
     width: 480
@@ -43,6 +45,7 @@ Window {
         property var visibleAgents: root.records
         property bool loaded: true
         property string lastError: root.backendError
+        property bool refreshing: false
         property int staleMs: 1800000
         property var bar: null
         function refresh(force) {}
@@ -100,7 +103,8 @@ Window {
         id: selectTimer
         interval: 250
         repeat: false
-        onTriggered: if (root.dashboard) root.dashboard.selectedAccountId = "codex"
+        onTriggered: if (root.dashboard && root.selectId !== "")
+            root.dashboard.selectedAccountId = root.selectId
     }
 
     function writeResult() {

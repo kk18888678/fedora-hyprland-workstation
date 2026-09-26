@@ -153,10 +153,19 @@ if grep -q 'AgentUsage.matrixRows' "$dashboard" &&
    grep -q 'MODELS · TODAY' "$dashboard" &&
    grep -q 'MODELS · ALL TIME' "$dashboard" &&
    grep -q 'AureliaActionButton' "$dashboard" &&
+   grep -q 'AureliaIconButton' "$dashboard" &&
+   grep -q 'matrixWindowColumnWidth' "$dashboard" &&
+   grep -q 'Layout.fillWidth: false' "$dashboard" &&
+   grep -q 'window-close' "$dashboard" &&
+   grep -q 'view-refresh' "$dashboard" &&
+   grep -q 'clearSelection' "$dashboard" &&
+   grep -q 'Select an account for details' "$dashboard" &&
+   ! grep -q 'tabStrip' "$dashboard" &&
+   ! grep -q '"tabs"' "$dashboard" &&
    ! grep -q 'PROVIDERS' "$plugin_dir/AgentsPanel.qml" "$dashboard" &&
    ! grep -q 'ALL ACCOUNTS' "$plugin_dir/AgentsPanel.qml" "$dashboard" &&
    ! grep -q 'tokens today · ' "$dashboard"; then
-    pass "[static] agents dashboard renders the pinned matrix, tabs, per-account detail and actions"
+    pass "[static] agents dashboard renders the pinned matrix, a shared column width, per-account detail and an icon-only action cluster"
 else
     fail "[static] agents dashboard section redesign is incomplete"
 fi
@@ -212,7 +221,9 @@ if grep -q 'Qt.Key_Escape' "$dashboard" &&
    grep -q 'function moveRegion(delta)' "$dashboard" &&
    grep -q 'function moveRow(delta)' "$dashboard" &&
    grep -q 'function switchAccount(delta)' "$dashboard" &&
-   grep -q 'function ensureTabVisible()' "$dashboard" &&
+   grep -q 'function clearSelection()' "$dashboard" &&
+   grep -q 'function actionFocus(name)' "$dashboard" &&
+   grep -q 'readonly property var actionTargets' "$dashboard" &&
    grep -q 'function ensureFocusVisible()' "$dashboard" &&
    grep -q 'function reconcileSelection' "$plugin_dir/AgentUsage.js"; then
     pass "[static] agents dashboard adopts the peer focus regions, Tab/Shift+Tab, j/k/h/l motion, id-based selection and r refresh"
@@ -894,6 +905,7 @@ AGENTS_DASHBOARD_PLUGIN="$plugin_dir/AgentsDashboard.qml" \
 AGENTS_DASHBOARD_FIXTURE="$ROOT/tests/fixtures/agents-dashboard/records.json" \
 AGENTS_DASHBOARD_IMAGE="$preview_image" \
 AGENTS_DASHBOARD_RESULT="$preview_result" \
+AGENTS_DASHBOARD_SELECT="codex" \
 AGENTS_DASHBOARD_BACKEND_ERROR="usage backend failed" \
     /usr/bin/timeout --kill-after=1s 16s /usr/bin/qs --no-duplicate \
     --path "$ROOT/tests/fixtures/agents-dashboard/shell.qml" >"$preview_log" 2>&1 || preview_status=$?
