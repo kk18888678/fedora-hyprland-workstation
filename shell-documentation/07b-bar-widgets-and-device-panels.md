@@ -416,25 +416,66 @@ record per provider into `STATE/agents/usage/*.json`; the panel discovers any
 new record without source edits. Local `FileView`s watch each record, and an
 optional sync directory merges device snapshots.
 
+The bar affordance is **icon-only**. It is one shared `AureliaIcon` glyph
+(`󰚩`) in a square slot that never widens: no percentage, provider label or
+countdown is drawn beside it. State is encoded as tint + a 4 px dot + opacity:
+`ok` uses `barForeground` at full opacity, `warn` uses `Theme.warning`,
+`critical` uses `Theme.error`, `unknown` uses `Theme.textMuted` at `0.5`,
+`stale` keeps the severity tint at `0.6`, and `error` uses `Theme.error`. The
+dot appears only for `warn`, `critical` and `error` (never for unknown or
+stale). Hover paints only the selection fill and never overrides the severity
+tint. Left-click toggles the panel, right-click launches the default agent,
+and middle-click forces a refresh; there is no wheel handler. The tooltip
+names the unit, provider, window, reset countdown and record freshness.
+
 ```text
 refresh default/minimum     900 s / 30 s
-sync debounce               1000 ms
-panel width cap             380 px
-panel max height            640 px
+refresh clamp               [30, 3600] seconds
+stale threshold             1800 s (configurable via staleAfterSec)
+panel width                 380 px (minimum 220 px, maximum 640 px)
+body height cap             maxPopupHeight - 2 * contentPadding
+model rows                  4 per list (today, then all-time)
 usage refresh modes         normal, force, limits-only
 limits retry                30000 ms when record advises retry
 ```
 
-The bar icon self-hides when there are no enabled providers with data. The
-panel contains provider tabs only when more than one provider has data; a
-single provider has no switch row. It shows a mark/title/plan hero, optional
-auth/error status, prepaid balance or rate limits, seven day rows, and up to
-four model rows.
+The bar icon self-hides when there are no detected providers. The panel is a
+single scrollable column:
+
+1. **HERO** - provider name, plan (from `tierLabel`/`subscription.plan` with
+   plan precedence over the generic `usageStatusText`), billing
+   cost/currency/cycle, a freshness or stale pill derived from `updatedAt`, and
+   a real `AureliaActionButton` Refresh.
+2. **PROVIDERS** - a keyboard-reachable switch, only when more than one
+   provider is detected, each labelled with its name and worst window.
+3. **STATE BANNER** - only for `unknown`, `error` or rate-limited, showing the
+   auth help text and a Retry action. A backend error is never hidden behind
+   stale data, and a stale number is dimmed rather than presented as live.
+4. **LIMITS** - every window in `limits[]` (not just the binding one), each
+   with its label, `NN% used`, a meter with a pace marker, the absolute reset
+   time next to the relative countdown, and an explicit `on pace`/`behind
+   pace`/`ahead of pace` state.
+5. **USAGE TODAY** - the billable versus cache split, the provider-specific
+   count noun from `todayLabel`, and sessions.
+6. **LAST 7 DAYS** - a labelled window with a numeric value per day; a
+   zero-usage day emits no bar at all rather than a 2 px stub.
+7. **MODELS** - a today-first list from `todayTokensByModel` followed by an
+   explicit all-time list from `modelUsage`, each labelled with its window.
+8. **SUBSCRIPTION** - plan/cost/cycle/renewal, only when a subscription record
+   exists.
+
+The panel inherits the bar font: every text node derives from one local
+`Label` primitive that sets `font.family: Theme.fontFamily`. It uses
+`Theme.fontWeightBold` (never `font.bold`) and a meter track of
+`Theme.controls.normalFill` at least 4 px thick. The keyboard model follows the
+Audio/Power/Bluetooth panels: `focusTarget` on the panel, Escape to close,
+Tab/Shift+Tab to cycle sections, `j`/`k` and arrows to move, `h`/`l` to switch
+provider, Enter/Space to activate, `r` to refresh, and scroll-into-view for the
+focused row.
 
 ```text
-meter thickness              max(4 px, round(controlHeight × .14))
+meter thickness              max(4 px, spacingXs)
 day label/value width         52 px each
-day bar margins               8 px left, 10 px right
 model bar row side padding    8 px
 day/model row vertical gap    shared sm/lg scale
 ```

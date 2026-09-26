@@ -242,18 +242,25 @@ The common record shape is:
   "name": "Provider name",
   "updatedAt": "ISO-8601 timestamp",
   "ready": true,
+  "detected": true,
   "hasLocalStats": true,
   "hasPromptStats": true,
   "scope": "device",
   "tierLabel": "Plan",
+  "todayLabel": "turns",
+  "retryAdvised": false,
   "limits": [
-    { "label": "5h window", "percent": 0.25, "resetsAt": "ISO-8601" }
+    { "label": "5h window", "percent": 0.25, "windowMinutes": 300, "resetsAt": "ISO-8601" }
   ],
   "todayPrompts": 0,
   "todaySessions": 0,
   "todayTotalTokens": 0,
+  "todayBillableTokens": 0,
+  "todayCacheTokens": 0,
   "todayTokensByModel": {},
-  "recentDays": [{ "date": "YYYY-MM-DD", "messageCount": 0 }],
+  "recentDays": [
+    { "date": "YYYY-MM-DD", "tokens": 0, "billableTokens": 0, "cacheTokens": 0 }
+  ],
   "totalPrompts": 0,
   "totalSessions": 0,
   "activeDays": 0,
@@ -262,8 +269,18 @@ The common record shape is:
 }
 ```
 
+`todayLabel` is the provider-specific count noun (for example `turns`,
+`requests` or `sessions`). `retryAdvised` is emitted on a rate-limit or
+timeout so the panel can offer a Retry without pretending the failure is
+permanent. Per-day and per-model entries carry `tokens` (the cache-inclusive
+total), `billableTokens` and `cacheTokens`, and the invariant
+`billableTokens + cacheTokens == tokens` holds. The legacy `messageCount` key
+is retained as a deprecated alias equal to `tokens`; new consumers read
+`tokens`.
+
 Token buckets contain `inputTokens`, `outputTokens`,
-`cacheReadInputTokens`, and `cacheCreationInputTokens`. A prepaid provider may
+`cacheReadInputTokens`, and `cacheCreationInputTokens`, plus the derived
+`billableTokens`, `cacheTokens` and `totalTokens`. A prepaid provider may
 instead provide `balance` with `remaining`, `funded`, `spent`, `currency`, and
 `estimated`. A collector may set `usageStatusText`, `authHelpText`, or
 `retryAdvised` without making the panel crash.
@@ -271,7 +288,9 @@ instead provide `balance` with `remaining`, `funded`, `spent`, `currency`, and
 ### Refresh and visibility
 
 - default refresh interval: 900 seconds;
-- configured interval is clamped to at least 30 seconds;
+- configured interval is clamped to `[30, 3600]` seconds;
+- a record whose `updatedAt` is older than the stale threshold is dimmed and
+  never presented as live;
 - timer starts immediately and repeats;
 - opening the panel asks for a fresh limits probe while reusing local scans;
 - explicit refresh uses `--force`;
@@ -290,11 +309,17 @@ instead provide `balance` with `remaining`, `funded`, `spent`, `currency`, and
 - no data means the complete bar module is invisible, not a dim empty icon;
 - multiple providers add a switch row; one provider has no switch row.
 
-The panel is a 380-unit fitted-width dashboard with a 640-unit fitted-height
-cap, both passed through the shared style scale. It uses a 160 ms OutCubic
-meter-width animation. Daily and model rows use a 4-unit minimum track and a
-14% control-height track thickness; labels and token values reserve 52-unit
-columns. These are style units, so the base style scale in
+The bar affordance is icon-only: one shared `AureliaIcon` glyph in a square
+slot, no text, no percentage and no countdown. State is tint + a 4 px dot
+(warn/critical/error only) + opacity. The panel is a 380-unit fitted-width
+dashboard (minimum 220, maximum 640) whose body cap is derived from the
+maximum, with a 160 ms OutCubic meter-width animation and up to four model rows
+per window. Every text node inherits the bar font through one local `Label`
+primitive, and the meter track is `Theme.controls.normalFill` at least 4 px
+thick. The keyboard model matches the Audio/Power/Bluetooth panels: Escape
+closes, Tab/Shift+Tab cycles sections, `j`/`k` and arrows move, `h`/`l` switch
+provider, Enter/Space activates, and `r` refreshes. These are style units, so
+the base style scale in
 [05-ui-kit-and-measurements.md](05-ui-kit-and-measurements.md) still applies.
 
 ### Provider-specific source behavior

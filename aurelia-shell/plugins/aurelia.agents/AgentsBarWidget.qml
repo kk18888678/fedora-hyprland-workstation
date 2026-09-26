@@ -5,9 +5,13 @@ import "../../theme"
 import "../../ui"
 import "AgentUsage.js" as AgentUsage
 
-// Local AI subscription usage in the bar. The widget reads records produced by
+// Local AI subscription usage in the bar. The affordance is deliberately
+// ICON-ONLY: one shared-primitive glyph in a square slot that never widens,
+// with no percentage, provider label or countdown beside it. State is encoded
+// as tint + a 4 px warn/critical/error dot + opacity so the severity colour is
+// never traded away for a hover accent. The widget reads records produced by
 // `workstation-ai usage` (collectors under bin/ai-usage-*) and stays hidden
-// until at least one record is ready, matching Omarchy's self-hiding behavior.
+// until at least one record is detected.
 Item {
     id: root
 
@@ -19,12 +23,15 @@ Item {
     property var manifest: ({})
     property var pluginRegistry: null
     property var barAnchorItem: null
+    property bool ipcReady: false
 
     property var agents: []
     property bool loaded: false
     property string lastError: ""
     property int retryCount: 0
     property double lastLoadedMs: 0
+    property real nowMs: Date.now()
+    property bool pendingForce: false
     property var limitState: ({})
     property var renewalState: ({})
 
@@ -44,43 +51,38 @@ Item {
         "XDG_STATE_HOME": Quickshell.env("XDG_STATE_HOME") || "",
         "XDG_CONFIG_HOME": Quickshell.env("XDG_CONFIG_HOME") || ""
     })
+    // The refresh interval is clamped to [30, 3600] seconds. Anything outside
+    // that band is a configuration error, not a reason to hammer the backend.
     readonly property int refreshSeconds: {
         var raw = root.settings && root.settings.refreshIntervalSec !== undefined
             ? parseInt(root.settings.refreshIntervalSec) : 900
-        if (isNaN(raw) || raw < 60 || raw > 3600) return 900
-        return raw
+        if (isNaN(raw)) return 900
+        return Math.max(30, Math.min(3600, raw))
+    }
+    // A record older than this is stale: its numbers are dimmed and never
+    // presented as live.
+    readonly property int staleMs: {
+        var raw = root.settings && root.settings.staleAfterSec !== undefined
+            ? parseInt(root.settings.staleAfterSec) : 1800
+        if (isNaN(raw)) return 1800 * 1000
+        return Math.max(60, Math.min(86400, raw)) * 1000
     }
     readonly property var readyAgents: AgentUsage.readyAgents(root.agents)
     readonly property var visibleAgents: AgentUsage.detectedAgents(root.agents)
     readonly property bool hasAgents: root.loaded && root.visibleAgents.length > 0
-    readonly property real todayTokens: AgentUsage.todayTotal(root.readyAgents)
-    // The bar surfaces the binding limit (the one that will stop the next
-    // prompt) as used% plus time-to-reset, coloured by severity, instead of a
-    // raw token count.
-    readonly property var statusAgent: {
-        var best = null
-        var bestPercent = -1
-        for (var i = 0; i < root.readyAgents.length; i++) {
-            var limit = AgentUsage.bindingWindow(root.readyAgents[i])
-            var percent = limit ? Number(limit.percent) : -1
-            if (percent > bestPercent) {
-                bestPercent = percent
-                best = root.readyAgents[i]
-            }
-        }
-        return best
-    }
-    readonly property var statusLimit: AgentUsage.bindingWindow(root.statusAgent)
-    readonly property string statusText: {
-        if (!root.statusLimit) return AgentUsage.formatTokens(root.todayTokens)
-        var percent = Math.round(Number(root.statusLimit.percent) * 100)
-        var remaining = AgentUsage.resetMsFor(root.statusLimit, Date.now())
-        return remaining > 0 ? percent + "% · " + AgentUsage.formatDuration(remaining) : percent + "%"
-    }
+    readonly property var barState: AgentUsage.barState(root.agents, root.nowMs, {
+        loading: !root.loaded,
+        backendError: root.lastError,
+        staleMs: root.staleMs
+    })
+    readonly property string stateTint: root.barState.tint
+    readonly property bool stateDot: root.barState.dot
+    readonly property real stateOpacity: root.barState.opacity
     readonly property color statusColor: {
-        var severity = AgentUsage.severityForLimit(root.statusLimit)
-        if (severity === "critical") return Theme.error
-        if (severity === "warn") return Theme.warning
+        var tint = root.barState.tint
+        if (tint === "warning") return Theme.warning
+        if (tint === "error") return Theme.error
+        if (tint === "textMuted") return Theme.textMuted
         return root.barForeground
     }
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
@@ -90,16 +92,62 @@ Item {
     // AureliaIcon primitive at the 16 px ink canvas, not a raw Text glyph.
     readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
         ? root.bar.barIconCanvas : Theme.bar.iconCanvas
+    readonly property var agentsPanel: agentsPanelLoader.item
+
+    readonly property bool ipcOwner: {
+        var revision = root.bar && root.bar.widgetRevision !== undefined
+            ? root.bar.widgetRevision : -1
+        if (!root.barAnchorItem) return false
+        if (!root.bar || typeof root.bar.anchorItemFor !== "function") return true
+        return root.bar.anchorItemFor(root.moduleName) === root.barAnchorItem
+    }
 
     visible: root.hasAgents
-    implicitWidth: root.hasAgents && !root.vertical ? agentRow.implicitWidth + Theme.spacingSm * 2
-        : (root.hasAgents ? (root.bar ? root.bar.barSize : 26) : 0)
+    // A square slot that never widens: the icon is the whole affordance.
+    implicitWidth: root.hasAgents ? (root.bar ? root.bar.barSize : 26) : 0
     implicitHeight: root.bar ? root.bar.barSize : 26
 
-    function refresh() {
+    function configurePanel(target) {
+        if (!target) return
+        if ("agentsWidget" in target) target.agentsWidget = root
+        if ("bar" in target) target.bar = root.bar
+        if ("shell" in target) target.shell = root.shell
+        if ("anchorItem" in target) target.anchorItem = root.barAnchorItem || root
+    }
+
+    function open(payloadJson) {
+        if (!root.agentsPanel || typeof root.agentsPanel.open !== "function") return "not-ready"
+        root.configurePanel(root.agentsPanel)
+        return root.agentsPanel.open(payloadJson || "{}")
+    }
+
+    function close() {
+        if (!root.agentsPanel || typeof root.agentsPanel.close !== "function") return "not-ready"
+        return root.agentsPanel.close()
+    }
+
+    function toggle(payloadJson) {
+        if (root.isVisible()) return root.close()
+        return root.open(payloadJson || "{}")
+    }
+
+    function isVisible() {
+        return !!(root.agentsPanel && root.agentsPanel.shown === true)
+    }
+
+    function refresh(force) {
         if (!root.backendReady) return
         if (usageUpdateProcess.running || usageProcess.running) return
+        root.pendingForce = force === true
         usageUpdateProcess.running = true
+    }
+
+    // Right-click launches the user's default agent in a terminal. This never
+    // installs anything; `workstation-ai launch` fails closed when no default
+    // agent is selected.
+    function launch() {
+        if (root.backendBin === "") return
+        Quickshell.execDetached([root.backendBin, "launch"])
     }
 
     function scheduleRetry() {
@@ -111,7 +159,34 @@ Item {
     // Refresh only when the last load is older than the caller's tolerance, so
     // opening the panel does not trigger a live limit probe on every click.
     function maybeRefresh(maxAgeMs) {
-        if (Date.now() - root.lastLoadedMs > maxAgeMs) root.refresh()
+        if (Date.now() - root.lastLoadedMs > maxAgeMs) root.refresh(false)
+    }
+
+    // Truthful tooltip: it names the unit (percentage for an authoritative
+    // window, billable tokens for a local-only provider), the provider, the
+    // window label, the reset countdown and the record freshness.
+    function tooltipText() {
+        if (!root.hasAgents) return ""
+        if (root.readyAgents.length === 0) return "AI agents · waiting for usage data"
+        var lines = []
+        for (var i = 0; i < root.readyAgents.length; i++) {
+            var agent = root.readyAgents[i]
+            var name = String(agent.name || agent.id)
+            var limit = AgentUsage.bindingLimit(agent, root.nowMs)
+            if (limit) {
+                var percent = Math.round(Number(limit.percent) * 100)
+                var label = String(limit.label || "limit")
+                var line = name + " · " + label + " " + percent + "% used"
+                var remaining = AgentUsage.resetMsFor(limit, root.nowMs)
+                if (remaining > 0) line += " · resets in " + AgentUsage.formatDuration(remaining)
+                lines.push(line)
+            } else {
+                lines.push(name + " · " + AgentUsage.formatTokens(agent.todayBillableTokens) + " billable tokens today")
+            }
+        }
+        var freshness = AgentUsage.freshnessPill(root.readyAgents[0], root.nowMs, root.staleMs)
+        if (freshness.text !== "") lines.push("Updated " + freshness.text)
+        return lines.join("\n")
     }
 
     // Notify on limit resets and near-exhaustion. The previous observation is
@@ -131,44 +206,82 @@ Item {
         }
     }
 
-    function togglePanel() {
-        var panel = agentsPanelLoader.item
-        if (!panel) return
-        if (panel.shown) panel.close()
-        else panel.open()
-    }
-
     Component.onCompleted: {
-        root.refresh()
+        root.refresh(false)
         startupRetryTimer.restart()
     }
-    onAureliaPathChanged: root.refresh()
-    onBarChanged: root.refresh()
+    onAureliaPathChanged: root.refresh(false)
+    onBarChanged: root.refresh(false)
+    onIpcOwnerChanged: {
+        root.ipcReady = false
+        ipcOwnerSettleTimer.restart()
+    }
+
+    Timer {
+        id: ipcOwnerSettleTimer
+        interval: 50
+        repeat: false
+        onTriggered: root.ipcReady = root.ipcOwner
+    }
 
     Timer {
         id: startupRetryTimer
         interval: 4000
         repeat: false
-        onTriggered: if (!root.loaded) root.refresh()
+        onTriggered: if (!root.loaded) root.refresh(false)
     }
 
     Timer {
         id: backendRetryTimer
         interval: 5000
         repeat: false
-        onTriggered: root.refresh()
+        onTriggered: root.refresh(false)
+    }
+
+    // Keeps stale detection and the tooltip countdown honest while visible.
+    Timer {
+        interval: 60000
+        running: root.hasAgents
+        repeat: true
+        onTriggered: root.nowMs = Date.now()
+    }
+
+    Component {
+        id: agentsIpcHandler
+
+        IpcHandler {
+            target: "aurelia.agents"
+
+            function ping(): bool { return root.agentsPanel !== null }
+            function open(): void { root.open("{}") }
+            function close(): void { root.close() }
+            function show(): void { root.open("{}") }
+            function hide(): void { root.close() }
+            function toggle(): void { root.toggle("{}") }
+            function refresh(): void { root.refresh(true) }
+        }
+    }
+
+    Loader {
+        active: root.ipcOwner && root.ipcReady
+        sourceComponent: agentsIpcHandler
     }
 
     Loader {
         id: agentsPanelLoader
         active: true
         source: Qt.resolvedUrl("AgentsPanel.qml")
-        onLoaded: item.agentsWidget = root
+        onLoaded: root.configurePanel(item)
+        onStatusChanged: {
+            if (status === Loader.Error) console.error("[AGENTS] panel_load_failed")
+        }
     }
 
     Process {
         id: usageUpdateProcess
-        command: [root.backendBin, "usage-update"]
+        command: root.pendingForce
+            ? [root.backendBin, "usage-update", "--force"]
+            : [root.backendBin, "usage-update"]
         environment: root.processEnvironment
         running: false
         onExited: function (code) {
@@ -194,6 +307,7 @@ Item {
             root.lastError = ""
             root.retryCount = 0
             root.lastLoadedMs = Date.now()
+            root.nowMs = root.lastLoadedMs
             root.applyLimitNotifications()
         }
     }
@@ -202,40 +316,62 @@ Item {
         interval: root.refreshSeconds * 1000
         running: !!(root.bar && root.bar.barVisible)
         repeat: true
-        onTriggered: root.refresh()
+        onTriggered: root.refresh(false)
+    }
+
+    HoverHandler { id: pointerHover }
+
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.radiusSm
+        // Hover paints only the selection fill. It must never replace the
+        // severity tint, or hovering to inspect an alarm would erase it.
+        color: root.isVisible() || pointerHover.hovered ? Theme.selection : "transparent"
+    }
+
+    AureliaIcon {
+        id: agentGlyph
+        anchors.centerIn: parent
+        width: root.iconCanvas
+        height: root.iconCanvas
+        iconSize: root.iconCanvas
+        glyph: "󰚩"
+        tint: root.stateTint === "barForeground" ? root.barForeground : root.statusColor
+        opacity: root.stateOpacity
+    }
+
+    // A 4 px dot marks warn/critical/error only; unknown and stale never get a
+    // dot, because those are not actionable alarms.
+    Rectangle {
+        id: stateDot
+        visible: root.stateDot
+        width: 4
+        height: 4
+        radius: 2
+        color: root.statusColor
+        opacity: root.stateOpacity
+        anchors.right: agentGlyph.right
+        anchors.top: agentGlyph.top
     }
 
     MouseArea {
         id: clickArea
         anchors.fill: parent
         hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.togglePanel()
+        onClicked: function (mouse) {
+            mouse.accepted = true
+            if (mouse.button === Qt.RightButton) root.launch()
+            else if (mouse.button === Qt.MiddleButton) root.refresh(true)
+            else root.toggle("{}")
+        }
     }
 
-    Row {
-        id: agentRow
-        anchors.centerIn: parent
-        spacing: Theme.spacingXs
-
-        AureliaIcon {
-            id: agentGlyph
-            anchors.verticalCenter: parent.verticalCenter
-            width: root.iconCanvas
-            height: root.iconCanvas
-            iconSize: root.iconCanvas
-            glyph: "󰚩"
-            tint: root.barForeground
-        }
-
-        Text {
-            id: agentLabel
-            anchors.verticalCenter: parent.verticalCenter
-            visible: !root.vertical
-            text: root.statusText
-            font.family: Theme.fontFamily
-            font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.fontSizeSm
-            color: clickArea.containsMouse ? Theme.accent : root.statusColor
-        }
+    AureliaToolTip {
+        triggerItem: root
+        bar: root.bar
+        hovered: pointerHover.hovered
+        text: root.tooltipText()
     }
 }
