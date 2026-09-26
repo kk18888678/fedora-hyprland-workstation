@@ -218,11 +218,6 @@ function bindingLimit(record, nowMs) {
     return best;
 }
 
-// Backwards-compatible alias: the current widget still calls bindingWindow.
-function bindingWindow(record, nowMs) {
-    return bindingLimit(record, nowMs);
-}
-
 function resetMsFor(window, nowMs) {
     if (!window || !window.resetsAt) return -1;
     var parsed = Date.parse(String(window.resetsAt));
@@ -363,21 +358,30 @@ function weekPeak(record) {
     return peak;
 }
 
-function modelRows(record, limit) {
-    var usage = (record && record.modelUsage) || {};
+// Project one model bucket map into sorted rows. Accepts both the full
+// `modelUsage` buckets and the compact `todayTokensByModel` buckets, preferring
+// the explicit billable/cache/total split the collectors now emit.
+function modelRowsFrom(usage, limit) {
+    var buckets = usage || {};
     var rows = [];
-    for (var id in usage) {
-        if (!Object.prototype.hasOwnProperty.call(usage, id)) continue;
-        var bucket = usage[id] || {};
+    for (var id in buckets) {
+        if (!Object.prototype.hasOwnProperty.call(buckets, id)) continue;
+        var bucket = buckets[id] || {};
         var input = number(bucket.inputTokens);
         var output = number(bucket.outputTokens);
         var cacheRead = number(bucket.cacheReadInputTokens);
         var cacheWrite = number(bucket.cacheCreationInputTokens);
-        var billable = input + output;
-        var cache = cacheRead + cacheWrite;
+        var billable = number(bucket.billableTokens);
+        var cache = number(bucket.cacheTokens);
+        if (billable === 0 && cache === 0) {
+            billable = input + output;
+            cache = cacheRead + cacheWrite;
+        }
+        var total = number(bucket.totalTokens);
+        if (total === 0) total = billable + cache;
         rows.push({
             name: String(id),
-            total: billable + cache,
+            total: total,
             billableTokens: billable,
             cacheTokens: cache,
             input: input,
@@ -388,6 +392,206 @@ function modelRows(record, limit) {
     }
     rows.sort(function (a, b) { return b.total - a.total; });
     return rows.slice(0, limit || 4);
+}
+
+// All-time model breakdown from the `modelUsage` buckets.
+function modelRows(record, limit) {
+    return modelRowsFrom((record && record.modelUsage) || {}, limit || 4);
+}
+
+// Today-first model breakdown from `todayTokensByModel`.
+function todayModels(record, limit) {
+    return modelRowsFrom((record && record.todayTokensByModel) || {}, limit || 4);
+}
+
+// Per-day token value, preferring the new `tokens` key over the legacy alias.
+function dayTokens(day) {
+    if (!day) return 0;
+    if (day.tokens !== undefined && day.tokens !== null) return number(day.tokens);
+    return number(day.messageCount);
+}
+
+// Today's billable/cache/count projection. `noun` is the provider-specific
+// count noun the collector advertises; `sessions` is reported separately so a
+// provider that counts sessions does not present the same number twice.
+function todayUsage(record) {
+    return {
+        billable: number(record && record.todayBillableTokens),
+        cache: number(record && record.todayCacheTokens),
+        count: number(record && record.todayPrompts),
+        noun: String((record && record.todayLabel) || "sessions"),
+        sessions: number(record && record.todaySessions)
+    };
+}
+
+// Plan label for the hero: an explicit tier wins, then the user-owned
+// subscription plan, then the collector's generic status text. This is the
+// ONLY place the generic status is allowed to stand in for a plan, which keeps
+// "Local usage only" from being repeated in the state banner.
+function planLabel(record) {
+    if (!record) return "";
+    var tier = String(record.tierLabel || "");
+    if (tier !== "") return tier.charAt(0).toUpperCase() + tier.slice(1);
+    if (record.subscription && String(record.subscription.plan || "") !== "") {
+        var plan = String(record.subscription.plan);
+        return plan.charAt(0).toUpperCase() + plan.slice(1);
+    }
+    return String(record.usageStatusText || "");
+}
+
+// Freshness/stale pill derived from `updatedAt`. An unparseable timestamp is
+// reported as unknown freshness, never as fresh.
+function freshnessPill(record, nowMs, staleMs) {
+    var age = recordAgeMs(record, nowMs);
+    var stale = isRecordStale(record, nowMs, staleMs);
+    if (!isFinite(age)) return { text: stale ? "Stale" : "Freshness unknown", stale: stale, known: false };
+    var text = freshnessText(record, nowMs);
+    return { text: stale ? "Stale · " + text : text, stale: stale, known: true };
+}
+
+// Absolute reset time in deterministic UTC so the panel can show a fixed clock
+// time next to the relative countdown without depending on the host timezone.
+function formatResetAbsolute(resetsAt) {
+    if (!resetsAt) return "";
+    var parsed = Date.parse(String(resetsAt));
+    if (!isFinite(parsed)) return "";
+    var date = new Date(parsed);
+    var iso = date.toISOString();
+    return iso.slice(0, 10) + " " + iso.slice(11, 16) + " UTC";
+}
+
+// Human pace state, including the explicit on-pace case.
+function paceLabel(pace) {
+    if (!pace) return "";
+    if (pace.onPace) return "on pace";
+    return pace.behind ? "behind pace" : "ahead of pace";
+}
+
+// The worst window for a provider, used to label the provider switch.
+function providerWorstLabel(record, nowMs) {
+    var limit = bindingLimit(record, nowMs);
+    if (!limit) return "";
+    var label = String(limit.label || "Limit");
+    var percent = Number(limit.percent);
+    if (!isFinite(percent)) return label;
+    return label + " " + Math.round(percent * 100) + "%";
+}
+
+// A collector error is explicit: either an `error` flag, or an auth help
+// string, or an unavailable/failed status. The configured-but-unused account
+// message is a normal empty state, not an error.
+function recordHasError(record) {
+    if (!record) return false;
+    if (record.error === true) return true;
+    if (String(record.authHelpText || "") !== "") return true;
+    var status = String(record.usageStatusText || "");
+    if (status === "" || status === "Local usage only" ||
+        status === "Account configured · no usage yet") return false;
+    return /unavailable|failed|failure|error|expired|invalid|denied|unauthor|not found/i.test(status);
+}
+
+// Per-provider state for the panel: loading/empty/unknown/ready/warn/critical/
+// stale/error/rate-limited. Error and rate-limit take precedence over stale so
+// a failure is never hidden behind old data, and a stale number is dimmed
+// rather than presented as live.
+function providerState(record, nowMs, opts) {
+    opts = opts || {};
+    if (opts.backendError) {
+        return { key: "error", severity: "error", stale: false, dot: true, opacity: 1.0,
+            tint: "error", message: String(opts.backendError), help: "", retry: true };
+    }
+    if (!record) {
+        if (opts.loading) {
+            return { key: "loading", severity: "unknown", stale: false, dot: false, opacity: 0.5,
+                tint: "textMuted", message: "Loading usage…", help: "", retry: false };
+        }
+        return { key: "empty", severity: "unknown", stale: false, dot: false, opacity: 0.5,
+            tint: "textMuted", message: "No provider detected", help: "", retry: false };
+    }
+    if (record.ready !== true && String(record.usageStatusText || "") === "Account configured · no usage yet") {
+        return { key: "empty", severity: "unknown", stale: false, dot: false, opacity: 0.5,
+            tint: "textMuted", message: "Account configured · no usage yet", help: "", retry: false };
+    }
+    if (record.retryAdvised === true) {
+        return { key: "rate-limited", severity: "warn", stale: false, dot: false, opacity: 1.0,
+            tint: "warning", message: String(record.usageStatusText || "Rate limited"),
+            help: String(record.authHelpText || ""), retry: true };
+    }
+    if (recordHasError(record)) {
+        return { key: "error", severity: "error", stale: false, dot: true, opacity: 1.0,
+            tint: "error", message: String(record.usageStatusText || "Provider error"),
+            help: String(record.authHelpText || ""), retry: true };
+    }
+    var limit = bindingLimit(record, nowMs);
+    var severity = limit ? severityForLimit(limit) : "unknown";
+    var stale = isRecordStale(record, nowMs, opts.staleMs);
+    if (severity === "unknown") {
+        return { key: "unknown", severity: "unknown", stale: stale, dot: false,
+            opacity: stale ? 0.6 : 0.5, tint: "textMuted",
+            message: "No live limit reported", help: "", retry: false };
+    }
+    var tint = severity === "critical" ? "error" : (severity === "warn" ? "warning" : "barForeground");
+    return {
+        key: stale ? "stale" : (severity === "ok" ? "ready" : severity),
+        severity: severity,
+        stale: stale,
+        dot: !stale && severity !== "ok",
+        opacity: stale ? 0.6 : 1.0,
+        tint: tint,
+        message: "",
+        help: "",
+        retry: false
+    };
+}
+
+// Whole-bar state: the worst provider state with the same tint+dot+opacity
+// encoding the widget renders.
+function barState(records, nowMs, opts) {
+    opts = opts || {};
+    var list = detectedAgents(records);
+    if (opts.backendError) {
+        return { key: "error", severity: "error", stale: false, dot: true, opacity: 1.0, tint: "error" };
+    }
+    if (opts.loading && list.length === 0) {
+        return { key: "loading", severity: "unknown", stale: false, dot: false, opacity: 0.5, tint: "textMuted" };
+    }
+    if (list.length === 0) {
+        return { key: "empty", severity: "unknown", stale: false, dot: false, opacity: 0.5, tint: "textMuted" };
+    }
+    var ready = readyAgents(list);
+    if (ready.length === 0) {
+        return { key: "unknown", severity: "unknown", stale: false, dot: false, opacity: 0.5, tint: "textMuted" };
+    }
+    for (var i = 0; i < ready.length; i++) {
+        if (ready[i].retryAdvised === true) {
+            return { key: "rate-limited", severity: "warn", stale: false, dot: false, opacity: 1.0, tint: "warning" };
+        }
+    }
+    for (var j = 0; j < ready.length; j++) {
+        if (recordHasError(ready[j])) {
+            return { key: "error", severity: "error", stale: false, dot: true, opacity: 1.0, tint: "error" };
+        }
+    }
+    var severity = overallSeverity(list, nowMs);
+    if (severity === "unknown") {
+        return { key: "unknown", severity: "unknown", stale: false, dot: false, opacity: 0.5, tint: "textMuted" };
+    }
+    var stale = false;
+    for (var k = 0; k < ready.length; k++) {
+        if (isRecordStale(ready[k], nowMs, opts.staleMs)) { stale = true; break; }
+    }
+    var tint = severity === "critical" ? "error" : (severity === "warn" ? "warning" : "barForeground");
+    if (stale) {
+        return { key: "stale", severity: severity, stale: true, dot: false, opacity: 0.6, tint: tint };
+    }
+    return {
+        key: severity === "ok" ? "ready" : severity,
+        severity: severity,
+        stale: false,
+        dot: severity !== "ok",
+        opacity: 1.0,
+        tint: tint
+    };
 }
 
 // Compare live rate-limit windows against the previous observation and return
@@ -501,4 +705,39 @@ function limitTransitions(records, previousState, thresholds) {
         }
     }
     return { state: next, notifications: notifications };
+}
+
+// Cost/currency/cycle only. The hero shows the plan separately, so this never
+// repeats it; renewal is owned by the subscription section.
+function billingSummary(record) {
+    var sub = record && record.subscription;
+    if (!sub) return "";
+    var parts = [];
+    if (sub.cost !== undefined && sub.cost !== null && String(sub.cost) !== "" &&
+        isFinite(Number(sub.cost))) {
+        parts.push(String(sub.currency || "USD") + " " + Number(sub.cost).toFixed(2));
+    }
+    if (String(sub.cycle || "") !== "") parts.push(String(sub.cycle));
+    return parts.join(" · ");
+}
+
+// Explicit plan/cost/cycle/renewal lines for the subscription section. Returns
+// [] when the user has not recorded a subscription, so the section self-hides.
+function subscriptionRows(record) {
+    var sub = record && record.subscription;
+    if (!sub) return [];
+    var rows = [];
+    if (String(sub.plan || "") !== "") rows.push("Plan · " + String(sub.plan));
+    var cost = billingSummary(record);
+    if (cost !== "") rows.push("Billing · " + cost);
+    if (sub.renew) {
+        var days = Number(sub.daysLeft);
+        var renewal = "Renews " + String(sub.renew);
+        if (isFinite(days)) {
+            renewal += days < 0 ? " · passed"
+                : (days === 0 ? " · today" : (days === 1 ? " · in 1 day" : " · in " + days + " days"));
+        }
+        rows.push(renewal);
+    }
+    return rows;
 }

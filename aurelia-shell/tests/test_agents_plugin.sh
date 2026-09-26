@@ -39,11 +39,61 @@ if grep -q 'visible: root.hasAgents' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.parseRecords' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'applyLimitNotifications' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'notify-send' "$plugin_dir/AgentsBarWidget.qml" &&
-   grep -q 'AgentUsage.severityForLimit' "$plugin_dir/AgentsBarWidget.qml" &&
-   grep -q 'AgentUsage.bindingWindow' "$plugin_dir/AgentsBarWidget.qml"; then
-    pass "[static] agents widget refreshes through workstation-ai and hides until an agent is detected"
+   grep -q 'AgentUsage.bindingLimit' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.barState' "$plugin_dir/AgentsBarWidget.qml"; then
+    pass "[static] agents widget refreshes through workstation-ai and derives state from the record contract"
 else
     fail "[static] agents widget backend wiring is incomplete"
+fi
+
+# Icon-only bar affordance: a square slot with one shared-primitive glyph and a
+# 4 px warn/critical/error dot. No text label, percentage, provider label or
+# countdown may survive, and there is no wheel handler.
+if grep -q 'glyph: "󰚩"' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AureliaIcon {' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'width: root.iconCanvas' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'height: root.iconCanvas' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'iconSize: root.iconCanvas' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'id: agentLabel' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'statusText' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'agentLabel' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'Text {' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'onWheel' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'todayTokens' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'radius: Theme.radiusSm' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'width: 4' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'visible: root.stateDot' "$plugin_dir/AgentsBarWidget.qml"; then
+    pass "[static] agents bar affordance is an icon-only square slot with a 4 px warn/critical/error dot"
+else
+    fail "[static] agents bar affordance is not icon-only or still carries text state"
+fi
+
+# The hover fill must never replace the severity tint (the old containsMouse
+# accent bug erased the alarm exactly when the user hovered to inspect it).
+if grep -q 'root.isVisible() || pointerHover.hovered ? Theme.selection : "transparent"' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'tint: root.stateTint === "barForeground" ? root.barForeground : root.statusColor' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'containsMouse ? Theme.accent' "$plugin_dir/AgentsBarWidget.qml"; then
+    pass "[static] hover paints only the selection fill and never overrides the agents severity tint"
+else
+    fail "[static] hover still overrides the agents severity tint"
+fi
+
+if grep -q 'function open(payloadJson)' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'function close()' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'function toggle(payloadJson)' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'function isVisible()' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'readonly property bool ipcOwner' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'property bool ipcReady' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'active: root.ipcOwner && root.ipcReady' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'target: "aurelia.agents"' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AureliaToolTip {' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'function tooltipText()' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'mouse.button === Qt.RightButton' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'mouse.button === Qt.MiddleButton' "$plugin_dir/AgentsBarWidget.qml"; then
+    pass "[static] agents widget exposes the peer open/close/toggle/isVisible IPC contract and truthful tooltip"
+else
+    fail "[static] agents widget peer API, IPC ownership, or click contract is incomplete"
 fi
 
 if grep -q 'aurelia.agents' "$ROOT/config/bar-default.json" &&
@@ -67,14 +117,77 @@ else
     fail "[static] usage backend or collector wiring is missing"
 fi
 
-if grep -q 'AgentUsage.paceInfo' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'ALL ACCOUNTS' "$plugin_dir/AgentsPanel.qml" &&
+if grep -q 'AgentUsage.providerState' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AgentUsage.paceInfo' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AgentUsage.paceLabel' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AgentUsage.formatResetAbsolute' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AgentUsage.todayUsage' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AgentUsage.subscriptionRows' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'AgentUsage.severityForLimit' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'property real marker' "$plugin_dir/AgentsPanel.qml" &&
-   grep -q 'AgentUsage.elapsedFraction' "$plugin_dir/AgentsPanel.qml"; then
-    pass "[static] agents panel shows pace, severity colours, and an all-accounts snapshot"
+   grep -q 'LAST 7 DAYS' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'MODELS · TODAY' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'MODELS · ALL TIME' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'AureliaActionButton' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'PROVIDERS' "$plugin_dir/AgentsPanel.qml" &&
+   ! grep -q 'ALL ACCOUNTS' "$plugin_dir/AgentsPanel.qml" &&
+   ! grep -q 'tokens today · ' "$plugin_dir/AgentsPanel.qml"; then
+    pass "[static] agents panel renders the redesigned hero/providers/banner/limits/today/week/models/subscription sections"
 else
-    fail "[static] agents panel dashboard sections are incomplete"
+    fail "[static] agents panel section redesign is incomplete"
+fi
+
+if grep -q 'key === "unknown" || key === "error" || key === "rate-limited"' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'providerStateInfo.retry' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'providerStateInfo.help' "$plugin_dir/AgentsPanel.qml"; then
+    pass "[static] agents panel shows the state banner only for unknown/error/rate-limited with auth help and Retry"
+else
+    fail "[static] agents panel state banner contract is incomplete"
+fi
+
+if grep -q 'popupWidth: 380' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'minPopupHeight: 220' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'maxPopupHeight: 640' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'maxBodyHeight: Math.max(0, maxPopupHeight - contentPadding \* 2)' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'todayModels(provider, 4)' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'modelRows(provider, 4)' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Math.max(30, Math.min(3600, raw))' "$plugin_dir/AgentsBarWidget.qml"; then
+    pass "[static] agents panel container contract derives the body cap and clamps refresh to [30, 3600]"
+else
+    fail "[static] agents panel container contract is incomplete"
+fi
+
+# Every text node derives from the local Label primitive (which sets
+# font.family), no node uses the deprecated font.bold flag, and the meter uses
+# the shared control fill with at least 4 px thickness.
+raw_text_count="$(grep -cE '(^|[[:space:]])Text \{' "$plugin_dir/AgentsPanel.qml" || true)"
+if grep -q 'component Label: Text {' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'font.family: Theme.fontFamily' "$plugin_dir/AgentsPanel.qml" &&
+   ! grep -q 'font.bold' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Theme.fontWeightBold' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Theme.controls.normalFill' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'implicitHeight: Math.max(4, Theme.spacingXs)' "$plugin_dir/AgentsPanel.qml" &&
+   (( raw_text_count <= 1 )); then
+    pass "[static] agents panel inherits the bar font through one Label primitive and uses the weight/track tokens"
+else
+    fail "[static] agents panel typography contract is incomplete (rawText=$raw_text_count)"
+fi
+
+if grep -q 'focusTarget: keyScope' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Qt.Key_Escape' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Qt.Key_Tab' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Qt.Key_J' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Qt.Key_K' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Qt.Key_H' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Qt.Key_L' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'Qt.Key_Return' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'text === "r"' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'function ensureCursorVisible()' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'function moveSection(delta)' "$plugin_dir/AgentsPanel.qml" &&
+   grep -q 'function moveCursor(delta)' "$plugin_dir/AgentsPanel.qml"; then
+    pass "[static] agents panel adopts the peer focus cursor, Tab/Shift+Tab sections, j/k/h/l motion and r refresh"
+else
+    fail "[static] agents panel keyboard model is incomplete"
 fi
 
 # PanelWindow's default property only accepts QQuickItem children, so a
@@ -94,7 +207,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingWindow, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, todayModels, modelRowsFrom, dayTokens, todayUsage, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -160,7 +273,7 @@ const ok =
     reset.notifications.length === 1 && reset.notifications[0].title.indexOf("reset") >= 0 &&
     exhausted.notifications.length === 1 && exhausted.notifications[0].title.indexOf("critical") >= 0 &&
     steady.notifications.length === 0 &&
-    A.bindingWindow({limits: limits}).percent === 0.8 &&
+    A.bindingLimit({limits: limits}).percent === 0.8 &&
     A.formatDuration(90 * 60000) === "1h 30m" &&
     A.formatDuration(-1) === "now" &&
     A.heroMeta({tierLabel: "plus"}) === "Plus" &&
@@ -193,6 +306,89 @@ process.exit(ok ? 0 : 1);
         fail "[unit] agents record projection contract failed"
     fi
     rm -f -- "$projection_test"
+
+    # Redesigned UI contract: billable/cache split, per-day `tokens`, the
+    # pace-aware binding limit, unknown/stale/error/rate-limited states, the
+    # icon-only bar encoding and the provider-aware labels.
+    ui_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$ui_test"
+    cat >>"$ui_test" <<'AGENT_UI_EXPORTS'
+module.exports = { dayTokens, todayUsage, todayModels, modelRowsFrom, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, bindingLimit, severityForLimit, overallSeverity, paceInfo };
+AGENT_UI_EXPORTS
+    if node -e '
+const A = require(process.argv[1]);
+const assert = (c, m) => { if (!c) throw new Error(m) };
+const now = 1700000000000;
+const soon = new Date(now + 4 * 86400000).toISOString();
+const warnLimit = { label: "Weekly", percent: 0.82, windowMinutes: 10080, resetsAt: soon };
+const okLimit = { label: "Weekly", percent: 0.10, windowMinutes: 10080, resetsAt: soon };
+const base = { id: "claude", name: "Claude Code", ready: true, detected: true,
+    updatedAt: new Date(now - 5 * 60000).toISOString(), tierLabel: "Max", todayLabel: "turns",
+    todayBillableTokens: 1200, todayCacheTokens: 300, todayPrompts: 4, todaySessions: 2,
+    limits: [warnLimit], recentDays: [{ date: "d0", tokens: 0 }, { date: "d1", tokens: 10 }],
+    todayTokensByModel: { a: { billableTokens: 5, cacheTokens: 1, totalTokens: 6 } },
+    modelUsage: { b: { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4 } },
+    subscription: { plan: "Max", cost: "20", currency: "USD", cycle: "monthly", renew: "2030-01-01", daysLeft: 5 } };
+const okRec = Object.assign({}, base, { limits: [okLimit] });
+const ok =
+    A.dayTokens({ tokens: 0, messageCount: 9 }) === 0 &&
+    A.dayTokens({ messageCount: 9 }) === 9 &&
+    A.todayUsage(base).billable === 1200 && A.todayUsage(base).cache === 300 &&
+    A.todayUsage(base).count === 4 && A.todayUsage(base).noun === "turns" &&
+    A.todayUsage(base).sessions === 2 &&
+    A.todayModels(base, 4)[0].name === "a" && A.todayModels(base, 4)[0].total === 6 &&
+    A.modelRowsFrom({ b: { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4 } }, 4)[0].total === 10 &&
+    A.planLabel(base) === "Max" &&
+    A.planLabel({ tierLabel: "", usageStatusText: "Local usage only" }) === "Local usage only" &&
+    A.billingSummary(base) === "USD 20.00 · monthly" &&
+    A.subscriptionRows(base).length === 3 && A.subscriptionRows({}).length === 0 &&
+    A.formatResetAbsolute(soon).endsWith("UTC") && A.formatResetAbsolute("nonsense") === "" &&
+    A.paceLabel({ onPace: true }) === "on pace" &&
+    A.paceLabel({ behind: true }) === "behind pace" &&
+    A.providerWorstLabel(base, now) === "Weekly 82%" &&
+    A.recordHasError({ authHelpText: "codex not found" }) === true &&
+    A.recordHasError({ usageStatusText: "Local usage only" }) === false &&
+    A.recordHasError({ usageStatusText: "Account configured · no usage yet" }) === false &&
+    A.freshnessPill(base, now, 1800000).text === "5m ago" &&
+    A.freshnessPill(base, now, 60000).stale === true &&
+    // Bar encoding: tint + dot + opacity per state.
+    A.barState([okRec], now, { staleMs: 1800000 }).key === "ready" &&
+    A.barState([okRec], now, { staleMs: 1800000 }).tint === "barForeground" &&
+    A.barState([okRec], now, { staleMs: 1800000 }).dot === false &&
+    A.barState([base], now, { staleMs: 1800000 }).key === "warn" &&
+    A.barState([base], now, { staleMs: 1800000 }).tint === "warning" &&
+    A.barState([base], now, { staleMs: 1800000 }).dot === true &&
+    A.barState([base], now, { staleMs: 60000 }).key === "stale" &&
+    A.barState([base], now, { staleMs: 60000 }).opacity === 0.6 &&
+    A.barState([base], now, { staleMs: 60000 }).dot === false &&
+    A.barState([Object.assign({}, base, { retryAdvised: true })], now, {}).key === "rate-limited" &&
+    A.barState([Object.assign({}, base, { authHelpText: "x", usageStatusText: "Codex unavailable" })], now, {}).key === "error" &&
+    A.barState([Object.assign({}, base, { authHelpText: "x", usageStatusText: "Codex unavailable" })], now, {}).dot === true &&
+    A.barState([{ id: "x", ready: true, limits: [] }], now, {}).key === "unknown" &&
+    A.barState([{ id: "x", ready: true, limits: [] }], now, {}).tint === "textMuted" &&
+    A.barState([{ id: "x", ready: true, limits: [] }], now, {}).opacity === 0.5 &&
+    A.barState([], now, { loading: true }).key === "loading" &&
+    A.barState([], now, {}).key === "empty" &&
+    A.barState([], now, { backendError: "usage backend failed" }).key === "error" &&
+    // Provider state: error and rate-limit outrank stale so an error is never
+    // hidden behind old data; stale dims a live number rather than showing it.
+    A.providerState(okRec, now, { staleMs: 1800000 }).key === "ready" &&
+    A.providerState(base, now, { staleMs: 1800000 }).key === "warn" &&
+    A.providerState(base, now, { staleMs: 60000 }).key === "stale" &&
+    A.providerState(base, now, { staleMs: 60000 }).opacity === 0.6 &&
+    A.providerState(Object.assign({}, base, { retryAdvised: true }), now, { staleMs: 60000 }).key === "rate-limited" &&
+    A.providerState(Object.assign({}, base, { authHelpText: "x", usageStatusText: "Codex unavailable" }), now, { staleMs: 60000 }).key === "error" &&
+    A.providerState({ id: "x", ready: true, limits: [] }, now, {}).key === "unknown" &&
+    A.providerState({ id: "x", ready: true, limits: [] }, now, {}).message === "No live limit reported" &&
+    A.providerState(null, now, { loading: true }).key === "loading" &&
+    A.providerState(null, now, {}).key === "empty";
+process.exit(ok ? 0 : 1);
+' "$ui_test" >/dev/null; then
+        pass "[unit] agents UI projection covers billable/cache split, states, pace and provider labels"
+    else
+        fail "[unit] agents UI projection contract failed"
+    fi
+    rm -f -- "$ui_test"
 else
     skip "[unit] agents record projection (node unavailable)"
 fi
@@ -564,7 +760,8 @@ XDG_CONFIG_HOME="$race_root/config" XDG_CACHE_HOME="$race_root/cache" \
 race_log_ok=0
 runtime_log_is_environment_only "$race_root/race.log" >/dev/null && race_log_ok=1
 if [[ "$race_status" -eq 0 && "$race_log_ok" -eq 1 ]] &&
-   jq -e '.loaded == true and .agents == 1 and .hasAgents == true and .lastError == ""' \
+   jq -e '.loaded == true and .agents == 1 and .hasAgents == true and .lastError == "" and
+          .stateKey == "unknown" and .hasApi == true and .square == true' \
        "$race_result" >/dev/null; then
     pass "[isolated-runtime] agents widget recovers when the host assigns aureliaPath after construction"
 else

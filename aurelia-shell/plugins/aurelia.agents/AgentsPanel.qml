@@ -6,25 +6,36 @@ import "../../ui"
 import "../../theme"
 import "AgentUsage.js" as AgentUsage
 
-// AI subscription usage panel. Mirrors the reference agents panels: a provider
-// switch, an all-accounts snapshot, live limit meters with a pace marker and
-// reset countdown, a vertical tokens-by-day chart, and a compact
-// tokens-by-model breakdown. The body scrolls when it is taller than the card.
+// AI subscription usage panel. The redesigned surface is ordered top-down:
+// HERO (identity, plan, billing, freshness, Refresh) -> PROVIDERS switch (only
+// when there is more than one provider) -> STATE BANNER (unknown/error/
+// rate-limited only) -> LIMITS (every window, with a pace marker, an absolute
+// reset time and an explicit on-pace state) -> USAGE TODAY (billable/cache
+// split) -> LAST 7 DAYS (labelled window, numeric value per day) -> MODELS
+// (today-first plus an explicit all-time list) -> SUBSCRIPTION (only when the
+// user has recorded one). Every text node inherits the bar font through the
+// local Label primitive so the panel can never drift to a fallback family.
 AureliaKeyboardPanel {
     id: panelRoot
 
     property var agentsWidget: null
     property int selectedIndex: 0
     property real nowMs: Date.now()
+    property string focusSection: "hero"
+    property int focusRow: -1
+    property bool cursorActive: false
+    property var rowItems: ({})
+    property var sectionItems: ({})
 
     bar: agentsWidget ? agentsWidget.bar : null
     ownerId: "aurelia.agents"
-    popupWidth: 460
+    popupWidth: 380
     popupHeight: 320
     fitHeightToContent: true
     contentSizingItem: scroller
-    minPopupHeight: 200
+    minPopupHeight: 220
     maxPopupHeight: 640
+    focusTarget: keyScope
     shown: false
 
     readonly property var agents: agentsWidget ? agentsWidget.visibleAgents : []
@@ -32,52 +43,268 @@ AureliaKeyboardPanel {
         ? Math.max(0, Math.min(selectedIndex, agents.length - 1)) : 0
     readonly property var provider: agents.length > 0 ? agents[safeIndex] : null
     readonly property var limits: (provider && provider.limits) || []
-    readonly property var models: AgentUsage.modelRows(provider, 5)
-    readonly property real weekPeak: Math.max(1, AgentUsage.weekPeak(provider))
-    readonly property real contentWidth: popupWidth - contentPadding * 2
-    readonly property real maxBodyHeight: 460
+    readonly property var todayModelRows: AgentUsage.todayModels(provider, 4)
+    readonly property var allTimeModelRows: AgentUsage.modelRows(provider, 4)
+    readonly property var weekBars: AgentUsage.dayChartBars(
+        provider ? provider.recentDays : [], 64)
+    readonly property var today: AgentUsage.todayUsage(provider)
+    readonly property var freshness: AgentUsage.freshnessPill(provider, nowMs, staleMs)
+    readonly property bool hasSubscription: !!(provider && provider.subscription)
+    readonly property int staleMs: agentsWidget ? agentsWidget.staleMs : 1800000
+    readonly property var providerStateInfo: AgentUsage.providerState(provider, nowMs, {
+        loading: agentsWidget ? !agentsWidget.loaded : false,
+        backendError: agentsWidget ? agentsWidget.lastError : "",
+        staleMs: staleMs
+    })
+    // The body cap is DERIVED from the declared maximum, so the maximum is
+    // actually reachable instead of being clamped again by the scroller.
+    readonly property real maxBodyHeight: Math.max(0, maxPopupHeight - contentPadding * 2)
 
-    function open() {
-        if (!agentsWidget || !agentsWidget.hasAgents) return
+    function open(payloadJson) {
+        if (!agentsWidget || !agentsWidget.hasAgents) return "not-ready"
         shown = true
+        return "ok"
     }
 
     function close() {
         shown = false
+        return "ok"
     }
 
-    function closeForPopoutSwitch() {
-        close()
+    function toggle(payloadJson) {
+        return shown ? close() : open(payloadJson || "{}")
+    }
+
+    function isVisible() { return shown === true }
+
+    function closeForPopoutSwitch() { close() }
+
+    function refreshNow(force) {
+        if (agentsWidget) agentsWidget.refresh(force === true)
     }
 
     function selectProvider(index) {
         if (agents.length === 0) return
         selectedIndex = ((index % agents.length) + agents.length) % agents.length
+        if (focusSection === "providers") {
+            focusRow = safeIndex
+            Qt.callLater(ensureCursorVisible)
+        }
     }
 
-    function refreshNow() {
-        if (agentsWidget) agentsWidget.refresh()
+    function bannerVisible() {
+        var key = providerStateInfo.key
+        return key === "unknown" || key === "error" || key === "rate-limited"
+    }
+
+    function hasToday() {
+        return today.billable + today.cache > 0 || today.count > 0 || today.sessions > 0
+    }
+
+    function sectionHasRows(section) {
+        if (section === "providers") return agents.length > 1
+        if (section === "limits") return limits.length > 0
+        if (section === "modelsToday") return todayModelRows.length > 0
+        if (section === "modelsAll") return allTimeModelRows.length > 0
+        return false
+    }
+
+    function sectionRowCount(section) {
+        if (section === "providers") return agents.length
+        if (section === "limits") return limits.length
+        if (section === "modelsToday") return todayModelRows.length
+        if (section === "modelsAll") return allTimeModelRows.length
+        return 0
+    }
+
+    function visibleSections() {
+        var sections = []
+        if (agents.length > 1) sections.push("providers")
+        sections.push("hero")
+        if (bannerVisible()) sections.push("banner")
+        if (limits.length > 0) sections.push("limits")
+        if (hasToday()) sections.push("today")
+        if (weekBars.length > 0) sections.push("week")
+        if (todayModelRows.length > 0) sections.push("modelsToday")
+        if (allTimeModelRows.length > 0) sections.push("modelsAll")
+        if (hasSubscription) sections.push("subscription")
+        return sections
+    }
+
+    function registerRow(section, index, item) {
+        if (!rowItems[section]) rowItems[section] = []
+        rowItems[section][index] = item
+    }
+
+    function registerSection(section, item) {
+        sectionItems[section] = item
+    }
+
+    function clampFocus() {
+        var sections = visibleSections()
+        if (sections.length === 0) {
+            focusSection = "hero"
+            focusRow = -1
+            return
+        }
+        if (sections.indexOf(focusSection) < 0) {
+            focusSection = sections[0]
+            focusRow = sectionHasRows(focusSection) ? 0 : -1
+            return
+        }
+        if (!sectionHasRows(focusSection)) {
+            focusRow = -1
+            return
+        }
+        focusRow = Math.max(0, Math.min(sectionRowCount(focusSection) - 1, focusRow))
+    }
+
+    function moveSection(delta) {
+        var sections = visibleSections()
+        if (sections.length === 0) return
+        var index = sections.indexOf(focusSection)
+        if (index < 0) index = delta > 0 ? -1 : 0
+        var next = (index + delta + sections.length) % sections.length
+        focusSection = sections[next]
+        focusRow = sectionHasRows(focusSection) ? 0 : -1
+        cursorActive = true
+        Qt.callLater(ensureCursorVisible)
+    }
+
+    function moveCursor(delta) {
+        var sections = visibleSections()
+        if (sections.length === 0) return
+        if (!sectionHasRows(focusSection)) {
+            moveSection(delta)
+            return
+        }
+        var count = sectionRowCount(focusSection)
+        if (delta > 0) {
+            if (focusRow < count - 1) focusRow += 1
+            else { moveSection(1); return }
+        } else {
+            if (focusRow > 0) focusRow -= 1
+            else { moveSection(-1); return }
+        }
+        cursorActive = true
+        Qt.callLater(ensureCursorVisible)
+    }
+
+    function switchProvider(delta) {
+        if (agents.length <= 1) return
+        selectProvider(safeIndex + delta)
+        cursorActive = true
+    }
+
+    function activateCursor() {
+        if (focusSection === "providers" && focusRow >= 0) {
+            selectProvider(focusRow)
+        } else if (focusSection === "banner" || focusSection === "hero") {
+            refreshNow(true)
+        }
+    }
+
+    function handleKey(event) {
+        var key = event.key
+        var text = String(event.text || "").toLowerCase()
+        if (key === Qt.Key_Escape) {
+            close()
+            event.accepted = true
+            return
+        }
+        if (key === Qt.Key_Tab) {
+            moveSection(event.modifiers & Qt.ShiftModifier ? -1 : 1)
+            event.accepted = true
+            return
+        }
+        if (key === Qt.Key_Return || key === Qt.Key_Enter || key === Qt.Key_Space) {
+            activateCursor()
+            event.accepted = true
+            return
+        }
+        if (text === "r") {
+            refreshNow(true)
+            event.accepted = true
+            return
+        }
+        if (key === Qt.Key_Down || key === Qt.Key_J) {
+            moveCursor(1)
+            event.accepted = true
+            return
+        }
+        if (key === Qt.Key_Up || key === Qt.Key_K) {
+            moveCursor(-1)
+            event.accepted = true
+            return
+        }
+        if (key === Qt.Key_Right || key === Qt.Key_L) {
+            switchProvider(1)
+            event.accepted = true
+            return
+        }
+        if (key === Qt.Key_Left || key === Qt.Key_H) {
+            switchProvider(-1)
+            event.accepted = true
+            return
+        }
+    }
+
+    function ensureCursorVisible() {
+        if (!scroller || !scroller.contentItem) return
+        var flick = scroller.contentItem
+        var item = null
+        var rows = rowItems[focusSection]
+        if (rows && focusRow >= 0 && rows[focusRow]) item = rows[focusRow]
+        if (!item) item = sectionItems[focusSection]
+        if (!item || typeof item.mapToItem !== "function") return
+        var point = item.mapToItem(flick, 0, 0)
+        var maxY = Math.max(0, Number(flick.contentHeight || 0) - Number(flick.height || 0))
+        if (point.y < flick.contentY) {
+            flick.contentY = Math.max(0, point.y - Theme.spacingSm)
+        } else if (point.y + item.height > flick.contentY + flick.height) {
+            flick.contentY = Math.min(maxY,
+                point.y + item.height - flick.height + Theme.spacingSm)
+        }
     }
 
     onShownChanged: {
-        if (!shown) return
-        nowMs = Date.now()
-        if (agentsWidget && agentsWidget.maybeRefresh) agentsWidget.maybeRefresh(60000)
+        if (shown) {
+            nowMs = Date.now()
+            cursorActive = false
+            focusSection = agents.length > 1 ? "providers" : "hero"
+            focusRow = -1
+            clampFocus()
+            if (agentsWidget && agentsWidget.maybeRefresh) agentsWidget.maybeRefresh(60000)
+            Qt.callLater(ensureCursorVisible)
+        }
     }
-    onAgentsChanged: if (selectedIndex >= agents.length) selectedIndex = 0
+    onAgentsChanged: {
+        if (selectedIndex >= agents.length) selectedIndex = 0
+        clampFocus()
+    }
+    onProviderChanged: clampFocus()
 
-    // ------------------------------------------------------------ components
+    // ------------------------------------------------------------ primitives
 
-    component SectionHeader: Text {
+    // Every text node in this panel derives from Label, so the bar font can
+    // never silently regress to a fallback family.
+    component Label: Text {
+        font.family: Theme.fontFamily
+    }
+
+    component SectionHeader: Label {
         Layout.fillWidth: true
+        topPadding: Theme.spacingXs
         color: Theme.textMuted
-        font.pixelSize: Theme.fontSizeSm
-        font.bold: true
+        font.pixelSize: Theme.fontSizeXs
+        font.weight: Theme.fontWeightBold
+        font.letterSpacing: 1
     }
 
     // Rounded track showing the fraction of an allowance used. The marker sits
     // at the pace position (where usage would be if the window drained evenly),
-    // so a fill past the marker reads as "behind pace" at a glance.
+    // so a fill past the marker reads as "behind pace" at a glance. The track
+    // is a shared control fill and the bar is at least 4 px thick.
     component Meter: Item {
         id: meter
         property real value: -1
@@ -85,12 +312,12 @@ AureliaKeyboardPanel {
         property bool alarming: false
 
         Layout.fillWidth: true
-        implicitHeight: 6
+        implicitHeight: Math.max(4, Theme.spacingXs)
 
         Rectangle {
             anchors.fill: parent
             radius: height / 2
-            color: Theme.surface
+            color: Theme.controls.normalFill
         }
 
         Rectangle {
@@ -117,34 +344,50 @@ AureliaKeyboardPanel {
         }
     }
 
-    // One live rate-limit window: used percentage, meter, remaining and reset.
+    // One live rate-limit window: label, used percentage, meter with a pace
+    // marker, and the absolute reset time next to the relative countdown.
     component LimitRow: ColumnLayout {
         id: limitRow
         property var window: null
+        property int rowIndex: -1
 
         readonly property real percent: Number(limitRow.window && limitRow.window.percent)
         readonly property bool alarming: AgentUsage.severityForLimit(limitRow.window) === "critical"
         readonly property real remainingMs: AgentUsage.resetMsFor(limitRow.window, panelRoot.nowMs)
         readonly property var pace: AgentUsage.paceInfo(limitRow.window, panelRoot.nowMs)
+        readonly property string paceText: AgentUsage.paceLabel(limitRow.pace)
+        readonly property string resetText: {
+            var absolute = AgentUsage.formatResetAbsolute(limitRow.window && limitRow.window.resetsAt)
+            if (absolute === "") return "No reset time reported"
+            var relative = limitRow.remainingMs > 0
+                ? AgentUsage.formatDuration(limitRow.remainingMs) : ""
+            return relative !== ""
+                ? "Resets " + absolute + " · in " + relative
+                : "Resets " + absolute
+        }
 
         Layout.fillWidth: true
         spacing: Theme.spacingXs
+        Component.onCompleted: panelRoot.registerRow("limits", limitRow.rowIndex, limitRow)
 
         RowLayout {
             Layout.fillWidth: true
 
-            Text {
+            Label {
+                Layout.fillWidth: true
                 text: limitRow.window ? String(limitRow.window.label || "Limit") : "Limit"
                 color: Theme.text
                 font.pixelSize: Theme.fontSizeMd
+                font.weight: Theme.fontWeightMedium
                 elide: Text.ElideRight
-                Layout.fillWidth: true
             }
 
-            Text {
-                text: isFinite(limitRow.percent) ? Math.round(limitRow.percent * 100) + "% used" : "—"
+            Label {
+                text: isFinite(limitRow.percent)
+                    ? Math.round(limitRow.percent * 100) + "% used" : "—"
                 color: limitRow.alarming ? Theme.error : Theme.text
                 font.pixelSize: Theme.fontSizeSm
+                font.weight: Theme.fontWeightMedium
             }
         }
 
@@ -154,63 +397,101 @@ AureliaKeyboardPanel {
             alarming: limitRow.alarming
         }
 
-        Text {
+        RowLayout {
             Layout.fillWidth: true
-            text: {
-                var parts = []
-                if (isFinite(limitRow.percent))
-                    parts.push(Math.max(0, Math.round((1 - limitRow.percent) * 100)) + "% left")
-                if (limitRow.remainingMs > 0)
-                    parts.push("Resets in " + AgentUsage.formatDuration(limitRow.remainingMs))
-                if (limitRow.pace)
-                    parts.push(limitRow.pace.behind ? "behind pace" : "ahead of pace")
-                return parts.join(" · ")
+
+            Label {
+                Layout.fillWidth: true
+                text: limitRow.resetText
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSizeXs
+                elide: Text.ElideRight
             }
-            color: limitRow.pace && limitRow.pace.behind ? Theme.warning : Theme.textMuted
+
+            Label {
+                visible: limitRow.paceText !== ""
+                text: limitRow.paceText
+                color: limitRow.pace && limitRow.pace.behind ? Theme.warning : Theme.textMuted
+                font.pixelSize: Theme.fontSizeXs
+            }
+        }
+    }
+
+    // One model row: name, share bar scaled to the heaviest model, tokens.
+    component ModelRow: RowLayout {
+        id: modelRow
+        property var row: null
+        property real share: 0
+        property int rowIndex: -1
+        property string sectionName: ""
+
+        Layout.fillWidth: true
+        spacing: Theme.spacingSm
+        Component.onCompleted: {
+            if (modelRow.sectionName !== "")
+                panelRoot.registerRow(modelRow.sectionName, modelRow.rowIndex, modelRow)
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: modelRow.row ? String(modelRow.row.name) : ""
+            color: Theme.text
+            font.pixelSize: Theme.fontSizeSm
+            elide: Text.ElideRight
+        }
+
+        Meter {
+            Layout.fillWidth: false
+            Layout.preferredWidth: 72
+            value: modelRow.share
+        }
+
+        Label {
+            text: AgentUsage.formatTokens(modelRow.row ? modelRow.row.total : 0)
+            color: Theme.textMuted
             font.pixelSize: Theme.fontSizeSm
         }
     }
 
-    // Vertical tokens-by-day columns. Today is picked out in accent.
+    // Vertical tokens-by-day columns. Zero days emit no bar at all; every day
+    // carries its numeric value and the window is labelled by its header.
     component DayChart: Item {
         id: chart
-        property var days: []
-        property real peak: 1
+        property var bars: []
         property string todayDate: ""
 
         Layout.fillWidth: true
-        implicitHeight: 96
+        implicitHeight: 94
 
-        readonly property real columnWidth: days.length > 0
-            ? (width - (days.length - 1) * Theme.spacingXs) / days.length : 0
+        readonly property real columnWidth: bars.length > 0
+            ? (width - (bars.length - 1) * Theme.spacingXs) / bars.length : 0
 
         Row {
             anchors.fill: parent
             spacing: Theme.spacingXs
 
             Repeater {
-                model: chart.days
+                model: chart.bars
 
                 delegate: Column {
                     id: dayColumn
                     required property var modelData
                     required property int index
                     readonly property bool today: String(modelData.date || "") === chart.todayDate
-                    readonly property real fraction: AgentUsage.clamp(
-                        Number(modelData.messageCount || 0) / Math.max(1, chart.peak), 0, 1)
 
                     width: chart.columnWidth
                     spacing: 2
 
                     Item {
                         width: parent.width
-                        height: chart.implicitHeight - 16
+                        height: chart.implicitHeight - 30
 
                         Rectangle {
+                            visible: dayColumn.modelData.hasUsage === true
                             anchors.bottom: parent.bottom
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: Math.max(3, parent.width * 0.6)
-                            height: Math.max(2, parent.height * dayColumn.fraction)
+                            height: dayColumn.modelData.barHeight
                             radius: 2
                             color: dayColumn.today ? Theme.accent : Theme.textMuted
                             opacity: dayColumn.today ? 1 : 0.7
@@ -221,12 +502,21 @@ AureliaKeyboardPanel {
                         }
                     }
 
-                    Text {
+                    Label {
+                        width: parent.width
+                        text: AgentUsage.formatTokens(dayColumn.modelData.tokens)
+                        color: dayColumn.today ? Theme.text : Theme.textMuted
+                        font.pixelSize: Theme.fontSizeXs
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
+                    Label {
                         width: parent.width
                         text: AgentUsage.dayLabel(dayColumn.modelData.date, dayColumn.today)
                         color: dayColumn.today ? Theme.text : Theme.textMuted
-                        font.pixelSize: Theme.fontSizeSm - 2
-                        font.bold: dayColumn.today
+                        font.pixelSize: Theme.fontSizeXs
+                        font.weight: dayColumn.today ? Theme.fontWeightBold : Theme.fontWeightNormal
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                     }
@@ -235,274 +525,413 @@ AureliaKeyboardPanel {
         }
     }
 
-    // One model row: name, share bar scaled to the heaviest model, tokens.
-    component ModelRow: RowLayout {
-        id: modelRow
-        property var row: null
-        property real share: 0
-
-        Layout.fillWidth: true
-        spacing: Theme.spacingSm
-
-        Text {
-            Layout.fillWidth: true
-            text: modelRow.row ? String(modelRow.row.name) : ""
-            color: Theme.text
-            font.pixelSize: Theme.fontSizeSm
-            elide: Text.ElideRight
-        }
-
-        Meter {
-            Layout.fillWidth: false
-            Layout.preferredWidth: 84
-            value: modelRow.share
-        }
-
-        Text {
-            text: AgentUsage.formatTokens(modelRow.row ? modelRow.row.total : 0)
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontSizeSm
-        }
-    }
-
     // ---------------------------------------------------------------- content
 
     // The body scrolls instead of overflowing the card. `scroller` is the
-    // content-sizing item so the card grows with the content up to a cap.
-    Flickable {
-        id: scroller
-        width: panelRoot.contentWidth
-        implicitHeight: Math.min(contentColumn.implicitHeight, panelRoot.maxBodyHeight)
-        contentWidth: width
-        contentHeight: contentColumn.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
+    // content-sizing item so the card grows with the content up to the cap
+    // derived from maxPopupHeight.
+    FocusScope {
+        id: keyScope
+        anchors.fill: parent
+        focus: panelRoot.shown
+        Keys.onPressed: function(event) { panelRoot.handleKey(event) }
 
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        Flickable {
+            id: scroller
+            anchors.fill: parent
+            implicitHeight: Math.min(contentColumn.implicitHeight, panelRoot.maxBodyHeight)
+            contentWidth: width
+            contentHeight: contentColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            interactive: contentHeight > height
 
-        ColumnLayout {
-            id: contentColumn
-            width: scroller.width
-            spacing: Theme.spacingMd
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-            Timer {
-                interval: 30000
-                repeat: true
-                running: panelRoot.shown
-                onTriggered: panelRoot.nowMs = Date.now()
-            }
+            ColumnLayout {
+                id: contentColumn
+                width: scroller.width
+                spacing: Theme.spacingLg
 
-            // Hero: name · plan · refresh
-            RowLayout {
-                Layout.fillWidth: true
-
-                Text {
-                    text: panelRoot.provider ? String(panelRoot.provider.name || panelRoot.provider.id) : "Agents"
-                    color: Theme.text
-                    font.pixelSize: Theme.fontSizeLg
-                    font.bold: true
-                    Layout.fillWidth: true
+                Timer {
+                    interval: 30000
+                    repeat: true
+                    running: panelRoot.shown
+                    onTriggered: panelRoot.nowMs = Date.now()
                 }
 
-                Text {
-                    text: AgentUsage.heroMeta(panelRoot.provider)
+                Label {
+                    Layout.fillWidth: true
+                    visible: panelRoot.agents.length === 0
+                    wrapMode: Text.WordWrap
+                    text: "No AI coding subscriptions found.\nAgents show up here once you've used them."
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeSm
+                    horizontalAlignment: Text.AlignHCenter
                 }
 
-                Text {
-                    text: "Refresh"
-                    color: refreshArea.containsMouse ? Theme.accent : Theme.textMuted
-                    font.pixelSize: Theme.fontSizeSm
-
-                    MouseArea {
-                        id: refreshArea
-                        anchors.fill: parent
-                        anchors.margins: -Theme.spacingXs
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: panelRoot.refreshNow()
-                    }
-                }
-            }
-
-            // Plan · billing line
-            Text {
-                Layout.fillWidth: true
-                visible: text !== ""
-                text: AgentUsage.billingText(panelRoot.provider)
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeSm
-            }
-
-            Text {
-                Layout.fillWidth: true
-                visible: panelRoot.agents.length === 0
-                wrapMode: Text.WordWrap
-                text: "No AI coding subscriptions found.\nAgents show up here once you've used them."
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeSm
-                horizontalAlignment: Text.AlignHCenter
-            }
-
-            // All-accounts snapshot: every agent's headline at a glance.
-            SectionHeader {
-                text: "ALL ACCOUNTS"
-                visible: panelRoot.agents.length > 1
-            }
-
-            Repeater {
-                model: panelRoot.agents
-
-                delegate: Rectangle {
-                    id: snapshotRow
-                    required property var modelData
-                    required property int index
-                    readonly property var snapshotLimit: AgentUsage.bindingWindow(snapshotRow.modelData)
-
+                // PROVIDERS switch (only with more than one provider).
+                ColumnLayout {
+                    id: providersSection
                     Layout.fillWidth: true
-                    implicitHeight: snapshotLayout.implicitHeight + Theme.spacingSm
-                    radius: Theme.radiusSm
-                    color: snapshotArea.containsMouse ? Theme.controls.hoverFill
-                        : (index === panelRoot.safeIndex ? Theme.controls.selectedFill : "transparent")
+                    spacing: Theme.spacingXs
+                    visible: panelRoot.agents.length > 1
+                    Component.onCompleted: panelRoot.registerSection("providers", providersSection)
+
+                    SectionHeader { text: "PROVIDERS" }
 
                     RowLayout {
-                        id: snapshotLayout
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+
+                        Repeater {
+                            model: panelRoot.agents
+
+                            delegate: Rectangle {
+                                id: providerTab
+                                required property var modelData
+                                required property int index
+                                readonly property string worst: AgentUsage.providerWorstLabel(modelData, panelRoot.nowMs)
+                                readonly property bool active: index === panelRoot.safeIndex
+                                readonly property bool focused: panelRoot.cursorActive &&
+                                    panelRoot.focusSection === "providers" && panelRoot.focusRow === index
+
+                                Layout.fillWidth: true
+                                implicitHeight: tabColumn.implicitHeight + Theme.spacingSm
+                                radius: Theme.radiusSm
+                                color: active ? Theme.controls.selectedFill
+                                    : (tabArea.containsMouse ? Theme.controls.hoverFill : "transparent")
+                                border.width: focused ? Theme.borderWidthFocus
+                                    : (active ? Theme.borderWidthDefault : 0)
+                                border.color: focused ? Theme.controls.focusBorder : Theme.controls.selectedBorder
+                                Component.onCompleted: panelRoot.registerRow("providers", index, providerTab)
+
+                                ColumnLayout {
+                                    id: tabColumn
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: Theme.spacingSm
+                                    anchors.rightMargin: Theme.spacingSm
+                                    spacing: 0
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: String(providerTab.modelData.name || providerTab.modelData.id)
+                                        color: providerTab.active ? Theme.accent : Theme.text
+                                        font.pixelSize: Theme.fontSizeSm
+                                        font.weight: Theme.fontWeightMedium
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        visible: providerTab.worst !== ""
+                                        text: providerTab.worst
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontSizeXs
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: tabArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: panelRoot.selectProvider(providerTab.index)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // HERO: identity, plan, billing, freshness and Refresh.
+                ColumnLayout {
+                    id: heroSection
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    Component.onCompleted: panelRoot.registerSection("hero", heroSection)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSm
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXs
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: panelRoot.provider
+                                    ? String(panelRoot.provider.name || panelRoot.provider.id) : "Agents"
+                                color: Theme.text
+                                font.pixelSize: Theme.fontSizeLg
+                                font.weight: Theme.fontWeightBold
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                visible: text !== ""
+                                text: AgentUsage.planLabel(panelRoot.provider)
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontSizeSm
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                visible: text !== ""
+                                text: AgentUsage.billingSummary(panelRoot.provider)
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontSizeXs
+                                elide: Text.ElideRight
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: false
+                                implicitWidth: freshnessLabel.implicitWidth + Theme.spacingSm * 2
+                                implicitHeight: freshnessLabel.implicitHeight + Theme.spacingXs
+                                radius: height / 2
+                                color: "transparent"
+                                border.width: Theme.borderWidthDefault
+                                border.color: panelRoot.freshness.stale ? Theme.warning : Theme.border
+
+                                Label {
+                                    id: freshnessLabel
+                                    anchors.centerIn: parent
+                                    text: panelRoot.freshness.text
+                                    color: panelRoot.freshness.stale ? Theme.warning : Theme.textMuted
+                                    font.pixelSize: Theme.fontSizeXs
+                                }
+                            }
+                        }
+
+                        AureliaActionButton {
+                            label: "Refresh"
+                            icon: "view-refresh"
+                            compact: true
+                            Layout.preferredWidth: 96
+                            Layout.alignment: Qt.AlignTop
+                            onTriggered: panelRoot.refreshNow(true)
+                        }
+                    }
+                }
+
+                // STATE BANNER: unknown / error / rate-limited only. The
+                // generic "Local usage only" string stays in the hero plan and
+                // is never repeated here.
+                Rectangle {
+                    id: bannerItem
+                    Layout.fillWidth: true
+                    visible: panelRoot.bannerVisible()
+                    implicitHeight: bannerColumn.implicitHeight + Theme.spacingMd * 2
+                    radius: Theme.radiusSm
+                    color: Theme.controls.normalFill
+                    border.width: Theme.borderWidthDefault
+                    border.color: panelRoot.providerStateInfo.key === "error"
+                        ? Theme.error
+                        : (panelRoot.providerStateInfo.key === "rate-limited" ? Theme.warning : Theme.border)
+                    Component.onCompleted: panelRoot.registerSection("banner", bannerItem)
+
+                    ColumnLayout {
+                        id: bannerColumn
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: Theme.spacingXs
-                        anchors.rightMargin: Theme.spacingXs
-                        spacing: Theme.spacingSm
+                        anchors.leftMargin: Theme.spacingMd
+                        anchors.rightMargin: Theme.spacingMd
+                        spacing: Theme.spacingXs
 
-                        Text {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: String(snapshotRow.modelData.name || snapshotRow.modelData.id)
-                            color: snapshotRow.index === panelRoot.safeIndex ? Theme.accent : Theme.text
+                            spacing: Theme.spacingSm
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: panelRoot.providerStateInfo.message
+                                color: Theme.text
+                                font.pixelSize: Theme.fontSizeSm
+                                font.weight: Theme.fontWeightMedium
+                                wrapMode: Text.WordWrap
+                            }
+
+                            AureliaActionButton {
+                                visible: panelRoot.providerStateInfo.retry
+                                label: "Retry"
+                                compact: true
+                                Layout.preferredWidth: 84
+                                onTriggered: panelRoot.refreshNow(true)
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: panelRoot.providerStateInfo.help !== ""
+                            text: panelRoot.providerStateInfo.help
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSizeXs
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                // LIMITS: every reported window, not just the binding one.
+                ColumnLayout {
+                    id: limitsSection
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    visible: panelRoot.limits.length > 0
+                    opacity: panelRoot.providerStateInfo.stale ? 0.6 : 1.0
+                    Component.onCompleted: panelRoot.registerSection("limits", limitsSection)
+
+                    SectionHeader { text: "LIMITS" }
+
+                    Repeater {
+                        model: panelRoot.limits
+
+                        delegate: LimitRow {
+                            required property var modelData
+                            required property int index
+                            window: modelData
+                            rowIndex: index
+                        }
+                    }
+                }
+
+                // USAGE TODAY: billable versus cache, the provider noun, and
+                // sessions.
+                ColumnLayout {
+                    id: todaySection
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    visible: panelRoot.hasToday()
+                    opacity: panelRoot.providerStateInfo.stale ? 0.6 : 1.0
+                    Component.onCompleted: panelRoot.registerSection("today", todaySection)
+
+                    SectionHeader { text: "USAGE TODAY" }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingLg
+
+                        Label {
+                            text: "Billable " + AgentUsage.formatTokens(panelRoot.today.billable)
+                            color: Theme.text
                             font.pixelSize: Theme.fontSizeSm
-                            elide: Text.ElideRight
                         }
 
-                        Meter {
-                            Layout.fillWidth: false
-                            Layout.preferredWidth: 84
-                            visible: snapshotRow.snapshotLimit !== null
-                            value: snapshotRow.snapshotLimit ? Number(snapshotRow.snapshotLimit.percent) : -1
-                            marker: snapshotRow.snapshotLimit
-                                ? AgentUsage.elapsedFraction(snapshotRow.snapshotLimit, panelRoot.nowMs) : -1
-                            alarming: AgentUsage.severityForLimit(snapshotRow.snapshotLimit) === "critical"
+                        Label {
+                            text: "Cache " + AgentUsage.formatTokens(panelRoot.today.cache)
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSizeSm
                         }
 
-                        Text {
-                            text: {
-                                if (!snapshotRow.snapshotLimit) {
-                                    return AgentUsage.formatTokens(snapshotRow.modelData.todayTotalTokens) + " today"
-                                }
-                                var percent = Math.round(Number(snapshotRow.snapshotLimit.percent) * 100) + "%"
-                                var remaining = AgentUsage.resetMsFor(snapshotRow.snapshotLimit, panelRoot.nowMs)
-                                return remaining > 0 ? percent + " · " + AgentUsage.formatDuration(remaining) : percent
-                            }
-                            color: {
-                                var severity = AgentUsage.severityForLimit(snapshotRow.snapshotLimit)
-                                if (severity === "critical") return Theme.error
-                                if (severity === "warn") return Theme.warning
-                                return Theme.textMuted
-                            }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: {
+                            var base = panelRoot.today.count + " " + panelRoot.today.noun
+                            if (panelRoot.today.noun !== "sessions" && panelRoot.today.sessions > 0)
+                                base += " · " + panelRoot.today.sessions + " sessions"
+                            return base
+                        }
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSizeXs
+                    }
+                }
+
+                // LAST 7 DAYS: labelled window with a numeric value per day.
+                ColumnLayout {
+                    id: weekSection
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    visible: panelRoot.weekBars.length > 0
+                    opacity: panelRoot.providerStateInfo.stale ? 0.6 : 1.0
+                    Component.onCompleted: panelRoot.registerSection("week", weekSection)
+
+                    SectionHeader { text: "LAST 7 DAYS" }
+
+                    DayChart {
+                        bars: panelRoot.weekBars
+                        todayDate: AgentUsage.todayDate(panelRoot.nowMs)
+                    }
+                }
+
+                // MODELS: today-first, then an explicit all-time list.
+                ColumnLayout {
+                    id: modelsTodaySection
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    visible: panelRoot.todayModelRows.length > 0
+                    opacity: panelRoot.providerStateInfo.stale ? 0.6 : 1.0
+                    Component.onCompleted: panelRoot.registerSection("modelsToday", modelsTodaySection)
+
+                    SectionHeader { text: "MODELS · TODAY" }
+
+                    Repeater {
+                        model: panelRoot.todayModelRows
+
+                        delegate: ModelRow {
+                            required property var modelData
+                            required property int index
+                            row: modelData
+                            rowIndex: index
+                            sectionName: "modelsToday"
+                            share: modelData.total / Math.max(1, panelRoot.todayModelRows[0].total)
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    id: modelsAllSection
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    visible: panelRoot.allTimeModelRows.length > 0
+                    opacity: panelRoot.providerStateInfo.stale ? 0.6 : 1.0
+                    Component.onCompleted: panelRoot.registerSection("modelsAll", modelsAllSection)
+
+                    SectionHeader { text: "MODELS · ALL TIME" }
+
+                    Repeater {
+                        model: panelRoot.allTimeModelRows
+
+                        delegate: ModelRow {
+                            required property var modelData
+                            required property int index
+                            row: modelData
+                            rowIndex: index
+                            sectionName: "modelsAll"
+                            share: modelData.total / Math.max(1, panelRoot.allTimeModelRows[0].total)
+                        }
+                    }
+                }
+
+                // SUBSCRIPTION: only when the user has recorded one.
+                ColumnLayout {
+                    id: subscriptionSection
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    visible: panelRoot.hasSubscription
+                    Component.onCompleted: panelRoot.registerSection("subscription", subscriptionSection)
+
+                    SectionHeader { text: "SUBSCRIPTION" }
+
+                    Repeater {
+                        model: AgentUsage.subscriptionRows(panelRoot.provider)
+
+                        delegate: Label {
+                            required property string modelData
+                            Layout.fillWidth: true
+                            text: modelData
+                            color: Theme.textMuted
                             font.pixelSize: Theme.fontSizeSm
                         }
                     }
-
-                    MouseArea {
-                        id: snapshotArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: panelRoot.selectProvider(snapshotRow.index)
-                    }
                 }
-            }
-
-            // Status / auth help
-            Rectangle {
-                Layout.fillWidth: true
-                visible: !!panelRoot.provider && String(panelRoot.provider.usageStatusText || "") !== ""
-                implicitHeight: statusText.implicitHeight + Theme.spacingMd * 2
-                radius: Theme.radiusSm
-                color: Theme.surface
-                border.width: 1
-                border.color: Theme.border
-
-                Text {
-                    id: statusText
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: Theme.spacingMd
-                    anchors.rightMargin: Theme.spacingMd
-                    text: panelRoot.provider
-                        ? String(panelRoot.provider.authHelpText || panelRoot.provider.usageStatusText || "")
-                        : ""
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeSm
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-            // Limits
-            SectionHeader {
-                text: "LIMITS"
-                visible: panelRoot.limits.length > 0
-            }
-
-            Repeater {
-                model: panelRoot.limits
-
-                delegate: LimitRow {
-                    required property var modelData
-                    window: modelData
-                }
-            }
-
-            // Tokens by day
-            SectionHeader {
-                text: "TOKENS BY DAY"
-                visible: !!panelRoot.provider && (panelRoot.provider.recentDays || []).length > 0
-            }
-
-            DayChart {
-                visible: !!panelRoot.provider && (panelRoot.provider.recentDays || []).length > 0
-                days: panelRoot.provider ? (panelRoot.provider.recentDays || []) : []
-                peak: panelRoot.weekPeak
-                todayDate: AgentUsage.todayDate(panelRoot.nowMs)
-            }
-
-            // Tokens by model
-            SectionHeader {
-                text: "TOKENS BY MODEL"
-                visible: panelRoot.models.length > 0
-            }
-
-            Repeater {
-                model: panelRoot.models
-
-                delegate: ModelRow {
-                    required property var modelData
-                    row: modelData
-                    share: modelData.total / Math.max(1, panelRoot.models[0].total)
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                visible: text !== ""
-                text: panelRoot.provider
-                    ? AgentUsage.formatTokens(panelRoot.provider.todayTotalTokens) + " tokens today · "
-                        + (panelRoot.provider.todayPrompts || 0) + " prompts"
-                    : ""
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeSm
-                horizontalAlignment: Text.AlignHCenter
             }
         }
     }

@@ -49,7 +49,13 @@ ShellRoot {
                 loaded: widget ? widget.loaded === true : false,
                 agents: widget && widget.agents ? widget.agents.length : -1,
                 hasAgents: widget ? widget.hasAgents === true : false,
-                lastError: widget ? String(widget.lastError || "") : "no-widget"
+                lastError: widget ? String(widget.lastError || "") : "no-widget",
+                stateKey: widget && widget.barState ? String(widget.barState.key) : "no-state",
+                hasApi: widget && typeof widget.open === "function" &&
+                    typeof widget.close === "function" &&
+                    typeof widget.toggle === "function" &&
+                    typeof widget.isVisible === "function",
+                square: widget ? widget.implicitWidth === widget.implicitHeight : false
             }
             writer.command = ["/bin/sh", "-c",
                 "printf '%s' " + JSON.stringify(JSON.stringify(payload)) + " > " + root.resultPath]
