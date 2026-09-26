@@ -52,6 +52,139 @@ def empty_bucket() -> dict[str, int]:
     }
 
 
+def empty_day(date: str) -> dict:
+    """Internal per-day accumulator: total tokens plus the billable/cache split."""
+    return {"date": date, "tokens": 0, "billableTokens": 0, "cacheTokens": 0}
+
+
+def finalize_day(day: dict) -> dict:
+    """Contract-shaped per-day entry.
+
+    `tokens` is the cache-inclusive total that the legacy `messageCount` key
+    also carried. `messageCount` is retained as a deprecated alias because the
+    current AgentsPanel day chart still reads it; new consumers must read
+    `tokens`/`billableTokens`/`cacheTokens`.
+    """
+    tokens = number(day.get("tokens"))
+    billable = number(day.get("billableTokens"))
+    cache = number(day.get("cacheTokens"))
+    if billable == 0 and cache == 0 and tokens:
+        # Legacy snapshots only recorded the cache-inclusive total.
+        billable = tokens
+    return {
+        "date": str(day.get("date") or ""),
+        "tokens": tokens,
+        "billableTokens": billable,
+        "cacheTokens": cache,
+        "messageCount": tokens,
+    }
+
+
+def finalize_model_buckets(usage_by_model: dict) -> dict:
+    """Add the billable/cache split to every model-usage bucket."""
+    out = {}
+    for model, bucket in (usage_by_model or {}).items():
+        b = bucket or {}
+        input_tokens = number(b.get("inputTokens"))
+        output_tokens = number(b.get("outputTokens"))
+        cache_read = number(b.get("cacheReadInputTokens"))
+        cache_write = number(b.get("cacheCreationInputTokens"))
+        billable = input_tokens + output_tokens
+        cache = cache_read + cache_write
+        out[model] = {
+            "inputTokens": input_tokens,
+            "outputTokens": output_tokens,
+            "cacheReadInputTokens": cache_read,
+            "cacheCreationInputTokens": cache_write,
+            "billableTokens": billable,
+            "cacheTokens": cache,
+            "totalTokens": billable + cache,
+        }
+    return out
+
+
+def today_model_split(usage_by_model: dict) -> dict:
+    """Per-model today totals as an explicit billable/cache/total split."""
+    out = {}
+    for model, bucket in (usage_by_model or {}).items():
+        b = bucket or {}
+        billable = number(b.get("inputTokens")) + number(b.get("outputTokens"))
+        cache = number(b.get("cacheReadInputTokens")) + number(b.get("cacheCreationInputTokens"))
+        out[model] = {"billableTokens": billable, "cacheTokens": cache, "totalTokens": billable + cache}
+    return out
+
+
+def _today_split(value):
+    """Accept both the new split object and the legacy bare integer total."""
+    if isinstance(value, dict):
+        billable = number(value.get("billableTokens"))
+        cache = number(value.get("cacheTokens"))
+        total = number(value.get("totalTokens"))
+        if total == 0 and (billable or cache):
+            total = billable + cache
+        return billable, cache, total
+    total = number(value)
+    return total, 0, total
+
+
+def normalize_resets_at(value) -> str:
+    """Normalise a reset timestamp to a UTC ISO-8601 string.
+
+    Accepts epoch seconds, epoch milliseconds and ISO-8601 text so that the UI
+    can always derive a reset countdown with `Date.parse`. Unparseable input is
+    returned as an empty string rather than a value `Date.parse` would turn
+    into NaN.
+    """
+    if value is None or isinstance(value, bool):
+        return ""
+    numeric = None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+    else:
+        text = str(value).strip()
+        if not text:
+            return ""
+        try:
+            numeric = float(text)
+        except Exception:
+            numeric = None
+    if numeric is not None:
+        if numeric <= 0:
+            return ""
+        seconds = numeric / 1000.0 if numeric > 1e11 else numeric
+        try:
+            return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).isoformat()
+        except Exception:
+            return ""
+    text = str(value).strip()
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc).isoformat()
+
+
+RETRYABLE_ERROR_MARKERS = (
+    "429",
+    "too many requests",
+    "rate limit",
+    "ratelimit",
+    "timeout",
+    "timed out",
+    "temporarily unavailable",
+)
+
+
+def retry_advised_from_error(exc) -> bool:
+    """True when an upstream error warrants the single documented 30s retry."""
+    text = str(exc or "").lower()
+    if not text:
+        return False
+    return any(marker in text for marker in RETRYABLE_ERROR_MARKERS)
+
+
 def config_path() -> Path:
     override = os.environ.get("WORKSTATION_AI_CONF")
     if override:
@@ -120,8 +253,10 @@ def empty_stats() -> dict:
         "todayPrompts": 0,
         "todaySessions": 0,
         "todayTotalTokens": 0,
+        "todayBillableTokens": 0,
+        "todayCacheTokens": 0,
         "todayTokensByModel": {},
-        "recentDays": [{"date": day, "messageCount": 0} for day in recent],
+        "recentDays": [empty_day(day) for day in recent],
         "modelUsage": {},
         "totalPrompts": 0,
         "totalSessions": 0,
@@ -185,11 +320,10 @@ def scan_pi_sessions(match_substrings: list[str]) -> dict:
     sessions: set[str] = set()
     active_days: set[str] = set()
     today_sessions: set[str] = set()
-    today_tokens: dict[str, int] = {}
+    today_by_model: dict[str, dict[str, int]] = {}
     usage_by_model: dict[str, dict[str, int]] = {}
     prompts = 0
     today_prompt_count = 0
-    today_token_total = 0
     found = False
 
     for path in sorted(root.rglob("*.jsonl")):
@@ -243,24 +377,35 @@ def scan_pi_sessions(match_substrings: list[str]) -> dict:
                     bucket["cacheReadInputTokens"] += cache_read
                     bucket["cacheCreationInputTokens"] += cache_write
 
+                    billable = input_tokens + output_tokens
+                    cache = cache_read + cache_write
                     if day in recent:
-                        recent[day]["messageCount"] += total
+                        entry = recent[day]
+                        entry["tokens"] += total
+                        entry["billableTokens"] += billable
+                        entry["cacheTokens"] += cache
 
                     if day == today:
                         today_prompt_count += 1
                         today_sessions.add(session_key)
-                        today_token_total += total
-                        today_tokens[model] = today_tokens.get(model, 0) + total
+                        today_bucket = today_by_model.setdefault(model, empty_bucket())
+                        today_bucket["inputTokens"] += input_tokens
+                        today_bucket["outputTokens"] += output_tokens
+                        today_bucket["cacheReadInputTokens"] += cache_read
+                        today_bucket["cacheCreationInputTokens"] += cache_write
         except Exception:
             continue
 
+    today_split = today_model_split(today_by_model)
     stats.update({
         "todayPrompts": today_prompt_count,
         "todaySessions": len(today_sessions),
-        "todayTotalTokens": today_token_total,
-        "todayTokensByModel": today_tokens,
-        "recentDays": [recent[day] for day in sorted(recent)],
-        "modelUsage": usage_by_model,
+        "todayTotalTokens": sum(v["totalTokens"] for v in today_split.values()),
+        "todayBillableTokens": sum(v["billableTokens"] for v in today_split.values()),
+        "todayCacheTokens": sum(v["cacheTokens"] for v in today_split.values()),
+        "todayTokensByModel": today_split,
+        "recentDays": [finalize_day(recent[day]) for day in sorted(recent)],
+        "modelUsage": finalize_model_buckets(usage_by_model),
         "totalPrompts": prompts,
         "totalSessions": len(sessions),
         "activeDays": len(active_days),
@@ -274,19 +419,44 @@ def merge_stats(first: dict, second: dict) -> dict:
     out = dict(first)
     out["todayPrompts"] = number(first.get("todayPrompts")) + number(second.get("todayPrompts"))
     out["todaySessions"] = number(first.get("todaySessions")) + number(second.get("todaySessions"))
-    out["todayTotalTokens"] = number(first.get("todayTotalTokens")) + number(second.get("todayTotalTokens"))
 
-    today_tokens = dict(first.get("todayTokensByModel") or {})
-    for model, value in (second.get("todayTokensByModel") or {}).items():
-        today_tokens[model] = today_tokens.get(model, 0) + number(value)
-    out["todayTokensByModel"] = today_tokens
+    today_models: dict[str, dict[str, int]] = {}
+    for source in (first.get("todayTokensByModel") or {}, second.get("todayTokensByModel") or {}):
+        for model, value in source.items():
+            billable, cache, total = _today_split(value)
+            target = today_models.setdefault(
+                model, {"billableTokens": 0, "cacheTokens": 0, "totalTokens": 0}
+            )
+            target["billableTokens"] += billable
+            target["cacheTokens"] += cache
+            target["totalTokens"] += total
+    if today_models:
+        out["todayTokensByModel"] = today_models
+        out["todayBillableTokens"] = sum(v["billableTokens"] for v in today_models.values())
+        out["todayCacheTokens"] = sum(v["cacheTokens"] for v in today_models.values())
+        out["todayTotalTokens"] = out["todayBillableTokens"] + out["todayCacheTokens"]
+    else:
+        # No per-model detail: keep the cache-inclusive total and bill it all.
+        total = number(first.get("todayTotalTokens")) + number(second.get("todayTotalTokens"))
+        out["todayTokensByModel"] = {}
+        out["todayBillableTokens"] = total
+        out["todayCacheTokens"] = 0
+        out["todayTotalTokens"] = total
 
-    days: dict[str, int] = {}
+    days: dict[str, dict] = {}
     for source in (first.get("recentDays") or [], second.get("recentDays") or []):
         for day in source:
             key = str(day.get("date") or "")
-            days[key] = days.get(key, 0) + number(day.get("messageCount"))
-    out["recentDays"] = [{"date": day, "messageCount": days[day]} for day in sorted(days)]
+            tokens = number(day.get("tokens")) if "tokens" in day else number(day.get("messageCount"))
+            billable = number(day.get("billableTokens"))
+            cache = number(day.get("cacheTokens"))
+            if billable == 0 and cache == 0 and tokens:
+                billable = tokens
+            entry = days.setdefault(key, empty_day(key))
+            entry["tokens"] += tokens
+            entry["billableTokens"] += billable
+            entry["cacheTokens"] += cache
+    out["recentDays"] = [finalize_day(days[day]) for day in sorted(days)]
 
     models: dict[str, dict[str, int]] = {}
     for source in (first.get("modelUsage") or {}, second.get("modelUsage") or {}):
@@ -294,7 +464,7 @@ def merge_stats(first: dict, second: dict) -> dict:
             target = models.setdefault(model, empty_bucket())
             for field in ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"):
                 target[field] = target.get(field, 0) + number((bucket or {}).get(field))
-    out["modelUsage"] = models
+    out["modelUsage"] = finalize_model_buckets(models)
 
     out["totalPrompts"] = number(first.get("totalPrompts")) + number(second.get("totalPrompts"))
     out["totalSessions"] = number(first.get("totalSessions")) + number(second.get("totalSessions"))
