@@ -80,6 +80,26 @@ ShellRoot {
         appLibraryApiComponent: pluginAppLibraryApiComponent
     }
 
+    // Core-owned screenshot capability. Instantiated unconditionally so the
+    // SUPER+SHIFT+R/S shortcuts and `shell call aurelia.screenshot <method>`
+    // keep a live handler even when the bar-widget plugin is disabled, removed
+    // from the bar layout, or uninstalled. The bar widget is a thin view over
+    // this service.
+    ScreenshotService {
+        id: screenshotService
+        shell: shellIpc
+        pluginHost: pluginHost
+        aureliaPath: pluginRegistry.packageRoot
+    }
+
+    // Prefer the resident core service for screenshot IPC and fall back to the
+    // plugin host for every other target. An unresolved screenshot call is
+    // reported as an explicit diagnostic, never silently as "not-loaded".
+    ShellCallRouter {
+        id: shellCallRouter
+        screenshotService: screenshotService
+    }
+
     // Omarchy-style plugin hot reload. Only plugin-owned entry points are
     // reloaded automatically; shell.qml and host services remain explicit
     // restart boundaries so a half-written core tree cannot create a second
@@ -203,7 +223,7 @@ ShellRoot {
         }
 
         function call(pluginId: string, method: string, argument: string): string {
-            return pluginHost.call(pluginId, method, argument || "")
+            return shellCallRouter.call(pluginHost, pluginId, method, argument || "")
         }
 
         function rescanPlugins(): string {

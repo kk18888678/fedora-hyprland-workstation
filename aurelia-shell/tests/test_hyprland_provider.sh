@@ -41,21 +41,23 @@ else
     fail "Aurelia provider manifest is missing Super+K"
 fi
 
-if [[ -f "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
-      -f "$ROOT/plugins/aurelia.launcher/keybindings.lua" ]] &&
-   grep -q 'aurelia.screenshot.quick_region' "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
-   grep -q 'aurelia.screenshot.quick_screen' "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
-   grep -q 'method = "quickRegion"' "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
-   grep -q 'method = "quickScreen"' "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
+if [[ ! -e "$ROOT/plugins/aurelia.screenshot/keybindings.lua" ]] &&
+   [[ -f "$ROOT/plugins/aurelia.launcher/keybindings.lua" ]] &&
+   grep -q 'aurelia.screenshot.quick_region' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'aurelia.screenshot.quick_screen' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'key = "SUPER + SHIFT + R"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'key = "SUPER + SHIFT + S"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'method = "quickRegion"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'method = "quickScreen"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'action_type = "plugin_ipc"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
+   grep -q 'target = "aurelia.screenshot"' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
    grep -q 'id = "launcher"' "$ROOT/plugins/aurelia.launcher/keybindings.lua" &&
    grep -q 'load_aurelia_plugin_bindings' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
    grep -q 'keybindings.lua' "$ROOT/dotfiles/hypr/keybindings_manifest.lua" &&
    grep -q 'plugin_ipc' "$keybind_lua" &&
-   grep -q 'quickRegion' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'quickScreen' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'key = "SUPER + SHIFT + R"' "$ROOT/plugins/aurelia.screenshot/keybindings.lua" &&
-   grep -q 'key = "SUPER + SHIFT + S"' "$ROOT/plugins/aurelia.screenshot/keybindings.lua"; then
-    pass "Aurelia plugins own provider-registered bindings"
+   grep -q 'quickRegion' "$ROOT/services/ScreenshotService.qml" &&
+   grep -q 'quickScreen' "$ROOT/services/ScreenshotService.qml"; then
+    pass "Aurelia core owns the screenshot provider bindings while plugins keep their own"
 else
-    fail "Aurelia plugin keybinding declarations are incomplete"
+    fail "Aurelia screenshot core keybinding ownership is incomplete"
 fi

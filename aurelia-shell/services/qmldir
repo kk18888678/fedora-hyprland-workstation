@@ -20,3 +20,5 @@ ShellConfigFileBoundary 1.0 ShellConfigFileBoundary.qml
 ShellConfigPersistenceBoundary 1.0 ShellConfigPersistenceBoundary.qml
 BarConfigOperations 1.0 BarConfigOperations.qml
 BarControlRegistry 1.0 BarControlRegistry.qml
+ScreenshotService 1.0 ScreenshotService.qml
+ShellCallRouter 1.0 ShellCallRouter.qml

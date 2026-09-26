@@ -417,15 +417,18 @@ else
     fail "Weather bar-widget manifest or entry point is incomplete"
 fi
 
-if [[ -f "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotMenuPopup.qml" &&
-      -f "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotSelectionOverlay.qml" ]] &&
-   grep -q 'AureliaKeyboardPanel' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotMenuPopup.qml" &&
-   grep -q 'PanelWindow' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotSelectionOverlay.qml" &&
-   ! grep -q 'PanelWindow' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotPanel.qml" &&
-   grep -q 'function quickRegion' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotPanel.qml"; then
-    pass "Screenshot controls are bar-owned while region selection remains a dedicated overlay"
+if [[ -f "$ROOT/ui/ScreenshotMenuPopup.qml" &&
+      -f "$ROOT/ui/ScreenshotSelectionOverlay.qml" &&
+      -f "$ROOT/ui/ScreenshotPanel.qml" ]] &&
+   grep -q 'AureliaKeyboardPanel' "$ROOT/ui/ScreenshotMenuPopup.qml" &&
+   grep -q 'PanelWindow' "$ROOT/ui/ScreenshotSelectionOverlay.qml" &&
+   ! grep -q 'PanelWindow' "$ROOT/ui/ScreenshotPanel.qml" &&
+   grep -q 'function quickRegion' "$ROOT/ui/ScreenshotPanel.qml" &&
+   grep -q 'ScreenshotSelectionOverlay.qml' "$ROOT/services/ScreenshotService.qml" &&
+   grep -q 'ScreenshotMenuPopup.qml' "$ROOT/services/ScreenshotService.qml"; then
+    pass "Screenshot controls are core-owned while region selection remains a dedicated overlay"
 else
-    fail "Screenshot bar-owned popup and selection overlay contract is incomplete"
+    fail "Screenshot core popup and selection overlay contract is incomplete"
 fi
 
 if [[ -x "$weather_bin" ]] &&
@@ -515,7 +518,7 @@ fi
 
 if grep -q 'FocusScope' "$ROOT/ui/AureliaPopupCard.qml" &&
    grep -q 'Qt.Key_Escape' "$ROOT/ui/AureliaPopupCard.qml" &&
-   ! grep -R -q 'text: "ESC"' "$calendar_root" "$power_root" "$tasklist_root" "$tray_root" "$ROOT/plugins/aurelia.weather" "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotMenuPopup.qml"; then
+   ! grep -R -q 'text: "ESC"' "$calendar_root" "$power_root" "$tasklist_root" "$tray_root" "$ROOT/plugins/aurelia.weather" "$ROOT/ui/ScreenshotMenuPopup.qml"; then
     pass "Bar-owned popup cards share keyboard dismissal without rendering shortcut labels"
 else
     fail "Bar-owned popup keyboard dismissal or visual contract is incomplete"

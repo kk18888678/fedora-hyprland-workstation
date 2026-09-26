@@ -1,7 +1,8 @@
 import QtQuick
 
-// Controller for the screenshot bar widget. The menu is a bar-owned popup;
-// the only fullscreen surface is the short-lived region drag overlay.
+// Controller for the core screenshot capability. The menu is a core-owned
+// popup anchored to the bar; the only fullscreen surface is the short-lived
+// region drag overlay.
 Item {
     id: panelRoot
 

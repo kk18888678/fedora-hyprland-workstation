@@ -1,8 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../../../ui"
-import "../../../theme"
+import "."
+import "../theme"
 
 // Compact screenshot popup. The two capture actions stay visually primary;
 // delay and pointer behavior remain customization controls rather than extra

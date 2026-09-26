@@ -86,6 +86,18 @@ case "$output" in
         ;;
 esac
 
+# A screenshot invocation that cannot reach the resident core service must be
+# observable. Historically an unresolved plugin route returned the bare
+# "not-loaded" marker, which this client printed and exited 0, so a broken
+# SUPER+SHIFT+R/S shortcut failed silently. Never let that happen again.
+if [[ "${1:-}" == "shell" && "${2:-}" == "call" && "${3:-}" == "aurelia.screenshot" ]]; then
+    case "$output" in
+        "screenshot-unavailable"|"not-loaded"|"invalid-method"|"error"|"")
+            fail "Screenshot capability is unavailable (${output:-no result}); the shortcut did not run"
+            ;;
+    esac
+fi
+
 if [[ -n "$output" ]]; then
     printf '%s\n' "$output"
 fi

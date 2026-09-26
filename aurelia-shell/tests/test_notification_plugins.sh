@@ -333,7 +333,8 @@ if [[ -f "$tooltip_qml" ]] &&
    ! grep -q 'mapToItem(root.anchorWindow.contentItem' "$ROOT/plugins/aurelia.notifications/ui/NotificationPopupSurface.qml" &&
    grep -q 'AureliaToolTip 1.0 AureliaToolTip.qml' "$ROOT/ui/qmldir" &&
    grep -q 'AureliaToolTip {' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'publishScreenshot' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'publishScreenshot' "$ROOT/services/ScreenshotService.qml" &&
+   ! grep -q 'publishScreenshot' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml" &&
    ! grep -Eq '(^|[[:space:]])ToolTip[[:space:]]*\{' "$ROOT/plugins/aurelia.screenshot/ui/ScreenshotBarWidget.qml"; then
     pass "Bar tooltips use a standalone anchored window with full below/above placement"
 else

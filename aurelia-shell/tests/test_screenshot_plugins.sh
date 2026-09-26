@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
-# Static and command-contract checks for the minimal Screenshot bar slice.
-# The popup intentionally exposes two capture actions; customization remains
-# available through compact delay and pointer controls.
+# Static and command-contract checks for the core-owned Screenshot capability.
+# The capability moved from the bar-widget plugin into the resident core
+# service so the popup intentionally exposes two capture actions while the
+# bar widget remains a thin view and the shortcut survives plugin disable.
 
 set -Eeuo pipefail
 
@@ -10,6 +11,9 @@ plugin_root="$ROOT/plugins/aurelia.screenshot"
 bar_root="$ROOT/plugins/aurelia.bar"
 capture_bin="$ROOT/bin/aurelia-screenshot"
 shared_ui_root="$ROOT/ui"
+service_qml="$ROOT/services/ScreenshotService.qml"
+router_qml="$ROOT/services/ShellCallRouter.qml"
+widget_qml="$plugin_root/ui/ScreenshotBarWidget.qml"
 
 section "Screenshot Plugin Contract"
 
@@ -56,15 +60,18 @@ else
     fail "Screenshot backend mode or safety contract is incomplete"
 fi
 
-menu_qml="$plugin_root/ui/ScreenshotMenuPopup.qml"
-panel_qml="$plugin_root/ui/ScreenshotPanel.qml"
-selection_qml="$plugin_root/ui/ScreenshotSelectionOverlay.qml"
+menu_qml="$shared_ui_root/ScreenshotMenuPopup.qml"
+panel_qml="$shared_ui_root/ScreenshotPanel.qml"
+selection_qml="$shared_ui_root/ScreenshotSelectionOverlay.qml"
 button_qml="$shared_ui_root/AureliaActionButton.qml"
 icon_qml="$shared_ui_root/AureliaIcon.qml"
 
 if [[ -f "$button_qml" && -f "$icon_qml" ]] &&
    grep -q 'AureliaActionButton 1.0 AureliaActionButton.qml' "$shared_ui_root/qmldir" &&
    grep -q 'AureliaIcon 1.0 AureliaIcon.qml' "$shared_ui_root/qmldir" &&
+   grep -q 'ScreenshotMenuPopup 1.0 ScreenshotMenuPopup.qml' "$shared_ui_root/qmldir" &&
+   grep -q 'ScreenshotPanel 1.0 ScreenshotPanel.qml' "$shared_ui_root/qmldir" &&
+   grep -q 'ScreenshotSelectionOverlay 1.0 ScreenshotSelectionOverlay.qml' "$shared_ui_root/qmldir" &&
    grep -q 'Theme.controls.normalFill' "$button_qml" &&
    grep -q 'Theme.controls.hoverBorder' "$button_qml" &&
    grep -q 'signal triggered' "$button_qml" &&
@@ -103,36 +110,72 @@ if grep -q 'selectionDragging' "$selection_qml" &&
    grep -q 'cursorShape: Qt.CrossCursor' "$selection_qml" &&
    grep -q 'FocusScope' "$selection_qml" &&
    grep -q 'selectionKeyboardScope.forceActiveFocus' "$selection_qml" &&
-   grep -q 'function quickRegion' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+   grep -q 'function quickRegion' "$service_qml" &&
    grep -q 'function quickRegion' "$panel_qml" &&
    grep -q 'startRegionSelection()' "$panel_qml" &&
+   grep -q 'ScreenshotSelectionOverlay.qml' "$service_qml" &&
    ! grep -Eiq 'smart|window|windows' "$menu_qml" "$panel_qml" "$capture_bin"; then
-    pass "Widget and shortcut region entry points share the crosshair/Escape-safe overlay flow"
+    pass "Core service and shortcut region entry points share the crosshair/Escape-safe overlay flow"
 else
-    fail "Region capture overlay or unified quick-region compatibility path is incomplete"
+    fail "Region capture overlay or core quick-region compatibility path is incomplete"
 fi
 
-if grep -q 'captureProcess' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'waitForEnd: true' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'duration_ms' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'captureRequested' "$panel_qml" &&
-   grep -q 'captureCompleted' "$panel_qml" &&
-   grep -q 'ScreenshotPanel.qml' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -Fq 'glyph: "󰄀"' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'aurelia.screenshot' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'import "../../../ui"' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'AureliaToolTip' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'Full Screen or Selection' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
-   grep -q 'AureliaIcon' "$plugin_root/ui/ScreenshotBarWidget.qml" &&
+# The bar widget is a pure view. The capture lifecycle belongs to the core
+# service, so these negative assertions are the ownership boundary.
+if grep -Fq 'glyph: "󰄀"' "$widget_qml" &&
+   grep -q 'aurelia.screenshot' "$widget_qml" &&
+   grep -q 'import "../../../ui"' "$widget_qml" &&
+   grep -q 'AureliaToolTip' "$widget_qml" &&
+   grep -q 'Full Screen or Selection' "$widget_qml" &&
+   grep -q 'AureliaIcon' "$widget_qml" &&
+   grep -q 'activePopoutId === "aurelia.screenshot"' "$widget_qml" &&
+   grep -q 'shell.call("aurelia.screenshot"' "$widget_qml" &&
+   ! grep -q 'Process {' "$widget_qml" &&
+   ! grep -q 'captureProcess' "$widget_qml" &&
+   ! grep -q 'captureStage' "$widget_qml" &&
+   ! grep -q 'pendingCaptureRequest' "$widget_qml" &&
+   ! grep -q 'publishScreenshot' "$widget_qml" &&
+   ! grep -q 'ScreenshotPanel.qml' "$widget_qml" &&
+   ! grep -q 'ScreenshotMenuPopup' "$widget_qml" &&
+   ! grep -q 'ScreenshotSelectionOverlay' "$widget_qml" &&
+   ! grep -q 'downloadScreenshot' "$widget_qml" &&
    grep -q 'MultiEffect' "$icon_qml" &&
    grep -q 'colorizationColor' "$icon_qml" &&
    grep -q 'Text.NativeRendering' "$icon_qml" &&
    grep -q 'sourcePixelRatio: Math.max(1, Screen.devicePixelRatio)' "$icon_qml" &&
    grep -q 'asynchronous: false' "$icon_qml" &&
    ! grep -q 'asynchronous: true' "$icon_qml"; then
-    pass "Bar widget owns capture lifecycle, tooltip, and theme-aware icon visibility"
+    pass "Bar widget is a thin affordance while the core service owns the capture lifecycle"
 else
-    fail "Screenshot bar lifecycle, tooltip, or icon contrast contract is incomplete"
+    fail "Screenshot bar widget still owns capture state or the icon contrast contract regressed"
+fi
+
+if grep -q 'Process {' "$service_qml" &&
+   grep -q 'waitForEnd: true' "$service_qml" &&
+   grep -q 'duration_ms' "$service_qml" &&
+   grep -q 'ScreenshotPanel {' "$service_qml" &&
+   grep -q 'ScreenshotMenuPopup.qml' "$service_qml" &&
+   grep -q 'ScreenshotSelectionOverlay.qml' "$service_qml" &&
+   grep -q 'publishScreenshot' "$service_qml" &&
+   grep -q 'function cancelCapture' "$service_qml" &&
+   grep -q 'target: "aurelia.screenshot"' "$service_qml" &&
+   grep -q 'function ping(): string' "$service_qml" &&
+   grep -q 'function open(payloadJson: string): string' "$service_qml" &&
+   grep -q 'function close(): string' "$service_qml" &&
+   grep -q 'function toggle(payloadJson: string): string' "$service_qml" &&
+   grep -q 'function isVisible(): string' "$service_qml" &&
+   grep -q 'function quickRegion(): string' "$service_qml" &&
+   grep -q 'function quickScreen(): string' "$service_qml" &&
+   grep -q 'function capture(payloadJson: string): string' "$service_qml" &&
+   ! grep -q 'plugins/aurelia.screenshot' "$service_qml" &&
+   [[ -f "$router_qml" ]] &&
+   grep -q 'screenshotService' "$router_qml" &&
+   grep -q 'screenshot-unavailable' "$router_qml" &&
+   grep -q 'shellCallRouter.call(pluginHost' "$ROOT/shell.qml" &&
+   grep -q 'ScreenshotService {' "$ROOT/shell.qml"; then
+    pass "Core ScreenshotService owns the capture process, presentation surfaces, IPC target, and shell fallback"
+else
+    fail "Core screenshot service, IPC surface, or shell fallback is incomplete"
 fi
 
 section "Resident Bar Contract"
