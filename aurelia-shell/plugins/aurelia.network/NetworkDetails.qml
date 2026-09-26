@@ -55,7 +55,7 @@ Item {
 
     component DetailLabel: Text {
         color: Theme.popups.text
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeXs
     }
 
@@ -66,7 +66,7 @@ Item {
 
         Layout.fillWidth: true
         color: valueColor
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeXs
         horizontalAlignment: Text.AlignRight
         elide: Text.ElideLeft

@@ -38,7 +38,7 @@ AureliaKeyboardPanel {
                 Layout.fillWidth: true
                 text: "Screenshots"
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeLg
                 font.weight: Theme.fontWeightBold
             }
@@ -49,7 +49,7 @@ AureliaKeyboardPanel {
             Layout.fillWidth: true
             text: "Capture your screen or select a region."
             color: Theme.textSecondary
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             elide: Text.ElideRight
         }
@@ -93,7 +93,7 @@ AureliaKeyboardPanel {
             Text {
                 text: "Delay"
                 color: Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
             }
 
@@ -105,7 +105,7 @@ AureliaKeyboardPanel {
                 horizontalAlignment: TextInput.AlignHCenter
                 verticalAlignment: TextInput.AlignVCenter
                 color: Theme.inputText
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 selectByMouse: true
                 activeFocusOnTab: false
@@ -131,7 +131,7 @@ AureliaKeyboardPanel {
             Text {
                 text: "sec"
                 color: Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
             }
 
@@ -140,7 +140,7 @@ AureliaKeyboardPanel {
             Text {
                 text: "Pointer"
                 color: Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
             }
 
@@ -173,7 +173,7 @@ AureliaKeyboardPanel {
             Text {
                 text: popup.controller && popup.controller.showPointer ? "On" : "Off"
                 color: popup.controller && popup.controller.showPointer ? Theme.accent : Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
             }
         }
@@ -184,7 +184,7 @@ AureliaKeyboardPanel {
             color: popup.controller && popup.controller.statusKind === "error"
                 ? Theme.error
                 : (popup.controller && popup.controller.statusKind === "success" ? Theme.success : Theme.textMuted)
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             wrapMode: Text.WordWrap
             visible: text.length > 0

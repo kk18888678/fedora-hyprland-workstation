@@ -22,7 +22,7 @@ RowLayout {
     Text {
         text: root.label
         color: Theme.textSecondary
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeSm
         Layout.preferredWidth: 16
     }
@@ -66,7 +66,7 @@ RowLayout {
     Text {
         text: String(root.channelValue)
         color: Theme.text
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeXs
         horizontalAlignment: Text.AlignRight
         Layout.preferredWidth: 28

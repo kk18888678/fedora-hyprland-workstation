@@ -128,7 +128,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     text: "Aurelia Menu"
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeLg
                     font.weight: Theme.fontWeightBold
                 }
@@ -162,7 +162,7 @@ PanelWindow {
                                 Layout.preferredWidth: 24
                                 text: modelData.icon || "󰘦"
                                 color: ListView.isCurrentItem ? Theme.launcher.selectedText : Theme.textMuted
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeMd
                                 horizontalAlignment: Text.AlignHCenter
                             }
@@ -173,7 +173,7 @@ PanelWindow {
                                     Layout.fillWidth: true
                                     text: modelData.label || modelData.id
                                     color: Theme.text
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeMd
                                     elide: Text.ElideRight
                                 }
@@ -181,7 +181,7 @@ PanelWindow {
                                     Layout.fillWidth: true
                                     text: modelData.subtitle || modelData.detail || ""
                                     color: Theme.textMuted
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeXs
                                     elide: Text.ElideRight
                                 }
@@ -190,7 +190,7 @@ PanelWindow {
                                 visible: modelData.checked === true
                                 text: "✓"
                                 color: Theme.accent
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeMd
                             }
                         }

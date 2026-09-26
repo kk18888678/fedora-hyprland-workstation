@@ -43,7 +43,7 @@ Item {
                     Layout.fillWidth: true
                     text: rowRoot.title
                     color: rowRoot.selected ? Theme.text : Theme.textSecondary
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeMd
                     font.weight: rowRoot.selected ? Theme.fontWeightMedium : Theme.fontWeightNormal
                     elide: Text.ElideRight
@@ -53,7 +53,7 @@ Item {
                     Layout.fillWidth: true
                     text: rowRoot.description
                     color: rowRoot.selected ? Theme.textMuted : Theme.textSubtle
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     elide: Text.ElideRight
                 }
@@ -71,7 +71,7 @@ Item {
                     anchors.centerIn: parent
                     text: rowRoot.value
                     color: rowRoot.editing ? Theme.bgBase : Theme.accent
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     font.weight: Theme.fontWeightMedium
                     elide: Text.ElideRight

@@ -662,6 +662,30 @@ QtObject {
     // 4. Semantic Typography Tokens (Configurable via theme.conf)
     readonly property string fontFamily: _getString("fontFamily", "JetBrainsMono Nerd Font, Hack Nerd Font, monospace")
     readonly property string fontFamilyProse: _getString("fontFamilyProse", "sans-serif")
+
+    // Qt's Text.font.family accepts a SINGLE family name; it does not parse a
+    // comma-separated list. Feeding the raw `fontFamily` above to a Text makes
+    // the text path silently fall back to Qt's default proportional family
+    // (measured: "Noto Sans") while the icon path, which must also take one
+    // name, resolves the first entry. The declared value is therefore a
+    // preference ORDER, not a Qt fallback chain. Resolve it exactly once here,
+    // preferring the first declared family that is actually installed
+    // (Qt.fontFamilies() is QtQml's installed-font registry), and falling back
+    // to the first declared entry when none are installed. Every text consumer
+    // and the AureliaIcon glyph path use this single property so the two can
+    // never silently diverge. The raw `fontFamily` list is kept intact so a
+    // theme can still express its preference order.
+    readonly property var installedFontFamilies: Qt.fontFamilies()
+    readonly property string fontFamilyResolved: {
+        var declared = String(themeRoot.fontFamily)
+        var parts = declared.split(",")
+        for (var i = 0; i < parts.length; i++) {
+            var candidate = parts[i].trim()
+            if (candidate === "") continue
+            if (themeRoot.installedFontFamilies.indexOf(candidate) !== -1) return candidate
+        }
+        return parts.length > 0 ? parts[0].trim() : declared
+    }
     readonly property int fontSizeXs: Math.max(1, Math.round(_getInt("fontSizeXs", 10) * fontScale))
     readonly property int fontSizeSm: Math.max(1, Math.round(_getInt("fontSizeSm", 13) * fontScale))
     readonly property int fontSizeMd: Math.max(1, Math.round(_getInt("fontSizeMd", 14) * fontScale))

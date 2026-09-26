@@ -78,7 +78,7 @@ PanelWindow {
             anchors.topMargin: Theme.spacingXl
             text: "Drag to select a region"
             color: Theme.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             font.weight: Theme.fontWeightMedium
         }

@@ -139,7 +139,7 @@ Item {
                 width: parent.width
                 text: root.windowTitle
                 color: Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
@@ -175,7 +175,7 @@ Item {
                     width: Math.max(1, parent.width - 20)
                     text: root.windowTitle
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     elide: Text.ElideRight
                 }

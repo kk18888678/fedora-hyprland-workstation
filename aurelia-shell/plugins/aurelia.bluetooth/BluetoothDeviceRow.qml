@@ -101,7 +101,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.dev ? (root.dev.deviceName || root.dev.name || "Device") : "Device"
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: Theme.fontWeightMedium
                 elide: Text.ElideRight
@@ -112,7 +112,7 @@ Rectangle {
                 visible: root.statusText !== ""
                 text: root.statusText
                 color: root.statusColor
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 elide: Text.ElideRight
             }

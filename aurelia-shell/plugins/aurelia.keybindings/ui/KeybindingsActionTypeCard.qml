@@ -43,7 +43,7 @@ Rectangle {
                 anchors.centerIn: parent
                 text: cardRoot.glyph
                 color: cardRoot.selected ? Theme.bgBase : Theme.accent
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeLg
                 font.weight: Theme.fontWeightBold
             }
@@ -58,7 +58,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: cardRoot.title
                 color: cardRoot.selected ? Theme.text : Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeMd
                 font.weight: Theme.fontWeightBold
                 elide: Text.ElideRight
@@ -68,7 +68,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: cardRoot.subtitle
                 color: cardRoot.selected ? Theme.textSecondary : Theme.textSubtle
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 wrapMode: Text.WordWrap
                 elide: Text.ElideRight
@@ -79,7 +79,7 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             text: "›"
             color: cardRoot.selected ? Theme.accent : Theme.textMuted
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: 22
         }
     }

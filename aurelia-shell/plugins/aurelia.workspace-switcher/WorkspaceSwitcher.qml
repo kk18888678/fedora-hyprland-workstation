@@ -469,7 +469,7 @@ Item {
                             Layout.fillWidth: true
                             text: "Workspaces"
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXl
                             font.weight: Theme.fontWeightMedium
                         }
@@ -477,7 +477,7 @@ Item {
                         Text {
                             text: "SUPER + TAB"
                             color: Theme.textMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs - 1
                             font.weight: Theme.fontWeightMedium
                         }
@@ -531,7 +531,7 @@ Item {
                             text: "Selected: Workspace " + String(root.selectedWorkspaceId) +
                                 "  ·  Tab / arrows to browse  ·  Enter or release Super to open  ·  Esc to close"
                             color: Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             horizontalAlignment: Text.AlignHCenter
                         }

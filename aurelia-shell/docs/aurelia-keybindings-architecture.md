@@ -201,12 +201,13 @@ Located at `~/.config/aurelia/theme.conf` (deployed from `aurelia-shell/theme.co
 - **Table Column Layout**: `colShortcutWidth` (350 for balanced 50/50 split, or 280 for ~40/60 split), `colSeparatorWidth` (28), `rowSpacing` (3), `scrollBarWidth` (4).
 - **Corner Radii & Borders**: `radiusSm` (4), `radiusMd` (8), `radiusLg` (12), `borderWidthDefault` (1), `borderWidthFocus` (2).
 - **Spacing Scale**: Modular 4px scale (`spacingXs` = 4, `spacingSm` = 8, `spacingMd` = 12, `spacingLg` = 16, `spacingXl` = 20, `spacingXxl` = 24).
-- **Typography**: `fontFamily` ("JetBrainsMono Nerd Font, Hack Nerd Font, monospace"), `fontSizeXs` (10) through `fontSizeXl` (18).
+- **Typography**: `fontFamily` declared as an ordered preference list ("JetBrainsMono Nerd Font, Hack Nerd Font, monospace") and resolved by `Theme.fontFamilyResolved` to one installed family before it reaches Qt; `fontSizeXs` (10) through `fontSizeXl` (18).
 - **Motion**: `durationFast` (100ms), `durationNormal` (200ms).
 - **Colors**: Base surfaces (`background`, `surface`, `selection`), active and inactive borders (`border`, `borderActive`), text hierarchy (`text`, `textSecondary`, `textMuted`, `textSubtle`), and semantic accents (`accent`, `accentAlt`, `gold`, `love`, `pine`, `foam`, `rose`, `iris`, `success`, `warning`, `error`).
 
 ### 5.2 Dynamic Singleton Resolver (`Theme.qml`)
 - Resolves configuration via `AURELIA_THEME_CONF` or `~/.config/aurelia/theme.conf`.
+- Resolves the declared `fontFamily` preference list to the single `fontFamilyResolved` family with `Qt.fontFamilies()`, so text and the icon primitive agree on one family.
 - Provides safe, typed parsing helpers: `_getInt()`, `_getString()`, and `_getColor()` with alias fallback arrays (e.g. `active_border_color`, `active_border`, `border_active`).
 - Defaults securely to the canonical Rosé Pine Moon palette when no custom configuration is provided.
 

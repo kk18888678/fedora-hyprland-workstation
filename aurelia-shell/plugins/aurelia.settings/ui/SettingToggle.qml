@@ -27,7 +27,7 @@ RowLayout {
             Layout.fillWidth: true
             text: descriptor.title || ""
             color: Theme.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeMd
             font.weight: Font.DemiBold
             elide: Text.ElideRight

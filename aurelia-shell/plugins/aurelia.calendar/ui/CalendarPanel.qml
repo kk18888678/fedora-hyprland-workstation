@@ -127,7 +127,7 @@ AureliaKeyboardPanel {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "AURELIA / CALENDAR"
                     color: Theme.calendarAccent
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightBold
                     font.letterSpacing: 1
@@ -138,7 +138,7 @@ AureliaKeyboardPanel {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "TODAY  " + Qt.formatDate(panelRoot.today, "ddd, d MMM")
                     color: Theme.textMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightMedium
                 }
@@ -181,7 +181,7 @@ AureliaKeyboardPanel {
                             anchors.centerIn: parent
                             text: "‹"
                             color: previousMouse.containsMouse ? Theme.calendarAccent : Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeLg
                             font.weight: Theme.fontWeightMedium
                         }
@@ -207,7 +207,7 @@ AureliaKeyboardPanel {
                                 id: monthTitleLabel
                                 text: panelRoot.monthTitle()
                                 color: Theme.text
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeLg
                                 font.weight: Theme.fontWeightBold
                             }
@@ -216,7 +216,7 @@ AureliaKeyboardPanel {
                                 anchors.baseline: monthTitleLabel.baseline
                                 text: String(panelRoot.year)
                                 color: Theme.textSecondary
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeSm
                                 font.weight: Theme.fontWeightMedium
                             }
@@ -228,7 +228,7 @@ AureliaKeyboardPanel {
                             visible: !panelRoot.viewingCurrentMonth
                             text: "TODAY"
                             color: todayMouse.containsMouse ? Theme.calendarAccent : Theme.textMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                             font.letterSpacing: 0.7
@@ -256,7 +256,7 @@ AureliaKeyboardPanel {
                             anchors.centerIn: parent
                             text: "›"
                             color: nextMouse.containsMouse ? Theme.calendarAccent : Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeLg
                             font.weight: Theme.fontWeightMedium
                         }
@@ -292,7 +292,7 @@ AureliaKeyboardPanel {
                             verticalAlignment: Text.AlignVCenter
                             text: modelData
                             color: Theme.textMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                             font.letterSpacing: 0.5
@@ -343,7 +343,7 @@ AureliaKeyboardPanel {
                                     : (modelData.inMonth
                                         ? (modelData.weekend ? Theme.calendarWeekend : Theme.text)
                                         : Theme.calendarAdjacent)
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeSm
                                 font.weight: modelData.isToday ? Theme.fontWeightBold : Theme.fontWeightMedium
                             }
@@ -361,7 +361,7 @@ AureliaKeyboardPanel {
                     anchors.centerIn: parent
                     text: "← →  MONTHS    T  TODAY"
                     color: Theme.textSubtle
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightMedium
                     font.letterSpacing: 0.3

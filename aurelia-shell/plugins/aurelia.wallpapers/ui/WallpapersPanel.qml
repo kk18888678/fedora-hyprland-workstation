@@ -460,7 +460,7 @@ Item {
                         Text {
                             text: "Wallpapers"
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeLg
                             font.weight: Theme.fontWeightBold
                         }
@@ -491,7 +491,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: modelData
                                     color: active ? Theme.accent : Theme.textSecondary
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeSm
                                     font.weight: active
                                         ? Theme.fontWeightBold
@@ -526,7 +526,7 @@ Item {
                             Layout.preferredHeight: 32
                             placeholderText: root.searchPlaceholder
                             text: root.filterText
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeSm
                             color: Theme.inputText
                             placeholderTextColor: Theme.inputPlaceholder
@@ -684,7 +684,7 @@ Item {
                                             anchors.centerIn: parent
                                             text: "ACTIVE"
                                             color: Theme.bgBase
-                                            font.family: Theme.fontFamily
+                                            font.family: Theme.fontFamilyResolved
                                             font.pixelSize: Theme.fontSizeXs - 1
                                             font.weight: Theme.fontWeightBold
                                         }
@@ -697,7 +697,7 @@ Item {
                                         anchors.margins: Theme.spacingXs
                                         text: String(modelData.label || "")
                                         color: Theme.text
-                                        font.family: Theme.fontFamily
+                                        font.family: Theme.fontFamilyResolved
                                         font.pixelSize: Theme.fontSizeXs
                                         horizontalAlignment: Text.AlignHCenter
                                         elide: Text.ElideMiddle
@@ -784,7 +784,7 @@ Item {
                                     ? String(root.selectedEntry.label || "")
                                     : "Nothing selected"
                                 color: Theme.text
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeSm
                                 font.weight: Theme.fontWeightBold
                                 wrapMode: Text.Wrap

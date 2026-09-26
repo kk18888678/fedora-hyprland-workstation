@@ -233,7 +233,7 @@ Item {
                         visible: root.hasGlyph && smallIconImage.status !== Image.Ready
                         text: root.glyph
                         color: Theme.notifications.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.scaleGeometry(28)
                     }
                 }
@@ -244,7 +244,7 @@ Item {
                     visible: root.compactGlyph
                     text: root.glyph
                     color: Theme.notifications.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.scaleGeometry(14)
                 }
 

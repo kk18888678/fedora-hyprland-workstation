@@ -100,18 +100,22 @@ else
     fail "Shared icon primitive does not expose the crisp physical-pixel and native-glyph contract"
 fi
 
-# Regression: glyph rendering must hand Qt one real font family. Passing the
-# comma-separated Theme.fontFamily list ("A, B, monospace") verbatim makes Qt
-# fail to resolve the family and renders Nerd Font glyphs as garbled boxes.
+# Regression: glyph rendering must hand Qt one real font family. Qt's
+# font.family takes a single family, so the theme exposes one resolved family
+# and both the icon primitive and every text consumer use it. The raw
+# comma-separated Theme.fontFamily list must never reach Qt's font.family.
 glyph_family_line="$(grep -F 'property string glyphFontFamily:' "$ROOT/ui/AureliaIcon.qml" || true)"
 configured_family="$(sed -n 's/^[[:space:]]*fontFamily[[:space:]]*=[[:space:]]*//p' "$ROOT/theme.conf" | head -n1)"
-glyph_family="${configured_family%%,*}"
-glyph_family="$(printf '%s' "$glyph_family" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-if [[ "$glyph_family_line" == *'String(Theme.fontFamily).split(",")[0].trim()'* ]] &&
-   [[ -n "$glyph_family" && "$glyph_family" != *','* ]]; then
-    pass "AureliaIcon glyphFontFamily resolves one comma-free font family for Qt"
+first_family="${configured_family%%,*}"
+first_family="$(printf '%s' "$first_family" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+if grep -q 'readonly property string fontFamilyResolved:' "$ROOT/theme/Theme.qml" &&
+   grep -q 'Qt.fontFamilies()' "$ROOT/theme/Theme.qml" &&
+   [[ "$glyph_family_line" == *'Theme.fontFamilyResolved'* ]] &&
+   [[ -n "$first_family" ]] &&
+   ! grep -rqE 'font\.family: *Theme\.fontFamily([^A-Za-z]|$)' "$ROOT/plugins" "$ROOT/ui" "$ROOT/services" "$ROOT/components"; then
+    pass "AureliaIcon and every text consumer resolve the declared font list through the theme's one family-resolution point"
 else
-    fail "AureliaIcon glyphFontFamily must extract the first family from Theme.fontFamily, not pass a comma-separated list to Qt"
+    fail "Font resolution is not shared: the icon or a text consumer does not use Theme.fontFamilyResolved"
 fi
 
 if grep -Fq 'glyph: root.networkPanel && root.networkPanel.icon' "$ROOT/plugins/aurelia.network/NetworkBarWidget.qml" &&
@@ -329,7 +333,7 @@ if [[ -f "$power_root/manifest.json" && -f "$power_root/PowerBarWidget.qml" && -
    grep -q 'profilesSection' "$power_root/PowerPanel.qml" &&
    grep -q 'progressSection' "$power_root/PowerPanel.qml" &&
    grep -q 'statsSection' "$power_root/PowerPanel.qml" &&
-   grep -q 'font.family: Theme.fontFamily' "$power_root/PowerBarWidget.qml" "$power_root/PowerPanel.qml" &&
+   grep -q 'font.family: Theme.fontFamilyResolved' "$power_root/PowerBarWidget.qml" "$power_root/PowerPanel.qml" &&
    grep -q 'AureliaToolTip' "$power_root/PowerBarWidget.qml" &&
    ! grep -q 'cardHeight' "$power_root/PowerPanel.qml" &&
    grep -q 'property QtObject runtime' "$session_actions_root/SessionActionsPanel.qml" &&
@@ -620,7 +624,7 @@ if grep -q 'focusedGlyphSize: Math.round(root.iconCanvas \* 0.9)' "$ROOT/plugins
    grep -q 'font.pixelSize: !focused && !occupied' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml" &&
    grep -q 'focused ? root.focusedGlyphSize' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml" &&
    grep -q 'renderType: Text.NativeRendering' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml" &&
-   grep -q 'font.family: Theme.fontFamily' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml"; then
+   grep -q 'font.family: Theme.fontFamilyResolved' "$ROOT/plugins/aurelia.workspaces/WorkspacesBarWidget.qml"; then
     pass "[static] the raw focused-workspace Text glyph uses the canvas-derived optical font size with native rendering"
 else
     fail "[static] focused-workspace glyph does not follow the canvas-derived metric"

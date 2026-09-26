@@ -219,7 +219,7 @@ AureliaKeyboardPanel {
                                 width: 22
                                 text: modelData.checkState === Qt.Checked ? "✓" : ""
                                 color: Theme.accent
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.trayMenuTextSize
                                 horizontalAlignment: Text.AlignHCenter
                             }

@@ -64,7 +64,7 @@ PopupWindow {
 
     TextMetrics {
         id: tooltipMetrics
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeXs
         text: root.text
     }
@@ -127,7 +127,7 @@ PopupWindow {
             height: implicitHeight
             text: root.text
             color: Theme.tooltip.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter

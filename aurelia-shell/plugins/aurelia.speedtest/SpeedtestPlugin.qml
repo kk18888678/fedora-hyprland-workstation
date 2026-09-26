@@ -212,7 +212,7 @@ Item {
                         Layout.fillWidth: true
                         text: root.connectionName !== "" ? root.connectionName : "Network speed test"
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeLg
                         font.weight: Theme.fontWeightBold
                         horizontalAlignment: Text.AlignHCenter
@@ -232,9 +232,9 @@ Item {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingXs
-                                Text { Layout.fillWidth: true; text: modelData.label; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeXs; horizontalAlignment: Text.AlignHCenter }
-                                Text { Layout.fillWidth: true; text: modelData.value.toFixed(1); color: modelData.live ? Theme.accent : Theme.text; font.family: Theme.fontFamily; font.pixelSize: 30; font.weight: Theme.fontWeightBold; horizontalAlignment: Text.AlignHCenter }
-                                Text { Layout.fillWidth: true; text: "Mbps"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeXs; horizontalAlignment: Text.AlignHCenter }
+                                Text { Layout.fillWidth: true; text: modelData.label; color: Theme.textMuted; font.family: Theme.fontFamilyResolved; font.pixelSize: Theme.fontSizeXs; horizontalAlignment: Text.AlignHCenter }
+                                Text { Layout.fillWidth: true; text: modelData.value.toFixed(1); color: modelData.live ? Theme.accent : Theme.text; font.family: Theme.fontFamilyResolved; font.pixelSize: 30; font.weight: Theme.fontWeightBold; horizontalAlignment: Text.AlignHCenter }
+                                Text { Layout.fillWidth: true; text: "Mbps"; color: Theme.textSecondary; font.family: Theme.fontFamilyResolved; font.pixelSize: Theme.fontSizeXs; horizontalAlignment: Text.AlignHCenter }
                                 Rectangle { Layout.fillWidth: true; height: 6; radius: 3; color: Theme.surface; Rectangle { width: Math.min(1, modelData.value / 1000) * parent.width; height: parent.height; radius: 3; color: Theme.accent } }
                             }
                         }
@@ -244,7 +244,7 @@ Item {
                         Layout.fillWidth: true
                         text: root.error !== "" ? root.error : (root.running ? (root.phase === "down" ? "Measuring download…" : "Measuring upload…") : "Complete")
                         color: root.error !== "" ? Theme.error : Theme.textSecondary
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
@@ -257,13 +257,13 @@ Item {
                         Rectangle {
                             width: 96; height: 32; radius: Theme.radiusSm
                             color: Theme.surface; border.color: Theme.border
-                            Text { anchors.centerIn: parent; text: "Again"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeXs }
+                            Text { anchors.centerIn: parent; text: "Again"; color: Theme.text; font.family: Theme.fontFamilyResolved; font.pixelSize: Theme.fontSizeXs }
                             MouseArea { anchors.fill: parent; onClicked: root.runSpeedTest() }
                         }
                         Rectangle {
                             width: 96; height: 32; radius: Theme.radiusSm
                             color: Theme.accent
-                            Text { anchors.centerIn: parent; text: "Close"; color: Theme.bgBase; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeXs }
+                            Text { anchors.centerIn: parent; text: "Close"; color: Theme.bgBase; font.family: Theme.fontFamilyResolved; font.pixelSize: Theme.fontSizeXs }
                             MouseArea { anchors.fill: parent; onClicked: root.dismiss() }
                         }
                     }

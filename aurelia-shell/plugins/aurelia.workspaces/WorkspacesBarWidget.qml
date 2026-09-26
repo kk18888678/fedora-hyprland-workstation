@@ -145,7 +145,7 @@ Item {
                     textFormat: Text.PlainText
                     text: focused ? "\uDB85\uDCFB" : (occupied ? (modelData === 10 ? "0" : String(modelData)) : "•")
                     color: root.barForeground
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: !focused && !occupied
                         ? (root.bar && root.bar.barTextSize ? root.bar.barTextSize + 5 : Theme.fontSizeSm + 5)
                         : (focused ? root.focusedGlyphSize

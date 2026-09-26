@@ -330,7 +330,7 @@ Item {
                             Layout.fillWidth: true
                             text: root.modeLabel.toUpperCase()
                             color: Theme.imagePicker.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeLg
                             font.weight: Theme.fontWeightBold
                         }
@@ -447,7 +447,7 @@ Item {
                                         visible: !carouselItem.selected
                                         text: String(carouselItem.modelData.label || "")
                                         color: Theme.imagePicker.text
-                                        font.family: Theme.fontFamily
+                                        font.family: Theme.fontFamilyResolved
                                         font.pixelSize: Theme.fontSizeXs
                                         horizontalAlignment: Text.AlignHCenter
                                         elide: Text.ElideMiddle
@@ -475,7 +475,7 @@ Item {
                             ? String(root.selectedEntry.label || root.selectedEntry.id || "")
                             : ""
                         color: Theme.imagePicker.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeMd
                         font.weight: Theme.fontWeightBold
                         horizontalAlignment: Text.AlignHCenter

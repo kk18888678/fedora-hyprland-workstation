@@ -705,7 +705,7 @@ AureliaKeyboardPanel {
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.icon
                     color: root.restricted ? Theme.warning : Theme.accent
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXl
                 }
                 Column {
@@ -721,7 +721,7 @@ AureliaKeyboardPanel {
                             ? (root.connectedWifiNetwork.name || "Wi-Fi")
                             : (root.kind === "ethernet" ? "Ethernet" : "Disconnected")
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeMd
                         font.weight: Theme.fontWeightBold
                         elide: Text.ElideRight
@@ -733,7 +733,7 @@ AureliaKeyboardPanel {
                                 : (root.kind === "ethernet" || root.kind === "wifi"
                                     ? root.connectionPhrase.toUpperCase() : "NOT CONNECTED"))
                         color: root.restricted ? Theme.warning : Theme.popups.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                         elide: Text.ElideRight
@@ -763,14 +763,14 @@ AureliaKeyboardPanel {
                                 Text {
                                     text: modelData.icon
                                     color: Theme.accent
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeSm
                                 }
                                 Text {
                                     visible: modelData.id === "wifi"
                                     text: Networking.wifiEnabled ? "ON" : "OFF"
                                     color: Theme.textSecondary
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeXs
                                 }
                             }
@@ -800,7 +800,7 @@ AureliaKeyboardPanel {
                     Text {
                         text: "Open Captive Portal"
                         color: Theme.warning
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         font.weight: Theme.fontWeightMedium
                     }
@@ -838,7 +838,7 @@ AureliaKeyboardPanel {
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.bandSectionTitle
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                     }
@@ -846,14 +846,14 @@ AureliaKeyboardPanel {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Theme.spacingXs
-                        Text { text: "AUTO"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeXs }
+                        Text { text: "AUTO"; color: Theme.textMuted; font.family: Theme.fontFamilyResolved; font.pixelSize: Theme.fontSizeXs }
                         Rectangle {
                             width: 34
                             height: 18
                             radius: 9
                             color: root.bandAutoFocused && root.cursorActive && root.focusSection === "band" ? Theme.selectionActive : Theme.surface
                             border.color: Theme.borderActive
-                            Text { anchors.centerIn: parent; text: root.bandPinned ? "OFF" : "ON"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: 9 }
+                            Text { anchors.centerIn: parent; text: root.bandPinned ? "OFF" : "ON"; color: Theme.accent; font.family: Theme.fontFamilyResolved; font.pixelSize: 9 }
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: { root.cursorActive = true; root.focusSection = "band"; root.bandAutoFocused = true; root.toggleBandAuto() }
@@ -876,7 +876,7 @@ AureliaKeyboardPanel {
                             color: root.bandCurrent === modelData ? Theme.selection : Theme.surface
                             border.color: root.cursorActive && root.focusSection === "band" && !root.bandAutoFocused && root.bandIndex === index
                                 ? Theme.borderActive : Theme.border
-                            Text { anchors.centerIn: parent; text: Model.bandLabel(modelData); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeXs }
+                            Text { anchors.centerIn: parent; text: Model.bandLabel(modelData); color: Theme.text; font.family: Theme.fontFamilyResolved; font.pixelSize: Theme.fontSizeXs }
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: { root.cursorActive = true; root.focusSection = "band"; root.bandAutoFocused = false; root.bandIndex = index; root.setBand(modelData) }
@@ -893,7 +893,7 @@ AureliaKeyboardPanel {
                 visible: root.wifiStationAvailable && root.scanning
                 text: "SCANNING WI-FI…"
                 color: Theme.accent
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 font.weight: Theme.fontWeightBold
             }
@@ -917,7 +917,7 @@ AureliaKeyboardPanel {
                         visible: root.wifiSectionTitle(index) !== ""
                         text: root.wifiSectionTitle(index)
                         color: Theme.textMuted
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                     }

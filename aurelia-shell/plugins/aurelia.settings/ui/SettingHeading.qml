@@ -19,7 +19,7 @@ Item {
         anchors.left: parent.left
         text: root.title || (root.descriptor && root.descriptor.title ? root.descriptor.title : "")
         color: Theme.text
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeMd
         font.weight: Font.DemiBold
         font.letterSpacing: 0.6

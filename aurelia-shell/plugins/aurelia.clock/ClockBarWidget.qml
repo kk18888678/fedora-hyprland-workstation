@@ -61,7 +61,7 @@ Item {
         visible: !root.vertical
         text: root.displayText
         color: root.barForeground
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.bar.text
         font.weight: Theme.fontWeightMedium
     }
@@ -79,7 +79,7 @@ Item {
                 height: root.bar && root.bar.barIconSlot ? root.bar.barIconSlot : Theme.bar.iconSlot
                 text: modelData
                 color: root.barForeground
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: modelData.length > 3
                     ? (root.bar && root.bar.barIconFont ? root.bar.barIconFont * 0.9 : Theme.bar.iconFont * 0.9)
                     : (root.bar && root.bar.barIconFont ? root.bar.barIconFont : Theme.bar.iconFont)

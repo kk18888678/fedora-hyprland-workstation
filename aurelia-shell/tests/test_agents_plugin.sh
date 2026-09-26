@@ -199,7 +199,7 @@ fi
 raw_text_count="$(grep -cE '(^|[[:space:]])Text \{' "$dashboard" || true)"
 if grep -q 'component Label: Text {' "$dashboard" &&
    grep -q 'component NumericLabel: Label {' "$dashboard" &&
-   grep -q 'font.family: Theme.fontFamily' "$dashboard" &&
+   grep -q 'font.family: Theme.fontFamilyResolved' "$dashboard" &&
    ! grep -q 'font.bold' "$dashboard" &&
    grep -q 'Theme.fontWeightBold' "$dashboard" &&
    grep -q 'Theme.controls.normalFill' "$dashboard" &&

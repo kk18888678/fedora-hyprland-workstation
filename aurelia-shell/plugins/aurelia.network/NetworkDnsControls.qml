@@ -20,7 +20,7 @@ Item {
         Text {
             text: "DNS PROVIDER"
             color: Theme.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             font.weight: Theme.fontWeightBold
         }
@@ -29,7 +29,7 @@ Item {
             width: parent.width
             text: "SERVERS  " + (root.panelRoot ? root.panelRoot.dnsServers : "DHCP")
             color: Theme.popups.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             elide: Text.ElideRight
         }
@@ -41,7 +41,7 @@ Item {
                 ? root.panelRoot.dnsError
                 : "Applying " + (root.panelRoot ? root.panelRoot.pendingDnsProvider : "") + " DNS…"
             color: root.panelRoot && root.panelRoot.dnsError !== "" ? Theme.error : Theme.textSecondary
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             wrapMode: Text.Wrap
             maximumLineCount: 2
@@ -74,7 +74,7 @@ Item {
                         anchors.centerIn: parent
                         text: modelData
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         elide: Text.ElideRight
                     }

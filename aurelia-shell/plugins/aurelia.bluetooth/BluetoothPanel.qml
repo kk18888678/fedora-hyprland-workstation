@@ -718,7 +718,7 @@ AureliaKeyboardPanel {
                             Layout.fillWidth: true
                             text: "Bluetooth"
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeLg
                             font.weight: Theme.fontWeightBold
                             elide: Text.ElideRight
@@ -728,7 +728,7 @@ AureliaKeyboardPanel {
                             Layout.fillWidth: true
                             text: root.heroStatusText.toUpperCase()
                             color: Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                             font.letterSpacing: 0.8
@@ -797,7 +797,7 @@ AureliaKeyboardPanel {
                     Layout.fillWidth: true
                     text: "CONNECTED"
                     color: Theme.textMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightBold
                     font.letterSpacing: 1
@@ -890,7 +890,7 @@ AureliaKeyboardPanel {
                             visible: root.scrollSectionTitle(index) !== ""
                             text: root.scrollSectionTitle(index)
                             color: Theme.textMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                             font.letterSpacing: 1
@@ -935,7 +935,7 @@ AureliaKeyboardPanel {
                 text: !root.adapter ? "No Bluetooth adapter" :
                     (!root.adapter.enabled ? "Turn Bluetooth on to scan" : "Scanning for devices…")
                 color: Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 wrapMode: Text.WordWrap
                 verticalAlignment: Text.AlignVCenter

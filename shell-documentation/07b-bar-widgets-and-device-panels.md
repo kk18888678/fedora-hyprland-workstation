@@ -488,7 +488,7 @@ condition=...` diagnostic through the shell log read by `aurelia logs`, so the
 user-facing `—` is always accompanied by a maintainer-facing reason.
 
 The panel inherits the bar font: every text node derives from one local
-`Label` primitive that sets `font.family: Theme.fontFamily`, and numeric cells
+`Label` primitive that sets `font.family: Theme.fontFamilyResolved`, and numeric cells
 derive from `NumericLabel` (they right-align). It uses `Theme.fontWeightBold`
 (never `font.bold`) and a meter track of `Theme.controls.normalFill` at least
 3 px thick. The keyboard model follows the Audio/Power/Bluetooth panels:
