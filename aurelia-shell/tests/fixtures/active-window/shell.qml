@@ -39,6 +39,16 @@ ShellRoot {
     }
 
     QtObject {
+        id: footHandle
+        property string appId: "foot"
+    }
+
+    QtObject {
+        id: chromiumHandle
+        property string appId: "chromium-browser"
+    }
+
+    QtObject {
         id: clickHandle
         property string appId: "fixture.unknown.app"
         function activate() { clickState.activates = clickState.activates + 1 }
@@ -70,6 +80,20 @@ ShellRoot {
         id: fixtureAppToplevel
         property string title: ""
         property QtObject handle: fixtureAppHandle
+        property var lastIpcObject: ({})
+    }
+
+    QtObject {
+        id: footToplevel
+        property string title: ""
+        property QtObject handle: footHandle
+        property var lastIpcObject: ({})
+    }
+
+    QtObject {
+        id: chromiumToplevel
+        property string title: ""
+        property QtObject handle: chromiumHandle
         property var lastIpcObject: ({})
     }
 
@@ -157,6 +181,29 @@ ShellRoot {
         onLoaded: {
             item.bar = fakeBar
             item.activeToplevelOverride = fixtureAppToplevel
+        }
+    }
+
+    // The reported over-truncation cases. The user entry has no `maxWidth`
+    // key, so the widget must fall back to its manifest default (280) and the
+    // rendered label must be complete rather than elided.
+    Loader {
+        id: footLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.settings = ({})
+            item.activeToplevelOverride = footToplevel
+        }
+    }
+
+    Loader {
+        id: chromiumLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.settings = ({})
+            item.activeToplevelOverride = chromiumToplevel
         }
     }
 
@@ -268,12 +315,33 @@ ShellRoot {
         onSaveFailed: Qt.quit()
     }
 
+    // Rendered geometry of one widget instance. `truncated` is Qt's own
+    // signal that ElideRight dropped characters; `contentWidth` is the width
+    // the visible Text actually laid out (the full natural width when the
+    // label fits, the elided width when it does not). Exposing both lets the
+    // suite prove the measurement matches the render instead of trusting the
+    // very metric under test.
+    function renderInfo(item) {
+        return {
+            label: String(item.label),
+            measured: Number(item.measuredLabelWidth),
+            visibleWidth: Number(item.visibleLabelWidth),
+            contentWidth: Number(item.renderContentWidth),
+            contentDelta: Math.abs(Number(item.measuredLabelWidth) - Number(item.renderContentWidth)),
+            elided: item.renderElided === true,
+            truncated: item.renderTruncated === true,
+            maxWidth: Number(item.maxWidth)
+        }
+    }
+
     function writeResult() {
         if (root.finished || root.resultPath === "") return
         var title = titleLoader.item
         var titleMode = titleModeLoader.item
         var invalidMode = invalidModeLoader.item
         var fixtureApp = fixtureAppLoader.item
+        var footItem = footLoader.item
+        var chromiumItem = chromiumLoader.item
         var appId = appIdLoader.item
         var classItem = classLoader.item
         var longItem = longLoader.item
@@ -284,9 +352,9 @@ ShellRoot {
         var click = clickLoader.item
         var missing = missingIconLoader.item
         var symbolic = symbolicIconLoader.item
-        if (!title || !titleMode || !invalidMode || !fixtureApp || !appId || !classItem ||
-                !longItem || !capped || !shortItem || !empty || !vertical || !click ||
-                !missing || !symbolic) {
+        if (!title || !titleMode || !invalidMode || !fixtureApp || !footItem || !chromiumItem ||
+                !appId || !classItem || !longItem || !capped || !shortItem || !empty ||
+                !vertical || !click || !missing || !symbolic) {
             root.finished = true
             resultFile.setText(JSON.stringify({loaded: false}) + "\n")
             return
@@ -344,6 +412,14 @@ ShellRoot {
                 longVisibleWidth: Number(longItem.visibleLabelWidth),
                 longTextMargin: Number(longItem.textMargin)
             },
+            rendered: {
+                footApp: renderInfo(footItem),
+                chromiumApp: renderInfo(chromiumItem),
+                longTitle: renderInfo(longItem),
+                cappedTitle: renderInfo(capped),
+                titleMode: renderInfo(titleMode),
+                shortApp: renderInfo(shortItem)
+            },
             visibility: {
                 emptyVisible: empty.visible === true,
                 emptyImplicitWidth: Number(empty.implicitWidth),
@@ -381,7 +457,9 @@ ShellRoot {
         onTriggered: {
             attempts = attempts + 1
             if ((root.desktopEntryCount > 0 &&
-                    DesktopEntries.heuristicLookup("fixture-app") !== null) || attempts >= 40) {
+                    DesktopEntries.heuristicLookup("fixture-app") !== null &&
+                    DesktopEntries.heuristicLookup("foot") !== null &&
+                    DesktopEntries.heuristicLookup("chromium-browser") !== null) || attempts >= 40) {
                 running = false
                 settleTimer.running = true
             }

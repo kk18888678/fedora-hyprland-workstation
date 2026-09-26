@@ -150,7 +150,24 @@ Item {
     readonly property real labelOpacity: labelText.opacity
     readonly property real visibleLabelWidth: labelText.width
 
-    readonly property real measuredLabelWidth: labelMetrics.advanceWidth
+    // The label geometry is measured by a hidden, non-eliding Text that copies
+    // the visible label's exact font and render type. A separate TextMetrics
+    // cannot be guaranteed to match the rendered width: it has no renderType
+    // property and must restate the font by hand, so omitting (for example)
+    // the weight makes Qt's ElideRight drop a character onto an ellipsis even
+    // when the box is only sub-pixel too small. A real Text with the same
+    // engine means the metric and the render always agree, and the metric
+    // re-flows automatically if the resolved font changes later. The measurer
+    // must never elide: an elided Text reports only its elided width, which
+    // would shrink the box on every pass (a feedback loop).
+    readonly property real measuredLabelWidth: labelMeasure.contentWidth
+    // Rendered geometry, read by the isolated fixture only. `renderTruncated`
+    // is Qt's authoritative signal that ElideRight actually dropped text; the
+    // content-width comparison is kept as a secondary signal.
+    readonly property real renderContentWidth: labelText.contentWidth
+    readonly property bool renderTruncated: labelText.truncated
+    readonly property bool renderElided: root.renderTruncated
+        || root.renderContentWidth > root.visibleLabelWidth + 0.001
     readonly property real labelWidth: Math.min(root.measuredLabelWidth + root.textMargin * 2, root.maxWidth)
     property real animatedLabelWidth: root.labelWidth
     Behavior on animatedLabelWidth {
@@ -185,13 +202,6 @@ Item {
             return "ok"
         }
         return "not-available"
-    }
-
-    TextMetrics {
-        id: labelMetrics
-        font.family: Theme.fontFamily
-        font.pixelSize: root.textSize
-        text: root.label
     }
 
     Rectangle {
@@ -245,6 +255,19 @@ Item {
             clip: true
             verticalAlignment: Text.AlignVCenter
         }
+    }
+
+    // Hidden, non-eliding measurer for the label. It is a real Text, not a
+    // TextMetrics, so it uses the same engine (including renderType) and the
+    // exact resolved font as the visible label; the metric therefore matches
+    // the render and cannot drift. It carries no width and no elide, so
+    // contentWidth is the natural, full-label width.
+    Text {
+        id: labelMeasure
+        visible: false
+        text: root.label
+        font: labelText.font
+        renderType: labelText.renderType
     }
 
     MouseArea {
