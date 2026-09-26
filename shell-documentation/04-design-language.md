@@ -161,6 +161,19 @@ live; diagnostics may display the resolved family. Summoned menu-like surfaces
 may use a startup-time environment override, `SHELL_MENU_FONT` in the
 reference.
 
+Aurelia's declared family is a **preference order**, not a Qt fallback chain.
+Qt's `Text.font.family` accepts exactly one family name and does not split a
+comma-separated list; handing it
+`JetBrainsMono Nerd Font, Hack Nerd Font, monospace` verbatim resolves to Qt's
+default proportional family (measured as `Noto Sans`). `Theme.qml` therefore
+resolves the declared list once into the single `Theme.fontFamilyResolved`
+property, choosing the first declared family that `Qt.fontFamilies()` reports as
+installed and failing closed to the first declared entry when none are. Every
+text consumer and the `AureliaIcon` glyph primitive use that one property, so
+the bar's text and its icons can never be drawn from different families.
+`Theme.fontFamilyProse` remains a separate proportional family for long prose
+surfaces and is intentionally not merged into the resolved monospace family.
+
 At `base-size = 12 px`, the type scale is:
 
 | Style token | Multiplier/default | Intended use |
@@ -271,7 +284,7 @@ Every first-party bar widget follows one icon contract:
   `barIconCanvas`. The primitive multiplies the canvas by `0.9` for the
   effective glyph font (14 px at base) and optically centres the measured ink.
   A raw `Text` glyph (the focused-workspace mark) uses
-  `round(barIconCanvas * 0.9)`, `Theme.fontFamily`, and
+  `round(barIconCanvas * 0.9)`, `Theme.fontFamilyResolved`, and
   `Text.NativeRendering` so it matches the primitive exactly.
 - **Images**: symbolic and application artwork fills the same
   `barIconCanvas` box with `Image.PreserveAspectFit`.

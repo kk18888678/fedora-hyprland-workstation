@@ -89,7 +89,7 @@ Item {
                     row.isConnected && row.panelRoot.kind === "wifi" ? row.panelRoot.connectivity : "")
                 : Model.wifiIconFor(-1)
             color: row.statusColor
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXl
         }
 
@@ -106,7 +106,7 @@ Item {
                 width: parent.width
                 text: row.net && row.net.ssid !== "" ? row.net.ssid : "Hidden network"
                 color: Theme.popups.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: Theme.fontWeightMedium
                 elide: Text.ElideRight
@@ -117,7 +117,7 @@ Item {
                 visible: row.statusText !== ""
                 text: row.statusText
                 color: row.statusColor
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 elide: Text.ElideRight
             }
@@ -137,7 +137,7 @@ Item {
                 visible: row.requiresCredentials || row.forgetVisible
                 text: row.forgetVisible ? "󰅙" : "󰌾"
                 color: row.forgetVisible ? Theme.error : Theme.textSubtle
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeMd
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -215,7 +215,7 @@ Item {
             height: 32
             placeholderText: "Identity (user@domain)"
             text: row.isPasswordOpen && row.panelRoot ? row.panelRoot.identityText : ""
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             color: Theme.inputText
             placeholderTextColor: Theme.inputPlaceholder
@@ -244,7 +244,7 @@ Item {
             placeholderText: "Passphrase"
             echoMode: TextInput.Password
             text: row.isPasswordOpen && row.panelRoot ? row.panelRoot.passwordText : ""
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             color: Theme.inputText
             placeholderTextColor: Theme.inputPlaceholder
@@ -275,7 +275,7 @@ Item {
                 anchors.fill: parent
                 text: row.isFailed ? "Wrong password" : "Connecting…"
                 color: row.isFailed ? Theme.error : Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -300,7 +300,7 @@ Item {
                 anchors.centerIn: parent
                 text: "✓"
                 color: Theme.accent
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeMd
             }
 

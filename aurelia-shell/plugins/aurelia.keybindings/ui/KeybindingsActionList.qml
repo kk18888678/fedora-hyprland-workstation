@@ -140,7 +140,7 @@ Item {
         anchors.centerIn: parent
         text: (actionListRoot.modelController.activeView === "add_app") ? (actionListRoot.modelController.isLoadingApps ? "Discovering installed applications..." : "No matching applications found") : (actionListRoot.modelController.activeView === "unbound" ? ("No unbound shortcuts (press " + Theme.shortcutAddAction + " to add an action)") : "No matching shortcuts")
         color: Theme.textSubtle
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeSm
         visible: actionListRoot.modelController.filteredItems.length === 0 && (actionListRoot.modelController.activeView === "bound" || actionListRoot.modelController.activeView === "unbound" || actionListRoot.modelController.activeView === "add_app")
     }

@@ -390,14 +390,14 @@ Item {
                     Text {
                         text: "Keybindings"
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXl
                         font.weight: Theme.fontWeightBold
                     }
                     Text {
                         text: "Keyboard-first controls"
                         color: Theme.textMuted
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                     }
                 }
@@ -420,7 +420,7 @@ Item {
                         anchors.centerIn: parent
                         text: "← Back"
                         color: Theme.accent
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         font.weight: Theme.fontWeightMedium
                     }
@@ -444,7 +444,7 @@ Item {
             Text {
                 text: "Interface"
                 color: Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: Theme.fontWeightMedium
                 Layout.topMargin: Theme.spacingMd
@@ -470,7 +470,7 @@ Item {
             Text {
                 text: "Motion"
                 color: Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 font.weight: Theme.fontWeightMedium
                 Layout.topMargin: Theme.spacingSm
@@ -498,7 +498,7 @@ Item {
                 Layout.fillWidth: true
                 text: settingsRoot.statusMessage
                 color: settingsRoot.statusType === "error" ? Theme.error : (settingsRoot.statusType === "success" ? Theme.success : Theme.accent)
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 wrapMode: Text.Wrap
                 visible: settingsRoot.statusMessage !== ""
@@ -514,7 +514,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Reset preferences"
                     color: settingsRoot.selectedIndex === settingsRoot.totalRows - 1 ? Theme.accent : Theme.textMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                 }
 

@@ -54,7 +54,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.label
                 color: root.primary ? Theme.bgBase : Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: root.compact ? Theme.fontSizeXs : Theme.fontSizeSm
                 font.weight: Theme.fontWeightMedium
                 horizontalAlignment: root.centerLabel ? Text.AlignHCenter : Text.AlignLeft
@@ -65,7 +65,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.detail
                 color: root.primary ? Theme.bgBase : Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 horizontalAlignment: root.centerLabel ? Text.AlignHCenter : Text.AlignLeft
                 elide: Text.ElideRight

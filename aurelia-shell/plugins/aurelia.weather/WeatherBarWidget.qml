@@ -315,7 +315,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             text: root.temperatureText
             color: root.barForeground
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.fontSizeSm
         }
     }

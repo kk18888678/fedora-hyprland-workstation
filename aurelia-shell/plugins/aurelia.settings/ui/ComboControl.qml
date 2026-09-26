@@ -28,7 +28,7 @@ ComboBox {
             leftPadding: Theme.spacingMd - 2
             rightPadding: control.indicator.width + Theme.spacingSm
             text: String(control.editText || "")
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             color: Theme.controls.normalColor
             verticalAlignment: Text.AlignVCenter
@@ -47,7 +47,7 @@ ComboBox {
             text: control.currentIndex >= 0
                 ? String(control.displayText || "")
                 : String(control.placeholderText || "")
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             // Any shown value is real text; use the normal foreground. The
             // muted tone is reserved for a genuinely empty control (no value,
@@ -71,7 +71,7 @@ ComboBox {
             anchors.centerIn: parent
             text: "\u2304"
             color: Theme.accent
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeLg
         }
     }
@@ -134,7 +134,7 @@ ComboBox {
 
         contentItem: Text {
             text: parent._label
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             color: highlighted ? Theme.bgBase : Theme.text
             verticalAlignment: Text.AlignVCenter

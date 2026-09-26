@@ -1098,7 +1098,7 @@ PanelWindow {
                     Text {
                         text: "Settings"
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXl
                         font.weight: Font.Bold
                     }
@@ -1129,7 +1129,7 @@ PanelWindow {
                         ? (root.statusMeta.hyprctlAvailable ? "Live" : "Persisted only")
                         : "…"
                     color: Theme.textSecondary
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                 }
 
@@ -1214,7 +1214,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     text: root.footerText
                     color: root.busy ? Theme.warning : (root.pendingClearConfirm ? Theme.warning : Theme.textMuted)
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     elide: Text.ElideRight
                 }
@@ -1222,7 +1222,7 @@ PanelWindow {
                 Text {
                     text: "Esc closes"
                     color: Theme.textSubtle
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                 }
             }
@@ -1247,7 +1247,7 @@ PanelWindow {
                     Layout.alignment: Qt.AlignHCenter
                     text: root.busy ? "Opening Settings…" : "Reading current settings…"
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeLg
                     font.weight: Font.DemiBold
                 }

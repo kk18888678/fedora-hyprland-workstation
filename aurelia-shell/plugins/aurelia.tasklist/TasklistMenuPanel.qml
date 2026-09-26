@@ -73,7 +73,7 @@ AureliaKeyboardPanel {
                 Layout.fillWidth: true
                 text: panelRoot.windowTitle
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeMd
                 font.weight: Theme.fontWeightBold
                 elide: Text.ElideRight
@@ -103,7 +103,7 @@ AureliaKeyboardPanel {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Focus window"
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                 }
 
@@ -139,7 +139,7 @@ AureliaKeyboardPanel {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Toggle fullscreen"
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                 }
 
@@ -177,7 +177,7 @@ AureliaKeyboardPanel {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Close window"
                     color: closeHover.hovered ? Theme.error : Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                 }
 

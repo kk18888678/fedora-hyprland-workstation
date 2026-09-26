@@ -144,7 +144,7 @@ Item {
 
             Text {
                 text: "Add Custom Executable / Script"
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeLg
                 font.weight: Theme.fontWeightBold
                 color: Theme.accent
@@ -164,7 +164,7 @@ Item {
                     anchors.centerIn: parent
                     text: "← Back"
                     color: Theme.gold
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     font.weight: Theme.fontWeightMedium
                 }
@@ -183,7 +183,7 @@ Item {
 
         Text {
             text: "Specify an action name, executable binary path, and optional arguments."
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             color: Theme.textSecondary
             Layout.bottomMargin: Theme.spacingSm
@@ -196,7 +196,7 @@ Item {
 
             Text {
                 text: "Action Name:"
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 font.weight: Theme.fontWeightMedium
                 color: Theme.textMuted
@@ -216,7 +216,7 @@ Item {
                     anchors.leftMargin: Theme.spacingSm
                     anchors.rightMargin: Theme.spacingSm
                     verticalAlignment: TextInput.AlignVCenter
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     color: Theme.inputText
                     selectByMouse: true
@@ -269,7 +269,7 @@ Item {
 
             Text {
                 text: "Executable Path:"
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 font.weight: Theme.fontWeightMedium
                 color: Theme.textMuted
@@ -295,7 +295,7 @@ Item {
                         anchors.leftMargin: Theme.spacingSm
                         anchors.rightMargin: Theme.spacingSm
                         verticalAlignment: TextInput.AlignVCenter
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         color: Theme.inputText
                         selectByMouse: true
@@ -448,7 +448,7 @@ Item {
                                         Text {
                                             text: modelData
                                             color: execPathInput.suggestionIndex === index ? Theme.accent : Theme.text
-                                            font.family: Theme.fontFamily
+                                            font.family: Theme.fontFamilyResolved
                                             font.pixelSize: Theme.fontSizeSm
                                             font.weight: execPathInput.suggestionIndex === index ? Theme.fontWeightMedium : Theme.fontWeightNormal
                                             Layout.fillWidth: true
@@ -491,7 +491,7 @@ Item {
                         anchors.centerIn: parent
                         text: "Browse…"
                         color: browseButton.activeFocus ? Theme.bgBase : Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         font.weight: Theme.fontWeightMedium
                     }
@@ -549,7 +549,7 @@ Item {
 
             Text {
                 text: "Arguments (optional):"
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 font.weight: Theme.fontWeightMedium
                 color: Theme.textMuted
@@ -569,7 +569,7 @@ Item {
                     anchors.leftMargin: Theme.spacingSm
                     anchors.rightMargin: Theme.spacingSm
                     verticalAlignment: TextInput.AlignVCenter
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     color: Theme.inputText
                     selectByMouse: true
@@ -617,7 +617,7 @@ Item {
 
         Text {
             Layout.fillWidth: true
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             color: Theme.error
             font.bold: true
@@ -641,7 +641,7 @@ Item {
                     anchors.centerIn: parent
                     text: "Add Action"
                     color: Theme.bgBase
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     font.bold: true
                 }
@@ -670,7 +670,7 @@ Item {
                     anchors.centerIn: parent
                     text: "Cancel"
                     color: Theme.textSecondary
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                 }
 

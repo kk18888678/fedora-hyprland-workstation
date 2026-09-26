@@ -99,7 +99,7 @@ ColumnLayout {
             anchors.verticalCenter: parent.verticalCenter
             text: ""
             color: searchInput.activeFocus ? Theme.accent : Theme.textMuted
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: KeybindingsConfig.searchIconSize
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -112,7 +112,7 @@ ColumnLayout {
             anchors.leftMargin: 36
             anchors.rightMargin: KeybindingsConfig.searchPaddingHorizontal
             verticalAlignment: TextInput.AlignVCenter
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeMd
             color: Theme.text
             cursorVisible: activeFocus && text.length > 0
@@ -272,7 +272,7 @@ ColumnLayout {
             Layout.alignment: Qt.AlignVCenter
             text: "Shortcuts"
             color: Theme.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeMd
             font.weight: Theme.fontWeightBold
         }
@@ -292,7 +292,7 @@ ColumnLayout {
                 anchors.centerIn: parent
                 text: "Assigned  " + modelController.boundCount
                 color: modelController.activeView === "bound" ? Theme.text : Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: modelController.activeView === "bound" ? Theme.fontWeightMedium : Theme.fontWeightNormal
             }
@@ -324,7 +324,7 @@ ColumnLayout {
                 anchors.centerIn: parent
                 text: "Available  " + modelController.unboundCount
                 color: modelController.activeView === "unbound" ? Theme.text : Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: modelController.activeView === "unbound" ? Theme.fontWeightMedium : Theme.fontWeightNormal
             }
@@ -358,7 +358,7 @@ ColumnLayout {
                 anchors.centerIn: parent
                 text: "Action"
                 color: modelController.activeView.indexOf("add_") === 0 ? Theme.gold : Theme.foam
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: Theme.fontWeightMedium
             }

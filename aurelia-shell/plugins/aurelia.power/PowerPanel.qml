@@ -291,7 +291,7 @@ AureliaKeyboardPanel {
                         width: parent.width
                         text: "Battery"
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeLg
                         font.weight: Theme.fontWeightBold
                         elide: Text.ElideRight
@@ -300,7 +300,7 @@ AureliaKeyboardPanel {
                         width: parent.width
                         text: root.heroStatusText.toUpperCase()
                         color: Theme.textMuted
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                         font.letterSpacing: 1
@@ -314,7 +314,7 @@ AureliaKeyboardPanel {
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.percentageText
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXl
                     font.weight: Theme.fontWeightBold
                 }
@@ -372,7 +372,7 @@ AureliaKeyboardPanel {
                     width: parent.width
                     text: "POWER PROFILE"
                     color: Theme.textMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightBold
                     font.letterSpacing: 1
@@ -415,7 +415,7 @@ AureliaKeyboardPanel {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: String(modelData).replace(/^./, function(c) { return c.toUpperCase() })
                                     color: Theme.text
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeXs
                                 }
                             }
@@ -443,7 +443,7 @@ AureliaKeyboardPanel {
                     visible: root.profileError !== ""
                     text: root.profileError
                     color: Theme.warning
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     elide: Text.ElideRight
                 }
@@ -453,7 +453,7 @@ AureliaKeyboardPanel {
                     visible: root.actionError !== ""
                     text: root.actionError
                     color: Theme.warning
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     elide: Text.ElideRight
                 }
@@ -472,14 +472,14 @@ AureliaKeyboardPanel {
             Layout.fillWidth: true
             text: parent.label
             color: Theme.textMuted
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             elide: Text.ElideRight
         }
         Text {
             text: parent.value
             color: Theme.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             horizontalAlignment: Text.AlignRight
         }

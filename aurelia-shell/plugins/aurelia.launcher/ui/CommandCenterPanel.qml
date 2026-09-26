@@ -250,7 +250,7 @@ PanelWindow {
                         Layout.fillWidth: true
                         text: centerModel.activeModuleName
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeLg
                         font.weight: Theme.fontWeightBold
                     }
@@ -272,7 +272,7 @@ PanelWindow {
                     color: Theme.inputText
                     selectionColor: Theme.inputSelection
                     selectedTextColor: Theme.inputSelectionText
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     clip: true
                     cursorVisible: activeFocus && text.length > 0
@@ -300,7 +300,7 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Search apps, packages, actions, files, updates, or calculate"
                         color: Theme.inputPlaceholder
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         visible: searchInput.text.length === 0 && !searchInput.activeFocus
                     }
@@ -354,7 +354,7 @@ PanelWindow {
                                 Layout.preferredHeight: 24
                                 text: panelRoot.iconGlyphForRow(modelData)
                                 color: selected ? Theme.launcher.selectedText : Theme.textMuted
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeMd
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -380,7 +380,7 @@ PanelWindow {
                                     Layout.fillWidth: true
                                     text: modelData.label || modelData.id
                                     color: Theme.text
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeMd
                                     font.weight: Theme.fontWeightMedium
                                     elide: Text.ElideRight
@@ -389,7 +389,7 @@ PanelWindow {
                                     Layout.fillWidth: true
                                     text: modelData.subtitle || modelData.detail || ""
                                     color: selected ? Theme.text : Theme.textMuted
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeXs
                                     elide: Text.ElideRight
                                 }
@@ -399,7 +399,7 @@ PanelWindow {
                                 Layout.maximumWidth: 220
                                 text: modelData.detail || ""
                                 color: selected ? Theme.text : Theme.textMuted
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeXs
                                 elide: Text.ElideLeft
                                 horizontalAlignment: Text.AlignRight
@@ -433,7 +433,7 @@ PanelWindow {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: centerModel.loading ? "…" : "⌕"
                             color: Theme.accent
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXl
                         }
                         Text {
@@ -442,7 +442,7 @@ PanelWindow {
                                 ? "Checking update sources..."
                                 : (centerModel.query === "" && centerModel.activeModule === "" ? "Choose a module" : "No matching commands"))
                             color: centerModel.errorMessage ? Theme.error : Theme.textMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeSm
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.WordWrap
@@ -454,7 +454,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     text: centerModel.statusMessage || centerModel.errorMessage
                     color: centerModel.errorMessage ? Theme.error : Theme.textMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     visible: text.length > 0
                     elide: Text.ElideRight

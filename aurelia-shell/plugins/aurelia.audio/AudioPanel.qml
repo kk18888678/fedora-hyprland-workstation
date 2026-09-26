@@ -474,14 +474,14 @@ AureliaKeyboardPanel {
                         Text {
                             text: "Audio"
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeLg
                             font.weight: Theme.fontWeightBold
                         }
                         Text {
                             text: Model.outputVolumeName(root.outputVolume, root.outputMuted).toUpperCase()
                             color: Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                             font.letterSpacing: 0.8
@@ -533,7 +533,7 @@ AureliaKeyboardPanel {
                             Layout.fillWidth: true
                             text: "OUTPUT"
                             color: Theme.textMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                             font.letterSpacing: 1
@@ -541,7 +541,7 @@ AureliaKeyboardPanel {
                         Text {
                             text: Math.round(root.outputVolume * 100) + "%"
                             color: Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                         }
@@ -605,7 +605,7 @@ AureliaKeyboardPanel {
                             Layout.fillWidth: true
                             text: "INPUT"
                             color: Theme.textMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                             font.letterSpacing: 1
@@ -613,7 +613,7 @@ AureliaKeyboardPanel {
                         Text {
                             text: Math.round(root.inputVolume * 100) + "%"
                             color: Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Theme.fontWeightBold
                         }
@@ -673,7 +673,7 @@ AureliaKeyboardPanel {
                         width: parent.width
                         text: "SOURCES"
                         color: Theme.textMuted
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                         font.letterSpacing: 1
@@ -695,7 +695,7 @@ AureliaKeyboardPanel {
                     visible: !root.hasOutput && !root.hasInput && root.displayAudioStreams.length === 0
                     text: "No audio devices available"
                     color: Theme.textSecondary
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeSm
                     wrapMode: Text.WordWrap
                 }
@@ -741,7 +741,7 @@ AureliaKeyboardPanel {
                 Layout.fillWidth: true
                 text: Model.nodeLabel(sinkRow.node)
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: root.sink && sinkRow.node && root.sink.id === sinkRow.node.id
                     ? Theme.fontWeightMedium : Font.Normal
@@ -794,7 +794,7 @@ AureliaKeyboardPanel {
                 Layout.fillWidth: true
                 text: Model.nodeLabel(sourceRow.node)
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: root.source && sourceRow.node && root.source.id === sourceRow.node.id
                     ? Theme.fontWeightMedium : Font.Normal
@@ -853,14 +853,14 @@ AureliaKeyboardPanel {
                 Layout.fillWidth: true
                 text: Model.streamLabel(streamRow.node, root.mprisPlayers, root.displayAudioStreams)
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 elide: Text.ElideRight
             }
             Text {
                 text: Math.round(streamRow.streamVolume * 100) + "%"
                 color: Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
             }
         }

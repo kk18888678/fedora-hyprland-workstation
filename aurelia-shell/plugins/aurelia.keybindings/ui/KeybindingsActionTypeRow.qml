@@ -33,7 +33,7 @@ Rectangle {
             Layout.minimumWidth: 0
             text: rowRoot.modelData ? (rowRoot.modelData.display_key || "") : ""
             color: rowRoot.isSelected ? Theme.accent : Theme.textSecondary
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
             elide: Text.ElideRight
@@ -43,7 +43,7 @@ Rectangle {
             Layout.preferredWidth: KeybindingsConfig.separatorColumnWidth
             text: "→"
             color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
         }
 
@@ -53,7 +53,7 @@ Rectangle {
             Layout.minimumWidth: 0
             text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""
             color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
             elide: Text.ElideRight

@@ -14,7 +14,7 @@ TextField {
     implicitHeight: controlHeight
 
     color: Theme.controls.normalColor
-    font.family: Theme.fontFamily
+    font.family: Theme.fontFamilyResolved
     font.pixelSize: Theme.fontSizeSm
     selectByMouse: true
 

@@ -73,7 +73,7 @@ Item {
             Layout.preferredHeight: 28
             placeholderText: "New API key (stored 0600)"
             echoMode: TextInput.Password
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeXs
             color: Theme.inputText
             placeholderTextColor: Theme.inputPlaceholder

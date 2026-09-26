@@ -99,7 +99,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.title
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeLg
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
@@ -140,7 +140,7 @@ Rectangle {
                 Text {
                     text: root.currentValue()
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeMd
                     elide: Text.ElideRight
                 }

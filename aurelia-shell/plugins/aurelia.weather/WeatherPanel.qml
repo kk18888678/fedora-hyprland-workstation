@@ -90,7 +90,7 @@ AureliaKeyboardPanel {
                             Layout.fillWidth: true
                             text: weatherWidget ? weatherWidget.temperatureText : ""
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: 34
                             font.weight: Theme.fontWeightBold
                         }
@@ -99,7 +99,7 @@ AureliaKeyboardPanel {
                             Layout.fillWidth: true
                             text: weatherWidget ? weatherWidget.conditionText : ""
                             color: Theme.textSecondary
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeSm
                             elide: Text.ElideRight
                         }
@@ -129,7 +129,7 @@ AureliaKeyboardPanel {
                                 ? weatherWidget.resolvedLocation
                                 : "Weather"
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeMd
                             font.weight: Theme.fontWeightMedium
                             horizontalAlignment: Text.AlignRight
@@ -157,7 +157,7 @@ AureliaKeyboardPanel {
                                     Layout.fillWidth: true
                                     text: modelData.label
                                     color: Theme.textSubtle
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeXs
                                     font.letterSpacing: 0.8
                                     horizontalAlignment: Text.AlignRight
@@ -167,7 +167,7 @@ AureliaKeyboardPanel {
                                     Layout.fillWidth: true
                                     text: modelData.value
                                     color: Theme.textSecondary
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeSm
                                     horizontalAlignment: Text.AlignRight
                                 }
@@ -191,7 +191,7 @@ AureliaKeyboardPanel {
             Text {
                 text: "Next 3 days"
                 color: Theme.text
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeMd
                 font.weight: Theme.fontWeightMedium
             }
@@ -201,7 +201,7 @@ AureliaKeyboardPanel {
             Text {
                 text: "FORECAST"
                 color: Theme.textSubtle
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 font.letterSpacing: 1
             }
@@ -247,7 +247,7 @@ AureliaKeyboardPanel {
                                 Layout.fillWidth: true
                                 text: panelRoot.dayLabel(modelData.date, index)
                                 color: Theme.text
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeSm
                                 font.weight: Theme.fontWeightMedium
                             }
@@ -256,7 +256,7 @@ AureliaKeyboardPanel {
                                 Layout.fillWidth: true
                                 text: panelRoot.shortDate(modelData.date)
                                 color: Theme.textSubtle
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeXs
                             }
 
@@ -266,14 +266,14 @@ AureliaKeyboardPanel {
                                 Text {
                                     text: Math.round(Number(modelData.max)) + "°"
                                     color: Theme.text
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeSm
                                 }
 
                                 Text {
                                     text: Math.round(Number(modelData.min)) + "°"
                                     color: Theme.textSubtle
-                                    font.family: Theme.fontFamily
+                                    font.family: Theme.fontFamilyResolved
                                     font.pixelSize: Theme.fontSizeSm
                                 }
                             }
@@ -283,7 +283,7 @@ AureliaKeyboardPanel {
                                 text: Math.round(Number(modelData.windSpeed)) +
                                     (weatherWidget && weatherWidget.units === "imperial" ? " mph" : " km/h")
                                 color: Theme.textSecondary
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeXs
                             }
                         }

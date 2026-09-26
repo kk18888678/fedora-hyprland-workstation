@@ -99,7 +99,7 @@ Item {
                 anchors.centerIn: parent
                 text: "Empty"
                 color: Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 visible: root.windowCount === 0
             }
@@ -125,7 +125,7 @@ Item {
                     anchors.centerIn: parent
                     text: root.focused ? "Current" : String(root.workspaceId)
                     color: root.focused || root.selected ? Theme.accent : Theme.textSecondary
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightMedium
                 }
@@ -154,7 +154,7 @@ Item {
                         ? "Selected"
                         : (root.windowCount === 1 ? "1 window" : String(root.windowCount) + " windows")
                     color: root.selected ? Theme.accent : Theme.textSecondary
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeXs
                 }
             }

@@ -70,7 +70,7 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             text: rowRoot.actionGlyph()
             color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeLg
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -93,7 +93,7 @@ Rectangle {
                 text: rowRoot.formattedShortcut()
                 elide: Text.ElideRight
                 color: rowRoot.isSelected ? Theme.accent : Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
             }
@@ -105,7 +105,7 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             text: "›"
             color: rowRoot.isSelected ? Theme.accent : Theme.textMuted
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
         }
@@ -121,7 +121,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: rowRoot.modelData ? (rowRoot.modelData.description || "") : ""
                 color: rowRoot.isSelected ? Theme.text : Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeMd
                 font.weight: rowRoot.isSelected ? Theme.fontWeightMedium : Theme.fontWeightNormal
                 elide: Text.ElideRight
@@ -131,7 +131,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: rowRoot.modelData ? (rowRoot.modelData.category || "") : ""
                 color: rowRoot.isSelected ? Theme.accent : Theme.textSubtle
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 font.weight: Theme.fontWeightMedium
                 elide: Text.ElideRight

@@ -180,7 +180,7 @@ Item {
                 color: root.networkPanel && root.networkPanel.restricted
                 ? Theme.warning
                 : root.barForeground
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: root.bar && root.bar.barCaptionSize ? root.bar.barCaptionSize : Theme.fontSizeXs
                 elide: Text.ElideRight
             }

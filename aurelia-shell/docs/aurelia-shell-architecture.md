@@ -172,8 +172,15 @@ aurelia-shell/
 
 ### 5.1 Token Scale
 - **Colors**: Based on canonical Rosé Pine Moon palette (`background`, `surface`, `selection`, `text`, `textSecondary`, `border`, `borderActive`, `accent`, `love`, `pine`, `foam`, `rose`, `iris`, `gold`, `success`, `warning`, `error`).
-- **Typography**: Primary monospace font family with strict fallback chain:
-  `JetBrainsMono Nerd Font, Hack Nerd Font, monospace`.
+- **Typography**: Primary monospace family declared as a preference order:
+  `JetBrainsMono Nerd Font, Hack Nerd Font, monospace`. Qt's `font.family`
+  accepts a single family and does not parse a comma list, so `Theme.qml`
+  resolves the declaration once into `fontFamilyResolved` — the first declared
+  family that `Qt.fontFamilies()` reports as installed, failing closed to the
+  first declared entry when none are. Every text consumer and the `AureliaIcon`
+  glyph primitive consume that one property. The declaration is an ordered
+  preference list, never a Qt fallback chain; `fontFamilyProse` remains a
+  separate proportional family for long prose.
 - **Geometry**: Modular 4px spacing scale (`spacingXs` = 4, `spacingSm` = 8, `spacingMd` = 12, `spacingLg` = 16, `spacingXl` = 20, `spacingXxl` = 24). Standard row height = 42px.
 - **Motion**: Restrained durations (`durationFast` = 100ms, `durationNormal` = 200ms) with ease-out transitions.
 

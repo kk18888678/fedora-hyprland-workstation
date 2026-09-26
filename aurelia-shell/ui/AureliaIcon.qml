@@ -19,10 +19,11 @@ Item {
     property bool smooth: true
     property string glyph: ""
     // Qt's font engine expects a single real family name. Theme.fontFamily is a
-    // comma-separated fallback list ("A, B, monospace"); passing it verbatim
+    // comma-separated preference list ("A, B, monospace"); passing it verbatim
     // makes Qt fail to resolve the family and renders semantic Nerd Font glyphs
-    // as garbled fallback boxes. Feed Qt only the first preference.
-    property string glyphFontFamily: String(Theme.fontFamily).split(",")[0].trim()
+    // as garbled fallback boxes. Use the theme's single shared resolution so the
+    // glyph path and every text path agree by construction.
+    property string glyphFontFamily: Theme.fontFamilyResolved
     property real glyphPixelSize: 0
     property bool glyphOpticallyCenter: true
 

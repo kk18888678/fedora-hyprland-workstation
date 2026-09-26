@@ -47,7 +47,7 @@ Item {
                 anchors.leftMargin: 14
                 text: modelData.name
                 color: modelData.id === root.activeId ? Theme.text : Theme.textSecondary
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeSm
                 font.weight: modelData.id === root.activeId ? Font.DemiBold : Font.Normal
                 elide: Text.ElideRight

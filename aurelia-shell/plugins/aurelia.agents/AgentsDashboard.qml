@@ -420,7 +420,7 @@ Item {
     // The single font-family carrier. Every text node derives from this; the
     // repository test asserts raw_text_count <= 1, so no raw Text is added.
     component Label: Text {
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
     }
 
     // Numeric cells right-align by default so percentages line up column-wise.

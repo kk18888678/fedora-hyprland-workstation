@@ -106,7 +106,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             text: root.visibleText
             color: root.barForeground
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: root.bar && root.bar.barTextSize ? root.bar.barTextSize : Theme.bar.text
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight

@@ -246,7 +246,7 @@ Item {
             width: Math.max(0, root.animatedLabelWidth - root.textMargin * 2)
             text: root.label
             color: root.barForeground
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: root.textSize
             font.weight: Theme.fontWeightMedium
             renderType: Text.NativeRendering

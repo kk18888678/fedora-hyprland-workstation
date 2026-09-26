@@ -287,7 +287,7 @@ Item {
                     Text {
                         text: "Palette editor"
                         color: Theme.text
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeLg
                         font.weight: Theme.fontWeightBold
                     }
@@ -317,7 +317,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: modelData[1]
                                 color: active ? Theme.accent : Theme.textSecondary
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeXs
                                 font.weight: Theme.fontWeightMedium
                             }
@@ -414,7 +414,7 @@ Item {
                         Text {
                             text: "Extraction mode"
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeSm
                             font.weight: Theme.fontWeightBold
                         }
@@ -441,7 +441,7 @@ Item {
                                         anchors.centerIn: parent
                                         text: modelData[1]
                                         color: active ? Theme.accent : Theme.textSecondary
-                                        font.family: Theme.fontFamily
+                                        font.family: Theme.fontFamilyResolved
                                         font.pixelSize: Theme.fontSizeXs
                                         font.weight: active ? Theme.fontWeightBold : Theme.fontWeightMedium
                                     }
@@ -461,7 +461,7 @@ Item {
                         Text {
                             text: "Fine-tuning"
                             color: Theme.text
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyResolved
                             font.pixelSize: Theme.fontSizeSm
                             font.weight: Theme.fontWeightBold
                         }
@@ -490,7 +490,7 @@ Item {
                                                 Layout.fillWidth: true
                                                 text: model.label
                                                 color: Theme.text
-                                                font.family: Theme.fontFamily
+                                                font.family: Theme.fontFamilyResolved
                                                 font.pixelSize: Theme.fontSizeXs
                                             }
                                             Text {

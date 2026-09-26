@@ -220,7 +220,7 @@ Item {
                         width: Math.min(320, Math.max(120, parent.width))
                         text: (root.ssid || "Wi-Fi").toUpperCase()
                         color: Qt.rgba(1, 1, 1, 0.65)
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                         font.letterSpacing: 2
@@ -261,7 +261,7 @@ Item {
                         visible: root.loading
                         text: "Generating QR code…"
                         color: Qt.rgba(1, 1, 1, 0.65)
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         horizontalAlignment: Text.AlignHCenter
                         width: parent.width
@@ -270,7 +270,7 @@ Item {
                         visible: root.error !== ""
                         text: root.error
                         color: "#ff6b6b"
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         wrapMode: Text.Wrap
                         width: 320
@@ -280,7 +280,7 @@ Item {
                         visible: root.showingQr
                         text: "Scan to join this network"
                         color: Qt.rgba(1, 1, 1, 0.65)
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         horizontalAlignment: Text.AlignHCenter
                         width: parent.width
@@ -291,7 +291,7 @@ Item {
                             : (root.passwordVisible ? root.password : "Show password")
                         color: root.passwordError !== "" ? "#ff6b6b" : "white"
                         opacity: root.passwordVisible || root.passwordError !== "" ? 1 : 0.6
-                        font.family: Theme.fontFamily
+                        font.family: Theme.fontFamilyResolved
                         font.pixelSize: Theme.fontSizeSm
                         wrapMode: Text.WrapAnywhere
                         width: 320

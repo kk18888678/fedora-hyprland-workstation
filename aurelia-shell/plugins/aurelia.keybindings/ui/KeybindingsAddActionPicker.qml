@@ -94,7 +94,7 @@ Item {
             Layout.fillWidth: true
             text: "Add an action"
             color: Theme.text
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeLg
             font.weight: Theme.fontWeightBold
         }
@@ -103,7 +103,7 @@ Item {
             Layout.fillWidth: true
             text: "Choose how this shortcut should launch."
             color: Theme.textSecondary
-            font.family: Theme.fontFamily
+            font.family: Theme.fontFamilyResolved
             font.pixelSize: Theme.fontSizeSm
             wrapMode: Text.WordWrap
         }
@@ -143,7 +143,7 @@ Item {
         anchors.centerIn: parent
         text: "No action types available"
         color: Theme.textSubtle
-        font.family: Theme.fontFamily
+        font.family: Theme.fontFamilyResolved
         font.pixelSize: Theme.fontSizeSm
         visible: pickerRoot.modelController.filteredItems.length === 0
     }

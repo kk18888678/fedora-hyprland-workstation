@@ -131,7 +131,7 @@ AureliaKeyboardPanel {
                     text: root.confirmAction === "" ? "Session actions" :
                         Model.confirmationTitle(root.confirmAction)
                     color: Theme.text
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyResolved
                     font.pixelSize: Theme.fontSizeMd
                     font.weight: Theme.fontWeightMedium
                     elide: Text.ElideRight
@@ -142,7 +142,7 @@ AureliaKeyboardPanel {
                 Layout.fillWidth: true
                 text: root.confirmAction === "" ? "" : Model.confirmationDetail(root.confirmAction)
                 color: Theme.textMuted
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 visible: root.confirmAction !== ""
                 elide: Text.ElideRight
@@ -193,7 +193,7 @@ AureliaKeyboardPanel {
                                 Layout.fillWidth: true
                                 text: modelData.label
                                 color: Theme.text
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyResolved
                                 font.pixelSize: Theme.fontSizeSm
                                 font.weight: Theme.fontWeightMedium
                                 elide: Text.ElideRight
@@ -227,7 +227,7 @@ AureliaKeyboardPanel {
                 visible: root.actionError !== ""
                 text: root.actionError
                 color: Theme.warning
-                font.family: Theme.fontFamily
+                font.family: Theme.fontFamilyResolved
                 font.pixelSize: Theme.fontSizeXs
                 elide: Text.ElideRight
             }
