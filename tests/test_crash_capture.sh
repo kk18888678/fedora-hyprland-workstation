@@ -34,15 +34,94 @@ else
 fi
 
 if grep -q 'install_crash_capture()' "$ROOT/modules/desktop.sh" &&
-   grep -q 'install_crash_capture$' "$ROOT/modules/desktop.sh" &&
    grep -q 'graphical-session.target.wants' "$ROOT/modules/desktop.sh" &&
    grep -q 'install_root_cli_file' "$ROOT/modules/desktop.sh" &&
    grep -q 'aurelia-notification-send' "$ROOT/modules/desktop.sh" &&
-   grep -q 'record_deferred "desktop" "crash-' "$ROOT/modules/desktop.sh" &&
+   grep -q 'validate_crash_capture_installation' "$ROOT/modules/desktop.sh" &&
+   grep -q 'validate_crash_watch_unit' "$ROOT/modules/desktop.sh" &&
+   grep -q 'systemd-analyze' "$ROOT/modules/desktop.sh" &&
    ! grep -q 'chown -R' "$ROOT/modules/desktop.sh"; then
-    pass "the installer deploys the crash backends and unit non-blockingly"
+    pass "the installer deploys, validates, and enables the crash backends and unit"
 else
     fail "the installer does not deploy the crash feature safely"
+fi
+
+if grep -Eq 'run_classified_step optional "Installing crash capture" install_crash_capture' "$ROOT/install.sh" &&
+   ! grep -Eq 'run_classified_step login .*install_crash_capture' "$ROOT/install.sh"; then
+    pass "crash capture is a non-blocking installer step, never a login-critical one"
+else
+    fail "crash capture is not classified as a non-blocking installer step"
+fi
+
+# The validation boundary is exercised against a sandbox bin directory and a
+# malformed unit so the fail-closed behavior is proven, not just grepped.
+validation_output="$(
+    bash -s -- "$ROOT" <<'EOS'
+set -Eeuo pipefail
+ROOT="$1"
+SCRIPT_DIR="$ROOT"
+TARGET_HOME="$(mktemp -d)"
+export TARGET_HOME
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/status.sh"
+source "$ROOT/modules/desktop.sh"
+
+sandbox="$(mktemp -d)"
+trap 'rm -rf -- "$sandbox" "$TARGET_HOME"' EXIT
+
+bin_dir="$sandbox/bin"
+mkdir -p "$bin_dir"
+for backend in "${CRASH_CAPTURE_BACKENDS[@]}"; do
+    printf '#!/usr/bin/env bash\n' > "$bin_dir/$backend"
+    chmod 0755 "$bin_dir/$backend"
+done
+
+complete_ok=0
+if validate_crash_capture_installation "$bin_dir"; then complete_ok=1; fi
+
+chmod 0644 "$bin_dir/aurelia-crash-watch"
+missing_exec_ok=0
+if ! validate_crash_capture_installation "$bin_dir"; then missing_exec_ok=1; fi
+
+rm -f "$bin_dir/aurelia-crash-watch"
+ln -s "$bin_dir/aurelia-crash-mute" "$bin_dir/aurelia-crash-watch"
+symlink_ok=0
+if ! validate_crash_capture_installation "$bin_dir"; then symlink_ok=1; fi
+
+good_unit="$sandbox/good.service"
+sed 's#^ExecStart=.*#ExecStart=/bin/true#' \
+    "$ROOT/aurelia-shell/systemd/user/aurelia-crash-watch.service" > "$good_unit"
+unit_good=0
+if validate_crash_watch_unit "$good_unit"; then unit_good=1; fi
+
+bad_unit="$sandbox/bad.service"
+printf '[Unit]\nDescription=broken\nExecStart=/bin/true\n' > "$bad_unit"
+unit_bad=0
+if ! validate_crash_watch_unit "$bad_unit"; then unit_bad=1; fi
+
+converged_src="$sandbox/converged.src"
+converged_dst="$sandbox/converged.dst"
+printf 'same\n' > "$converged_src"
+cp -- "$converged_src" "$converged_dst"
+chmod 0644 "$converged_src" "$converged_dst"
+me="$(id -un)"
+mygroup="$(id -gn)"
+converged_ok=0
+if root_managed_file_is_converged "$converged_src" "$converged_dst" "$me:$mygroup:644"; then converged_ok=1; fi
+
+printf 'different\n' > "$converged_dst"
+stale_ok=0
+if ! root_managed_file_is_converged "$converged_src" "$converged_dst" "$me:$mygroup:644"; then stale_ok=1; fi
+
+printf 'complete=%s missing_exec=%s symlink=%s unit_good=%s unit_bad=%s converged=%s stale=%s\n' \
+    "$complete_ok" "$missing_exec_ok" "$symlink_ok" "$unit_good" "$unit_bad" "$converged_ok" "$stale_ok"
+EOS
+)"
+
+if grep -q 'complete=1 missing_exec=1 symlink=1 unit_good=1 unit_bad=1 converged=1 stale=1' <<< "$validation_output"; then
+    pass "crash capture validation is fail-closed and its managed-file convergence check is content-aware"
+else
+    fail "crash capture validation boundary failed: $validation_output"
 fi
 
 if grep -q 'diagnose-crash' "$ROOT/modules/desktop.sh" &&

@@ -25,6 +25,7 @@ needed_functions=(
     install_localsend
     install_ulaa
     install_desktop
+    install_crash_capture
     install_nix
     configure_containers
     validate_system
