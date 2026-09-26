@@ -9,8 +9,15 @@ Covers both Cline surfaces that keep local history:
   * the Cline CLI, whose session message logs record per-assistant-message
     `metrics` and `modelInfo`.
 
+ClinePass 5-hour, weekly and monthly windows come from Cline's own
+`/api/v1/users/me/plan/usage-limits` endpoint using the user's stored access
+token. The endpoint is read-only and the token is never refreshed or
+rewritten: Cline rotates the refresh token, so a read-only collector that
+refreshed without atomically persisting the new token would invalidate the
+user's login.
+
 Prints one display-ready JSON record (the same contract as the other
-ai-usage-* collectors). No network calls and no credentials.
+ai-usage-* collectors).
 """
 
 from __future__ import annotations
@@ -20,6 +27,8 @@ import datetime as dt
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
@@ -27,6 +36,164 @@ import ai_usage_common as common  # noqa: E402
 
 AGENT_ID = "cline"
 AGENT_NAME = "Cline"
+CLINE_USAGE_URL = "https://api.cline.bot/api/v1/users/me/plan/usage-limits"
+# Upstream `type` -> (collector label, window length in minutes). The labels
+# match the OpenCode and Codex collectors so the dashboard reads identically.
+CLINE_WINDOWS = (
+    ("five_hour", "5h window", 300),
+    ("weekly", "Weekly (7-day)", 10080),
+    ("monthly", "Monthly (30-day)", 43200),
+)
+AUTH_HELP = (
+    "Cline rejected the stored access token. Re-authenticate Cline (for "
+    "example `cline auth`, or sign in again in the Cline extension). The "
+    "collector never refreshes or rewrites the credential."
+)
+LOCAL_ONLY_STATUS = "Local usage only"
+AUTH_FAILURE_STATUS = "Cline authentication failed"
+UNAVAILABLE_STATUS = "Cline limits unavailable"
+
+
+# ------------------------------------------------------- credential (read-only)
+
+
+def cline_dir() -> Path:
+    base = os.environ.get("CLINE_DIR") or Path.home() / ".cline"
+    return Path(os.path.expandvars(os.path.expanduser(str(base))))
+
+
+def _settings_access_token(provider) -> str:
+    if not isinstance(provider, dict):
+        return ""
+    settings = provider.get("settings")
+    auth = settings.get("auth") if isinstance(settings, dict) else None
+    token = auth.get("accessToken") if isinstance(auth, dict) else None
+    if token is None:
+        return ""
+    return str(token).strip()
+
+
+def cline_access_token() -> str:
+    """Return the user's own stored Cline access token, or "" when absent.
+
+    Read-only: the provider settings are parsed for presence only and the
+    token value is never logged, emitted or rewritten. There is deliberately no
+    token refresh here because Cline rotates the refresh token; a read-only
+    collector that refreshed without atomically persisting the new token would
+    invalidate the user's login and break their CLI.
+    """
+    providers_path = cline_dir() / "data" / "settings" / "providers.json"
+    if providers_path.is_file():
+        try:
+            document = json.loads(providers_path.read_text(encoding="utf-8"))
+        except Exception:
+            document = None
+        providers = document.get("providers") if isinstance(document, dict) else None
+        if isinstance(providers, dict):
+            # Prefer the canonical `cline` provider, then the `cline-pass` id.
+            for provider_id in ("cline", "cline-pass"):
+                token = _settings_access_token(providers.get(provider_id))
+                if token:
+                    return token
+    auth_path = common.pi_agent_root() / "auth.json"
+    if auth_path.is_file():
+        try:
+            document = json.loads(auth_path.read_text(encoding="utf-8"))
+        except Exception:
+            document = None
+        entry = document.get("clinepass") if isinstance(document, dict) else None
+        token = entry.get("access") if isinstance(entry, dict) else None
+        if token:
+            return str(token).strip()
+    return ""
+
+
+def local_roots_present() -> bool:
+    return bool(vscode_task_roots()) or cline_cli_sessions().is_dir()
+
+
+def fetch_cline_limits(access_token: str | None = None) -> dict:
+    """Live ClinePass 5h/weekly/monthly windows from the Cline API.
+
+    A missing credential skips the request entirely (local-only accounts make
+    no network call) and never fabricates a window. When upstream returns only
+    some windows, only those are emitted; a missing window is never reported as
+    a 0%. Every failure is bounded by a timeout and returns a diagnostic rather
+    than crashing.
+    """
+    result = {
+        "limits": [],
+        "tierLabel": "",
+        "usageStatusText": LOCAL_ONLY_STATUS,
+        "authHelpText": "",
+        "retryAdvised": False,
+    }
+    token = cline_access_token() if access_token is None else access_token
+    if not token:
+        return result
+    try:
+        request = urllib.request.Request(
+            CLINE_USAGE_URL,
+            headers={
+                "Authorization": "Bearer " + token,
+                "Accept": "application/json",
+                "User-Agent": "aurelia-agent-usage/1.0",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        status = int(getattr(exc, "code", 0) or 0)
+        if status in (401, 403):
+            # Retrying a rejected credential cannot help and would only
+            # pressure the account, so no retry is advised.
+            result["usageStatusText"] = AUTH_FAILURE_STATUS
+            result["authHelpText"] = AUTH_HELP
+            result["retryAdvised"] = False
+            return result
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = status == 429 or common.retry_advised_from_error(exc)
+        return result
+    except Exception as exc:
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = common.retry_advised_from_error(exc)
+        return result
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    raw_limits = data.get("limits") if isinstance(data, dict) else None
+    if not isinstance(raw_limits, list):
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        return result
+
+    by_type = {}
+    for item in raw_limits:
+        if isinstance(item, dict):
+            by_type[str(item.get("type") or "")] = item
+
+    limits = []
+    for window_type, label, minutes in CLINE_WINDOWS:
+        item = by_type.get(window_type)
+        if not isinstance(item, dict):
+            continue
+        percent = item.get("percentUsed")
+        if percent is None:
+            continue
+        try:
+            fraction = float(percent) / 100.0
+        except (TypeError, ValueError):
+            continue
+        limits.append({
+            "label": label,
+            # `percentUsed` is USED; the panel inverts to display remaining.
+            "percent": fraction,
+            "resetsAt": common.normalize_resets_at(item.get("resetsAt")),
+            "windowMinutes": minutes,
+        })
+    result["limits"] = limits
+    result["usageStatusText"] = ""
+    if limits:
+        result["tierLabel"] = "ClinePass"
+    return result
 
 
 def number(value) -> int:
@@ -76,8 +243,7 @@ def vscode_task_roots() -> list[Path]:
 
 
 def cline_cli_sessions() -> Path:
-    base = Path(os.environ.get("CLINE_DIR") or Path.home() / ".cline")
-    return base / "data" / "sessions"
+    return cline_dir() / "data" / "sessions"
 
 
 def scan_vscode_tasks(roots: list[Path], add) -> None:
@@ -234,25 +400,39 @@ def main() -> int:
     parser.parse_args()
 
     stats = common.merge_stats(scan(), common.scan_pi_sessions(["cline"]))
-    detected = number(stats.get("totalPrompts")) > 0
+    access_token = cline_access_token()
+    cline = fetch_cline_limits(access_token)
+    limits = cline.get("limits") or []
+    detected = (
+        local_roots_present()
+        or bool(access_token)
+        or len(limits) > 0
+        or bool(stats.get("detected"))
+    )
     record = {
         "schemaVersion": 1,
         "id": AGENT_ID,
         "name": AGENT_NAME,
         "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "ready": number(stats.get("totalPrompts")) > 0,
+        # A limits-only account with no local history is still ready.
+        "ready": number(stats.get("totalPrompts")) > 0 or len(limits) > 0,
         "detected": detected,
         "hasLocalStats": detected,
         "hasPromptStats": True,
-        "tierLabel": "",
+        "tierLabel": cline.get("tierLabel") or "",
         # Cline records one API request per turn, not a chat prompt.
         "todayLabel": "requests",
-        "retryAdvised": False,
-        "usageStatusText": "Local usage only",
-        "authHelpText": "",
-        "limits": [],
+        "retryAdvised": bool(cline.get("retryAdvised")),
+        "usageStatusText": cline.get("usageStatusText") or "",
+        "authHelpText": cline.get("authHelpText") or "",
+        "limits": limits,
     }
     record.update(stats)
+    # `stats` carries its own usage-derived `detected`; re-assert the merged
+    # credential/limits visibility decision after the update, matching Codex
+    # and OpenCode.
+    record["detected"] = detected
+    record["hasLocalStats"] = detected
     common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0

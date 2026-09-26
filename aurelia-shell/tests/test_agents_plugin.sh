@@ -959,6 +959,247 @@ else
     fail "[isolated] OpenCode activity-time bucketing diverged: $opencode_out"
 fi
 
+# ClinePass live windows. The body below was captured from a real authenticated
+# call to `GET /api/v1/users/me/plan/usage-limits`; the collector must emit USED
+# fractions (the panel inverts to remaining), normalise every resetsAt through
+# the shared helper, and never fabricate a missing window. urlopen is
+# monkey-patched, so this stays entirely offline.
+mkdir -p -- "$sandbox/cline-cred/data/settings" "$sandbox/cline-pass/data/settings" \
+    "$sandbox/cline-empty" "$sandbox/pi-auth/agent" "$sandbox/pi-empty" \
+    "$sandbox/cline-config"
+cat >"$sandbox/cline-cred/data/settings/providers.json" <<'CLINE_PROVIDERS'
+{"providers":{"cline":{"settings":{"auth":{"accessToken":"primary-token"}}},"cline-pass":{"settings":{"auth":{"accessToken":"secondary-token"}}}}}
+CLINE_PROVIDERS
+cat >"$sandbox/cline-pass/data/settings/providers.json" <<'CLINE_PASS_PROVIDERS'
+{"providers":{"cline-pass":{"settings":{"auth":{"accessToken":"secondary-token"}}}}}
+CLINE_PASS_PROVIDERS
+printf '%s\n' '{"clinepass":{"type":"oauth","access":"pi-access-token"}}' \
+    >"$sandbox/pi-auth/agent/auth.json"
+cline_limits_out="$(HOME="$sandbox/home" python3 - \
+        "$repo_root/bin/ai-usage-cline" \
+        "$sandbox/cline-cred" "$sandbox/cline-pass" "$sandbox/cline-empty" \
+        "$sandbox/pi-auth" "$sandbox/pi-empty" "$sandbox/cline-config" <<'CLINE_LIMITS'
+import contextlib
+import datetime as dt
+import importlib.machinery
+import importlib.util
+import io
+import json
+import os
+import sys
+import urllib.error
+
+loader = importlib.machinery.SourceFileLoader("acline", sys.argv[1])
+spec = importlib.util.spec_from_loader("acline", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+cred_dir, pass_dir, empty_dir, pi_auth_dir, pi_empty_dir, config_dir = sys.argv[2:8]
+os.environ.pop("WORKSTATION_AI_CONF", None)
+
+
+def token_with(cline_home, pi_home):
+    os.environ["CLINE_DIR"] = cline_home
+    os.environ["PI_HOME"] = pi_home
+    return module.cline_access_token()
+
+
+credential = {
+    "primary": token_with(cred_dir, pi_auth_dir),
+    "secondary": token_with(pass_dir, pi_auth_dir),
+    "pi": token_with(empty_dir, pi_auth_dir),
+    "absent": token_with(empty_dir, pi_empty_dir),
+}
+
+
+class Response:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def read(self):
+        return json.dumps(self.payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def serve(payload):
+    return lambda *args, **kwargs: Response(payload)
+
+
+def http_error(status, message):
+    def raiser(*args, **kwargs):
+        raise urllib.error.HTTPError("https://api.cline.bot/x", status, message, {}, None)
+    return raiser
+
+
+module.cline_access_token = lambda: "fake"
+
+CAPTURED = {"data": {"limits": [
+    {"type": "five_hour", "percentUsed": 64, "resetsAt": "2026-09-26T17:15:41.129154652Z"},
+    {"type": "weekly", "percentUsed": 63, "resetsAt": "2026-09-30T15:13:55.131223642Z"},
+    {"type": "monthly", "percentUsed": 81, "resetsAt": "2026-10-16T02:55:30.133217442Z"},
+]}, "success": True}
+module.urllib.request.urlopen = serve(CAPTURED)
+happy = module.fetch_cline_limits()
+
+resets = {"data": {"limits": [
+    {"type": "five_hour", "percentUsed": 10, "resetsAt": 2208988800},
+    {"type": "weekly", "percentUsed": 20, "resetsAt": 2208988800000},
+    {"type": "monthly", "percentUsed": 30, "resetsAt": "2040-01-01T00:00:00Z"},
+]}, "success": True}
+module.urllib.request.urlopen = serve(resets)
+normalised = module.fetch_cline_limits()
+normalised_parseable = True
+for limit in normalised["limits"]:
+    text = limit["resetsAt"]
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except Exception:
+        normalised_parseable = False
+        continue
+    if not text or parsed.tzinfo is None:
+        normalised_parseable = False
+
+module.urllib.request.urlopen = serve({"data": {"limits": [
+    {"type": "five_hour", "percentUsed": 5, "resetsAt": "not-a-date"}]}, "success": True})
+junk_reset = module.fetch_cline_limits()["limits"][0]["resetsAt"]
+
+module.urllib.request.urlopen = serve({"data": {"limits": [
+    {"type": "five_hour", "percentUsed": 50, "resetsAt": "2040-01-01T00:00:00Z"}]}, "success": True})
+partial = module.fetch_cline_limits()["limits"]
+
+module.urllib.request.urlopen = serve({"success": True})
+malformed = module.fetch_cline_limits()
+
+module.urllib.request.urlopen = http_error(401, "Unauthorized")
+unauth = module.fetch_cline_limits()
+module.urllib.request.urlopen = http_error(429, "Too Many Requests")
+rate_retry = module.fetch_cline_limits()["retryAdvised"]
+module.urllib.request.urlopen = lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("timed out"))
+timeout_retry = module.fetch_cline_limits()["retryAdvised"]
+
+# Record-level integration: a limits-only account with no local history must be
+# detected and ready, with tierLabel set.
+os.environ["CLINE_DIR"] = empty_dir
+os.environ["PI_HOME"] = pi_empty_dir
+os.environ["XDG_CONFIG_HOME"] = config_dir
+module.urllib.request.urlopen = serve(CAPTURED)
+sys.argv = ["ai-usage-cline"]
+buffer = io.StringIO()
+with contextlib.redirect_stdout(buffer):
+    module.main()
+record = json.loads(buffer.getvalue())
+
+print(json.dumps({
+    "happy": happy,
+    "normalised": normalised["limits"],
+    "normalisedParseable": normalised_parseable,
+    "junkReset": junk_reset,
+    "partial": partial,
+    "malformed": malformed,
+    "unauth": unauth,
+    "rateRetry": rate_retry,
+    "timeoutRetry": timeout_retry,
+    "credential": credential,
+    "record": record,
+}))
+CLINE_LIMITS
+)"
+if printf '%s' "$cline_limits_out" | jq -e '
+        .happy.tierLabel == "ClinePass" and
+        (.happy.limits | length == 3) and
+        .happy.limits[0].label == "5h window" and
+        .happy.limits[0].percent == 0.64 and
+        .happy.limits[0].windowMinutes == 300 and
+        (.happy.limits[0].resetsAt | length > 0) and
+        .happy.limits[1].label == "Weekly (7-day)" and
+        .happy.limits[1].percent == 0.63 and
+        .happy.limits[1].windowMinutes == 10080 and
+        .happy.limits[2].label == "Monthly (30-day)" and
+        .happy.limits[2].percent == 0.81 and
+        .happy.limits[2].windowMinutes == 43200 and
+        (.normalised | length == 3) and .normalisedParseable == true and
+        .junkReset == "" and
+        (.partial | length == 1) and .partial[0].label == "5h window" and
+        .partial[0].percent == 0.5 and
+        (.malformed.limits | length == 0) and
+        (.malformed.usageStatusText | length > 0) and
+        (.unauth.limits | length == 0) and
+        (.unauth.authHelpText | length > 0) and
+        .unauth.retryAdvised == false and
+        (.unauth.usageStatusText | test("auth"; "i")) and
+        .rateRetry == true and .timeoutRetry == true and
+        .credential.primary == "primary-token" and
+        .credential.secondary == "secondary-token" and
+        .credential.pi == "pi-access-token" and
+        .credential.absent == "" and
+        (.record.limits | length == 3) and
+        .record.tierLabel == "ClinePass" and
+        .record.ready == true and .record.detected == true and
+        .record.retryAdvised == false and .record.totalPrompts == 0 and
+        .record.usageStatusText == ""' >/dev/null; then
+    pass "[isolated] Cline collector maps the live ClinePass windows, emits USED, normalises resetsAt and fails closed"
+else
+    fail "[isolated] Cline limit contract diverged: $cline_limits_out"
+fi
+
+# A local-only Cline account with no stored credential must return `limits: []`
+# with the honest "Local usage only" status and must not touch the network at
+# all. The sentinel urlopen fails the test if it is ever called.
+cline_nocred_out="$(HOME="$sandbox/home" \
+    CLINE_DIR="$sandbox/cline-empty" \
+    PI_HOME="$sandbox/pi-empty" \
+    XDG_CONFIG_HOME="$sandbox/cline-config" \
+    python3 - "$repo_root/bin/ai-usage-cline" <<'CLINE_NOCRED'
+import contextlib
+import importlib.machinery
+import importlib.util
+import io
+import json
+import os
+import sys
+
+loader = importlib.machinery.SourceFileLoader("acline", sys.argv[1])
+spec = importlib.util.spec_from_loader("acline", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+os.environ.pop("WORKSTATION_AI_CONF", None)
+
+calls = []
+
+
+def sentinel(*args, **kwargs):
+    calls.append(args)
+    raise AssertionError("network call attempted without a credential")
+
+
+module.urllib.request.urlopen = sentinel
+sys.argv = ["ai-usage-cline"]
+buffer = io.StringIO()
+with contextlib.redirect_stdout(buffer):
+    status = module.main()
+record = json.loads(buffer.getvalue())
+print(json.dumps({
+    "status": status,
+    "calls": len(calls),
+    "limits": record["limits"],
+    "usageStatusText": record["usageStatusText"],
+    "retryAdvised": record["retryAdvised"],
+}))
+CLINE_NOCRED
+)"
+if printf '%s' "$cline_nocred_out" | jq -e '
+        .status == 0 and .calls == 0 and .limits == [] and
+        .usageStatusText == "Local usage only" and .retryAdvised == false' >/dev/null; then
+    pass "[isolated] Cline local-only account makes no network call and reports limits: [] honestly"
+else
+    fail "[isolated] Cline local-only behaviour diverged: $cline_nocred_out"
+fi
+
 # ---------------------------------------------------------------------------
 # Offscreen dashboard preview + fail-safe diagnostics (isolated runtime)
 # ---------------------------------------------------------------------------
