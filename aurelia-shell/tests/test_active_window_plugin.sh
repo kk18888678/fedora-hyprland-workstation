@@ -156,6 +156,42 @@ else
     fail "[static] Active Window titleLabel precedence regressed"
 fi
 
+if python3 - "$widget_file" <<'LABEL_MEASURER'
+import re, sys
+src = open(sys.argv[1]).read()
+match = re.search(r"Text\s*\{\s*id:\s*labelMeasure\b(.*?)\n    \}", src, re.S)
+if not match:
+    sys.exit(1)
+body = match.group(1)
+# The measurer must use the same engine as the visible render: the same text,
+# the same resolved font (including weight/pixelSize) and the same render type.
+if not all(token in body for token in (
+        "visible: false",
+        "text: root.label",
+        "font: labelText.font",
+        "renderType: labelText.renderType")):
+    sys.exit(1)
+# A measurer must never elide or clip: an elided Text reports its elided width
+# and would shrink the box on every pass (a feedback loop).
+if "elide" in body or "contentWidth" in body:
+    sys.exit(1)
+sys.exit(0)
+LABEL_MEASURER
+then
+    pass "[static] Active Window measures the label with a hidden, non-eliding Text that copies the visible render's font and render type so the metric cannot drift from the render"
+else
+    fail "[static] Active Window label measurer does not copy the render font/render type, or it elides and can shrink its own box"
+fi
+
+if grep -Fq 'readonly property real measuredLabelWidth: labelMeasure.contentWidth' "$widget_file" &&
+   grep -Fq 'readonly property real labelWidth: Math.min(root.measuredLabelWidth + root.textMargin * 2, root.maxWidth)' "$widget_file" &&
+   ! grep -Fq 'advanceWidth' "$widget_file" &&
+   ! grep -Fq 'labelMetrics' "$widget_file"; then
+    pass "[static] Active Window derives measuredLabelWidth from the hidden measurer and keeps the capped text-margin formula, with no leftover TextMetrics advanceWidth"
+else
+    fail "[static] Active Window measurement source or bounded labelWidth formula regressed"
+fi
+
 if jq -e '
         .layout.left[0].id == "aurelia.workspaces" and
         .layout.left[1].id == "aurelia.active-window"
@@ -179,9 +215,10 @@ runtime_status=0
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache" \
     "$runtime_root/data/applications" "$runtime_root/data-home"
 : >"$result_file"
-# Deterministic desktop-entry resolution: a minimal fixture entry in an
-# isolated XDG data dir proves the app-name and icon branch without depending
-# on the host application database.
+# Deterministic desktop-entry resolution: minimal fixture entries in an
+# isolated XDG data dir prove the app-name and icon branch without depending
+# on the host application database. foot.desktop and chromium-browser.desktop
+# are the two reported over-truncation cases.
 cat >"$runtime_root/data/applications/fixture-app.desktop" <<'FIXTURE_APP'
 [Desktop Entry]
 Type=Application
@@ -189,6 +226,22 @@ Name=Fixture App
 Icon=fixture-app
 Exec=fixture-app
 FIXTURE_APP
+
+cat >"$runtime_root/data/applications/foot.desktop" <<'FIXTURE_FOOT'
+[Desktop Entry]
+Type=Application
+Name=Foot
+Icon=utilities-terminal
+Exec=foot
+FIXTURE_FOOT
+
+cat >"$runtime_root/data/applications/chromium-browser.desktop" <<'FIXTURE_CHROMIUM'
+[Desktop Entry]
+Type=Application
+Name=Chromium Web Browser
+Icon=chromium
+Exec=chromium-browser %U
+FIXTURE_CHROMIUM
 
 AURELIA_ACTIVE_WINDOW_SOURCE="file://$widget_file" \
 AURELIA_ACTIVE_WINDOW_RESULT="$result_file" \
@@ -249,9 +302,27 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .policy.preserveColors == true and
         .policy.symbolicName == "fixture-app-symbolic?theme=dark" and
         .policy.symbolicIconFlag == true and
-        .policy.symbolicPreserveColors == false
+        .policy.symbolicPreserveColors == false and
+        .rendered.footApp.label == "Foot" and
+        .rendered.footApp.maxWidth == 280 and
+        .rendered.footApp.truncated == false and
+        .rendered.footApp.elided == false and
+        .rendered.footApp.contentDelta < 0.5 and
+        .rendered.chromiumApp.label == "Chromium Web Browser" and
+        .rendered.chromiumApp.maxWidth == 280 and
+        .rendered.chromiumApp.truncated == false and
+        .rendered.chromiumApp.elided == false and
+        .rendered.chromiumApp.contentDelta < 0.5 and
+        .rendered.longTitle.truncated == true and
+        .rendered.longTitle.elided == true and
+        (.rendered.longTitle.label | length) > 40 and
+        .rendered.cappedTitle.truncated == true and
+        .rendered.titleMode.label == "Fixture title" and
+        .rendered.titleMode.truncated == false and
+        .rendered.titleMode.elided == false and
+        .rendered.titleMode.contentDelta < 0.5
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, and the symbolic-only colour policy"
+    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, the symbolic-only colour policy, and renders 'Foot' and 'Chromium Web Browser' un-elided with the metric matching the render"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Active Window entry-point fixture cannot create a disposable runtime backend"; then
     :
