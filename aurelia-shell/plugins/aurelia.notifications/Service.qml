@@ -975,6 +975,26 @@ Item {
         service.resolvePendingWorkspaceRoute()
     }
 
+    // Spawn an argv that came from an untrusted notification. Quickshell's
+    // execDetached gives the child /dev/null on stdin, stdout, and stderr, so
+    // a missing handoff command would otherwise fail with no observable trace
+    // and the notification row is removed regardless. The guard resolves the
+    // command first and, when it cannot be found, records a bounded diagnostic
+    // to the journal -- which is observable -- instead of letting the failure
+    // vanish. It never redirects stderr to the null device itself.
+    function spawnNotificationCommand(argv) {
+        if (!argv || argv.length === 0) return
+        var guarded = ["bash", "-c",
+            'cmd="$1"; shift; ' +
+            'if [ -z "$cmd" ]; then exit 127; fi; ' +
+            'if ! command -v "$cmd" >/dev/null; then ' +
+            'logger -t aurelia-notification "notification command unavailable: $cmd"; ' +
+            'exit 127; fi; ' +
+            'exec "$@"',
+            "aurelia-notification"].concat(argv)
+        Quickshell.execDetached(guarded)
+    }
+
     // Resolve a non-default action without depending on the sender's live
     // Quickshell object. A retained Inbox row can outlive its sender: Chromium
     // destroys its notification object on send, which deletes the live
@@ -1056,7 +1076,7 @@ Item {
         if (actionArgv) {
             var actionRoute = Logic.workspaceRouteData(durable, entry)
             if (actionRoute.enabled) service.startWorkspaceRoute(actionRoute)
-            Quickshell.execDetached(["bash", "-lc", "exec \"$@\"", "aurelia-notification"].concat(actionArgv))
+            service.spawnNotificationCommand(actionArgv)
             removeByIdentity(originalId, timestamp, "action", index)
             return "delivered"
         }
@@ -1064,7 +1084,7 @@ Item {
         if (argv) {
             var execRoute = Logic.workspaceRouteData(durable, entry)
             if (execRoute.enabled) service.startWorkspaceRoute(execRoute)
-            Quickshell.execDetached(["bash", "-lc", "exec \"$@\"", "aurelia-notification"].concat(argv))
+            service.spawnNotificationCommand(argv)
             removeByIdentity(originalId, timestamp, "action", index)
             return "executed"
         }
@@ -1090,7 +1110,7 @@ Item {
         if (argv) {
             var execRoute = Logic.workspaceRouteData(fallbackEntry, entry)
             if (execRoute.enabled) service.startWorkspaceRoute(execRoute)
-            Quickshell.execDetached(["bash", "-lc", "exec \"$@\"", "aurelia-notification"].concat(argv))
+            service.spawnNotificationCommand(argv)
             removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
             return "ok"
         }
