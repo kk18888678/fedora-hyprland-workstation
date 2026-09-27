@@ -51,9 +51,10 @@ usage_dir="$state_home/aurelia/agents/usage"
 # PATH. The settings hub in particular runs this backend with a restricted
 # PATH (system directories only), which made every agent installed under the
 # user's own bin directories look uninstalled. We resolve commands against a
-# PATH the backend builds itself: the target user's well-known bin
-# directories plus the system directories, then whatever the caller set (so a
-# deliberate PATH is preserved). Idempotent and duplicate-free.
+# PATH the backend builds itself: whatever the caller set (so a deliberate
+# PATH, mock, or override keeps precedence), followed by the target user's
+# well-known bin directories and the system directories. Idempotent and
+# duplicate-free.
 # ---------------------------------------------------------------------------
 deterministic_agent_dirs() {
     printf '%s\n' \
@@ -72,9 +73,10 @@ build_agent_path() {
     local dir path=""
     local -A seen=()
     local -a candidates=()
-    while IFS= read -r dir; do
-        [[ -n "$dir" ]] && candidates+=("$dir")
-    done < <(deterministic_agent_dirs)
+    # Preserve the caller's deliberate PATH first: an injected mock or an
+    # explicit override must keep precedence. The deterministic directories are
+    # appended after it, so detection still finds the user's agents even when
+    # the caller's PATH omits them.
     if [[ -n "${PATH:-}" ]]; then
         local -a caller_path=()
         IFS=':' read -r -a caller_path <<<"$PATH"
@@ -82,6 +84,9 @@ build_agent_path() {
             [[ -n "$dir" ]] && candidates+=("$dir")
         done
     fi
+    while IFS= read -r dir; do
+        [[ -n "$dir" ]] && candidates+=("$dir")
+    done < <(deterministic_agent_dirs)
     for dir in "${candidates[@]}"; do
         [[ -n "$dir" ]] || continue
         [[ -n "${seen[$dir]:-}" ]] && continue
