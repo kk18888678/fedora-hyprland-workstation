@@ -163,21 +163,52 @@ conf_set() {
 # ---------------------------------------------------------------------------
 # Launch
 # ---------------------------------------------------------------------------
-terminal_prefix() {
-    # Prints the terminal invocation for a command, or returns 1.
-    if command -v kitty >/dev/null; then
-        printf '%s\n' "kitty|title"
-    elif command -v ghostty >/dev/null; then
-        printf '%s\n' "ghostty|title"
-    elif command -v alacritty >/dev/null; then
-        printf '%s\n' "alacritty|title"
-    elif command -v foot >/dev/null; then
-        printf '%s\n' "foot|title"
-    elif command -v xterm >/dev/null; then
-        printf '%s\n' "xterm|title"
-    else
-        return 1
+# Terminal selection for launching an agent into a real terminal.
+#
+# A consent review must run on a real TTY, so the terminal chosen here is
+# consent-critical: a caller that rebuilds PATH (for example to add its own
+# command directories) must not be able to silently swap the terminal for
+# another program. Resolution therefore never consults PATH. It honours an
+# explicit, documented override -- WORKSTATION_AI_TERMINAL, an absolute path
+# to a supported terminal executable, used by tests and by administrators
+# with an unusual layout -- and otherwise checks a fixed set of absolute
+# locations. The override only selects which terminal runs the review; it can
+# never answer the consent prompt, which still requires a real TTY.
+#
+# Prints "name|absolute-path" for the first available terminal, or returns 1.
+terminal_names() {
+    printf '%s\n' kitty ghostty alacritty foot xterm
+}
+
+terminal_roots() {
+    printf '%s\n' "${home:+$home/.local/bin}" /usr/local/bin /usr/bin /bin
+}
+
+resolve_terminal() {
+    local override="${WORKSTATION_AI_TERMINAL:-}"
+    local name dir candidate
+    if [[ -n "$override" ]]; then
+        [[ "$override" == /* && -x "$override" && ! -d "$override" ]] || return 1
+        name="${override##*/}"
+        case "$name" in
+            kitty|ghostty|alacritty|foot|xterm) ;;
+            *) return 1 ;;
+        esac
+        printf '%s|%s\n' "$name" "$override"
+        return 0
     fi
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        while IFS= read -r dir; do
+            [[ -n "$dir" ]] || continue
+            candidate="$dir/$name"
+            if [[ -x "$candidate" && ! -d "$candidate" ]]; then
+                printf '%s|%s\n' "$name" "$candidate"
+                return 0
+            fi
+        done < <(terminal_roots)
+    done < <(terminal_names)
+    return 1
 }
 
 # Build the agent argv (unattended mode), optionally seeded with a prompt.
@@ -377,15 +408,16 @@ cmd_launch() {
         build_agent_argv "$id" "$prompt" unattended
     fi
 
-    local prefix terminal
-    prefix="$(terminal_prefix)" || fail "no supported terminal found (kitty, ghostty, alacritty, foot, xterm)"
+    local prefix terminal terminal_path
+    prefix="$(resolve_terminal)" || fail "no supported terminal found (kitty, ghostty, alacritty, foot, xterm)"
     terminal="${prefix%%|*}"
+    terminal_path="${prefix##*|}"
     case "$terminal" in
-        kitty) exec kitty --title "AI: $name" "${argv[@]}" ;;
-        ghostty) exec ghostty --title="AI: $name" -e "${argv[@]}" ;;
-        alacritty) exec alacritty --title "AI: $name" -e "${argv[@]}" ;;
-        foot) exec foot -T "AI: $name" "${argv[@]}" ;;
-        xterm) exec xterm -T "AI: $name" -e "${argv[@]}" ;;
+        kitty) exec "$terminal_path" --title "AI: $name" "${argv[@]}" ;;
+        ghostty) exec "$terminal_path" --title="AI: $name" -e "${argv[@]}" ;;
+        alacritty) exec "$terminal_path" --title "AI: $name" -e "${argv[@]}" ;;
+        foot) exec "$terminal_path" -T "AI: $name" "${argv[@]}" ;;
+        xterm) exec "$terminal_path" -T "AI: $name" -e "${argv[@]}" ;;
         *) fail "unsupported terminal: $terminal" ;;
     esac
 }
@@ -520,7 +552,7 @@ cmd_check() {
     printf 'ai_conf: %s\n' "$conf_path"
     printf 'usage_dir: %s\n' "$usage_dir"
     printf 'default: %s\n' "$(read_default)"
-    printf 'terminal: %s\n' "$(terminal_prefix | cut -d'|' -f1 || printf 'unavailable')"
+    printf 'terminal: %s\n' "$(resolve_terminal | cut -d'|' -f1 || printf 'unavailable')"
     printf 'skill_source: %s\n' "$skill_source"
 }
 
@@ -753,52 +785,69 @@ cmd_review() {
         esac
     done
 
+    # Derive the staging directory and install the cleanup trap before any
+    # other check, so every exit path -- the TTY gate below, a missing or
+    # invalid payload, an unknown agent, a user refusal, EOF, or a signal --
+    # removes the staged payload, the disclosure, and the private staging
+    # directory. crash_staging_cleanup refuses any directory whose basename is
+    # not workstation-ai-crash.*, so this can never touch an unrelated path.
+    local staging
+    staging="$(dirname -- "${payload_file:-}")"
+    trap 'crash_staging_cleanup "$staging"' EXIT
+    trap 'crash_staging_cleanup "$staging"; exit 129' HUP
+    trap 'crash_staging_cleanup "$staging"; exit 130' INT
+    trap 'crash_staging_cleanup "$staging"; exit 143' TERM
+
+    # A review prompt is only meaningful where a person can both see the
+    # payload and answer it, so the gate requires an interactive terminal on
+    # stdin (to answer) and stdout (to show the exact bytes being approved).
+    # It runs before the payload is printed, so an unanswerable context never
+    # sees it. There is deliberately no environment-variable or CLI bypass, no
+    # default-yes, and no silent send: this gate can only ever refuse more,
+    # never approve.
+    if [[ ! -t 0 || ! -t 1 ]]; then
+        printf '%s\n' "Error: the crash review needs an interactive terminal so you can read the payload and answer the prompt." >&2
+        printf '%s\n' "Open it from the crash notification, or run: aurelia crash diagnose <pid>" >&2
+        printf '%s\n' "Nothing was sent." >&2
+        exit 1
+    fi
+
     [[ -n "$payload_file" ]] || fail "the crash payload is missing; nothing was sent"
     [[ -f "$payload_file" && ! -L "$payload_file" && -r "$payload_file" ]] ||
         fail "the crash payload cannot be reviewed; nothing was sent"
     [[ -n "$agent" ]] || fail "no agent was named for the review; nothing was sent"
     is_known "$agent" || fail "unknown agent for the review; nothing was sent"
 
-    local staging
-    staging="$(dirname -- "$payload_file")"
-
     printf '%s\n' "The following payload will be sent to the AI agent:"
     printf '%s\n' "----------------------------------------------------------------"
-    cat -- "$payload_file" || {
-        crash_staging_cleanup "$staging"
-        fail "the crash payload could not be shown; nothing was sent"
-    }
+    cat -- "$payload_file" || fail "the crash payload could not be shown; nothing was sent"
     printf '\n%s\n' "----------------------------------------------------------------"
     if [[ -n "$disclosure_file" && -s "$disclosure_file" ]]; then
-        cat -- "$disclosure_file" || {
-            crash_staging_cleanup "$staging"
-            fail "the secret disclosure could not be shown; nothing was sent"
-        }
+        cat -- "$disclosure_file" || fail "the secret disclosure could not be shown; nothing was sent"
     else
         printf '%s\n' "Secret scan: no known secret patterns matched."
     fi
 
     local answer=""
     printf 'Send this payload to the AI agent? [y/N] '
-    if ! read -r answer; then
+    # A real terminal left unanswered for this long must not pin the cleanup
+    # trap forever; the timeout refuses rather than approves.
+    if ! read -r -t 600 answer; then
         printf '\n%s\n' "No answer was read; nothing was sent."
-        crash_staging_cleanup "$staging"
         exit 1
     fi
     case "$answer" in
         y|Y|yes|YES|Yes) ;;
         *)
             printf '%s\n' "Not sent."
-            crash_staging_cleanup "$staging"
             exit 1
             ;;
     esac
 
     local prompt
-    prompt="$(cat -- "$payload_file")" || {
-        crash_staging_cleanup "$staging"
-        fail "the crash payload could not be read; nothing was sent"
-    }
+    prompt="$(cat -- "$payload_file")" || fail "the crash payload could not be read; nothing was sent"
+    # exec resets traps, so remove the staged files explicitly before handing
+    # the process to the agent.
     crash_staging_cleanup "$staging"
 
     build_agent_argv "$agent" "$prompt" readonly

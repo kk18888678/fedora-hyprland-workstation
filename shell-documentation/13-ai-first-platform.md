@@ -461,6 +461,15 @@ than by deleting the unit. Per-program muting stores a narrow name/path rule;
 muting hides notices, not crashes or coredumps. The diagnosis itself never reads
 a core, so muting and the review gate are the only privacy surfaces.
 
+The review runs only in a terminal the user opened, and refuses before
+printing anything when either stdin or stdout is not an interactive TTY. There
+is no environment-variable or command-line bypass and no default-yes. The
+terminal used for the review is resolved from a fixed set of absolute system
+locations, never from the caller's `PATH`, so a rebuilt `PATH` cannot silently
+swap it. Tests and administrators with an unusual layout may name an absolute
+terminal executable in `WORKSTATION_AI_TERMINAL`; that override only selects the
+terminal, and the review still requires an interactive TTY on stdin and stdout.
+
 ## Theme relationship
 
 Theme changes retint the AI surfaces that have an explicit integration:
