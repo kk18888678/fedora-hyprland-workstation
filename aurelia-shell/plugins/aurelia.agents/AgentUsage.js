@@ -330,36 +330,6 @@ function billingText(record) {
     return parts.join(" · ");
 }
 
-// Notify once per day while a subscription is within its reminder window.
-function renewalReminders(records, previousState, todayText) {
-    var state = previousState || {};
-    var next = {};
-    var notifications = [];
-    var ready = readyAgents(records);
-    for (var i = 0; i < ready.length; i++) {
-        var agent = ready[i];
-        var sub = agent && agent.subscription;
-        if (!sub || !sub.renew) continue;
-        var days = Number(sub.daysLeft);
-        if (!isFinite(days)) continue;
-        var reminderDays = Number(sub.reminderDays);
-        if (!isFinite(reminderDays)) reminderDays = 3;
-        var key = "renew|" + String(agent.id);
-        var previous = state[key];
-        if (days >= 0 && days <= reminderDays && previous !== todayText) {
-            notifications.push({
-                title: String(agent.name || agent.id) + " renewal",
-                body: "Renews " + String(sub.renew) +
-                    (days === 0 ? " (today)" : " in " + days + " day" + (days === 1 ? "" : "s"))
-            });
-            next[key] = todayText;
-        } else {
-            next[key] = previous;
-        }
-    }
-    return { state: next, notifications: notifications };
-}
-
 function todayDate(nowMs) {
     var now = new Date(nowMs);
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") +
@@ -739,44 +709,390 @@ function paceInfo(limit, nowMs) {
     };
 }
 
-function limitTransitions(records, previousState, thresholds) {
-    var state = previousState || {};
-    var opts = thresholds || {};
-    var next = {};
-    var notifications = [];
-    var ready = readyAgents(records);
-    for (var i = 0; i < ready.length; i++) {
-        var agent = ready[i];
-        var limits = (agent && agent.limits) || [];
-        for (var j = 0; j < limits.length; j++) {
-            var limit = limits[j] || {};
-            var resetsAt = String(limit.resetsAt || "");
-            if (resetsAt === "") continue;
-            var key = String(agent.id) + "|" + String(limit.label || "");
-            var previous = state[key];
-            var percent = Number(limit.percent);
-            var severity = severityForLimit(limit, opts.warn, opts.critical);
-            var previousSeverity = previous ? String(previous.severity || "ok") : "ok";
-            var name = String(agent.name || agent.id);
-            var label = String(limit.label || "Limit");
+// ---------------------------------------------------------------------------
+// Durable anti-flood notification policy
+//
+// The bar widget re-runs this on every successful refresh. The returned state
+// MUST be persisted and fed back on the next call: transition detection is
+// useless without durable state, because the widget is recreated on every local
+// plugin change and the shell restarts between sessions. Every rule is pure so
+// it is unit-testable without QML, timers, or the live workstation.
+//
+// Rules:
+//  * baseline-suppress the first observation of a window so a fresh or missing
+//    state can never burst;
+//  * notify only on a severity transition away from `ok`, and re-arm when the
+//    severity returns to `ok` so a later re-cross emits exactly once;
+//  * rate-limit repeat notifications for the same window by a minimum interval
+//    (threshold flapping and `resetsAt` representation jitter are absorbed);
+//  * treat a reset as real only when the reset instant advances by at least the
+//    minimum reset interval, and rate-limit repeat reset announcements;
+//  * renew at most once per account per local date, re-arming on a date change
+//    or a `renew` change, deriving `daysLeft` from `renew` when it is missing;
+//  * bound every evaluation with a per-(account, severity class, label) dedup,
+//    one per account per severity class per evaluation, and a rolling hourly
+//    cap whose overflow becomes one aggregate line.
+// The announced state still advances when DND silences display, so turning DND
+// off can never replay a backlog.
+// ---------------------------------------------------------------------------
 
-            if (previous && String(previous.resetsAt || "") !== "" && previous.resetsAt !== resetsAt) {
-                notifications.push({
-                    title: name + " limit reset",
-                    body: label + " reset · " + Math.max(0, Math.round((1 - percent) * 100)) + "% available"
-                });
-                previousSeverity = "ok";
-            }
-            if (previous && severity !== "ok" && severity !== previousSeverity) {
-                notifications.push({
-                    title: name + " limit " + (severity === "critical" ? "critical" : "warning"),
-                    body: label + " is at " + Math.round(percent * 100) + "% used"
-                });
-            }
-            next[key] = { resetsAt: resetsAt, severity: severity };
-        }
+var NOTIFICATION_STATE_VERSION = 1;
+var NOTIFICATION_MIN_INTERVAL_MS = 30 * 60 * 1000;
+var NOTIFICATION_MIN_RESET_INTERVAL_MS = 30 * 60 * 1000;
+var NOTIFICATION_HOURLY_CAP = 6;
+var NOTIFICATION_ROLLING_MS = 60 * 60 * 1000;
+var NOTIFICATION_RECENT_LIMIT = 256;
+
+function emptyNotificationState() {
+    return { version: NOTIFICATION_STATE_VERSION, windows: {}, renewals: {}, recent: [] };
+}
+
+function notificationPlainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function notificationBoundedString(value, max) {
+    var text = value === undefined || value === null ? "" : String(value);
+    var limit = isFinite(max) && max > 0 ? Math.floor(max) : 64;
+    return text.length > limit ? text.slice(0, limit) : text;
+}
+
+// A missing, empty or corrupt payload behaves as empty state (fail safe): the
+// next evaluation baseline-suppresses instead of bursting.
+function normalizeNotificationState(raw) {
+    var out = emptyNotificationState();
+    if (!notificationPlainObject(raw)) return out;
+    var windows = notificationPlainObject(raw.windows) ? raw.windows : {};
+    for (var windowKey in windows) {
+        if (!Object.prototype.hasOwnProperty.call(windows, windowKey)) continue;
+        var windowRecord = windows[windowKey];
+        if (!notificationPlainObject(windowRecord)) continue;
+        out.windows[notificationBoundedString(windowKey, 256)] = {
+            announcedSeverity: notificationBoundedString(windowRecord.announcedSeverity, 16) || "ok",
+            lastNotifiedSeverity: notificationBoundedString(windowRecord.lastNotifiedSeverity, 16) || "ok",
+            windowResetsAt: windowRecord.windowResetsAt === undefined || windowRecord.windowResetsAt === null
+                ? "" : String(windowRecord.windowResetsAt),
+            lastAnnouncedAt: number(windowRecord.lastAnnouncedAt),
+            lastResetAnnouncedAt: number(windowRecord.lastResetAnnouncedAt)
+        };
     }
-    return { state: next, notifications: notifications };
+    var renewals = notificationPlainObject(raw.renewals) ? raw.renewals : {};
+    for (var accountKey in renewals) {
+        if (!Object.prototype.hasOwnProperty.call(renewals, accountKey)) continue;
+        var renewalRecord = renewals[accountKey];
+        if (!notificationPlainObject(renewalRecord)) continue;
+        out.renewals[notificationBoundedString(accountKey, 256)] = {
+            announcedForDate: notificationBoundedString(renewalRecord.announcedForDate, 16),
+            renewValue: notificationBoundedString(renewalRecord.renewValue, 64),
+            lastAnnouncedAt: number(renewalRecord.lastAnnouncedAt)
+        };
+    }
+    var recent = Array.isArray(raw.recent) ? raw.recent : [];
+    for (var i = 0; i < recent.length && i < NOTIFICATION_RECENT_LIMIT; i++) {
+        var emittedAt = number(recent[i]);
+        if (emittedAt > 0) out.recent.push(emittedAt);
+    }
+    return out;
+}
+
+function notificationSortedCopy(source) {
+    var out = {};
+    var keys = Object.keys(source).sort();
+    for (var i = 0; i < keys.length; i++) out[keys[i]] = source[keys[i]];
+    return out;
+}
+
+// Deterministic, bounded serialization: sorted keys keep the bytes stable so
+// equal states round-trip to equal files (and tests are reproducible).
+function serializeNotificationState(state) {
+    var clean = normalizeNotificationState(state);
+    return JSON.stringify({
+        version: NOTIFICATION_STATE_VERSION,
+        windows: notificationSortedCopy(clean.windows),
+        renewals: notificationSortedCopy(clean.renewals),
+        recent: clean.recent.slice(-NOTIFICATION_RECENT_LIMIT)
+    });
+}
+
+function deserializeNotificationState(text) {
+    var raw = String(text === undefined || text === null ? "" : text).trim();
+    if (raw === "") return emptyNotificationState();
+    try {
+        return normalizeNotificationState(JSON.parse(raw));
+    } catch (error) {
+        console.warn("[AGENTS] notification_state_parse_failed reason=" +
+            String(error && error.message ? error.message : error));
+        return emptyNotificationState();
+    }
+}
+
+// Stable identity: the backend `id` when present, otherwise a deterministic
+// fallback. The array index keeps records that have neither id nor name from
+// colliding; `parseRecords` does not validate `id` today.
+function notificationRecordId(agent, index) {
+    var id = agent && agent.id !== undefined && agent.id !== null ? String(agent.id).trim() : "";
+    if (id !== "") return "id:" + id;
+    var name = agent && agent.name !== undefined && agent.name !== null ? String(agent.name).trim() : "";
+    return "anon:" + (name !== "" ? name : "agent") + "#" + Math.max(0, Number(index) || 0);
+}
+
+function notificationLimitLabel(limit, index) {
+    var label = limit && limit.label !== undefined && limit.label !== null ? String(limit.label) : "";
+    if (label !== "") return label;
+    return "limit#" + Math.max(0, Number(index) || 0);
+}
+
+function notificationResetsMs(limit) {
+    if (!limit || !limit.resetsAt) return NaN;
+    var parsed = Date.parse(String(limit.resetsAt));
+    return isFinite(parsed) ? parsed : NaN;
+}
+
+// Derive `daysLeft` from `renew` when the record omits it so a missing field
+// cannot flap the reminder window. Local-date arithmetic avoids timezone skew.
+function notificationRenewalDaysLeft(subscription, nowMs) {
+    if (!subscription) return NaN;
+    if (subscription.daysLeft !== undefined && subscription.daysLeft !== null &&
+        String(subscription.daysLeft) !== "") {
+        var explicit = Number(subscription.daysLeft);
+        if (isFinite(explicit)) return explicit;
+    }
+    if (!subscription.renew) return NaN;
+    var renewMs = Date.parse(String(subscription.renew) + "T00:00:00");
+    if (!isFinite(renewMs)) return NaN;
+    var now = new Date(nowMs);
+    var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return Math.round((renewMs - startOfToday) / 86400000);
+}
+
+function notificationPush(pending, emittedKeys, accountClasses, candidate) {
+    var key = candidate.account + "|" + candidate.severityClass + "|" + candidate.label;
+    var classKey = candidate.account + "|" + candidate.severityClass;
+    if (Object.prototype.hasOwnProperty.call(emittedKeys, key)) return false;
+    if (Object.prototype.hasOwnProperty.call(accountClasses, classKey)) return false;
+    emittedKeys[key] = true;
+    accountClasses[classKey] = true;
+    pending.push(candidate);
+    return true;
+}
+
+function notificationRenewalBody(renewValue, daysLeft) {
+    return "Renews " + renewValue +
+        (daysLeft === 0 ? " (today)" : " in " + daysLeft + " day" + (daysLeft === 1 ? "" : "s"));
+}
+
+function notificationPlan(records, persistedState, options, nowMs) {
+    var opts = options || {};
+    var now = isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+    var state = normalizeNotificationState(persistedState);
+    var notifications = [];
+    if (opts.enabled === false) return { state: state, notifications: notifications };
+
+    var minSeverity = String(opts.minSeverity || "warn").toLowerCase() === "critical" ? "critical" : "warn";
+    var minInterval = isFinite(opts.minIntervalMs)
+        ? Math.max(0, Number(opts.minIntervalMs)) : NOTIFICATION_MIN_INTERVAL_MS;
+    var minResetInterval = isFinite(opts.minResetIntervalMs)
+        ? Math.max(0, Number(opts.minResetIntervalMs)) : NOTIFICATION_MIN_RESET_INTERVAL_MS;
+    var hourlyCap = isFinite(opts.hourlyCap)
+        ? Math.max(1, Math.floor(Number(opts.hourlyCap))) : NOTIFICATION_HOURLY_CAP;
+    var reminderDefault = isFinite(opts.reminderDaysDefault) ? Number(opts.reminderDaysDefault) : 3;
+    var warnPct = isFinite(opts.warnPct) ? Number(opts.warnPct) : undefined;
+    var criticalPct = isFinite(opts.criticalPct) ? Number(opts.criticalPct) : undefined;
+
+    var recent = [];
+    for (var r = 0; r < state.recent.length; r++) {
+        var emittedAt = number(state.recent[r]);
+        if (emittedAt > 0 && now - emittedAt < NOTIFICATION_ROLLING_MS) recent.push(emittedAt);
+    }
+    state.recent = recent;
+    var budget = Math.max(0, hourlyCap - recent.length);
+
+    var pending = [];
+    var emittedKeys = {};
+    var accountClasses = {};
+    var today = todayDate(now);
+    var list = records || [];
+
+    for (var index = 0; index < list.length; index++) {
+        var agent = list[index];
+        if (!agent || agent.ready !== true) continue;
+        var accountKey = notificationRecordId(agent, index);
+        var accountName = String(agent.name || agent.id || "AI agent");
+        var limits = Array.isArray(agent.limits) ? agent.limits : [];
+        for (var limitIndex = 0; limitIndex < limits.length; limitIndex++) {
+            var limit = limits[limitIndex];
+            if (!limit || typeof limit !== "object") continue;
+            var windowKey = accountKey + "|" + notificationLimitLabel(limit, limitIndex);
+            var existing = state.windows[windowKey] || null;
+            var severity = severityForLimit(limit, warnPct, criticalPct);
+            // Below the configured floor a warning is treated as steady `ok`;
+            // the state still advances so raising the floor does not replay.
+            var effectiveSeverity = (minSeverity === "critical" && severity === "warn") ? "ok" : severity;
+            var label = notificationLimitLabel(limit, limitIndex);
+            var rawResets = limit.resetsAt === undefined || limit.resetsAt === null ? "" : String(limit.resetsAt);
+            var resetsMs = notificationResetsMs(limit);
+
+            if (!existing) {
+                // Baseline: record the observation, emit nothing.
+                state.windows[windowKey] = {
+                    announcedSeverity: effectiveSeverity,
+                    lastNotifiedSeverity: "ok",
+                    windowResetsAt: rawResets,
+                    lastAnnouncedAt: 0,
+                    lastResetAnnouncedAt: 0
+                };
+                continue;
+            }
+
+            var nextRecord = {
+                announcedSeverity: existing.announcedSeverity,
+                lastNotifiedSeverity: existing.lastNotifiedSeverity,
+                windowResetsAt: existing.windowResetsAt,
+                lastAnnouncedAt: existing.lastAnnouncedAt,
+                lastResetAnnouncedAt: existing.lastResetAnnouncedAt
+            };
+
+            var resetAnnounced = false;
+            var previousResetsMs = Date.parse(String(existing.windowResetsAt || ""));
+            if (isFinite(resetsMs) && isFinite(previousResetsMs) &&
+                resetsMs > previousResetsMs && (resetsMs - previousResetsMs) >= minResetInterval &&
+                (existing.lastResetAnnouncedAt <= 0 || (now - existing.lastResetAnnouncedAt) >= minResetInterval)) {
+                resetAnnounced = true;
+                nextRecord.lastResetAnnouncedAt = now;
+                // Consume the severity in the same call so one reset never
+                // produces a second severity notification (the old bug).
+                nextRecord.announcedSeverity = effectiveSeverity;
+                var resetPercent = Number(limit.percent);
+                var resetBody = isFinite(resetPercent)
+                    ? label + " reset · " + Math.max(0, Math.round((1 - resetPercent) * 100)) + "% available"
+                    : label + " reset";
+                notificationPush(pending, emittedKeys, accountClasses, {
+                    kind: "reset",
+                    severityClass: "reset",
+                    account: accountKey,
+                    label: label,
+                    title: accountName + " limit reset",
+                    body: resetBody
+                });
+            }
+
+            // Always advance the stored reset instant (forward only) so a slow
+            // representation drift cannot accumulate into a false reset.
+            if (isFinite(resetsMs) && (!isFinite(previousResetsMs) || resetsMs > previousResetsMs)) {
+                nextRecord.windowResetsAt = rawResets;
+            } else if (!isFinite(previousResetsMs) && rawResets !== "") {
+                nextRecord.windowResetsAt = rawResets;
+            }
+
+            if (!resetAnnounced) {
+                if (effectiveSeverity === "ok") {
+                    nextRecord.announcedSeverity = "ok";
+                } else if (effectiveSeverity !== existing.announcedSeverity) {
+                    // Suppress a repeat inside the minimum interval but leave
+                    // `announcedSeverity` untouched so the same crossing is
+                    // retried once the interval lapses.
+                    if ((now - number(existing.lastAnnouncedAt)) >= minInterval) {
+                        nextRecord.announcedSeverity = effectiveSeverity;
+                        nextRecord.lastNotifiedSeverity = effectiveSeverity;
+                        nextRecord.lastAnnouncedAt = now;
+                        notificationPush(pending, emittedKeys, accountClasses, {
+                            kind: "severity",
+                            severityClass: effectiveSeverity,
+                            account: accountKey,
+                            label: label,
+                            title: accountName + " limit " +
+                                (effectiveSeverity === "critical" ? "critical" : "warning"),
+                            body: label + " is at " + Math.round(Number(limit.percent) * 100) + "% used"
+                        });
+                    }
+                }
+            }
+            state.windows[windowKey] = nextRecord;
+        }
+
+        if (opts.renewals === false) continue;
+        var subscription = agent.subscription;
+        if (!subscription || !subscription.renew) continue;
+        var daysLeft = notificationRenewalDaysLeft(subscription, now);
+        if (!isFinite(daysLeft)) continue;
+        var reminderDays = Number(subscription.reminderDays);
+        if (!isFinite(reminderDays)) reminderDays = reminderDefault;
+        var renewValue = String(subscription.renew);
+        var previousRenewal = state.renewals[accountKey] || null;
+        var inWindow = daysLeft >= 0 && daysLeft <= reminderDays;
+        var nextRenewal;
+        if (!previousRenewal) {
+            // Baseline: remember today so a fresh state cannot burst.
+            nextRenewal = { announcedForDate: inWindow ? today : "", renewValue: renewValue, lastAnnouncedAt: 0 };
+        } else if (previousRenewal.renewValue !== renewValue) {
+            // A changed renewal date is a genuine new cycle: re-arm and notify.
+            nextRenewal = {
+                announcedForDate: inWindow ? today : "",
+                renewValue: renewValue,
+                lastAnnouncedAt: inWindow ? now : previousRenewal.lastAnnouncedAt
+            };
+            if (inWindow) {
+                notificationPush(pending, emittedKeys, accountClasses, {
+                    kind: "renewal",
+                    severityClass: "renewal",
+                    account: accountKey,
+                    label: "renewal",
+                    title: accountName + " renewal",
+                    body: notificationRenewalBody(renewValue, daysLeft)
+                });
+            }
+        } else if (!inWindow) {
+            nextRenewal = { announcedForDate: "", renewValue: renewValue, lastAnnouncedAt: previousRenewal.lastAnnouncedAt };
+        } else if (previousRenewal.announcedForDate !== today) {
+            nextRenewal = { announcedForDate: today, renewValue: renewValue, lastAnnouncedAt: now };
+            notificationPush(pending, emittedKeys, accountClasses, {
+                kind: "renewal",
+                severityClass: "renewal",
+                account: accountKey,
+                label: "renewal",
+                title: accountName + " renewal",
+                body: notificationRenewalBody(renewValue, daysLeft)
+            });
+        } else {
+            nextRenewal = {
+                announcedForDate: previousRenewal.announcedForDate,
+                renewValue: previousRenewal.renewValue,
+                lastAnnouncedAt: previousRenewal.lastAnnouncedAt
+            };
+        }
+        state.renewals[accountKey] = nextRenewal;
+    }
+
+    // Rolling hourly cap: emit at most the remaining budget, turning the
+    // overflow into ONE aggregate line. The state above already advanced for
+    // every candidate, so dropped alerts are consumed rather than replayed.
+    var output = [];
+    var dropped = 0;
+    if (pending.length <= budget) {
+        output = pending;
+    } else if (budget > 0) {
+        var keep = budget - 1;
+        for (var p = 0; p < keep; p++) output.push(pending[p]);
+        dropped = pending.length - keep;
+        output.push({
+            kind: "aggregate",
+            severityClass: "aggregate",
+            account: "",
+            label: "",
+            title: "AI usage alerts",
+            body: "… and " + dropped + " more"
+        });
+    } else {
+        dropped = pending.length;
+    }
+    for (var o = 0; o < output.length; o++) state.recent.push(now);
+    if (state.recent.length > NOTIFICATION_RECENT_LIMIT) {
+        state.recent = state.recent.slice(-NOTIFICATION_RECENT_LIMIT);
+    }
+    if (dropped > 0) {
+        console.warn("[AGENTS] notification_cap_dropped count=" + dropped + " cap=" + hourlyCap);
+    }
+    return { state: state, notifications: output };
 }
 
 // Cost/currency/cycle only. The hero shows the plan separately, so this never
