@@ -14,6 +14,10 @@ RowLayout {
     property var enumOptions: descriptor && descriptor.enumOptions ? descriptor.enumOptions : []
     property string actionId: descriptor ? String(descriptor.actionId || "") : ""
     property bool editable: descriptor ? descriptor.editable === true : false
+    // Explicit placeholder for a stored value that is not in the option list
+    // (for example an unknown default agent). Falls back to the effective value
+    // so existing combos keep showing their real selection.
+    property string placeholder: descriptor ? String(descriptor.placeholder || "") : ""
 
     signal changed(var value)
 
@@ -58,7 +62,7 @@ RowLayout {
         textRole: "label"
         valueRole: "value"
         editable: root.editable
-        placeholderText: root.effective
+        placeholderText: root.placeholder !== "" ? root.placeholder : root.effective
         currentIndex: {
             var index = -1
             var target = String(root.effective)
