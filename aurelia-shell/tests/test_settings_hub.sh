@@ -654,7 +654,9 @@ else
     skip "[unit] Workspaces section in-use-only row projection (node unavailable)"
 fi
 
-# AI section rows: default agent picker, launch, and skill actions.
+# AI section rows: the default agent selector must offer EVERY supported agent
+# with honest availability, validate the stored value against the full list,
+# and never render an empty combo when the backend is unavailable.
 if command -v node >/dev/null; then
     ai_rows_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$ai_rows_test"
@@ -663,28 +665,99 @@ module.exports = { buildRows, emptyAureliaState };
 AI_ROWS_EXPORTS
     if node -e '
 const SR = require(process.argv[1]);
-const state = Object.assign({}, SR.emptyAureliaState(), {
-    ai: { default: "claude", agents: [
-        { id: "claude", name: "Claude Code", installed: true },
-        { id: "codex", name: "Codex", installed: false }
-    ] }
-});
-const rows = SR.buildRows("ai", [], {}, state);
-const def = rows.find(r => r.id === "ai.default");
-const launch = rows.find(r => r.actionId === "launchAgent");
-const skill = rows.find(r => r.actionId === "installSkill");
-const ok = def && def.kind === "combo" && def.effective === "claude" &&
-    def.enumOptions.length === 1 && def.enumOptions[0].value === "claude" &&
-    launch && launch.kind === "action" && skill && skill.kind === "action";
-process.exit(ok ? 0 : 1);
+const DEFS = [
+  ["agy","Antigravity"],["chatgpt","ChatGPT"],["claude","Claude Code"],
+  ["codex","Codex"],["opencode","OpenCode"],["crush","Crush"],
+  ["copilot","GitHub Copilot"],["grok","Grok"],["pi","Pi"],
+  ["omp","Oh My Pi"],["ori","Ori"],["hermes","Hermes"],
+  ["muse","Muse Code"],["cursor-agent","Cursor CLI"]
+];
+function mk(defaultId, installed, available) {
+  const set = {};
+  (installed || []).forEach(id => { set[id] = true; });
+  return Object.assign({}, SR.emptyAureliaState(), {
+    aiAvailable: available !== false,
+    ai: { default: defaultId, agents: DEFS.map(function(pair) {
+      return { id: pair[0], name: pair[1], installed: !!set[pair[0]] };
+    }) }
+  });
+}
+function idsOK(opts) {
+  const valid = new Set(DEFS.map(p => p[0]));
+  return opts.every(o => valid.has(o.value));
+}
+const failures = [];
+function check(name, cond) { if (!cond) failures.push(name); }
+
+// 1. Mixed availability: ALL agents offered, values are registry ids, labels honest.
+const mixed = SR.buildRows("ai", [], {}, mk("claude", ["claude", "chatgpt", "agy", "opencode"]));
+const mixedDef = mixed.find(r => r.id === "ai.default");
+const mixedLaunch = mixed.find(r => r.actionId === "launchAgent");
+check("mixed.count", mixedDef && mixedDef.enumOptions.length === DEFS.length);
+check("mixed.ids", mixedDef && idsOK(mixedDef.enumOptions));
+check("mixed.effective", mixedDef && mixedDef.effective === "claude");
+check("mixed.installed-label", mixedDef && mixedDef.enumOptions.find(o => o.value === "claude").label === "Claude Code");
+check("mixed.missing-label", mixedDef && mixedDef.enumOptions.find(o => o.value === "crush").label === "Crush \u2014 not installed");
+check("mixed.unknown-false", mixedDef && mixedDef.unknown === false);
+check("mixed.launch-enabled", mixedLaunch && mixedLaunch.enabled === true);
+
+// 2. Uninstalled default: still selectable, launch disabled with a reason.
+const uninst = SR.buildRows("ai", [], {}, mk("crush", ["claude"]));
+const uninstDef = uninst.find(r => r.id === "ai.default");
+const uninstLaunch = uninst.find(r => r.actionId === "launchAgent");
+check("uninst.count", uninstDef && uninstDef.enumOptions.length === DEFS.length);
+check("uninst.effective", uninstDef && uninstDef.effective === "crush");
+check("uninst.launch-disabled", uninstLaunch && uninstLaunch.enabled === false);
+check("uninst.launch-reason", uninstLaunch && /not installed/i.test(uninstLaunch.description));
+
+// 3. All-missing fixture still lists every agent.
+const allMissing = SR.buildRows("ai", [], {}, mk("", []));
+const allDef = allMissing.find(r => r.id === "ai.default");
+check("allmissing.count", allDef && allDef.enumOptions.length === DEFS.length);
+check("allmissing.labels", allDef && allDef.enumOptions.every(o => /not installed$/.test(o.label)));
+
+// 4. Unknown stored default -> explicit unknown state, never silently mapped.
+const unknown = SR.buildRows("ai", [], {}, mk("ghost", ["claude"]));
+const unknownDef = unknown.find(r => r.id === "ai.default");
+const unknownLaunch = unknown.find(r => r.actionId === "launchAgent");
+check("unknown.flag", unknownDef && unknownDef.unknown === true);
+check("unknown.effective", unknownDef && unknownDef.effective === "ghost");
+check("unknown.placeholder", unknownDef && unknownDef.placeholder === "Unknown agent \u2014 re-select");
+check("unknown.launch-disabled", unknownLaunch && unknownLaunch.enabled === false);
+check("unknown.launch-reason", unknownLaunch && /re-select/i.test(unknownLaunch.description));
+
+// 5. Backend unavailable -> explicit state, not an empty combo.
+const unavailable = SR.buildRows("ai", [], {},
+  Object.assign({}, SR.emptyAureliaState(), { aiAvailable: false, ai: { default: null, agents: [] } }));
+check("unavailable.no-combo", !unavailable.find(r => r.id === "ai.default"));
+check("unavailable.info", !!unavailable.find(r => r.title === "Agent backend unavailable"));
+
+if (failures.length > 0) { console.error(failures.join(", ")); process.exit(1); }
+process.exit(0);
 ' "$ai_rows_test" >/dev/null; then
-        pass "[unit] AI section exposes default agent, launch and skill rows"
+        pass "[unit] AI selector lists every supported agent with honest availability and safe states"
     else
-        fail "[unit] AI section rows are missing"
+        fail "[unit] AI selector contract failed (full list / unknown default / unavailable state)"
     fi
     rm -f -- "$ai_rows_test"
 else
     skip "[unit] AI section rows (node unavailable)"
+fi
+
+# The hub must hand the backend a PATH that includes the target user's own bin
+# directories (the shell's own PATH does not), and the selector must support an
+# explicit unknown placeholder plus a disabled action for an unavailable agent.
+if grep -q 'function agentPath' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q '\.local/bin' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q '\.npm-global/bin' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q '\.opencode/bin' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q '\.grok/bin' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'placeholder' "$plugin_dir/ui/SettingCombo.qml" &&
+   grep -q 'enabled' "$plugin_dir/ui/SettingAction.qml" &&
+   grep -q 'aiAvailable' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] settings hub passes a deterministic user PATH and renders honest selector states"
+else
+    fail "[static] settings hub PATH, selector placeholder, or action-enabled wiring is incomplete"
 fi
 
 ai_backend="$repo_root/bin/workstation-ai"
@@ -749,6 +822,44 @@ assert all(set(["id", "name", "command", "kind", "installed"]) <= set(a) for a i
         fail "[sandbox] AI crash accepted an invalid pid"
     else
         pass "[sandbox] AI crash rejects an invalid pid"
+    fi
+
+    # Regression: agent detection must not depend on the caller's PATH. The
+    # settings hub runs the backend with a restricted PATH (system directories
+    # only) that omits the user's own bin directories; agents installed under
+    # the target HOME must still be detected. This failed before the
+    # deterministic agent PATH was introduced.
+    mkdir -p "$HOME/.local/bin"
+    while IFS= read -r command_name; do
+        [[ -n "$command_name" ]] || continue
+        printf '#!/usr/bin/env bash\nexit 0\n' >"$HOME/.local/bin/$command_name"
+        chmod +x -- "$HOME/.local/bin/$command_name"
+    done < <("$ai_backend" agents | python3 -c 'import json, sys
+for agent in json.load(sys.stdin)["agents"]:
+    print(agent["command"])')
+    if PATH="/usr/local/bin:/usr/bin:/bin" "$ai_backend" agents | python3 -c '
+import json, sys
+agents = json.load(sys.stdin)["agents"]
+assert len(agents) == 14, len(agents)
+not_installed = [a["id"] for a in agents if not a["installed"]]
+assert not not_installed, not_installed
+' >/dev/null; then
+        pass "[sandbox] agent detection ignores the caller PATH and finds HOME-bin agents"
+    else
+        fail "[sandbox] agent detection still depends on the caller PATH"
+    fi
+
+    # The deterministic agent PATH is idempotent, duplicate-free, preserves
+    # the caller's deliberate entries, and keeps the system directories.
+    check_path="$(PATH="/usr/local/bin:/usr/bin:/bin:/opt/caller-tools" "$ai_backend" check | sed -n 's/^agent_path: //p')"
+    local_bin_count="$(printf '%s\n' "$check_path" | tr ':' '\n' | grep -cx -- "$HOME/.local/bin" || true)"
+    if [[ "$local_bin_count" -eq 1 ]] &&
+        printf '%s\n' "$check_path" | tr ':' '\n' | grep -qx -- "/opt/caller-tools" &&
+        printf '%s\n' "$check_path" | tr ':' '\n' | grep -qx -- "/usr/bin" &&
+        printf '%s\n' "$check_path" | tr ':' '\n' | grep -qx -- "/bin"; then
+        pass "[sandbox] deterministic agent PATH is duplicate-free and preserves caller/system entries"
+    else
+        fail "[sandbox] deterministic agent PATH is malformed: $check_path"
     fi
 
     export HOME="$saved_home"

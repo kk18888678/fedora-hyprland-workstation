@@ -119,10 +119,48 @@ PanelWindow {
         return "/usr/local/bin/workstation-app-defaults"
     }
 
+    // Build the PATH handed to bounded backends. The shell's own PATH omits
+    // the user's own bin directories, but the AI backend detects and launches
+    // agents from exactly those directories, so detection must not depend on
+    // the caller's PATH. Include the target user's well-known bin directories
+    // plus the system directories, then preserve the caller's PATH. Derived
+    // from the target user's HOME, never hard-coded.
+    function agentPath() {
+        var home = Quickshell.env("HOME") || ""
+        var dirs = []
+        if (home.indexOf("/") === 0) {
+            dirs.push(home + "/.local/bin")
+            dirs.push(home + "/.npm-global/bin")
+            dirs.push(home + "/.opencode/bin")
+            dirs.push(home + "/.grok/bin")
+            dirs.push(home + "/.nix-profile/bin")
+        }
+        dirs.push("/nix/var/nix/profiles/default/bin")
+        dirs.push("/usr/local/bin")
+        dirs.push("/usr/bin")
+        dirs.push("/bin")
+        var inherited = Quickshell.env("PATH") || ""
+        if (inherited !== "") dirs.push(inherited)
+        // Flatten any inherited PATH entries and drop duplicates so the result
+        // is deterministic and idempotent.
+        var seen = {}
+        var out = []
+        for (var i = 0; i < dirs.length; i++) {
+            var parts = String(dirs[i]).split(":")
+            for (var p = 0; p < parts.length; p++) {
+                var part = parts[p]
+                if (part === "" || seen[part]) continue
+                seen[part] = true
+                out.push(part)
+            }
+        }
+        return out.join(":")
+    }
+
     readonly property var backendEnvironment: makeEnvironment()
     function makeEnvironment() {
         var env = {
-            "PATH": "/usr/local/bin:/usr/bin:/bin" + (Quickshell.env("PATH") ? ":" + Quickshell.env("PATH") : "")
+            "PATH": agentPath()
         }
         var override = Quickshell.env("WORKSTATION_HYPR_SETTINGS_BIN") || ""
         if (override.indexOf("/") === 0) env["WORKSTATION_HYPR_SETTINGS_BIN"] = override
@@ -314,6 +352,9 @@ PanelWindow {
         command: []
         onExited: function(code) {
             root.aiBackendAvailable = (code === 0)
+            // Propagate backend availability so the AI section can render an
+            // explicit unavailable state instead of an empty combo.
+            root.applyAureliaPatch({ aiAvailable: (code === 0) })
             if (code === 0) root.refreshAi()
         }
     }
@@ -327,12 +368,14 @@ PanelWindow {
         onExited: function(code) {
             if (code !== 0) {
                 console.warn("[SETTINGS] ai_agents_unavailable")
+                root.applyAureliaPatch({ aiAvailable: false })
                 return
             }
             try {
                 var parsed = JSON.parse(aiAgentsStdout.text || "{}")
                 var base = root.aureliaState.ai || {}
                 root.applyAureliaPatch({
+                    aiAvailable: true,
                     ai: {
                         default: parsed.default !== undefined ? parsed.default : null,
                         agents: Array.isArray(parsed.agents) ? parsed.agents : [],
@@ -794,7 +837,7 @@ PanelWindow {
         "motionEnabled", "motionScale", "textSize", "barHidden",
         "activeWindowDisplayMode", "agentsPercentMode", "weekStart",
         "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse",
-        "defaults", "ai", "settingsPath"]
+        "defaults", "ai", "aiAvailable", "settingsPath"]
 
     function applyAureliaPatch(patch) {
         var next = {}

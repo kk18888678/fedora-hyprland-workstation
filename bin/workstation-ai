@@ -44,6 +44,57 @@ state_home="${XDG_STATE_HOME:-$home/.local/state}"
 [[ "$state_home" == /* && "$state_home" != "/" ]] || fail "XDG_STATE_HOME must be absolute"
 usage_dir="$state_home/aurelia/agents/usage"
 
+# ---------------------------------------------------------------------------
+# Deterministic agent PATH
+#
+# Agent detection (is_installed) and launch must not depend on the caller's
+# PATH. The settings hub in particular runs this backend with a restricted
+# PATH (system directories only), which made every agent installed under the
+# user's own bin directories look uninstalled. We resolve commands against a
+# PATH the backend builds itself: the target user's well-known bin
+# directories plus the system directories, then whatever the caller set (so a
+# deliberate PATH is preserved). Idempotent and duplicate-free.
+# ---------------------------------------------------------------------------
+deterministic_agent_dirs() {
+    printf '%s\n' \
+        "$home/.local/bin" \
+        "$home/.npm-global/bin" \
+        "$home/.opencode/bin" \
+        "$home/.grok/bin" \
+        "$home/.nix-profile/bin" \
+        "/nix/var/nix/profiles/default/bin" \
+        "/usr/local/bin" \
+        "/usr/bin" \
+        "/bin"
+}
+
+build_agent_path() {
+    local dir path=""
+    local -A seen=()
+    local -a candidates=()
+    while IFS= read -r dir; do
+        [[ -n "$dir" ]] && candidates+=("$dir")
+    done < <(deterministic_agent_dirs)
+    if [[ -n "${PATH:-}" ]]; then
+        local -a caller_path=()
+        IFS=':' read -r -a caller_path <<<"$PATH"
+        for dir in "${caller_path[@]}"; do
+            [[ -n "$dir" ]] && candidates+=("$dir")
+        done
+    fi
+    for dir in "${candidates[@]}"; do
+        [[ -n "$dir" ]] || continue
+        [[ -n "${seen[$dir]:-}" ]] && continue
+        seen["$dir"]=1
+        path="${path:+$path:}$dir"
+    done
+    printf '%s\n' "$path"
+}
+
+agent_path="$(build_agent_path)"
+[[ -n "$agent_path" ]] || fail "could not resolve the agent PATH"
+export PATH="$agent_path"
+
 skill_source="$SCRIPT_DIR/../config/agent-skill/fedora-hyprland-workstation"
 [[ -d "$skill_source" ]] || skill_source="/usr/local/share/fedora-hyprland-workstation/agent-skill/fedora-hyprland-workstation"
 [[ -d "$skill_source" ]] || skill_source="$config_home/aurelia/agent-skill/fedora-hyprland-workstation"
@@ -522,6 +573,7 @@ cmd_check() {
     printf 'default: %s\n' "$(read_default)"
     printf 'terminal: %s\n' "$(terminal_prefix | cut -d'|' -f1 || printf 'unavailable')"
     printf 'skill_source: %s\n' "$skill_source"
+    printf 'agent_path: %s\n' "${PATH:-}"
 }
 
 # subscription list [--json] | set <agent> <key> <value> | unset <agent> <key>

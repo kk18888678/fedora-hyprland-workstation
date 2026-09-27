@@ -525,31 +525,81 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
     if (sectionId === "ai") {
         var ai = aurelia && aurelia.ai ? aurelia.ai : null
         var agents = ai && ai.agents ? ai.agents : []
-        var installed = []
-        for (var a = 0; a < agents.length; a++) {
-            if (agents[a].installed === true) installed.push(agents[a])
-        }
+        var backendAvailable = !!(aurelia && aurelia.aiAvailable)
         rows.push({
             kind: "heading",
             title: "Coding Agents"
         })
-        rows.push({
-            kind: "combo",
-            id: "ai.default",
-            title: "Default Agent",
-            description: "Launched by the AI shortcut and the launch action below.",
-            enumOptions: installed.map(function(entry) {
-                return { value: entry.id, label: entry.name }
-            }),
-            effective: ai ? String(ai.default || "") : ""
-        })
-        rows.push({
-            kind: "action",
-            actionId: "launchAgent",
-            title: "Launch default agent",
-            description: "Open the default agent in a terminal in its unattended mode.",
-            label: "Launch"
-        })
+
+        // Never render an empty combo that reads as "no agents exist": if the
+        // backend could not be reached, say so explicitly.
+        if (agents.length === 0) {
+            rows.push({
+                kind: "info",
+                title: backendAvailable ? "No supported agents" : "Agent backend unavailable",
+                value: backendAvailable ? "None" : "Unavailable",
+                description: backendAvailable
+                    ? "The AI agent backend reported no supported agents."
+                    : "The workstation-ai backend could not be reached, so the supported agent list cannot be shown. Reopen Settings or run `workstation-ai agents` in a terminal."
+            })
+        } else {
+            // The selector lists EVERY supported agent with honest availability;
+            // uninstalled agents stay selectable so a preference can be set before
+            // they are provisioned. The stored value is validated against this
+            // full registry, and an unknown value is shown explicitly instead of
+            // silently falling back to a placeholder option.
+            var defaultId = ai ? String(ai.default || "") : ""
+            var knownDefault = false
+            var selectedInstalled = false
+            for (var d = 0; d < agents.length; d++) {
+                if (String(agents[d].id) === defaultId) {
+                    knownDefault = true
+                    selectedInstalled = agents[d].installed === true
+                    break
+                }
+            }
+            var unknownDefault = defaultId !== "" && !knownDefault
+            rows.push({
+                kind: "combo",
+                id: "ai.default",
+                title: "Default Agent",
+                description: "Launched by the AI shortcut and the launch action below.",
+                enumOptions: agents.map(function(entry) {
+                    var label = String(entry.name)
+                    if (entry.installed !== true) label += " \u2014 not installed"
+                    return { value: String(entry.id), label: label }
+                }),
+                effective: defaultId,
+                placeholder: unknownDefault ? "Unknown agent \u2014 re-select" : "",
+                unknown: unknownDefault
+            })
+
+            var launchDescription = "Open the default agent in a terminal in its unattended mode."
+            var launchEnabled = true
+            if (defaultId === "") {
+                launchEnabled = false
+                launchDescription = "Set a default agent first; the list above remains available."
+            } else if (unknownDefault) {
+                launchEnabled = false
+                launchDescription = "The stored default agent is not in the supported list; re-select one above."
+            } else if (selectedInstalled !== true) {
+                launchEnabled = false
+                launchDescription = "The selected default agent is not installed; install it or pick another. The preference can still be saved."
+            }
+            rows.push({
+                kind: "action",
+                actionId: "launchAgent",
+                title: "Launch default agent",
+                description: launchDescription,
+                label: "Launch",
+                enabled: launchEnabled
+            })
+        }
+
+        var installed = []
+        for (var a = 0; a < agents.length; a++) {
+            if (agents[a].installed === true) installed.push(agents[a])
+        }
         var installedNames = installed.map(function(entry) { return entry.name })
         rows.push({
             kind: "info",
@@ -697,6 +747,7 @@ function emptyAureliaState() {
         clockHour24: true,
         clockSeconds: false,
         onlyWorkspacesInUse: true,
+        aiAvailable: false,
         ai: { default: null, agents: [] },
         settingsPath: ""
     }

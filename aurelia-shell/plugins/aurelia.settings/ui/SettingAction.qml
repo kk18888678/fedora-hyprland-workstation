@@ -12,6 +12,7 @@ RowLayout {
     property string title: descriptor ? String(descriptor.title || "") : ""
     property string description: descriptor ? String(descriptor.description || "") : ""
     property string label: descriptor ? String(descriptor.label || "Run") : "Run"
+    property bool enabled: descriptor ? descriptor.enabled !== false : true
 
     signal action()
 
@@ -49,6 +50,7 @@ RowLayout {
         Layout.rightMargin: Theme.spacingSm
         Layout.alignment: Qt.AlignVCenter
         label: root.label
+        enabled: root.enabled
         primary: !!descriptor && descriptor.primary === true
         onClicked: root.action()
     }
