@@ -34,12 +34,15 @@ def main() -> int:
     if len(sys.argv) > 1:
         collector = Path(sys.argv[1])
     module = load_collector(collector)
-    token = module.claude_access_token()
-    # The token is never emitted; only presence and length are safe to report.
+    # Durable path first: ask the pi owner to mint a bearer token. Only the
+    # presence/length of the token is ever reported.
+    token, diagnostic = module.claude_owner_token()
     result = {
         "credentialPresent": bool(token),
         "credentialLength": len(token) if token else 0,
     }
+    if diagnostic:
+        result["diagnostic"] = diagnostic
     limits = module.fetch_claude_limits(token).get("limits") if token else []
     if not token:
         result["status"] = "no credential (no network call)"

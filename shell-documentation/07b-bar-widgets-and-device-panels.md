@@ -464,6 +464,19 @@ diagnostic. Window classification is numeric from
 `windowMinutes` only: 300 -> five-hour, 10080 -> week, 43200 -> 30-day, any
 other present value -> `other`, and missing/0/NaN -> `unknown`. `MONTH` is
 labelled as a 30-day rolling window and is never described as "this month".
+An empty `limits[]` is always accompanied by an
+`[AGENTS] unmet_condition ... condition=missing_limits` diagnostic, never a
+silent empty array and never a fabricated `0%`. The collectors are read-only
+and never refresh or write credentials: Claude asks pi to mint a bearer token
+per request, Cline uses the user-owned, non-expiring API key in
+`~/.config/workstation/ai-keys.conf` (mode 0600, field `cline.api_key`; also
+`CLINE_API_KEY`), Codex uses the Codex CLI app-server read methods, and
+OpenCode uses its non-expiring user key. A provider whose durable credential is
+not configured reports the "not configured"/local-only status with
+`retryAdvised: false`; a rejected credential reports a redacted, actionable
+`authHelpText`. See
+[13-ai-first-platform.md](13-ai-first-platform.md) for the per-provider
+authoritative source and ownership model.
 
 The per-account tab (one tab per detected account, in the same fixed order,
 labelled with the provider `name`) renders:

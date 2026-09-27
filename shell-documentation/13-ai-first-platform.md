@@ -354,9 +354,51 @@ base style scale in
 
 | Provider | Local data | Authoritative limits/balance |
 |---|---|---|
-| Claude | `~/.claude/projects` JSONL; fallback `stats-cache.json` and `history.jsonl`; also pi (provider id `anthropic`), Oh My Pi, and OpenCode Anthropic sessions; a pi `anthropic` credential in `agent/auth.json`/`agent/models-store.json` surfaces a configured-but-unused account | OAuth usage endpoint; `CLAUDE_CONFIG_DIR` may relocate the home |
-| Codex | native `CODEX_HOME/sessions` and archived sessions; Pi/Oh My Pi/OpenCode OpenAI sessions | Codex app-server RPC: `initialize`, `account/read`, `account/rateLimits/read` |
+| Claude | `~/.claude/projects` JSONL; fallback `stats-cache.json` and `history.jsonl`; also pi (provider id `anthropic`), Oh My Pi, and OpenCode Anthropic sessions; a pi `anthropic` credential in `agent/auth.json`/`agent/models-store.json` surfaces a configured-but-unused account | `GET https://api.anthropic.com/api/oauth/usage`; the bearer token is minted on demand by the pi owner (`pi auth print-bearer-token --provider anthropic`), with the CLI-owned `~/.claude/.credentials.json` as a secondary read-only path; `CLAUDE_CONFIG_DIR` may relocate the home |
+| Codex | native `CODEX_HOME/sessions` and archived sessions; Pi/Oh My Pi/OpenCode OpenAI sessions | Codex CLI-owned app-server RPC: `initialize`, `account/read`, `account/rateLimits/read` (the CLI owns its own refresh) |
+| OpenCode | `$XDG_DATA_HOME/opencode/opencode.db` (`session`/`message` tables) and pi (provider id `opencode`) sessions | `GET https://opencode.ai/zen/go/v1/usage` with the non-expiring user-owned `opencode-go` key from `~/.pi/agent/auth.json` or `~/.local/share/opencode/auth.json` |
+| Cline | VS Code/Cursor/VSCodium `saoudrizwan.claude-dev` tasks and the Cline CLI session logs; plus pi (provider id `cline`) sessions | `GET https://api.cline.bot/api/v1/users/me/plan/usage-limits` with the user-owned, non-expiring API key; the short-lived OAuth token is an explicitly-labelled best-effort fallback only |
 | Fireworks | billing API grouped by day/model over the last 30 days | live balance when permitted, otherwise configured funding minus rated costs; `scope: account` |
+
+### Durable credential ownership
+
+`aurelia` never refreshes and never writes any credential. Each collector
+resolves limits from the most durable source available and asks the real owner
+to supply a credential when one has a lifecycle, so the shell is never a second
+writer racing the owner:
+
+| Provider | Credential owner | Durable source | One-time user action |
+|---|---|---|---|
+| Claude | pi (which owns the login) | `pi auth print-bearer-token --provider anthropic`, minted per request; secondary read-only `~/.claude/.credentials.json` | none beyond `pi login` / Claude Code sign-in |
+| Cline | the user | `~/.config/workstation/ai-keys.conf` (mode 0600) field `cline.api_key`, or `CLINE_API_KEY` | create a Cline API key once and store it |
+| Codex | the Codex CLI | `codex app-server` JSON-RPC read methods | `codex login` |
+| OpenCode | the user | non-expiring `opencode-go` key in `~/.pi/agent/auth.json` / `~/.local/share/opencode/auth.json` | none |
+
+The Cline route `/api/v1/users/me/plan/usage-limits` is **undocumented**: it is
+used by the Cline web app but appears in neither the Cline CLI nor the VS Code
+extension bundle, so its response shape may change without notice and the
+collector may require maintenance. A changed shape fails closed as
+`Cline limits unavailable` with `limits: []`; a fabricated `0%` is never
+emitted. The request must use exactly `Authorization: Bearer <key>` (the route
+rejects `x-api-key` with 401). A Cline API key secret is **shown only once at
+creation**, so the user must create a fresh key and store it in the private
+file:
+
+```text
+path   ~/.config/workstation/ai-keys.conf
+mode   0600
+field  cline.api_key=sk_...
+```
+
+A group/world-readable key file is refused rather than read. A missing key is a
+local-only state: no network call, `limits: []`, the "not configured" status
+and `retryAdvised: false`. A rejected key (401/403) produces a non-retryable,
+redacted `authHelpText` pointing back at the Cline dashboard account page. An
+empty `limits[]` from any of these states still drives the existing
+`[AGENTS] unmet_condition provider=... condition=missing_limits` diagnostic, so
+the panel never silently renders an empty array. All collector HTTP requests
+use an explicit 10-second timeout and the owner subprocess is bounded and
+killed on timeout.
 
 Claude’s limits probe is cached for 15 seconds and advises a retry after
 transport failure. Codex local scans use a 20-second reuse window for concurrent
