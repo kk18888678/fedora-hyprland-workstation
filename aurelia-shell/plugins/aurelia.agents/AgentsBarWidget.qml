@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "../../theme"
 import "../../ui"
+import "../../services"
 import "AgentUsage.js" as AgentUsage
 
 // Local AI subscription usage in the bar. The affordance is deliberately
@@ -32,8 +33,12 @@ Item {
     property double lastLoadedMs: 0
     property real nowMs: Date.now()
     property bool pendingForce: false
-    property var limitState: ({})
-    property var renewalState: ({})
+    // Durable announced-state. It is loaded from disk once, then advanced in
+    // memory and persisted atomically. Emission is blocked until it has loaded,
+    // otherwise a restart would plan against an empty baseline and overwrite
+    // the durable state before the real value arrived.
+    property var notificationState: null
+    property bool notificationStateLoaded: false
     // Non-visual refresh state exposed to the panel so its icon-only Refresh
     // control can disable itself and show a busy state while a probe runs.
     // The bar affordance itself is unchanged.
@@ -77,6 +82,42 @@ Item {
     readonly property string percentMode: AgentUsage.normalizePercentMode(
         root.settings && root.settings.percentMode !== undefined
             ? root.settings.percentMode : "remaining")
+    // Notification settings are read from the manifest-default overlay the host
+    // injects. These MUST be honoured by applyLimitNotifications: a stored
+    // setting that is not read is exactly the reported failure.
+    function boolSetting(key, fallback) {
+        var value = root.settings ? root.settings[key] : undefined
+        if (value === true || value === false) return value
+        if (value === undefined || value === null || value === "") return fallback
+        var text = String(value).toLowerCase()
+        if (text === "true") return true
+        if (text === "false") return false
+        return fallback
+    }
+    readonly property bool notificationsEnabled: root.boolSetting("notifications", true)
+    readonly property string notifyMinSeverity: {
+        var raw = root.settings && root.settings.notifyMinSeverity !== undefined
+            ? String(root.settings.notifyMinSeverity).toLowerCase() : "warn"
+        return raw === "critical" ? "critical" : "warn"
+    }
+    readonly property bool notifyRenewals: root.boolSetting("notifyRenewals", true)
+    // First-party sender. The explicit "Aurelia Agents" app name is required:
+    // the sender defaults to "aurelia-action", which the notification service
+    // treats as a DND bypass. "Aurelia Agents" is a normal app name, so global
+    // DND keeps working.
+    readonly property string notificationSender: {
+        if (root.aureliaPath !== "") return root.aureliaPath + "/bin/aurelia-notification-send"
+        return "/usr/local/bin/aurelia-notification-send"
+    }
+    readonly property string notificationStatePath: {
+        var stateHome = Quickshell.env("XDG_STATE_HOME") || ""
+        if (stateHome.indexOf("/") !== 0) {
+            var home = Quickshell.env("HOME") || ""
+            stateHome = home !== "" ? home + "/.local/state" : ""
+        }
+        if (stateHome === "" || stateHome === "/") return ""
+        return stateHome + "/aurelia/agents/notification-state.json"
+    }
     readonly property var readyAgents: AgentUsage.readyAgents(root.agents)
     readonly property var visibleAgents: AgentUsage.detectedAgents(root.agents)
     readonly property bool hasAgents: root.loaded && root.visibleAgents.length > 0
@@ -203,19 +244,34 @@ Item {
         return lines.join("\n")
     }
 
-    // Notify on limit resets and near-exhaustion. The previous observation is
-    // fed back so only transitions fire, not the steady state.
+    // Decide and emit notifications. The pure policy owns every anti-flood
+    // rule; this only reads settings, gates on the single owner, persists the
+    // returned state atomically, and hands the bounded list to the sender.
     function applyLimitNotifications() {
-        var limits = AgentUsage.limitTransitions(root.agents, root.limitState)
-        root.limitState = limits.state
-        var renewals = AgentUsage.renewalReminders(root.agents, root.renewalState,
-            AgentUsage.todayDate(Date.now()))
-        root.renewalState = renewals.state
-        var notices = limits.notifications.concat(renewals.notifications)
-        for (var i = 0; i < notices.length; i++) {
+        // Gate emission to the one anchored instance so N screens cannot each
+        // emit their own copy of the same event. The persisted state plus the
+        // minimum interval keep even a race non-flooding.
+        if (!root.ipcOwner) return
+        if (!root.notificationsEnabled) return
+        if (!root.notificationStateLoaded) return
+        var plan = AgentUsage.notificationPlan(root.agents, root.notificationState, {
+            enabled: root.notificationsEnabled,
+            minSeverity: root.notifyMinSeverity,
+            renewals: root.notifyRenewals
+        }, Date.now())
+        root.notificationState = plan.state
+        // Persist the advanced state atomically (0600, temp-file-plus-rename).
+        // The write is async, but the in-memory state is already advanced, so a
+        // crash before the rename only means the next start re-baselines.
+        notificationStore.setValue(AgentUsage.serializeNotificationState(plan.state))
+        for (var i = 0; i < plan.notifications.length; i++) {
+            var notice = plan.notifications[i]
+            // DND remains respected: normal urgency plus a non-bypassing app
+            // name. The announced state above still advances while DND mutes
+            // display, so disabling DND cannot replay a backlog.
             Quickshell.execDetached([
-                "notify-send", "-a", "Aurelia Agents", "-u", "normal",
-                notices[i].title, notices[i].body
+                root.notificationSender, "--app-name", "Aurelia Agents", "-u", "normal",
+                String(notice.title || "AI usage"), String(notice.body || "")
             ])
         }
     }
@@ -331,6 +387,25 @@ Item {
         running: !!(root.bar && root.bar.barVisible)
         repeat: true
         onTriggered: root.refresh(false)
+    }
+
+    // Atomic 0600 announced-state persistence at
+    // $XDG_STATE_HOME/aurelia/agents/notification-state.json. A missing, empty
+    // or corrupt file loads as empty state, which baseline-suppresses rather
+    // than bursting. The write is a temp-file-plus-rename in the store.
+    OptionalFileStore {
+        id: notificationStore
+        path: root.notificationStatePath
+        writable: true
+        watchChanges: false
+        onLoaded: function(value) {
+            root.notificationState = AgentUsage.deserializeNotificationState(value)
+            root.notificationStateLoaded = true
+        }
+        onLoadFailed: function(reason) {
+            root.notificationState = AgentUsage.deserializeNotificationState("")
+            root.notificationStateLoaded = true
+        }
     }
 
     HoverHandler { id: pointerHover }

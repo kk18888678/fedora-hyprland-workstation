@@ -709,7 +709,10 @@ PanelWindow {
         loadAureliaThemes()
         root.applyAureliaPatch({
             activeWindowDisplayMode: root.readActiveWindowDisplayMode(),
-            agentsPercentMode: root.readAgentsPercentMode()
+            agentsPercentMode: root.readAgentsPercentMode(),
+            agentsNotifications: root.readAgentsNotifications(),
+            agentsNotifyMinSeverity: root.readAgentsNotifyMinSeverity(),
+            agentsNotifyRenewals: root.readAgentsNotifyRenewals()
         })
         motionProcess.command = [root.helperBin("workstation-aurelia"), "motion", "status"]
         motionProcess.running = true
@@ -754,6 +757,41 @@ PanelWindow {
         return mode === "used" ? "used" : "remaining"
     }
 
+    // Notification settings, read from the same manifest-default overlay as the
+    // percentage mode. Fail closed to the documented defaults so a missing or
+    // malformed value never silently disables notifications in the hub.
+    function boolSetting(value, fallback) {
+        if (value === true || value === false) return value
+        if (value === undefined || value === null || value === "") return fallback
+        var text = String(value).toLowerCase()
+        if (text === "true") return true
+        if (text === "false") return false
+        return fallback
+    }
+
+    function readAgentsNotifications() {
+        var registry = pluginRoot ? pluginRoot.pluginRegistry : null
+        var settings = registry && typeof registry.settingsForEntry === "function"
+            ? registry.settingsForEntry("aurelia.agents", {}) : null
+        return root.boolSetting(settings ? settings.notifications : undefined, true)
+    }
+
+    function readAgentsNotifyMinSeverity() {
+        var registry = pluginRoot ? pluginRoot.pluginRegistry : null
+        var settings = registry && typeof registry.settingsForEntry === "function"
+            ? registry.settingsForEntry("aurelia.agents", {}) : null
+        var mode = settings && settings.notifyMinSeverity !== undefined
+            ? String(settings.notifyMinSeverity).toLowerCase() : ""
+        return mode === "critical" ? "critical" : "warn"
+    }
+
+    function readAgentsNotifyRenewals() {
+        var registry = pluginRoot ? pluginRoot.pluginRegistry : null
+        var settings = registry && typeof registry.settingsForEntry === "function"
+            ? registry.settingsForEntry("aurelia.agents", {}) : null
+        return root.boolSetting(settings ? settings.notifyRenewals : undefined, true)
+    }
+
     function refreshAi() {
         if (!root.aiBackendAvailable) return
         aiAgentsProcess.command = [root.aiBin, "agents"]
@@ -794,6 +832,7 @@ PanelWindow {
         "motionEnabled", "motionScale", "textSize", "barHidden",
         "activeWindowDisplayMode", "agentsPercentMode", "weekStart",
         "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse",
+        "agentsNotifications", "agentsNotifyMinSeverity", "agentsNotifyRenewals",
         "defaults", "ai", "settingsPath"]
 
     function applyAureliaPatch(patch) {
@@ -882,6 +921,20 @@ PanelWindow {
         case "aurelia.agents.percentMode":
             runHelper([root.helperBin("aurelia-bar"), "set", "aurelia.agents",
                        "percentMode", String(value)], "Setting AI usage percentage…")
+            break
+        case "aurelia.agents.notifications":
+            runHelper([root.helperBin("aurelia-bar"), "set", "aurelia.agents",
+                       "notifications", value ? "true" : "false", "--json"],
+                       "Setting AI usage notifications…")
+            break
+        case "aurelia.agents.notifyMinSeverity":
+            runHelper([root.helperBin("aurelia-bar"), "set", "aurelia.agents",
+                       "notifyMinSeverity", String(value)], "Setting AI notification severity…")
+            break
+        case "aurelia.agents.notifyRenewals":
+            runHelper([root.helperBin("aurelia-bar"), "set", "aurelia.agents",
+                       "notifyRenewals", value ? "true" : "false", "--json"],
+                       "Setting AI renewal reminders…")
             break
         case "aurelia.calendar.weekStart":
             runHelper([root.helperBin("workstation-aurelia"), "preference", "set",
