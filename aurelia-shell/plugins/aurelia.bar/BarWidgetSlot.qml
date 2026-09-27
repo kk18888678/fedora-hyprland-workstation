@@ -409,7 +409,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: 2
+        height: Theme.bar.underlineHeight
         color: Theme.accent
         z: 20
     }

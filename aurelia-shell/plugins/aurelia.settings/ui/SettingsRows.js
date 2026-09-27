@@ -607,6 +607,35 @@ function buildRows(sectionId, schemas, statuses, aurelia) {
             value: installedNames.length > 0 ? installedNames.join(", ") : "None detected",
             description: "Agents are provisioned by the installer or your package manager; this backend only detects and launches them."
         })
+        rows.push({
+            kind: "heading",
+            title: "AI Usage Notifications"
+        })
+        rows.push({
+            kind: "toggle",
+            id: "aurelia.agents.notifications",
+            title: "Usage notifications",
+            description: "Notify when an AI usage limit crosses the warning or critical threshold.",
+            effective: aurelia ? aurelia.agentsNotifications !== false : true
+        })
+        rows.push({
+            kind: "combo",
+            id: "aurelia.agents.notifyMinSeverity",
+            title: "Minimum severity",
+            description: "Notify on both warnings and critical limits, or only on critical limits.",
+            enumOptions: [
+                { value: "warn", label: "Warnings and critical" },
+                { value: "critical", label: "Critical only" }
+            ],
+            effective: (aurelia && aurelia.agentsNotifyMinSeverity) ? aurelia.agentsNotifyMinSeverity : "warn"
+        })
+        rows.push({
+            kind: "toggle",
+            id: "aurelia.agents.notifyRenewals",
+            title: "Renewal reminders",
+            description: "Notify once per day while a recorded subscription renewal is near.",
+            effective: aurelia ? aurelia.agentsNotifyRenewals !== false : true
+        })
         var subscriptions = ai && ai.subscriptions ? ai.subscriptions : {}
         var usageAgents = ai && ai.usageAgents ? ai.usageAgents : []
         if (usageAgents.length > 0) {
@@ -742,6 +771,9 @@ function emptyAureliaState() {
         barHidden: false,
         activeWindowDisplayMode: "app",
         agentsPercentMode: "remaining",
+        agentsNotifications: true,
+        agentsNotifyMinSeverity: "warn",
+        agentsNotifyRenewals: true,
         weekStart: "sunday",
         clockFormat: "month_day_weekday_time",
         clockHour24: true,

@@ -36,14 +36,28 @@ if jq -e '.id == "aurelia.agents" and .name == "AI Usage" and .kinds == ["bar-wi
           .barWidget.defaultSection == "right" and
           .barWidget.displayName == "AI Usage" and
           .barWidget.defaults.percentMode == "remaining" and
-          (.barWidget.schema | length == 1) and
+          .barWidget.defaults.notifications == true and
+          .barWidget.defaults.notifyMinSeverity == "warn" and
+          .barWidget.defaults.notifyRenewals == true and
+          (.barWidget.schema | length == 4) and
           .barWidget.schema[0].key == "percentMode" and
           .barWidget.schema[0].type == "enum" and
           .barWidget.schema[0].defaultValue == "remaining" and
           .barWidget.schema[0].options[0].value == "remaining" and
-          .barWidget.schema[0].options[1].value == "used"' \
+          .barWidget.schema[0].options[1].value == "used" and
+          .barWidget.schema[1].key == "notifications" and
+          .barWidget.schema[1].type == "boolean" and
+          .barWidget.schema[1].defaultValue == true and
+          .barWidget.schema[2].key == "notifyMinSeverity" and
+          .barWidget.schema[2].type == "enum" and
+          .barWidget.schema[2].defaultValue == "warn" and
+          .barWidget.schema[2].options[0].value == "warn" and
+          .barWidget.schema[2].options[1].value == "critical" and
+          .barWidget.schema[3].key == "notifyRenewals" and
+          .barWidget.schema[3].type == "boolean" and
+          .barWidget.schema[3].defaultValue == true' \
        "$plugin_dir/manifest.json" >/dev/null; then
-    pass "[static] agents manifest is the AI Usage bar widget with a remaining-default percentage setting"
+    pass "[static] agents manifest is the AI Usage bar widget with durable notification defaults"
 else
     fail "[static] agents manifest contract is invalid"
 fi
@@ -84,12 +98,38 @@ if grep -q 'visible: root.hasAgents' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q '"usage"' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.parseRecords' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'applyLimitNotifications' "$plugin_dir/AgentsBarWidget.qml" &&
-   grep -q 'notify-send' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.notificationPlan' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.serializeNotificationState' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.deserializeNotificationState' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -q 'notify-send' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.bindingLimit' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.barState' "$plugin_dir/AgentsBarWidget.qml"; then
     pass "[static] agents widget refreshes through workstation-ai and derives state from the record contract"
 else
     fail "[static] agents widget backend wiring is incomplete"
+fi
+
+# The anti-flood policy is durable and settings-driven: the widget reads the
+# three notification settings, returns immediately when disabled, gates on the
+# single owner, plans through the pure policy, persists atomically and keeps
+# DND-respecting delivery through the first-party sender.
+if grep -q 'notificationsEnabled' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'notifyMinSeverity' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'notifyRenewals' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'if (!root.notificationsEnabled) return' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'if (!root.ipcOwner) return' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'if (!root.notificationStateLoaded) return' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'OptionalFileStore {' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'writable: true' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'notification-state.json' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'aurelia-notification-send' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q '"Aurelia Agents"' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'function notificationPlan(records, persistedState, options, nowMs)' "$plugin_dir/AgentUsage.js" &&
+   grep -q 'function serializeNotificationState(state)' "$plugin_dir/AgentUsage.js" &&
+   grep -q 'function deserializeNotificationState(text)' "$plugin_dir/AgentUsage.js"; then
+    pass "[static] agents widget honours the notification settings, plans durably and keeps DND-respecting delivery"
+else
+    fail "[static] agents notification wiring is incomplete"
 fi
 
 # Icon-only bar affordance: a square slot with one shared-primitive glyph and a
@@ -294,7 +334,7 @@ if command -v node >/dev/null; then
     projection_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$projection_test"
     cat >>"$projection_test" <<'AGENT_USAGE_EXPORTS'
-module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, todayModels, modelRowsFrom, dayTokens, todayUsage, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, clamp, todayDate, limitTransitions, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, renewalReminders, classifyWindow, canonicalWindowOrder, windowColumnLabel, windowDescription, defaultWindowName, limitIsLive, liveLimits, hasLiveLimits, worstLimitFor, severityGlyph, paceWord, cellCountdown, matrixCell, matrixRow, matrixRows, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticKey, diagnosticLine, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, headlineFor };
+module.exports = { number, formatTokens, parseRecords, readyAgents, detectedAgents, todayTotal, tierLabel, sortedModels, recentBars, dayChartBars, bindingLimit, resetMsFor, formatDuration, updatedAtMs, recordAgeMs, isRecordStale, freshnessText, heroMeta, dayLabel, weekPeak, modelRows, todayModels, modelRowsFrom, dayTokens, todayUsage, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, clamp, todayDate, notificationPlan, serializeNotificationState, deserializeNotificationState, emptyNotificationState, severityFor, severityForLimit, overallSeverity, paceInfo, elapsedFraction, billingText, classifyWindow, canonicalWindowOrder, windowColumnLabel, windowDescription, defaultWindowName, limitIsLive, liveLimits, hasLiveLimits, worstLimitFor, severityGlyph, paceWord, cellCountdown, matrixCell, matrixRow, matrixRows, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticKey, diagnosticLine, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, headlineFor };
 AGENT_USAGE_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -309,10 +349,10 @@ const bars = A.recentBars([
 const models = A.sortedModels({small: {inputTokens: 1}, big: {inputTokens: 10, outputTokens: 5}});
 const limits = [{percent: 0.2, resetsAt: "2030-01-01T00:00:00Z"}, {percent: 0.8, resetsAt: "2030-01-01T00:00:00Z"}];
 const rec = (percent, resetsAt) => [{id: "codex", name: "Codex", ready: true, limits: [{label: "Monthly", percent: percent, resetsAt: resetsAt}]}];
-const first = A.limitTransitions(rec(0.5, "2030-01-01"), {});
-const reset = A.limitTransitions(rec(0.4, "2030-02-01"), first.state);
-const exhausted = A.limitTransitions(rec(0.95, "2030-02-01"), reset.state);
-const steady = A.limitTransitions(rec(0.95, "2030-02-01"), exhausted.state);
+const notifBase = 1700000000000;
+const first = A.notificationPlan(rec(0.5, "2030-01-01T00:00:00Z"), A.emptyNotificationState(), {renewals: false}, notifBase);
+const crossed = A.notificationPlan(rec(0.95, "2030-01-01T00:00:00Z"), first.state, {renewals: false}, notifBase + 1000);
+const steady = A.notificationPlan(rec(0.95, "2030-01-01T00:00:00Z"), crossed.state, {renewals: false}, notifBase + 2000);
 const nowMs = 1700000000000;
 const future = new Date(nowMs + 3.5 * 86400000).toISOString();
 const paceEven = A.paceInfo({percent: 0.5, resetsAt: future, windowMinutes: 10080}, nowMs);
@@ -330,11 +370,14 @@ const countdownIso = "2040-01-01T00:00:00+00:00";
 const ok =
     A.billingText({subscription: {renew: "2030-01-01", daysLeft: 5}}) === "Renews 2030-01-01 · in 5 days" &&
     A.billingText({}) === "" &&
-    A.renewalReminders([{id: "codex", name: "Codex", ready: true,
-        subscription: {renew: "2030-01-01", daysLeft: 2, reminderDays: 3}}], {}, "2026-09-19").notifications.length === 1 &&
-    A.renewalReminders([{id: "codex", name: "Codex", ready: true,
+    A.notificationPlan([{id: "codex", name: "Codex", ready: true,
         subscription: {renew: "2030-01-01", daysLeft: 2, reminderDays: 3}}],
-        {"renew|codex": "2026-09-19"}, "2026-09-19").notifications.length === 0 &&
+        { renewals: { "id:codex": { announcedForDate: "2020-01-01", renewValue: "2030-01-01" } } },
+        {renewals: true}, notifBase).notifications.length === 1 &&
+    A.notificationPlan([{id: "codex", name: "Codex", ready: true,
+        subscription: {renew: "2030-01-01", daysLeft: 2, reminderDays: 3}}],
+        { renewals: { "id:codex": { announcedForDate: A.todayDate(notifBase), renewValue: "2030-01-01" } } },
+        {renewals: true}, notifBase).notifications.length === 0 &&
     A.severityFor(50) === "ok" && A.severityFor(80) === "warn" && A.severityFor(95) === "critical" &&
     A.severityForLimit({percent: 0.95}) === "critical" &&
     paceEven && Math.abs(paceEven.elapsed - 0.5) < 0.01 && paceEven.behind === false &&
@@ -357,8 +400,7 @@ const ok =
     A.isRecordStale({updatedAt: new Date(nowMs).toISOString()}, nowMs, 5 * 60000) === false &&
     A.freshnessText({updatedAt: new Date(nowMs - 5 * 60000).toISOString()}, nowMs) === "5m ago" &&
     first.notifications.length === 0 &&
-    reset.notifications.length === 1 && reset.notifications[0].title.indexOf("reset") >= 0 &&
-    exhausted.notifications.length === 1 && exhausted.notifications[0].title.indexOf("critical") >= 0 &&
+    crossed.notifications.length === 1 && crossed.notifications[0].title.indexOf("critical") >= 0 &&
     steady.notifications.length === 0 &&
     A.bindingLimit({limits: limits}).percent === 0.8 &&
     A.formatDuration(90 * 60000) === "1h 30m" &&

@@ -375,6 +375,32 @@ ShellRoot {
         }
     }
 
+    // Hover-underline shape probes. `hoverOverride` is a documented
+    // fixture-only seam unused in production; it drives the pointer branch so
+    // the underline's accent colour can be sampled without a real pointer.
+    // Both probes use the same label so the geometry is directly comparable.
+    Loader {
+        id: hoverLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.settings = ({displayMode: "app", maxWidth: 280})
+            item.activeToplevelOverride = fixtureAppToplevel
+            item.hoverOverride = true
+        }
+    }
+
+    Loader {
+        id: restLoader
+        source: root.widgetSource
+        onLoaded: {
+            item.bar = fakeBar
+            item.settings = ({displayMode: "app", maxWidth: 280})
+            item.activeToplevelOverride = fixtureAppToplevel
+            item.hoverOverride = false
+        }
+    }
+
     FileView {
         id: resultFile
         path: root.resultPath
@@ -427,10 +453,12 @@ ShellRoot {
         var click = clickLoader.item
         var missing = missingIconLoader.item
         var symbolic = symbolicIconLoader.item
+        var hoverItem = hoverLoader.item
+        var restItem = restLoader.item
         if (!title || !titleMode || !invalidMode || !fixtureApp || !footItem || !chromiumItem ||
                 !appId || !classItem || !modelFallback || !modelAmbiguous || !modelEmpty ||
                 !longItem || !capped || !shortItem || !empty ||
-                !vertical || !click || !missing || !symbolic) {
+                !vertical || !click || !missing || !symbolic || !hoverItem || !restItem) {
             root.finished = true
             resultFile.setText(JSON.stringify({loaded: false}) + "\n")
             return
@@ -480,6 +508,20 @@ ShellRoot {
                 implicitWidth: Number(title.implicitWidth),
                 outerLabelWidth: Number(title.labelWidth),
                 iconSpacing: Number(title.iconSpacing)
+            },
+            // Hover-underline shape. The hovered probe drives the accent
+            // branch through the fixture-only seam; the rest probe proves the
+            // "transparent" branch. Colour is asserted only by alpha so the
+            // check stays token-agnostic across the active theme.
+            hover: {
+                thickness: Number(hoverItem.hoverUnderlineThickness),
+                leftInset: Number(hoverItem.hoverUnderlineLeftInset),
+                rightInset: Number(hoverItem.hoverUnderlineRightInset),
+                bottomInset: Number(hoverItem.hoverUnderlineBottomInset),
+                spansWidth: hoverItem.hoverUnderlineSpansWidth === true,
+                fullCover: hoverItem.hoverUnderlineFullCover === true,
+                restAlpha: Number(restItem.hoverUnderlineColor.a),
+                hoverAlpha: Number(hoverItem.hoverUnderlineColor.a)
             },
             missingIcon: {
                 slotVisible: missing.iconSlotVisible === true,

@@ -196,7 +196,7 @@ match = re.search(r"aureliaStateKeys:\s*\[(.*?)\]", src, re.S)
 if not match:
     sys.exit(1)
 keys = set(re.findall(r'"([^"]+)"', match.group(1)))
-need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse", "activeWindowDisplayMode", "agentsPercentMode"}
+need = {"ai", "defaults", "weekStart", "clockFormat", "clockHour24", "clockSeconds", "onlyWorkspacesInUse", "activeWindowDisplayMode", "agentsPercentMode", "agentsNotifications", "agentsNotifyMinSeverity", "agentsNotifyRenewals"}
 sys.exit(0 if need <= keys else 1)
 STATE_KEYS
 then
@@ -362,6 +362,64 @@ process.exit(ok ? 0 : 1);
     rm -f -- "$agents_rows_test"
 else
     skip "[unit] AI Usage percentage mode row (node unavailable)"
+fi
+
+# AI Usage notification-settings rows: the master switch, the minimum-severity
+# combo and the renewal toggle read the registry overlay and write through the
+# canonical aurelia-bar CLI (never mutating config directly).
+if grep -q 'aurelia.agents.notifications' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'aurelia.agents.notifyMinSeverity' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'aurelia.agents.notifyRenewals' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'agentsNotifications' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'agentsNotifyMinSeverity' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'agentsNotifyRenewals' "$plugin_dir/ui/SettingsRows.js" &&
+   grep -q 'aurelia.agents.notifications' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'aurelia.agents.notifyMinSeverity' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'aurelia.agents.notifyRenewals' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'settingsForEntry("aurelia.agents", {})' "$plugin_dir/ui/SettingsWindow.qml" &&
+   grep -q 'helperBin("aurelia-bar"), "set", "aurelia.agents"' "$plugin_dir/ui/SettingsWindow.qml"; then
+    pass "[static] AI Usage notification rows read the registry overlay and write through the aurelia-bar CLI"
+else
+    fail "[static] AI Usage notification row wiring is incomplete"
+fi
+
+if command -v node >/dev/null; then
+    notification_rows_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_dir/ui/SettingsRows.js" >"$notification_rows_test"
+    cat >>"$notification_rows_test" <<'NOTIFICATION_ROWS_EXPORTS'
+module.exports = { buildRows, emptyAureliaState };
+NOTIFICATION_ROWS_EXPORTS
+    if node -e '
+const SR = require(process.argv[1]);
+const defaults = SR.buildRows("ai", [], {}, SR.emptyAureliaState());
+const custom = Object.assign({}, SR.emptyAureliaState(), {
+    agentsNotifications: false, agentsNotifyMinSeverity: "critical", agentsNotifyRenewals: false
+});
+const customRows = SR.buildRows("ai", [], {}, custom);
+const master = defaults.find(r => r.id === "aurelia.agents.notifications");
+const minSev = defaults.find(r => r.id === "aurelia.agents.notifyMinSeverity");
+const renew = defaults.find(r => r.id === "aurelia.agents.notifyRenewals");
+const masterOff = customRows.find(r => r.id === "aurelia.agents.notifications");
+const minSevCritical = customRows.find(r => r.id === "aurelia.agents.notifyMinSeverity");
+const renewOff = customRows.find(r => r.id === "aurelia.agents.notifyRenewals");
+const ok = master && master.kind === "toggle" && master.effective === true &&
+    minSev && minSev.kind === "combo" && minSev.effective === "warn" &&
+    minSev.enumOptions.length === 2 &&
+    minSev.enumOptions[0].value === "warn" && minSev.enumOptions[0].label === "Warnings and critical" &&
+    minSev.enumOptions[1].value === "critical" && minSev.enumOptions[1].label === "Critical only" &&
+    renew && renew.kind === "toggle" && renew.effective === true &&
+    masterOff && masterOff.effective === false &&
+    minSevCritical && minSevCritical.effective === "critical" &&
+    renewOff && renewOff.effective === false;
+process.exit(ok ? 0 : 1);
+' "$notification_rows_test" >/dev/null; then
+        pass "[unit] AI Usage notification rows default on/warn/on and reflect stored values"
+    else
+        fail "[unit] AI Usage notification row projection is wrong"
+    fi
+    rm -f -- "$notification_rows_test"
+else
+    skip "[unit] AI Usage notification rows (node unavailable)"
 fi
 
 # ColorUtils is pure JS; exercise its parse/format/validate contract directly.

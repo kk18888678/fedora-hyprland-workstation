@@ -138,6 +138,9 @@ an in-bar controls overlay.
   the toplevel title, falling back to the Wayland app id and then the XWayland
   class; the label is elided to a bounded `maxWidth` (default 280 px), hidden on
   vertical bars, and exposes left-click activate plus middle/right-click close.
+  Pointer hover paints the bar's shared full-width 2 px `Theme.accent` bottom
+  underline rather than a filled block; the icon tint is never hover-derived, so
+  an alert tint survives the pointer.
 - aurelia.workspace-switcher: resident Mission Control-inspired overlay opened
   with `SUPER + TAB`. It shows workspaces 1–5 plus occupied live workspaces up
   to 10, renders bounded single-frame Hyprland toplevel previews when the

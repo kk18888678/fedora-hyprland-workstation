@@ -17,7 +17,10 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "percentMode": "remaining"
+      "percentMode": "remaining",
+      "notifications": true,
+      "notifyMinSeverity": "warn",
+      "notifyRenewals": true
     },
     "schema": [
       {
@@ -30,6 +33,31 @@
           { "value": "remaining", "label": "Remaining (100% = fully available)" },
           { "value": "used", "label": "Used (100% = exhausted)" }
         ]
+      },
+      {
+        "key": "notifications",
+        "type": "boolean",
+        "label": "AI usage notifications",
+        "description": "Master switch for AI usage limit and renewal notifications.",
+        "defaultValue": true
+      },
+      {
+        "key": "notifyMinSeverity",
+        "type": "enum",
+        "label": "Minimum notification severity",
+        "description": "Notify on both warnings and critical limits, or only on critical limits.",
+        "defaultValue": "warn",
+        "options": [
+          { "value": "warn", "label": "Warnings and critical" },
+          { "value": "critical", "label": "Critical only" }
+        ]
+      },
+      {
+        "key": "notifyRenewals",
+        "type": "boolean",
+        "label": "Subscription renewal reminders",
+        "description": "Notify once per day while a recorded subscription renewal is near.",
+        "defaultValue": true
       }
     ]
   }

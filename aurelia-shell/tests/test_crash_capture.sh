@@ -450,7 +450,8 @@ fi
 privacy_home="$fixture/privacy-home"
 privacy_bin="$fixture/privacy-bin"
 privacy_logs="$fixture/privacy-logs"
-mkdir -p "$privacy_home/.config" "$privacy_bin" "$privacy_logs"
+privacy_tmp="$fixture/privacy-tmp"
+mkdir -p "$privacy_home/.config" "$privacy_bin" "$privacy_logs" "$privacy_tmp"
 
 cat >"$privacy_bin/coredumpctl" <<'SH'
 #!/usr/bin/env bash
@@ -470,11 +471,71 @@ cat >"$privacy_bin/pi" <<'SH'
     for arg in "$@"; do printf 'ARG=%s\n' "$arg"; done
 } >>"$AURELIA_CRASH_AGENT_LOG"
 SH
+# The review now requires a real interactive terminal, so a mock terminal that
+# merely pipes an answer is correctly refused. Allocate a real PTY instead:
+# pty_run.py forwards this process's stdin to the child's terminal and returns
+# the child's own exit status, so the approved/declined paths stay faithful.
+cat >"$fixture/pty_run.py" <<'PY'
+#!/usr/bin/env python3
+"""Run a command on a real pseudo-terminal, forwarding stdin and returning
+its exit status. Test-only: it exists so an interactive consent review can be
+exercised without a desktop session."""
+import os
+import pty
+import select
+import sys
+
+
+def main():
+    argv = sys.argv[1:]
+    if not argv:
+        return 2
+    pid, master = pty.fork()
+    if pid == 0:
+        try:
+            os.execvp(argv[0], argv)
+        except OSError as error:
+            os.write(2, ("pty_run: cannot exec %s: %s\n" % (argv[0], error)).encode())
+            os._exit(127)
+    stdin_open = True
+    while True:
+        fds = [master] + ([0] if stdin_open else [])
+        try:
+            rlist, _, _ = select.select(fds, [], [], 1.0)
+        except InterruptedError:
+            continue
+        if stdin_open and 0 in rlist:
+            try:
+                data = os.read(0, 1024)
+            except OSError:
+                data = b""
+            if data:
+                os.write(master, data)
+            else:
+                stdin_open = False
+        if master in rlist:
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            os.write(1, data)
+    try:
+        _, status = os.waitpid(pid, 0)
+    except ChildProcessError:
+        status = 0
+    return os.waitstatus_to_exitcode(status)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+PY
 cat >"$privacy_bin/kitty" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$AURELIA_CRASH_KITTY_LOG"
 [[ "${1:-}" == "--title" ]] && shift 2
-printf '%s\n' "${KITTY_APPROVE:-}" | "$@"
+printf '%s\n' "${KITTY_APPROVE:-}" | exec python3 "$AURELIA_CRASH_PTY_RUNNER" "$@"
 SH
 chmod +x "$privacy_bin/coredumpctl" "$privacy_bin/gdb" "$privacy_bin/pi" "$privacy_bin/kitty"
 
@@ -486,6 +547,9 @@ privacy_ai() {
     AURELIA_CRASH_GDB_LOG="$privacy_logs/gdb" \
     AURELIA_CRASH_AGENT_LOG="$privacy_logs/agent" \
     AURELIA_CRASH_KITTY_LOG="$privacy_logs/kitty" \
+    AURELIA_CRASH_PTY_RUNNER="$fixture/pty_run.py" \
+    WORKSTATION_AI_TERMINAL="$privacy_bin/kitty" \
+    TMPDIR="$privacy_tmp" \
     KITTY_APPROVE="${KITTY_APPROVE:-}" \
     PATH="$privacy_bin:$PATH" \
         "$ROOT/../bin/workstation-ai" "$@"
@@ -561,6 +625,191 @@ if grep -Fq "build_agent_argv \"\$agent\" \"\$prompt\" readonly" "$ROOT/../bin/w
     pass "the crash review masks the payload and launches the agent read-only"
 else
     fail "the crash review is missing its masking or read-only boundary"
+fi
+
+# ---------------------------------------------------------------------------
+# Crash review TTY gate and staging cleanup (deterministic, desktop-free)
+# ---------------------------------------------------------------------------
+# Every case below runs the real backend against a private staging directory
+# under $privacy_tmp. No desktop session and no real terminal emulator are
+# involved. The gate must refuse whenever stdin or stdout is not a TTY, and no
+# review path may leave a workstation-ai-crash.* directory behind.
+review_env=(
+    env
+    "HOME=$privacy_home"
+    "XDG_CONFIG_HOME=$privacy_home/.config"
+    "XDG_STATE_HOME=$privacy_home/.local/state"
+    "AURELIA_CRASH_AGENT_LOG=$privacy_logs/agent"
+    "AURELIA_CRASH_COREDUMP_LOG=$privacy_logs/coredump"
+    "TMPDIR=$privacy_tmp"
+    "PATH=$privacy_bin:$PATH"
+)
+
+new_review_stage() {
+    local stage
+    stage="$(mktemp -d "$privacy_tmp/workstation-ai-crash.XXXXXX")"
+    printf 'payload password=hunter2\n' >"$stage/payload"
+    printf '%s\n' 'Masked secret patterns (best effort): password' >"$stage/disclosure"
+    printf '%s\n' "$stage"
+}
+
+# A non-interactive invocation must refuse before it prints anything, name the
+# entry point that opens a terminal, send nothing, and clean its staging.
+stage="$(new_review_stage)"
+rm -f "$privacy_logs/agent"
+status=0
+"${review_env[@]}" "$ROOT/../bin/workstation-ai" __review \
+    --payload "$stage/payload" --disclosure "$stage/disclosure" --agent pi \
+    </dev/null >"$privacy_logs/out" 2>&1 || status=$?
+(( status != 0 )) || fail "a non-TTY crash review exited successfully"
+grep -Fq 'interactive terminal' "$privacy_logs/out" ||
+    fail "a non-TTY crash review does not explain why it refused"
+grep -Fq 'aurelia crash diagnose' "$privacy_logs/out" ||
+    fail "a non-TTY crash review does not name the entry point that opens a terminal"
+! grep -Fq 'password=hunter2' "$privacy_logs/out" ||
+    fail "a non-TTY crash review disclosed the payload to an unanswerable context"
+[[ ! -e "$privacy_logs/agent" ]] ||
+    fail "a non-TTY crash review launched the agent"
+[[ ! -d "$stage" ]] ||
+    fail "a non-TTY crash review left its staging directory behind"
+pass "a non-TTY crash review refuses without disclosing the payload and cleans up"
+
+# Piped EOF returns promptly and fails closed with no hang.
+stage="$(new_review_stage)"
+status=0
+printf '' | timeout 10 "${review_env[@]}" "$ROOT/../bin/workstation-ai" __review \
+    --payload "$stage/payload" --agent pi >"$privacy_logs/out" 2>&1 || status=$?
+(( status != 0 && status != 124 )) ||
+    fail "a piped EOF either succeeded or hung (status=$status)"
+pass "a piped EOF fails closed promptly"
+[[ ! -d "$stage" ]] || fail "a piped EOF left its staging directory behind"
+
+# An open pipe that never closes must exit non-zero quickly. This is the direct
+# regression for the reported hang, where the old read() blocked forever and a
+# killed process leaked its staging directory.
+stage="$(new_review_stage)"
+open_pipe="$privacy_tmp/open-pipe"
+mkfifo "$open_pipe"
+sleep 30 >"$open_pipe" &
+pipe_holder=$!
+status=0
+timeout 10 "${review_env[@]}" "$ROOT/../bin/workstation-ai" __review \
+    --payload "$stage/payload" --agent pi <"$open_pipe" >"$privacy_logs/out" 2>&1 || status=$?
+kill "$pipe_holder" || true
+wait "$pipe_holder" || true
+rm -f "$open_pipe"
+(( status != 0 && status != 124 )) ||
+    fail "an open pipe that never closes either succeeded or hung (status=$status)"
+pass "an open pipe that never closes refuses promptly instead of hanging"
+[[ ! -d "$stage" ]] || fail "the open-pipe refusal left its staging directory behind"
+
+# No environment variable may approve a review, and a custom config cannot
+# route around the gate either.
+stage="$(new_review_stage)"
+rm -f "$privacy_logs/agent"
+status=0
+YES=1 FORCE_YES=1 CI=1 NONINTERACTIVE=1 WORKSTATION_AI_APPROVE=1 \
+PLAINLY_APPROVE=1 WORKSTATION_AI_AUTO_APPROVE=1 \
+WORKSTATION_AI_CONF="$privacy_home/.config/workstation/ai.conf" \
+    timeout 10 "${review_env[@]}" "$ROOT/../bin/workstation-ai" __review \
+        --payload "$stage/payload" --agent pi </dev/null >"$privacy_logs/out" 2>&1 || status=$?
+(( status != 0 )) || fail "an environment variable approved a non-TTY review"
+[[ ! -e "$privacy_logs/agent" ]] ||
+    fail "an environment variable launched the agent from a non-TTY review"
+[[ ! -d "$stage" ]] || fail "an env-bypass refusal left its staging directory behind"
+pass "no environment variable can approve a non-TTY crash review"
+
+# A real pty still works: 'y' proceeds and 'n' refuses with "Not sent.".
+stage="$(new_review_stage)"
+rm -f "$privacy_logs/agent"
+status=0
+printf 'y\n' | timeout 15 "${review_env[@]}" python3 "$fixture/pty_run.py" \
+    "$ROOT/../bin/workstation-ai" __review --payload "$stage/payload" --agent pi \
+    >"$privacy_logs/out" 2>&1 || status=$?
+(( status == 0 )) || fail "a pty 'y' review did not complete (status=$status)"
+[[ -f "$privacy_logs/agent" ]] || fail "a pty 'y' review did not launch the agent"
+[[ ! -d "$stage" ]] || fail "an approved review left its staging directory behind"
+pass "a pty 'y' review still proceeds and cleans up"
+
+stage="$(new_review_stage)"
+rm -f "$privacy_logs/agent"
+status=0
+printf 'n\n' | timeout 15 "${review_env[@]}" python3 "$fixture/pty_run.py" \
+    "$ROOT/../bin/workstation-ai" __review --payload "$stage/payload" --agent pi \
+    >"$privacy_logs/out" 2>&1 || status=$?
+(( status != 0 )) || fail "a pty 'n' review exited successfully"
+[[ ! -e "$privacy_logs/agent" ]] || fail "a pty 'n' review launched the agent"
+grep -Fq 'Not sent.' "$privacy_logs/out" || fail "a pty 'n' review did not say it refused"
+[[ ! -d "$stage" ]] || fail "a declined review left its staging directory behind"
+pass "a pty 'n' review still refuses with 'Not sent.' and cleans up"
+
+# An invalid payload under a real terminal fails closed and cleans the staging
+# directory that the old code leaked when a check ran before it was derived.
+stage="$(mktemp -d "$privacy_tmp/workstation-ai-crash.XXXXXX")"
+rm -f "$privacy_logs/agent"
+status=0
+printf 'y\n' | timeout 15 "${review_env[@]}" python3 "$fixture/pty_run.py" \
+    "$ROOT/../bin/workstation-ai" __review --payload "$stage/does-not-exist" --agent pi \
+    >"$privacy_logs/out" 2>&1 || status=$?
+(( status != 0 )) || fail "a review with an unreadable payload exited successfully"
+[[ ! -e "$privacy_logs/agent" ]] ||
+    fail "a review with an unreadable payload launched the agent"
+[[ ! -d "$stage" ]] || fail "an unreadable payload left its staging directory behind"
+pass "an invalid payload fails closed under a real terminal and cleans up"
+
+# The invariant across every path above.
+leftover="$(find "$privacy_tmp" -maxdepth 1 -mindepth 1 -name 'workstation-ai-crash.*' -print -quit)"
+[[ -z "$leftover" ]] ||
+    fail "a staging directory survived a review path: $leftover"
+pass "no crash staging directory survives any review path"
+
+# The terminal used for a review is resolved from a fixed location or the
+# documented override, never from PATH, so a shadowing executable cannot
+# intercept the consent prompt.
+shadow_bin="$fixture/shadow-bin"
+mkdir -p "$shadow_bin"
+cat >"$shadow_bin/kitty" <<'SH'
+#!/usr/bin/env bash
+printf 'shadowed\n' >>"$AURELIA_CRASH_SHADOW_LOG"
+exit 99
+SH
+chmod +x "$shadow_bin/kitty"
+shadow_log="$privacy_logs/shadow"
+: >"$shadow_log"
+: >"$privacy_logs/kitty"
+rm -f "$privacy_logs/agent"
+status=0
+PATH="$shadow_bin:$privacy_bin:$PATH" \
+WORKSTATION_AI_TERMINAL="$privacy_bin/kitty" \
+KITTY_APPROVE=y \
+AURELIA_CRASH_SHADOW_LOG="$shadow_log" \
+AURELIA_CRASH_AGENT_LOG="$privacy_logs/agent" \
+AURELIA_CRASH_KITTY_LOG="$privacy_logs/kitty" \
+AURELIA_CRASH_COREDUMP_LOG="$privacy_logs/coredump" \
+AURELIA_CRASH_PTY_RUNNER="$fixture/pty_run.py" \
+HOME="$privacy_home" XDG_CONFIG_HOME="$privacy_home/.config" \
+XDG_STATE_HOME="$privacy_home/.local/state" TMPDIR="$privacy_tmp" \
+    timeout 15 "$ROOT/../bin/workstation-ai" crash 4242 hyprland /usr/bin/hyprland SIGSEGV \
+    >"$privacy_logs/out" 2>&1 || status=$?
+(( status == 0 )) ||
+    fail "the override-selected terminal did not complete an approved review (status=$status)"
+! grep -Fq 'shadowed' "$shadow_log" ||
+    fail "a PATH-shadowing executable replaced the consent review terminal"
+grep -Fq '__review' "$privacy_logs/kitty" ||
+    fail "the override-selected terminal did not run the review"
+pass "a PATH-shadowing executable cannot replace the consent review terminal"
+
+# A missing notification handoff command must be recorded, not discarded into
+# the null device with the notification row removed regardless.
+notification_service="$ROOT/plugins/aurelia.notifications/Service.qml"
+if grep -Fq 'function spawnNotificationCommand' "$notification_service" &&
+   grep -Fq 'logger -t aurelia-notification' "$notification_service" &&
+   grep -Fq 'command -v "$cmd"' "$notification_service" &&
+   grep -Fq 'service.spawnNotificationCommand(argv)' "$notification_service" &&
+   ! grep -Fq '"bash", "-lc", "exec \"\$@\""' "$notification_service"; then
+    pass "a missing notification handoff command is recorded to the journal instead of silently discarded"
+else
+    fail "the notification exec path still swallows a missing handoff command"
 fi
 
 # ---------------------------------------------------------------------------

@@ -350,6 +350,45 @@ absent `balance`, failed collector run) also records an observable
 base style scale in
 [05-ui-kit-and-measurements.md](05-ui-kit-and-measurements.md) still applies.
 
+### Durable anti-flood notifications
+
+The bar widget emits three notification families through one policy: a limit
+reset, a limit warning/critical crossing, and a subscription renewal. The
+policy is a pure function in `AgentUsage.js` (`notificationPlan`) so every rule
+is unit-testable without QML, timers or a live workstation, and the announced
+state is persisted atomically at
+`$XDG_STATE_HOME/aurelia/agents/notification-state.json` (0600,
+temp-file-plus-rename). A missing, empty or corrupt file behaves as empty state
+and baseline-suppresses, so it can never burst.
+
+- the first observation of a window only establishes a baseline;
+- a window is keyed by the stable `agent.id` (with a deterministic fallback for
+  an undefined id) plus `limit.label`;
+- a severity notification fires only on a transition away from `ok`; returning
+  to `ok` re-arms the window so a later re-cross fires exactly once;
+- repeats for the same window are rate-limited by a 30-minute minimum interval,
+  which absorbs `resetsAt` representation jitter and threshold flapping;
+- a reset is real only when the reset instant advances by at least the minimum
+  reset interval; a backward or representation-only change emits nothing;
+- a renewal fires at most once per account per local date while
+  `0 <= daysLeft <= reminderDays`, re-arming on a date change or a `renew`
+  change, and derives `daysLeft` from `renew` when the record omits it;
+- each evaluation is bounded to one notification per
+  `(account, severity class, label)` and one per account per severity class,
+  plus a rolling hourly cap of six whose overflow becomes one
+  `… and N more` aggregate line and a bounded `[AGENTS]` warning;
+- emission is gated on the single anchored bar instance (`root.ipcOwner`) so
+  replicated copies on multiple screens cannot each emit the same event.
+
+The three settings `notifications` (master enable), `notifyMinSeverity`
+(`warn` = warnings and critical, `critical` = critical only) and
+`notifyRenewals` live in the plugin manifest `barWidget.defaults` (so they
+reach existing users through the registry's manifest-default overlay) and are
+read by the widget. Delivery goes through `aurelia-notification-send` with the
+explicit non-bypassing app name `Aurelia Agents` and normal urgency, so global
+DND still silences display; the announced state advances while DND is on, so
+turning DND off never replays a backlog.
+
 ### Provider-specific source behavior
 
 | Provider | Local data | Authoritative limits/balance |
@@ -460,6 +499,15 @@ restarts after 5 seconds, and is disabled persistently by a state toggle rather
 than by deleting the unit. Per-program muting stores a narrow name/path rule;
 muting hides notices, not crashes or coredumps. The diagnosis itself never reads
 a core, so muting and the review gate are the only privacy surfaces.
+
+The review runs only in a terminal the user opened, and refuses before
+printing anything when either stdin or stdout is not an interactive TTY. There
+is no environment-variable or command-line bypass and no default-yes. The
+terminal used for the review is resolved from a fixed set of absolute system
+locations, never from the caller's `PATH`, so a rebuilt `PATH` cannot silently
+swap it. Tests and administrators with an unusual layout may name an absolute
+terminal executable in `WORKSTATION_AI_TERMINAL`; that override only selects the
+terminal, and the review still requires an interactive TTY on stdin and stdout.
 
 ## Theme relationship
 
