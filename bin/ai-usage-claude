@@ -17,12 +17,18 @@ epoch-seconds reset; those earlier assumptions came from
 `anthropic-ratelimit-unified-*` HTTP response headers and are wrong here. The
 body also carries no plan/tier field, so `tierLabel` is never fabricated.
 
-Credential handling is strictly read-only. There is deliberately NO refresh
-logic anywhere: Anthropic rotates OAuth refresh tokens, so a read-only
+Credential handling is owner-delegated and strictly read-only. The DURABLE
+path asks pi, the real owner of the credential, to mint a fresh bearer token at
+request time (`pi auth print-bearer-token --provider anthropic`), captures the
+token in memory, sends it as `Authorization: Bearer`, and discards it. A
+CLI-owned `~/.claude/.credentials.json` (and, last, pi's own stored token) is
+read only as a secondary, best-effort owner path. There is deliberately NO
+refresh logic anywhere: Anthropic rotates OAuth refresh tokens, so a read-only
 collector that refreshed without atomically persisting the new refresh token
 would invalidate the user's pi AND Claude Code logins. A missing, expired or
-rejected token fails closed and leaves the credential file untouched. The token
-value is never printed, logged or written.
+rejected token never causes a credential write; a 401 triggers exactly one
+re-mint-and-retry and then fails closed. The token value is never printed,
+logged or written.
 
 Departure from the usage-only visibility rule: pi keys its credential and
 model stores by provider id (`anthropic`), so an account that has been added
@@ -44,7 +50,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import math
 import os
 import ssl
 import sys
@@ -63,6 +68,8 @@ USAGE_STATUS = "Local usage only"
 PI_PROVIDER = "anthropic"
 PI_PROVIDER_MATCHES = [PI_PROVIDER]
 CONFIGURED_STATUS = "Account configured · no usage yet"
+LOCAL_ONLY_STATUS = "Local usage only"
+CREDENTIAL_STATUS = "Claude credential unavailable"
 AUTH_FAILURE_STATUS = "Claude authentication failed"
 UNAVAILABLE_STATUS = "Claude limits unavailable"
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -112,9 +119,10 @@ def _read_document(path: Path):
 
 
 def claude_access_token() -> str:
-    """Return the user's own stored Claude OAuth access token, or "".
+    """Return a stored Claude owner credential, or "".
 
-    Precedence: `$CLAUDE_CONFIG_DIR/.credentials.json` ->
+    BEST-EFFORT secondary path, used only when the durable owner-delegated mint
+    is unavailable. Precedence: `$CLAUDE_CONFIG_DIR/.credentials.json` ->
     `~/.claude/.credentials.json` (both `claudeAiOauth.accessToken`), then
     `$PI_HOME/agent/auth.json` -> `anthropic.access` (PI_HOME default
     `~/.pi`). Read-only: only the token's presence is inspected here and the
@@ -140,6 +148,26 @@ def claude_access_token() -> str:
         if text:
             return text
     return ""
+
+
+def claude_owner_token() -> tuple[str, str]:
+    """Resolve a Claude bearer token for one request: (token, diagnostic).
+
+    The durable path asks pi to mint a fresh token; if the owner is
+    unavailable, a stored owner credential is used as a secondary path. No
+    credential is refreshed or written. An empty token with an empty diagnostic
+    means no credential is configured at all (a local-only, non-error state);
+    an empty token with a diagnostic means the owner exists but failed.
+    """
+    mint = common.mint_owner_bearer_token("anthropic")
+    if mint.get("token"):
+        return mint["token"], ""
+    stored = claude_access_token()
+    if stored:
+        return stored, ""
+    if mint.get("available"):
+        return "", mint.get("error") or "owner unavailable"
+    return "", ""
 
 
 def claude_tier_label() -> str:
@@ -175,20 +203,10 @@ def _used_fraction(percent):
     FINAL emitted fraction only: Anthropic documents that usage can legitimately
     run past a window cap, so a server `150` becomes `1.0`. The clamp never
     fabricates headroom. A negative, non-numeric or non-finite value is skipped
-    (returns None) rather than being emitted as a fabricated `0%`.
+    (returns None) rather than being emitted as a fabricated `0%`. The shared
+    helper keeps this identical to the other collectors' USED handling.
     """
-    if isinstance(percent, bool):
-        return None
-    try:
-        value = float(percent)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(value) or value < 0:
-        return None
-    fraction = value / 100.0
-    if fraction > 1.0:
-        fraction = 1.0
-    return fraction
+    return common.used_fraction(percent)
 
 
 def _limit_entry(label: str, minutes: int, percent, resets):
@@ -255,28 +273,14 @@ def parse_claude_limits(payload):
     return None
 
 
-def fetch_claude_limits(access_token: str | None = None) -> dict:
-    """Live Claude 5-hour and weekly windows from Anthropic's OAuth endpoint.
+def _claude_request(token: str) -> dict:
+    """One bounded, TLS-verified Claude usage GET.
 
-    A missing credential skips the request entirely (local-only accounts make
-    no network call) and never fabricates a window. The request is bounded by an
-    explicit `timeout=10`; TLS verification is never disabled. When upstream
-    returns only some windows, only those are emitted: a missing window is
-    never reported as a fabricated `0%`.
+    Returns `{"payload": ...}` on success, `{"error": "auth"}` on 401/403,
+    `{"error": "transport", "retry": bool}` on other HTTP or transport
+    failure, or `{"error": "shape"}` on a non-JSON body. This is the only
+    place the token is used and it is never logged or returned.
     """
-    result = {
-        "limits": [],
-        "supportedWindowMinutes": list(SUPPORTED_WINDOW_MINUTES),
-        "tierLabel": "",
-        "usageStatusText": USAGE_STATUS,
-        "authHelpText": "",
-        "retryAdvised": False,
-    }
-    token = claude_access_token() if access_token is None else access_token
-    if not token:
-        # No credential: no network call at all, and no error. Local-only is a
-        # normal state, not a failure.
-        return result
     try:
         request = urllib.request.Request(
             CLAUDE_USAGE_URL,
@@ -297,41 +301,98 @@ def fetch_claude_limits(access_token: str | None = None) -> dict:
     except urllib.error.HTTPError as exc:
         status = int(getattr(exc, "code", 0) or 0)
         if status in (401, 403):
-            # Retrying a rejected credential cannot help and no refresh is
-            # attempted, so the credential file stays untouched.
-            result["usageStatusText"] = AUTH_FAILURE_STATUS
-            result["authHelpText"] = AUTH_HELP
-            result["retryAdvised"] = False
-            return result
-        result["usageStatusText"] = UNAVAILABLE_STATUS
-        result["retryAdvised"] = status == 429 or status >= 500 or common.retry_advised_from_error(exc)
-        return result
+            return {"error": "auth"}
+        return {
+            "error": "transport",
+            "retry": status == 429 or status >= 500 or common.retry_advised_from_error(exc),
+        }
     except Exception:
         # Timeout, DNS or any other transport failure: the only retryable class.
-        # Deliberately no authHelpText, so a rate-limit/transport state is never
-        # mistaken for a credential error.
-        result["usageStatusText"] = UNAVAILABLE_STATUS
-        result["retryAdvised"] = True
-        return result
-
+        return {"error": "transport", "retry": True}
     try:
-        payload = json.loads(raw_body.decode("utf-8", "replace"))
+        return {"payload": json.loads(raw_body.decode("utf-8", "replace"))}
     except Exception:
-        # Malformed body: a changed shape is not retryable.
-        result["usageStatusText"] = UNAVAILABLE_STATUS
-        result["retryAdvised"] = False
+        return {"error": "shape"}
+
+
+def _claude_auth_failure(result: dict) -> dict:
+    result["limits"] = []
+    result["usageStatusText"] = AUTH_FAILURE_STATUS
+    result["authHelpText"] = AUTH_HELP
+    result["retryAdvised"] = False
+    return result
+
+
+def fetch_claude_limits(access_token: str | None = None) -> dict:
+    """Live Claude 5-hour and weekly windows from Anthropic's OAuth endpoint.
+
+    A missing credential skips the request entirely (local-only accounts make
+    no network call) and never fabricates a window. The bearer token is
+    owner-delegated by default (pi mints it at request time); a 401 triggers
+    exactly one re-mint-and-retry and then fails closed. No credential is ever
+    refreshed or written. The request is bounded by an explicit `timeout=10`;
+    TLS verification is never disabled. When upstream returns only some
+    windows, only those are emitted: a missing window is never reported as a
+    fabricated `0%`.
+    """
+    result = {
+        "limits": [],
+        "supportedWindowMinutes": list(SUPPORTED_WINDOW_MINUTES),
+        "tierLabel": "",
+        "usageStatusText": USAGE_STATUS,
+        "authHelpText": "",
+        "retryAdvised": False,
+    }
+    explicit = access_token is not None
+    token = access_token if explicit else ""
+    diagnostic = ""
+    if not explicit:
+        token, diagnostic = claude_owner_token()
+    if not token:
+        if diagnostic:
+            # The owner exists but could not supply a token: an observable,
+            # non-retryable diagnostic rather than a silent empty array.
+            result["usageStatusText"] = CREDENTIAL_STATUS
+            result["authHelpText"] = AUTH_HELP
+            result["retryAdvised"] = False
+        else:
+            # No credential at all: no network call, and no error. Local-only
+            # is a normal state, not a failure.
+            result["usageStatusText"] = LOCAL_ONLY_STATUS
         return result
 
-    limits = parse_claude_limits(payload)
-    if limits is None:
-        # Malformed or changed shape: fail closed, never fabricate a `0%`.
-        result["usageStatusText"] = UNAVAILABLE_STATUS
-        result["retryAdvised"] = False
+    for attempt in range(2):
+        outcome = _claude_request(token)
+        error = outcome.get("error")
+        if error == "auth":
+            if not explicit and attempt == 0:
+                # Re-mint EXACTLY ONCE and retry with the freshly minted owner
+                # token; if the owner cannot supply one, fail closed now.
+                fresh, _fresh_diag = claude_owner_token()
+                if fresh:
+                    token = fresh
+                    continue
+            return _claude_auth_failure(result)
+        if error == "transport":
+            result["usageStatusText"] = UNAVAILABLE_STATUS
+            result["retryAdvised"] = bool(outcome.get("retry", True))
+            return result
+        if error == "shape":
+            # Malformed body: a changed shape is not retryable.
+            result["usageStatusText"] = UNAVAILABLE_STATUS
+            result["retryAdvised"] = False
+            return result
+        limits = parse_claude_limits(outcome.get("payload"))
+        if limits is None:
+            # Malformed or changed shape: fail closed, never fabricate a `0%`.
+            result["usageStatusText"] = UNAVAILABLE_STATUS
+            result["retryAdvised"] = False
+            return result
+        result["limits"] = limits
+        # A valid 200 with no window rows is a configured account that has not
+        # used the account-wide meters yet, not an error.
+        result["usageStatusText"] = "" if limits else CONFIGURED_STATUS
         return result
-    result["limits"] = limits
-    # A valid 200 with no window rows is a configured account that has not used
-    # the account-wide meters yet, not an error.
-    result["usageStatusText"] = "" if limits else CONFIGURED_STATUS
     return result
 
 
@@ -506,7 +567,7 @@ def main() -> int:
     claude_status = claude.get("usageStatusText") or ""
     if claude_status == "":
         usage_status = ""
-    elif claude_status in (AUTH_FAILURE_STATUS, UNAVAILABLE_STATUS):
+    elif claude_status in (AUTH_FAILURE_STATUS, UNAVAILABLE_STATUS, CREDENTIAL_STATUS):
         usage_status = claude_status
     else:
         usage_status = CONFIGURED_STATUS if (configured and not has_usage) else USAGE_STATUS

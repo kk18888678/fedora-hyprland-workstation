@@ -7,6 +7,13 @@
 
 set -Eeuo pipefail
 
+# The durable-source tests own the live-network and credential-owner behavior.
+# This suite stays fully offline: disable the pi owner mint and point the
+# user-owned key file at a non-existent path so the collectors fall back to
+# their read-only stored credentials only.
+export WORKSTATION_PI_BIN=""
+export WORKSTATION_AI_KEYS_CONF="/nonexistent/aurelia-test-ai-keys.conf"
+
 section "Aurelia Agents Plugin"
 
 repo_root="$(cd -- "$ROOT/.." && pwd -P)"
@@ -1255,7 +1262,7 @@ CLINE_NOCRED
 )"
 if printf '%s' "$cline_nocred_out" | jq -e '
         .status == 0 and .calls == 0 and .limits == [] and
-        .usageStatusText == "Local usage only" and .retryAdvised == false' >/dev/null; then
+        .usageStatusText == "Cline not configured" and .retryAdvised == false' >/dev/null; then
     pass "[isolated] Cline local-only account makes no network call and reports limits: [] honestly"
 else
     fail "[isolated] Cline local-only behaviour diverged: $cline_nocred_out"

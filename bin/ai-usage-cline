@@ -10,11 +10,21 @@ Covers both Cline surfaces that keep local history:
     `metrics` and `modelInfo`.
 
 ClinePass 5-hour, weekly and monthly windows come from Cline's own
-`/api/v1/users/me/plan/usage-limits` endpoint using the user's stored access
-token. The endpoint is read-only and the token is never refreshed or
-rewritten: Cline rotates the refresh token, so a read-only collector that
-refreshed without atomically persisting the new token would invalidate the
-user's login.
+`/api/v1/users/me/plan/usage-limits` endpoint. The DURABLE credential is a
+user-owned API key with no expiry, read from a private config file
+(`~/.config/workstation/ai-keys.conf`, mode 0600, field `cline.api_key`) or
+from the `CLINE_API_KEY` environment variable, and sent as
+`Authorization: Bearer <key>`. The short-lived OAuth access token (~1 hour)
+is retained ONLY as an explicitly-labelled best-effort fallback; it is not the
+durability guarantee and is the exact value that used to flap.
+
+The endpoint is read-only and no credential is ever refreshed or written:
+Cline rotates the refresh token, so a read-only collector that refreshed
+without atomically persisting the new token would invalidate the user's login.
+Because `/api/v1/users/me/plan/usage-limits` is UNDOCUMENTED (it is used by the
+Cline web app but appears in neither the CLI nor the extension bundle), its
+shape is guarded strictly: a changed shape fails closed as
+"Cline limits unavailable" with `limits: []` rather than a fabricated `0%`.
 
 Prints one display-ready JSON record (the same contract as the other
 ai-usage-* collectors).
@@ -37,6 +47,11 @@ import ai_usage_common as common  # noqa: E402
 AGENT_ID = "cline"
 AGENT_NAME = "Cline"
 CLINE_USAGE_URL = "https://api.cline.bot/api/v1/users/me/plan/usage-limits"
+# Durable, user-owned API key. A key has no expiry field, so it has no
+# lifecycle and cannot flap. The field name and path are documented in
+# shell-documentation/13-ai-first-platform.md.
+CLINE_KEY_FIELD = "cline.api_key"
+CLINE_KEY_ENV = "CLINE_API_KEY"
 # Upstream `type` -> (collector label, window length in minutes). The labels
 # match the OpenCode and Codex collectors so the dashboard reads identically.
 CLINE_WINDOWS = (
@@ -45,11 +60,13 @@ CLINE_WINDOWS = (
     ("monthly", "Monthly (30-day)", 43200),
 )
 AUTH_HELP = (
-    "Cline rejected the stored access token. Re-authenticate Cline (for "
-    "example `cline auth`, or sign in again in the Cline extension). The "
-    "collector never refreshes or rewrites the credential."
+    "Cline rejected the API key. Create or replace a Cline API key at the "
+    "Cline dashboard account page, then store the one-time secret in "
+    "~/.config/workstation/ai-keys.conf (mode 0600) as `cline.api_key=...`, "
+    "or export CLINE_API_KEY. The collector never refreshes or rewrites the "
+    "credential."
 )
-LOCAL_ONLY_STATUS = "Local usage only"
+NOT_CONFIGURED_STATUS = "Cline not configured"
 AUTH_FAILURE_STATUS = "Cline authentication failed"
 UNAVAILABLE_STATUS = "Cline limits unavailable"
 
@@ -73,14 +90,28 @@ def _settings_access_token(provider) -> str:
     return str(token).strip()
 
 
-def cline_access_token() -> str:
-    """Return the user's own stored Cline access token, or "" when absent.
+def cline_api_key() -> str:
+    """Return the durable user-owned Cline API key, or "".
 
-    Read-only: the provider settings are parsed for presence only and the
-    token value is never logged, emitted or rewritten. There is deliberately no
-    token refresh here because Cline rotates the refresh token; a read-only
-    collector that refreshed without atomically persisting the new token would
-    invalidate the user's login and break their CLI.
+    Shared reader: `~/.config/workstation/ai-keys.conf` (mode 0600) field
+    `cline.api_key`, or the `CLINE_API_KEY` environment variable. The key has
+    no expiry, so it has no lifecycle and cannot flap. Read-only and never
+    printed or written.
+    """
+    return common.read_ai_key(CLINE_KEY_FIELD, env_var=CLINE_KEY_ENV)
+
+
+def cline_access_token() -> str:
+    """BEST-EFFORT fallback only: the short-lived stored Cline OAuth token.
+
+    This is deliberately NOT the durability guarantee. The token lives about an
+    hour and is the exact credential that used to flap, so it is consulted only
+    when no durable user-owned API key is configured. Read-only: the provider
+    settings are parsed for presence only and the token value is never logged,
+    emitted or rewritten. There is deliberately no token refresh because Cline
+    rotates the refresh token; a read-only collector that refreshed without
+    atomically persisting the new token would invalidate the user's login and
+    break their CLI.
     """
     providers_path = cline_dir() / "data" / "settings" / "providers.json"
     if providers_path.is_file():
@@ -108,80 +139,61 @@ def cline_access_token() -> str:
     return ""
 
 
+def cline_credential() -> tuple[str, str]:
+    """Resolve the credential for one request: (value, source).
+
+    Precedence is the durable user-owned API key, then the explicitly-labelled
+    best-effort OAuth fallback. `source` is one of `key`, `oauth` or `""` and
+    is used only to keep the auth guidance honest; the value is never emitted.
+    """
+    key = cline_api_key()
+    if key:
+        return key, "key"
+    token = cline_access_token()
+    if token:
+        return token, "oauth"
+    return "", ""
+
+
 def local_roots_present() -> bool:
     return bool(vscode_task_roots()) or cline_cli_sessions().is_dir()
 
 
-def fetch_cline_limits(access_token: str | None = None) -> dict:
-    """Live ClinePass 5h/weekly/monthly windows from the Cline API.
+def parse_cline_limits(payload):
+    """Return the canonical live window list, or None for an unknown shape.
 
-    A missing credential skips the request entirely (local-only accounts make
-    no network call) and never fabricates a window. When upstream returns only
-    some windows, only those are emitted; a missing window is never reported as
-    a 0%. Every failure is bounded by a timeout and returns a diagnostic rather
-    than crashing.
+    Strict fail-closed guards: the route is undocumented, so a changed envelope
+    (non-object body, `success: false`, missing/non-list `data.limits`, a
+    non-object row, or a known window with a missing/non-numeric `percentUsed`)
+    yields None instead of a partial or fabricated result.
     """
-    result = {
-        "limits": [],
-        "tierLabel": "",
-        "usageStatusText": LOCAL_ONLY_STATUS,
-        "authHelpText": "",
-        "retryAdvised": False,
-    }
-    token = cline_access_token() if access_token is None else access_token
-    if not token:
-        return result
-    try:
-        request = urllib.request.Request(
-            CLINE_USAGE_URL,
-            headers={
-                "Authorization": "Bearer " + token,
-                "Accept": "application/json",
-                "User-Agent": "aurelia-agent-usage/1.0",
-            },
-        )
-        with urllib.request.urlopen(request, timeout=10) as response:
-            payload = json.loads(response.read().decode("utf-8", "replace"))
-    except urllib.error.HTTPError as exc:
-        status = int(getattr(exc, "code", 0) or 0)
-        if status in (401, 403):
-            # Retrying a rejected credential cannot help and would only
-            # pressure the account, so no retry is advised.
-            result["usageStatusText"] = AUTH_FAILURE_STATUS
-            result["authHelpText"] = AUTH_HELP
-            result["retryAdvised"] = False
-            return result
-        result["usageStatusText"] = UNAVAILABLE_STATUS
-        result["retryAdvised"] = status == 429 or common.retry_advised_from_error(exc)
-        return result
-    except Exception as exc:
-        result["usageStatusText"] = UNAVAILABLE_STATUS
-        result["retryAdvised"] = common.retry_advised_from_error(exc)
-        return result
-
-    data = payload.get("data") if isinstance(payload, dict) else None
-    raw_limits = data.get("limits") if isinstance(data, dict) else None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("success") is False:
+        return None
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None
+    raw_limits = data.get("limits")
     if not isinstance(raw_limits, list):
-        result["usageStatusText"] = UNAVAILABLE_STATUS
-        return result
-
+        return None
     by_type = {}
     for item in raw_limits:
-        if isinstance(item, dict):
-            by_type[str(item.get("type") or "")] = item
-
+        if not isinstance(item, dict):
+            return None
+        by_type[str(item.get("type") or "")] = item
     limits = []
     for window_type, label, minutes in CLINE_WINDOWS:
         item = by_type.get(window_type)
-        if not isinstance(item, dict):
+        if item is None:
             continue
         percent = item.get("percentUsed")
         if percent is None:
-            continue
-        try:
-            fraction = float(percent) / 100.0
-        except (TypeError, ValueError):
-            continue
+            # A present known window with no percentage is a changed shape.
+            return None
+        fraction = common.used_fraction(percent)
+        if fraction is None:
+            return None
         limits.append({
             "label": label,
             # `percentUsed` is USED; the panel inverts to display remaining.
@@ -189,6 +201,72 @@ def fetch_cline_limits(access_token: str | None = None) -> dict:
             "resetsAt": common.normalize_resets_at(item.get("resetsAt")),
             "windowMinutes": minutes,
         })
+    return limits
+
+
+def fetch_cline_limits(access_token: str | None = None) -> dict:
+    """Live ClinePass 5h/weekly/monthly windows from the Cline API.
+
+    The credential is the durable user-owned API key when present, otherwise
+    the explicitly-labelled best-effort OAuth fallback, otherwise no request at
+    all. When upstream returns only some windows, only those are emitted; a
+    missing window is never reported as a fabricated 0%. Every failure is
+    bounded by a timeout and returns a diagnostic rather than crashing.
+    """
+    result = {
+        "limits": [],
+        "tierLabel": "",
+        "usageStatusText": NOT_CONFIGURED_STATUS,
+        "authHelpText": "",
+        "retryAdvised": False,
+    }
+    if access_token is None:
+        credential, _source = cline_credential()
+    else:
+        credential = access_token
+    if not credential:
+        # No credential: no network call at all. This is a local-only state,
+        # not an error, so retryAdvised stays false.
+        return result
+    try:
+        request = urllib.request.Request(
+            CLINE_USAGE_URL,
+            headers={
+                # The documented header is exactly `Authorization: Bearer`;
+                # `x-api-key` is rejected with 401 by this route.
+                "Authorization": "Bearer " + credential,
+                "Accept": "application/json",
+                "User-Agent": "aurelia-agent-usage/1.0",
+            },
+        )
+        # Bounded: explicit 10-second timeout; TLS verification is never disabled.
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        status = int(getattr(exc, "code", 0) or 0)
+        if status in (401, 403):
+            # A rejected credential cannot be retried and no refresh is
+            # attempted, so the credential store stays untouched.
+            result["usageStatusText"] = AUTH_FAILURE_STATUS
+            result["authHelpText"] = AUTH_HELP
+            result["retryAdvised"] = False
+            return result
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = status == 429 or status >= 500 or common.retry_advised_from_error(exc)
+        return result
+    except Exception as exc:
+        # Timeout/DNS/transport: the only retryable class. Deliberately no
+        # authHelpText, so a rate limit is never mistaken for a credential error.
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = common.retry_advised_from_error(exc)
+        return result
+
+    limits = parse_cline_limits(payload)
+    if limits is None:
+        # Changed or malformed shape: fail closed, never fabricate a `0%`.
+        result["usageStatusText"] = UNAVAILABLE_STATUS
+        result["retryAdvised"] = False
+        return result
     result["limits"] = limits
     result["usageStatusText"] = ""
     if limits:
@@ -400,12 +478,12 @@ def main() -> int:
     parser.parse_args()
 
     stats = common.merge_stats(scan(), common.scan_pi_sessions(["cline"]))
-    access_token = cline_access_token()
-    cline = fetch_cline_limits(access_token)
+    credential, _source = cline_credential()
+    cline = fetch_cline_limits()
     limits = cline.get("limits") or []
     detected = (
         local_roots_present()
-        or bool(access_token)
+        or bool(credential)
         or len(limits) > 0
         or bool(stats.get("detected"))
     )

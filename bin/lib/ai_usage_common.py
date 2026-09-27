@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -191,6 +194,156 @@ def config_path() -> Path:
         return Path(override)
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(os.path.expandvars(os.path.expanduser(base))) / "workstation" / "ai.conf"
+
+
+# ---------------------------------------------------------------------------
+# Durable credential sources (user-owned config / owner-delegated mint)
+# ---------------------------------------------------------------------------
+# The collectors are read-only: they never refresh a rotating token and never
+# write a credential store. Instead they resolve a credential from the most
+# durable source available and, when the credential has a lifecycle, ask its
+# real owner to mint a fresh one at request time. These helpers are shared so
+# Claude and Cline do not grow two divergent implementations.
+
+
+def ai_keys_path() -> Path:
+    """Path to the private, user-owned AI key file.
+
+    Default: `~/.config/workstation/ai-keys.conf` (mode 0600). The
+    `WORKSTATION_AI_KEYS_CONF` override exists for isolated tests; it is never
+    used to relocate a real credential in production.
+    """
+    override = os.environ.get("WORKSTATION_AI_KEYS_CONF")
+    if override:
+        return Path(os.path.expandvars(os.path.expanduser(override)))
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(os.path.expandvars(os.path.expanduser(base))) / "workstation" / "ai-keys.conf"
+
+
+def _private_config_file(path: Path) -> bool:
+    """True only when `path` exists and carries no group/other permission bits."""
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError:
+        return False
+    return (mode & 0o077) == 0
+
+
+def read_ai_key(field: str, env_var: str = "") -> str:
+    """Return a durable user-owned API key, or "".
+
+    Precedence is environment variable, then config file. The config file is
+    read only when it is not group/world accessible, so a loose-permission file
+    fails closed rather than leaking the secret. The value is never printed,
+    logged or written. An absent file or field is a normal local-only state,
+    not an error.
+    """
+    if env_var:
+        value = os.environ.get(env_var)
+        if value:
+            text = str(value).strip()
+            if text:
+                return text
+    path = ai_keys_path()
+    if not path.is_file():
+        return ""
+    if not _private_config_file(path):
+        return ""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, _, value = stripped.partition("=")
+            if key.strip() == field:
+                text = value.strip()
+                if text:
+                    return text
+    except Exception:
+        return ""
+    return ""
+
+
+def owner_binary(binary_name: str, env_override: str = "") -> str:
+    """Resolve the CLI that owns a credential's lifecycle, or "".
+
+    The override is only consulted when set, and an explicitly empty override
+    disables the owner (used by the isolated tests to keep them offline).
+    """
+    if env_override and env_override in os.environ:
+        override = os.environ.get(env_override) or ""
+        if not override:
+            return ""
+        path = Path(os.path.expandvars(os.path.expanduser(override)))
+        return str(path) if path.is_file() else ""
+    found = shutil.which(binary_name)
+    return found or ""
+
+
+def mint_owner_bearer_token(provider: str, binary_name: str = "pi", env_override: str = "WORKSTATION_PI_BIN", timeout: float = 10.0) -> dict:
+    """Ask a credential's owner CLI to mint a fresh bearer token.
+
+    Returns `{"token": str, "available": bool, "error": str}`. The subprocess
+    is bounded by `timeout` and killed on expiry. stdout is captured and used
+    verbatim, then discarded; stderr is discarded; nothing about the token is
+    ever logged or written. A missing binary is reported as `available: false`
+    (a local-only state), while an execution failure is an observable error.
+    """
+    result = {"token": "", "available": False, "error": ""}
+    binary = owner_binary(binary_name, env_override)
+    if not binary:
+        return result
+    result["available"] = True
+    try:
+        completed = subprocess.run(
+            [binary, "auth", "print-bearer-token", "--provider", str(provider)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=timeout,
+            env=dict(os.environ),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        result["error"] = "owner token mint timed out"
+        return result
+    except Exception:
+        result["error"] = "owner token mint failed"
+        return result
+    if completed.returncode != 0:
+        result["error"] = "owner token mint failed"
+        return result
+    for line in (completed.stdout or "").splitlines():
+        text = line.strip()
+        if text:
+            result["token"] = text
+            break
+    if not result["token"]:
+        result["error"] = "owner token mint returned no token"
+    return result
+
+
+def used_fraction(percent):
+    """USED percent (0..100) -> emitted USED fraction in [0,1], or None.
+
+    The clamp is applied to the FINAL emitted fraction so a server value above
+    the window cap becomes `1.0` rather than being discarded. A negative,
+    non-numeric or non-finite value returns None (the caller decides whether
+    that is a skipped row or a changed shape); it is never a fabricated `0%`.
+    """
+    if isinstance(percent, bool):
+        return None
+    try:
+        value = float(percent)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    fraction = value / 100.0
+    if fraction > 1.0:
+        fraction = 1.0
+    return fraction
 
 
 def days_until(date_text: str):
