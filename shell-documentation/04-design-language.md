@@ -299,8 +299,10 @@ Every first-party bar widget follows one icon contract:
 - **Opacity**: icons rest at full opacity. Genuinely inactive targets use the
   one documented dim (the tasklist's running-but-unfocused windows).
 
-The active-window label is intentionally outside this contract until its own
-follow-up review lands.
+The active-window label sits outside the icon contract above: it is a
+text-bearing, panel-less label with no icon canvas to conform to. Its own
+follow-up review has landed and chose the bar's shared underline language for
+its hover affordance (see below).
 
 Source-level branding assets, retained here as exact reference facts, are:
 
@@ -325,6 +327,20 @@ height `37.6%`; tile centers are at x `25%`, `75%`, `25%`, `75%`, `50%` and y
 line, minimum height `2 px`, height `14%` of the icon, rotated `-45°`; the
 warning badge is circular, has a 1 px popup-background border, and uses a
 `0.72 × badgeHeight` exclamation glyph.
+
+### Bar hover affordance
+
+Icon and panel widgets keep their filled `Theme.selection` slot on hover: the
+full-extent fill is the affordance for a square, panel-owning target. The
+text-bearing, panel-less active-window label instead uses the bar's existing
+2 px `Theme.accent` bottom underline. There is no radius and no vertical
+underline. Popout owners already use the same underline (the popout-active slot
+indicator), and both read the shared `Theme.bar.underlineHeight` token, so the
+active-window hover and the popout indicator cannot drift apart. The underline
+spans the full widget width, which keeps the pointer boundary identical to the
+click target, and it is anchored rather than width-animated so it tracks the
+label's 180 ms width transition. The icon tint is never bound to hover, so a
+hover cannot erase an alert tint.
 
 ## Aurelia calendar surface
 
