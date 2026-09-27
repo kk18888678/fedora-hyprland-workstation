@@ -115,8 +115,8 @@ fi
 if grep -Fq 'AureliaToolTip' "$widget_file" &&
    grep -Fq 'text: root.label' "$widget_file" &&
    grep -Fq 'HoverHandler' "$widget_file" &&
-   grep -Fq 'Theme.selection' "$widget_file" &&
-   grep -Fq 'Theme.radiusSm' "$widget_file" &&
+   grep -Fq 'id: hoverUnderline' "$widget_file" &&
+   grep -Fq 'Theme.accent' "$widget_file" &&
    grep -Fq 'visible: !root.vertical && root.label !== ""' "$widget_file" &&
    grep -Fq 'implicitWidth: root.visible' "$widget_file" &&
    grep -Fq 'handle.activate' "$widget_file" &&
@@ -124,9 +124,63 @@ if grep -Fq 'AureliaToolTip' "$widget_file" &&
    grep -Fq 'Qt.LeftButton' "$widget_file" &&
    grep -Fq 'Qt.MiddleButton' "$widget_file" &&
    grep -Fq 'Qt.RightButton' "$widget_file"; then
-    pass "[static] Active Window exposes the full-title tooltip, hover fill, vertical hide, and null-guarded click handlers"
+    pass "[static] Active Window exposes the full-title tooltip, hover underline, vertical hide, and null-guarded click handlers"
 else
-    fail "[static] Active Window tooltip, hover, visibility, or click contract is incomplete"
+    fail "[static] Active Window tooltip, hover underline, visibility, or click contract is incomplete"
+fi
+
+# Structural regression guard for the hover affordance. The old full-extent
+# rounded fill deleted the affordance when merely recoloured, so the shape must
+# be proven: a full-width 2 px bottom rule from the shared bar token, with no
+# fill, no radius, an accent/transparent colour and no keyboard focus indicator.
+if python3 - "$widget_file" <<'HOVER_UNDERLINE'
+import re, sys
+src = open(sys.argv[1]).read()
+
+# The deleted full-cover fill must not return. This checks the whole widget, not
+# just the replacement block, so a re-added `hoverFill` rectangle anywhere fails.
+if re.search(r"id:\s*hoverFill\b", src):
+    sys.exit(1)
+
+match = re.search(r"Rectangle\s*\{\s*id:\s*hoverUnderline\b(.*?)\n    \}", src, re.S)
+if not match:
+    sys.exit(1)
+body = match.group(1)
+
+# The underline must occupy the widget's full width and bottom edge with no
+# inset, exactly like the popout-active slot indicator in BarWidgetSlot.qml.
+if "anchors.left: parent.left" not in body:
+    sys.exit(1)
+if "anchors.right: parent.right" not in body:
+    sys.exit(1)
+if "anchors.bottom: parent.bottom" not in body:
+    sys.exit(1)
+
+# Thickness comes from the shared Theme.bar.underlineHeight token (the literal
+# 2 is also accepted) so the hover and popout underlines cannot drift apart.
+if not re.search(r"height:\s*(Theme\.bar\.underlineHeight|2)\b", body):
+    sys.exit(1)
+
+# A full-cover fill would reintroduce the rounded block this change removed.
+if "anchors.fill" in body or "radius" in body:
+    sys.exit(1)
+
+# Explicit accent on hover with a transparent rest path.
+if "Theme.accent" not in body or '"transparent"' not in body:
+    sys.exit(1)
+
+# The pointer hover shape must not smuggle in a keyboard focus indicator; the
+# keyboard-only focus-ring contract is owned by the agents plugin suite.
+for token in ("activeFocus", "keyboardFocus", "border.", "focus:"):
+    if token in body:
+        sys.exit(1)
+
+sys.exit(0)
+HOVER_UNDERLINE
+then
+    pass "[static] Active Window hover underline is a full-width 2 px bottom rule with no fill, no radius, accent/transparent colour and no keyboard focus indicator, and the old hoverFill rectangle is gone"
+else
+    fail "[static] Active Window hover underline shape regressed to a fill, gained a radius or keyboard focus indicator, lost the shared thickness token, or the old hoverFill rectangle returned"
 fi
 
 if ! grep -Eq 'Timer[[:space:]]*\{|interval:|repeat: true|hyprctl|Quickshell\.execDetached|Process[[:space:]]*\{' "$widget_file" &&
@@ -321,6 +375,14 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .render.iconSlotVisible == true and
         .render.labelOpacity == 1.0 and
         .render.implicitWidth == (.render.iconSlot + .render.iconSpacing + .render.outerLabelWidth) and
+        .hover.thickness == 2 and
+        .hover.leftInset == 0 and
+        .hover.rightInset == 0 and
+        .hover.bottomInset == 0 and
+        .hover.spansWidth == true and
+        .hover.fullCover == false and
+        .hover.restAlpha == 0 and
+        .hover.hoverAlpha > 0 and
         .missingIcon.slotVisible == false and
         .missingIcon.visible == true and
         .missingIcon.implicitWidth == .missingIcon.labelWidth and
@@ -361,7 +423,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .rendered.titleMode.elided == false and
         .rendered.titleMode.contentDelta < 0.5
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, the symbolic-only colour policy, the model-derived focused-toplevel fallback (class identity, missing marker ignored, ambiguity fail-closed, empty model hidden), and renders 'Foot' and 'Chromium Web Browser' un-elided with the metric matching the render"
+    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, the symbolic-only colour policy, the model-derived focused-toplevel fallback (class identity, missing marker ignored, ambiguity fail-closed, empty model hidden), the full-width 2 px hover underline with no full-cover fill, and renders 'Foot' and 'Chromium Web Browser' un-elided with the metric matching the render"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Active Window entry-point fixture cannot create a disposable runtime backend"; then
     :

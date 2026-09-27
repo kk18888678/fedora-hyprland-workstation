@@ -18,7 +18,11 @@ icon resolves. Real application logos preserve their own colours; only
 `-symbolic` icon masks are tinted with `barForeground`, matching the tray's
 `isSymbolicIcon` policy, so the shared luminance-duotone colorization never
 collapses a multi-colour application logo onto the bar foreground. Left click
-activates the window; middle/right click closes it.
+activates the window; middle/right click closes it. Pointer hover paints a
+full-width 2 px `Theme.accent` bottom underline from the shared
+`Theme.bar.underlineHeight` token instead of a filled block; there is no radius
+and no vertical underline, and the icon tint is never bound to hover, so an
+alert tint survives the pointer.
 
 ### Workspace switcher
 

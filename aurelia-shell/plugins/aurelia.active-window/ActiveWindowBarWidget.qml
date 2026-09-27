@@ -103,6 +103,13 @@ Item {
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    // Fixture-only hover seam. Production leaves it undefined so the pointer
+    // HoverHandler below is authoritative; the override lets the isolated
+    // runtime sample the hover colour deterministically. Unused in production.
+    property var hoverOverride
+    readonly property bool hovered: root.hoverOverride !== undefined
+        ? root.hoverOverride === true
+        : pointerHover.hovered
     readonly property int iconCanvas: root.bar && root.bar.barIconCanvas
         ? root.bar.barIconCanvas : 16
     readonly property real textMargin: root.bar && root.bar.barTextMargin !== undefined
@@ -183,6 +190,21 @@ Item {
     readonly property real labelOpacity: labelText.opacity
     readonly property real visibleLabelWidth: labelText.width
 
+    // The hover underline geometry, read by the isolated fixture only. These
+    // are read-only views of the real Rectangle so the fixture asserts the
+    // rendered shape instead of restating it. `hoverUnderlineFullCover` is the
+    // negative proof that the deleted full-cover fill has not returned.
+    readonly property real hoverUnderlineThickness: hoverUnderline.height
+    readonly property real hoverUnderlineLeftInset: hoverUnderline.x
+    readonly property real hoverUnderlineRightInset: root.width - (hoverUnderline.x + hoverUnderline.width)
+    readonly property real hoverUnderlineBottomInset: root.height - (hoverUnderline.y + hoverUnderline.height)
+    readonly property bool hoverUnderlineSpansWidth: root.width > 0
+        && Math.abs(hoverUnderline.width - root.width) < 0.001
+    readonly property bool hoverUnderlineFullCover: root.width > 0 && root.height > 0
+        && Math.abs(hoverUnderline.width - root.width) < 0.001
+        && Math.abs(hoverUnderline.height - root.height) < 0.001
+    readonly property color hoverUnderlineColor: hoverUnderline.color
+
     // The label geometry is measured by a hidden, non-eliding Text that copies
     // the visible label's exact font and render type. A separate TextMetrics
     // cannot be guaranteed to match the rendered width: it has no renderType
@@ -254,11 +276,22 @@ Item {
         return "not-available"
     }
 
+    // The hover affordance is the bar's shared underline, not a filled block.
+    // Recolouring the old full-extent rounded fill would delete the affordance,
+    // so the shape itself must change to the 2 px accent rule already used by
+    // the popout-active slot indicator. Anchoring left/right/bottom keeps the
+    // pointer boundary identical to the click target and lets the underline
+    // track the existing 180 ms label-width transition for free; the thickness
+    // is the shared Theme.bar.underlineHeight token so the hover and popout
+    // underlines cannot drift apart. The icon tint is deliberately not bound to
+    // hover, so an alert tint survives the pointer.
     Rectangle {
-        id: hoverFill
-        anchors.fill: parent
-        radius: Theme.radiusSm
-        color: pointerHover.hovered ? Theme.selection : "transparent"
+        id: hoverUnderline
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: Theme.bar.underlineHeight
+        color: root.hovered ? Theme.accent : "transparent"
     }
 
     HoverHandler {

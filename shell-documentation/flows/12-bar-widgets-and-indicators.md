@@ -35,6 +35,13 @@ title or app id, is hidden when empty or on a vertical bar, and is capped by
 the maxWidth setting with default 280. The horizontal widget width animates for
 180 ms with OutCubic when the label changes.
 
+### Hover
+
+Pointer hover paints a full-width 2 px Theme.accent bottom underline from the
+shared bar underline token, not a filled block. There is no radius and no
+vertical underline. The icon tint is never bound to hover, so an alert tint
+survives the pointer.
+
 ### Actions
 
 ~~~text

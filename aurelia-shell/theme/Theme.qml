@@ -310,6 +310,11 @@ QtObject {
         readonly property real textMargin: themeRoot._getScaledReal("barTextMargin", 8.75)
         readonly property int text: themeRoot._getScaledInt("barTextSize", 12)
         readonly property int caption: themeRoot._getScaledInt("barCaptionSize", 10)
+        // Shared 2 px underline thickness for the bar's hover and
+        // popout-active indicators. A plain literal, not a font-scaled token,
+        // so both underlines keep the established hairline weight and the
+        // popout look does not change with bar scaling.
+        readonly property int underlineHeight: 2
     }
 
     readonly property var loadedPreferences: {
