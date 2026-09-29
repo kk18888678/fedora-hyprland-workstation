@@ -166,6 +166,8 @@ AureliaKeyboardPanel {
                             identityOriginalId: activeDelegate.originalId
                             identityTimestamp: activeDelegate.timestamp
                             identityIndex: activeDelegate.index
+                            actionOutcome: String(activeDelegate.actionOutcome || "")
+                            actionOutcomeReason: String(activeDelegate.actionOutcomeReason || "")
                             timestampLabel: Logic.timestampLabel(activeDelegate.timestamp, Date.now())
                             onDismissed: function(originalId, timestamp, index) {
                                 root.service.dismissAt(index, originalId, timestamp)

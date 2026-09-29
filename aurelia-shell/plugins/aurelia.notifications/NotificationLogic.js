@@ -6,6 +6,11 @@ var MAX_APP_LENGTH = 128
 var MAX_TEXT_LENGTH = 4096
 var MAX_IMAGE_LENGTH = 2048
 var MAX_ACTIONS = 8
+// The only origin record shape this build understands. A missing, unknown or
+// corrupt version never gates loading: it degrades to an empty origin field
+// while the notification itself still displays and is retained.
+var ORIGIN_VERSION = 1
+var ORIGIN_QUALITIES = ["exact", "origin", "identity"]
 var sharedSourceUrl = null
 
 function loadSourceUrl() {
@@ -430,7 +435,10 @@ function snapshotOf(notification, timestamp) {
         expireTimeout: expireTimeout,
         timestamp: stamp,
         deadline: duration > 0 ? stamp + duration : 0,
-        transient: transient
+        transient: transient,
+        origin: "",
+        actionOutcome: "",
+        actionOutcomeReason: ""
     }
 }
 
@@ -455,7 +463,12 @@ function normalizeHistoryEntry(value) {
         urgency: urgencyValue(entry.urgency),
         expireTimeout: 0,
         timestamp: timestamp,
-        transient: entry.transient === true
+        transient: entry.transient === true,
+        origin: originFieldValue(entry.origin),
+        // Action outcomes are transient presentation state. They are re-derived
+        // on every click and must never be rehydrated as if they just happened.
+        actionOutcome: "",
+        actionOutcomeReason: ""
     }
 }
 
@@ -543,7 +556,10 @@ function screenshotSnapshot(path, timestamp) {
         expireTimeout: 5000,
         timestamp: stamp,
         deadline: stamp + 5000,
-        transient: true
+        transient: true,
+        origin: "",
+        actionOutcome: "",
+        actionOutcomeReason: ""
     }
 }
 
@@ -648,6 +664,108 @@ function popupExpired(entry, duration, now) {
     return lifetime > 0 && Number(now) - finiteNumber((entry || {}).timestamp, 0) >= lifetime
 }
 
+// Validate and detach an origin record. Only the shipped origin version and
+// the three known capture qualities are accepted; anything else is dropped to
+// null so a corrupt file cannot crash the click path. Round-tripping through
+// JSON also detaches the record from any ListModel/QObject wrapper.
+function normalizeOrigin(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    var version = finiteNumber(value.originVersion, -1)
+    if (version !== ORIGIN_VERSION) return null
+    var quality = String(value.captureQuality || "")
+    if (ORIGIN_QUALITIES.indexOf(quality) === -1) return null
+    var copy
+    try {
+        copy = JSON.parse(JSON.stringify(value))
+    } catch (error) {
+        if (typeof console !== "undefined" && console.warn)
+            console.warn("[NOTIFICATIONS] origin_rejected reason=unserializable")
+        return null
+    }
+    if (!copy || typeof copy !== "object" || Array.isArray(copy)) return null
+    return copy
+}
+
+// ListModel roles cannot carry a null or object member, so the origin travels
+// as a validated JSON string in the model and popup file. Both directions are
+// fail-closed: anything unrecognised becomes the empty string.
+function originFieldValue(value) {
+    var origin
+    if (typeof value === "string") {
+        if (value === "") return ""
+        try {
+            origin = normalizeOrigin(JSON.parse(value))
+        } catch (error) {
+            if (typeof console !== "undefined" && console.info)
+                console.info("[NOTIFICATIONS] origin_rejected reason=field_unparseable")
+            return ""
+        }
+    } else {
+        origin = normalizeOrigin(value)
+    }
+    return origin ? JSON.stringify(origin) : ""
+}
+
+function originFromField(value) {
+    if (!value) return null
+    if (typeof value === "string") {
+        if (value === "") return null
+        try {
+            return normalizeOrigin(JSON.parse(value))
+        } catch (error) {
+            if (typeof console !== "undefined" && console.info)
+                console.info("[NOTIFICATIONS] origin_rejected reason=field_unparseable")
+            return null
+        }
+    }
+    return normalizeOrigin(value)
+}
+
+// Read the final JSON line printed by `capture`. `null` (or any unparseable
+// payload) means there is no origin, never an error condition.
+function parseOriginOutput(raw) {
+    var lines = String(raw || "").split("\n")
+    for (var i = lines.length - 1; i >= 0; i--) {
+        var line = lines[i].trim()
+        if (line === "") continue
+        if (line === "null") return null
+        try {
+            return normalizeOrigin(JSON.parse(line))
+        } catch (error) {
+            if (typeof console !== "undefined" && console.info)
+                console.info("[NOTIFICATIONS] origin_rejected reason=capture_payload_unparseable")
+            return null
+        }
+    }
+    return null
+}
+
+// Read the single JSON outcome object printed by `navigate`. A malformed or
+// unknown payload is treated as an unavailable navigation, never as success.
+function parseNavigateOutput(raw) {
+    var lines = String(raw || "").split("\n")
+    for (var i = lines.length - 1; i >= 0; i--) {
+        var line = lines[i].trim()
+        if (line === "") continue
+        try {
+            var parsed = JSON.parse(line)
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+            var outcome = String(parsed.outcome || "")
+            if (["focused", "routed", "unavailable", "none"].indexOf(outcome) === -1) return null
+            return {
+                outcome: outcome,
+                confidence: String(parsed.confidence || "none"),
+                reason: String(parsed.reason || "")
+            }
+        } catch (error) {
+            if (typeof console !== "undefined" && console.info)
+                console.info("[NOTIFICATIONS] navigate_outcome_rejected reason=unparseable")
+            return null
+        }
+    }
+    return null
+}
+
 function popupPlacement(barPosition, barClearance, gapsOut) {
     var position = String(barPosition || "top")
     var clearance = finiteNumber(barClearance, 0)
@@ -699,6 +817,12 @@ if (typeof module !== "undefined") {
         durationFor: durationFor,
         isInboxPersistent: isInboxPersistent,
         transientFromNotification: transientFromNotification,
+        ORIGIN_VERSION: ORIGIN_VERSION,
+        normalizeOrigin: normalizeOrigin,
+        originFieldValue: originFieldValue,
+        originFromField: originFromField,
+        parseOriginOutput: parseOriginOutput,
+        parseNavigateOutput: parseNavigateOutput,
         hasBusName: hasBusName,
         busOwnerPid: busOwnerPid,
         defaultActionText: defaultActionText,
