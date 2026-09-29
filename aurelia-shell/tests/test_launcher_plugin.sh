@@ -320,8 +320,8 @@ APP_ICON_PNG_B64
     if [[ "$app_icon_status" -eq 0 ]] && [[ -s "$app_icon_result" ]] &&
        runtime_log_is_environment_only "$app_icon_log" &&
        jq -e --arg png "$app_icon_png" '
-           .cases.empty.status == 1 and
-           (.cases.empty.source | contains("application-x-executable")) and
+           .cases.empty.status == 0 and
+           .cases.empty.source == "" and
            .cases.knownName.status == 1 and
            (.cases.knownName.source | contains("fixture-app")) and
            .cases.knownSymbolic.status == 1 and
@@ -333,10 +333,10 @@ APP_ICON_PNG_B64
            (.cases.fileUrl.source | contains("sample.png")) and
            .cases.absolute.status == 1 and
            (.cases.absolute.source | startswith("file://")) and
-           .cases.unknown.status == 1 and
-           (.cases.unknown.source | contains("application-x-executable"))
+           .cases.unknown.status == 0 and
+           .cases.unknown.source == ""
        ' "$app_icon_result" >/dev/null; then
-        pass "[isolated-runtime] AureliaAppLibrary resolves a themed name, a themed image://icon value, a file:// URI and an absolute path through AppIconResolver and falls back to application-x-executable for empty/unknown icons, with every resolved source rendering (Image.Ready)"
+        pass "[isolated-runtime] AureliaAppLibrary resolves a themed name, a themed image://icon value, a file:// URI and an absolute path through AppIconResolver and reports no icon for empty/unknown icons (no placeholder source), with every resolved real source rendering (Image.Ready)"
     else
         details="$(tr '\n' ' ' <"$app_icon_log")"
         if [[ -s "$app_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$app_icon_result")"; fi

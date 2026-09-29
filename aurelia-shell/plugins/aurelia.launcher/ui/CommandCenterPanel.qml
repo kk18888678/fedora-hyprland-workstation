@@ -363,17 +363,25 @@ PanelWindow {
                                 verticalAlignment: Text.AlignVCenter
                             }
 
-                            Image {
-                                visible: modelData.kind === "app"
-                                Layout.preferredWidth: 24
-                                Layout.preferredHeight: 24
-                                source: panelRoot.appLibrary
+                            AureliaIcon {
+                                id: appRowIcon
+                                // An unavailable app icon collapses the 24 px
+                                // slot instead of drawing Qt's missing-image
+                                // placeholder or reserving blank space.
+                                visible: modelData.kind === "app" && appRowIcon.hasIcon
+                                Layout.preferredWidth: visible ? 24 : 0
+                                Layout.preferredHeight: visible ? 24 : 0
+                                width: 24
+                                height: 24
+                                iconSize: 24
+                                name: ""
+                                sourcePath: panelRoot.appLibrary
                                     ? panelRoot.appLibrary.iconSource(modelData.appIcon)
                                     : panelRoot.safeIconSource(modelData.appIcon)
-                                sourceSize: Qt.size(24, 24)
-                                fillMode: Image.PreserveAspectFit
-                                smooth: true
-                                asynchronous: true
+                                // Application artwork is a real multi-colour
+                                // logo; only symbolic masks are tinted, and an
+                                // app row never holds one.
+                                preserveColors: true
                             }
 
                             ColumnLayout {

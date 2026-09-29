@@ -51,6 +51,13 @@ function kinds(result) {
     return result.kind + ":" + result.name;
 }
 
+// Capture the resolver's condition-name diagnostics so the fall-through can be
+// asserted without polluting the test transcript. Assertion failures still go
+// to stderr through process.stderr.write, not the shell console.
+var diagnostics = [];
+var originalConsoleInfo = console.info;
+console.info = function(message) { diagnostics.push(String(message)); };
+
 // ---------------------------------------------------------------------------
 // Name validation
 // ---------------------------------------------------------------------------
@@ -236,14 +243,26 @@ var procResult = Logic.resolve({ origin: {} }, { procExe: "/usr/bin/kitty.bin", 
 assertEqual(procResult.kind, "proc", "proc exe resolves when no window identity exists");
 assertEqual(procResult.name, "kitty", "proc exe .bin suffix is stripped");
 
-// Honest default outcome.
+// The default outcome is now "no icon": `kind: "default"` remains the
+// semantic marker existing consumers and tests assert on, but it carries no
+// source and no name so nothing is rendered.
 var defaultResult = Logic.resolve({ appIcon: "definitely-not-real", desktopEntry: "nope" }, {},
     probe({ themes: [] }));
-assertEqual(defaultResult.kind, "default", "unresolvable input yields the default");
-assertEqual(defaultResult.name, "application-x-executable", "default name is explicit");
-assertEqual(defaultResult.source, "image://icon/application-x-executable?fallback=application-x-executable",
-    "default source is the Qt icon URL, never blank");
+assertEqual(defaultResult.kind, "default", "unresolvable input yields the default kind");
+assertEqual(defaultResult.name, "", "default carries no theme name");
+assertEqual(defaultResult.source, "", "default carries no source, so no placeholder is drawn");
 assertEqual(defaultResult.symbolic, false, "default is not symbolic");
+
+// A genuinely resolvable candidate still wins over the no-icon default.
+var resolvedOverDefault = Logic.resolve({ appIcon: "foot" }, {}, probe({ themes: ["foot"] }));
+assertEqual(resolvedOverDefault.kind, "theme", "a resolvable theme candidate wins over the default");
+assertEqual(resolvedOverDefault.name, "foot", "the winning candidate keeps its own name");
+assert(resolvedOverDefault.source !== "", "the winning candidate still has a renderable source");
+
+// The fall-through is a deliberate, logged outcome, never a silent one. Assert
+// the emitted condition NAME (never a value or user content).
+assert(diagnostics.indexOf("[APP-ICON] " + Logic.DIAGNOSTIC_NO_ICON_RESOLVED) !== -1,
+    "the fall-through emits the no_icon_resolved condition-name diagnostic");
 
 // ---------------------------------------------------------------------------
 // The "never a dangling durable path" invariant
@@ -271,14 +290,16 @@ assertEqual(rehydrated.kind, "durable", "durable value wins over later candidate
 assertEqual(rehydrated.source, fileUrl("/durable/icon.png"), "durable source is returned unchanged");
 
 // No candidate may be a bare non-file, non-URL theme string in `source`.
-[footResult, desktopResult, windowResult, procResult, defaultResult].forEach(function(result) {
+[footResult, desktopResult, windowResult, procResult, resolvedOverDefault].forEach(function(result) {
     assert(result.source.indexOf("image://icon/") === 0 || result.source.indexOf("file://") === 0 ||
         result.source.indexOf("image://qsimage/") === 0, "every resolved source is renderable: " + result.source);
 });
+assertEqual(defaultResult.source, "", "the no-icon default is the one deliberate empty source");
 
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
+console.info = originalConsoleInfo;
 if (failures > 0) {
     process.stderr.write("app-icon-resolver node tests: " + failures + " failure(s) of " + assertions + " assertion(s)\n");
     process.exit(1);
