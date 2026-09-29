@@ -343,3 +343,19 @@ APP_ICON_PNG_B64
         fail "[isolated-runtime] app-library icon resolution fixture failed (status=$app_icon_status): $details"
     fi
 fi
+
+# ---------------------------------------------------------------------------
+# Command Center fallback icon resolution over the shared AppIconResolver owner
+# ---------------------------------------------------------------------------
+# CommandCenterPanel is a Wlroots layer PanelWindow and cannot be instantiated
+# under the offscreen test backend ("No PanelWindow backend loaded"), so its
+# defensive safeIconSource() bridge is pinned statically. Its production render
+# path (appLibrary.iconSource) shares this exact owner and is runtime-asserted
+# by the app-library icon fixture above.
+command_icon_panel="$command_center_root/ui/CommandCenterPanel.qml"
+if grep -Fq 'AppIconResolver.resolve' "$command_icon_panel" &&
+   ! grep -Fq 'Quickshell.iconPath' "$command_icon_panel"; then
+    pass "[static] Command Center safeIconSource delegates its fallback icon resolution to the shared AppIconResolver owner"
+else
+    fail "[static] Command Center still owns ad-hoc fallback icon resolution"
+fi
