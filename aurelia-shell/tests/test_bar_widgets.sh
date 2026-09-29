@@ -238,8 +238,8 @@ if [[ -f "$tasklist_root/manifest.json" && -f "$tasklist_root/TasklistBarWidget.
    grep -q 'Qt.RightButton' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'function closeWindow' "$tasklist_root/TasklistMenuPanel.qml" &&
    grep -q 'function openMatchingWindowMenu' "$tasklist_root/TasklistBarWidget.qml" &&
-   grep -q 'function iconSourceFor' "$tasklist_root/TasklistBarWidget.qml" &&
-   grep -q 'window-new' "$tasklist_root/TasklistBarWidget.qml"; then
+   grep -q 'AppIconResolver.resolve' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'function iconResolutionFor' "$tasklist_root/TasklistBarWidget.qml"; then
     pass "Tasklist is a separate Hyprland bar widget with an in-shell window context menu"
 else
     fail "Tasklist plugin or window context menu is incomplete"
@@ -382,7 +382,8 @@ else
 fi
 
 if grep -q 'AureliaIcon {' "$tasklist_root/TasklistBarWidget.qml" &&
-   grep -q 'sourcePath: root.iconSourceFor(modelData, appEntry)' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'sourcePath: taskDelegate.iconSource' "$tasklist_root/TasklistBarWidget.qml" &&
+   grep -q 'preserveColors: !taskDelegate.symbolicIcon' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'tint: root.barForeground' "$tasklist_root/TasklistBarWidget.qml" &&
    ! grep -q '^                Image {' "$tasklist_root/TasklistBarWidget.qml" &&
    grep -q 'AureliaIcon {' "$tray_root/TrayBarWidget.qml" &&
@@ -749,3 +750,110 @@ for font_base in 9 12 16; do
         fail "[isolated-runtime] bar icon contract failed at fontBaseSize $font_base: $details"
     fi
 done
+
+# ---------------------------------------------------------------------------
+# Tasklist icon resolution over the shared AppIconResolver owner
+# ---------------------------------------------------------------------------
+tasklist_icon_widget="$tasklist_root/TasklistBarWidget.qml"
+if grep -Fq 'import "../../services"' "$tasklist_icon_widget" &&
+   grep -Fq 'AppIconResolver.resolve' "$tasklist_icon_widget" &&
+   grep -Fq 'taskDelegate.iconResolution.symbolic' "$tasklist_icon_widget" &&
+   ! grep -Fq 'Quickshell.iconPath' "$tasklist_icon_widget"; then
+    pass "[static] Tasklist delegates its ordered icon chain and symbolic rule to the shared AppIconResolver owner"
+else
+    fail "[static] Tasklist still owns ad-hoc icon resolution or re-derives the symbolic rule"
+fi
+
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] tasklist icon resolution fixture (qs or timeout unavailable)"
+else
+    tasklist_icon_rt="$(mktemp -d)"
+    trap 'rm -rf -- "$tasklist_icon_rt" || true' RETURN
+    mkdir -p -- "$tasklist_icon_rt/runtime" "$tasklist_icon_rt/state" \
+        "$tasklist_icon_rt/config" "$tasklist_icon_rt/cache" \
+        "$tasklist_icon_rt/home/.config" "$tasklist_icon_rt/home/.local/share" \
+        "$tasklist_icon_rt/data/applications" \
+        "$tasklist_icon_rt/data/icons/hicolor/16x16/apps"
+    tasklist_icon_png="$tasklist_icon_rt/sample.png"
+    base64 -d >"$tasklist_icon_png" <<'TASKLIST_ICON_PNG_B64'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+TASKLIST_ICON_PNG_B64
+    for tasklist_icon_name in fixture-app fixture-app-symbolic utilities-terminal; do
+        cp -- "$tasklist_icon_png" "$tasklist_icon_rt/data/icons/hicolor/16x16/apps/$tasklist_icon_name.png"
+    done
+    cat >"$tasklist_icon_rt/data/applications/fixture-app.desktop" <<'TASKLIST_APP_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Fixture App
+Icon=fixture-app
+Exec=fixture-app
+TASKLIST_APP_DESKTOP
+    cat >"$tasklist_icon_rt/data/applications/fixture-symbolic.desktop" <<'TASKLIST_SYMBOLIC_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Symbolic App
+Icon=fixture-app-symbolic
+Exec=fixture-symbolic
+TASKLIST_SYMBOLIC_DESKTOP
+    cat >"$tasklist_icon_rt/data/applications/foot.desktop" <<'TASKLIST_FOOT_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Foot
+Icon=utilities-terminal
+Exec=foot
+TASKLIST_FOOT_DESKTOP
+    tasklist_icon_result="$tasklist_icon_rt/result.json"
+    tasklist_icon_log="$tasklist_icon_rt/runtime.log"
+    : >"$tasklist_icon_result"
+    tasklist_icon_status=0
+    AURELIA_TASKLIST_ICON_PROBE_SOURCE="file://$ROOT/tests/fixtures/tasklist-icons/probe.qml" \
+    AURELIA_TASKLIST_ICON_SOURCE="file://$tasklist_icon_widget" \
+    AURELIA_TASKLIST_ICON_RESULT="$tasklist_icon_result" \
+    HOME="$tasklist_icon_rt/home" \
+    XDG_RUNTIME_DIR="$tasklist_icon_rt/runtime" \
+    XDG_STATE_HOME="$tasklist_icon_rt/state" \
+    XDG_CONFIG_HOME="$tasklist_icon_rt/config" \
+    XDG_CACHE_HOME="$tasklist_icon_rt/cache" \
+    XDG_DATA_HOME="$tasklist_icon_rt/data-home" \
+    XDG_DATA_DIRS="$tasklist_icon_rt/data:/usr/local/share:/usr/share" \
+    QT_QPA_PLATFORM=offscreen \
+    WAYLAND_DISPLAY="" \
+        /usr/bin/timeout --kill-after=1s 10s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/tests/fixtures/tasklist-icons/shell.qml" --no-color \
+        >"$tasklist_icon_log" 2>&1 || tasklist_icon_status=$?
+
+    if [[ "$tasklist_icon_status" -eq 0 ]] && [[ -s "$tasklist_icon_result" ]] &&
+       runtime_log_is_environment_only "$tasklist_icon_log" 'hyprland|Hyprland' &&
+       jq -e '
+           .fixtureApp.kind == "theme" and
+           .fixtureApp.name == "fixture-app" and
+           .fixtureApp.symbolic == false and
+           .fixtureApp.preservesColors == true and
+           (.fixtureApp.source | contains("fixture-app")) and
+           .symbolic.kind == "theme" and
+           .symbolic.name == "fixture-app-symbolic" and
+           .symbolic.symbolic == true and
+           .symbolic.preservesColors == false and
+           (.symbolic.source | contains("fixture-app-symbolic")) and
+           .foot.kind == "theme" and
+           .foot.name == "utilities-terminal" and
+           .foot.symbolic == false and
+           .foot.preservesColors == true and
+           (.foot.source | contains("utilities-terminal")) and
+           .unknown.kind == "default" and
+           .unknown.name == "application-x-executable" and
+           .unknown.symbolic == false and
+           .unknown.preservesColors == true and
+           (.unknown.source | contains("application-x-executable")) and
+           .rendered.fixtureApp == .readyStatus and
+           .rendered.symbolic == .readyStatus and
+           .rendered.foot == .readyStatus and
+           .rendered.unknown == .readyStatus
+       ' "$tasklist_icon_result" >/dev/null; then
+        pass "[isolated-runtime] Tasklist resolves a desktop-entry theme icon, tints a -symbolic mask, preserves colours for a real logo, keeps a known-good desktop entry icon through the owner, and shows application-x-executable for an unknown window, with every resolved source rendering (Image.Ready)"
+    else
+        details="$(tr '\n' ' ' <"$tasklist_icon_log")"
+        if [[ -s "$tasklist_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$tasklist_icon_result")"; fi
+        fail "[isolated-runtime] tasklist icon resolution fixture failed (status=$tasklist_icon_status): $details"
+    fi
+fi
