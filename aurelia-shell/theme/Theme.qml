@@ -430,6 +430,103 @@ QtObject {
         return fallbackColor
     }
 
+    // ---------------------------------------------------------------------
+    // WCAG status-token contrast guard
+    // ---------------------------------------------------------------------
+    // `error` and `warning` are semantic status colours: they render as
+    // critical/near-limit text and icons and must stay legible against the
+    // resolved background. Newly generated wallpaper palettes emit explicit
+    // `error`/`warning` keys pinned to 4.5:1 (see
+    // docs/aurelia-wallpapers.md), but themes generated (or shipped) before
+    // that guarantee only carry the ANSI `red`/`yellow` slots, and those slots
+    // are deliberately NOT contrast-enforced because terminals and every
+    // non-status consumer must keep their exact palette character. The silent
+    // fallback then resolved `error` to an unlegible `red` (measured 1.46:1 on
+    // a live generated theme). This guard is the documented consumer-side
+    // layer of the WCAG contract: it measures the explicit key, the ANSI role,
+    // the bright variant, and the built-in fallback against the resolved
+    // background and selects the highest-contrast candidate. If even that
+    // candidate is below 4.5:1 (a legacy light theme, for example) it fails
+    // closed by adjusting the candidate's lightness while preserving hue, so
+    // every theme reaches the floor. It repairs already-generated themes
+    // without re-running the wallpaper generator, and it is a published
+    // contract rather than a silent substitution.
+    function _srgbToLinear(channel: real): real {
+        return channel <= 0.04045
+            ? channel / 12.92
+            : Math.pow((channel + 0.055) / 1.055, 2.4)
+    }
+    function _relativeLuminance(value: var): real {
+        var c = (typeof value === "string") ? Qt.color(value) : value
+        return 0.2126 * themeRoot._srgbToLinear(c.r)
+             + 0.7152 * themeRoot._srgbToLinear(c.g)
+             + 0.0722 * themeRoot._srgbToLinear(c.b)
+    }
+    function _contrastRatio(a: var, b: var): real {
+        var la = themeRoot._relativeLuminance(a)
+        var lb = themeRoot._relativeLuminance(b)
+        if (la < lb) { var swap = la; la = lb; lb = swap }
+        return (la + 0.05) / (lb + 0.05)
+    }
+    // Last-resort fail-closed enforcement for a theme whose every candidate is
+    // below the floor (a legacy light theme, for example). Mirrors the
+    // generator's status_role: move HSL lightness toward whichever contrast
+    // pole this background favours while preserving hue and saturation, so
+    // error stays red and warning stays amber instead of collapsing to the
+    // same grey or pure black/white. max(contrast_white, contrast_black) is
+    // always at least ~4.58, so the floor is reachable for any background.
+    function _statusFloor(candidate: var, background: color, minimum: real): color {
+        var ratio = themeRoot._contrastRatio(candidate, background)
+        if (ratio >= minimum) return candidate
+        var c = (typeof candidate === "string") ? Qt.color(candidate) : candidate
+        var hue = c.hslHue
+        var sat = c.hslSaturation
+        var lightness = c.hslLightness
+        var towardLight = themeRoot._contrastRatio("#ffffff", background)
+            >= themeRoot._contrastRatio("#000000", background)
+        var step = towardLight ? 0.05 : -0.05
+        var best = candidate
+        var bestRatio = ratio
+        for (var i = 0; i < 20; i++) {
+            lightness += step
+            if (lightness > 1) lightness = 1
+            if (lightness < 0) lightness = 0
+            var adjusted = Qt.hsla(hue, sat, lightness, 1)
+            var current = themeRoot._contrastRatio(adjusted, background)
+            if (current > bestRatio) { bestRatio = current; best = adjusted }
+            if (current >= minimum) return adjusted
+            if (lightness <= 0 || lightness >= 1) break
+        }
+        return best
+    }
+    function _statusColor(primaryKey: string, altKeys: var, fallbackColor: color): color {
+        var candidates = []
+        var value = _getOverride(primaryKey)
+        if (value !== "") candidates.push(value)
+        if (altKeys) {
+            var list = (typeof altKeys === "string") ? [altKeys] : altKeys
+            for (var i = 0; i < list.length; i++) {
+                value = _getOverride(list[i])
+                if (value !== "" && candidates.indexOf(value) === -1) candidates.push(value)
+            }
+        }
+        candidates.push(fallbackColor)
+
+        var background = _getColor("background", "", _base)
+        var best = fallbackColor
+        var bestRatio = -1
+        for (var j = 0; j < candidates.length; j++) {
+            var ratio = themeRoot._contrastRatio(candidates[j], background)
+            if (ratio > bestRatio) {
+                bestRatio = ratio
+                best = candidates[j]
+            }
+        }
+        // Pick the best-contrast available candidate, then fail closed to the
+        // 4.5:1 status floor if even that candidate is short.
+        return themeRoot._statusFloor(best, background, 4.5)
+    }
+
     // Omarchy's generated shell.toml is a data-only surface-token document.
     // Parse only simple TOML sections and scalar values; unsupported syntax is
     // ignored and all QML consumers retain their safe fallback token.
@@ -541,8 +638,8 @@ QtObject {
     readonly property color rose: _getColor("rose", ["orange", "color5"], _rose)
     readonly property color iris: _getColor("iris", ["magenta", "purple", "color13"], _iris)
     readonly property color success: _getColor("success", ["green"], _foam)
-    readonly property color warning: _getColor("warning", ["yellow"], _gold)
-    readonly property color error: _getColor("error", ["red"], _love)
+    readonly property color warning: _statusColor("warning", ["yellow", "bright_yellow"], _gold)
+    readonly property color error: _statusColor("error", ["red", "bright_red"], _love)
 
     // Surface roles are loaded from the generated shell.toml state. They keep
     // the existing Aurelia token names as fallbacks, so older user themes and
