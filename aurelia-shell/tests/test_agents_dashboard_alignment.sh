@@ -247,12 +247,42 @@ if [[ "$interaction_status" -eq 0 && -s "$interaction_result" ]] &&
         .refreshActiveWhileBusy == true and
         .refreshEnabledAfter == true and
         .refreshActiveAfter == false and
+        # Extended-card placement: Refresh in the header above the matrix,
+        # Close in the action row below it and above the detail it collapses.
         .refreshY < .matrixY and
-        .matrixY < .closeY' \
+        .matrixY < .closeY and
+        .closeY < .detailY and
+        # Explicit, non-empty tooltips for both icon-only controls, including
+        # the busy refresh tooltip.
+        .refreshTooltip == "Refresh usage" and
+        .closeTooltip == "Collapse account details" and
+        .refreshTooltipWhileBusy == "Refreshing usage\u2026" and
+        .refreshTooltipAfter == "Refresh usage"' \
        "$interaction_result" >/dev/null; then
-    pass "[isolated-runtime] close collapses the detail and the icon-only refresh disables and shows busy while running"
+    pass "[isolated-runtime] close collapses the detail, the icon-only refresh disables/busies with honest tooltips, and the action row sits with the extended card"
 else
     fail "[isolated-runtime] close/refresh interaction regressed (status=$interaction_status result=$(cat "$interaction_result" || true))"
+fi
+
+# Default-collapsed panel state: with no account selected the consolidated
+# matrix is the resting view (nothing expanded, no detail) while the icon-only
+# Refresh is already present, enabled and therefore reachable. This is the
+# state the earlier suite never asserted because it always passed a selection.
+if [[ "$interaction_status" -eq 0 && -s "$interaction_result" ]] &&
+   jq -e '
+        .focusPolicy.atRestSelected == "" and
+        .focusPolicy.atRestSelectedIndex == -1 and
+        .focusPolicy.atRestHasSelection == false and
+        .focusPolicy.atRestDetailVisible == false and
+        .focusPolicy.atRestRefreshPresent == true and
+        .focusPolicy.atRestRefreshEnabled == true and
+        .focusPolicy.atRestCloseVisible == false and
+        .focusPolicy.atRestRefreshTooltip == "Refresh usage" and
+        .focusPolicy.atRestCloseTooltip == "Collapse account details"' \
+       "$interaction_result" >/dev/null; then
+    pass "[isolated-runtime] the panel opens with nothing expanded and Refresh reachable while Close is not offered"
+else
+    fail "[isolated-runtime] default-collapsed panel state regressed (status=$interaction_status result=$(cat "$interaction_result" || true))"
 fi
 assert_runtime_log_clean "$interaction_log" "close/refresh interaction"
 
@@ -360,7 +390,7 @@ if [[ "$closed_status" -eq 0 && -s "$closed_result" && "$open_status" -eq 0 && -
    ! grep -q 'sentinel\.' "$closed_log" && ! grep -q 'sentinel\.' "$open_log"; then
     pass "[isolated-runtime] ACCOUNT DETAILS is collapsed by default, reveals the identity rows only after expansion, and never logs a sentinel"
 else
-    fail "[isolated-runtime] ACCOUNT DETAILS disclosure regressed (closed=$(jq -c '.accountDetails' "$closed_result" 2>/dev/null || echo missing) open=$(jq -c '.accountDetails' "$open_result" 2>/dev/null || echo missing))"
+    fail "[isolated-runtime] ACCOUNT DETAILS disclosure regressed (closed=$(jq -c '.accountDetails' "$closed_result" || echo missing) open=$(jq -c '.accountDetails' "$open_result" || echo missing))"
 fi
 assert_runtime_log_clean "$closed_log" "account details collapsed"
 assert_runtime_log_clean "$open_log" "account details expanded"

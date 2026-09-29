@@ -133,11 +133,24 @@ Window {
             var d = root.dashboard
             var refresh = root.findByObjectName("agentsRefreshButton")
             var close = root.findByObjectName("agentsCloseButton")
+            var detail = root.findByObjectName("agentsDetailPane")
             root.focusPolicy.atRestCursorActive = d ? d.cursorActive === true : null
             root.focusPolicy.atRestRefreshRing = d ? d.actionFocus("refresh") === true : null
             root.focusPolicy.atRestCloseRing = d ? d.actionFocus("close") === true : null
             root.focusPolicy.atRestRefreshKeyboardFocus = refresh ? refresh.keyboardFocus === true : null
             root.focusPolicy.atRestCloseKeyboardFocus = close ? close.keyboardFocus === true : null
+            // Resting consolidated panel: no account is selected, so nothing
+            // is expanded and the detail pane is absent while Refresh is
+            // already present and enabled.
+            root.focusPolicy.atRestSelected = d ? String(d.selectedAccountId) : null
+            root.focusPolicy.atRestSelectedIndex = d ? d.selectedIndex : null
+            root.focusPolicy.atRestHasSelection = d ? d.hasSelection === true : null
+            root.focusPolicy.atRestDetailVisible = detail ? detail.visible === true : null
+            root.focusPolicy.atRestRefreshPresent = refresh !== null
+            root.focusPolicy.atRestRefreshEnabled = refresh ? refresh.enabled === true : null
+            root.focusPolicy.atRestCloseVisible = close ? close.visible === true : null
+            root.focusPolicy.atRestRefreshTooltip = refresh ? String(refresh.tooltip) : null
+            root.focusPolicy.atRestCloseTooltip = close ? String(close.tooltip) : null
             selectTimer.restart()
         }
     }
@@ -168,11 +181,15 @@ Window {
                 closePresent: close !== null,
                 refreshPresent: refresh !== null,
                 refreshEnabledBefore: refresh ? refresh.enabled === true : false,
+                refreshTooltip: refresh ? String(refresh.tooltip) : null,
+                closeTooltip: close ? String(close.tooltip) : null,
                 // Placement: Refresh is in the always-present header ABOVE the
-                // matrix; Close is in the action row BELOW it.
+                // matrix; Close is in the action row BELOW it and directly
+                // above the detail it collapses.
                 refreshY: root.topY(refresh),
                 matrixY: root.topY(matrixHeader),
                 closeY: root.topY(close),
+                detailY: root.topY(detail),
                 focusPolicy: root.focusPolicy
             }
             if (close) close.triggered()
@@ -204,6 +221,7 @@ Window {
             var refresh = root.findByObjectName("agentsRefreshButton")
             root.result.refreshEnabledWhileBusy = refresh ? refresh.enabled === true : false
             root.result.refreshActiveWhileBusy = refresh ? refresh.active === true : false
+            root.result.refreshTooltipWhileBusy = refresh ? String(refresh.tooltip) : null
             mockWidget.refreshing = false
             idleTimer.restart()
         }
@@ -217,6 +235,7 @@ Window {
             var refresh = root.findByObjectName("agentsRefreshButton")
             root.result.refreshEnabledAfter = refresh ? refresh.enabled === true : false
             root.result.refreshActiveAfter = refresh ? refresh.active === true : false
+            root.result.refreshTooltipAfter = refresh ? String(refresh.tooltip) : null
             focusPointerTimer.restart()
         }
     }

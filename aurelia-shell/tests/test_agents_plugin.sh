@@ -256,6 +256,17 @@ else
     fail "[static] agents dashboard section redesign is incomplete"
 fi
 
+# The stale 'TABS (pinned)' comment described a widget that no longer exists
+# and read like live behaviour; the icon-only action controls must carry their
+# explicit tooltips.
+if ! grep -q 'TABS' "$dashboard" &&
+   grep -q 'tooltip: "Collapse account details"' "$dashboard" &&
+   grep -q 'tooltip: dashboard.refreshing ? "Refreshing usage…" : "Refresh usage"' "$dashboard"; then
+    pass "[static] agents action controls carry explicit close/refresh tooltips and the stale TABS comment is gone"
+else
+    fail "[static] agents action tooltip/comment contract is incomplete"
+fi
+
 if grep -q 'stateInfo.key === "unknown"' "$dashboard" &&
    grep -q 'stateInfo.key === "rate-limited"' "$dashboard" &&
    grep -q 'stateInfo.retry' "$dashboard" &&

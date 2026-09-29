@@ -16,12 +16,11 @@ import "AgentUsage.js" as AgentUsage
 //                     Never reorders by severity; percentages are right-aligned
 //                     and every window cell carries a non-colour severity glyph
 //                     for warn/critical.
-//   TABS    (pinned)  one tab per detected account, labelled with the provider
-//                     name, hidden when there is exactly one account.
 //   DETAIL  (scroll)  the selected account: state banner, full LIMITS list
 //                     (including other/unknown windows and duplicates), today
-//                     split, 7-day chart, model windows and subscription.
-//   ACTIONS (pinned)  the compact Refresh action.
+//                     split, 7-day chart, model windows, subscription and a
+//                     collapsed ACCOUNT DETAILS disclosure.
+//   ACTIONS (pinned)  the icon-only Refresh and Close controls.
 //
 // A window's class comes from `windowMinutes` alone. A provider that reports
 // no limits gets `—` and a single muted `no live limits` tag, never a
