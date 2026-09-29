@@ -103,6 +103,8 @@ never be emitted below its documented minimum.
 | `light_foreground` | secondary text | 4.5:1 |
 | `dark_foreground` | subtle text | 3.0:1 |
 | `accent` | text/icon accent | 3.0:1 |
+| `error` | status text/icon (critical) | 4.5:1 |
+| `warning` | status text/icon (near limit) | 4.5:1 |
 | `selection` | selected-row **surface** | exempt (non-text) |
 | `surface`, `surfaceElevated`, `lighter_background` | elevation **surfaces** | exempt (non-text) |
 
@@ -118,6 +120,17 @@ never be emitted below its documented minimum.
   minimum.
 - `accent` is the extracted highlight color, nudged and escalated toward the
   contrast pole until it clears 3.0:1.
+- `error` and `warning` are the **semantic status roles** consumed by
+  `Theme.error`/`Theme.warning` for critical and near-limit text and icons.
+  They are derived from the ANSI `red`/`yellow` slots but re-anchored to fixed,
+  well-separated status hues (0-degree critical red, 45-degree warning amber) at the
+  palette's own saturation and lightness, then pinned to **4.5:1** by
+  `enforce_min`. Re-anchoring is required because a warm or monochrome palette
+  can give `red` and `yellow` nearly the same hue, and a pure RGB mix toward
+  the contrast pole would then collapse both states to the same grey. The ANSI
+  `red`/`yellow` slots themselves remain untouched and unenforced, so terminals
+  and every non-status consumer keep the extracted palette character. This
+  split is what makes `error` legible without disturbing `red`.
 - `selection` is a **non-text surface**: it is a background for selected rows,
   not a text color, so it is explicitly exempt from the text minimums. Text is
   still drawn on it, so the elevation is bounded to keep `foreground` at
@@ -132,7 +145,76 @@ never be emitted below its documented minimum.
 
 The contract is covered by a synthetic-wallpaper table in
 `tests/test_wallpapers.sh` (bright, dark, busy, pastel, saturated) that asserts
-every text role's ratio and key completeness in both light and dark modes.
+every text role's ratio, the `error`/`warning` status floor and their mutual
+hue separation, and key completeness in both light and dark modes. The same
+suite asserts the shipped default theme and exercises the consumer-side guard
+below.
+
+### Status-token consumer guard (`Theme.qml`)
+
+The generator only fixes palettes created after this contract landed. An
+already-generated theme (and the vendored stock catalog) carries no explicit
+`error`/`warning` key, so `Theme.qml`'s original fallback silently resolved
+`error` to the unenforced ANSI `red`, which on the measured live theme was
+`#582826` — a **1.46:1** ratio against `#1e1622`, about a third of the floor.
+`Theme.qml` therefore implements the consumer-side half of the contract:
+
+1. **Select.** Measure the explicit `error`/`warning` key, the ANSI role
+   (`red`/`yellow`), the bright variant (`bright_red`/`bright_yellow`), and the
+   built-in fallback (`_love` `#eb6f92` / `_gold` `#f6c177`) against the
+   resolved `background` with a real WCAG relative-luminance helper, and take
+   the highest-contrast candidate.
+2. **Fail closed.** If even that candidate is below 4.5:1 (for example a
+   legacy light theme), move its HSL lightness toward whichever contrast pole
+   the background favours while preserving hue and saturation, so `error`
+   stays red and `warning` stays amber. `max(contrast_white, contrast_black)`
+   is always at least ~4.58, so the floor is reachable for any background.
+
+This is a published contract, not a silent substitution. On the measured live
+theme it lifts `error` from `#582826` (1.46:1) to `#eb6f92` (**6.05:1**)
+immediately — the user does **not** need to re-apply their wallpaper. The
+status roles are also exempt from the dimming policy owned by the agents
+plugin; this document covers only the colour token.
+
+### Vendored stock theme exception
+
+The `themes/` catalog is a byte-for-byte copy of the Omarchy reference snapshot
+(see `themes/README.md`, `themes/NOTICE`, and `themes/SHA256SUMS`). Retuning its
+`colors.toml` files would break that source-fidelity contract and the reference
+integrity manifest, so the raw ANSI slots in the following stock themes are a
+narrow documented exception to the palette table above. The exception names
+them exactly; it is not a pattern exclusion and it does not lower the
+assertion.
+
+| Theme | Raw ANSI slot below the floor | Ratio vs its `background` |
+| --- | --- | --- |
+| `catppuccin-latte` | `yellow` `#df8e1d` | 2.31:1 |
+| `flexoki-light` | `red` `#d14d41`, `yellow` `#d0a215` | 4.21:1, 2.31:1 |
+| `kanagawa` | `red` `#c34043` | 3.22:1 |
+| `last-horizon` | `yellow` `#6b5e73` | 3.25:1 |
+| `lumon` | `red` `#4d86b0` | 4.04:1 |
+| `matte-black` | `yellow` `#b91c1c` | 2.90:1 |
+| `miasma` | `red` `#685742`, `yellow` `#b36d43` | 2.30:1, 3.93:1 |
+| `nord` | `red` `#bf616a` | 3.05:1 |
+| `rose-pine` | `red` `#b4637a`, `yellow` `#ea9d34` | 3.84:1, 2.05:1 |
+| `solitude` | `red` `#565d60` | 2.78:1 |
+
+The exception is only about the raw vendored bytes. At runtime the consumer
+guard above raises the resolved `Theme.error`/`Theme.warning` for **every** one
+of these themes to at least 4.5:1 (for example `nord` error 6.73:1,
+`rose-pine` error 9.21:1 and warning 4.76:1, `flexoki-light` error 4.62:1 and
+warning 4.51:1), so no bundled theme renders an illegible status colour. If the
+catalog is ever re-vendored from a newer reference it should be re-measured and
+this exception revisited.
+
+### Known adjacent finding
+
+`textMuted` on the measured live theme (`muted` `#81795c` against `#1e1622`)
+measures **4.04:1**, also below the 4.5:1 text floor. That theme was generated
+before the `muted` role was pinned to 4.5:1 in `palette.awk`; newly generated
+themes enforce it (and the synthetic contract asserts it). It is left
+**explicitly documented as a known finding** rather than fixed by weakening an
+assertion, and it is outside this task's status-token scope.
 
 ## Files and state
 
