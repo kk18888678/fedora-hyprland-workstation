@@ -265,6 +265,20 @@ else
     fail "[static] agents dashboard state banner contract is incomplete"
 fi
 
+# P1/P2 alert-dimming policy: there must be no generic stale-dim property left
+# for a caller to apply to an element whose severity is unknown. Every stale
+# de-emphasis goes through one severity-aware helper that delegates to the
+# single AgentUsage predicate, so a warn/critical element always resolves 1.0.
+if ! grep -q 'staleContentOpacity' "$dashboard" &&
+   grep -q 'function staleOpacityFor(severity)' "$dashboard" &&
+   grep -q 'AgentUsage.presentationOpacityFor(severity' "$dashboard" &&
+   grep -q 'AgentUsage.isAlertSeverity' "$dashboard" &&
+   ! grep -qE 'opacity:[[:space:]]*0\.6' "$dashboard"; then
+    pass "[static] agents dashboard routes every stale de-emphasis through the single alert-aware predicate"
+else
+    fail "[static] agents dashboard still carries a generic stale dim that can reach an alert"
+fi
+
 # Every unmet condition logs a diagnostic through the shell's standard
 # console.warn channel (read by `aurelia logs`); the visible labels stay too.
 if grep -q 'AgentUsage.diagnoseRecords' "$dashboard" &&

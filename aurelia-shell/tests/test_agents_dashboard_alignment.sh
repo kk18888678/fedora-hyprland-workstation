@@ -299,13 +299,30 @@ measure 480 "$stale_result" "$stale_log" remaining "opencode" 60000 || stale_sta
 if [[ "$stale_status" -eq 0 && -s "$stale_result" ]] &&
    jq -e '
         . as $r
-        | ($r.staleMs == 60000)
+        | def rowSeverity($id): ([ $r.detailRows[] | select(.row == $id)][0].severity);
+        ($r.staleMs == 60000)
           and ([ $r.detailRows[] | select(.severity == "critical") ] | length) >= 1
           and ([ $r.detailRows[] | select(.severity == "critical") | .effectiveOpacity ] | map(. >= 0.999) | all)
           and ([ $r.detailRows[] | select(.severity == "ok") ] | length) >= 1
           and ([ $r.detailRows[] | select(.severity == "ok") | .effectiveOpacity ] | map(. <= 0.61) | all)
+          # every inner alert element (percent text, severity glyph, alarming
+          # meter) on a critical row keeps effective opacity 1.0, so no row
+          # de-emphasis buries the alert; every element on an ok row is dimmed.
+          and ([ $r.detailElements[]
+                 | select(.kind == "percent" or .kind == "glyph" or .kind == "meter")
+                 | select(rowSeverity(.row) == "critical")
+                 | .effectiveOpacity ] | map(. >= 0.999) | all)
+          and ([ $r.detailElements[] | select(.kind == "percent" or .kind == "glyph" or .kind == "meter")
+                 | select(rowSeverity(.row) == "ok")
+                 | .effectiveOpacity ] | map(. <= 0.61) | all)
+          and ([ $r.detailElements[] | select(.kind == "percent")
+                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
+          and ([ $r.detailElements[] | select(.kind == "glyph")
+                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
+          and ([ $r.detailElements[] | select(.kind == "meter")
+                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
    ' "$stale_result" >/dev/null; then
-    pass "[isolated-runtime] stale detail pane: alert rows stay at effective opacity 1.0 while non-alert rows carry the stale dim"
+    pass "[isolated-runtime] stale detail pane: alert row, percent, glyph and alarm meter stay at effective opacity 1.0 while non-alert rows carry the stale dim"
 else
     fail "[isolated-runtime] stale detail pane dimmed an alert row (status=$stale_status result=$(jq -c '.staleMs, .detailRows' "$stale_result" || true))"
 fi

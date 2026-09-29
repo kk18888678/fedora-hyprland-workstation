@@ -134,11 +134,18 @@ Item {
         backendError: agentsWidget ? agentsWidget.lastError : "",
         staleMs: staleMs
     })
-    // P2: staleness is additive. Non-alert detail sections may be dimmed, but
-    // this opacity is applied PER SECTION, never to a shared ancestor of an
-    // alert row. The LIMITS section is deliberately excluded: each limit row
-    // resolves its own opacity from its severity (see LimitDetailRow).
-    readonly property real staleContentOpacity: stateInfo.stale ? 0.6 : 1.0
+    // P1/P2: staleness is additive. The only de-emphasis the detail pane may
+    // ever apply is a generic 0.6 fade, and a generic fade must never reach an
+    // alert state. This is the one owner of that question: it delegates to the
+    // shared `AgentUsage.presentationOpacityFor` predicate, so a warn/critical
+    // element always resolves to 1.0 no matter how stale the account is, while
+    // non-alert (ok/unknown/notOffered) content keeps the 0.6 de-emphasis.
+    // There is deliberately no generic stale-dim property left for a caller
+    // to apply to an element of unknown severity.
+    function staleOpacityFor(severity) {
+        return AgentUsage.presentationOpacityFor(severity, stateInfo.stale,
+            stateInfo.stale ? 0.6 : 1.0)
+    }
     readonly property var limitDetails: AgentUsage.limitDetailRows(selectedRecord, nowMs, percentMode)
     readonly property var today: AgentUsage.todayUsage(selectedRecord)
     readonly property var freshness: AgentUsage.freshnessPill(selectedRecord, nowMs, staleMs)
@@ -655,10 +662,8 @@ Item {
             // row resolves to 1.0 through the single policy predicate. The dim
             // is applied at the row, so no ancestor of an alert element is
             // ever dimmed.
-            opacity: AgentUsage.presentationOpacityFor(
-                limitRow.detail ? limitRow.detail.severity : "unknown",
-                dashboard.stateInfo.stale,
-                dashboard.stateInfo.stale ? 0.6 : 1.0)
+            opacity: dashboard.staleOpacityFor(limitRow.detail
+                ? limitRow.detail.severity : "unknown")
 
             ColumnLayout {
                 id: limitContent
@@ -694,6 +699,7 @@ Item {
                     }
 
                     Label {
+                        objectName: "limitDetailGlyph-" + limitRow.rowIndex
                         text: limitRow.detail ? limitRow.detail.glyph : ""
                         color: dashboard.sectionColor(limitRow.detail ? limitRow.detail.severity : "ok")
                         font.pixelSize: Theme.fontSizeSm
@@ -701,6 +707,7 @@ Item {
                     }
 
                     NumericLabel {
+                        objectName: "limitDetailPercent-" + limitRow.rowIndex
                         text: limitRow.detail ? limitRow.detail.percentText : "—"
                         color: limitRow.detail
                             ? dashboard.sectionColor(limitRow.detail.severity) : Theme.textMuted
@@ -709,6 +716,7 @@ Item {
                 }
 
                 Meter {
+                    objectName: "limitDetailMeter-" + limitRow.rowIndex
                     visible: limitRow.detail ? !limitRow.detail.isUnknown : false
                     value: limitRow.detail ? limitRow.detail.percent : -1
                     marker: limitRow.detail ? limitRow.detail.elapsed : -1
@@ -1270,7 +1278,10 @@ Item {
                         id: todaySection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleContentOpacity
+                        // A stale account in an alert state keeps the whole
+                        // detail pane at full strength; a stale non-alert
+                        // account de-emphasises its informational sections.
+                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.today.billable + dashboard.today.cache > 0 ||
                             dashboard.today.count > 0 || dashboard.today.sessions > 0
                         Component.onCompleted: dashboard.registerDetailItem(todaySection)
@@ -1321,7 +1332,7 @@ Item {
                         id: weekSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleContentOpacity
+                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.weekBars.length > 0
 
                         SectionHeader { text: "LAST 7 DAYS" }
@@ -1337,7 +1348,7 @@ Item {
                         id: modelsTodaySection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleContentOpacity
+                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.todayModelRows.length > 0
 
                         SectionHeader { text: "MODELS · TODAY" }
@@ -1360,7 +1371,7 @@ Item {
                         id: modelsAllSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleContentOpacity
+                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.allTimeModelRows.length > 0
 
                         SectionHeader { text: "MODELS · ALL TIME" }
@@ -1384,7 +1395,7 @@ Item {
                         id: subscriptionSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleContentOpacity
+                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.hasSubscription &&
                             AgentUsage.subscriptionRows(dashboard.selectedRecord).length > 0
 

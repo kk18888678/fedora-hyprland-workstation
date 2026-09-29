@@ -195,6 +195,7 @@ Window {
         var meterFills = []
         var rows = []
         var detailRows = []
+        var detailElements = []
 
         root.collect("matrixAccountHeader").forEach(function (item) {
             accountHeader = root.geometry(item)
@@ -248,6 +249,21 @@ Window {
                 effectiveOpacity: root.effectiveOpacity(item)
             })
         })
+        // The inner alert elements (percent text, severity glyph and the
+        // alarming meter) are measured separately so a test can prove the
+        // alert row's own children keep effective opacity 1.0 and are not
+        // buried by the row's de-emphasis.
+        var detailKinds = ["Percent", "Glyph", "Meter"]
+        detailKinds.forEach(function (kind) {
+            root.collect("limitDetail" + kind + "-").forEach(function (item) {
+                detailElements.push({
+                    row: parseInt(String(item.objectName).slice(("limitDetail" + kind + "-").length)),
+                    kind: kind.toLowerCase(),
+                    opacity: item.opacity,
+                    effectiveOpacity: root.effectiveOpacity(item)
+                })
+            })
+        })
 
         var payload = {
             columns: Quickshell.env("AGENTS_DASHBOARD_COLUMNS") || "five_hour,week,month",
@@ -262,7 +278,8 @@ Window {
             meterFills: meterFills,
             rows: rows,
             staleMs: root.staleMs,
-            detailRows: detailRows
+            detailRows: detailRows,
+            detailElements: detailElements
         }
         resultFile.setText(JSON.stringify(payload) + "\n")
         root.measured = true
