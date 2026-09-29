@@ -54,6 +54,8 @@ if grep -q 'BecomeMonitor' "$HELPER" &&
    grep -q "type='method_call',interface='org.freedesktop.Notifications',member='Notify'" "$HELPER" &&
    grep -q "type='method_return',sender='org.freedesktop.Notifications'" "$HELPER" &&
    grep -q 'GetConnectionUnixProcessID' "$HELPER" &&
+   grep -q 'timeout=2.0' "$HELPER" &&
+   grep -q 'timeout=5.0' "$HELPER" &&
    ! grep -q 'eavesdrop' "$HELPER"; then
     pass "[static] capture uses BecomeMonitor with exactly the two scoped rules and kernel-backed pid resolution"
 else
