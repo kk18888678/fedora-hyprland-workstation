@@ -442,7 +442,8 @@ generated_colors="$wp_tmp/config/aurelia/themes/wallpaper-sunset.jpg/colors.toml
 color_keys_ok=1
 for key in accent selection muted background foreground bright_foreground \
     red yellow green cyan blue magenta \
-    bright_red bright_yellow bright_green bright_cyan bright_blue bright_magenta; do
+    bright_red bright_yellow bright_green bright_cyan bright_blue bright_magenta \
+    error warning; do
     grep -q "^$key = \"#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\"$" "$generated_colors" || color_keys_ok=0
 done
 if [[ "$color_keys_ok" == "1" ]]; then
@@ -641,6 +642,57 @@ palette_value() {
     sed -n "s/^$2 = \"\(#[0-9a-f]\{6\}\)\"$/\1/p" <<<"$1"
 }
 
+# The checked-in default theme.conf uses unquoted hex values, while generated
+# palettes quote them. Parse both so the shipped-default assertion exercises the
+# real file the shell consumes.
+theme_conf_value() {
+    sed -n "s/^$2 = \"\?\(#[0-9a-fA-F]\{6\}\)\"\?$/\1/p" <<<"$1" | tr 'A-F' 'a-f'
+}
+
+# Maximum absolute per-channel difference between two #rrggbb colours (0..255).
+# Used to keep the two status roles, and each of them versus the accent, from
+# collapsing into the same state after luminance enforcement.
+hex_channel_distance() {
+    awk -v a="$1" -v b="$2" '
+        function hv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+        function pair(h, i) { return hv(substr(h, i, 1)) * 16 + hv(substr(h, i + 1, 1)) }
+        BEGIN {
+            d1 = pair(a, 2) - pair(b, 2); if (d1 < 0) d1 = -d1
+            d2 = pair(a, 4) - pair(b, 4); if (d2 < 0) d2 = -d2
+            d3 = pair(a, 6) - pair(b, 6); if (d3 < 0) d3 = -d3
+            m = d1; if (d2 > m) m = d2; if (d3 > m) m = d3
+            print m
+        }'
+}
+
+# Smallest circular hue separation in degrees between two #rrggbb colours.
+# Returns -1 when either colour has no usable hue.
+hex_hue_distance() {
+    awk -v a="$1" -v b="$2" '
+        function hv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+        function pair(h, i) { return hv(substr(h, i, 1)) * 16 + hv(substr(h, i + 1, 1)) }
+        function hx(h, i) { return pair(h, i) / 255 }
+        function hue(h,   r, g, b, mx, mn, d, v) {
+            r = hx(h, 2); g = hx(h, 4); b = hx(h, 6)
+            mx = (r > g) ? ((r > b) ? r : b) : ((g > b) ? g : b)
+            mn = (r < g) ? ((r < b) ? r : b) : ((g < b) ? g : b)
+            d = mx - mn
+            if (d == 0) return -1
+            if (mx == r) v = 60 * (((g - b) / d) % 6)
+            else if (mx == g) v = 60 * (((b - r) / d) + 2)
+            else v = 60 * (((r - g) / d) + 4)
+            if (v < 0) v += 360
+            return v
+        }
+        BEGIN {
+            ha = hue(a); hb = hue(b)
+            if (ha < 0 || hb < 0) { print -1; exit }
+            d = ha - hb; if (d < 0) d = -d
+            if (d > 180) d = 360 - d
+            print d
+        }'
+}
+
 # Synthetic wallpapers covering the documented extraction pressures. Each row
 # is the candidate-color set the engine would receive from ImageMagick; the
 # engine is then exercised in both light and dark modes.
@@ -661,12 +713,14 @@ assert_palette_contract() {
     local colors="$4"
     local doc=""
     local background foreground muted accent selection surface elevated lighter light_fg dark_fg
+    local status_error status_warning
     local ratio=""
     local missing=""
     local problems=""
     local key=""
     local keys=(background foreground muted accent selection surface surfaceElevated \
-        lighter_background light_foreground dark_foreground bright_foreground)
+        lighter_background light_foreground dark_foreground bright_foreground \
+        error warning)
 
     doc="$(printf '%s\n' "$colors" | awk -v mean="$mean" -v forced="$forced" \
         -v name="synthetic" -v source="/synthetic" -v digest="synthetic" \
@@ -691,6 +745,8 @@ assert_palette_contract() {
     light_fg="$(palette_value "$doc" light_foreground)"
     dark_fg="$(palette_value "$doc" dark_foreground)"
     bright_fg="$(palette_value "$doc" bright_foreground)"
+    status_error="$(palette_value "$doc" error)"
+    status_warning="$(palette_value "$doc" warning)"
 
     ratio="$(wcag_contrast "$foreground" "$background")"
     ratio_at_least "$ratio" 4.5 || problems="$problems foreground/bg=$ratio"
@@ -704,6 +760,31 @@ assert_palette_contract() {
     ratio_at_least "$ratio" 3.0 || problems="$problems accent/bg=$ratio"
     ratio="$(wcag_contrast "$dark_fg" "$background")"
     ratio_at_least "$ratio" 3.0 || problems="$problems dark_foreground/bg=$ratio"
+    # Semantic status tokens. A wallpaper-generated theme previously carried no
+    # explicit error/warning role, so Theme.error silently fell back to the
+    # unenforced ANSI red and rendered at 1.46:1. These are the primary
+    # regression assertions: both status roles must clear the 4.5:1 text floor
+    # against the emitted background in both modes.
+    ratio="$(wcag_contrast "$status_error" "$background")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems error/bg=$ratio"
+    ratio="$(wcag_contrast "$status_warning" "$background")"
+    ratio_at_least "$ratio" 4.5 || problems="$problems warning/bg=$ratio"
+    # Raising the status colours' luminance must not collapse them into one
+    # another or into the accent. The engine anchors them to separate status
+    # hues, so require exact inequality, >=30 degrees of hue separation between
+    # error and warning, and a clearly visible channel difference from accent.
+    [[ "$status_error" != "$status_warning" ]] || problems="$problems error==warning"
+    [[ "$status_error" != "$accent" ]] || problems="$problems error==accent"
+    [[ "$status_warning" != "$accent" ]] || problems="$problems warning==accent"
+    awk -v d="$(hex_hue_distance "$status_error" "$status_warning")" \
+        'BEGIN { exit !(d >= 30) }' ||
+        problems="$problems error/warning hue too close"
+    awk -v d="$(hex_channel_distance "$status_error" "$accent")" \
+        'BEGIN { exit !(d >= 32) }' ||
+        problems="$problems error/accent too close"
+    awk -v d="$(hex_channel_distance "$status_warning" "$accent")" \
+        'BEGIN { exit !(d >= 32) }' ||
+        problems="$problems warning/accent too close"
     ratio="$(wcag_contrast "$foreground" "$surface")"
     ratio_at_least "$ratio" 4.5 || problems="$problems foreground/surface=$ratio"
     ratio="$(wcag_contrast "$foreground" "$elevated")"
@@ -731,6 +812,95 @@ for synthetic_name in "${synthetic_names[@]}"; do
     done
     synthetic_index=$((synthetic_index + 1))
 done
+
+# The shipped default palette is hand-authored rather than generated, but it is
+# the palette every fresh install consumes and it must satisfy the same status
+# contract (it is the documented reference for the explicit error/warning keys).
+shipped_conf="$(cat -- "$ROOT/theme.conf")"
+shipped_background="$(theme_conf_value "$shipped_conf" background)"
+shipped_error="$(theme_conf_value "$shipped_conf" error)"
+shipped_warning="$(theme_conf_value "$shipped_conf" warning)"
+if [[ -n "$shipped_background" && -n "$shipped_error" && -n "$shipped_warning" ]]; then
+    error_ratio="$(wcag_contrast "$shipped_error" "$shipped_background")"
+    warning_ratio="$(wcag_contrast "$shipped_warning" "$shipped_background")"
+    if ratio_at_least "$error_ratio" 4.5 && ratio_at_least "$warning_ratio" 4.5; then
+        pass "shipped default theme satisfies the status-token WCAG contract (error=$error_ratio warning=$warning_ratio)"
+    else
+        fail "shipped default theme violates the status-token WCAG contract (error=$error_ratio warning=$warning_ratio)"
+    fi
+else
+    fail "shipped default theme is missing background/error/warning tokens"
+fi
+
+section "Consumer-side status-token contrast guard (isolated, offscreen)"
+
+# A legacy wallpaper-generated theme carries no explicit error/warning key: it
+# only has the unenforced ANSI red/yellow slots. The consumer guard must lift
+# the resolved Theme.error/Theme.warning to the 4.5:1 floor without the user
+# re-running the generator. This harness is fully isolated (its own XDG state)
+# and never touches the live theme under ~/.local/state/aurelia.
+if [[ -x /usr/bin/qs ]]; then
+    # Two synthetic legacy themes: the measured live dark theme (some candidates
+    # pass, so the guard selects the best) and a light theme whose every
+    # candidate is below the floor (so the guard must fail closed and adjust
+    # lightness). A legacy theme carries no explicit error/warning key.
+    guard_names=(legacy-dark legacy-light)
+    guard_bgs=('#1e1622' '#faf4ed')
+    guard_configs=(
+        $'mode = "dark"\nbackground = "#1e1622"\nred = "#582826"\nbright_red = "#e25965"\nyellow = "#ffff42"\nbright_yellow = "#ffff68"\naccent = "#f6974b"\nmuted = "#81795c"'
+        $'mode = "light"\nbackground = "#faf4ed"\nred = "#b4637a"\nbright_red = "#b4637a"\nyellow = "#ea9d34"\nbright_yellow = "#ea9d34"\naccent = "#907aa9"\nmuted = "#9893a5"'
+    )
+    guard_index=0
+    for guard_name in "${guard_names[@]}"; do
+        guard_root="$(mktemp -d)"
+        mkdir -p "$guard_root/state" "$guard_root/config" \
+            "$guard_root/cache" "$guard_root/runtime"
+        ln -s "$ROOT/theme" "$guard_root/theme"
+        printf '%s\n' "${guard_configs[$guard_index]}" >"$guard_root/theme.conf"
+        cat >"$guard_root/shell.qml" <<'EOF'
+import QtQuick
+import Quickshell
+import "./theme"
+
+ShellRoot {
+    Timer {
+        interval: 250
+        running: true
+        repeat: true
+        onTriggered: console.info("AURELIA_STATUS_GUARD bg=" + Theme.background
+            + " error_ratio=" + Theme._contrastRatio(Theme.error, Theme.background)
+            + " warning_ratio=" + Theme._contrastRatio(Theme.warning, Theme.background))
+    }
+}
+EOF
+        QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+        XDG_RUNTIME_DIR="$guard_root/runtime" XDG_STATE_HOME="$guard_root/state" \
+        XDG_CONFIG_HOME="$guard_root/config" XDG_CACHE_HOME="$guard_root/cache" \
+        AURELIA_THEME_CONF="$guard_root/theme.conf" \
+        timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+            --path "$guard_root/shell.qml" >"$guard_root/qs.log" 2>&1 || true
+
+        # Only accept measurements taken after the synthetic override actually
+        # loaded; the first tick can still report the shipped default.
+        guard_line="$(grep "AURELIA_STATUS_GUARD bg=${guard_bgs[$guard_index]}" \
+            "$guard_root/qs.log" | tail -1)"
+        guard_error="$(sed -n 's/.*error_ratio=\([0-9.]*\).*/\1/p' <<<"$guard_line")"
+        guard_warning="$(sed -n 's/.*warning_ratio=\([0-9.]*\).*/\1/p' <<<"$guard_line")"
+        if [[ -n "$guard_error" && -n "$guard_warning" ]] &&
+           ratio_at_least "$guard_error" 4.5 && ratio_at_least "$guard_warning" 4.5 &&
+           grep -qF "[THEME] loaded path=$guard_root/theme.conf" "$guard_root/qs.log"; then
+            pass "consumer guard enforces the 4.5:1 status floor for $guard_name (error=$guard_error warning=$guard_warning)"
+        else
+            printf '  %s guard log tail:\n%s\n' "$guard_name" \
+                "$(tail -5 "$guard_root/qs.log")" >&2
+            fail "consumer guard did not repair the $guard_name status tokens"
+        fi
+        rm -rf -- "$guard_root"
+        guard_index=$((guard_index + 1))
+    done
+else
+    fail "/usr/bin/qs is required to verify the consumer-side status guard"
+fi
 
 section "Wallpaper palette extraction error classification (isolated)"
 
