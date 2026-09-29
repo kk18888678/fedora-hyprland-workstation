@@ -35,6 +35,12 @@ Window {
         var raw = parseInt(Quickshell.env("AGENTS_DASHBOARD_WIDTH") || "480")
         return isFinite(raw) && raw > 240 ? raw : 480
     }
+    // Env-configurable staleness threshold so the stale-plus-alert combination
+    // can actually be measured. Defaults to the 30 minute production value.
+    readonly property int staleMs: {
+        var raw = parseInt(Quickshell.env("AGENTS_DASHBOARD_STALE_MS") || "1800000")
+        return isFinite(raw) && raw > 0 ? raw : 1800000
+    }
 
     property var records: []
     property bool measured: false
@@ -50,7 +56,7 @@ Window {
         property bool loaded: true
         property string lastError: ""
         property bool refreshing: false
-        property int staleMs: 1800000
+        property int staleMs: root.staleMs
         property string percentMode: root.percentMode
         property var bar: null
         function refresh(force) {}
@@ -77,6 +83,10 @@ Window {
             source: root.pluginPath
             onLoaded: {
                 item.agentsWidget = mockWidget
+                // The production panel binds the dashboard's stale threshold
+                // from the widget, so the fixture must do the same or the
+                // env-configurable staleMs would never reach the detail pane.
+                item.staleMs = root.staleMs
                 item.nowMs = 1789819200000
                 item.maxHeight = 620
             }
@@ -137,6 +147,20 @@ Window {
         return out
     }
 
+    // Effective (inherited) opacity: the product of an item's own opacity and
+    // every ancestor's. A test uses this to prove that no ancestor dims an
+    // alert row/cell, not just that the leaf itself is opaque.
+    function effectiveOpacity(item) {
+        var value = 1.0
+        var node = item
+        while (node) {
+            if (typeof node.opacity === "number" && isFinite(node.opacity))
+                value *= node.opacity
+            node = node.parent
+        }
+        return Math.round(value * 100000) / 100000
+    }
+
     function geometry(item) {
         var point = item.mapToItem(root.dashboard, 0, 0)
         return {
@@ -170,6 +194,7 @@ Window {
         var meters = []
         var meterFills = []
         var rows = []
+        var detailRows = []
 
         root.collect("matrixAccountHeader").forEach(function (item) {
             accountHeader = root.geometry(item)
@@ -184,20 +209,25 @@ Window {
             var rest = String(item.objectName).slice("matrixCell-".length).split("-")
             var geo = root.geometry(item)
             cells.push({ row: parseInt(rest[0]), column: rest.slice(1).join("-"),
-                x: geo.x, width: geo.width, height: geo.height })
+                x: geo.x, width: geo.width, height: geo.height,
+                opacity: item.opacity, effectiveOpacity: root.effectiveOpacity(item),
+                severity: item.cell ? String(item.cell.severity) : "",
+                isBinding: item.isBinding === true })
         })
         root.collect("matrixPercent-").forEach(function (item) {
             var rest = String(item.objectName).slice("matrixPercent-".length).split("-")
             var geo = root.geometry(item)
             percentages.push({ row: parseInt(rest[0]), column: rest.slice(1).join("-"),
                 text: String(item.text),
+                opacity: item.opacity, effectiveOpacity: root.effectiveOpacity(item),
                 x: geo.x, width: geo.width, right: Math.round((geo.x + geo.width) * 100) / 100 })
         })
         root.collect("matrixMeter-").forEach(function (item) {
             var rest = String(item.objectName).slice("matrixMeter-".length).split("-")
             var geo = root.geometry(item)
             meters.push({ row: parseInt(rest[0]), column: rest.slice(1).join("-"),
-                x: geo.x, width: geo.width, visible: item.visible === true })
+                x: geo.x, width: geo.width, visible: item.visible === true,
+                opacity: item.opacity, effectiveOpacity: root.effectiveOpacity(item) })
             var fill = root.findDescendant(item, "meterFill")
             if (fill) {
                 var fillGeo = root.geometry(fill)
@@ -209,6 +239,14 @@ Window {
             var geo = root.geometry(item)
             rows.push({ row: parseInt(String(item.objectName).slice("matrixRowRect-".length)),
                 x: geo.x, y: geo.y, width: geo.width, height: geo.height })
+        })
+        root.collect("limitDetailRow-").forEach(function (item) {
+            detailRows.push({
+                row: parseInt(String(item.objectName).slice("limitDetailRow-".length)),
+                severity: String(item.severity || ""),
+                opacity: item.opacity,
+                effectiveOpacity: root.effectiveOpacity(item)
+            })
         })
 
         var payload = {
@@ -222,7 +260,9 @@ Window {
             percentages: percentages,
             meters: meters,
             meterFills: meterFills,
-            rows: rows
+            rows: rows,
+            staleMs: root.staleMs,
+            detailRows: detailRows
         }
         resultFile.setText(JSON.stringify(payload) + "\n")
         root.measured = true

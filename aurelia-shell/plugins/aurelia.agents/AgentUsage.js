@@ -532,10 +532,37 @@ function recordHasError(record) {
     return /unavailable|failed|failure|error|expired|invalid|denied|unauthor|not found/i.test(status);
 }
 
+// ---------------------------------------------------------------------------
+// Alert presentation policy (P1/P2/P3)
+//
+// An alert state is a warn or critical severity, or any element whose rendered
+// colour is a status colour (Theme.error/Theme.warning), or content that IS the
+// alert (the percentage/headline, the severity glyph, the alarming meter fill,
+// the bar icon and its dot). Alert content is NEVER dimmed by de-emphasis:
+// staleness may add a freshness cue but must never subtract the alert's full
+// strength or its non-colour cue. These two functions are the single owner of
+// that rule so the bar state, the provider state and the dashboard cannot drift
+// apart; the QML views call them instead of re-deriving the condition.
+//
+// `stale` is part of the signature so callers hand over the whole state, but it
+// can only ever affect non-alert content (via the caller's baseOpacity).
+// ---------------------------------------------------------------------------
+
+function isAlertSeverity(severity) {
+    return severity === "warn" || severity === "critical";
+}
+
+// Presentation opacity for a state. An alert always resolves to 1.0 no matter
+// how stale it is; only non-alert content may take the de-emphasised base.
+function presentationOpacityFor(severity, stale, baseOpacity) {
+    if (isAlertSeverity(severity)) return 1.0;
+    return baseOpacity;
+}
+
 // Per-provider state for the panel: loading/empty/unknown/ready/warn/critical/
 // stale/error/rate-limited. Error and rate-limit take precedence over stale so
-// a failure is never hidden behind old data, and a stale number is dimmed
-// rather than presented as live.
+// a failure is never hidden behind old data. Staleness is ADDITIVE: it adds a
+// freshness cue but never dims or removes an alert (P1/P2).
 function providerState(record, nowMs, opts) {
     opts = opts || {};
     if (opts.backendError) {
@@ -577,8 +604,10 @@ function providerState(record, nowMs, opts) {
         key: stale ? "stale" : (severity === "ok" ? "ready" : severity),
         severity: severity,
         stale: stale,
-        dot: !stale && severity !== "ok",
-        opacity: stale ? 0.6 : 1.0,
+        // P3: the non-colour dot survives staleness. It is gated on severity
+        // alone, never on freshness.
+        dot: severity !== "ok",
+        opacity: presentationOpacityFor(severity, stale, stale ? 0.6 : 1.0),
         tint: tint,
         message: "",
         help: "",
@@ -624,14 +653,22 @@ function barState(records, nowMs, opts) {
     }
     var tint = severity === "critical" ? "error" : (severity === "warn" ? "warning" : "barForeground");
     if (stale) {
-        return { key: "stale", severity: severity, stale: true, dot: false, opacity: 0.6, tint: tint };
+        return {
+            key: "stale",
+            severity: severity,
+            stale: true,
+            // P3: a stale alert keeps its colour-blind-safe dot.
+            dot: severity !== "ok",
+            opacity: presentationOpacityFor(severity, true, 0.6),
+            tint: tint
+        };
     }
     return {
         key: severity === "ok" ? "ready" : severity,
         severity: severity,
         stale: false,
         dot: severity !== "ok",
-        opacity: 1.0,
+        opacity: presentationOpacityFor(severity, false, 1.0),
         tint: tint
     };
 }
@@ -1422,9 +1459,14 @@ function matrixRow(record, nowMs, mode) {
             // limiting the account.
             cell.isBinding = binding !== null && windowClass === bindingClass &&
                 String(worst.label || "") === bindingLabel;
-            // When the account is blocked, dim every non-binding window so the
-            // eye goes to the window that is doing the blocking.
-            cell.muted = severity === "critical" && cell.isBinding !== true;
+            // When the account is blocked, de-emphasise only the non-binding
+            // windows that are NOT themselves alerts so the eye goes to the
+            // window that is doing the blocking. P1: a cell whose own severity
+            // is warn/critical is never dimmed merely because another window
+            // is the current binding constraint -- that would erase a second
+            // simultaneous alarm.
+            cell.muted = severity === "critical" && cell.isBinding !== true &&
+                !isAlertSeverity(cell.severity);
         }
         windows[windowClass] = cell;
         // Only a declared capability can mark a column "not offered". A column

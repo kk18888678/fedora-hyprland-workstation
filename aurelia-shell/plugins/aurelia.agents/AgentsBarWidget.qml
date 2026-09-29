@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import "../../theme"
@@ -138,6 +139,22 @@ Item {
     }
     readonly property color barForeground: root.bar && root.bar.barForeground !== undefined
         ? root.bar.barForeground : Theme.text
+    // The transparent bar's global halo is derived from the adaptive bar
+    // foreground, and the adaptive sampler never selects an alert tint
+    // (status colours hardcode Theme.error/Theme.warning). So an alert icon
+    // derives its own halo from the ALERT COLOUR's luminance: a dark red gets
+    // a light halo, a bright yellow a dark one. It is applied inside this
+    // widget, independent of stateOpacity, so a (theoretical) dim can never
+    // weaken the legibility aid. This is defence in depth: across an arbitrary
+    // wallpaper no fixed token can guarantee a 4.5:1 ratio, so the transparent
+    // bar alert additionally relies on this halo and on the non-colour dot.
+    readonly property bool alertTint: root.stateTint === "error" || root.stateTint === "warning"
+    readonly property bool transparentBar: root.bar ? root.bar.transparent === true : false
+    readonly property color alertHaloColor: {
+        var c = root.statusColor
+        var luminance = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+        return luminance > 0.5 ? "#000000" : "#ffffff"
+    }
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
     // Uniform bar-icon contract: the usage glyph renders through the shared
     // AureliaIcon primitive at the 16 px ink canvas, not a raw Text glyph.
@@ -418,29 +435,51 @@ Item {
         color: root.isVisible() || pointerHover.hovered ? Theme.selection : "transparent"
     }
 
-    AureliaIcon {
-        id: agentGlyph
+    // The glyph and its dot share one legibility halo so the alert icon is
+    // legible over an arbitrary wallpaper. It is enabled only on a transparent
+    // bar and only for a status tint, so the opaque bar and the general
+    // (non-alert) bar content keep their existing global halo behaviour.
+    Item {
+        id: glyphHaloLayer
         anchors.centerIn: parent
         width: root.iconCanvas
         height: root.iconCanvas
-        iconSize: root.iconCanvas
-        glyph: "󰚩"
-        tint: root.stateTint === "barForeground" ? root.barForeground : root.statusColor
-        opacity: root.stateOpacity
-    }
+        layer.enabled: root.transparentBar && root.alertTint
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowColor: root.alertHaloColor
+            shadowOpacity: 0.95
+            shadowBlur: 0.55
+            shadowHorizontalOffset: 0
+            shadowVerticalOffset: 0
+            shadowScale: 1.0
+        }
 
-    // A 4 px dot marks warn/critical/error only; unknown and stale never get a
-    // dot, because those are not actionable alarms.
-    Rectangle {
-        id: stateDot
-        visible: root.stateDot
-        width: 4
-        height: 4
-        radius: 2
-        color: root.statusColor
-        opacity: root.stateOpacity
-        anchors.right: agentGlyph.right
-        anchors.top: agentGlyph.top
+        AureliaIcon {
+            id: agentGlyph
+            anchors.centerIn: parent
+            width: root.iconCanvas
+            height: root.iconCanvas
+            iconSize: root.iconCanvas
+            glyph: "󰚩"
+            tint: root.stateTint === "barForeground" ? root.barForeground : root.statusColor
+            opacity: root.stateOpacity
+        }
+
+        // A 4 px dot marks warn/critical/error only; staleness never removes
+        // it, because it is the colour-blind-safe cue for the alert. Unknown
+        // is not an actionable alarm and keeps no dot.
+        Rectangle {
+            id: stateDot
+            visible: root.stateDot
+            width: 4
+            height: 4
+            radius: 2
+            color: root.statusColor
+            opacity: root.stateOpacity
+            anchors.right: agentGlyph.right
+            anchors.top: agentGlyph.top
+        }
     }
 
     MouseArea {

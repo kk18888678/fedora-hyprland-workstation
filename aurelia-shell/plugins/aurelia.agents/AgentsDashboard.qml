@@ -134,6 +134,11 @@ Item {
         backendError: agentsWidget ? agentsWidget.lastError : "",
         staleMs: staleMs
     })
+    // P2: staleness is additive. Non-alert detail sections may be dimmed, but
+    // this opacity is applied PER SECTION, never to a shared ancestor of an
+    // alert row. The LIMITS section is deliberately excluded: each limit row
+    // resolves its own opacity from its severity (see LimitDetailRow).
+    readonly property real staleContentOpacity: stateInfo.stale ? 0.6 : 1.0
     readonly property var limitDetails: AgentUsage.limitDetailRows(selectedRecord, nowMs, percentMode)
     readonly property var today: AgentUsage.todayUsage(selectedRecord)
     readonly property var freshness: AgentUsage.freshnessPill(selectedRecord, nowMs, staleMs)
@@ -516,6 +521,11 @@ Item {
         property bool notOffered: false
         readonly property bool isBinding: cell ? cell.isBinding === true : false
         readonly property bool muted: cell ? cell.muted === true : false
+        // P1: an alert cell is never dimmed. This is belt-and-braces with the
+        // muted flag (which is only ever set on an ok cell) so a future
+        // de-emphasis rule cannot reach a warn/critical cell either.
+        readonly property bool alertCell: cell
+            ? AgentUsage.isAlertSeverity(cell.severity) : false
         readonly property string markerText: AgentUsage.matrixCellMarker(cell, notOffered)
         property string tooltipText: AgentUsage.matrixCellTooltip(
             cell, columnClass, notOffered, dashboard.percentMode)
@@ -530,7 +540,8 @@ Item {
         // one so it reads as "not applicable", not "danger elsewhere". When
         // the account is blocked, non-binding windows dim so the eye goes to
         // the binding window; the percentage stays legible either way.
-        opacity: matrixCell.notOffered ? 0.4 : (matrixCell.muted ? 0.45 : 1.0)
+        opacity: matrixCell.alertCell ? 1.0
+            : (matrixCell.notOffered ? 0.4 : (matrixCell.muted ? 0.45 : 1.0))
         // Non-visual consumers get the same three-state wording as the tooltip.
         Accessible.role: Accessible.StaticText
         Accessible.name: AgentUsage.matrixCellAccessibility(
@@ -615,6 +626,10 @@ Item {
 
         readonly property bool detailFocused: dashboard.cursorActive &&
             dashboard.focusRegion === "detail" && dashboard.detailItems[dashboard.focusRow] === limitRow
+        // The row's own severity, exposed for the measured alignment probe so a
+        // test can assert that alert rows keep effective opacity 1.0.
+        readonly property string rowSeverity: limitRow.detail
+            ? String(limitRow.detail.severity) : "unknown"
         readonly property string resetText: {
             if (!limitRow.detail) return ""
             var absolute = limitRow.detail.absoluteReset
@@ -628,12 +643,22 @@ Item {
         function activate() { dashboard.refreshNow(true) }
 
         Rectangle {
+            objectName: "limitDetailRow-" + limitRow.rowIndex
+            property string severity: limitRow.rowSeverity
             Layout.fillWidth: true
             implicitHeight: limitContent.implicitHeight + Theme.spacingSm
             radius: Theme.radiusSm
             color: "transparent"
             border.width: limitRow.detailFocused ? Theme.borderWidthFocus : 0
             border.color: Theme.controls.focusBorder
+            // P1/P2: a stale account may dim its non-alert rows, but an alert
+            // row resolves to 1.0 through the single policy predicate. The dim
+            // is applied at the row, so no ancestor of an alert element is
+            // ever dimmed.
+            opacity: AgentUsage.presentationOpacityFor(
+                limitRow.detail ? limitRow.detail.severity : "unknown",
+                dashboard.stateInfo.stale,
+                dashboard.stateInfo.stale ? 0.6 : 1.0)
 
             ColumnLayout {
                 id: limitContent
@@ -1147,7 +1172,6 @@ Item {
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 interactive: contentHeight > height
-                opacity: dashboard.stateInfo.stale ? 0.6 : 1.0
 
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -1246,6 +1270,7 @@ Item {
                         id: todaySection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
+                        opacity: dashboard.staleContentOpacity
                         visible: dashboard.today.billable + dashboard.today.cache > 0 ||
                             dashboard.today.count > 0 || dashboard.today.sessions > 0
                         Component.onCompleted: dashboard.registerDetailItem(todaySection)
@@ -1296,6 +1321,7 @@ Item {
                         id: weekSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
+                        opacity: dashboard.staleContentOpacity
                         visible: dashboard.weekBars.length > 0
 
                         SectionHeader { text: "LAST 7 DAYS" }
@@ -1311,6 +1337,7 @@ Item {
                         id: modelsTodaySection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
+                        opacity: dashboard.staleContentOpacity
                         visible: dashboard.todayModelRows.length > 0
 
                         SectionHeader { text: "MODELS · TODAY" }
@@ -1333,6 +1360,7 @@ Item {
                         id: modelsAllSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
+                        opacity: dashboard.staleContentOpacity
                         visible: dashboard.allTimeModelRows.length > 0
 
                         SectionHeader { text: "MODELS · ALL TIME" }
@@ -1356,6 +1384,7 @@ Item {
                         id: subscriptionSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
+                        opacity: dashboard.staleContentOpacity
                         visible: dashboard.hasSubscription &&
                             AgentUsage.subscriptionRows(dashboard.selectedRecord).length > 0
 
