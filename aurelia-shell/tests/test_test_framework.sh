@@ -133,23 +133,29 @@ else
 fi
 
 registered_suite_count="$(rg -c '^run_suite ' "$ROOT/tests/run.sh" || true)"
+runner_excluded="$(sed -n '/excluded_legacy_suites=(/,/)/p' "$ROOT/tests/run.sh" |
+    grep -oE 'test_[A-Za-z0-9_]+\.sh' | sort || true)"
+expected_excluded="$(printf '%s\n' \
+    test_aurelia_hotkeys.sh \
+    test_aurelia_keybindings.sh \
+    test_hotkeys.sh | sort)"
 candidate_suite_count=0
-excluded_suite_count=0
 while IFS= read -r suite_name; do
     [[ -z "$suite_name" ]] && continue
     candidate_suite_count=$((candidate_suite_count + 1))
-    case "$suite_name" in
-        test_aurelia_hotkeys.sh|test_aurelia_keybindings.sh|test_hotkeys.sh|test_quickshell_provenance.sh)
-            excluded_suite_count=$((excluded_suite_count + 1))
-            ;;
-    esac
 done < <(find "$ROOT/tests" -maxdepth 1 -type f -name 'test_*.sh' ! -name 'test_helper.sh' -printf '%f\n')
+excluded_suite_count="$(printf '%s\n' "$runner_excluded" | grep -c . || true)"
 discovered_suite_count=$((candidate_suite_count - excluded_suite_count))
+quickshell_owned=0
+if [[ -f "$ROOT/tests/test_quickshell_provenance.sh" ]] &&
+   ! grep -Fqx 'test_quickshell_provenance.sh' <<< "$runner_excluded"; then
+    quickshell_owned=1
+fi
 runner_discovery_marker="find \"\$ROOT/tests\" -maxdepth 1 -type f -name 'test_*.sh'"
 if [[ "$registered_suite_count" -eq 1 ]] &&
    grep -Fq "$runner_discovery_marker" "$ROOT/tests/run.sh" &&
-   grep -Fq 'test_aurelia_hotkeys.sh' "$ROOT/tests/run.sh" &&
-   grep -Fq 'test_quickshell_provenance.sh' "$ROOT/tests/run.sh" &&
+   [[ "$runner_excluded" == "$expected_excluded" ]] &&
+   [[ "$quickshell_owned" -eq 1 ]] &&
    [[ "$discovered_suite_count" -gt 1 ]]; then
     pass "[static] the public Aurelia runner discovers all owned suites and explicitly classifies legacy entries"
 else
