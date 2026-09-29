@@ -476,3 +476,96 @@ LUA
 else
     skip "provider release wiring (luajit unavailable)"
 fi
+
+# ---------------------------------------------------------------------------
+# Window preview icon resolution over the shared AppIconResolver owner
+# ---------------------------------------------------------------------------
+if grep -Fq 'import "../../services"' "$preview_qml" &&
+   grep -Fq 'AppIconResolver.resolve' "$preview_qml" &&
+   grep -Fq 'preserveColors: !root.symbolicIcon' "$preview_qml" &&
+   ! grep -Fq 'Quickshell.iconPath' "$preview_qml"; then
+    pass "[static] Window preview delegates its icon chain and symbolic rule to the shared AppIconResolver owner"
+else
+    fail "[static] Window preview still owns ad-hoc theme icon resolution or re-derives the symbolic rule"
+fi
+
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] window preview icon resolution fixture (qs or timeout unavailable)"
+else
+    preview_icon_rt="$(mktemp -d)"
+    trap 'rm -rf -- "$preview_icon_rt" || true' RETURN
+    mkdir -p -- "$preview_icon_rt/runtime" "$preview_icon_rt/state" \
+        "$preview_icon_rt/config" "$preview_icon_rt/cache" \
+        "$preview_icon_rt/home/.config" "$preview_icon_rt/home/.local/share" \
+        "$preview_icon_rt/data/applications" \
+        "$preview_icon_rt/data/icons/hicolor/16x16/apps"
+    preview_icon_png="$preview_icon_rt/sample.png"
+    base64 -d >"$preview_icon_png" <<'WINDOW_PREVIEW_ICON_PNG_B64'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+WINDOW_PREVIEW_ICON_PNG_B64
+    for preview_icon_name in fixture-app fixture-app-symbolic; do
+        cp -- "$preview_icon_png" "$preview_icon_rt/data/icons/hicolor/16x16/apps/$preview_icon_name.png"
+    done
+    cat >"$preview_icon_rt/data/applications/fixture-app.desktop" <<'WINDOW_PREVIEW_APP_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Fixture App
+Icon=fixture-app
+Exec=fixture-app
+WINDOW_PREVIEW_APP_DESKTOP
+    cat >"$preview_icon_rt/data/applications/fixture-symbolic.desktop" <<'WINDOW_PREVIEW_SYMBOLIC_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Symbolic App
+Icon=fixture-app-symbolic
+Exec=fixture-symbolic
+WINDOW_PREVIEW_SYMBOLIC_DESKTOP
+    preview_icon_result="$preview_icon_rt/result.json"
+    preview_icon_log="$preview_icon_rt/runtime.log"
+    : >"$preview_icon_result"
+    preview_icon_status=0
+    AURELIA_WINDOW_PREVIEW_PROBE_SOURCE="file://$ROOT/tests/fixtures/window-preview-icons/probe.qml" \
+    AURELIA_WINDOW_PREVIEW_SOURCE="file://$preview_qml" \
+    AURELIA_WINDOW_PREVIEW_RESULT="$preview_icon_result" \
+    HOME="$preview_icon_rt/home" \
+    XDG_RUNTIME_DIR="$preview_icon_rt/runtime" \
+    XDG_STATE_HOME="$preview_icon_rt/state" \
+    XDG_CONFIG_HOME="$preview_icon_rt/config" \
+    XDG_CACHE_HOME="$preview_icon_rt/cache" \
+    XDG_DATA_HOME="$preview_icon_rt/data-home" \
+    XDG_DATA_DIRS="$preview_icon_rt/data:/usr/local/share:/usr/share" \
+    QT_QPA_PLATFORM=offscreen \
+    WAYLAND_DISPLAY="" \
+        /usr/bin/timeout --kill-after=1s 10s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/tests/fixtures/window-preview-icons/shell.qml" --no-color \
+        >"$preview_icon_log" 2>&1 || preview_icon_status=$?
+
+    if [[ "$preview_icon_status" -eq 0 ]] && [[ -s "$preview_icon_result" ]] &&
+       runtime_log_is_environment_only "$preview_icon_log" 'hyprland|Hyprland' &&
+       jq -e '
+           .fixtureApp.kind == "theme" and
+           .fixtureApp.name == "fixture-app" and
+           .fixtureApp.symbolic == false and
+           .fixtureApp.preservesColors == true and
+           (.fixtureApp.source | contains("fixture-app")) and
+           .symbolic.kind == "theme" and
+           .symbolic.name == "fixture-app-symbolic" and
+           .symbolic.symbolic == true and
+           .symbolic.preservesColors == false and
+           (.symbolic.source | contains("fixture-app-symbolic")) and
+           .unknown.kind == "default" and
+           .unknown.name == "application-x-executable" and
+           .unknown.symbolic == false and
+           .unknown.preservesColors == true and
+           (.unknown.source | contains("application-x-executable")) and
+           .rendered.fixtureApp == .readyStatus and
+           .rendered.symbolic == .readyStatus and
+           .rendered.unknown == .readyStatus
+       ' "$preview_icon_result" >/dev/null; then
+        pass "[isolated-runtime] Window preview resolves a desktop-entry theme icon, tints a -symbolic mask, preserves colours for a real logo, and shows application-x-executable for an unknown window, with every resolved source rendering (Image.Ready)"
+    else
+        details="$(tr '\n' ' ' <"$preview_icon_log")"
+        if [[ -s "$preview_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$preview_icon_result")"; fi
+        fail "[isolated-runtime] window preview icon resolution fixture failed (status=$preview_icon_status): $details"
+    fi
+fi

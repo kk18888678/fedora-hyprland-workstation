@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Hyprland
 import "../../theme"
 import "../../ui"
+import "../../services"
 import "../../services/WindowRouting.js" as WindowRouting
 
 // Running windows are not StatusNotifier tray items. Keep this widget
@@ -27,9 +28,19 @@ Item {
         ? root.bar.barIconCanvas : Theme.bar.iconCanvas
 
     readonly property bool vertical: root.bar ? root.bar.vertical === true : false
+    // Isolated-fixture seam: production reads the live compositor model, while
+    // a disposable fixture can pin a deterministic toplevel list without
+    // connecting to or mutating Hyprland. Unused in production.
+    property var toplevelsOverride
+    readonly property var toplevelValues: root.toplevelsOverride !== undefined
+        ? root.toplevelsOverride
+        : (Hyprland.toplevels ? Hyprland.toplevels.values : null)
+    // The desktop-entry scan is asynchronous; referencing its count keeps the
+    // per-window lookup reactive so an icon appears once the scan completes.
+    readonly property int desktopEntryCount: DesktopEntries.applications.values.length
     implicitWidth: root.vertical ? (bar ? bar.barSize : 26) : taskRow.implicitWidth
     implicitHeight: root.vertical ? taskRow.implicitHeight : (bar ? bar.barSize : 26)
-    visible: Hyprland.toplevels && Hyprland.toplevels.values.length > 0
+    visible: root.toplevelValues && root.toplevelValues.length > 0
 
     function configureMenu(target) {
         if (!target) return
@@ -65,15 +76,36 @@ Item {
         onLoaded: root.configureMenu(menuLoader.item)
     }
 
-    function iconSourceFor(windowTarget, appEntry) {
-        if (appEntry && appEntry.icon) return Quickshell.iconPath(appEntry.icon, "window-new")
+    // The shared AppIconResolver owns the ordered icon chain and the
+    // symbolic-versus-logo rule. The caller supplies only the identity it
+    // actually holds: the desktop entry's Icon= as the app-icon hint and the
+    // compositor app id as the in-flight window origin. The old ad-hoc
+    // chatgpt/chrom/kate/foot class heuristics now live in the owner.
+    function iconResolutionFor(windowTarget, appEntry) {
         var handle = windowTarget && windowTarget.handle
-        var appId = handle && handle.appId ? String(handle.appId).toLowerCase() : ""
-        if (appId.indexOf("chatgpt") >= 0) return Quickshell.iconPath("chatgpt", "window-new")
-        if (appId.indexOf("chrom") >= 0) return Quickshell.iconPath("chromium", "window-new")
-        if (appId.indexOf("kate") >= 0) return Quickshell.iconPath("kate", "window-new")
-        if (appId.indexOf("foot") >= 0) return Quickshell.iconPath("utilities-terminal", "window-new")
-        return Quickshell.iconPath("window-new", "applications-system")
+        var appId = handle && handle.appId ? String(handle.appId) : ""
+        return AppIconResolver.resolve({
+            appIcon: appEntry && appEntry.icon ? String(appEntry.icon) : "",
+            desktopEntry: appId,
+            appName: appEntry && appEntry.name ? String(appEntry.name) : appId,
+            origin: { appId: appId, className: appId }
+        })
+    }
+
+    // Isolated-fixture read-outs. Production renders the same per-delegate
+    // resolution; these let the disposable fixture assert the resolved outcome
+    // rather than restating it.
+    function iconResolutionAt(index) {
+        var delegate = taskRepeater.itemAt(index)
+        return delegate ? delegate.iconResolution : null
+    }
+    function iconSourceAt(index) {
+        var delegate = taskRepeater.itemAt(index)
+        return delegate ? delegate.iconSource : ""
+    }
+    function iconPreservesColorsAt(index) {
+        var delegate = taskRepeater.itemAt(index)
+        return delegate ? delegate.iconPreservesColors : false
     }
 
     Loader {
@@ -88,12 +120,13 @@ Item {
     GridLayout {
         id: taskRow
         anchors.centerIn: parent
-        columns: root.vertical ? 1 : Math.max(1, Hyprland.toplevels ? Hyprland.toplevels.values.length : 1)
+        columns: root.vertical ? 1 : Math.max(1, root.toplevelValues ? root.toplevelValues.length : 1)
         columnSpacing: root.vertical ? 0 : Theme.spacingXs
         rowSpacing: 0
 
         Repeater {
-            model: Hyprland.toplevels
+            id: taskRepeater
+            model: root.toplevelValues
 
             delegate: Item {
                 id: taskDelegate
@@ -104,22 +137,46 @@ Item {
                     : (root.bar ? root.bar.barSize - 6 : 20)
 
                 readonly property var appEntry: {
+                    var scan = root.desktopEntryCount
                     var handle = modelData.handle
                     var appId = handle && handle.appId ? handle.appId : ""
                     return appId !== "" ? DesktopEntries.heuristicLookup(appId) : null
                 }
+                // Resolution is recomputed from change handlers rather than a
+                // function-binding so the shared FileView probe cannot create
+                // a binding dependency on its own caches; this is the same
+                // pattern the active-window widget uses. The owner remains the
+                // only place the symbolic rule is decided.
+                property var iconResolution: ({ source: "", name: "", symbolic: false, kind: "default", origin: "default" })
+                function refreshIconResolution() {
+                    taskDelegate.iconResolution = root.iconResolutionFor(modelData, taskDelegate.appEntry)
+                }
+                readonly property string iconSource: String(taskDelegate.iconResolution.source || "")
+                readonly property bool symbolicIcon: taskDelegate.iconResolution.symbolic === true
+                Component.onCompleted: taskDelegate.refreshIconResolution()
+                onAppEntryChanged: taskDelegate.refreshIconResolution()
+                Connections {
+                    target: AppIconResolver
+                    function onMetadataIndexRevisionChanged() { taskDelegate.refreshIconResolution() }
+                }
 
                 AureliaIcon {
+                    id: taskIcon
                     anchors.centerIn: parent
                     width: root.iconCanvas
                     height: root.iconCanvas
                     iconSize: root.iconCanvas
                     name: ""
-                    sourcePath: root.iconSourceFor(modelData, appEntry)
+                    sourcePath: taskDelegate.iconSource
+                    // The owner decides mask versus logo: only a symbolic mask
+                    // may be tinted, every real application logo keeps its
+                    // colours.
+                    preserveColors: !taskDelegate.symbolicIcon
                     tint: root.barForeground
                     // The single documented inactive dim: running but unfocused.
                     opacity: modelData.activated ? 1.0 : 0.65
                 }
+                readonly property bool iconPreservesColors: taskIcon.preserveColors
 
                 MouseArea {
                     anchors.fill: parent
