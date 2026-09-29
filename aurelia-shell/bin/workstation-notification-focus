@@ -1501,6 +1501,7 @@ def run_serve(args):
             "BecomeMonitor",
             "asu",
             (rules, 0),
+            timeout=5.0,
         )
     except Exception as exc:  # noqa: BLE001
         log("become_monitor_failed: %s" % (exc,))
@@ -1547,6 +1548,7 @@ def run_serve(args):
                         "GetConnectionUnixProcessID",
                         "s",
                         (sender_name,),
+                        timeout=2.0,
                     )
                 ),
                 "dbus-getconnectionunixprocessid",
