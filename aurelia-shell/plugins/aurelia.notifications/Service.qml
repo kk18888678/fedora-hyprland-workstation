@@ -9,6 +9,7 @@ import "../../services"
 import "ui"
 import "NotificationLogic.js" as Logic
 import "NotificationFileLogic.js" as FileLogic
+import "NotificationActionRegistry.js" as ActionRegistry
 
 // Resident notification daemon. It keeps live Quickshell Notification objects
 // in a private map and exposes only bounded snapshots to UI models and state
@@ -24,6 +25,13 @@ Item {
     // Constructor-injected only by isolated fixtures. Production keeps the
     // normal notification bus and desktop surfaces fully enabled.
     property bool testMode: false
+
+    // The validated (stable app id, action id) -> argv/URI action registry. It
+    // is built once at load; malformed entries are reported and never used.
+    // An isolated fixture may add deterministic entries on top of the reviewed
+    // defaults through one test-only environment variable.
+    readonly property var actionRegistryBuild: service.buildActionRegistry()
+    readonly property var actionRegistry: service.actionRegistryBuild.registry
 
     readonly property string home: Quickshell.env("HOME") || ""
     readonly property string stateHomeOverride: Quickshell.env("XDG_STATE_HOME") || ""
@@ -1316,12 +1324,35 @@ Item {
         return service.invokeDurableAction(index, resolvedOriginalId, resolvedTimestamp, entry, identifier)
     }
 
-    // HOLD: the (app, action) -> argv/URI action registry is a separate
-    // reviewed change. This seam only honours a per-action command already
-    // present on the durable row; today the durable snapshot carries none, so
-    // it returns null and the caller falls back to the notification-level
-    // execArgv or sender routing.
-    function durableActionCommand(entry, identifier) {
+    // Build the validated action registry. Malformed entries are reported by
+    // `reportActionRegistryRejections` and are never inserted into the table.
+    function buildActionRegistry() {
+        var base = ActionRegistry.buildDefaultRegistry()
+        if (!service.testMode) return base
+        var raw = Quickshell.env("AURELIA_NOTIFICATION_TEST_REGISTRY") || ""
+        if (raw === "") return base
+        try {
+            var extra = JSON.parse(raw)
+            if (!Array.isArray(extra)) return base
+            return ActionRegistry.buildRegistry(ActionRegistry.DEFAULT_ENTRIES.concat(extra))
+        } catch (error) {
+            console.warn("[NOTIFICATIONS] action_registry_test_override_invalid")
+            return base
+        }
+    }
+
+    function reportActionRegistryRejections() {
+        var rejected = service.actionRegistryBuild.rejected || []
+        for (var i = 0; i < rejected.length; i++) {
+            var item = rejected[i]
+            console.warn("[NOTIFICATIONS] action_registry_rejected id=" + String(item.id || "") +
+                " action=" + String(item.action || "") + " reason=" + String(item.reason || ""))
+        }
+    }
+
+    // An explicit per-action command already present on the durable row. This
+    // is the sender's own typed hint vector, never a shell string.
+    function explicitActionCommand(entry, identifier) {
         if (!entry || !entry.actions) return null
         var actions = entry.actions
         var count = typeof actions.count === "number" ? actions.count : actions.length
@@ -1337,12 +1368,44 @@ Item {
         return null
     }
 
+    // The single registry resolution for a durable row. The context carries the
+    // captured origin (the better Herdr identity) and the workspace number
+    // parsed by the existing Herdr body owner, used only as a fallback. Nothing
+    // sender-controlled reaches the registry as raw text.
+    function resolveRegistryAction(entry, identifier) {
+        if (!entry) return null
+        var herdr = Logic.herdrRoute({ appName: entry.app, body: entry.body })
+        return ActionRegistry.resolveForEntry(service.actionRegistry, entry, identifier, {
+            origin: service.originFrom(entry),
+            herdrNumber: herdr ? herdr.number : null
+        })
+    }
+
+    // The executable argv for a durable action, or null. The reviewed registry
+    // is the single owner of "what does this action actually run"; an explicit
+    // per-action vector still wins.
+    function durableActionCommand(entry, identifier) {
+        var explicit = service.explicitActionCommand(entry, identifier)
+        if (explicit) return explicit
+        var resolved = service.resolveRegistryAction(entry, identifier)
+        if (resolved && resolved.kind === "argv") return resolved.argv
+        return null
+    }
+
+    // The origin a registry origin-focus entry resolves to, or null. The caller
+    // hands it to `navigateToOrigin`, the single navigation owner.
+    function durableActionOrigin(entry, identifier) {
+        var resolved = service.resolveRegistryAction(entry, identifier)
+        if (resolved && resolved.kind === "origin") return resolved.origin
+        return null
+    }
+
     // Durable fallback for invokeAction. The live reference may be absent (the
     // sender closed a retained Inbox row) or unusable (the notification object
     // was destroyed). Resolve the durable snapshot, run any explicit per-action
-    // command, then the notification-level exec argv, then navigate to the
-    // captured origin. The row is removed only when a command genuinely ran or
-    // the origin was genuinely focused.
+    // vector, then the reviewed registry action, then the notification-level
+    // exec argv, then navigate to the captured origin. The row is removed only
+    // when a command genuinely ran or the origin was genuinely focused.
     function invokeDurableAction(index, originalId, timestamp, entry, identifier) {
         var actionKey = service.identityKey(originalId, timestamp)
         var durable = service.snapshotForIdentity(originalId, timestamp) ||
@@ -1357,6 +1420,11 @@ Item {
             }
             service.spawnNotificationCommand(actionArgv)
             return "delivered"
+        }
+        var registryOrigin = service.durableActionOrigin(durable, identifier)
+        if (registryOrigin) {
+            service.navigateToOrigin(registryOrigin, originalId, timestamp, "navigate:" + identifier)
+            return "routed"
         }
         var argv = Logic.parseExecArgv(durable.execArgv)
         if (argv) {
@@ -1384,9 +1452,10 @@ Item {
     // Default activation, in resolution order:
     //   1. a live sender `default`/`Activate` action -- the only mechanism that
     //      reaches a browser's exact originating tab, while it is live;
-    //   2. the notification-level exec argv (for example Herdr's synthesized
-    //      workstation-herdr-focus Open), through a bounded observed process;
-    //   3. the captured origin, navigated by the shared helper.
+    //   2. the reviewed action registry (for example Herdr's captured-origin
+    //      Open), which is the single owner of a synthesized default action;
+    //   3. the notification-level exec argv, through a bounded observed process;
+    //   4. the captured origin, navigated by the shared helper.
     function invokeDefault(index, originalId, timestamp) {
         if (arguments.length >= 3) {
             index = activeIndexForIdentity(originalId, timestamp)
@@ -1416,6 +1485,20 @@ Item {
         }
         var fallbackEntry = (actionKey !== "" ? liveSnapshots[actionKey] : null) || entry
         var fallbackOrigin = service.originFrom(fallbackEntry)
+        var registryArgv = service.durableActionCommand(fallbackEntry, "default")
+        if (registryArgv) {
+            service.pendingCommandContext = {
+                originalId: resolvedOriginalId, timestamp: resolvedTimestamp, index: index,
+                identifier: "default", fallbackOrigin: fallbackOrigin
+            }
+            service.spawnNotificationCommand(registryArgv)
+            return "delivered"
+        }
+        var registryOrigin = service.durableActionOrigin(fallbackEntry, "default")
+        if (registryOrigin) {
+            service.navigateToOrigin(registryOrigin, resolvedOriginalId, resolvedTimestamp, "navigate:default")
+            return "routed"
+        }
         var argv = Logic.parseExecArgv(fallbackEntry ? fallbackEntry.execArgv : "")
         if (argv) {
             service.pendingCommandContext = {
@@ -1568,6 +1651,7 @@ Item {
     Component.onCompleted: {
         if (_startupStarted) return
         _startupStarted = true
+        service.reportActionRegistryRejections()
         if (!service.testMode) {
             probeNotificationBus()
             notificationBusHealthTimer.start()

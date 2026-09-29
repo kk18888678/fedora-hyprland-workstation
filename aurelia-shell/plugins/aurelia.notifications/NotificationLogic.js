@@ -430,9 +430,10 @@ function snapshotOf(notification, timestamp) {
         body: boundedText(n.body, MAX_TEXT_LENGTH),
         image: boundedText(n.image, MAX_IMAGE_LENGTH),
         glyph: boundedText(glyphFromHints(n.hints), 256),
-        execArgv: boundedText(execArgvFromHints(n.hints), MAX_TEXT_LENGTH) ||
-            (herdr ? JSON.stringify(["bash", "-lc",
-                "f=\"$AURELIA_SHELL_ROOT/bin/workstation-herdr-focus\"; [ -x \"$f\" ] && \"$f\" " + herdr.number]) : ""),
+        // Herdr's synthesized Open is resolved through the reviewed action
+        // registry at click time; it is never built into a shell string here.
+        // The visible label stays "Open".
+        execArgv: boundedText(execArgvFromHints(n.hints), MAX_TEXT_LENGTH),
         actions: actionsOf(n),
         defaultActionText: defaultActionText(n) || (herdr ? "Open" : ""),
         urgency: urgency,

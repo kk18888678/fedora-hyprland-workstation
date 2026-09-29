@@ -1063,66 +1063,91 @@ fi
 
 # Herdr (the terminal workspace manager pi runs inside) sends a raw
 # "<label> · <number> · <count>" body with no action. The logic must render
-# that in words and synthesize a jump-back-to-the-chat action. The synthesized
-# argv must actually run: the test executes it against a sentinel stub and
-# asserts the effect, so a guard that drops the command cannot pass.
+# that in words and keep the visible "Open" label; what the action actually
+# runs is resolved by the reviewed per-application cooperation registry, not by
+# a synthesized shell string. The registry is a narrow table keyed by stable
+# application id and action identifier whose values are argv vectors or URIs;
+# an unknown pair or a malformed entry fails closed.
 if command -v node >/dev/null; then
     herdr_logic_test="$(mktemp --suffix=.js)"
-    herdr_argv_file="$(mktemp --suffix=.json)"
-    herdr_exec_root="$(mktemp -d)"
     sed '/^\.pragma library/d' "$plugin_root/NotificationLogic.js" >"$herdr_logic_test"
     cat >>"$herdr_logic_test" <<'HERDR_EXPORTS'
 module.exports = { herdrRoute, herdrBody, styledBody, snapshotOf };
 HERDR_EXPORTS
-    herdr_projection=0
     if node -e '
-const fs = require("fs");
 const L = require(process.argv[1]);
+const R = require(process.argv[2]);
+function eq(actual, expected, label) {
+    const a = JSON.stringify(actual);
+    const e = JSON.stringify(expected);
+    if (a !== e) { console.error("FAIL " + label + ": " + a + " !== " + e); process.exit(1); }
+}
 const n = { id: 7, appName: "Herdr", summary: "pi finished", body: "sutradhar \u00b7 2 \u00b7 3", urgency: 1 };
 const snap = L.snapshotOf(n, 1700000000000);
-const argv = JSON.parse(snap.execArgv);
-fs.writeFileSync(process.argv[2], JSON.stringify(argv));
-const ok =
-    L.herdrRoute(n) && L.herdrRoute(n).label === "sutradhar" && L.herdrRoute(n).number === 2 &&
-    L.herdrBody("sutradhar \u00b7 2 \u00b7 3", "Herdr") === "sutradhar \u00b7 workspace 2" &&
-    snap.defaultActionText === "Open" &&
-    (function () {
-        var joined = argv.join(" ");
-        return argv[0] === "bash" && joined.indexOf("workstation-herdr-focus") >= 0 && joined.indexOf(" 2") >= 0;
-    })() &&
-    L.herdrRoute({ appName: "foot", body: "a \u00b7 1 \u00b7 1" }) === null &&
-    L.snapshotOf({ appName: "Herdr", body: "x \u00b7 1", actions: [{ identifier: "default", text: "Reply" }] }, 1).defaultActionText === "Reply";
-process.exit(ok ? 0 : 1);
-' "$herdr_logic_test" "$herdr_argv_file" >/dev/null; then
-        herdr_projection=1
-    fi
-    if [[ "$herdr_projection" -eq 1 ]]; then
-        mkdir -p -- "$herdr_exec_root/bin"
-        cat >"$herdr_exec_root/bin/workstation-herdr-focus" <<'HERDR_STUB'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-printf '%s' "$*" >"$AURELIA_HERDR_SENTINEL"
-exit 0
-HERDR_STUB
-        chmod +x "$herdr_exec_root/bin/workstation-herdr-focus"
-        mapfile -t herdr_argv < <(jq -r '.[]' "$herdr_argv_file")
-        if [[ "${#herdr_argv[@]}" -gt 0 ]] &&
-           env AURELIA_SHELL_ROOT="$herdr_exec_root" \
-               AURELIA_HERDR_SENTINEL="$herdr_exec_root/sentinel" \
-               "${herdr_argv[@]}" >"$herdr_exec_root/out.log" 2>"$herdr_exec_root/err.log" &&
-           [[ -f "$herdr_exec_root/sentinel" ]] &&
-           [[ "$(<"$herdr_exec_root/sentinel")" == "2" ]]; then
-            pass "[unit] Herdr notifications render a clear body and execute the chat jump action"
-        else
-            fail "[unit] Herdr synthesized action did not execute against the herdr focus helper"
-        fi
+const built = R.buildDefaultRegistry();
+const reg = built.registry;
+// The visible label is unchanged and the old synthesized shell argv is gone.
+eq(snap.defaultActionText, "Open", "herdr label");
+eq(snap.execArgv, "", "herdr execArgv is no longer a synthesized shell string");
+eq(L.herdrBody("sutradhar \u00b7 2 \u00b7 3", "Herdr"), "sutradhar \u00b7 workspace 2", "herdr body");
+eq(L.herdrRoute({ appName: "foot", body: "a \u00b7 1 \u00b7 1" }), null, "non-herdr route");
+eq(L.snapshotOf({ appName: "Herdr", body: "x \u00b7 1", actions: [{ identifier: "default", text: "Reply" }] }, 1).defaultActionText,
+   "Reply", "sender default label wins");
+// Exact argv/URI for every registered entry, with no shell anywhere.
+eq(built.rejected, [], "default registry validates cleanly");
+eq(R.resolveAction(reg, "chromium-browser", "settings", {}),
+   { kind: "argv", argv: ["/usr/bin/gtk-launch", "chromium-browser", "chrome://settings/content/notifications"] },
+   "chromium settings argv");
+eq(R.resolveAction(reg, "com.ulaa.Ulaa", "settings", {}),
+   { kind: "argv", argv: ["/usr/bin/flatpak", "run", "com.ulaa.Ulaa", "chrome://settings/content/notifications"] },
+   "ulaa settings argv");
+// Herdr prefers the captured environment and falls back to the body number.
+const captured = { originVersion: 1, captureQuality: "exact",
+    tab: { kind: "herdr", workspaceId: "w1P", tabId: "w1T", paneId: "w1P:p2" } };
+eq(R.resolveAction(reg, "Herdr", "default", { origin: captured, herdrNumber: 9 }).origin, captured,
+   "captured herdr origin wins");
+const fallback = R.resolveAction(reg, "Herdr", "default", { origin: null, herdrNumber: 2 });
+eq(fallback.kind, "origin", "herdr fallback kind");
+eq(fallback.origin.tab, { kind: "herdr", workspaceId: "2", tabId: null, paneId: null }, "herdr fallback tab");
+// Fail closed for unknown apps/actions and sender-controlled fallback text.
+eq(R.resolveAction(reg, "unregistered-app", "settings", {}), null, "unknown app");
+eq(R.resolveAction(reg, "chromium-browser", "reply", {}), null, "unknown action");
+eq(R.resolveAction(reg, "Herdr", "default", { origin: null, herdrNumber: "2; touch /tmp/pwned" }), null,
+   "shell-shaped herdr number is rejected");
+eq(R.resolveAction(reg, "Herdr", "default", { origin: null, herdrNumber: -1 }), null, "negative herdr number");
+eq(R.resolveAction(reg, "Herdr", "default", { origin: null, herdrNumber: 1.5 }), null, "non-integer herdr number");
+// Malformed entries are rejected at load, never used.
+const malformed = R.buildRegistry([
+    { id: "", action: "settings", argv: ["/bin/true"] },
+    { id: "Google Chrome", action: "settings", argv: ["/bin/true"] },
+    { id: "foo", action: "settings", argv: "rm -rf /" },
+    { id: "foo", action: "settings", argv: ["/bin/true", 5] },
+    { id: "foo", action: "settings", uri: 5 },
+    { id: "foo", action: "settings", uri: "no-scheme" },
+    { id: "foo", action: "settings" },
+    { id: "foo", action: "settings", argv: ["/bin/true"], uri: "x:y" },
+    { id: "foo", action: "", argv: ["/bin/true"] }
+]);
+eq(malformed.rejected.length, 9, "malformed entry count");
+eq(malformed.registry.foo, undefined, "malformed entries are not inserted");
+// No registry value is a shell command and no argv is a shell invocation.
+for (const entry of R.DEFAULT_ENTRIES) {
+    if (entry.argv) {
+        const first = entry.argv[0];
+        if (first === "bash" || first === "sh" || first === "/bin/bash" || first === "/bin/sh") {
+            console.error("FAIL registry entry uses a shell: " + JSON.stringify(entry)); process.exit(1);
+        }
+    }
+}
+process.exit(0);
+' "$herdr_logic_test" "$plugin_root/NotificationActionRegistry.js" >/dev/null; then
+        pass "[unit] Herdr keeps the Open label and every registry entry resolves to an exact argv/URI or captured origin"
     else
-        fail "[unit] Herdr notification projection failed"
+        fail "[unit] Herdr projection or the notification action registry contract failed"
     fi
-    rm -f -- "$herdr_logic_test" "$herdr_argv_file"
-    rm -rf -- "$herdr_exec_root"
+    rm -f -- "$herdr_logic_test"
 else
-    skip "[unit] Herdr notification projection (node unavailable)"
+    skip "[unit] Herdr notification projection and action registry (node unavailable)"
 fi
 
 # The shared card must render the source application name, source application
@@ -1413,5 +1438,80 @@ else
         details="$(tail -n 48 "$origin_log" || true)"
         if [[ -s "$origin_result" ]]; then details="$details result=$(tr '\n' ' ' <"$origin_result")"; fi
         fail "[isolated-runtime] notification origin round-trip fixture failed (status=$origin_status): $details"
+    fi
+fi
+
+# Per-application cooperation registry. The registry is the single owner of
+# "what does a retained row's non-default or synthesized default action
+# actually run". This fixture drives the real Service with durable rows that
+# have no live sender, proves the Herdr default prefers the captured origin and
+# falls back to the body workspace number, proves a registry argv genuinely
+# runs (a sentinel side effect), and proves an unregistered pair fails closed.
+registry_fixture="$ROOT/tests/fixtures/notifications/action-registry.qml"
+if [[ ! -f "$registry_fixture" ]]; then
+    fail "[static] notification action-registry fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification action-registry fixture (qs or timeout unavailable)"
+else
+    registry_root="$(mktemp -d)"
+    trap 'rm -rf -- "$registry_root"  || true' RETURN
+    mkdir -p -- "$registry_root/runtime" "$registry_root/state" \
+        "$registry_root/config" "$registry_root/cache" "$registry_root/bin"
+    registry_result="$registry_root/result.json"
+    : >"$registry_result"
+    registry_log="$registry_root/runtime.log"
+    registry_navigate_sentinel="$registry_root/navigate.sentinel"
+    registry_argv_sentinel="$registry_root/registry-argv.sentinel"
+    write_notification_origin_stub "$registry_root/bin/workstation-notification-focus"
+    registry_override="$(jq -c -n --arg sentinel "$registry_argv_sentinel" \
+        '[{id:"fixture-registry",action:"settings",argv:["/usr/bin/touch",$sentinel]}]')"
+    registry_status=0
+    AURELIA_REGISTRY_RESULT="$registry_result" \
+    AURELIA_REGISTRY_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_TEST_HELPER="$registry_root/bin/workstation-notification-focus" \
+    AURELIA_NOTIFICATION_TEST_REGISTRY="$registry_override" \
+    AURELIA_NOTIFICATION_TEST_HELPER_TIMEOUT_MS=1000 \
+    AURELIA_STUB_NAVIGATE_SENTINEL="$registry_navigate_sentinel" \
+    AURELIA_REGISTRY_ARGV_SENTINEL="$registry_argv_sentinel" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$registry_root/runtime" \
+    XDG_STATE_HOME="$registry_root/state" \
+    XDG_CONFIG_HOME="$registry_root/config" \
+    XDG_CACHE_HOME="$registry_root/cache" \
+        /usr/bin/timeout --kill-after=1s 12s /usr/bin/qs --no-duplicate \
+        --path "$registry_fixture" --no-color >"$registry_log" 2>&1 || registry_status=$?
+
+    registry_completed=0
+    if [[ "$registry_status" -eq 0 ]]; then
+        registry_completed=1
+    elif [[ "$registry_status" -eq 124 && -s "$registry_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$registry_log"; then
+        registry_completed=1
+    fi
+    if [[ "$registry_completed" -eq 1 ]] && [[ -s "$registry_result" ]] &&
+       runtime_log_is_environment_only "$registry_log" \
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$registry_log" &&
+       jq -e '
+            .serviceLoaded == true and
+            .capturedInvokeResult == "routed" and
+            .capturedRowRemoved == true and
+            (.navigateSentinel | contains("\"workspaceId\":\"w1P\"")) and
+            (.navigateSentinel | contains("\"tabId\":\"w1T\"")) and
+            .fallbackInvokeResult == "routed" and
+            .fallbackRowRemoved == true and
+            (.navigateSentinel | contains("\"workspaceId\":\"7\"")) and
+            .argvInvokeResult == "delivered" and
+            .argvRowRemoved == true and
+            .argvSentinelExists == true and
+            .unknownInvokeResult == "unavailable" and
+            .unknownRowRetained == true and
+            .unknownOutcome == "unavailable"
+       ' "$registry_result" >/dev/null; then
+        pass "[isolated-runtime] action registry resolves retained rows and fails closed for unknown pairs"
+    else
+        details="$(tail -n 48 "$registry_log" || true)"
+        if [[ -s "$registry_result" ]]; then details="$details result=$(tr '\n' ' ' <"$registry_result")"; fi
+        fail "[isolated-runtime] notification action-registry fixture failed (status=$registry_status): $details"
     fi
 fi
