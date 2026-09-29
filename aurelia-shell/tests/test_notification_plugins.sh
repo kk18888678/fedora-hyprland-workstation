@@ -133,9 +133,11 @@ if ! [[ -f "$plugin_root/ui/NotificationRow.qml" ]] &&
    grep -q 'font.family: "Liberation Sans"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'font.pixelSize: Theme.fontSizeSm' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'import Quickshell' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'Quickshell.iconPath' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'AppIconResolver.themeSource' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'preserveColors: true' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'readonly property string smallIconSource: root.image.length > 0' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'readonly property string smallIconSource: root.iconSource(root.smallIconValue)' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'AppIconResolver.isSymbolicName(root.smallIconValue)' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'objectName: "notificationSymbolicIcon"' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'implicitWidth: 416' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'sourceSize.width: smallIconSlot.width \* Screen.devicePixelRatio \* 4' "$plugin_root/ui/NotificationToast.qml" &&
    grep -Fq 'property bool showActions: defaultActionText !== "" || actionItemsCount > 0' "$plugin_root/ui/NotificationToast.qml" &&
@@ -305,7 +307,9 @@ if grep -q 'aurelia-action' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function styledBody' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function parseExecArgv' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function persistablePopup' "$plugin_root/NotificationLogic.js" &&
-   grep -q 'source.indexOf("image://") === 0' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'function iconResolutionInput' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'DEFAULT_ICON_NAME = "application-x-executable"' "$plugin_root/NotificationLogic.js" &&
+   ! grep -q 'output\[role\] = ""' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function popupPlacement' "$plugin_root/NotificationLogic.js" &&
    grep -q 'shouldBypassDnd(notification, 2)' "$plugin_root/Service.qml" &&
    grep -q 'durationFor' "$plugin_root/NotificationLogic.js" &&
@@ -383,7 +387,7 @@ if [[ -f "$ROOT/ui/AureliaIconButton.qml" ]] &&
    grep -q 'Math.min(416' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'popupOrigin' "$plugin_root/ui/NotificationPopupSurface.qml" &&
    grep -q 'appIconIsLocal' "$plugin_root/ui/NotificationToast.qml" &&
-   grep -q 'sourcePath: root.appIconIsLocal ? root.appIcon : ""' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'sourcePath: root.appIconIsLocal ? root.smallIconSource : ""' "$plugin_root/ui/NotificationToast.qml" &&
    grep -q 'AureliaIconButton' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    grep -q 'currentViewEmpty' "$plugin_root/ui/NotificationCenterPanel.qml" &&
    caught_up_text=$'You\u2019re all caught up' &&
@@ -425,9 +429,10 @@ else
 fi
 
 if command -v node >/dev/null; then
-    if node - "$plugin_root/NotificationLogic.js" "$ROOT/services/SourceUrl.js" <<'NODE_LOGIC'
+    if node - "$plugin_root/NotificationLogic.js" "$ROOT/services/SourceUrl.js" "$ROOT/services/AppIconResolver.js" <<'NODE_LOGIC'
 const logic = require(process.argv[2]);
 const sourceUrl = require(process.argv[3]);
+const resolver = require(process.argv[4]);
 
 if (!logic.shouldBypassDnd({ appName: "aurelia-action", urgency: 1 }, 2)) process.exit(1);
 if (!logic.shouldBypassDnd({ appName: "notify-send", urgency: 2 }, 2)) process.exit(1);
@@ -475,16 +480,97 @@ if (!logic.hasPopupIdentity(popup) || logic.hasPopupIdentity({ summary: 'missing
 if (logic.popupFileName({ id: 7, originalId: 7, timestamp: 0, summary: 'zero timestamp' }) !== '') process.exit(1);
 if (logic.parsePopupFiles(JSON.stringify({ id: 7, originalId: 7, timestamp: 0, summary: 'invalid' }), 1).length !== 0) process.exit(1);
 const persistable = logic.persistablePopup(popup, '/tmp/state/images/');
-if (persistable.copies.length !== 1 || persistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/100-7-appIcon')) process.exit(1);
-// Quickshell provider URLs with an embedded absolute path must be copied like
-// appIcon instead of being dropped; themed provider names must stay untouched.
-const imageIconPopup = { id: 9, originalId: 9, timestamp: 200, appIcon: 'image://icon//tmp/org.chromium.Chromium.scoped_dir.abc/logo.png', image: 'image://icon//tmp/org.chromium.Chromium.scoped_dir.abc/icon.png', summary: 'Chromium' };
-const imagePersistable = logic.persistablePopup(imageIconPopup, '/tmp/state/images/');
-if (imagePersistable.copies.length !== 2) process.exit(1);
-if (imagePersistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/200-9-appIcon')) process.exit(1);
-if (imagePersistable.entry.image !== sourceUrl.fileUrl('/tmp/state/images/200-9-image')) process.exit(1);
-const themedIcon = logic.persistablePopup({ id: 10, originalId: 10, timestamp: 201, appIcon: 'image://icon/application-x-executable' }, '/tmp/state/images/');
-if (themedIcon.copies.length !== 0 || themedIcon.entry.appIcon !== '') process.exit(1);
+if (persistable.copies.length !== 0 || persistable.entry.appIcon !== 'application-x-executable') process.exit(1);
+
+// The persistence path consumes the shared AppIconResolver owner. Every probe
+// is a deterministic in-memory fake, exactly as the resolver node suite uses.
+function resolution(input, opts) {
+    const options = opts || {};
+    return resolver.resolve(input, {}, {
+        fileUsable: p => (options.files || []).indexOf(p) !== -1,
+        fileSource: p => sourceUrl.fileUrl(p),
+        themeUsable: n => (options.themes || []).indexOf(n) !== -1,
+        themeSource: n => 'image://icon/' + n + '?fallback=application-x-executable',
+        inlineUsable: s => s !== ''
+    });
+}
+const imagesDir = '/tmp/state/images/';
+
+// The foot fix: a themed image-path name is extracted and RETAINED as a name,
+// never silently cleared.
+const footResolution = resolution(logic.iconResolutionInput(
+    { id: 11, originalId: 11, timestamp: 202, appIcon: '', image: 'image://icon/foot', summary: 'Foot' },
+    imagesDir), { themes: ['foot'] });
+if (footResolution.kind !== 'theme' || footResolution.name !== 'foot') process.exit(1);
+const footPersistable = logic.persistablePopup(
+    { id: 11, originalId: 11, timestamp: 202, appIcon: '', image: 'image://icon/foot' },
+    imagesDir, footResolution);
+if (footPersistable.copies.length !== 0) process.exit(1);
+if (footPersistable.entry.appIcon !== 'foot' || footPersistable.entry.image !== '') process.exit(1);
+
+// An embedded Chromium path is copied into our own durable store, and the
+// sender's transient scoped directory is never persisted.
+const chromiumEntry = { id: 9, originalId: 9, timestamp: 200, appIcon: 'image://icon//tmp/org.chromium.Chromium.scoped_dir.abc/logo.png', image: '', summary: 'Chromium' };
+const chromiumResolution = resolution(logic.iconResolutionInput(chromiumEntry, imagesDir),
+    { files: ['/tmp/org.chromium.Chromium.scoped_dir.abc/logo.png'] });
+const chromiumPersistable = logic.persistablePopup(chromiumEntry, imagesDir, chromiumResolution);
+if (chromiumResolution.kind !== 'file') process.exit(1);
+if (chromiumPersistable.copies.length !== 1) process.exit(1);
+if (chromiumPersistable.copies[0].from !== '/tmp/org.chromium.Chromium.scoped_dir.abc/logo.png') process.exit(1);
+if (chromiumPersistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/200-9-appIcon')) process.exit(1);
+if (chromiumPersistable.entry.appIcon.indexOf('/tmp/org.chromium') !== -1) process.exit(1);
+
+// A dangling durable path must fall through to the honest default, never a
+// file:// path in the persisted entry.
+const danglingEntry = { id: 12, originalId: 12, timestamp: 203, appIcon: 'file://' + '/tmp/does-not-exist.png', image: '' };
+const danglingResolution = resolution(logic.iconResolutionInput(danglingEntry, imagesDir), {});
+if (danglingResolution.kind !== 'default') process.exit(1);
+const danglingPersistable = logic.persistablePopup(danglingEntry, imagesDir, danglingResolution);
+if (danglingPersistable.copies.length !== 0) process.exit(1);
+if (danglingPersistable.entry.appIcon !== 'application-x-executable') process.exit(1);
+if (danglingPersistable.entry.appIcon.indexOf('file://') === 0) process.exit(1);
+
+// An already-durable value from a reload is used as-is and never re-copied.
+const reloadEntry = { id: 9, originalId: 9, timestamp: 200, appIcon: sourceUrl.fileUrl('/tmp/state/images/200-9-appIcon'), image: '' };
+const reloadResolution = resolution(logic.iconResolutionInput(reloadEntry, imagesDir),
+    { files: ['/tmp/state/images/200-9-appIcon'] });
+if (reloadResolution.kind !== 'durable') process.exit(1);
+const reloadPersistable = logic.persistablePopup(reloadEntry, imagesDir, reloadResolution);
+if (reloadPersistable.copies.length !== 0) process.exit(1);
+if (reloadPersistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/200-9-appIcon')) process.exit(1);
+
+// An inline qsimage provider is not byte-copyable; it must fall through to a
+// real candidate, never persist the transient provider URL.
+const inlineEntry = { id: 13, originalId: 13, timestamp: 204, appIcon: '', image: 'image://qsimage/5/0', desktopEntry: 'foot' };
+const inlineResolution = resolution(logic.iconResolutionInput(inlineEntry, imagesDir),
+    { themes: ['foot', 'application-x-executable'] });
+if (inlineResolution.kind === 'inline') process.exit(1);
+const inlinePersistable = logic.persistablePopup(inlineEntry, imagesDir, inlineResolution);
+if (inlinePersistable.entry.appIcon.indexOf('image://qsimage/') === 0) process.exit(1);
+if (inlinePersistable.entry.appIcon !== 'foot') process.exit(1);
+
+// The Ghostty desktop-entry race: the resolver still resolves a theme name for
+// the desktop id even before the asynchronous Quickshell scan has run.
+const ghosttyResolution = resolution(
+    { appIcon: '', image: '', desktopEntry: 'com.mitchellh.ghostty', appName: 'Ghostty' },
+    { themes: ['com.mitchellh.ghostty'] });
+if (ghosttyResolution.kind !== 'desktop' || ghosttyResolution.name !== 'com.mitchellh.ghostty') process.exit(1);
+if (logic.persistablePopup({ id: 14, originalId: 14, timestamp: 205, desktopEntry: 'com.mitchellh.ghostty' },
+    imagesDir, ghosttyResolution).entry.appIcon !== 'com.mitchellh.ghostty') process.exit(1);
+
+// A real content image (a screenshot) wins over a generic app-icon theme name.
+const screenshotFile = '/tmp/aurelia-shot.png';
+const screenshotResolution = resolution(
+    { appIcon: 'camera-photo', image: 'file://' + screenshotFile },
+    { themes: ['camera-photo'], files: [screenshotFile] });
+if (screenshotResolution.kind !== 'file') process.exit(1);
+if (screenshotResolution.source.indexOf(screenshotFile) === -1) process.exit(1);
+const screenshotPersistable = logic.persistablePopup(
+    { id: 15, originalId: 15, timestamp: 206, appIcon: 'camera-photo', image: 'file://' + screenshotFile },
+    imagesDir, screenshotResolution);
+if (screenshotPersistable.copies.length !== 1) process.exit(1);
+if (screenshotPersistable.entry.appIcon !== sourceUrl.fileUrl('/tmp/state/images/206-15-appIcon')) process.exit(1);
+
 if (logic.popupExpired({ timestamp: 100 }, 8000, 9000) !== true) process.exit(1);
 if (logic.popupPlacement('top', 32, 6).margins.top !== 32) process.exit(1);
 const snapshot = logic.snapshotOf({ id: 4, appName: "demo", summary: "Hello", body: "World", urgency: 1 }, 123);
@@ -574,8 +660,28 @@ try {
     fs.writeFileSync(path.join(images, "999-9-appIcon"), "orphan");
     run(fileLogic.sweepImages(`${live}/`, `${images}/`));
     if (fs.existsSync(path.join(images, "999-9-appIcon"))) throw new Error("orphan image was not swept");
+    // A resolved icon that shares the notification stem is kept while its popup
+    // lives and pruned with the notification.
+    const liveIcon = path.join(images, "100-1-appIcon");
+    fs.writeFileSync(liveIcon, "live-icon");
+    run(fileLogic.sweepImages(`${live}/`, `${images}/`));
+    if (!fs.existsSync(liveIcon)) throw new Error("live popup icon was swept");
     run(fileLogic.deletePopup(`${live}/`, `${images}/`, "100-1.json"));
     if (fs.existsSync(path.join(live, "100-1.json"))) throw new Error("popup delete failed");
+    if (fs.existsSync(liveIcon)) throw new Error("deleted popup icon was not pruned");
+    // A copy source that does not exist must fail the job before the JSON is
+    // written, so a dangling durable path can never be recorded.
+    const missingSource = path.join(root, "missing-logo.png");
+    const missingPersistable = logic.persistablePopup(
+        { ...entry(2, 200), appIcon: "file://" + missingSource },
+        `${images}/`,
+        { kind: "file", source: "file://" + missingSource, name: "", symbolic: false });
+    const missingJson = { ...missingPersistable, json: logic.serializePopup(missingPersistable.entry, 1) };
+    const missingCommand = fileLogic.persistPopup(missingJson, `${live}/`, `${images}/`, "200-2.json");
+    const missingRun = childProcess.spawnSync(missingCommand[0], missingCommand.slice(1), { encoding: "utf8" });
+    if (missingRun.status === 0) throw new Error("missing copy source did not fail closed");
+    if (fs.existsSync(path.join(live, "200-2.json"))) throw new Error("dangling durable json was written");
+    if (fs.existsSync(path.join(images, "200-2-appIcon"))) throw new Error("missing copy produced a file");
 } finally {
     fs.rmSync(root, { recursive: true, force: true });
 }
@@ -777,59 +883,183 @@ else
 fi
 rm -rf -- "$copy_root"
 
-# The durable app icon must reach the live models, not just the on-disk JSON.
-# Chromium hands the card an ephemeral image://icon//tmp/... path and then
-# deletes it, so the copied path has to be pushed back into the UI state.
-durable_icon_root="$(mktemp -d)"
-mkdir -p -- "$durable_icon_root/runtime" "$durable_icon_root/state" \
-    "$durable_icon_root/config" "$durable_icon_root/cache"
-durable_icon_source="$durable_icon_root/ephemeral-logo.png"
-printf 'ephemeral-image-bytes' > "$durable_icon_source"
-durable_icon_result="$durable_icon_root/result.json"
-: >"$durable_icon_result"
-durable_icon_log="$durable_icon_root/runtime.log"
-durable_icon_status=0
-AURELIA_NOTIFICATION_DURABLE_ICON_RESULT="$durable_icon_result" \
-AURELIA_NOTIFICATION_DURABLE_ICON_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
-AURELIA_NOTIFICATION_DURABLE_ICON_SOURCE="$durable_icon_source" \
-QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
-XDG_RUNTIME_DIR="$durable_icon_root/runtime" \
-XDG_STATE_HOME="$durable_icon_root/state" \
-XDG_CONFIG_HOME="$durable_icon_root/config" \
-XDG_CACHE_HOME="$durable_icon_root/cache" \
-    /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
-    --path "$ROOT/tests/fixtures/notifications/durable-icon.qml" --no-color \
-    >"$durable_icon_log" 2>&1 || durable_icon_status=$?
+# The notification icon pipeline consumes the shared AppIconResolver owner. A
+# themed image-path name (the real foot case) must be retained AS A NAME, a
+# sender file must be copied into our own store, a missing source must fall
+# back honestly, and the real card must render every persisted value. Each mode
+# runs the production Service and the production NotificationToast in a
+# disposable XDG tree; none of them touches the live shell.
+durable_icon_png_b64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+for durable_icon_mode in embedded themed missing ghostty desktop-race screenshot; do
+    durable_icon_root="$(mktemp -d)"
+    mkdir -p -- "$durable_icon_root/runtime" "$durable_icon_root/state" \
+        "$durable_icon_root/config" "$durable_icon_root/cache" \
+        "$durable_icon_root/data-home" "$durable_icon_root/data/applications" \
+        "$durable_icon_root/data/icons/hicolor/48x48/apps"
+    durable_icon_source=""
+    durable_icon_expected='.serviceLoaded == true and .matchesExpected == true and
+        .diskMatchesModel == true and .liveMatchesModel == true and
+        .noProvider == true and .noSenderPath == true and
+        .toastSlotVisible == true and .toastReady == true'
+    case "$durable_icon_mode" in
+        embedded)
+            durable_icon_source="$durable_icon_root/ephemeral-logo.png"
+            base64 -d >"$durable_icon_source" <<<"$durable_icon_png_b64"
+            durable_icon_expected="$durable_icon_expected and
+                .appIconIsFile == true and .imageCleared == true and
+                .activeActionsRetained == true and .popupActionsRetained == true"
+            ;;
+        themed)
+            durable_icon_expected="$durable_icon_expected and
+                .appIconIsName == true and .activeAppIcon == \"foot\""
+            ;;
+        ghostty)
+            durable_icon_expected="$durable_icon_expected and
+                .appIconIsName == true and .activeAppIcon == \"com.mitchellh.ghostty\""
+            ;;
+        desktop-race)
+            durable_icon_expected="$durable_icon_expected and
+                .appIconIsName == true and .activeAppIcon == \"example-tool\""
+            ;;
+        missing)
+            durable_icon_expected="$durable_icon_expected and
+                .appIconIsName == true and .appIconIsFile == false and
+                .activeAppIcon == \"application-x-executable\""
+            ;;
+        screenshot)
+            durable_icon_source="$durable_icon_root/screenshot.png"
+            base64 -d >"$durable_icon_source" <<<"$durable_icon_png_b64"
+            durable_icon_expected="$durable_icon_expected and
+                .appIconIsFile == true and .imageCleared == true and
+                .noSenderPath == true"
+            ;;
+    esac
+    for icon in foot com.mitchellh.ghostty example-tool application-x-executable; do
+        base64 -d >"$durable_icon_root/data/icons/hicolor/48x48/apps/$icon.png" <<<"$durable_icon_png_b64"
+    done
+    cat >"$durable_icon_root/data/applications/foot.desktop" <<'FIXTURE_FOOT_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Foot
+Icon=foot
+Exec=foot
+FIXTURE_FOOT_DESKTOP
+    cat >"$durable_icon_root/data/applications/com.mitchellh.ghostty.desktop" <<'FIXTURE_GHOSTTY_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Ghostty
+Icon=com.mitchellh.ghostty
+StartupWMClass=com.mitchellh.ghostty
+Exec=ghostty
+FIXTURE_GHOSTTY_DESKTOP
+    cat >"$durable_icon_root/data/applications/com.example.tool.desktop" <<'FIXTURE_EXAMPLE_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Example Tool
+Icon=example-tool
+Exec=example-tool
+FIXTURE_EXAMPLE_DESKTOP
+    durable_icon_result="$durable_icon_root/result.json"
+    : >"$durable_icon_result"
+    durable_icon_log="$durable_icon_root/runtime.log"
+    durable_icon_status=0
+    AURELIA_NOTIFICATION_DURABLE_ICON_RESULT="$durable_icon_result" \
+    AURELIA_NOTIFICATION_DURABLE_ICON_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_DURABLE_ICON_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+    AURELIA_NOTIFICATION_DURABLE_ICON_SOURCE="$durable_icon_source" \
+    AURELIA_NOTIFICATION_DURABLE_ICON_MODE="$durable_icon_mode" \
+    AURELIA_NOTIFICATION_DURABLE_ICON_METADATA_GATE="file://$ROOT/tests/fixtures/notifications/metadata-gate.qml" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$durable_icon_root/runtime" \
+    XDG_STATE_HOME="$durable_icon_root/state" \
+    XDG_CONFIG_HOME="$durable_icon_root/config" \
+    XDG_CACHE_HOME="$durable_icon_root/cache" \
+    XDG_DATA_HOME="$durable_icon_root/data-home" \
+    XDG_DATA_DIRS="$durable_icon_root/data:/usr/share" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/tests/fixtures/notifications/durable-icon.qml" --no-color \
+        >"$durable_icon_log" 2>&1 || durable_icon_status=$?
 
-durable_icon_completed=0
-if [[ "$durable_icon_status" -eq 0 ]]; then
-    durable_icon_completed=1
-elif [[ "$durable_icon_status" -eq 124 && -s "$durable_icon_result" ]] &&
-     grep -Fq 'Signal QQmlEngine::quit() emitted' "$durable_icon_log"; then
-    durable_icon_completed=1
-fi
-durable_icon_images="$durable_icon_root/state/aurelia/notifications/images"
-durable_icon_copy=""
-if [[ -d "$durable_icon_images" ]]; then
-    durable_icon_copy="$(find "$durable_icon_images" -maxdepth 1 -type f -name '*-appIcon' -print -quit)"
-fi
-if [[ "$durable_icon_completed" -eq 1 ]] && [[ -s "$durable_icon_result" ]] &&
-   [[ -n "$durable_icon_copy" ]] &&
-   runtime_log_is_environment_only "$durable_icon_log" &&
-   ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$durable_icon_log" &&
-   jq -e '.serviceLoaded == true and
-          .appIconRetained == true and .imageRetained == true and
-          .popupRetained == true and .liveRetained == true and
-          .activeActionsRetained == true and .popupActionsRetained == true and
-          .diskMatchesModel == true' \
-       "$durable_icon_result" >/dev/null; then
-    pass "[isolated-runtime] ephemeral image:// app icons propagate the durable copied path into the live models, snapshots, and on-disk JSON without dropping non-default actions"
+    durable_icon_completed=0
+    if [[ "$durable_icon_status" -eq 0 ]]; then
+        durable_icon_completed=1
+    elif [[ "$durable_icon_status" -eq 124 && -s "$durable_icon_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$durable_icon_log"; then
+        durable_icon_completed=1
+    fi
+    durable_icon_images="$durable_icon_root/state/aurelia/notifications/images"
+    durable_icon_copy_count=0
+    if [[ -d "$durable_icon_images" ]]; then
+        durable_icon_copy_count="$(find "$durable_icon_images" -maxdepth 1 -type f -name '*-appIcon' | wc -l)"
+    fi
+    if [[ "$durable_icon_completed" -eq 1 ]] && [[ -s "$durable_icon_result" ]] &&
+       runtime_log_is_environment_only "$durable_icon_log" \
+           'Created graphical object was not placed in the graphics scene|FileView.*failed' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_failed' "$durable_icon_log" &&
+       jq -e "$durable_icon_expected" "$durable_icon_result" >/dev/null; then
+        if [[ "$durable_icon_mode" == "embedded" ]] && [[ "$durable_icon_copy_count" -ne 1 ]]; then
+            fail "[isolated-runtime] notification icon pipeline ($durable_icon_mode): expected exactly one durable app icon file, found $durable_icon_copy_count"
+        else
+            pass "[isolated-runtime] notification icon pipeline ($durable_icon_mode): resolution, persistence, and the rendered card are honest"
+        fi
+    else
+        details="$(tail -n 48 "$durable_icon_log" || true)"
+        if [[ -s "$durable_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$durable_icon_result")"; fi
+        fail "[isolated-runtime] notification icon pipeline ($durable_icon_mode) failed (status=$durable_icon_status): $details"
+    fi
+    rm -rf -- "$durable_icon_root"
+done
+
+# The card must tint a genuine symbolic mask and preserve a real logo. The
+# symbolic decision is owned by the shared AppIconResolver; this fixture proves
+# the rendered card follows it (symbolic overlay visible, colour Image hidden).
+symbolic_fixture="$ROOT/tests/fixtures/notifications/symbolic-icon.qml"
+if [[ ! -f "$symbolic_fixture" ]]; then
+    fail "[static] symbolic notification icon fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] symbolic notification icon fixture (qs or timeout unavailable)"
 else
-    details="$(tail -n 48 "$durable_icon_log" || true)"
-    if [[ -s "$durable_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$durable_icon_result")"; fi
-    fail "[isolated-runtime] durable notification icon fixture failed (status=$durable_icon_status): $details"
+    symbolic_root="$(mktemp -d)"
+    mkdir -p -- "$symbolic_root/runtime" "$symbolic_root/state" \
+        "$symbolic_root/config" "$symbolic_root/cache"
+    symbolic_result="$symbolic_root/result.json"
+    : >"$symbolic_result"
+    symbolic_log="$symbolic_root/runtime.log"
+    symbolic_status=0
+    AURELIA_NOTIFICATION_SYMBOLIC_RESULT="$symbolic_result" \
+    AURELIA_NOTIFICATION_SYMBOLIC_TOAST_SOURCE="file://$plugin_root/ui/NotificationToast.qml" \
+    AURELIA_NOTIFICATION_SYMBOLIC_ICON="testfixture-symbolic" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$symbolic_root/runtime" \
+    XDG_STATE_HOME="$symbolic_root/state" \
+    XDG_CONFIG_HOME="$symbolic_root/config" \
+    XDG_CACHE_HOME="$symbolic_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$symbolic_fixture" --no-color >"$symbolic_log" 2>&1 || symbolic_status=$?
+
+    symbolic_completed=0
+    if [[ "$symbolic_status" -eq 0 ]]; then
+        symbolic_completed=1
+    elif [[ "$symbolic_status" -eq 124 && -s "$symbolic_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$symbolic_log"; then
+        symbolic_completed=1
+    fi
+    if [[ "$symbolic_completed" -eq 1 ]] && [[ -s "$symbolic_result" ]] &&
+       runtime_log_is_environment_only "$symbolic_log" \
+           'Created graphical object was not placed in the graphics scene|FileView.*failed' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$symbolic_log" &&
+       jq -e '.loaded == true and .slotVisible == true and
+              .symbolicNodeVisible == true and .symbolicPreservesColors == false and
+              .symbolicUsesTint == true and .logoNodeVisible == false' \
+           "$symbolic_result" >/dev/null; then
+        pass "[isolated-runtime] a symbolic notification icon is tinted and never rendered as a colour logo"
+    else
+        details="$(tail -n 48 "$symbolic_log" || true)"
+        if [[ -s "$symbolic_result" ]]; then details="$details result=$(tr '\n' ' ' <"$symbolic_result")"; fi
+        fail "[isolated-runtime] symbolic notification icon fixture failed (status=$symbolic_status): $details"
+    fi
+    rm -rf -- "$symbolic_root"
 fi
-rm -rf -- "$durable_icon_root"
 
 # Herdr (the terminal workspace manager pi runs inside) sends a raw
 # "<label> · <number> · <count>" body with no action. The logic must render

@@ -11,6 +11,10 @@ var MAX_ACTIONS = 8
 // while the notification itself still displays and is retained.
 var ORIGIN_VERSION = 1
 var ORIGIN_QUALITIES = ["exact", "origin", "identity"]
+// The shared owner's honest fallback. The persisted icon is always one of our
+// own file:// copy, this name, or another provably-usable theme name, so a
+// card can never be handed a dangling path or an empty source.
+var DEFAULT_ICON_NAME = "application-x-executable"
 var sharedSourceUrl = null
 
 function loadSourceUrl() {
@@ -586,51 +590,110 @@ function popupFileName(entry) {
     return stem === "" ? "" : stem + ".json"
 }
 
-// Resolve the local file backing an icon role. `file://` and absolute paths
-// are returned through the shared path decoder. Quickshell image providers such
-// as Chromium's ephemeral `image://icon//tmp/.../logo.png` embed a local path
-// after the provider segment; extract it so the durable copy still runs instead
-// of the value being dropped. A provider URL that names a themed icon rather
-// than an embedded path (for example `image://icon/application-x-executable`)
-// resolves to "" and is left untouched.
-function localImageFile(value) {
+// A value this build previously produced and can trust as durable: a file://
+// path inside our own per-user store. A sender's absolute path, provider URL
+// (`image://...`) or transient file:// path is never durable. A bare theme name
+// is re-resolved idempotently, which also lets a real content image win over a
+// generic app icon (the screenshot case).
+function isDurableIconValue(value, imagesDir) {
     var source = String(value || "")
+    if (source === "") return false
+    if (source.indexOf("file://") !== 0) return false
     var sourceUrl = loadSourceUrl()
-    if (!sourceUrl || typeof sourceUrl.pathFromUrl !== "function") return ""
-    if (source.indexOf("image://") === 0) {
-        var remainder = source.substring("image://".length)
-        var separator = remainder.indexOf("/")
-        if (separator < 0) return ""
-        source = remainder.substring(separator)
-        // Only a doubled slash denotes an embedded absolute path
-        // (`image://icon//tmp/...`); a single slash names a themed icon.
-        if (source.indexOf("//") !== 0) return ""
-        source = source.substring(1)
-    } else {
-        source = sourceUrl.pathFromUrl(source)
-    }
-    return source.charAt(0) === "/" ? source : ""
+    if (!sourceUrl || typeof sourceUrl.pathFromUrl !== "function" ||
+        typeof sourceUrl.isDescendant !== "function") return false
+    if (String(imagesDir || "") === "") return false
+    var path = sourceUrl.pathFromUrl(source)
+    return path.charAt(0) === "/" && sourceUrl.isDescendant(path, String(imagesDir))
 }
 
-function persistablePopup(entry, imagesDir) {
+function durableIconValue(entry, imagesDir) {
+    var source = entry || {}
+    var values = [source.appIcon, source.image]
+    for (var i = 0; i < values.length; i++) {
+        if (isDurableIconValue(values[i], imagesDir)) return String(values[i])
+    }
+    return ""
+}
+
+// Build the input for the shared AppIconResolver owner. The resolved durable
+// value from a reload is passed as `localPath` so it is used as-is and never
+// re-resolved. A live inline `image://qsimage/...` provider is not a byte
+// stream we can persist, so it is deliberately left out of `imageData`: the
+// owner then falls through to the desktop-entry/window/default candidates
+// instead of handing the card a transient provider URL.
+function iconResolutionInput(entry, imagesDir) {
+    var source = entry || {}
+    var appIcon = boundedText(source.appIcon, MAX_IMAGE_LENGTH)
+    var image = boundedText(source.image, MAX_IMAGE_LENGTH)
+    var imageData = ""
+    if (image.indexOf("image://qsimage/") !== 0 && source.imageData !== undefined) {
+        imageData = boundedText(source.imageData, MAX_IMAGE_LENGTH)
+    }
+    return {
+        localPath: durableIconValue(source, imagesDir),
+        imageData: imageData,
+        appIcon: appIcon,
+        image: image,
+        desktopEntry: boundedText(source.desktopEntry, MAX_APP_LENGTH),
+        appName: boundedText(source.app, MAX_APP_LENGTH),
+        origin: originFromField(source.origin)
+    }
+}
+
+// Decode the local file backing a resolver result. Only a resolver-produced
+// file:// source is accepted; the pure owner already proved the file is real
+// before returning it.
+function resolverFilePath(resolution) {
+    var source = String((resolution && resolution.source) || "")
+    if (source.indexOf("file://") !== 0) return ""
+    var sourceUrl = loadSourceUrl()
+    if (!sourceUrl || typeof sourceUrl.pathFromUrl !== "function") return ""
+    var path = sourceUrl.pathFromUrl(source)
+    return path.charAt(0) === "/" ? path : ""
+}
+
+// Map the shared resolver's result onto the durable persisted entry. A file
+// source is copied into our own per-user store under the notification's own
+// stem; a theme/default name is retained AS A NAME with no copy. The filename
+// the persist job must produce is declared in `copies`; the job fails closed
+// (see COPY_IMAGES_SCRIPT) rather than writing a dangling file:// path if the
+// copy cannot be verified, and Service.qml then falls back to the honest
+// default.
+function persistablePopup(entry, imagesDir, resolution) {
     var source = entry || {}
     var output = {}
     for (var key in source) output[key] = source[key]
     var copies = []
-    var roles = ["appIcon", "image"]
-    for (var i = 0; i < roles.length; i++) {
-        var role = roles[i]
-        var value = String(output[role] || "")
-        if (value === "") continue
-        var localPath = localImageFile(value)
-        if (localPath !== "") {
-            var copyPath = String(imagesDir || "") + imageStem(source) + "-" + role
-            if (localPath !== copyPath) copies.push({ from: localPath, to: copyPath })
-            output[role] = localFileUrl(copyPath)
-        } else if (value.indexOf("image://") === 0) {
-            output[role] = ""
+    var stem = imageStem(source)
+    var store = String(imagesDir || "")
+    var icon = resolution || {}
+    var kind = String(icon.kind || "default")
+    var name = boundedText(icon.name, MAX_IMAGE_LENGTH)
+    var durableValue = ""
+
+    if (kind === "durable") {
+        // Already durable from a reload: keep the file:// copy or the theme
+        // name exactly as stored. Never re-resolve and never re-copy.
+        durableValue = name !== "" ? name : String(icon.source || "")
+    } else if (kind === "file" || kind === "inline") {
+        var from = resolverFilePath(icon)
+        if (from !== "" && stem !== "" && store !== "") {
+            var to = store + stem + "-appIcon"
+            if (from !== to) copies.push({ from: from, to: to })
+            durableValue = localFileUrl(to)
+        } else {
+            // An inline provider URL cannot be byte-copied. Fall through to a
+            // retained name (or the honest default) instead of a dangling path.
+            durableValue = name !== "" ? name : DEFAULT_ICON_NAME
         }
+    } else {
+        durableValue = name !== "" ? name : DEFAULT_ICON_NAME
     }
+    output.appIcon = durableValue
+    // The card has a single icon slot; clearing the image role guarantees the
+    // resolved icon wins and no raw provider or sender path is ever persisted.
+    output.image = ""
     return { entry: output, copies: copies }
 }
 
@@ -807,7 +870,11 @@ if (typeof module !== "undefined") {
         popupFileName: popupFileName,
         imageStem: imageStem,
         hasPopupIdentity: hasPopupIdentity,
-        localImageFile: localImageFile,
+        DEFAULT_ICON_NAME: DEFAULT_ICON_NAME,
+        isDurableIconValue: isDurableIconValue,
+        durableIconValue: durableIconValue,
+        iconResolutionInput: iconResolutionInput,
+        resolverFilePath: resolverFilePath,
         persistablePopup: persistablePopup,
         serializePopup: serializePopup,
         parsePopupFiles: parsePopupFiles,
