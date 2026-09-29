@@ -52,6 +52,16 @@ else
     fail "[static] AppIconResolver candidate chain, provenance labels, or honest default is incomplete"
 fi
 
+if grep -Fq 'resolverRoot.xdgDataHome + "/applications"' "$resolver_qml" &&
+   grep -Fq 'dataDirs[i] + "/applications"' "$resolver_qml" &&
+   grep -Fq '"/var/lib/flatpak/exports/share/applications"' "$resolver_qml" &&
+   grep -Fq '"/.local/share/flatpak/exports/share/applications"' "$resolver_qml" &&
+   grep -Fq 'resolverRoot.xdgDataHome + "/metainfo"' "$resolver_qml"; then
+    pass "[static] The bounded metadata index searches XDG_DATA_HOME, XDG_DATA_DIRS, both Flatpak export roots, and the XDG_DATA_HOME AppStream metainfo root"
+else
+    fail "[static] The bounded metadata index is missing an XDG data or Flatpak export root"
+fi
+
 if grep -Fq 'SUBSTRING_MATCH_MIN_LENGTH = 5' "$resolver_js" &&
    grep -Fq 'function isValidThemeName' "$resolver_js" &&
    grep -Fq 'THEME_NAME_RE' "$resolver_js" &&
@@ -108,7 +118,10 @@ result_file="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache" \
-    "$runtime_root/data-home" "$runtime_root/data/applications" \
+    "$runtime_root/home/.local/share" \
+    "$runtime_root/data-home/applications" "$runtime_root/data-home/metainfo" \
+    "$runtime_root/home/.local/share/flatpak/exports/share/applications" \
+    "$runtime_root/data/applications" \
     "$runtime_root/data/icons/hicolor/16x16/apps"
 
 # A real 1x1 PNG, reused as the sample image and the deterministic theme icons.
@@ -152,6 +165,33 @@ Name=ChatGPT
 Icon=chatgpt
 Exec=chatgpt
 FIXTURE_CHATGPT
+# Root verification: entries that exist ONLY under the XDG_DATA_HOME
+# applications root and ONLY under the per-user Flatpak export root must still
+# be indexed, otherwise every desktop-entry-only app would silently degrade.
+cat >"$runtime_root/data-home/applications/xdg-home.desktop" <<'FIXTURE_XDG_HOME'
+[Desktop Entry]
+Type=Application
+Name=XDG Home App
+Icon=foot
+Exec=xdg-home
+FIXTURE_XDG_HOME
+cat >"$runtime_root/home/.local/share/flatpak/exports/share/applications/flatpak-user.desktop" <<'FIXTURE_FLATPAK_USER'
+[Desktop Entry]
+Type=Application
+Name=Flatpak User App
+Icon=com.mitchellh.ghostty
+Exec=flatpak-user
+FIXTURE_FLATPAK_USER
+# AppStream-only identity living under the XDG_DATA_HOME metainfo root. The
+# index must include that root or an AppStream-only icon is skipped.
+cat >"$runtime_root/data-home/metainfo/appstream-only.metainfo.xml" <<'FIXTURE_APPSTREAM'
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>appstream-only</id>
+  <name>AppStream Only</name>
+  <icon type="stock">probefixture</icon>
+</component>
+FIXTURE_APPSTREAM
 
 # Pretend the result file already exists (empty) so the blocking FileView does
 # not emit an avoidable "File does not exist" scene warning.
@@ -161,6 +201,7 @@ AURELIA_APP_ICON_SOURCE="file://$fixture_root/resolver.qml" \
 AURELIA_APP_ICON_RESULT="$result_file" \
 AURELIA_APP_ICON_PNG="$sample_png" \
 AURELIA_APP_ICON_MISSING="$runtime_root/does-not-exist.png" \
+HOME="$runtime_root/home" \
 QT_QPA_PLATFORM=offscreen \
 WAYLAND_DISPLAY="" \
 XDG_RUNTIME_DIR="$runtime_root/runtime" \
@@ -201,6 +242,16 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .cases.desktopChatgpt.kind == "desktop" and
         .cases.desktopChatgpt.name == "chatgpt" and
         .cases.desktopChatgpt.status == 1 and
+        .cases.desktopXdgDataHome.kind == "desktop" and
+        .cases.desktopXdgDataHome.name == "foot" and
+        .cases.desktopXdgDataHome.origin == "desktop-entry-icon" and
+        .cases.desktopXdgDataHome.status == 1 and
+        .cases.desktopFlatpakUser.kind == "desktop" and
+        .cases.desktopFlatpakUser.name == "com.mitchellh.ghostty" and
+        .cases.desktopFlatpakUser.status == 1 and
+        .cases.appstreamXdgDataHome.kind == "appstream" and
+        .cases.appstreamXdgDataHome.name == "probefixture" and
+        .cases.appstreamXdgDataHome.status == 1 and
         .cases.windowFoot.kind == "window" and
         .cases.windowFoot.name == "foot" and
         .cases.windowFoot.status == 1 and
@@ -223,7 +274,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .cases.symbolic.symbolic == true and
         .cases.symbolic.status == 1
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] AppIconResolver renders an absolute path, a file:// URI, a bare theme name, the themed image://icon/foot value (Image.Ready), desktop-entry-only foot/ghostty/chromium/chatgpt, the foot/ghostty window-class fallback, an inline image-data value, an honest application-x-executable default, a durable value used as-is, and a dangling durable value rejected to the default"
+    pass "[isolated-runtime] AppIconResolver renders an absolute path, a file:// URI, a bare theme name, the themed image://icon/foot value (Image.Ready), desktop-entry-only foot/ghostty/chromium/chatgpt, XDG_DATA_HOME, per-user Flatpak export, and XDG_DATA_HOME AppStream metadata, the foot/ghostty window-class fallback, an inline image-data value, an honest application-x-executable default, a durable value used as-is, and a dangling durable value rejected to the default"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] AppIconResolver fixture cannot create a disposable runtime backend"; then
     :
