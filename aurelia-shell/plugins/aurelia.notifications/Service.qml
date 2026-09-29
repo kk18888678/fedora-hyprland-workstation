@@ -167,6 +167,266 @@ Item {
             if (code !== 0) console.error("[NOTIFICATIONS] popup_directory_read_failed code=" + code)
         }
     }
+
+    // ------------------------------------------------------------------
+    // Notification origin capture and navigation.
+    //
+    // `workstation-notification-focus` is the single owner of origin capture
+    // and focus navigation. Capture runs as a separate bounded queue so a
+    // slow capture can never delay a user click, and every helper invocation
+    // is wrapped in a hard `/usr/bin/timeout` so neither the notification
+    // display nor the click path can hang on it.
+    // ------------------------------------------------------------------
+    readonly property string originHelperPath: {
+        if (service.testMode) {
+            // Isolated fixtures must never reach the live helper unless they
+            // explicitly inject a deterministic stand-in.
+            var override = Quickshell.env("AURELIA_NOTIFICATION_TEST_HELPER") || ""
+            return (override.charAt(0) === "/" && override !== "/") ? override : ""
+        }
+        var root = service.aureliaPath && String(service.aureliaPath).charAt(0) === "/"
+            ? String(service.aureliaPath)
+            : (Quickshell.env("AURELIA_SHELL_ROOT") || "")
+        if (root === "" || root.charAt(0) !== "/") return ""
+        return root.replace(/\/$/, "") + "/bin/workstation-notification-focus"
+    }
+    readonly property int originHelperTimeoutMs: {
+        if (service.testMode) {
+            var raw = Number(Quickshell.env("AURELIA_NOTIFICATION_TEST_HELPER_TIMEOUT_MS"))
+            if (isFinite(raw) && raw >= 500 && raw <= 15000) return Math.round(raw)
+        }
+        return 5000
+    }
+    // Resolve the command first, then run it unchanged. The previous guard
+    // shifted the command away and exec'd the remaining arguments, so every
+    // notification handoff was a silent no-op while the row was still removed.
+    readonly property string commandGuardScript: 'cmd="$1"; shift; ' +
+        'if [ -z "$cmd" ]; then exit 127; fi; ' +
+        'if ! command -v "$cmd" >/dev/null; then ' +
+        'logger -t aurelia-notification "notification command unavailable: $cmd"; ' +
+        'exit 127; fi; ' +
+        'exec "$cmd" "$@"'
+
+    property var captureQueue: []
+    property var runningCaptureJob: null
+    property Process captureProcess: Process {
+        running: false
+        stdout: StdioCollector {
+            id: captureStdout
+            waitForEnd: true
+        }
+        stderr: StdioCollector { id: captureStderr; waitForEnd: true }
+        onExited: function(code) {
+            var job = service.runningCaptureJob
+            service.runningCaptureJob = null
+            if (job) {
+                try {
+                    if (job.done) job.done(code, captureStdout.text, captureStderr.text)
+                } catch (error) {
+                    console.warn("[NOTIFICATIONS] capture_job_callback_failed label=" + job.label)
+                }
+            }
+            service.runNextCaptureJob()
+        }
+    }
+
+    property var actionQueue: []
+    property var runningActionJob: null
+    property Process actionProcess: Process {
+        running: false
+        stdout: StdioCollector {
+            id: actionStdout
+            waitForEnd: true
+        }
+        stderr: StdioCollector { id: actionStderr; waitForEnd: true }
+        onExited: function(code) {
+            var job = service.runningActionJob
+            service.runningActionJob = null
+            if (job) {
+                try {
+                    if (job.done) job.done(code, actionStdout.text, actionStderr.text)
+                } catch (error) {
+                    console.warn("[NOTIFICATIONS] action_job_callback_failed label=" + job.label)
+                }
+            }
+            service.runNextActionJob()
+        }
+    }
+
+    readonly property string helperTimeoutText: (service.originHelperTimeoutMs / 1000).toFixed(1) + "s"
+
+    function enqueueCaptureJob(command, done, label) {
+        if (!command || command.length === 0) return
+        captureQueue = captureQueue.concat([{ command: command, done: done || null, label: String(label || "capture") }])
+        service.runNextCaptureJob()
+    }
+
+    function runNextCaptureJob() {
+        if (captureProcess.running || captureQueue.length === 0) return
+        var job = captureQueue[0]
+        captureQueue = captureQueue.slice(1)
+        runningCaptureJob = job
+        captureProcess.command = job.command
+        captureProcess.running = true
+    }
+
+    function enqueueActionJob(command, done, label) {
+        if (!command || command.length === 0) return
+        actionQueue = actionQueue.concat([{ command: command, done: done || null, label: String(label || "action") }])
+        service.runNextActionJob()
+    }
+
+    function runNextActionJob() {
+        if (actionProcess.running || actionQueue.length === 0) return
+        var job = actionQueue[0]
+        actionQueue = actionQueue.slice(1)
+        runningActionJob = job
+        actionProcess.command = job.command
+        actionProcess.running = true
+    }
+
+    function boundedHelperCommand(program, args) {
+        return ["/usr/bin/timeout", "--foreground", "--kill-after=1s",
+            service.helperTimeoutText, program].concat(args)
+    }
+
+    // Capture is deliberately fire-and-forget: the notification is already
+    // displayed and persisted, and a failed, timed-out or null capture leaves
+    // it completely intact with no origin and no unmet condition.
+    function captureOrigin(snapshot) {
+        if (!snapshot || service.originHelperPath === "") return
+        var args = ["capture", "--id", String(snapshot.originalId)]
+        if (String(snapshot.app || "") !== "") args.push("--app", String(snapshot.app))
+        if (String(snapshot.summary || "") !== "") args.push("--summary", String(snapshot.summary))
+        if (String(snapshot.body || "") !== "") args.push("--body", String(snapshot.body))
+        if (String(snapshot.desktopEntry || "") !== "") args.push("--desktop-entry", String(snapshot.desktopEntry))
+        args.push("--urgency", String(snapshot.urgency))
+        args.push("--timestamp", String(snapshot.timestamp))
+        service.enqueueCaptureJob(service.boundedHelperCommand(service.originHelperPath, args),
+            function(code, stdout) {
+                if (code !== 0) return
+                var origin = Logic.parseOriginOutput(stdout)
+                if (!origin) return
+                service.applyCapturedOrigin(snapshot.originalId, snapshot.timestamp, origin)
+            },
+            "capture:" + snapshot.originalId)
+    }
+
+    function applyCapturedOrigin(originalId, timestamp, origin) {
+        if (!origin) return
+        var key = service.identityKey(originalId, timestamp)
+        if (key === "" || !liveSnapshots[key]) return
+        var snapshot = liveSnapshots[key]
+        if (!snapshot || !service.hasUsableIdentity(snapshot.originalId, snapshot.timestamp)) return
+        if (snapshot.origin) return
+        snapshot.origin = Logic.originFieldValue(origin)
+        updateModelRows(activeNotificationsModel, snapshot, originalId, timestamp)
+        updateModelRows(popupNotificationsModel, snapshot, originalId, timestamp)
+        persistPopupFile(snapshot)
+        console.info("[NOTIFICATIONS] origin.captured quality=" + origin.captureQuality)
+    }
+
+    function originFrom(entry) {
+        return entry ? Logic.originFromField(entry.origin) : null
+    }
+
+    function applyActionOutcome(originalId, timestamp, outcome, reason) {
+        var key = service.identityKey(originalId, timestamp)
+        if (key === "") return
+        var snapshot = liveSnapshots[key]
+        if (snapshot) {
+            snapshot.actionOutcome = String(outcome || "")
+            snapshot.actionOutcomeReason = String(reason || "")
+        }
+        service.setModelOutcome(activeNotificationsModel, originalId, timestamp, outcome, reason)
+        service.setModelOutcome(popupNotificationsModel, originalId, timestamp, outcome, reason)
+    }
+
+    function setModelOutcome(model, originalId, timestamp, outcome, reason) {
+        var index = service.modelIndexByIdentity(model, originalId, timestamp)
+        if (index < 0) return
+        model.setProperty(index, "actionOutcome", String(outcome || ""))
+        model.setProperty(index, "actionOutcomeReason", String(reason || ""))
+    }
+
+    function navigateToOrigin(origin, originalId, timestamp, label) {
+        if (!origin) {
+            service.applyActionOutcome(originalId, timestamp, "unavailable", "no origin")
+            return
+        }
+        if (service.originHelperPath === "") {
+            service.applyActionOutcome(originalId, timestamp, "unavailable", "origin helper unavailable")
+            return
+        }
+        var command = service.boundedHelperCommand(service.originHelperPath,
+            ["navigate", "--origin", JSON.stringify(origin)])
+        service.enqueueActionJob(command, function(code, stdout) {
+            var parsed = code === 0 ? Logic.parseNavigateOutput(stdout) : null
+            service.finishNavigation(originalId, timestamp,
+                parsed ? parsed.outcome : "unavailable",
+                parsed ? parsed.reason : "navigate unavailable")
+        }, label)
+    }
+
+    function finishNavigation(originalId, timestamp, helperOutcome, reason) {
+        var status = "unavailable"
+        if (helperOutcome === "focused") status = "delivered"
+        else if (helperOutcome === "routed") status = "routed"
+        else if (helperOutcome === "none") status = "none"
+        if (status === "delivered") {
+            console.info("[NOTIFICATIONS] action.origin_focused id=" + originalId)
+            removeByIdentity(originalId, timestamp, "action")
+            return
+        }
+        service.applyActionOutcome(originalId, timestamp, status, reason)
+        console.info("[NOTIFICATIONS] action.outcome status=" + status + " id=" + originalId)
+    }
+
+    // The action context for the next command dispatch. The exec-argv call
+    // sites set it then call `spawnNotificationCommand(argv)` so the guarded
+    // command entry point keeps its single-argument shape.
+    property var pendingCommandContext: null
+
+    // Run an argv that came from an untrusted notification through a bounded
+    // observing Process. A missing command exits 127 and is reported as
+    // unavailable instead of a silent success; a command that genuinely ran
+    // removes the row. When the notification also carries an origin, a failed
+    // command falls back to origin navigation rather than a false failure.
+    function spawnNotificationCommand(argv, originalId, timestamp, index, identifier, fallbackOrigin) {
+        if (arguments.length === 1) {
+            var context = service.pendingCommandContext || {}
+            originalId = context.originalId
+            timestamp = context.timestamp
+            index = context.index
+            identifier = context.identifier
+            fallbackOrigin = context.fallbackOrigin
+        }
+        service.pendingCommandContext = null
+        if (!argv || argv.length === 0) {
+            if (fallbackOrigin) {
+                service.navigateToOrigin(fallbackOrigin, originalId, timestamp, "navigate:" + identifier)
+                return
+            }
+            service.applyActionOutcome(originalId, timestamp, "unavailable", "empty command")
+            return
+        }
+        var command = ["/usr/bin/timeout", "--foreground", "--kill-after=1s",
+            service.helperTimeoutText, "/usr/bin/bash", "-c",
+            service.commandGuardScript, "aurelia-notification"].concat(argv)
+        service.enqueueActionJob(command, function(code) {
+            if (code === 0) {
+                console.info("[NOTIFICATIONS] action.command_executed id=" + originalId)
+                removeByIdentity(originalId, timestamp, "action", index)
+                return
+            }
+            if (fallbackOrigin) {
+                service.navigateToOrigin(fallbackOrigin, originalId, timestamp, "navigate:fallback:" + originalId)
+                return
+            }
+            console.info("[NOTIFICATIONS] action.outcome status=unavailable id=" + originalId)
+            service.applyActionOutcome(originalId, timestamp, "unavailable", "command unavailable")
+        }, "command:" + identifier)
+    }
     function persistPopupFile(snapshot) {
         if (!snapshot || popupStateDir === "") return
         var fileName = Logic.popupFileName(snapshot)
@@ -205,6 +465,11 @@ Item {
                 "execArgv", "actions", "defaultActionText", "urgency", "expireTimeout",
                 "deadline", "transient"]
             for (var r = 0; r < roles.length; r++) live[roles[r]] = durableEntry[roles[r]]
+            // The origin is not one of the icon roles, but the durable entry
+            // still carries it. Apply it only when the live snapshot does not
+            // already hold one so a stale persist job cannot clear a freshly
+            // captured origin.
+            if (durableEntry.origin && !live.origin) live.origin = durableEntry.origin
         }
         updateModelRows(activeNotificationsModel, durableEntry, originalId, timestamp)
         updateModelRows(popupNotificationsModel, durableEntry, originalId, timestamp)
@@ -383,7 +648,7 @@ Item {
 
     function updateModelRows(model, updated, originalId, timestamp) {
         if (!model || !updated) return 0
-        var roles = ["app", "appIcon", "desktopEntry", "summary", "body", "image", "glyph", "execArgv", "actions", "defaultActionText", "urgency", "expireTimeout", "deadline", "transient"]
+        var roles = ["app", "appIcon", "desktopEntry", "summary", "body", "image", "glyph", "execArgv", "actions", "defaultActionText", "urgency", "expireTimeout", "deadline", "transient", "origin"]
         var changed = 0
         for (var i = 0; i < model.count; i++) {
             var row = model.get(i)
@@ -399,6 +664,13 @@ Item {
                 // from the card. Re-seed the row with `set` for `actions` so Qt
                 // rematerializes the array role; scalar roles keep setProperty.
                 if (roles[r] === "actions") model.set(i, { actions: updated.actions || [] })
+                else if (roles[r] === "origin") {
+                    // Preserve a newer captured origin against a stale update
+                    // that carries none.
+                    var nextOrigin = Logic.originFieldValue(updated.origin)
+                    var currentOrigin = row.origin === undefined || row.origin === null ? "" : String(row.origin)
+                    if (nextOrigin !== "" || currentOrigin === "") model.setProperty(i, "origin", nextOrigin)
+                }
                 else model.setProperty(i, roles[r], updated[roles[r]])
             }
             changed++
@@ -567,6 +839,10 @@ Item {
         }
         liveRefs[liveKey] = notification
         liveSnapshots[liveKey] = snapshot
+        // Enrich the snapshot with its captured origin asynchronously. This
+        // runs before the DND branch and before persistence so neither the
+        // visible card nor the retained row is ever gated on the capture.
+        service.captureOrigin(snapshot)
 
         if (notification.closed && typeof notification.closed.connect === "function") {
             notification.closed.connect(function() {
@@ -975,26 +1251,6 @@ Item {
         service.resolvePendingWorkspaceRoute()
     }
 
-    // Spawn an argv that came from an untrusted notification. Quickshell's
-    // execDetached gives the child /dev/null on stdin, stdout, and stderr, so
-    // a missing handoff command would otherwise fail with no observable trace
-    // and the notification row is removed regardless. The guard resolves the
-    // command first and, when it cannot be found, records a bounded diagnostic
-    // to the journal -- which is observable -- instead of letting the failure
-    // vanish. It never redirects stderr to the null device itself.
-    function spawnNotificationCommand(argv) {
-        if (!argv || argv.length === 0) return
-        var guarded = ["bash", "-c",
-            'cmd="$1"; shift; ' +
-            'if [ -z "$cmd" ]; then exit 127; fi; ' +
-            'if ! command -v "$cmd" >/dev/null; then ' +
-            'logger -t aurelia-notification "notification command unavailable: $cmd"; ' +
-            'exit 127; fi; ' +
-            'exec "$@"',
-            "aurelia-notification"].concat(argv)
-        Quickshell.execDetached(guarded)
-    }
-
     // Resolve a non-default action without depending on the sender's live
     // Quickshell object. A retained Inbox row can outlive its sender: Chromium
     // destroys its notification object on send, which deletes the live
@@ -1065,36 +1321,53 @@ Item {
     // Durable fallback for invokeAction. The live reference may be absent (the
     // sender closed a retained Inbox row) or unusable (the notification object
     // was destroyed). Resolve the durable snapshot, run any explicit per-action
-    // command, then the notification-level exec argv, then route the sender
-    // window. The row is removed only when something was actually done.
+    // command, then the notification-level exec argv, then navigate to the
+    // captured origin. The row is removed only when a command genuinely ran or
+    // the origin was genuinely focused.
     function invokeDurableAction(index, originalId, timestamp, entry, identifier) {
         var actionKey = service.identityKey(originalId, timestamp)
         var durable = service.snapshotForIdentity(originalId, timestamp) ||
             (actionKey !== "" ? service.liveSnapshots[actionKey] : null) || entry
         if (!durable) return "unavailable"
+        var fallbackOrigin = service.originFrom(durable)
         var actionArgv = service.durableActionCommand(durable, identifier)
         if (actionArgv) {
-            var actionRoute = Logic.workspaceRouteData(durable, entry)
-            if (actionRoute.enabled) service.startWorkspaceRoute(actionRoute)
+            service.pendingCommandContext = {
+                originalId: originalId, timestamp: timestamp, index: index,
+                identifier: identifier, fallbackOrigin: fallbackOrigin
+            }
             service.spawnNotificationCommand(actionArgv)
-            removeByIdentity(originalId, timestamp, "action", index)
             return "delivered"
         }
         var argv = Logic.parseExecArgv(durable.execArgv)
         if (argv) {
-            var execRoute = Logic.workspaceRouteData(durable, entry)
-            if (execRoute.enabled) service.startWorkspaceRoute(execRoute)
+            service.pendingCommandContext = {
+                originalId: originalId, timestamp: timestamp, index: index,
+                identifier: identifier, fallbackOrigin: fallbackOrigin
+            }
             service.spawnNotificationCommand(argv)
-            removeByIdentity(originalId, timestamp, "action", index)
             return "executed"
         }
-        var route = Logic.workspaceRouteData(durable, entry)
-        if (!route.enabled) return "unavailable"
-        service.startWorkspaceRoute(route)
-        removeByIdentity(originalId, timestamp, "action", index)
-        return "routed"
+        if (fallbackOrigin) {
+            service.navigateToOrigin(fallbackOrigin, originalId, timestamp, "navigate:" + identifier)
+            return "routed"
+        }
+        service.applyActionOutcome(originalId, timestamp, "unavailable", "no target")
+        return "unavailable"
     }
 
+    function isLiveDefaultAction(action) {
+        if (!action) return false
+        var identifier = String(action.identifier || "").toLowerCase()
+        return identifier === "default" || identifier === "activate"
+    }
+
+    // Default activation, in resolution order:
+    //   1. a live sender `default`/`Activate` action -- the only mechanism that
+    //      reaches a browser's exact originating tab, while it is live;
+    //   2. the notification-level exec argv (for example Herdr's synthesized
+    //      workstation-herdr-focus Open), through a bounded observed process;
+    //   3. the captured origin, navigated by the shared helper.
     function invokeDefault(index, originalId, timestamp) {
         if (arguments.length >= 3) {
             index = activeIndexForIdentity(originalId, timestamp)
@@ -1105,32 +1378,40 @@ Item {
         var resolvedOriginalId = entry && entry.originalId !== undefined ? entry.originalId : originalId
         var resolvedTimestamp = entry && Number(entry.timestamp) > 0 ? entry.timestamp : timestamp
         var actionKey = service.identityKey(resolvedOriginalId, resolvedTimestamp)
-        var fallbackEntry = (actionKey !== "" ? service.liveSnapshots[actionKey] : null) || entry
-        var argv = Logic.parseExecArgv(fallbackEntry ? fallbackEntry.execArgv : "")
-        if (argv) {
-            var execRoute = Logic.workspaceRouteData(fallbackEntry, entry)
-            if (execRoute.enabled) service.startWorkspaceRoute(execRoute)
-            service.spawnNotificationCommand(argv)
-            removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
-            return "ok"
-        }
         var reference = actionKey !== "" ? liveRefs[actionKey] : null
         if (reference && reference.actions) {
             for (var i = 0; i < reference.actions.length; i++) {
                 var action = reference.actions[i]
-                if (action && action.identifier === "default" && typeof action.invoke === "function") {
-                    var route = Logic.workspaceRouteData(reference, entry)
+                if (!action || !service.isLiveDefaultAction(action) || typeof action.invoke !== "function") continue
+                var liveRoute = Logic.workspaceRouteData(reference, entry)
+                try {
                     action.invoke()
-                    service.startWorkspaceRoute(route)
-                    removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
-                    return "ok"
+                } catch (error) {
+                    console.warn("[NOTIFICATIONS] default.invoke_failed falling_back")
+                    break
                 }
+                service.startWorkspaceRoute(liveRoute)
+                removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
+                return "delivered"
             }
         }
-        var route = Logic.workspaceRouteData(reference || fallbackEntry, entry)
-        if (route.enabled) service.startWorkspaceRoute(route)
-        removeByIdentity(resolvedOriginalId, resolvedTimestamp, "action", index)
-        return route.enabled ? "ok" : "unavailable"
+        var fallbackEntry = (actionKey !== "" ? liveSnapshots[actionKey] : null) || entry
+        var fallbackOrigin = service.originFrom(fallbackEntry)
+        var argv = Logic.parseExecArgv(fallbackEntry ? fallbackEntry.execArgv : "")
+        if (argv) {
+            service.pendingCommandContext = {
+                originalId: resolvedOriginalId, timestamp: resolvedTimestamp, index: index,
+                identifier: "default", fallbackOrigin: fallbackOrigin
+            }
+            service.spawnNotificationCommand(argv)
+            return "executed"
+        }
+        if (fallbackOrigin) {
+            service.navigateToOrigin(fallbackOrigin, resolvedOriginalId, resolvedTimestamp, "navigate:default")
+            return "routed"
+        }
+        service.applyActionOutcome(resolvedOriginalId, resolvedTimestamp, "unavailable", "no target")
+        return "unavailable"
     }
 
     // Copy is a clipboard mutation, so it stays on the service rather than in

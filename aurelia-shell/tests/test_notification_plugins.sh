@@ -10,6 +10,58 @@ set -Eeuo pipefail
 plugin_root="$ROOT/plugins/aurelia.notifications"
 tooltip_qml="$ROOT/ui/AureliaToolTip.qml"
 
+# Deterministic stand-in for the production origin helper used by the isolated
+# action-origin fixtures. It echoes a caller-supplied capture payload, records
+# each navigate invocation to a sentinel file, and prints a caller-supplied
+# navigate outcome. All behavior is environment-controlled so no fixture ever
+# reaches the live session bus, compositor, or notification socket.
+write_notification_origin_stub() {
+    local target="$1"
+    cat >"$target" <<'STUB'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+mode="${1:-}"
+case "$mode" in
+    capture)
+        body=""
+        previous=""
+        for argument in "$@"; do
+            if [[ "$previous" == "--body" ]]; then body="$argument"; fi
+            previous="$argument"
+        done
+        if [[ "$body" == *"capture-slow"* ]]; then
+            /usr/bin/sleep "${AURELIA_STUB_CAPTURE_SLEEP:-5}"
+        fi
+        if [[ "$body" == *"capture-null"* ]]; then
+            printf 'null\n'
+            exit 0
+        fi
+        if [[ "$body" == *"routed-capture"* ]]; then
+            printf '%s\n' "${AURELIA_STUB_CAPTURE_ROUTED:-$AURELIA_STUB_CAPTURE}"
+            exit 0
+        fi
+        printf '%s\n' "${AURELIA_STUB_CAPTURE:-null}"
+        exit "${AURELIA_STUB_CAPTURE_EXIT:-0}"
+        ;;
+    navigate)
+        if [[ -n "${AURELIA_STUB_NAVIGATE_SENTINEL:-}" ]]; then
+            printf '%s\n' "$*" >>"$AURELIA_STUB_NAVIGATE_SENTINEL"
+        fi
+        if [[ "$*" == *'"notifyId":503'* ]]; then
+            printf '%s\n' '{"action":"navigate","outcome":"routed","confidence":"identity","reason":"stub routed"}'
+            exit 0
+        fi
+        printf '%s\n' "${AURELIA_STUB_NAVIGATE:-{\"action\":\"navigate\",\"outcome\":\"focused\",\"confidence\":\"exact\",\"reason\":\"stub focused\"}}"
+        exit "${AURELIA_STUB_NAVIGATE_EXIT:-0}"
+        ;;
+    *)
+        exit 2
+        ;;
+esac
+STUB
+    chmod +x "$target"
+}
+
 section "Notification Plugin Contract"
 
 if [[ -f "$plugin_root/manifest.json" ]] &&
@@ -281,6 +333,29 @@ if grep -q 'import Quickshell.Hyprland' "$plugin_root/Service.qml" &&
     pass "Notification actions route to the matching Hyprland workspace with bounded retry"
 else
     fail "Notification workspace routing or bounded fallback is incomplete"
+fi
+
+if grep -q 'function captureOrigin' "$plugin_root/Service.qml" &&
+   grep -q 'service.captureOrigin(snapshot)' "$plugin_root/Service.qml" &&
+   grep -q 'AURELIA_NOTIFICATION_TEST_HELPER' "$plugin_root/Service.qml" &&
+   grep -q 'workstation-notification-focus' "$plugin_root/Service.qml" &&
+   grep -q 'function navigateToOrigin' "$plugin_root/Service.qml" &&
+   grep -q 'function applyCapturedOrigin' "$plugin_root/Service.qml" &&
+   grep -q 'function isLiveDefaultAction' "$plugin_root/Service.qml" &&
+   grep -q 'commandGuardScript' "$plugin_root/Service.qml" &&
+   grep -Fq "exec \"\$cmd\" \"\$@\"" "$plugin_root/Service.qml" &&
+   grep -q 'function normalizeOrigin' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'function originFieldValue' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'function parseOriginOutput' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'function parseNavigateOutput' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'notificationActionOutcome' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'actionOutcomeMessage' "$plugin_root/ui/NotificationToast.qml" &&
+   grep -q 'actionOutcome: String(activeDelegate.actionOutcome' "$plugin_root/ui/NotificationCenterPanel.qml" &&
+   grep -q 'actionOutcome: String(popupSlot.actionOutcome' "$plugin_root/ui/NotificationPopupSurface.qml" &&
+   ! grep -Fq 'Quickshell.execDetached(guarded)' "$plugin_root/Service.qml"; then
+    pass "Notification commands run through a bounded observing guard and origins are captured, persisted, and navigated honestly"
+else
+    fail "Notification origin capture or guarded command execution is incomplete"
 fi
 
 if grep -q 'shell.call("aurelia.notifications"' "$plugin_root/BarWidget.qml" &&
@@ -758,35 +833,64 @@ rm -rf -- "$durable_icon_root"
 
 # Herdr (the terminal workspace manager pi runs inside) sends a raw
 # "<label> · <number> · <count>" body with no action. The logic must render
-# that in words and synthesize a jump-back-to-the-chat action.
+# that in words and synthesize a jump-back-to-the-chat action. The synthesized
+# argv must actually run: the test executes it against a sentinel stub and
+# asserts the effect, so a guard that drops the command cannot pass.
 if command -v node >/dev/null; then
     herdr_logic_test="$(mktemp --suffix=.js)"
+    herdr_argv_file="$(mktemp --suffix=.json)"
+    herdr_exec_root="$(mktemp -d)"
     sed '/^\.pragma library/d' "$plugin_root/NotificationLogic.js" >"$herdr_logic_test"
     cat >>"$herdr_logic_test" <<'HERDR_EXPORTS'
 module.exports = { herdrRoute, herdrBody, styledBody, snapshotOf };
 HERDR_EXPORTS
+    herdr_projection=0
     if node -e '
+const fs = require("fs");
 const L = require(process.argv[1]);
 const n = { id: 7, appName: "Herdr", summary: "pi finished", body: "sutradhar \u00b7 2 \u00b7 3", urgency: 1 };
 const snap = L.snapshotOf(n, 1700000000000);
+const argv = JSON.parse(snap.execArgv);
+fs.writeFileSync(process.argv[2], JSON.stringify(argv));
 const ok =
     L.herdrRoute(n) && L.herdrRoute(n).label === "sutradhar" && L.herdrRoute(n).number === 2 &&
     L.herdrBody("sutradhar \u00b7 2 \u00b7 3", "Herdr") === "sutradhar \u00b7 workspace 2" &&
     snap.defaultActionText === "Open" &&
     (function () {
-        var argv = JSON.parse(snap.execArgv);
         var joined = argv.join(" ");
         return argv[0] === "bash" && joined.indexOf("workstation-herdr-focus") >= 0 && joined.indexOf(" 2") >= 0;
     })() &&
     L.herdrRoute({ appName: "foot", body: "a \u00b7 1 \u00b7 1" }) === null &&
     L.snapshotOf({ appName: "Herdr", body: "x \u00b7 1", actions: [{ identifier: "default", text: "Reply" }] }, 1).defaultActionText === "Reply";
 process.exit(ok ? 0 : 1);
-' "$herdr_logic_test" >/dev/null; then
-        pass "[unit] Herdr notifications render a clear body and offer a chat jump action"
+' "$herdr_logic_test" "$herdr_argv_file" >/dev/null; then
+        herdr_projection=1
+    fi
+    if [[ "$herdr_projection" -eq 1 ]]; then
+        mkdir -p -- "$herdr_exec_root/bin"
+        cat >"$herdr_exec_root/bin/workstation-herdr-focus" <<'HERDR_STUB'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '%s' "$*" >"$AURELIA_HERDR_SENTINEL"
+exit 0
+HERDR_STUB
+        chmod +x "$herdr_exec_root/bin/workstation-herdr-focus"
+        mapfile -t herdr_argv < <(jq -r '.[]' "$herdr_argv_file")
+        if [[ "${#herdr_argv[@]}" -gt 0 ]] &&
+           env AURELIA_SHELL_ROOT="$herdr_exec_root" \
+               AURELIA_HERDR_SENTINEL="$herdr_exec_root/sentinel" \
+               "${herdr_argv[@]}" >"$herdr_exec_root/out.log" 2>"$herdr_exec_root/err.log" &&
+           [[ -f "$herdr_exec_root/sentinel" ]] &&
+           [[ "$(<"$herdr_exec_root/sentinel")" == "2" ]]; then
+            pass "[unit] Herdr notifications render a clear body and execute the chat jump action"
+        else
+            fail "[unit] Herdr synthesized action did not execute against the herdr focus helper"
+        fi
     else
         fail "[unit] Herdr notification projection failed"
     fi
-    rm -f -- "$herdr_logic_test"
+    rm -f -- "$herdr_logic_test" "$herdr_argv_file"
+    rm -rf -- "$herdr_exec_root"
 else
     skip "[unit] Herdr notification projection (node unavailable)"
 fi
@@ -882,9 +986,10 @@ fi
 # A retained Inbox row must keep resolving its non-default action after the
 # sender destroys the live notification. Chromium closes its notification
 # object on send, which deletes the live reference while the Inbox row stays
-# rendered. invokeAction must resolve the durable snapshot, route the sender
-# window, and remove the row. The result must be the honest "routed" (only the
-# sender window was focused), never a false "ok"/"delivered".
+# rendered. invokeAction must resolve the durable row instead of returning an
+# index miss. Because this isolated row carries no captured origin, the honest
+# result is "unavailable", the row is retained, and the outcome is surfaced on
+# the card rather than silently removing it.
 invoke_fixture="$ROOT/tests/fixtures/notifications/invoke-action.qml"
 if [[ ! -f "$invoke_fixture" ]]; then
     fail "[static] notification retained-action invoke fixture is missing"
@@ -928,8 +1033,9 @@ else
             .actionsCountAfterClose == 1 and
             .actionsRoleUndefinedAfterClose == false and
             .firstActionIdentifier == "settings" and
-            .invokeResult == "routed" and
-            .routeStarted == true and
+            .invokeResult == "unavailable" and
+            .invokeOutcome == "unavailable" and
+            .invokeRowRetained == true and
             .retainedSettingsButtonCount == 1 and
             .nonDefaultOnlyContainerVisible == true and
             .nonDefaultOnlySettingsButtonCount == 1
@@ -962,6 +1068,7 @@ else
     outcomes_status=0
     AURELIA_NOTIFICATION_INVOKE_RESULT="$outcomes_result" \
     AURELIA_NOTIFICATION_INVOKE_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_INVOKE_SENTINEL="$outcomes_root/executed.sentinel" \
     QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
     XDG_RUNTIME_DIR="$outcomes_root/runtime" \
     XDG_STATE_HOME="$outcomes_root/state" \
@@ -986,14 +1093,95 @@ else
             .liveActionInvoked == true and
             .liveDeliveredResult == "delivered" and
             .liveRowRemoved == true and
-            .executedResult == "executed" and
+            .executedSyncResult == "executed" and
+            .execRowRemoved == true and
+            .sentinelExists == true and
+            .missingSyncResult == "executed" and
+            .missingOutcome == "unavailable" and
+            .missingRowRetained == true and
             .noneIndexResult == "none" and
             .noneIdentityResult == "none"
        ' "$outcomes_result" >/dev/null; then
-        pass "[isolated-runtime] notification action results distinguish delivered, executed, and none"
+        pass "[isolated-runtime] notification action results distinguish delivered, executed, unavailable, and none"
     else
         details="$(tail -n 48 "$outcomes_log" || true)"
         if [[ -s "$outcomes_result" ]]; then details="$details result=$(tr '\n' ' ' <"$outcomes_result")"; fi
         fail "[isolated-runtime] notification action-outcome fixture failed (status=$outcomes_status): $details"
+    fi
+fi
+
+# Notification origin round trip. The production Service captures an origin at
+# arrival, persists it with the popup JSON, restores it through restorePopups,
+# and navigates with the same origin on click. The deterministic helper stub
+# also proves honest negative behavior: a null capture, a timed-out capture,
+# and corrupt or unknown-version origins all keep the notification displayed
+# with no origin and report "unavailable" rather than crashing or claiming
+# success.
+origin_fixture="$ROOT/tests/fixtures/notifications/origin-roundtrip.qml"
+if [[ ! -f "$origin_fixture" ]]; then
+    fail "[static] notification origin round-trip fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification origin round-trip fixture (qs or timeout unavailable)"
+else
+    origin_root="$(mktemp -d)"
+    trap 'rm -rf -- "$origin_root"  || true' RETURN
+    mkdir -p -- "$origin_root/runtime" "$origin_root/state" \
+        "$origin_root/config" "$origin_root/cache" "$origin_root/bin"
+    origin_result="$origin_root/result.json"
+    : >"$origin_result"
+    origin_log="$origin_root/runtime.log"
+    origin_sentinel="$origin_root/navigate.sentinel"
+    write_notification_origin_stub "$origin_root/bin/workstation-notification-focus"
+    capture_origin='{"originVersion":1,"capturedAt":1700000000000,"notifyId":501,"captureQuality":"exact","captureSource":"bus-monitor","sender":{"pid":4242},"notify":{"appName":"Chromium"},"compositor":{"address":"0xabc","workspaceId":2},"tab":{},"originUrl":"http://127.0.0.1:8899/"}'
+    capture_origin_routed='{"originVersion":1,"capturedAt":1700000000000,"notifyId":503,"captureQuality":"exact","captureSource":"bus-monitor","sender":{"pid":4242},"notify":{"appName":"Chromium"},"compositor":{"address":"0xabc","workspaceId":2},"tab":{},"originUrl":"http://127.0.0.1:8899/"}'
+    origin_status=0
+    AURELIA_ORIGIN_RESULT="$origin_result" \
+    AURELIA_ORIGIN_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_TEST_HELPER="$origin_root/bin/workstation-notification-focus" \
+    AURELIA_NOTIFICATION_TEST_HELPER_TIMEOUT_MS=1000 \
+    AURELIA_STUB_CAPTURE="$capture_origin" \
+    AURELIA_STUB_CAPTURE_ROUTED="$capture_origin_routed" \
+    AURELIA_STUB_NAVIGATE_SENTINEL="$origin_sentinel" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$origin_root/runtime" \
+    XDG_STATE_HOME="$origin_root/state" \
+    XDG_CONFIG_HOME="$origin_root/config" \
+    XDG_CACHE_HOME="$origin_root/cache" \
+        /usr/bin/timeout --kill-after=1s 14s /usr/bin/qs --no-duplicate \
+        --path "$origin_fixture" --no-color >"$origin_log" 2>&1 || origin_status=$?
+
+    origin_completed=0
+    if [[ "$origin_status" -eq 0 ]]; then
+        origin_completed=1
+    elif [[ "$origin_status" -eq 124 && -s "$origin_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$origin_log"; then
+        origin_completed=1
+    fi
+    if [[ "$origin_completed" -eq 1 ]] && [[ -s "$origin_result" ]] &&
+       runtime_log_is_environment_only "$origin_log" \
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$origin_log" &&
+       jq -e --arg exact "$capture_origin" --arg routed "$capture_origin_routed" '
+            .serviceLoaded == true and
+            .capturedOrigin == $exact and
+            .liveOrigin == $exact and
+            .diskOrigin == $exact and
+            .restoredOrigin == $exact and
+            (.clickSentinel | contains("http://127.0.0.1:8899/")) and
+            (.clickSentinel | contains("\"notifyId\":501")) and
+            .clickRowRemoved == true and
+            .routedOrigin == $routed and
+            .routedOutcome == "routed" and
+            .routedRowRetained == true and
+            .nullRowRetained == true and .nullOrigin == "" and
+            .slowRowRetained == true and .slowOrigin == "" and
+            .corruptRowRetained == true and .corruptOutcome == "unavailable" and
+            .unknownRowRetained == true and .unknownOutcome == "unavailable"
+       ' "$origin_result" >/dev/null; then
+        pass "[isolated-runtime] notification origin capture, persistence, restore, and navigation round trip honestly"
+    else
+        details="$(tail -n 48 "$origin_log" || true)"
+        if [[ -s "$origin_result" ]]; then details="$details result=$(tr '\n' ' ' <"$origin_result")"; fi
+        fail "[isolated-runtime] notification origin round-trip fixture failed (status=$origin_status): $details"
     fi
 fi

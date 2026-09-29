@@ -104,7 +104,8 @@ ShellRoot {
             urgency: 1,
             expireTimeout: 0,
             deadline: 0,
-            transient: false
+            transient: false,
+            origin: ""
         }
     }
 

@@ -32,6 +32,10 @@ Item {
     property bool defaultActionEnabled: true
     property bool actionButtonsEnabled: true
     property string timestampLabel: ""
+    // Honest, user-visible result of the last action click. Only a retained
+    // row can still be on screen to show it; delivered/executed rows are gone.
+    property string actionOutcome: ""
+    property string actionOutcomeReason: ""
     // Capture the model identity at construction time so a close click cannot
     // lose it while a ListView/Repeater is updating its delegate index.
     property var identityOriginalId
@@ -85,6 +89,16 @@ Item {
         !root.hasGlyph && root.summaryStartsWithGlyph
     readonly property string sanitizedBody: Logic.sanitizeBody(root.body, root.app, root.appIcon)
     readonly property string styledBody: Logic.styledBody(root.body, root.app, root.appIcon)
+    // Never present a non-success as silence. The vocabulary is the same one
+    // the service returns: routed / unavailable / none.
+    readonly property string actionOutcomeMessage: {
+        var outcome = String(root.actionOutcome || "")
+        if (outcome === "" || outcome === "delivered" || outcome === "executed") return ""
+        if (outcome === "routed") return "Routed to the source window"
+        if (outcome === "unavailable") return "Could not open: unavailable"
+        if (outcome === "none") return "Could not open: no target"
+        return "Could not open: " + outcome
+    }
     readonly property color bodyColor: Qt.darker(Theme.notifications.text, 1.15)
     readonly property color dimColor: Qt.darker(Theme.notifications.text, 1.4)
 
@@ -420,6 +434,25 @@ Item {
                         }
                     }
                 }
+            }
+            // Surface a non-success outcome on the card itself, not only in
+            // the journal. Hidden for success and for empty state.
+            Text {
+                objectName: "notificationActionOutcome"
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.spacingMd
+                Layout.rightMargin: Theme.spacingMd
+                Layout.bottomMargin: Theme.scaleGeometry(6)
+                visible: root.actionOutcomeMessage.length > 0
+                textFormat: Text.PlainText
+                text: root.actionOutcomeMessage
+                color: root.dimColor
+                font.family: "Liberation Sans"
+                font.pixelSize: Theme.fontSizeXs
+                horizontalAlignment: Text.AlignLeft
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
             }
         }
 

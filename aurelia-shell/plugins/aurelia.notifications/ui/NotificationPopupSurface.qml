@@ -195,6 +195,8 @@ PanelWindow {
                     identityOriginalId: popupSlot.originalId
                     identityTimestamp: popupSlot.timestamp
                     identityIndex: popupSlot.index
+                    actionOutcome: String(popupSlot.actionOutcome || "")
+                    actionOutcomeReason: String(popupSlot.actionOutcomeReason || "")
                     onDismissed: function(originalId, timestamp, index) {
                         root.notificationService.dismissPopupAt(index, originalId, timestamp)
                     }

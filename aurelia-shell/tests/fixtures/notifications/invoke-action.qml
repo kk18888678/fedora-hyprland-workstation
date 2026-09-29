@@ -28,6 +28,8 @@ ShellRoot {
     property bool actionsRoleUndefinedAfterClose: false
     property string firstActionIdentifier: ""
     property string invokeResult: ""
+    property string invokeOutcome: ""
+    property bool invokeRowRetained: false
     property bool routeStarted: false
     property int retainedSettingsButtonCount: -1
     property bool nonDefaultOnlyContainerVisible: false
@@ -280,8 +282,9 @@ ShellRoot {
         var originalId = activeRow.originalId
         var timestamp = Number(activeRow.timestamp)
         root.invokeResult = String(root.service.invokeAction(0, "settings", originalId, timestamp))
-        root.routeStarted = root.service.pendingWorkspaceRoute !== null &&
-            root.service.pendingWorkspaceRoute !== undefined
+        root.invokeRowRetained = root.service.activeModel.count > 0
+        var retainedRow = root.invokeRowRetained ? root.service.activeModel.get(0) : null
+        root.invokeOutcome = retainedRow ? String(retainedRow.actionOutcome || "") : ""
         root.writeResult()
     }
 
@@ -297,7 +300,8 @@ ShellRoot {
             actionsRoleUndefinedAfterClose: root.actionsRoleUndefinedAfterClose,
             firstActionIdentifier: root.firstActionIdentifier,
             invokeResult: root.invokeResult,
-            routeStarted: root.routeStarted,
+            invokeOutcome: root.invokeOutcome,
+            invokeRowRetained: root.invokeRowRetained,
             retainedSettingsButtonCount: root.retainedSettingsButtonCount,
             nonDefaultOnlyContainerVisible: root.nonDefaultOnlyContainerVisible,
             nonDefaultOnlySettingsButtonCount: root.nonDefaultOnlySettingsButtonCount
