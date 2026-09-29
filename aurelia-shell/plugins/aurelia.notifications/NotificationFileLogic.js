@@ -2,19 +2,24 @@
 // owns when commands run; this module keeps shell argument construction and
 // durable file semantics separate from notification lifecycle orchestration.
 
-// Image copies are best-effort: the sender may remove its source while the
-// notification is being persisted. The JSON write itself remains mandatory.
+// Image copies are atomic and verified. A copy that cannot be proven to have
+// produced a non-empty file within the bound (missing source, unreadable,
+// over-bound, or a short read) fails the whole persist job before the JSON is
+// written, so a dangling file:// path can never be recorded. The caller falls
+// back to an honest retained theme name/default on failure.
 var COPY_IMAGES_SCRIPT =
+    "failed=0\n" +
     "while (( $# >= 2 )); do\n" +
     "  source=\"$1\" target=\"$2\" tmp=\"$2.tmp.$$\"\n" +
+    "  copied=0\n" +
     "  if [[ -f \"$source\" ]] && /usr/bin/timeout --foreground --kill-after=1s 5s /usr/bin/head -c 5242881 -- \"$source\" > \"$tmp\"; then\n" +
     "    if ! size=$(/usr/bin/stat -c%s -- \"$tmp\"); then /usr/bin/printf '%s\\n' '[NOTIFICATIONS] image_copy_size_failed' >&2; size=0; fi\n" +
-    "    if [[ \"$size\" =~ ^[0-9]+$ ]] && (( size <= 5242880 )); then /usr/bin/mv -f -- \"$tmp\" \"$target\"; else /usr/bin/rm -f -- \"$tmp\"; fi\n" +
-    "  else\n" +
-    "    /usr/bin/rm -f -- \"$tmp\"\n" +
+    "    if [[ \"$size\" =~ ^[0-9]+$ ]] && (( size > 0 && size <= 5242880 )); then /usr/bin/mv -f -- \"$tmp\" \"$target\"; copied=1; fi\n" +
     "  fi\n" +
+    "  if (( copied == 0 )); then /usr/bin/rm -f -- \"$tmp\"; failed=1; fi\n" +
     "  shift 2\n" +
-    "done\n"
+    "done\n" +
+    "(( failed == 0 ))\n"
 
 function withFileTimeout(script, args) {
     return ["/usr/bin/timeout", "--foreground", "--kill-after=1s", "5s", "/usr/bin/bash", "-c", script].concat(args)
@@ -58,6 +63,10 @@ function sweepImages(popupStateDir, imagesDir) {
         "for image in \"$imgs\"/*; do\n" +
         "  [[ -e \"$image\" ]] || continue\n" +
         "  name=\"${image##*/}\"\n" +
+        // Image files share the notification stem ("<timestamp>-<id>-<role>").
+        // The resolved icon is written as "<stem>-appIcon", so stripping the
+        // final -role segment recovers the stem and keeps the icon while its
+        // popup JSON lives.
         "  stem=\"${name%-*}\"\n" +
         "  [[ -e \"$live/$stem.json\" ]] || /usr/bin/rm -f -- \"$image\"\n" +
         "done\n"

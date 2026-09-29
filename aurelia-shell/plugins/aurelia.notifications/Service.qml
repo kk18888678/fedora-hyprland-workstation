@@ -435,16 +435,35 @@ Item {
                 String(snapshot.originalId) + " timestamp=" + String(snapshot.timestamp))
             return
         }
-        var persistable = Logic.persistablePopup(snapshot, imagesDir)
+        // The shared owner is the single resolution policy. Its result is
+        // already durable: our own file:// copy, a theme name, or the honest
+        // default. Only an absent copy (job failure) falls back below.
+        var resolution = AppIconResolver.resolve(Logic.iconResolutionInput(snapshot, imagesDir))
+        var persistable = Logic.persistablePopup(snapshot, imagesDir, resolution)
+        service.enqueuePersistJob(snapshot, persistable, fileName, false)
+    }
+
+    // Persist one durable entry. The copy script fails closed, so the JSON and
+    // the live models are only updated once every declared copy is proven to
+    // exist. A failed copy falls through to the honest default name rather
+    // than recording a dangling file:// path the card would render as blank.
+    function enqueuePersistJob(snapshot, persistable, fileName, retried) {
         persistable.json = Logic.serializePopup(persistable.entry, 1)
         enqueuePopupFileJob(FileLogic.persistPopup(
             persistable, popupStateDir, imagesDir, fileName),
             function(success) {
-                // The copied icon path becomes durable only once the file job
-                // succeeds. Push the durable entry back into the live models
-                // and snapshots so a card keeps rendering a retained icon
-                // after Chromium removes its scoped temporary directory.
-                if (success) service.applyDurablePopup(snapshot, persistable.entry)
+                if (success) {
+                    service.applyDurablePopup(snapshot, persistable.entry)
+                    return
+                }
+                if (!retried) {
+                    var fallback = Logic.persistablePopup(snapshot, imagesDir, {
+                        source: "", name: Logic.DEFAULT_ICON_NAME, symbolic: false, kind: "default"
+                    })
+                    service.enqueuePersistJob(snapshot, fallback, fileName, true)
+                    return
+                }
+                console.error("[NOTIFICATIONS] popup.persist_failed label=" + fileName)
             },
             "popup.persist:" + fileName)
     }
