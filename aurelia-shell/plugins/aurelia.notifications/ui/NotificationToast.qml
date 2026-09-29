@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import "../../../ui"
 import "../../../theme"
+import "../../../services"
 import "../NotificationLogic.js" as Logic
 
 // Shared presentational card for the transient popup and the Inbox. Its visual
@@ -75,9 +76,22 @@ Item {
     readonly property real actionAvailableWidth: Math.max(0,
         root.actionContentWidth - Theme.spacingMd * 2)
     readonly property bool hasGlyph: root.glyph.length > 0
-    readonly property string smallIconSource: root.image.length > 0
-        ? root.image
-        : root.iconSource(root.appIcon)
+    // The resolved icon is the single durable value the persistence path
+    // produced (our own file:// copy, a theme name, or the honest default).
+    // The shared AppIconResolver owns both the renderable-source decision and
+    // the symbolic-versus-full-colour rule; this card never re-derives it.
+    readonly property string smallIconValue: root.image.length > 0 ? root.image : root.appIcon
+    readonly property string smallIconSource: root.iconSource(root.smallIconValue)
+    readonly property string smallIconName: {
+        var value = String(root.smallIconValue || "")
+        if (value === "" || value.indexOf("file://") === 0 ||
+            value.indexOf("image://") === 0 || value.charAt(0) === "/") return ""
+        return AppIconResolver.themeLookupName(value)
+    }
+    // A genuine symbolic mask (a name ending in -symbolic, ignoring a query
+    // string) is tinted; every real logo is rendered with preserveColors.
+    readonly property bool smallIconSymbolic: AppIconResolver.isSymbolicName(root.smallIconValue)
+    readonly property color smallIconTint: root.urgency === 2 ? Theme.error : Theme.notifications.text
     readonly property bool hasSmallIcon: root.smallIconSource.length > 0
     readonly property bool appIconIsLocal: root.appIcon.indexOf("file://") === 0 ||
         root.appIcon.indexOf("image://") === 0 || root.appIcon.charAt(0) === "/"
@@ -116,16 +130,9 @@ Item {
         if (source === "") return ""
         if (source.indexOf("file://") === 0 || source.indexOf("image://") === 0) return source
         if (source.charAt(0) === "/") return source
-        return Quickshell.iconPath(source, "application-x-executable")
-    }
-
-    function iconName(value) {
-        var source = String(value || "")
-        if (source === "" || source.indexOf("file://") === 0 ||
-            source.indexOf("image://") === 0 || source.charAt(0) === "/") {
-            return "application-x-executable"
-        }
-        return source
+        // A bare theme name is resolved through the shared owner, which owns
+        // the theme lookup and the honest default fallback.
+        return AppIconResolver.themeSource(source)
     }
 
     function emitDismissed() {
@@ -203,9 +210,11 @@ Item {
                     Layout.preferredWidth: visible ? Theme.scaleGeometry(40) : 0
                     Layout.preferredHeight: visible ? Theme.scaleGeometry(40) : 0
                     Layout.alignment: Qt.AlignVCenter
+                    // The slot stays visible whenever a resolution exists,
+                    // including the honest application-x-executable default.
+                    // It never collapses to blank on an unresolved icon.
                     visible: !root.collapseRedundantIcon && !root.compactGlyph &&
-                        (root.hasSmallIcon || root.hasGlyph) &&
-                        (root.hasGlyph || smallIconImage.status !== Image.Error)
+                        (root.hasSmallIcon || root.hasGlyph)
 
                     Image {
                         id: smallIconImage
@@ -220,25 +229,42 @@ Item {
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         smooth: true
-                        visible: !root.hasGlyph || smallIconImage.status === Image.Ready
+                        // A real logo is always rendered with its own colours;
+                        // a symbolic mask is drawn by the tinted overlay below.
+                        visible: !root.smallIconSymbolic && (!root.hasGlyph || smallIconImage.status === Image.Ready)
+                    }
+
+                    // A genuine symbolic mask must be tinted with a contrasting
+                    // theme colour. The symbolic decision comes from the shared
+                    // AppIconResolver owner, never from this card.
+                    AureliaIcon {
+                        objectName: "notificationSymbolicIcon"
+                        anchors.fill: parent
+                        visible: root.smallIconSymbolic && root.hasSmallIcon
+                        name: ""
+                        sourcePath: root.smallIconSource
+                        iconSize: Theme.scaleGeometry(24)
+                        preserveColors: false
+                        tint: root.smallIconTint
                     }
 
                     // Preserve native app artwork. This fallback is used only
-                    // when the image cannot be resolved; semantic names such
-                    // as camera-photo still use Aurelia's native glyph map.
+                    // when the image cannot be resolved; a real logo must never
+                    // be tinted onto a monochrome ramp.
                     AureliaIcon {
                         objectName: "notificationSourceIconFallback"
                         anchors.centerIn: parent
                         width: Theme.scaleGeometry(24)
                         height: Theme.scaleGeometry(24)
-                        visible: !root.hasGlyph && smallIconImage.status !== Image.Ready && root.appIcon !== ""
+                        visible: !root.smallIconSymbolic && !root.hasGlyph &&
+                            smallIconImage.status !== Image.Ready && root.smallIconSource !== ""
                         // Resolve a real local/file app icon directly instead of
                         // collapsing it to the generic executable fallback.
-                        name: root.appIconIsLocal ? "" : root.iconName(root.appIcon)
-                        sourcePath: root.appIconIsLocal ? root.appIcon : ""
+                        name: root.appIconIsLocal ? "" : root.smallIconName
+                        sourcePath: root.appIconIsLocal ? root.smallIconSource : ""
                         iconSize: Theme.scaleGeometry(24)
                         preserveColors: true
-                        tint: root.urgency === 2 ? Theme.error : Theme.notifications.text
+                        tint: root.smallIconTint
                     }
 
                     Text {
