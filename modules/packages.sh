@@ -245,8 +245,6 @@ install_desktop_package_group() {
     install_manifest "${SCRIPT_DIR:-$_PACKAGE_MODULE_ROOT}/packages/desktop.txt"
 }
 
-AURELIA_QUICKSHELL_REPO_ID="copr:copr.fedorainfracloud.org:errornointernet:quickshell"
-
 quickshell_package_is_stable() {
     local version
     local sorted_versions=()
@@ -263,25 +261,33 @@ quickshell_package_is_stable() {
 
 detect_aurelia_package_group() {
     quickshell_package_is_stable || return 1
+    quickshell_installed_from_approved_repo || return 1
     package_installed inotify-tools
 }
 
 install_aurelia_package_group() {
     if package_installed quickshell; then
-        quickshell_package_is_stable || {
-            error "Installed Quickshell is prerelease, a development snapshot, or older than v0.3.0; refusing to adopt it for Aurelia."
+        if quickshell_package_is_stable && quickshell_installed_from_approved_repo; then
+            info "A stable supported Quickshell package from the approved repository is already installed."
+        else
+            # A preexisting Git snapshot (or a non-approved stable build) is
+            # converged to the approved stable release instead of being
+            # adopted or left failing closed forever.
+            info "Installed Quickshell does not satisfy the stable approved provenance policy; converging."
+            install_approved_quickshell || {
+                error "Failed to converge Quickshell to the approved stable release."
+                return 1
+            }
+        fi
+    else
+        install_approved_quickshell || {
+            error "Failed to install Quickshell from the approved repository."
             return 1
         }
-        info "A stable supported Quickshell package is already installed."
-    else
-        if ! package_available_from_repo "$AURELIA_QUICKSHELL_REPO_ID" quickshell ||
-            ! dnf_install_packages_from_repo "$AURELIA_QUICKSHELL_REPO_ID" quickshell; then
-            return 1
-        fi
     fi
 
     install_dnf_packages inotify-tools || return 1
-    quickshell_package_is_stable && package_installed inotify-tools
+    quickshell_package_is_stable && quickshell_installed_from_approved_repo && package_installed inotify-tools
 }
 
 detect_diagnostics_package_group() {

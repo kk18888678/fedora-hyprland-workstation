@@ -54,7 +54,7 @@ if grep -Fq 'import Quickshell.Hyprland' "$widget_file" &&
    grep -Fq 'Hyprland.toplevels' "$widget_file" &&
    grep -Fq 'WindowRouting.focusedToplevel' "$widget_file" &&
    grep -Fq 'DesktopEntries.heuristicLookup' "$widget_file" &&
-   grep -Fq 'Quickshell.iconPath' "$widget_file" &&
+   grep -Fq 'AppIconResolver.resolve' "$widget_file" &&
    grep -Fq 'AureliaIcon' "$widget_file" &&
    grep -Fq 'WindowRouting.workspaceRouteInfo' "$widget_file"; then
     pass "[static] Active Window reads compositor state through the Hyprland active toplevel, the model-derived focused-toplevel fallback, and the shared routing/icon boundaries"
@@ -80,7 +80,7 @@ if grep -Fq 'Text.ElideRight' "$widget_file" &&
    grep -Fq 'bar.barIconCanvas' "$widget_file" &&
    grep -Fq 'bar.barTextMargin' "$widget_file" &&
    grep -Fq 'bar.barTextSize' "$widget_file" &&
-   grep -Fq 'application-x-executable' "$widget_file"; then
+   grep -Fq 'AppIconResolver' "$widget_file"; then
     pass "[static] Active Window elides its label at full opacity, animates at 180 ms, and uses the shared icon/text canvas tokens"
 else
     fail "[static] Active Window elision, full-opacity label, animation, or bar token contract is incomplete"
@@ -104,10 +104,10 @@ else
     fail "[static] Active Window icon ink/slot sizing, missing-icon hide, text crispness, or symbolic-icon colour policy contract is incomplete"
 fi
 
-if grep -Fq 'split("?")[0]' "$widget_file" &&
-   grep -Fq 'slice(-9) === "-symbolic"' "$widget_file" &&
+if grep -Fq 'AppIconResolver.isSymbolicName' "$widget_file" &&
+   grep -Fq 'iconResolution.symbolic' "$widget_file" &&
    grep -Fq 'preserveColors: !root.symbolicIcon' "$widget_file"; then
-    pass "[static] Active Window symbolic-icon contract strips the query string, tints -symbolic masks, and preserves real application logo colours like the tray"
+    pass "[static] Active Window delegates the symbolic-icon rule to AppIconResolver (query-stripped -symbolic masks tinted, real logos preserved) rather than re-deriving the predicate"
 else
     fail "[static] Active Window symbolic-icon predicate or colour-binding contract is incomplete"
 fi
@@ -197,7 +197,7 @@ if grep -Fq 'property string displayMode' "$widget_file" &&
    grep -Fq 'DesktopEntries.heuristicLookup' "$widget_file" &&
    grep -Fq 'appEntry.name' "$widget_file" &&
    grep -Fq 'root.appId !== ""' "$widget_file" &&
-   grep -Fq 'Quickshell.hasThemeIcon(root.appId)' "$widget_file" &&
+   grep -Fq 'AppIconResolver.resolve' "$widget_file" &&
    grep -Fq 'root.routeInfo.className || root.routeInfo.initialClass' "$widget_file" &&
    grep -Fq 'readonly property string titleLabel' "$widget_file" &&
    grep -Fq 'readonly property string appName' "$widget_file" &&
@@ -294,8 +294,15 @@ result_file="$runtime_root/result.json"
 runtime_log="$runtime_root/runtime.log"
 runtime_status=0
 mkdir -p -- "$runtime_root/runtime" "$runtime_root/state" "$runtime_root/config" "$runtime_root/cache" \
-    "$runtime_root/data/applications" "$runtime_root/data-home"
+    "$runtime_root/data/applications" "$runtime_root/data-home" \
+    "$runtime_root/data/icons/hicolor/16x16/apps"
 : >"$result_file"
+# A real 1x1 PNG for the deterministic fixture-app theme icon. Without a file
+# at this exact name the "provably usable" resolver correctly refuses to adopt
+# the name and reports the honest default instead.
+base64 -d >"$runtime_root/data/icons/hicolor/16x16/apps/fixture-app.png" <<'FIXTURE_APP_PNG'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+FIXTURE_APP_PNG
 # Deterministic desktop-entry resolution: minimal fixture entries in an
 # isolated XDG data dir prove the app-name and icon branch without depending
 # on the host application database. foot.desktop and chromium-browser.desktop
@@ -338,7 +345,7 @@ XDG_DATA_DIRS="$runtime_root/data:/usr/local/share:/usr/share" \
     --path "$fixture_root/shell.qml" --no-color >"$runtime_log" 2>&1 || runtime_status=$?
 
 if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
-   runtime_log_is_environment_only "$runtime_log" 'hyprland|Hyprland' &&
+   runtime_log_is_environment_only "$runtime_log" 'hyprland|Hyprland|FileView.*failed' &&
    jq -e '
         .loaded == true and
         .labels.app == "fixture.unknown.app" and
@@ -457,7 +464,7 @@ XDG_DATA_DIRS="$runtime_root/data:/usr/local/share:/usr/share" \
     --path "$fixture_root/startup.qml" --no-color >"$startup_log" 2>&1 || startup_status=$?
 
 if [[ "$startup_status" -eq 0 ]] && [[ -s "$startup_result" ]] &&
-   runtime_log_is_environment_only "$startup_log" 'hyprland|Hyprland' &&
+   runtime_log_is_environment_only "$startup_log" 'hyprland|Hyprland|FileView.*failed' &&
    jq -e '
         .loaded == true and
         .snapshot.label == "Fixture App" and

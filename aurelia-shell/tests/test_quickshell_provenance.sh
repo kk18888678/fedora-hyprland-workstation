@@ -1,394 +1,472 @@
 #!/usr/bin/env bash
 
-# Test Suite: Quickshell package provenance, candidate validation, and safe convergence.
+# Test Suite: Quickshell stable-software provenance and transaction-scoped
+# convergence.
+#
+# This suite exercises the CURRENT installer code paths in
+# modules/lib/packages.sh and modules/packages.sh.  Every package mutation is
+# mocked; no real dnf, rpm, sudo, repository, or session state is touched.
+#
+# The defect being defended against: the lionheartp/Hyprland COPR is required
+# for Hyprland and also publishes Quickshell Git snapshots whose EVR outranks
+# the approved stable release.  Unrestricted resolution therefore selects the
+# snapshot, which the repository's stable-software policy must reject and
+# converge down to the approved non-git build.
 
-ROOT="${ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)}"
-# shellcheck source=/dev/null
-source "$ROOT/tests/test_helper.sh"
-# shellcheck source=/dev/null
+WORKSTATION_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+
+APPROVED_REPO="copr:copr.fedorainfracloud.org:errornointernet:quickshell"
+GIT_EVR="0.3.1-12.git.20260915.c6a5160.fc44"
+STABLE_EVR="0.3.1-2.fc44"
+
+run_isolated() {
+    bash -s -- "$WORKSTATION_ROOT" <<< "$1"
+}
+
+section "Quickshell Provenance: Real Resolver Conflict and Existing Classifier"
+
+# 1. Real RPM EVR comparison.  A git snapshot outranks the stable release, so
+#    an unrestricted resolver would select it.  This is the precise state the
+#    convergence code must defend against.
+vercmp="$(rpm --eval "%{lua:print(rpm.vercmp(\"$STABLE_EVR\", \"$GIT_EVR\"))}" || printf '?')"
+if [[ "$vercmp" == "-1" ]]; then
+    pass "[static] unrestricted resolution ranks git snapshot above stable release ($STABLE_EVR < $GIT_EVR)"
+else
+    fail "[static] expected git snapshot to outrank stable release, rpm.vercmp=$vercmp"
+fi
+
+# 2. The repository's own classifier still rejects the git snapshot and accepts
+#    the non-git release.  It must not be relaxed for this convergence.
+classifier_out="$(run_isolated '
+set -Eeuo pipefail
+ROOT="$1"
 source "$ROOT/modules/common.sh"
-# shellcheck source=/dev/null
-source "$ROOT/modules/repositories.sh"
+rpm() {
+    case "$*" in
+        *"%{EVR}"*) printf "%s\n" "${MOCK_EVR:-}"; return 0 ;;
+        *) return 0 ;;
+    esac
+}
+MOCK_EVR="0.3.1-12.git.20260915.c6a5160.fc44"
+if package_evr_is_stable quickshell; then echo git=ACCEPTED; else echo git=REJECTED; fi
+MOCK_EVR="0.3.1-2.fc44"
+if package_evr_is_stable quickshell; then echo stable=ACCEPTED; else echo stable=REJECTED; fi
+' || true)"
 
-section "Quickshell Provenance & Resolver Conflict Reproduction"
-
-# Real observed candidates:
-# Unapproved Git snapshot from Hyprland Copr:
-CAND_LIONHEART="quickshell 0 0.3.1 9.git.20260829.2d3b3e9.fc44 x86_64 copr:copr.fedorainfracloud.org:lionheartp:Hyprland"
-# Approved formal stable release from errornointernet Copr:
-CAND_APPROVED="quickshell 0 0.3.1 2.fc44 x86_64 copr:copr.fedorainfracloud.org:errornointernet:quickshell"
-
-# 1. Unrestricted resolution would choose the numerically newer Git build
-read -r _c1_n _c1_e _c1_v c1_r _c1_a _c1_repo <<< "$CAND_LIONHEART"
-read -r _c2_n _c2_e _c2_v c2_r _c2_a _c2_repo <<< "$CAND_APPROVED"
-r1_prefix="${c1_r%%.*}"
-r2_prefix="${c2_r%%.*}"
-if (( r1_prefix > r2_prefix )); then
-    pass "1. unrestricted resolution would choose the numerically newer Git build (EVR release $r1_prefix > $r2_prefix)"
+if grep -q '^git=REJECTED$' <<< "$classifier_out" &&
+   grep -q '^stable=ACCEPTED$' <<< "$classifier_out"; then
+    pass "[isolated-test] existing package_evr_is_stable classifier rejects git snapshot and accepts the non-git release"
 else
-    fail "1. expected Git snapshot release $r1_prefix to outrank stable release $r2_prefix"
+    fail "[isolated-test] package_evr_is_stable classifier misclassifies git/stable: $classifier_out"
 fi
 
-# 2. Policy rejects that candidate
-read -r c_n c_e c_v c_r c_a c_repo <<< "$CAND_LIONHEART"
+section "Quickshell Provenance: Candidate Validation Policy"
+
+policy_out="$(run_isolated '
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/packages.sh"
+approved="$QUICKSHELL_APPROVED_REPOID"
 reason=""
-if ! validate_quickshell_candidate "$c_n" "$c_e" "$c_v" "$c_r" "$c_a" "$c_repo" reason; then
-    pass "2. policy rejects that candidate: $reason"
-else
-    fail "2. policy unexpectedly accepted Git candidate from unapproved repository"
-fi
-
-# 3. Approved repository candidate is accepted
-read -r c_n c_e c_v c_r c_a c_repo <<< "$CAND_APPROVED"
+if validate_quickshell_candidate quickshell 0 0.3.1 "12.git.20260915.c6a5160.fc44" x86_64 "$approved" reason >/dev/null; then echo git=ACCEPTED; else echo git=REJECTED; fi
 reason=""
-if validate_quickshell_candidate "$c_n" "$c_e" "$c_v" "$c_r" "$c_a" "$c_repo" reason; then
-    pass "3. approved repository candidate is accepted"
-else
-    fail "3. approved repository candidate was rejected: $reason"
-fi
-
-# 4. Install path restricts transaction to approved repository
-appr_repo="${QUICKSHELL_APPROVED_REPOID:-copr:copr.fedorainfracloud.org:errornointernet:quickshell}"
-mock_dir="$(mktemp -d)"
-mock_log="$(mktemp)"
-cat << 'MOCK_EOF' > "$mock_dir/dnf"
-#!/usr/bin/env bash
-echo "DNF_ARGS: $@" >> "$MOCK_LOG"
-if [[ "$1" == "repoquery" || "$2" == "repoquery" ]]; then
-    echo "quickshell 0 0.3.1 2.fc44 x86_64 $MOCK_APPR_REPO"
-    exit 0
-fi
-exit 0
-MOCK_EOF
-chmod +x "$mock_dir/dnf"
-
-cat << 'MOCK_EOF' > "$mock_dir/sudo"
-#!/usr/bin/env bash
-"$@"
-MOCK_EOF
-chmod +x "$mock_dir/sudo"
-
-(
-    run_with_timeout() { shift 2; "$@"; }
-    run_dnf_command() { shift 2; "$@"; }
-    package_installed() { return 1; }
-    copr_enabled() { return 0; }
-    export MOCK_LOG="$mock_log"
-    export MOCK_APPR_REPO="$appr_repo"
-    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null || true
-)
-
-if grep -q -- "--from-repo=$appr_repo" "$mock_log"; then
-    pass "4. install path restricts transaction to approved repository (--from-repo=$appr_repo)"
-else
-    fail "4. install path did not restrict transaction to approved repository"
-fi
-rm -rf "$mock_dir" "$mock_log"
-
-# 5. quickshell-git is rejected
+if validate_quickshell_candidate quickshell 0 0.3.1 2.fc44 x86_64 "$approved" reason >/dev/null; then echo stable=ACCEPTED; else echo stable=REJECTED; fi
 reason=""
-if ! validate_quickshell_candidate "quickshell-git" "0" "0.3.1" "1.fc44" "x86_64" "copr:copr.fedorainfracloud.org:errornointernet:quickshell" reason; then
-    pass "5. quickshell-git is rejected: $reason"
-else
-    fail "5. quickshell-git was unexpectedly accepted"
-fi
-
-# 6. .git release is rejected
+if validate_quickshell_candidate quickshell-git 0 0.3.1 1.fc44 x86_64 "$approved" reason >/dev/null; then echo name=ACCEPTED; else echo name=REJECTED; fi
 reason=""
-if ! validate_quickshell_candidate "quickshell" "0" "0.3.1" "9.git.20260829.2d3b3e9.fc44" "x86_64" "copr:copr.fedorainfracloud.org:errornointernet:quickshell" reason; then
-    pass "6. .git release is rejected: $reason"
-else
-    fail "6. .git release was unexpectedly accepted"
-fi
-
-# 7. beta/rc/nightly/dev/snapshot are rejected
-all_rejected=1
+if validate_quickshell_candidate quickshell 0 0.3.1 2.fc44 x86_64 "copr:copr.fedorainfracloud.org:lionheartp:Hyprland" reason >/dev/null; then echo repo=ACCEPTED; else echo repo=REJECTED; fi
+bad_arch=aarch64
+[[ "$(uname -m)" == aarch64 ]] && bad_arch=x86_64
+reason=""
+if validate_quickshell_candidate quickshell 0 0.3.1 2.fc44 "$bad_arch" "$approved" reason >/dev/null; then echo arch=ACCEPTED; else echo arch=REJECTED; fi
+reason=""
+if validate_quickshell_candidate quickshell 0 0.3.1 2.fc44 noarch "$approved" reason >/dev/null; then echo noarch=ACCEPTED; else echo noarch=REJECTED; fi
+reason=""
+if validate_quickshell_candidate quickshell 0 0.3.1 2.fc44 x86_64 "$approved" reason >/dev/null; then echo approved_stable=ACCEPTED; else echo approved_stable=REJECTED; fi
 for pre in "1.beta" "1.rc1" "1.nightly" "1.dev" "1.snapshot" "1^git20260209"; do
     reason=""
-    if validate_quickshell_candidate "quickshell" "0" "0.3.1" "$pre" "x86_64" "copr:copr.fedorainfracloud.org:errornointernet:quickshell" reason; then
-        all_rejected=0
-        fail "7. prerelease $pre was unexpectedly accepted"
-        break
-    fi
-done
-if [[ "$all_rejected" -eq 1 ]]; then
-    pass "7. beta/rc/nightly/dev/snapshot are rejected"
-fi
-
-# 8. stable formal release is accepted
-reason=""
-if validate_quickshell_candidate "quickshell" "0" "0.3.1" "2.fc44" "x86_64" "copr:copr.fedorainfracloud.org:errornointernet:quickshell" reason; then
-    pass "8. stable formal release is accepted"
-else
-    fail "8. stable formal release was unexpectedly rejected: $reason"
-fi
-
-# 9. wrong repository with otherwise stable-looking version is rejected
-reason=""
-if ! validate_quickshell_candidate "quickshell" "0" "0.3.1" "2.fc44" "x86_64" "copr:copr.fedorainfracloud.org:lionheartp:Hyprland" reason; then
-    pass "9. wrong repository with otherwise stable-looking version is rejected: $reason"
-else
-    fail "9. candidate from unapproved repository was unexpectedly accepted"
-fi
-
-# 10. wrong architecture is rejected
-reason=""
-host_arch="$(uname -m  || echo "x86_64")"
-bad_arch="aarch64"
-[[ "$host_arch" == "aarch64" ]] && bad_arch="x86_64"
-if ! validate_quickshell_candidate "quickshell" "0" "0.3.1" "2.fc44" "$bad_arch" "copr:copr.fedorainfracloud.org:errornointernet:quickshell" reason; then
-    pass "10. wrong architecture is rejected: $reason"
-else
-    fail "10. candidate with wrong architecture was unexpectedly accepted"
-fi
-
-# 11-12. invalid installed Quickshell detection and convergence planning
-mock_rpm_dir="$(mktemp -d)"
-cat << 'MOCK_EOF' > "$mock_rpm_dir/rpm"
-#!/usr/bin/env bash
-if [[ "$*" == *"%{NAME}"* ]]; then echo "quickshell"; exit 0; fi
-if [[ "$*" == *"%{ARCH}"* ]]; then uname -m; exit 0; fi
-if [[ "$*" == *"%{VERSION}-%{RELEASE}"* ]]; then echo "0.3.1-9.git.20260829.2d3b3e9.fc44"; exit 0; fi
-if [[ "$*" == *"%{VENDOR}"* ]]; then echo "Fedora Copr - user lionheartp"; exit 0; fi
-if [[ "$1" == "-q" ]]; then exit 0; fi
-exit 0
-MOCK_EOF
-chmod +x "$mock_rpm_dir/rpm"
-
-# 11. invalid installed Quickshell is not classified KEEP
-if ! PATH="$mock_rpm_dir:$PATH" detect_quickshell; then
-    pass "11. invalid installed Quickshell is detected as not satisfied (detect_quickshell returns 1)"
-else
-    fail "11. invalid installed Quickshell was incorrectly detected as valid"
-fi
-
-# 12. planner generates corrective action
-reset_component_registry
-init_default_components
-init_desired_state "DS_CORR" "vm"
-create_recommended_desired_state "DS_CORR" "vm"
-desired_state_set_component "DS_CORR" "desktop.keybindings.aurelia" "managed"
-desired_state_set_component "DS_CORR" "quickshell" "managed"
-
-PATH="$mock_rpm_dir:$PATH" create_execution_plan "DS_CORR" "PLAN_CORR"
-q_action=""
-q_reason=""
-for idx in "${PLAN_CORR_ACTIONS[@]}"; do
-    if [[ "${PLAN_CORR_ACTION_TARGET[$idx]}" == "quickshell" ]]; then
-        q_action="${PLAN_CORR_ACTION_TYPE[$idx]}"
-        q_reason="${PLAN_CORR_ACTION_REASON[$idx]}"
-        break
-    fi
-done
-
-if [[ "$q_action" == "INSTALL" && "$q_reason" == *"convergence required"* ]]; then
-    pass "12. planner generates corrective action: $q_action ($q_reason)"
-else
-    fail "12. planner failed to generate corrective action: action=$q_action reason=$q_reason"
-fi
-rm -rf "$mock_rpm_dir"
-
-# 13. reconciler chooses deterministic approved source
-body="$(declare -f install_quickshell_adapter || true)"
-if [[ "$body" == *"install_approved_quickshell"* ]]; then
-    pass "13. reconciler chooses deterministic approved source via install_approved_quickshell"
-else
-    fail "13. reconciler does not invoke install_approved_quickshell"
-fi
-
-# 14. correction supports installed higher-EVR Git snapshot -> stable approved build
-body="$(declare -f install_approved_quickshell || true)"
-if [[ "$body" == *"distro-sync"* && "$body" == *"--from-repo="* && "$body" == *"--allow-downgrade"* ]]; then
-    pass "14. correction supports installed higher-EVR Git snapshot -> stable approved build via distro-sync / --allow-downgrade"
-else
-    fail "14. install_approved_quickshell does not contain distro-sync and allow-downgrade handling"
-fi
-
-# 15. no global repository disable/priority mutation is introduced
-body="$(declare -f install_approved_quickshell || true)"
-if [[ "$body" != *"--disable-repo=*"* && "$body" != *"--disablerepo=*"* ]]; then
-    pass "15. no global repository disable/priority mutation is introduced (transaction-scoped --from-repo)"
-else
-    fail "15. global repository disable detected in install_approved_quickshell"
-fi
-
-# 16. existing Hyprland repository remains independently usable
-if grep -q 'enable_copr "lionheartp/Hyprland"' "$ROOT/modules/repositories.sh"; then
-    pass "16. existing Hyprland repository remains independently usable"
-else
-    fail "16. lionheartp/Hyprland was modified or disabled"
-fi
-
-# 17. failure to resolve approved candidate fails closed before mutation
-mock_dir="$(mktemp -d)"
-mock_log="$(mktemp)"
-cat << 'MOCK_EOF' > "$mock_dir/dnf"
-#!/usr/bin/env bash
-if [[ "$1" == "repoquery" || "$2" == "repoquery" ]]; then
-    # Return empty to simulate repository failure or package unavailable
-    exit 0
-fi
-echo "MUTATION_ATTEMPTED: $@" >> "$MOCK_LOG"
-exit 0
-MOCK_EOF
-chmod +x "$mock_dir/dnf"
-
-cat << 'MOCK_EOF' > "$mock_dir/sudo"
-#!/usr/bin/env bash
-"$@"
-MOCK_EOF
-chmod +x "$mock_dir/sudo"
-
-rc=0
-(
-    run_with_timeout() { shift 2; "$@"; }
-    run_dnf_command() { shift 2; "$@"; }
-    copr_enabled() { return 0; }
-    export MOCK_LOG="$mock_log"
-    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null || exit $?
-) || rc=$?
-
-mutations="$(cat "$mock_log"  || true)"
-rm -rf "$mock_dir" "$mock_log"
-
-if [[ "$rc" -ne 0 && -z "$mutations" ]]; then
-    pass "17. failure to resolve approved candidate fails closed before mutation (rc=$rc, zero mutations)"
-else
-    fail "17. candidate resolution failure did not fail closed: rc=$rc mutations=$mutations"
-fi
-
-section "Quickshell Candidate Discovery & Parser Invariants"
-
-# 18. old production repoquery command failure reproduced
-old_cmd_rc=0
-old_cmd_out=""
-old_cmd_out="$(dnf -q repoquery --from-repo="$QUICKSHELL_APPROVED_REPOID" quickshell 2>&1)" || old_cmd_rc=$?
-if [[ "$old_cmd_rc" -ne 0 && "$old_cmd_out" == *"Unknown argument \"--from-repo="* ]]; then
-    pass "18. old production command failure reproduced (repoquery rejects --from-repo with code $old_cmd_rc)"
-else
-    fail "18. expected old repoquery command to fail with unknown argument error: rc=$old_cmd_rc out=$old_cmd_out"
-fi
-
-# 19. corrected candidate discovery against approved repository
-appr_cand="$(query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID")" || appr_cand=""
-read -r p_name p_epoch p_ver p_rel p_arch p_repo extra_tokens <<< "$appr_cand"
-host_arch="$(uname -m  || echo "x86_64")"
-
-if [[ -n "$appr_cand" && \
-      "$p_name" == "quickshell" && \
-      "$p_epoch" == "0" && \
-      "$p_ver" == "0.3.1" && \
-      "$p_rel" == "2.fc44" && \
-      "$p_arch" == "$host_arch" && \
-      "$p_repo" == "$QUICKSHELL_APPROVED_REPOID" && \
-      -z "$extra_tokens" ]]; then
-    pass "19. approved candidate is discovered and parsed (name=$p_name epoch=$p_epoch ver=$p_ver rel=$p_rel arch=$p_arch repo=$p_repo)"
-else
-    fail "19. candidate discovery/parsing failed: '$appr_cand'"
-fi
-
-# 20. malformed repoquery output fails closed
-mock_dir="$(mktemp -d)"
-cat << 'MOCK_EOF' > "$mock_dir/dnf"
-#!/usr/bin/env bash
-echo "quickshell only three fields"
-exit 0
-MOCK_EOF
-chmod +x "$mock_dir/dnf"
-
-mal_rc=0
-mal_out=""
-mal_out="$(PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" )" || mal_rc=$?
-rm -rf "$mock_dir"
-
-if [[ "$mal_rc" -eq 3 && -z "$mal_out" ]]; then
-    pass "20. malformed repoquery output fails closed with exit code 3"
-else
-    fail "20. malformed output was not rejected cleanly: rc=$mal_rc out=$mal_out"
-fi
-
-# 21. repoquery nonzero exit is classified as query failure, not 'no candidate'
-mock_dir="$(mktemp -d)"
-cat << 'MOCK_EOF' > "$mock_dir/dnf"
-#!/usr/bin/env bash
-echo "Internal error in DNF" >&2
-exit 2
-MOCK_EOF
-chmod +x "$mock_dir/dnf"
-
-fail_rc=0
-fail_err_log="$(mktemp)"
-PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" 2>"$fail_err_log" || fail_rc=$?
-fail_err_content="$(cat "$fail_err_log")"
-rm -rf "$mock_dir" "$fail_err_log"
-
-if [[ "$fail_rc" -eq 2 && "$fail_err_content" == *"Failed to query approved Quickshell repository"* ]]; then
-    pass "21. repoquery nonzero exit is treated as query failure with diagnostic, not 'no candidate'"
-else
-    fail "21. nonzero exit handling invalid: rc=$fail_rc err=$fail_err_content"
-fi
-
-# 22. genuinely empty successful query returns status 1 ('no candidate')
-mock_dir="$(mktemp -d)"
-cat << 'MOCK_EOF' > "$mock_dir/dnf"
-#!/usr/bin/env bash
-exit 0
-MOCK_EOF
-chmod +x "$mock_dir/dnf"
-
-empty_rc=0
-PATH="$mock_dir:$PATH" query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID" >/dev/null || empty_rc=$?
-rm -rf "$mock_dir"
-
-if [[ "$empty_rc" -eq 1 ]]; then
-    pass "22. genuinely empty successful query returns status 1 ('no candidate')"
-else
-    fail "22. empty query did not return 1: rc=$empty_rc"
-fi
-
-# 23. unavailable repository returns query failure with repository unavailable diagnostic
-unavail_rc=0
-unavail_log="$(mktemp)"
-query_quickshell_candidate "copr:copr.fedorainfracloud.org:nonexistent:repo" 2>"$unavail_log" || unavail_rc=$?
-unavail_content="$(cat "$unavail_log")"
-rm -f "$unavail_log"
-
-if [[ "$unavail_rc" -ne 0 && "$unavail_content" == *"Approved Quickshell repository is unavailable"* ]]; then
-    pass "23. unavailable repository is distinguished and reported with actionable diagnostic"
-else
-    fail "23. unavailable repository not distinguished: rc=$unavail_rc content=$unavail_content"
-fi
-
-# 24. post-install validation verifies candidate satisfaction
-(
-    package_installed() { return 0; }
-    detect_quickshell() { return 1; }
-    mock_dir="$(mktemp -d)"
-    cat << 'MOCK_EOF' > "$mock_dir/dnf"
-#!/usr/bin/env bash
-if [[ "$1" == "repoquery" || "$2" == "repoquery" ]]; then
-    echo "quickshell 0 0.3.1 2.fc44 x86_64 $MOCK_APPR_REPO"
-    exit 0
-fi
-exit 0
-MOCK_EOF
-    chmod +x "$mock_dir/dnf"
-    cat << 'MOCK_EOF' > "$mock_dir/sudo"
-#!/usr/bin/env bash
-"$@"
-MOCK_EOF
-    chmod +x "$mock_dir/sudo"
-
-    run_with_timeout() { shift 2; "$@"; }
-    run_dnf_command() { shift 2; "$@"; }
-    export MOCK_APPR_REPO="$QUICKSHELL_APPROVED_REPOID"
-    post_val_rc=0
-    PATH="$mock_dir:$PATH" install_approved_quickshell >/dev/null || post_val_rc=$?
-    rm -rf "$mock_dir"
-
-    if [[ "$post_val_rc" -ne 0 ]]; then
-        pass "24. post-install validation failure fails closed after transaction"
+    if validate_quickshell_candidate quickshell 0 0.3.1 "$pre" x86_64 "$approved" reason >/dev/null; then
+        printf "pre:%s=ACCEPTED\n" "$pre"
     else
-        fail "24. post-install validation failure was ignored"
+        printf "pre:%s=REJECTED\n" "$pre"
     fi
+done
+' || true)"
+
+policy_ok=1
+for expected in \
+    "git=REJECTED" \
+    "stable=ACCEPTED" \
+    "name=REJECTED" \
+    "repo=REJECTED" \
+    "arch=REJECTED" \
+    "noarch=ACCEPTED" \
+    "approved_stable=ACCEPTED" \
+    "pre:1.beta=REJECTED" \
+    "pre:1.rc1=REJECTED" \
+    "pre:1.nightly=REJECTED" \
+    "pre:1.dev=REJECTED" \
+    "pre:1.snapshot=REJECTED" \
+    "pre:1^git20260209=REJECTED"; do
+    grep -Fqx -- "$expected" <<< "$policy_out" || policy_ok=0
+done
+if (( policy_ok )); then
+    pass "[isolated-test] candidate policy rejects git/name/wrong-repo/wrong-arch/prerelease and accepts stable approved (noarch allowed)"
+else
+    fail "[isolated-test] candidate policy mismatch: $policy_out"
+fi
+
+section "Quickshell Provenance: Candidate Query Classification"
+
+query_out="$(run_isolated '
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/packages.sh"
+run_with_timeout() { shift 2; "$@"; }
+dnf() {
+    case "${MOCK_MODE:-}" in
+        empty) exit 0 ;;
+        malformed) printf "%s\n" "quickshell only three fields"; exit 0 ;;
+        error) printf "%s\n" "No matching repositories" >&2; exit 2 ;;
+        ok) printf "quickshell 0 0.3.1 2.fc44 x86_64 %s\n" "$QUICKSHELL_APPROVED_REPOID"; exit 0 ;;
+    esac
+}
+for mode in empty malformed error ok; do
+    MOCK_MODE="$mode"
+    out=""
+    rc=0
+    out="$(query_quickshell_candidate "$QUICKSHELL_APPROVED_REPOID")" || rc=$?
+    printf "case=%s rc=%s out=%s\n" "$mode" "$rc" "$out"
+done
+' || true)"
+
+if grep -q '^case=empty rc=1 ' <<< "$query_out" &&
+   grep -q '^case=malformed rc=3 ' <<< "$query_out" &&
+   grep -q '^case=error rc=2 ' <<< "$query_out" &&
+   grep -Fq "case=ok rc=0 out=quickshell 0 0.3.1 2.fc44 x86_64 $APPROVED_REPO" <<< "$query_out"; then
+    pass "[isolated-test] candidate query distinguishes empty/unavailable/malformed/valid without ambiguity"
+else
+    fail "[isolated-test] candidate query status classification incorrect: $query_out"
+fi
+
+section "Quickshell Provenance: Transaction-Scoped Convergence"
+
+# 5. Convergence of an installed package uses transaction-scoped distro-sync,
+#    verifies the result, keeps every package operation bounded, and never
+#    mutates global repository state.
+converge_common='
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/packages.sh"
+LOG="$(mktemp)"
+rpm() {
+    case "$*" in
+        *"%{EVR}"*) printf "%s\n" "0.3.1-2.fc44"; return 0 ;;
+        *"%{VERSION}"*) printf "%s\n" "0.3.1"; return 0 ;;
+        *) return 0 ;;
+    esac
+}
+sudo() { "$@"; }
+run_with_timeout() {
+    local t="$1" desc="$2"
+    shift 2
+    printf "TIMEOUT %s %s\n" "$t" "$desc" >> "$LOG"
+    "$@"
+}
+mutation_count() { grep -Ec "^(DNF )?(distro-sync|install)( |$)" "$LOG" || true; }
+'
+
+converge_out="$(run_isolated "$converge_common"'
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    case "$*" in
+        *repoquery*--installed*) printf "%s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *repoquery*) printf "quickshell 0 0.3.1 2.fc44 x86_64 %s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *distro-sync*) return 0 ;;
+        *install*) return 0 ;;
+    esac
+    return 0
+}
+rc=0
+install_approved_quickshell >/dev/null || rc=$?
+printf "RC=%s\n" "$rc"
+printf "FROM_REPO=%s\n" "$(grep -c -- "--from-repo=$QUICKSHELL_APPROVED_REPOID" "$LOG" || true)"
+printf "DISTRO_SYNC=%s\n" "$(grep -c -- "distro-sync" "$LOG" || true)"
+printf "GLOBAL_DISABLE=%s\n" "$(grep -Eic -- "--(disablerepo|disable-repo|enablerepo|exclude)" "$LOG" || true)"
+timeouts_ok=1
+while read -r tag val _rest; do
+    [[ "$tag" == "TIMEOUT" ]] || continue
+    if [[ ! "$val" =~ ^[0-9]+$ ]] || (( val <= 0 )); then timeouts_ok=0; fi
+done < "$LOG"
+printf "TIMEOUTS_OK=%s\n" "$timeouts_ok"
+rm -f "$LOG"
+' || true)"
+
+if grep -q '^RC=0$' <<< "$converge_out" &&
+   grep -q '^FROM_REPO=[1-9]' <<< "$converge_out" &&
+   grep -q '^DISTRO_SYNC=[1-9]' <<< "$converge_out" &&
+   grep -q '^GLOBAL_DISABLE=0$' <<< "$converge_out" &&
+   grep -q '^TIMEOUTS_OK=1$' <<< "$converge_out"; then
+    pass "[isolated-test] convergence uses transaction-scoped --from-repo plus distro-sync, verifies the result, keeps timeouts positive, and never disables repos globally"
+else
+    fail "[isolated-test] convergence invariants failed: $converge_out"
+fi
+
+# 6. If distro-sync cannot converge the installed snapshot, the explicit
+#    allow-downgrade install fallback remains transaction-scoped.
+fallback_out="$(run_isolated "$converge_common"'
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    case "$*" in
+        *repoquery*--installed*) printf "%s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *repoquery*) printf "quickshell 0 0.3.1 2.fc44 x86_64 %s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *distro-sync*) return 1 ;;
+        *install*) return 0 ;;
+    esac
+    return 0
+}
+rc=0
+install_approved_quickshell >/dev/null || rc=$?
+printf "RC=%s\n" "$rc"
+printf "ALLOW_DOWNGRADE=%s\n" "$(grep -c -- "--allow-downgrade" "$LOG" || true)"
+printf "FROM_REPO=%s\n" "$(grep -c -- "--from-repo=$QUICKSHELL_APPROVED_REPOID" "$LOG" || true)"
+printf "MUTATIONS=%s\n" "$(mutation_count)"
+rm -f "$LOG"
+' || true)"
+
+if grep -q '^RC=0$' <<< "$fallback_out" &&
+   grep -q '^ALLOW_DOWNGRADE=[1-9]' <<< "$fallback_out" &&
+   grep -q '^FROM_REPO=[1-9]' <<< "$fallback_out" &&
+   grep -q '^MUTATIONS=2$' <<< "$fallback_out"; then
+    pass "[isolated-test] failed distro-sync falls back to transaction-scoped install --allow-downgrade --from-repo"
+else
+    fail "[isolated-test] allow-downgrade fallback invariants failed: $fallback_out"
+fi
+
+# 7. A transaction that leaves the git snapshot installed must fail closed:
+#    post-transaction verification is real, not assumed.
+verify_out="$(run_isolated "$converge_common"'
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    case "$*" in
+        *repoquery*--installed*) printf "%s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *repoquery*) printf "quickshell 0 0.3.1 2.fc44 x86_64 %s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *distro-sync*) return 0 ;;
+        *install*) return 0 ;;
+    esac
+    return 0
+}
+# rpm still reports the git snapshot after the transaction.
+rpm() {
+    case "$*" in
+        *"%{EVR}"*) printf "%s\n" "0.3.1-12.git.20260915.c6a5160.fc44"; return 0 ;;
+        *"%{VERSION}"*) printf "%s\n" "0.3.1"; return 0 ;;
+        *) return 0 ;;
+    esac
+}
+rc=0
+install_approved_quickshell >/dev/null || rc=$?
+printf "RC=%s\n" "$rc"
+rm -f "$LOG"
+' || true)"
+
+if grep -q '^RC=1$' <<< "$verify_out"; then
+    pass "[isolated-test] post-transaction verification fails closed when the installed EVR remains a git snapshot"
+else
+    fail "[isolated-test] post-transaction git snapshot was incorrectly accepted: $verify_out"
+fi
+
+# 8-10. Unresolvable, invalid, or failing candidates must fail closed BEFORE any
+#        mutation.
+failclosed_common='
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/packages.sh"
+LOG="$(mktemp)"
+rpm() { return 0; }
+sudo() { "$@"; }
+run_with_timeout() { shift 2; "$@"; }
+mutation_count() { grep -Ec "^(DNF )?(distro-sync|install)( |$)" "$LOG" || true; }
+'
+
+invalid_out="$(run_isolated "$failclosed_common"'
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    case "$*" in
+        *repoquery*) printf "quickshell 0 0.3.1 12.git.20260915.c6a5160.fc44 x86_64 %s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+    esac
+    return 0
+}
+rc=0
+install_approved_quickshell >/dev/null || rc=$?
+printf "RC=%s\n" "$rc"
+printf "MUTATIONS=%s\n" "$(mutation_count)"
+rm -f "$LOG"
+' || true)"
+
+unresolvable_out="$(run_isolated "$failclosed_common"'
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    return 0
+}
+rc=0
+install_approved_quickshell >/dev/null || rc=$?
+printf "RC=%s\n" "$rc"
+printf "MUTATIONS=%s\n" "$(mutation_count)"
+rm -f "$LOG"
+' || true)"
+
+error_out="$(run_isolated "$failclosed_common"'
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    printf "%s\n" "No matching repositories" >&2
+    return 2
+}
+rc=0
+install_approved_quickshell >/dev/null || rc=$?
+printf "RC=%s\n" "$rc"
+printf "MUTATIONS=%s\n" "$(mutation_count)"
+rm -f "$LOG"
+' || true)"
+
+if grep -q '^RC=1$' <<< "$invalid_out" && grep -q '^MUTATIONS=0$' <<< "$invalid_out" &&
+   grep -q '^RC=1$' <<< "$unresolvable_out" && grep -q '^MUTATIONS=0$' <<< "$unresolvable_out" &&
+   grep -q '^RC=1$' <<< "$error_out" && grep -q '^MUTATIONS=0$' <<< "$error_out"; then
+    pass "[isolated-test] invalid, unresolvable, and failing candidates all fail closed before any mutation"
+else
+    fail "[isolated-test] fail-closed-before-mutation violated: invalid='$invalid_out' unresolvable='$unresolvable_out' error='$error_out'"
+fi
+
+section "Quickshell Provenance: Adapter Idempotency and Convergence"
+
+# 11. A second run with the stable approved package already installed is an
+#     idempotent KEEP/no-op: no package transaction is issued.
+idempotent_out="$(run_isolated '
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/packages.sh"
+LOG="$(mktemp)"
+rpm() {
+    case "$*" in
+        *"%{EVR}"*) printf "%s\n" "0.3.1-2.fc44"; return 0 ;;
+        *"%{VERSION}"*) printf "%s\n" "0.3.1"; return 0 ;;
+        *) return 0 ;;
+    esac
+}
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    case "$*" in
+        *repoquery*--installed*) printf "%s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *repoquery*) printf "quickshell 0 0.3.1 2.fc44 x86_64 %s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+    esac
+    return 0
+}
+sudo() { "$@"; }
+run_with_timeout() { shift 2; "$@"; }
+rc=0
+install_aurelia_package_group >/dev/null || rc=$?
+printf "RC=%s\n" "$rc"
+printf "MUTATIONS=%s\n" "$(grep -Ec "^(DNF )?(distro-sync|install)( |$)" "$LOG" || true)"
+printf "DETECT=%s\n" "$(detect_aurelia_package_group && echo 0 || echo 1)"
+rm -f "$LOG"
+' || true)"
+
+if grep -q '^RC=0$' <<< "$idempotent_out" &&
+   grep -q '^MUTATIONS=0$' <<< "$idempotent_out" &&
+   grep -q '^DETECT=0$' <<< "$idempotent_out"; then
+    pass "[isolated-test] stable approved Quickshell is an idempotent KEEP/no-op on re-run, and detection reports satisfied"
+else
+    fail "[isolated-test] idempotent KEEP invariant failed: $idempotent_out"
+fi
+
+# 12. The adapter converges an already-installed higher-EVR git snapshot to the
+#     approved stable build (the live-host state) instead of failing closed.
+adapter_out="$(run_isolated '
+set -Eeuo pipefail
+ROOT="$1"
+source "$ROOT/modules/common.sh"
+source "$ROOT/modules/packages.sh"
+LOG="$(mktemp)"
+STATE="$(mktemp)"
+printf "%s\n" "0.3.1-12.git.20260915.c6a5160.fc44" > "$STATE"
+rpm() {
+    case "$*" in
+        *"%{EVR}"*) cat "$STATE"; return 0 ;;
+        *"%{VERSION}"*) printf "%s\n" "0.3.1"; return 0 ;;
+        *) return 0 ;;
+    esac
+}
+dnf() {
+    printf "DNF %s\n" "$*" >> "$LOG"
+    case "$*" in
+        *repoquery*--installed*) printf "%s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *repoquery*) printf "quickshell 0 0.3.1 2.fc44 x86_64 %s\n" "$QUICKSHELL_APPROVED_REPOID"; return 0 ;;
+        *distro-sync*) printf "%s\n" "0.3.1-2.fc44" > "$STATE"; return 0 ;;
+        *install*) printf "%s\n" "0.3.1-2.fc44" > "$STATE"; return 0 ;;
+    esac
+    return 0
+}
+sudo() { "$@"; }
+run_with_timeout() { shift 2; "$@"; }
+git_detect=0
+detect_aurelia_package_group || git_detect=1
+rc=0
+install_aurelia_package_group >/dev/null || rc=$?
+printf "GIT_DETECT=%s\n" "$git_detect"
+printf "RC=%s\n" "$rc"
+printf "DISTRO_SYNC=%s\n" "$(grep -c -- "distro-sync" "$LOG" || true)"
+printf "FINAL_EVR=%s\n" "$(cat "$STATE")"
+rm -f "$LOG" "$STATE"
+' || true)"
+
+if grep -q '^GIT_DETECT=1$' <<< "$adapter_out" &&
+   grep -q '^RC=0$' <<< "$adapter_out" &&
+   grep -q '^DISTRO_SYNC=[1-9]' <<< "$adapter_out" &&
+   grep -q "^FINAL_EVR=$STABLE_EVR$" <<< "$adapter_out"; then
+    pass "[isolated-test] adapter detects the non-compliant git snapshot and converges it to the approved stable release"
+else
+    fail "[isolated-test] adapter convergence from git snapshot failed: $adapter_out"
+fi
+
+section "Quickshell Provenance: Source Invariants"
+
+if grep -q 'enable_copr "lionheartp/Hyprland"' "$WORKSTATION_ROOT/modules/repositories.sh"; then
+    pass "[static] lionheartp/Hyprland COPR remains independently enabled for Hyprland"
+else
+    fail "[static] lionheartp/Hyprland COPR was removed or disabled"
+fi
+
+owned_modules=(
+    "$WORKSTATION_ROOT/modules/lib/packages.sh"
+    "$WORKSTATION_ROOT/modules/packages.sh"
 )
+if grep -q -- '--from-repo=' "${owned_modules[@]}" &&
+   grep -q -- 'distro-sync' "${owned_modules[@]}" &&
+   grep -q -- '--allow-downgrade' "${owned_modules[@]}"; then
+    pass "[static] production convergence uses transaction-scoped --from-repo, distro-sync, and allow-downgrade"
+else
+    fail "[static] production convergence is missing transaction-scoped convergence flags"
+fi
+
+if grep -Eq -- '(^|[[:space:]])--(disablerepo|disable-repo|exclude)' "${owned_modules[@]}"; then
+    fail "[static] global repository disable/priority mutation found in owned package modules"
+else
+    pass "[static] owned package modules never disable, deprioritise, or exclude a repository globally"
+fi
+
+if grep -Eq -- 'dnf[[:space:]]+(upgrade|update)[[:space:]].*quickshell' "${owned_modules[@]}"; then
+    fail "[static] unrestricted dnf upgrade/update of quickshell found"
+else
+    pass "[static] no unrestricted dnf upgrade/update of quickshell exists"
+fi
+
+if grep -Eiq -- 'nogpgcheck|gpgcheck[[:space:]]*=[[:space:]]*0' "${owned_modules[@]}"; then
+    fail "[static] GPG signature verification is weakened in owned package modules"
+else
+    pass "[static] GPG signature verification remains enabled for Quickshell transactions"
+fi

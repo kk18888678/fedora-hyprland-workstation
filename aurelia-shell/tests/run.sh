@@ -47,7 +47,7 @@ run_suite "$ROOT/tests/test_test_framework.sh"
 
 # Every current Aurelia-owned test_*.sh file in this directory is a suite
 # entry point except the shared helper and the framework contract suite above.
-# These four legacy repository matrices are retained at their existing paths
+# These three legacy repository matrices are retained at their existing paths
 # for historical reference, but are not Aurelia suites: their contracts point
 # at removed installer paths and their execution is tracked separately instead
 # of being presented as shell coverage.
@@ -55,7 +55,6 @@ excluded_legacy_suites=(
     test_aurelia_hotkeys.sh
     test_aurelia_keybindings.sh
     test_hotkeys.sh
-    test_quickshell_provenance.sh
 )
 EXCLUDED_SUITES=0
 EXCLUDED_SUITE_NAMES=""

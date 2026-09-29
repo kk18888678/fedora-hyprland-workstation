@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import "../../theme"
 import "../../ui"
+import "../../services"
 import "../../services/WindowRouting.js" as WindowRouting
 
 // Active-window label for the bar. State comes from the compositor's active
@@ -127,41 +128,63 @@ Item {
         return Math.min(raw, 800)
     }
     // The desktop entry supplies the application artwork. Unknown applications
-    // and missing or invalid icons fall back the same way the task list does,
-    // with a generic executable icon as the final resort.
+    // and missing or invalid icons are resolved by the shared AppIconResolver
+    // owner. The desktop entry's own icon is supplied as the app-icon hint so a
+    // completed Quickshell scan still wins over the resolver's direct .desktop
+    // lookup (which closes the startup-race gap for the Ghostty icon).
     readonly property string desktopIconName: {
         var entry = root.appEntry
         return entry && entry.icon ? String(entry.icon) : ""
     }
+    // The shared resolver owns the entire ordered chain: durable rehydration,
+    // inline image-data, absolute/file paths, bare theme names, themed
+    // image://icon values (the foot fix), direct .desktop lookup, AppStream,
+    // window class/id (terminal-ancestor aware), /proc and the honest default.
+    // The compositor's window identity is consumed here as the in-flight origin
+    // record; the resolver never creates a second one. Resolution is recomputed
+    // from change handlers rather than a function-binding so the shared
+    // FileView probe cannot create a binding dependency on itself.
+    property var iconResolution: ({ source: "", name: "", symbolic: false, kind: "default", origin: "default" })
+    function refreshIconResolution() {
+        root.iconResolution = AppIconResolver.resolve({
+            appIcon: root.desktopIconName,
+            desktopEntry: root.appId,
+            appName: root.appName,
+            origin: {
+                appId: root.appId,
+                className: root.routeInfo.className || "",
+                initialClass: root.routeInfo.initialClass || "",
+                desktopEntry: root.appId
+            }
+        })
+    }
+    onAppIdChanged: root.refreshIconResolution()
+    onAppNameChanged: root.refreshIconResolution()
+    onDesktopIconNameChanged: root.refreshIconResolution()
+    // The resolver's direct .desktop/AppStream index is built asynchronously;
+    // re-resolve once it is ready so an application whose Quickshell scan had
+    // not completed still acquires its real icon instead of the default.
+    Connections {
+        target: AppIconResolver
+        function onMetadataIndexRevisionChanged() { root.refreshIconResolution() }
+    }
     // The isolated fixture can pin the resolved icon name so the symbolic-icon
     // colour policy is exercised deterministically without a live icon-theme
-    // lookup. The override is unused in production.
+    // lookup. The override is unused in production; the symbolic predicate is
+    // still owned by AppIconResolver.
     property var iconNameOverride
-    readonly property string iconName: {
-        if (root.iconNameOverride !== undefined) return String(root.iconNameOverride)
-        if (root.desktopIconName !== "") return root.desktopIconName
-        // Prefer the raw application id when the icon theme provides it
-        // directly. This is a real icon lookup, not a placeholder, and it
-        // resolves ids such as foot, chromium-browser, firefox, kitty, vscode,
-        // co.anysphere.cursor, org.gnome.Nautilus and chatgpt that the
-        // substring heuristics below would otherwise flatten to a generic
-        // executable glyph. It has no effect when the theme lacks the id, so
-        // the heuristics and final fallback still run.
-        if (root.appId !== "" && Quickshell.hasThemeIcon(root.appId)) return root.appId
-        var normalized = root.appId.toLowerCase()
-        if (normalized.indexOf("chatgpt") >= 0) return "chatgpt"
-        if (normalized.indexOf("chrom") >= 0) return "chromium"
-        if (normalized.indexOf("kate") >= 0) return "kate"
-        if (normalized.indexOf("foot") >= 0) return "utilities-terminal"
-        return "application-x-executable"
-    }
+    readonly property string iconName: root.iconNameOverride !== undefined
+        ? String(root.iconNameOverride)
+        : String(root.iconResolution.name || "")
     // The isolated fixture can force an empty source so the no-icon slot-hide
     // path is exercised without depending on a live icon-theme lookup. The
     // override is unused in production.
     property var iconSourceOverride
     readonly property string iconSource: root.iconSourceOverride !== undefined
         ? String(root.iconSourceOverride)
-        : Quickshell.iconPath(root.iconName, "application-x-executable")
+        : (root.iconNameOverride !== undefined
+            ? AppIconResolver.themeSource(root.iconNameOverride)
+            : String(root.iconResolution.source || ""))
     // A resolved icon keeps the shared tray-sized image ink so the artwork has
     // the same visual mass as a peer bar glyph, while the slot stays the icon
     // canvas so the layout rhythm and hit area do not change.
@@ -173,12 +196,11 @@ Item {
     // primitive colorizes with Qt's luminance-multiplied duotone, which
     // collapses every logo onto a monochrome ramp of the tint. Only genuine
     // symbolic masks (an icon name ending in "-symbolic", ignoring any query
-    // string) may keep that tint. This mirrors the tray's isSymbolicIcon
-    // contract so both surfaces treat real logos the same way.
-    readonly property bool symbolicIcon: {
-        var name = String(root.iconName || "").split("?")[0]
-        return name.slice(-9) === "-symbolic"
-    }
+    // string) may keep that tint. The predicate lives in the shared
+    // AppIconResolver owner so no surface re-derives it.
+    readonly property bool symbolicIcon: root.iconNameOverride !== undefined
+        ? AppIconResolver.isSymbolicName(root.iconNameOverride)
+        : root.iconResolution.symbolic === true
 
     // Isolated-fixture seam: the rendered icon ink/slot and label metrics. The
     // production bar never reads these; they let the QML runtime test assert
@@ -242,6 +264,7 @@ Item {
             Qt.callLater(function() { root.labelWidthInitialized = true })
     }
     Component.onCompleted: {
+        root.refreshIconResolution()
         if (!root.labelWidthInitialized && root.label !== "")
             Qt.callLater(function() { root.labelWidthInitialized = true })
     }
