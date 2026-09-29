@@ -192,6 +192,37 @@ def claude_tier_label() -> str:
     return ""
 
 
+def claude_account_paths() -> list[Path]:
+    """The optional Claude account-metadata locations.
+
+    `~/.claude.json` is a sibling of the `~/.claude` config directory and only
+    carries `oauthAccount` after a native Claude Code login, so it is OPTIONAL
+    and never assumed. `CLAUDE_ACCOUNT_PATH` exists so the tests can point at
+    a throwaway sandbox and never read the live file.
+    """
+    override = os.environ.get("CLAUDE_ACCOUNT_PATH")
+    if override:
+        return [Path(os.path.expandvars(os.path.expanduser(override)))]
+    return [config_dir().parent / ".claude.json"]
+
+
+def claude_account() -> dict:
+    """Optional identity from `~/.claude.json` `oauthAccount.emailAddress`.
+
+    Absent on machines that never used the native login, so it is treated as
+    optional and never assumed. Read-only: no token is read. Display-only.
+    """
+    for path in claude_account_paths():
+        document = _read_document(path)
+        oauth = document.get("oauthAccount") if isinstance(document, dict) else None
+        if not isinstance(oauth, dict):
+            continue
+        email = str(oauth.get("emailAddress") or "").strip()
+        if email:
+            return common.account_object("claude-config", email=email)
+    return {}
+
+
 # ---------------------------------------------------------------- live limits
 
 
@@ -601,6 +632,9 @@ def main() -> int:
     # plus configured plus live-limits visibility decision after the update.
     record["detected"] = detected
     record["hasLocalStats"] = has_usage
+    account = claude_account()
+    if account:
+        record["account"] = account
     common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0

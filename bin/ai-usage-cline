@@ -101,6 +101,31 @@ def cline_api_key() -> str:
     return common.read_ai_key(CLINE_KEY_FIELD, env_var=CLINE_KEY_ENV)
 
 
+def _cline_provider_token() -> tuple[str, str]:
+    """Return (token, provider_id) from `providers.json`, or ("", "").
+
+    The provider is chosen with the canonical precedence `cline` then
+    `cline-pass`, exactly matching the token precedence, so the account
+    metadata and the credential always describe the SAME account and two
+    accounts are never merged. Only the token presence is inspected here.
+    """
+    providers_path = cline_dir() / "data" / "settings" / "providers.json"
+    if not providers_path.is_file():
+        return "", ""
+    try:
+        document = json.loads(providers_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "", ""
+    providers = document.get("providers") if isinstance(document, dict) else None
+    if not isinstance(providers, dict):
+        return "", ""
+    for provider_id in ("cline", "cline-pass"):
+        token = _settings_access_token(providers.get(provider_id))
+        if token:
+            return token, provider_id
+    return "", ""
+
+
 def cline_access_token() -> str:
     """BEST-EFFORT fallback only: the short-lived stored Cline OAuth token.
 
@@ -113,19 +138,9 @@ def cline_access_token() -> str:
     atomically persisting the new token would invalidate the user's login and
     break their CLI.
     """
-    providers_path = cline_dir() / "data" / "settings" / "providers.json"
-    if providers_path.is_file():
-        try:
-            document = json.loads(providers_path.read_text(encoding="utf-8"))
-        except Exception:
-            document = None
-        providers = document.get("providers") if isinstance(document, dict) else None
-        if isinstance(providers, dict):
-            # Prefer the canonical `cline` provider, then the `cline-pass` id.
-            for provider_id in ("cline", "cline-pass"):
-                token = _settings_access_token(providers.get(provider_id))
-                if token:
-                    return token
+    token, _provider_id = _cline_provider_token()
+    if token:
+        return token
     auth_path = common.pi_agent_root() / "auth.json"
     if auth_path.is_file():
         try:
@@ -137,6 +152,42 @@ def cline_access_token() -> str:
         if token:
             return str(token).strip()
     return ""
+
+
+def cline_account() -> dict:
+    """Optional identity from the SAME providers.json the token comes from.
+
+    Only the provider whose token would actually be used is read, so exactly
+    one account is exposed. The values are display-only and are never logged,
+    emitted to stderr, or written anywhere except the 0600 usage record. The
+    token field itself is not read here.
+    """
+    _token, provider_id = _cline_provider_token()
+    if not provider_id:
+        return {}
+    providers_path = cline_dir() / "data" / "settings" / "providers.json"
+    try:
+        document = json.loads(providers_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    providers = document.get("providers") if isinstance(document, dict) else None
+    provider = providers.get(provider_id) if isinstance(providers, dict) else None
+    settings = provider.get("settings") if isinstance(provider, dict) else None
+    auth = settings.get("auth") if isinstance(settings, dict) else None
+    metadata = auth.get("metadata") if isinstance(auth, dict) else None
+    user = metadata.get("userInfo") if isinstance(metadata, dict) else None
+    if not isinstance(user, dict):
+        return {}
+    name = str(user.get("name") or "").strip()
+    if not name:
+        first = str(user.get("firstName") or "").strip()
+        last = str(user.get("lastName") or "").strip()
+        name = " ".join(part for part in (first, last) if part)
+    return common.account_object(
+        "cline-cache",
+        email=str(user.get("email") or "").strip(),
+        name=name,
+    )
 
 
 def cline_credential() -> tuple[str, str]:
@@ -514,6 +565,9 @@ def main() -> int:
     # and OpenCode.
     record["detected"] = detected
     record["hasLocalStats"] = detected
+    account = cline_account()
+    if account:
+        record["account"] = account
     common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0

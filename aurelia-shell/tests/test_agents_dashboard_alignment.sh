@@ -47,6 +47,7 @@ measure() {
     local mode="${4:-remaining}"
     local select="${5:-codex}"
     local stale_ms="${6:-1800000}"
+    local expand="${7:-0}"
     local sandbox
     sandbox="$(mktemp -d)"
     local status=0
@@ -63,6 +64,7 @@ measure() {
     AGENTS_DASHBOARD_PERCENT_MODE="$mode" \
     AGENTS_DASHBOARD_SELECT="$select" \
     AGENTS_DASHBOARD_STALE_MS="$stale_ms" \
+    AGENTS_DASHBOARD_EXPAND_ACCOUNT="$expand" \
         /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
         --path "$harness" >"$log" 2>&1 || status=$?
     rm -rf -- "$sandbox" || true
@@ -245,12 +247,42 @@ if [[ "$interaction_status" -eq 0 && -s "$interaction_result" ]] &&
         .refreshActiveWhileBusy == true and
         .refreshEnabledAfter == true and
         .refreshActiveAfter == false and
+        # Extended-card placement: Refresh in the header above the matrix,
+        # Close in the action row below it and above the detail it collapses.
         .refreshY < .matrixY and
-        .matrixY < .closeY' \
+        .matrixY < .closeY and
+        .closeY < .detailY and
+        # Explicit, non-empty tooltips for both icon-only controls, including
+        # the busy refresh tooltip.
+        .refreshTooltip == "Refresh usage" and
+        .closeTooltip == "Collapse account details" and
+        .refreshTooltipWhileBusy == "Refreshing usage\u2026" and
+        .refreshTooltipAfter == "Refresh usage"' \
        "$interaction_result" >/dev/null; then
-    pass "[isolated-runtime] close collapses the detail and the icon-only refresh disables and shows busy while running"
+    pass "[isolated-runtime] close collapses the detail, the icon-only refresh disables/busies with honest tooltips, and the action row sits with the extended card"
 else
     fail "[isolated-runtime] close/refresh interaction regressed (status=$interaction_status result=$(cat "$interaction_result" || true))"
+fi
+
+# Default-collapsed panel state: with no account selected the consolidated
+# matrix is the resting view (nothing expanded, no detail) while the icon-only
+# Refresh is already present, enabled and therefore reachable. This is the
+# state the earlier suite never asserted because it always passed a selection.
+if [[ "$interaction_status" -eq 0 && -s "$interaction_result" ]] &&
+   jq -e '
+        .focusPolicy.atRestSelected == "" and
+        .focusPolicy.atRestSelectedIndex == -1 and
+        .focusPolicy.atRestHasSelection == false and
+        .focusPolicy.atRestDetailVisible == false and
+        .focusPolicy.atRestRefreshPresent == true and
+        .focusPolicy.atRestRefreshEnabled == true and
+        .focusPolicy.atRestCloseVisible == false and
+        .focusPolicy.atRestRefreshTooltip == "Refresh usage" and
+        .focusPolicy.atRestCloseTooltip == "Collapse account details"' \
+       "$interaction_result" >/dev/null; then
+    pass "[isolated-runtime] the panel opens with nothing expanded and Refresh reachable while Close is not offered"
+else
+    fail "[isolated-runtime] default-collapsed panel state regressed (status=$interaction_status result=$(cat "$interaction_result" || true))"
 fi
 assert_runtime_log_clean "$interaction_log" "close/refresh interaction"
 
@@ -299,17 +331,69 @@ measure 480 "$stale_result" "$stale_log" remaining "opencode" 60000 || stale_sta
 if [[ "$stale_status" -eq 0 && -s "$stale_result" ]] &&
    jq -e '
         . as $r
-        | ($r.staleMs == 60000)
+        | def rowSeverity($id): ([ $r.detailRows[] | select(.row == $id)][0].severity);
+        ($r.staleMs == 60000)
           and ([ $r.detailRows[] | select(.severity == "critical") ] | length) >= 1
           and ([ $r.detailRows[] | select(.severity == "critical") | .effectiveOpacity ] | map(. >= 0.999) | all)
           and ([ $r.detailRows[] | select(.severity == "ok") ] | length) >= 1
           and ([ $r.detailRows[] | select(.severity == "ok") | .effectiveOpacity ] | map(. <= 0.61) | all)
+          # every inner alert element (percent text, severity glyph, alarming
+          # meter) on a critical row keeps effective opacity 1.0, so no row
+          # de-emphasis buries the alert; every element on an ok row is dimmed.
+          and ([ $r.detailElements[]
+                 | select(.kind == "percent" or .kind == "glyph" or .kind == "meter")
+                 | select(rowSeverity(.row) == "critical")
+                 | .effectiveOpacity ] | map(. >= 0.999) | all)
+          and ([ $r.detailElements[] | select(.kind == "percent" or .kind == "glyph" or .kind == "meter")
+                 | select(rowSeverity(.row) == "ok")
+                 | .effectiveOpacity ] | map(. <= 0.61) | all)
+          and ([ $r.detailElements[] | select(.kind == "percent")
+                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
+          and ([ $r.detailElements[] | select(.kind == "glyph")
+                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
+          and ([ $r.detailElements[] | select(.kind == "meter")
+                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
    ' "$stale_result" >/dev/null; then
-    pass "[isolated-runtime] stale detail pane: alert rows stay at effective opacity 1.0 while non-alert rows carry the stale dim"
+    pass "[isolated-runtime] stale detail pane: alert row, percent, glyph and alarm meter stay at effective opacity 1.0 while non-alert rows carry the stale dim"
 else
     fail "[isolated-runtime] stale detail pane dimmed an alert row (status=$stale_status result=$(jq -c '.staleMs, .detailRows' "$stale_result" || true))"
 fi
 assert_runtime_log_clean "$stale_log" "stale detail pane"
+
+# ---------------------------------------------------------------------------
+# ACCOUNT DETAILS disclosure: collapsed by default (no rows displayed and no
+# identity in the result), and expanding the per-account map reveals the
+# identity rows. The runtime log must never carry the sentinel address even
+# when the panel is expanded -- identity is displayed, never logged.
+# ---------------------------------------------------------------------------
+closed_result="$alignment_root/account-closed.json"
+closed_log="$alignment_root/account-closed.log"
+closed_status=0
+measure 480 "$closed_result" "$closed_log" remaining "codex" 1800000 0 || closed_status=$?
+open_result="$alignment_root/account-open.json"
+open_log="$alignment_root/account-open.log"
+open_status=0
+measure 480 "$open_result" "$open_log" remaining "codex" 1800000 1 || open_status=$?
+if [[ "$closed_status" -eq 0 && -s "$closed_result" && "$open_status" -eq 0 && -s "$open_result" ]] &&
+   jq -e '
+        .accountDetails as $a
+        | ($a.expanded == false) and ($a.headerVisible == true) and
+          ($a.bodyVisible == false) and (($a.rows | length) == 0)
+   ' "$closed_result" >/dev/null &&
+   jq -e '
+        .accountDetails as $a
+        | ($a.expanded == true) and ($a.bodyVisible == true) and
+          ([ $a.rows[] | select(.label == "Email" and .value == "sentinel.codex@example.test") ] | length) == 1 and
+          ([ $a.rows[] | select(.label == "Subscription" and .value == "Plus") ] | length) == 1 and
+          ([ $a.rows[] | select(.label == "Next billing" and .value == "2026-10-05") ] | length) == 1
+   ' "$open_result" >/dev/null &&
+   ! grep -q 'sentinel\.' "$closed_log" && ! grep -q 'sentinel\.' "$open_log"; then
+    pass "[isolated-runtime] ACCOUNT DETAILS is collapsed by default, reveals the identity rows only after expansion, and never logs a sentinel"
+else
+    fail "[isolated-runtime] ACCOUNT DETAILS disclosure regressed (closed=$(jq -c '.accountDetails' "$closed_result" || echo missing) open=$(jq -c '.accountDetails' "$open_result" || echo missing))"
+fi
+assert_runtime_log_clean "$closed_log" "account details collapsed"
+assert_runtime_log_clean "$open_log" "account details expanded"
 
 # ---------------------------------------------------------------------------
 # Measured render: with a critical fixture, the alert token must survive to the

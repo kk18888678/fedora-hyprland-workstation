@@ -400,6 +400,27 @@ def apply_subscription(record: dict, agent: str) -> dict:
     return record
 
 
+def account_object(source: str, **fields) -> dict:
+    """Build the optional collector `account` object, or {} when nothing is known.
+
+    Identity is private display data. This helper never emits an empty-string
+    field, and returns {} when only the provenance token would be present, so a
+    record only carries `account` when a real value exists. The allowed fields
+    are exactly the display fields: `email`, `name`, `plan` and `billingDate`.
+    The token/credential itself is never accepted here.
+    """
+    account = {}
+    if str(source or "").strip():
+        account["source"] = str(source).strip()
+    for key in ("email", "name", "plan", "billingDate"):
+        value = str(fields.get(key) or "").strip()
+        if value:
+            account[key] = value
+    if "source" in account and len(account) == 1:
+        return {}
+    return account
+
+
 def empty_stats() -> dict:
     recent = recent_date_strings()
     return {

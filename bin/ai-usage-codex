@@ -14,6 +14,7 @@ ai-usage-* collectors).
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
@@ -189,6 +190,65 @@ def fetch_codex_rpc() -> dict:
     return result
 
 
+# ---------------------------------------------------------------- identity
+
+# The id_token is credential material. It is decoded IN MEMORY only, and only
+# the four display claims below are copied out; the token is never logged,
+# never persisted, and never written to stderr. Only the local auth.json is
+# read -- no network call is made for identity.
+CODEX_AUTH_CLAIM_ROOT = "https://api.openai.com/auth"
+
+
+def _b64url_decode(segment: str) -> bytes:
+    padding = "=" * (-len(segment) % 4)
+    return base64.urlsafe_b64decode(segment + padding)
+
+
+def _billing_date(value: str) -> str:
+    normalized = common.normalize_resets_at(value)
+    return normalized[:10] if normalized else ""
+
+
+def codex_account() -> dict:
+    """Extract the four display claims from `auth.json` `tokens.id_token`.
+
+    Treats the JWT as credential material that stays in memory: it is decoded
+    only to read `email`, `name`, the auth object's `chatgpt_plan_type` and
+    `chatgpt_subscription_active_until`. A missing or malformed token yields
+    {}, and no empty field is ever emitted. Entirely local: no network call.
+    """
+    auth_path = codex_home() / "auth.json"
+    try:
+        document = json.loads(auth_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    tokens = document.get("tokens") if isinstance(document, dict) else None
+    id_token = tokens.get("id_token") if isinstance(tokens, dict) else None
+    if not isinstance(id_token, str) or id_token.count(".") < 2:
+        return {}
+    try:
+        payload = json.loads(
+            _b64url_decode(id_token.split(".")[1]).decode("utf-8", "replace")
+        )
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    auth = payload.get(CODEX_AUTH_CLAIM_ROOT)
+    plan = ""
+    date = ""
+    if isinstance(auth, dict):
+        plan = str(auth.get("chatgpt_plan_type") or "").strip()
+        date = _billing_date(str(auth.get("chatgpt_subscription_active_until") or ""))
+    return common.account_object(
+        "codex-id-token",
+        email=str(payload.get("email") or "").strip(),
+        name=str(payload.get("name") or "").strip(),
+        plan=plan,
+        billingDate=date,
+    )
+
+
 # ---------------------------------------------------------------- local scan
 
 
@@ -327,6 +387,9 @@ def main() -> int:
     record.update(stats)
     record["detected"] = detected
     record["hasLocalStats"] = detected
+    account = codex_account()
+    if account:
+        record["account"] = account
     common.apply_subscription(record, AGENT_ID)
     print(json.dumps(record, separators=(",", ":"), sort_keys=True))
     return 0

@@ -256,6 +256,17 @@ else
     fail "[static] agents dashboard section redesign is incomplete"
 fi
 
+# The stale 'TABS (pinned)' comment described a widget that no longer exists
+# and read like live behaviour; the icon-only action controls must carry their
+# explicit tooltips.
+if ! grep -q 'TABS' "$dashboard" &&
+   grep -q 'tooltip: "Collapse account details"' "$dashboard" &&
+   grep -q 'tooltip: dashboard.refreshing ? "Refreshing usage…" : "Refresh usage"' "$dashboard"; then
+    pass "[static] agents action controls carry explicit close/refresh tooltips and the stale TABS comment is gone"
+else
+    fail "[static] agents action tooltip/comment contract is incomplete"
+fi
+
 if grep -q 'stateInfo.key === "unknown"' "$dashboard" &&
    grep -q 'stateInfo.key === "rate-limited"' "$dashboard" &&
    grep -q 'stateInfo.retry' "$dashboard" &&
@@ -263,6 +274,20 @@ if grep -q 'stateInfo.key === "unknown"' "$dashboard" &&
     pass "[static] agents dashboard shows the state banner only for unknown/error/rate-limited with auth help and Retry"
 else
     fail "[static] agents dashboard state banner contract is incomplete"
+fi
+
+# P1/P2 alert-dimming policy: there must be no generic stale-dim property left
+# for a caller to apply to an element whose severity is unknown. Every stale
+# de-emphasis goes through one severity-aware helper that delegates to the
+# single AgentUsage predicate, so a warn/critical element always resolves 1.0.
+if ! grep -q 'staleContentOpacity' "$dashboard" &&
+   grep -q 'function staleOpacityFor(severity)' "$dashboard" &&
+   grep -q 'AgentUsage.presentationOpacityFor(severity' "$dashboard" &&
+   grep -q 'AgentUsage.isAlertSeverity' "$dashboard" &&
+   ! grep -qE 'opacity:[[:space:]]*0\.6' "$dashboard"; then
+    pass "[static] agents dashboard routes every stale de-emphasis through the single alert-aware predicate"
+else
+    fail "[static] agents dashboard still carries a generic stale dim that can reach an alert"
 fi
 
 # Every unmet condition logs a diagnostic through the shell's standard
@@ -276,6 +301,39 @@ if grep -q 'AgentUsage.diagnoseRecords' "$dashboard" &&
     pass "[static] agents dashboard logs every unmet condition while keeping the user-facing honesty labels"
 else
     fail "[static] agents dashboard diagnostics contract is incomplete"
+fi
+
+# ACCOUNT DETAILS disclosure contract. The section is the last child of the
+# scrolling detail column, collapsed by default (an absent key means
+# collapsed), rendered with the Label primitive, and its accessible name and
+# description never interpolate an identity value.
+if grep -q 'property var accountDetailsExpanded: ({})' "$dashboard" &&
+   grep -q 'accountDetailsExpanded\[accountDetailsKey\] === true' "$dashboard" &&
+   grep -q 'text: "ACCOUNT DETAILS"' "$dashboard" &&
+   grep -q 'dashboard.accountExpanded ? "⌃" : "⌄"' "$dashboard" &&
+   grep -q 'Accessible.name: "Account details"' "$dashboard" &&
+   grep -q 'Accessible.checkable: true' "$dashboard" &&
+   grep -q 'function toggleAccountDetails()' "$dashboard" &&
+   grep -q 'dashboard.registerDetailItem(accountDetailsHeader)' "$dashboard" &&
+   ! grep -qE 'Accessible.name:.*(account|email|name)' "$dashboard" &&
+   ! grep -qE 'accountDetails.*(settings|config|\.conf|persist)' "$dashboard"; then
+    pass "[static] ACCOUNT DETAILS is the last collapsed-by-default section with a keyboard-operable disclosure and a non-sensitive accessible name"
+else
+    fail "[static] ACCOUNT DETAILS disclosure or accessibility contract is incomplete"
+fi
+
+# Privacy boundary: identity may only be READ by a collector, DISPLAYED in the
+# expanded panel and CACHED in the 0600 usage record. It must never reach an
+# AI-facing or low-friction surface (runtime log, diagnostic, bar tooltip,
+# notification body, doctor/check output or crash payload).
+if ! grep -qE 'account\.(email|name)|record\.account|\.account\[' "$plugin_dir/AgentsBarWidget.qml" &&
+   ! grep -qE 'console\.[a-z]+\([^)]*(account|email|name)' "$dashboard" &&
+   ! sed -n '/^function notificationPlan/,/^}/p' "$plugin_dir/AgentUsage.js" | grep -qE '(email|accountDetails|record\.account)' &&
+   ! sed -n '/^function diagnoseRecord/,/^}/p' "$plugin_dir/AgentUsage.js" | grep -qE '(email|accountDetails|record\.account)' &&
+   ! sed -n '/^function diagnosticLine/,/^}/p' "$plugin_dir/AgentUsage.js" | grep -qE '(email|accountDetails|record\.account)'; then
+    pass "[static] account identity never reaches the bar widget, a console call, a notification or a diagnostic"
+else
+    fail "[static] account identity can reach an AI-facing or low-friction surface"
 fi
 
 # Every text node derives from the local Label primitive (which sets
@@ -562,7 +620,7 @@ process.exit((ok && matrixOk) ? 0 : 1);
     dashboard_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$dashboard_test"
     cat >>"$dashboard_test" <<'AGENT_DASHBOARD_EXPORTS'
-module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, supportedWindowClasses, windowIsOffered, matrixRows, matrixRow, matrixCell, matrixCellMarker, matrixCellTooltip, matrixCellAccessibility, bindingLimit, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, headlineFor, paceWord, worstLimitFor, todayUsage, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey };
+module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, supportedWindowClasses, windowIsOffered, matrixRows, matrixRow, matrixCell, matrixCellMarker, matrixCellTooltip, matrixCellAccessibility, bindingLimit, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, headlineFor, paceWord, worstLimitFor, todayUsage, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey, accountDetails, notificationPlan };
 AGENT_DASHBOARD_EXPORTS
     if node -e '
 const fs = require("fs");
@@ -774,6 +832,38 @@ const claudeUsedCell = A.matrixCell({label: "5h window", percent: 0.25, windowMi
 assert(claudeUsedCell.percentText === "75%" && claudeUsedCell.severity === "ok" && claudeUsedCell.usedPercent === 0.25);
 const criticalCell = A.matrixCell({label: "Weekly (7-day)", percent: 0.95, windowMinutes: 10080, resetsAt: new Date(now + 7100000).toISOString()}, "week", now, "remaining");
 assert(criticalCell.severity === "critical" && criticalCell.percentText === "5%", "severity stays used-based under remaining mode");
+// --- accountDetails: the four normative cases + a changed shape -----------
+// 1. no account data at all: no rows, no invented plan.
+const noAccount = A.accountDetails({id: "opencode", name: "OpenCode", tierLabel: "OpenCode Go"});
+assert(noAccount.rows.length === 0 && noAccount.isSubscription === false, "no identity and no subscription must not fabricate a plan");
+// 2. subscription with a date: ai.conf is authoritative over the provider.
+const withDate = A.accountDetails({account: {email: "a@b.test", name: "A B", plan: "provider-plan", billingDate: "2026-12-31", source: "fixture"}, subscription: {plan: "User Plan", renew: "2026-10-05", daysLeft: 5}});
+assert(withDate.isSubscription === true);
+assert(withDate.rows.find(r => r.label === "Subscription").value === "User Plan", "ai.conf plan wins over the provider plan");
+assert(withDate.rows.find(r => r.label === "Next billing").value === "2026-10-05", "ai.conf date wins over the provider date");
+assert(withDate.rows.find(r => r.label === "Email").elide === "middle" && withDate.rows.find(r => r.label === "Name").elide === "right", "email elides middle and name elides right");
+// 3. subscription without a date: the established not-reported marker.
+const noDate = A.accountDetails({account: {email: "a@b.test"}, subscription: {plan: "ClinePass"}});
+assert(noDate.isSubscription === true && noDate.rows.find(r => r.label === "Next billing").value === "—", "known subscription with no date never fabricates one");
+// 4. API-billed with no subscription: identity only, no plan/billing rows.
+const apiBilled = A.accountDetails({account: {email: "api@b.test", name: "API"}, billingKind: "api"});
+assert(apiBilled.isSubscription === false && !apiBilled.rows.some(r => r.label === "Subscription") && !apiBilled.rows.some(r => r.label === "Next billing"));
+// A provider-reported plan/date with no ai.conf still counts as a subscription.
+const providerOnly = A.accountDetails({account: {email: "c@d.test", plan: "plus", billingDate: "2026-11-01"}});
+assert(providerOnly.isSubscription === true && providerOnly.rows.find(r => r.label === "Subscription").value === "plus" && providerOnly.rows.find(r => r.label === "Next billing").value === "2026-11-01");
+// Changed shape: wrong types and extra fields never fabricate a row.
+assert(A.accountDetails({account: "not-an-object", subscription: [1, 2], tierLabel: "ignored", extra: "x"}).rows.length === 0, "wrong-typed account/subscription never fabricate");
+assert(A.accountDetails({account: {email: "   ", name: 42, plan: null, billingDate: {}}}).rows.length === 0, "whitespace/wrong-typed identity yields no rows");
+assert(A.accountDetails({}).rows.length === 0 && A.accountDetails(null).rows.length === 0, "no record yields no rows");
+// Privacy: identity must never reach a diagnostic or a notification body.
+const sentinelRec = {id: "codex", name: "Codex", ready: true,
+  account: {email: "sentinel.codex@example.test", name: "Sentinel Codex"},
+  subscription: {plan: "Plus", renew: "2030-01-01", reminderDays: 3},
+  limits: [{label: "5h window", percent: 0.5, windowMinutes: 300, resetsAt: new Date(now + 60000).toISOString()}]};
+assert(JSON.stringify(A.diagnoseRecord(sentinelRec)).indexOf("sentinel.codex@example.test") === -1, "identity never reaches a diagnostic");
+const privacyNotif = A.notificationPlan([sentinelRec], {renewals: {"id:codex": {announcedForDate: "2020-01-01", renewValue: "2030-01-01"}}}, {renewals: true}, now);
+assert(JSON.stringify(privacyNotif).indexOf("sentinel.codex@example.test") === -1, "identity never reaches a notification");
+assert(JSON.stringify(privacyNotif).indexOf("Sentinel Codex") === -1, "name never reaches a notification");
 process.exit(0);
 ' "$dashboard_test" "$ROOT/tests/fixtures/agents-dashboard/records.json" >/dev/null; then
         pass "[unit] agents dashboard projection orders accounts, classifies windows, keeps available data and names every unmet condition"
@@ -936,6 +1026,93 @@ if printf '%s' "$codex_rpc" | jq -e '
     pass "[isolated] Codex collector reads fresh limits from the app-server RPC"
 else
     fail "[isolated] Codex RPC limit contract diverged: $codex_rpc"
+fi
+
+# Codex identity comes ONLY from the local ~/.codex/auth.json id_token claims.
+# The fixture JWT is synthetic, unsigned and test-only. The test proves the
+# decode makes no network call (sentinel urlopen), that the identifier claims
+# survive into the record, and that the raw JWT never leaks to stdout or
+# stderr. The live file is never read.
+mkdir -p -- "$sandbox/codex-identity"
+codex_identity_out="$(python3 - "$repo_root/bin/ai-usage-codex" "$sandbox/codex-identity" <<'CODEX_IDENTITY'
+import base64
+import contextlib
+import importlib.machinery
+import importlib.util
+import io
+import json
+import os
+import sys
+
+
+def b64(obj):
+    raw = json.dumps(obj, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+sentinel = "sentinel.codex@example.test"
+token = ".".join([
+    b64({"alg": "none", "typ": "JWT"}),
+    b64({
+        "email": sentinel,
+        "name": "Sentinel Codex",
+        "https://api.openai.com/auth": {
+            "chatgpt_plan_type": "plus",
+            "chatgpt_subscription_active_until": "2026-11-01T00:00:00Z",
+        },
+    }),
+    "",
+])
+
+codex_home = sys.argv[2]
+with open(os.path.join(codex_home, "auth.json"), "w", encoding="utf-8") as handle:
+    json.dump({"tokens": {"id_token": token}}, handle)
+
+loader = importlib.machinery.SourceFileLoader("acodex", sys.argv[1])
+spec = importlib.util.spec_from_loader("acodex", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+os.environ["CODEX_HOME"] = codex_home
+os.environ["CODEX_BIN"] = os.path.join(codex_home, "no-such-codex")
+calls = []
+
+
+def sentinel_popen(*args, **kwargs):
+    calls.append(args)
+    raise AssertionError("identity must not spawn codex or use the network")
+
+
+module.subprocess.Popen = sentinel_popen
+account = module.codex_account()
+identity_calls = len(calls)
+stdout = io.StringIO()
+stderr = io.StringIO()
+sys.argv = ["ai-usage-codex"]
+with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+    module.main()
+out = stdout.getvalue()
+err = stderr.getvalue()
+print(json.dumps({
+    "account": account,
+    "identityCalls": identity_calls,
+    "jwtLeak": (token in out) or (token in err),
+    "record": json.loads(out),
+}))
+CODEX_IDENTITY
+)"
+if printf '%s' "$codex_identity_out" | jq -e '
+        .identityCalls == 0 and
+        .jwtLeak == false and
+        .account.email == "sentinel.codex@example.test" and
+        .account.name == "Sentinel Codex" and
+        .account.plan == "plus" and
+        .account.billingDate == "2026-11-01" and
+        .account.source == "codex-id-token" and
+        .record.account.email == "sentinel.codex@example.test"' >/dev/null; then
+    pass "[isolated] Codex identity is decoded from the local id_token with no network call and the raw JWT never leaks"
+else
+    fail "[isolated] Codex identity contract diverged: $codex_identity_out"
 fi
 
 # pi drives opencode-go / clinepass / openai-codex through its own API clients,
@@ -1125,7 +1302,7 @@ mkdir -p -- "$sandbox/cline-cred/data/settings" "$sandbox/cline-pass/data/settin
     "$sandbox/cline-empty" "$sandbox/pi-auth/agent" "$sandbox/pi-empty" \
     "$sandbox/cline-config"
 cat >"$sandbox/cline-cred/data/settings/providers.json" <<'CLINE_PROVIDERS'
-{"providers":{"cline":{"settings":{"auth":{"accessToken":"primary-token"}}},"cline-pass":{"settings":{"auth":{"accessToken":"secondary-token"}}}}}
+{"providers":{"cline":{"settings":{"auth":{"accessToken":"primary-token","metadata":{"userInfo":{"email":"sentinel.cline@example.test","name":"Sentinel Cline","firstName":"Sentinel","lastName":"Cline"}}}}},"cline-pass":{"settings":{"auth":{"accessToken":"secondary-token","metadata":{"userInfo":{"email":"other.cline@example.test","name":"Other Cline"}}}}}}}
 CLINE_PROVIDERS
 cat >"$sandbox/cline-pass/data/settings/providers.json" <<'CLINE_PASS_PROVIDERS'
 {"providers":{"cline-pass":{"settings":{"auth":{"accessToken":"secondary-token"}}}}}
@@ -1195,6 +1372,22 @@ def http_error(status, message):
 
 module.cline_access_token = lambda: "fake"
 
+# Identity is read from the SAME providers.json, locally, with NO network. The
+# sentinel urlopen fails the test if an identity read ever reaches the network.
+calls = []
+
+
+def identity_sentinel(*args, **kwargs):
+    calls.append(args)
+    raise AssertionError("identity must not use the network")
+
+
+module.urllib.request.urlopen = identity_sentinel
+os.environ["CLINE_DIR"] = cred_dir
+os.environ["PI_HOME"] = pi_empty_dir
+identity_account = module.cline_account()
+identity_calls = len(calls)
+
 CAPTURED = {"data": {"limits": [
     {"type": "five_hour", "percentUsed": 64, "resetsAt": "2026-09-26T17:15:41.129154652Z"},
     {"type": "weekly", "percentUsed": 63, "resetsAt": "2026-09-30T15:13:55.131223642Z"},
@@ -1241,7 +1434,7 @@ timeout_retry = module.fetch_cline_limits()["retryAdvised"]
 
 # Record-level integration: a limits-only account with no local history must be
 # detected and ready, with tierLabel set.
-os.environ["CLINE_DIR"] = empty_dir
+os.environ["CLINE_DIR"] = cred_dir
 os.environ["PI_HOME"] = pi_empty_dir
 os.environ["XDG_CONFIG_HOME"] = config_dir
 module.urllib.request.urlopen = serve(CAPTURED)
@@ -1262,6 +1455,8 @@ print(json.dumps({
     "rateRetry": rate_retry,
     "timeoutRetry": timeout_retry,
     "credential": credential,
+    "identityAccount": identity_account,
+    "identityCalls": identity_calls,
     "record": record,
 }))
 CLINE_LIMITS
@@ -1298,7 +1493,13 @@ if printf '%s' "$cline_limits_out" | jq -e '
         .record.tierLabel == "ClinePass" and
         .record.ready == true and .record.detected == true and
         .record.retryAdvised == false and .record.totalPrompts == 0 and
-        .record.usageStatusText == ""' >/dev/null; then
+        .record.usageStatusText == "" and
+        .identityCalls == 0 and
+        .identityAccount.email == "sentinel.cline@example.test" and
+        .identityAccount.name == "Sentinel Cline" and
+        .identityAccount.source == "cline-cache" and
+        (.identityAccount | tostring | test("other\\.cline") | not) and
+        .record.account.email == "sentinel.cline@example.test"' >/dev/null; then
     pass "[isolated] Cline collector maps the live ClinePass windows, emits USED, normalises resetsAt and fails closed"
 else
     fail "[isolated] Cline limit contract diverged: $cline_limits_out"
@@ -1710,6 +1911,53 @@ for collector_file in claude codex opencode cline; do
     fi
 done
 
+# Claude identity is OPTIONAL: it exists only in a native-login ~/.claude.json.
+# The test points at a throwaway sandbox (the live file is never read) and
+# proves the email is read with no network call, and that a file without
+# oauthAccount yields no account object.
+printf '%s\n' '{"oauthAccount":{"emailAddress":"sentinel.claude@example.test"}}' \
+    >"$sandbox/claude-account.json"
+printf '%s\n' '{"userID":"abc123"}' \
+    >"$sandbox/claude-account-absent.json"
+claude_identity_out="$(python3 - "$repo_root/bin/ai-usage-claude" \
+        "$sandbox/claude-account.json" "$sandbox/claude-account-absent.json" <<'CLAUDE_IDENTITY'
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+
+loader = importlib.machinery.SourceFileLoader("aclaude", sys.argv[1])
+spec = importlib.util.spec_from_loader("aclaude", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+calls = []
+
+
+def sentinel_urlopen(*args, **kwargs):
+    calls.append(args)
+    raise AssertionError("identity must not use the network")
+
+
+module.urllib.request.urlopen = sentinel_urlopen
+os.environ["CLAUDE_ACCOUNT_PATH"] = sys.argv[2]
+present = module.claude_account()
+os.environ["CLAUDE_ACCOUNT_PATH"] = sys.argv[3]
+absent = module.claude_account()
+print(json.dumps({"present": present, "absent": absent, "networkCalls": len(calls)}))
+CLAUDE_IDENTITY
+)"
+if printf '%s' "$claude_identity_out" | jq -e '
+        .networkCalls == 0 and
+        .present.email == "sentinel.claude@example.test" and
+        .present.source == "claude-config" and
+        .absent == {}' >/dev/null; then
+    pass "[isolated] Claude identity is optional, local-only and absent without oauthAccount"
+else
+    fail "[isolated] Claude identity contract diverged: $claude_identity_out"
+fi
+
 # ---------------------------------------------------------------------------
 # Offscreen dashboard preview + fail-safe diagnostics (isolated runtime)
 # ---------------------------------------------------------------------------
@@ -1748,7 +1996,8 @@ if [[ "$preview_status" -eq 0 && -s "$preview_image" && -s "$preview_result" ]] 
    grep -q 'provider=codex condition=missing_resets_at' "$preview_log" &&
    grep -q 'provider=codex condition=absent_balance' "$preview_log" &&
    grep -q 'provider=claude condition=missing_limits' "$preview_log" &&
-   grep -q 'provider=backend condition=collector_failed' "$preview_log"; then
+   grep -q 'provider=backend condition=collector_failed' "$preview_log" &&
+   ! grep -q 'sentinel\.' "$preview_log"; then
     pass "[isolated-runtime] offscreen dashboard preview renders the fixture and logs every unmet condition and the collector failure"
 else
     preview_log_ok=0

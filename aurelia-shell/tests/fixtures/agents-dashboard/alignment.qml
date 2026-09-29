@@ -41,6 +41,10 @@ Window {
         var raw = parseInt(Quickshell.env("AGENTS_DASHBOARD_STALE_MS") || "1800000")
         return isFinite(raw) && raw > 0 ? raw : 1800000
     }
+    // Expand the per-account ACCOUNT DETAILS disclosure before capture so the
+    // displayed identity rows can be measured (they are collapsed by default).
+    readonly property bool expandAccount:
+        Quickshell.env("AGENTS_DASHBOARD_EXPAND_ACCOUNT") === "1"
 
     property var records: []
     property bool measured: false
@@ -119,8 +123,14 @@ Window {
         interval: 250
         repeat: false
         onTriggered: {
-            if (root.dashboard && root.selectId !== "")
+            if (root.dashboard && root.selectId !== "") {
                 root.dashboard.selectedAccountId = root.selectId
+                if (root.expandAccount) {
+                    var expanded = {}
+                    expanded[root.selectId] = true
+                    root.dashboard.accountDetailsExpanded = expanded
+                }
+            }
             measureTimer.restart()
         }
     }
@@ -195,6 +205,8 @@ Window {
         var meterFills = []
         var rows = []
         var detailRows = []
+        var detailElements = []
+        var accountDetails = null
 
         root.collect("matrixAccountHeader").forEach(function (item) {
             accountHeader = root.geometry(item)
@@ -248,6 +260,38 @@ Window {
                 effectiveOpacity: root.effectiveOpacity(item)
             })
         })
+        // The inner alert elements (percent text, severity glyph and the
+        // alarming meter) are measured separately so a test can prove the
+        // alert row's own children keep effective opacity 1.0 and are not
+        // buried by the row's de-emphasis.
+        var detailKinds = ["Percent", "Glyph", "Meter"]
+        detailKinds.forEach(function (kind) {
+            root.collect("limitDetail" + kind + "-").forEach(function (item) {
+                detailElements.push({
+                    row: parseInt(String(item.objectName).slice(("limitDetail" + kind + "-").length)),
+                    kind: kind.toLowerCase(),
+                    opacity: item.opacity,
+                    effectiveOpacity: root.effectiveOpacity(item)
+                })
+            })
+        })
+        var accountHeaderItem = root.collect("accountDetailsHeader")[0]
+        var accountBodyItem = root.collect("accountDetailsBody")[0]
+        var accountRows = []
+        // Only capture the rows when the body is actually visible: while
+        // collapsed the Repeater delegates exist but no identity is displayed,
+        // so the result must not carry it either.
+        if (accountBodyItem && accountBodyItem.visible === true) {
+            root.collect("accountDetailsRow-").forEach(function (item) {
+                accountRows.push({ label: String(item.rowLabel || ""), value: String(item.rowValue || "") })
+            })
+        }
+        accountDetails = {
+            expanded: d.accountExpanded === true,
+            headerVisible: accountHeaderItem ? accountHeaderItem.visible === true : null,
+            bodyVisible: accountBodyItem ? accountBodyItem.visible === true : null,
+            rows: accountRows
+        }
 
         var payload = {
             columns: Quickshell.env("AGENTS_DASHBOARD_COLUMNS") || "five_hour,week,month",
@@ -262,7 +306,9 @@ Window {
             meterFills: meterFills,
             rows: rows,
             staleMs: root.staleMs,
-            detailRows: detailRows
+            detailRows: detailRows,
+            detailElements: detailElements,
+            accountDetails: accountDetails
         }
         resultFile.setText(JSON.stringify(payload) + "\n")
         root.measured = true
