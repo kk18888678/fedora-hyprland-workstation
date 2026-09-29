@@ -19,7 +19,7 @@
 //   6 appstream AppStream/SW-Catalog metadata icon
 //   7 window    sender window class / app id (terminal ancestor preferred)
 //   8 proc      sender /proc exe/comm basename
-//   9 default   application-x-executable (honest, visible fallback)
+//   9 default   no icon (nothing resolved; deliberate, logged outcome)
 //
 // "Provably usable" is enforced by the resolver, not assumed by a caller: a
 // file source must exist and be non-empty, and a name source must satisfy the
@@ -39,6 +39,24 @@ var MAX_FIELD = 512;
 var MAX_ID = 256;
 
 var DEFAULT_ICON = "application-x-executable";
+
+// Diagnostic channel. This module never imports Qt or Quickshell, so it records
+// its condition-name diagnostics through the shell console, which Quickshell
+// forwards to the journal. A diagnostic is a stable condition NAME only: never
+// a value, file path, or any user-derived content. `no_icon_resolved` is
+// recorded when the ordered chain falls through to the deliberate no-icon
+// state, so "no icon" is an observable, intentional outcome rather than a
+// silent failure. It is recorded on the informational channel because a
+// fall-through is an expected outcome (not a decode/IO failure), and consumers
+// such as the notification service deliberately supply their own fallback when
+// it happens.
+var DIAGNOSTIC_NO_ICON_RESOLVED = "no_icon_resolved";
+
+function logDiagnostic(condition) {
+    if (typeof console === "undefined") return;
+    var write = console.info || console.log;
+    if (write) write("[APP-ICON] " + condition);
+}
 
 // The substring-match guard mirrors NotificationLogic.workspaceRouteScore: a
 // short generic name such as "chat" or "term" must never be substring-matched
@@ -376,12 +394,17 @@ function appendCandidate(out, seen, candidate) {
 }
 
 function defaultCandidate() {
+    // `kind: "default"` is the semantic marker that NOTHING resolved. It is
+    // intentionally an empty candidate: the user wants no icon rather than a
+    // generic placeholder glyph, so source and name are blank and no image is
+    // drawn. Consumers and their tests still assert on `kind === "default"`;
+    // only the visible glyph was removed.
     return {
         kind: "default",
-        probeType: "theme",
+        probeType: "none",
         path: "",
         source: "",
-        name: DEFAULT_ICON,
+        name: "",
         origin: "default"
     };
 }
@@ -604,7 +627,7 @@ function resolveCandidates(candidates, probe) {
     var list = candidates || [];
     for (var i = 0; i < list.length; i++) {
         var candidate = list[i];
-        if (candidate.kind === "default") return finalize(candidate, probe);
+        if (candidate.kind === "default") return noIcon(candidate, probe);
         if (candidate.probeType === "file" && probe.fileUsable(candidate.path)) {
             return finalize(candidate, probe);
         }
@@ -615,7 +638,14 @@ function resolveCandidates(candidates, probe) {
             return finalize(candidate, probe);
         }
     }
-    return finalize(defaultCandidate(), probe);
+    return noIcon(defaultCandidate(), probe);
+}
+
+// The deliberate, logged no-icon outcome. The candidate is finalized without
+// probing because the no-icon state carries no source or name by construction.
+function noIcon(candidate, probe) {
+    logDiagnostic(DIAGNOSTIC_NO_ICON_RESOLVED);
+    return finalize(candidate, probe);
 }
 
 function finalize(candidate, probe) {
@@ -648,6 +678,7 @@ function resolve(input, meta, probe) {
 
 var AppIconResolverLogic = {
     DEFAULT_ICON: DEFAULT_ICON,
+    DIAGNOSTIC_NO_ICON_RESOLVED: DIAGNOSTIC_NO_ICON_RESOLVED,
     MAX_THEME_NAME: MAX_THEME_NAME,
     MAX_PATH: MAX_PATH,
     SUBSTRING_MATCH_MIN_LENGTH: SUBSTRING_MATCH_MIN_LENGTH,

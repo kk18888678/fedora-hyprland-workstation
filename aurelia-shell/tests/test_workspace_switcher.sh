@@ -547,22 +547,27 @@ WINDOW_PREVIEW_SYMBOLIC_DESKTOP
            .fixtureApp.name == "fixture-app" and
            .fixtureApp.symbolic == false and
            .fixtureApp.preservesColors == true and
+           .fixtureApp.iconReady == true and
+           .fixtureApp.slotVisible == true and
            (.fixtureApp.source | contains("fixture-app")) and
            .symbolic.kind == "theme" and
            .symbolic.name == "fixture-app-symbolic" and
            .symbolic.symbolic == true and
            .symbolic.preservesColors == false and
+           .symbolic.iconReady == true and
+           .symbolic.slotVisible == true and
            (.symbolic.source | contains("fixture-app-symbolic")) and
            .unknown.kind == "default" and
-           .unknown.name == "application-x-executable" and
+           .unknown.name == "" and
            .unknown.symbolic == false and
-           .unknown.preservesColors == true and
-           (.unknown.source | contains("application-x-executable")) and
+           .unknown.source == "" and
+           .unknown.iconReady == false and
+           .unknown.slotVisible == false and
            .rendered.fixtureApp == .readyStatus and
            .rendered.symbolic == .readyStatus and
-           .rendered.unknown == .readyStatus
+           .rendered.unknown != .readyStatus
        ' "$preview_icon_result" >/dev/null; then
-        pass "[isolated-runtime] Window preview resolves a desktop-entry theme icon, tints a -symbolic mask, preserves colours for a real logo, and shows application-x-executable for an unknown window, with every resolved source rendering (Image.Ready)"
+        pass "[isolated-runtime] Window preview resolves a desktop-entry theme icon, tints a -symbolic mask, preserves colours for a real logo, collapses the icon slot for an unknown window, and draws no image for the unavailable icon"
     else
         details="$(tr '\n' ' ' <"$preview_icon_log")"
         if [[ -s "$preview_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$preview_icon_result")"; fi

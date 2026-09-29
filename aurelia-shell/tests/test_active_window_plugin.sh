@@ -359,13 +359,15 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .labels.modelFallback == "FixtureClass" and
         .labels.modelAmbiguous == "" and
         .labels.modelEmpty == "" and
-        .icons.fallbackName == "application-x-executable" and
-        (.icons.fallbackSource | contains("application-x-executable")) and
-        .icons.emptyAppIconName == "application-x-executable" and
+        .icons.fallbackName == "" and
+        .icons.fallbackSource == "" and
+        .icons.fallbackHasIcon == false and
+        .icons.emptyAppIconName == "" and
         .icons.fixtureAppName == "fixture-app" and
+        .icons.fixtureAppHasIcon == true and
         .fallback.modelFallbackLabel == "FixtureClass" and
-        .fallback.modelFallbackIcon == "application-x-executable" and
-        .fallback.modelFallbackHasIcon == true and
+        .fallback.modelFallbackIcon == "" and
+        .fallback.modelFallbackHasIcon == false and
         .fallback.modelFallbackAppEntry == false and
         .fallback.modelAmbiguousLabel == "" and
         .fallback.modelEmptyLabel == "" and
@@ -379,9 +381,9 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .elision.longVisibleWidth == (.elision.maxWidth - 2 * .elision.longTextMargin) and
         .render.iconInk == 12 and
         .render.iconSlot == 16 and
-        .render.iconSlotVisible == true and
+        .render.iconSlotVisible == false and
         .render.labelOpacity == 1.0 and
-        .render.implicitWidth == (.render.iconSlot + .render.iconSpacing + .render.outerLabelWidth) and
+        .render.implicitWidth == .render.outerLabelWidth and
         .hover.thickness == 2 and
         .hover.leftInset == 0 and
         .hover.rightInset == 0 and
@@ -430,7 +432,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .rendered.titleMode.elided == false and
         .rendered.titleMode.contentDelta < 0.5
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, icon fallback, elision cap, activate/close dispatch, hidden-when-empty state, the symbolic-only colour policy, the model-derived focused-toplevel fallback (class identity, missing marker ignored, ambiguity fail-closed, empty model hidden), the full-width 2 px hover underline with no full-cover fill, and renders 'Foot' and 'Chromium Web Browser' un-elided with the metric matching the render"
+    pass "[isolated-runtime] real Active Window widget resolves app-name/title identity, the deterministic desktop-entry name/icon branch, invalid-mode fail-closed, the no-icon outcome for an unknown application, elision cap, activate/close dispatch, hidden-when-empty state, the symbolic-only colour policy, the model-derived focused-toplevel fallback (class identity, missing marker ignored, ambiguity fail-closed, empty model hidden), the full-width 2 px hover underline with no full-cover fill, and renders 'Foot' and 'Chromium Web Browser' un-elided with the metric matching the render"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] Active Window entry-point fixture cannot create a disposable runtime backend"; then
     :

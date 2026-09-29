@@ -218,7 +218,7 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
    jq -e '
         .readyStatus == 1 and
         .errorStatus == 3 and
-        ([.cases[] | select(.status != 1)] | length == 0) and
+        ([.cases[] | select(.kind != "default") | select(.status != 1)] | length == 0) and
         .cases.absolute.kind == "file" and
         .cases.absolute.status == 1 and
         .cases.fileUrl.kind == "file" and
@@ -261,20 +261,20 @@ if [[ "$runtime_status" -eq 0 ]] && [[ -s "$result_file" ]] &&
         .cases.inline.kind == "inline" and
         .cases.inline.status == 1 and
         .cases.unresolvable.kind == "default" and
-        .cases.unresolvable.name == "application-x-executable" and
-        .cases.unresolvable.status == 1 and
-        (.cases.unresolvable.source | contains("application-x-executable")) and
+        .cases.unresolvable.name == "" and
+        .cases.unresolvable.status == 0 and
+        .cases.unresolvable.source == "" and
         .cases.durable.kind == "durable" and
         .cases.durable.status == 1 and
         .cases.dangling.kind == "default" and
-        .cases.dangling.name == "application-x-executable" and
-        (.cases.dangling.source | contains("dangling-icon") | not) and
+        .cases.dangling.name == "" and
+        .cases.dangling.source == "" and
         .cases.symbolic.kind == "theme" and
         .cases.symbolic.name == "probefixture-symbolic" and
         .cases.symbolic.symbolic == true and
         .cases.symbolic.status == 1
    ' "$result_file" >/dev/null; then
-    pass "[isolated-runtime] AppIconResolver renders an absolute path, a file:// URI, a bare theme name, the themed image://icon/foot value (Image.Ready), desktop-entry-only foot/ghostty/chromium/chatgpt, XDG_DATA_HOME, per-user Flatpak export, and XDG_DATA_HOME AppStream metadata, the foot/ghostty window-class fallback, an inline image-data value, an honest application-x-executable default, a durable value used as-is, and a dangling durable value rejected to the default"
+    pass "[isolated-runtime] AppIconResolver renders an absolute path, a file:// URI, a bare theme name, the themed image://icon/foot value (Image.Ready), desktop-entry-only foot/ghostty/chromium/chatgpt, XDG_DATA_HOME, per-user Flatpak export, and XDG_DATA_HOME AppStream metadata, the foot/ghostty window-class fallback, an inline image-data value, a deliberate no-icon default (kind default, empty source/name), a durable value used as-is, and a dangling durable value rejected to the no-icon default"
 elif runtime_log_has_environment_diagnostic "$runtime_log" &&
      runtime_skip_if_environment_only "$runtime_log" "[isolated-runtime] AppIconResolver fixture cannot create a disposable runtime backend"; then
     :

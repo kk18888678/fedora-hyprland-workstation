@@ -107,6 +107,13 @@ Item {
         var delegate = taskRepeater.itemAt(index)
         return delegate ? delegate.iconPreservesColors : false
     }
+    // Isolated-fixture read-out: whether the delegate's icon primitive actually
+    // has something to draw. An unresolvable window reports false, so the
+    // fixture proves the slot is not reserving blank space for a placeholder.
+    function iconReadyAt(index) {
+        var delegate = taskRepeater.itemAt(index)
+        return delegate ? delegate.iconReady : false
+    }
 
     Loader {
         id: menuLoader
@@ -177,6 +184,10 @@ Item {
                     opacity: modelData.activated ? 1.0 : 0.65
                 }
                 readonly property bool iconPreservesColors: taskIcon.preserveColors
+                // The shared primitive reports whether the artwork actually
+                // decoded. When it did not, the delegate draws no icon rather
+                // than a Qt placeholder.
+                readonly property bool iconReady: taskIcon.hasIcon
 
                 MouseArea {
                     anchors.fill: parent

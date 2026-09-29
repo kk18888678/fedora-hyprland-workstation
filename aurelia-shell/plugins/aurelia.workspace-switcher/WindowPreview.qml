@@ -54,6 +54,12 @@ Item {
     readonly property string iconSource: String(root.iconResolution.source || "")
     readonly property bool symbolicIcon: root.iconResolution.symbolic === true
     readonly property bool iconPreservesColors: windowIcon.preserveColors
+    // Isolated-fixture read-outs. `iconReady` is the shared primitive's
+    // drawable outcome; `iconSlotVisible` is the bottom-overlay slot. An
+    // unresolvable window must report both false so the slot collapses instead
+    // of reserving blank space.
+    readonly property bool iconReady: windowIcon.hasIcon
+    readonly property bool iconSlotVisible: windowIcon.visible
     onAppIdChanged: root.refreshIconResolution()
     onAppEntryChanged: root.refreshIconResolution()
     Connections {
@@ -158,6 +164,9 @@ Item {
                 preserveColors: !root.symbolicIcon
                 tint: Theme.text
                 opacity: 0.9
+                // The centred fallback artwork collapses when unavailable so
+                // the title is not pushed around by a blank 24 px slot.
+                visible: previewIcon.hasIcon
             }
 
             Text {
@@ -194,11 +203,14 @@ Item {
                     sourcePath: root.iconSource
                     preserveColors: !root.symbolicIcon
                     tint: Theme.text
+                    // A Row skips invisible children, so the title takes the
+                    // reclaimed width instead of leaving an empty icon gap.
+                    visible: windowIcon.hasIcon
                 }
 
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Math.max(1, parent.width - 20)
+                    width: Math.max(1, parent.width - (windowIcon.visible ? 20 : 0))
                     text: root.windowTitle
                     color: Theme.text
                     font.family: Theme.fontFamilyResolved

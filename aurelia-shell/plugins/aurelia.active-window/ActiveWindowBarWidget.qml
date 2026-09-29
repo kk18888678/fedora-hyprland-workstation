@@ -190,7 +190,11 @@ Item {
     // canvas so the layout rhythm and hit area do not change.
     readonly property int trayIcon: root.bar && root.bar.barTrayIcon
         ? root.bar.barTrayIcon : Theme.bar.trayIcon
-    readonly property bool hasIcon: root.iconSource !== ""
+    // The slot collapses unless the shared primitive actually has drawable
+    // artwork. Binding to the primitive's readiness (not merely a non-empty
+    // source string) means a failed image decode collapses the slot instead of
+    // reserving 16 px of blank space for what would have been a placeholder.
+    readonly property bool hasIcon: windowIcon.hasIcon
 
     // Real application logos are multi-colour artwork, but the shared icon
     // primitive colorizes with Qt's luminance-multiplied duotone, which
