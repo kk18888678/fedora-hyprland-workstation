@@ -442,7 +442,7 @@ process.exit(ok ? 0 : 1);
     ui_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$ui_test"
     cat >>"$ui_test" <<'AGENT_UI_EXPORTS'
-module.exports = { dayTokens, todayUsage, todayModels, modelRowsFrom, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, bindingLimit, severityForLimit, overallSeverity, paceInfo, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill };
+module.exports = { dayTokens, todayUsage, todayModels, modelRowsFrom, planLabel, freshnessPill, formatResetAbsolute, paceLabel, providerWorstLabel, recordHasError, providerState, barState, billingSummary, subscriptionRows, bindingLimit, severityForLimit, overallSeverity, paceInfo, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, isAlertSeverity, presentationOpacityFor, severityGlyph };
 AGENT_UI_EXPORTS
     if node -e '
 const A = require(process.argv[1]);
@@ -489,8 +489,10 @@ const ok =
     A.barState([base], now, { staleMs: 1800000 }).tint === "warning" &&
     A.barState([base], now, { staleMs: 1800000 }).dot === true &&
     A.barState([base], now, { staleMs: 60000 }).key === "stale" &&
-    A.barState([base], now, { staleMs: 60000 }).opacity === 0.6 &&
-    A.barState([base], now, { staleMs: 60000 }).dot === false &&
+    // P1/P2: a stale WARN is still an alert -- full strength and its dot.
+    A.barState([base], now, { staleMs: 60000 }).severity === "warn" &&
+    A.barState([base], now, { staleMs: 60000 }).opacity === 1.0 &&
+    A.barState([base], now, { staleMs: 60000 }).dot === true &&
     A.barState([Object.assign({}, base, { retryAdvised: true })], now, {}).key === "rate-limited" &&
     A.barState([Object.assign({}, base, { authHelpText: "x", usageStatusText: "Codex unavailable" })], now, {}).key === "error" &&
     A.barState([Object.assign({}, base, { authHelpText: "x", usageStatusText: "Codex unavailable" })], now, {}).dot === true &&
@@ -505,14 +507,48 @@ const ok =
     A.providerState(okRec, now, { staleMs: 1800000 }).key === "ready" &&
     A.providerState(base, now, { staleMs: 1800000 }).key === "warn" &&
     A.providerState(base, now, { staleMs: 60000 }).key === "stale" &&
-    A.providerState(base, now, { staleMs: 60000 }).opacity === 0.6 &&
+    // P1: a stale WARN is never dimmed.
+    A.providerState(base, now, { staleMs: 60000 }).opacity === 1.0 &&
     A.providerState(Object.assign({}, base, { retryAdvised: true }), now, { staleMs: 60000 }).key === "rate-limited" &&
     A.providerState(Object.assign({}, base, { authHelpText: "x", usageStatusText: "Codex unavailable" }), now, { staleMs: 60000 }).key === "error" &&
     A.providerState({ id: "x", ready: true, limits: [] }, now, {}).key === "unknown" &&
     A.providerState({ id: "x", ready: true, limits: [] }, now, {}).message === "No live limit reported" &&
     A.providerState(null, now, { loading: true }).key === "loading" &&
     A.providerState(null, now, {}).key === "empty";
-process.exit(ok ? 0 : 1);
+// ---------------------------------------------------------------------
+// P1/P2/P3 structural matrix: severity in {ok,warn,critical} x stale in
+// {true,false}. An alert (warn/critical) is NEVER dimmed and always keeps its
+// non-colour dot; a dimmed state is never an alert; the severity glyphs stay
+// distinct and non-empty and resolve to full opacity for warn/critical.
+// ---------------------------------------------------------------------
+const matrixOk = (function () {
+    const cases = [["ok", false], ["ok", true], ["warn", false], ["warn", true], ["critical", false], ["critical", true]];
+    for (let i = 0; i < cases.length; i++) {
+        const severity = cases[i][0];
+        const stale = cases[i][1];
+        const pct = severity === "critical" ? 0.95 : (severity === "warn" ? 0.8 : 0.1);
+        const record = { id: "m-" + severity + "-" + stale, name: "Matrix", ready: true, detected: true,
+            updatedAt: new Date(stale ? now - 3600000 : now).toISOString(),
+            limits: [{ label: "5h", percent: pct, windowMinutes: 300, resetsAt: new Date(now + 3600000).toISOString() }] };
+        const ps = A.providerState(record, now, { staleMs: 60000 });
+        const bs = A.barState([record], now, { staleMs: 60000 });
+        const expectedOpacity = A.isAlertSeverity(severity) ? 1.0 : (stale ? 0.6 : 1.0);
+        if (ps.severity !== severity || bs.severity !== severity) return false;
+        if (ps.opacity !== expectedOpacity || bs.opacity !== expectedOpacity) return false;
+        if (ps.dot !== (severity !== "ok") || bs.dot !== (severity !== "ok")) return false;
+        if (ps.opacity < 1.0 && A.isAlertSeverity(ps.severity)) return false;
+        if (bs.opacity < 1.0 && A.isAlertSeverity(bs.severity)) return false;
+    }
+    if (A.severityGlyph("warn") === "" || A.severityGlyph("critical") === "") return false;
+    if (A.severityGlyph("warn") === A.severityGlyph("critical")) return false;
+    if (A.severityGlyph("ok") !== "") return false;
+    if (A.presentationOpacityFor("warn", true, 0.6) !== 1.0) return false;
+    if (A.presentationOpacityFor("critical", true, 0.45) !== 1.0) return false;
+    if (A.presentationOpacityFor("ok", true, 0.6) !== 0.6) return false;
+    if (A.isAlertSeverity("warn") !== true || A.isAlertSeverity("critical") !== true || A.isAlertSeverity("ok") !== false) return false;
+    return true;
+})();
+process.exit((ok && matrixOk) ? 0 : 1);
 ' "$ui_test" >/dev/null; then
         pass "[unit] agents UI projection covers billable/cache split, states, pace and provider labels"
     else
@@ -547,9 +583,9 @@ assert(A.windowDescription("month") === "30-day rolling window");
 assert(A.windowColumnLabel("five_hour") === "5H");
 // Fixed deterministic order: name ascending, id tiebreak.
 const rows = A.matrixRows(records, now);
-assert(rows.length === 7, "7 rows");
-assert(rows.map(r => r.name).join(",") === "Augment,Claude Code,Cline,Codex,Fireworks,OpenCode,OpenCode Blocked", "order");
-assert(A.accountOrder(records).map(r => r.id).join(",") === "augment,claude,cline,codex,fireworks,opencode,opencode-blocked", "ids");
+assert(rows.length === 8, "8 rows");
+assert(rows.map(r => r.name).join(",") === "Augment,Claude Code,Cline,Codex,Fireworks,OpenCode,OpenCode Blocked,OpenCode Dual", "order");
+assert(A.accountOrder(records).map(r => r.id).join(",") === "augment,claude,cline,codex,fireworks,opencode,opencode-blocked,opencode-dual", "ids");
 assert(A.accountOrder([{id: "b", name: "Same", ready: true}, {id: "a", name: "Same", ready: true}]).map(r => r.id).join(",") === "a,b", "id tiebreak");
 const byId = {};
 rows.forEach(r => { byId[r.id] = r; });
@@ -571,6 +607,17 @@ assert(byId["opencode-blocked"].bindingWindowClass === "week");
 assert(byId["opencode-blocked"].windows.five_hour.muted === true, "non-binding fresh window is muted");
 assert(byId["opencode-blocked"].windows.week.isBinding === true, "exhausted weekly window is the binding cell");
 assert(byId["opencode-blocked"].windows.week.percentText === "0%");
+// P1: a non-binding window that is ITSELF critical/warn is never muted. The
+// old rule dimmed every non-binding cell whenever the account was blocked,
+// erasing a second simultaneous alarm; the `opencode-blocked` fixture (5h 5%
+// ok, week 100% critical) could not exercise that case, so `opencode-dual`
+// carries two >=90% windows with only one binding.
+assert(byId["opencode-dual"].headlineText === "Blocked" && byId["opencode-dual"].headlineSeverity === "critical");
+assert(byId["opencode-dual"].windows.five_hour.severity === "critical");
+assert(byId["opencode-dual"].windows.five_hour.isBinding === true, "dual account binding cell");
+assert(byId["opencode-dual"].windows.week.severity === "critical");
+assert(byId["opencode-dual"].windows.week.isBinding === false, "second >=90% window is non-binding");
+assert(byId["opencode-dual"].windows.week.muted === false, "critical non-binding window is NOT dimmed");
 assert(byId.augment.headlineText === "Blocked" && byId.augment.headlineSeverity === "critical");
 assert(byId.claude.headlineText === "no live limits");
 // BOTH MODES: the SAME limit renders 90% used and 10% remaining, and severity
@@ -641,7 +688,7 @@ assert(A.todayUsage(totalOnly).cache === 0);
 // Tab selection reconciliation is by id, then a clamped index.
 assert(A.reconcileSelection("claude", 9, rows) === 1, "id wins over stale index");
 assert(A.reconcileSelection("gone", 4, rows) === 4, "clamped fallback index");
-assert(A.reconcileSelection("gone", 99, rows) === 6, "clamped to last");
+assert(A.reconcileSelection("gone", 99, rows) === 7, "clamped to last");
 assert(A.reconcileSelection("", 0, rows) === 0);
 assert(A.reconcileSelection("x", 0, []) === -1);
 // Non-colour severity glyphs.
@@ -1693,7 +1740,7 @@ AGENTS_DASHBOARD_BACKEND_ERROR="usage backend failed" \
     --path "$ROOT/tests/fixtures/agents-dashboard/shell.qml" >"$preview_log" 2>&1 || preview_status=$?
 
 if [[ "$preview_status" -eq 0 && -s "$preview_image" && -s "$preview_result" ]] &&
-   jq -e '.records == 7 and .rows == 7 and .showBalance == true and
+   jq -e '.records == 8 and .rows == 8 and .showBalance == true and
           .selected == "codex" and .imageSaved == true' "$preview_result" >/dev/null &&
    runtime_log_is_environment_only "$preview_log" '(\[AGENTS\]|result\.json)' >/dev/null &&
    grep -q '\[AGENTS\] unmet_condition provider=codex condition=missing_window_minutes' "$preview_log" &&

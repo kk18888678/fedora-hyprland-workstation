@@ -289,6 +289,39 @@
       "activeDays": 1,
       "activeDates": ["2026-09-19"],
       "modelUsage": {}
+    },
+    {
+      "schemaVersion": 1,
+      "id": "opencode-dual",
+      "name": "OpenCode Dual",
+      "updatedAt": "2026-09-19T11:56:00Z",
+      "ready": true,
+      "detected": true,
+      "hasLocalStats": true,
+      "hasPromptStats": true,
+      "supportedWindowMinutes": [300, 10080, 43200],
+      "scope": "device",
+      "tierLabel": "Go",
+      "todayLabel": "sessions",
+      "retryAdvised": false,
+      "usageStatusText": "",
+      "authHelpText": "",
+      "limits": [
+        { "label": "5h window", "percent": 0.92, "windowMinutes": 300, "resetsAt": "2026-09-19T15:00:00Z" },
+        { "label": "Weekly (7-day)", "percent": 0.94, "windowMinutes": 10080, "resetsAt": "2026-09-21T12:00:00Z" }
+      ],
+      "todayPrompts": 1,
+      "todaySessions": 1,
+      "todayTotalTokens": 400,
+      "todayBillableTokens": 400,
+      "todayCacheTokens": 0,
+      "todayTokensByModel": {},
+      "recentDays": [],
+      "totalPrompts": 1,
+      "totalSessions": 1,
+      "activeDays": 1,
+      "activeDates": ["2026-09-19"],
+      "modelUsage": {}
     }
   ]
 }

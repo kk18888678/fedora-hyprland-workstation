@@ -45,6 +45,8 @@ fi
 measure() {
     local width="$1" result="$2" log="$3"
     local mode="${4:-remaining}"
+    local select="${5:-codex}"
+    local stale_ms="${6:-1800000}"
     local sandbox
     sandbox="$(mktemp -d)"
     local status=0
@@ -59,7 +61,8 @@ measure() {
     AGENTS_DASHBOARD_RESULT="$result" \
     AGENTS_DASHBOARD_WIDTH="$width" \
     AGENTS_DASHBOARD_PERCENT_MODE="$mode" \
-    AGENTS_DASHBOARD_SELECT="codex" \
+    AGENTS_DASHBOARD_SELECT="$select" \
+    AGENTS_DASHBOARD_STALE_MS="$stale_ms" \
         /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
         --path "$harness" >"$log" 2>&1 || status=$?
     rm -rf -- "$sandbox" || true
@@ -135,7 +138,7 @@ assert_runtime_log_clean() {
     # for every awkward fixture field, and each harness FileView reports its
     # not-yet-written result path. Both are expected test evidence, not
     # production warnings; everything else must be environment-only.
-    local expected='(\[AGENTS\]|@alignment\.qml|@interaction\.qml)'
+    local expected="${3:-(\[AGENTS\]|@alignment\.qml|@interaction\.qml)}"
     if runtime_log_is_environment_only "$log" "$expected"; then
         pass "[isolated-runtime] $label runtime log contains only environment and expected fixture diagnostics"
     else
@@ -250,3 +253,125 @@ else
     fail "[isolated-runtime] close/refresh interaction regressed (status=$interaction_status result=$(cat "$interaction_result" || true))"
 fi
 assert_runtime_log_clean "$interaction_log" "close/refresh interaction"
+
+# ---------------------------------------------------------------------------
+# Alert dimming policy (P1/P2): a warn/critical matrix cell must never be
+# dimmed, not even when it is not the binding constraint, and its non-colour
+# glyph/percent/meter must keep effective opacity 1.0. The `opencode-dual`
+# fixture has TWO >=90% windows where only one is binding, which the previous
+# `opencode-blocked` fixture (5h 5% ok, week 100% critical) did not exercise.
+# The non-alert case (an ok, non-binding cell) must still dim, unchanged.
+# ---------------------------------------------------------------------------
+alert_result="$alignment_root/alert.json"
+alert_log="$alignment_root/alert.log"
+alert_status=0
+measure 480 "$alert_result" "$alert_log" remaining "opencode-dual" 1800000 || alert_status=$?
+if [[ "$alert_status" -eq 0 && -s "$alert_result" ]] &&
+   jq -e '
+        . as $r
+        | ([ $r.cells[] | select(.severity == "warn" or .severity == "critical") ]) as $alerts
+        | ([ $r.cells[] | select((.severity == "warn" or .severity == "critical") and .isBinding == false) ] | length) as $nonBindingAlerts
+        | ($nonBindingAlerts >= 1)
+          and ([ $alerts[] | .effectiveOpacity ] | map(. >= 0.999) | all)
+          and ([ $alerts[] as $a
+                 | ([ $r.percentages[] | select(.row == $a.row and .column == $a.column)][0]) as $p
+                 | ([ $r.meters[] | select(.row == $a.row and .column == $a.column)][0]) as $m
+                 | (($p != null) and ($p.effectiveOpacity >= 0.999) and
+                    ($m != null) and ($m.effectiveOpacity >= 0.999)) ] | map(.) | all)
+          and ([ $r.cells[] | select(.severity == "ok" and .isBinding == false and .effectiveOpacity <= 0.46) ] | length) >= 1
+   ' "$alert_result" >/dev/null; then
+    pass "[isolated-runtime] alert policy: warn/critical cells (including non-binding) keep effective opacity 1.0 while ok non-binding cells still dim"
+else
+    fail "[isolated-runtime] alert policy: an alert matrix cell was dimmed by an ancestor (status=$alert_status result=$(jq -c '[.cells[] | select(.severity=="warn" or .severity=="critical")]' "$alert_result" || true))"
+fi
+assert_runtime_log_clean "$alert_log" "alert opacity"
+
+# ---------------------------------------------------------------------------
+# Stale detail pane (P2): staleness is additive. With a stale account whose
+# binding window is critical, the alert limit row still renders at effective
+# opacity 1.0 (previously the whole detail pane dropped to 0.6), while the
+# non-alert ok rows carry the stale dim.
+# ---------------------------------------------------------------------------
+stale_result="$alignment_root/stale-detail.json"
+stale_log="$alignment_root/stale-detail.log"
+stale_status=0
+measure 480 "$stale_result" "$stale_log" remaining "opencode" 60000 || stale_status=$?
+if [[ "$stale_status" -eq 0 && -s "$stale_result" ]] &&
+   jq -e '
+        . as $r
+        | ($r.staleMs == 60000)
+          and ([ $r.detailRows[] | select(.severity == "critical") ] | length) >= 1
+          and ([ $r.detailRows[] | select(.severity == "critical") | .effectiveOpacity ] | map(. >= 0.999) | all)
+          and ([ $r.detailRows[] | select(.severity == "ok") ] | length) >= 1
+          and ([ $r.detailRows[] | select(.severity == "ok") | .effectiveOpacity ] | map(. <= 0.61) | all)
+   ' "$stale_result" >/dev/null; then
+    pass "[isolated-runtime] stale detail pane: alert rows stay at effective opacity 1.0 while non-alert rows carry the stale dim"
+else
+    fail "[isolated-runtime] stale detail pane dimmed an alert row (status=$stale_status result=$(jq -c '.staleMs, .detailRows' "$stale_result" || true))"
+fi
+assert_runtime_log_clean "$stale_log" "stale detail pane"
+
+# ---------------------------------------------------------------------------
+# Measured render: with a critical fixture, the alert token must survive to the
+# composited pixels at full opacity and clear 4.5:1 against the sampled
+# background. The fixture theme pins the error token so this assertion is
+# independent of the wallpaper-palette task.
+# ---------------------------------------------------------------------------
+if ! command -v magick >/dev/null; then
+    skip "[isolated-runtime] ImageMagick is required for the measured alert-contrast render"
+elif ! command -v python3 >/dev/null; then
+    skip "[isolated-runtime] python3 is required for the measured alert-contrast render"
+else
+    render_theme="$ROOT/tests/fixtures/agents-dashboard/alert-contrast-theme.conf"
+    render_root="$alignment_root/alert-render"
+    render_image="$render_root/alert.png"
+    render_result="$render_root/result.json"
+    render_log="$render_root/render.log"
+    mkdir -p -- "$render_root"
+    render_status=0
+    QT_QPA_PLATFORM=offscreen \
+    WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$render_root/runtime" \
+    XDG_CONFIG_HOME="$render_root/config" \
+    XDG_STATE_HOME="$render_root/state" \
+    XDG_CACHE_HOME="$render_root/cache" \
+    AURELIA_THEME_CONF="$render_theme" \
+    AGENTS_DASHBOARD_PLUGIN="$plugin_dir/AgentsDashboard.qml" \
+    AGENTS_DASHBOARD_FIXTURE="$fixture" \
+    AGENTS_DASHBOARD_IMAGE="$render_image" \
+    AGENTS_DASHBOARD_RESULT="$render_result" \
+    AGENTS_DASHBOARD_SELECT="opencode-dual" \
+        /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/tests/fixtures/agents-dashboard/shell.qml" >"$render_log" 2>&1 || render_status=$?
+
+    if [[ "$render_status" -eq 0 && -s "$render_image" ]]; then
+        hist="$(magick "$render_image" -depth 8 -format %c histogram:info:- || true)"
+        error_count="$(printf '%s\n' "$hist" | grep -ciE '#eb6f92' || true)"
+        bg_hex="$(printf '%s\n' "$hist" | sort -t: -k1,1nr | head -1 | grep -oiE '#[0-9a-f]{6}' | head -1 || true)"
+        if [[ -n "$bg_hex" && -n "$error_count" && "$error_count" =~ ^[0-9]+$ ]]; then
+            contrast="$(python3 - '#eb6f92' "$bg_hex" <<'CONTRAST_PY'
+import sys
+def lum(h):
+    h = h.lstrip('#')
+    r, g, b = (int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    def lin(c):
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+a, b = lum(sys.argv[1]), lum(sys.argv[2])
+print("%.2f" % ((max(a, b) + 0.05) / (min(a, b) + 0.05)))
+CONTRAST_PY
+)"
+        else
+            contrast=""
+        fi
+        if (( error_count > 0 )) && [[ -n "$contrast" ]] &&
+           awk -v c="$contrast" 'BEGIN { exit !(c >= 4.5) }'; then
+            pass "[isolated-runtime] measured render: the full-strength alert token #eb6f92 persists against sampled background $bg_hex at ${contrast}:1 (>= 4.5:1)"
+        else
+            fail "[isolated-runtime] measured render: the alert token did not survive at full contrast (error_pixels=$error_count background=$bg_hex contrast=${contrast:-n/a})"
+        fi
+    else
+        fail "[isolated-runtime] measured alert render failed (status=$render_status image=$( [[ -s "$render_image" ]] && printf yes || printf no ))"
+    fi
+    assert_runtime_log_clean "$render_log" "measured alert render" '(\[AGENTS\]|result\.json|@shell\.qml)'
+fi
