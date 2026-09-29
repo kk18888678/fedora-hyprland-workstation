@@ -1,0 +1,16 @@
+[Unit]
+Description=Capture notification origins for exact focus navigation
+# Unprivileged per-user monitor. It observes the session bus without owning
+# org.freedesktop.Notifications, so it starts after the user bus and the
+# graphical session. It has no privileges and never runs as root.
+After=dbus-broker.service graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/workstation-notification-focus serve
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

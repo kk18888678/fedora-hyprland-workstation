@@ -1,0 +1,1698 @@
+#!/usr/bin/env python3
+"""Capture a notification's origin and navigate back to the exact place.
+
+The notification server (Quickshell) owns ``org.freedesktop.Notifications`` and
+does not expose the D-Bus sender to QML.  This helper observes the notification
+traffic without owning the bus name, correlates a ``Notify`` call with the
+``uint32`` id returned by the server (which is exactly ``Notification.id``), and
+resolves the sender process from its still-live unique name.
+
+There is exactly one owner of "capture the origin" and one owner of "focus the
+origin": this file.  ``workstation-herdr-focus`` is a thin compatibility shim.
+
+Modes
+-----
+serve
+    Long-running, unprivileged, per-user monitor.  It opens two session-bus
+    connections: a monitoring connection (``BecomeMonitor`` with exactly two
+    scoped rules) and a normal connection used for
+    ``GetConnectionUnixProcessID``.  It keeps a bounded, TTL-limited in-memory
+    ``id -> origin`` table and exposes it on a Unix socket under
+    ``$XDG_RUNTIME_DIR/aurelia/``.
+
+capture --id N [--app ... --summary ... --body ... --timestamp ...]
+    Query the monitor socket with a bounded wait and print the origin JSON.
+    On absence, timeout, or any failure it prints a minimal identity-only
+    record and always exits 0.  It must never block or fail the notification
+    itself.
+
+navigate --origin <json>
+    Resolve the origin against the live compositor/multiplexer and focus the
+    exact window/workspace/tab/pane.  This is the only mode that mutates focus.
+    It prints exactly one JSON outcome.
+
+Notification bodies are user content and are never written to a log.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.parse
+from collections import OrderedDict
+
+ORIGIN_VERSION = 1
+SOCKET_BASENAME = "notification-origin.sock"
+DEFAULT_TTL_SECONDS = 300
+DEFAULT_MAX_ENTRIES = 256
+DEFAULT_CAPTURE_TIMEOUT_MS = 200
+COMMAND_TIMEOUT_SECONDS = 5
+HERDR_COMMAND_TIMEOUT_SECONDS = 6
+
+# Focus-relevant environment keys captured from the sender process.  This is a
+# bounded allow-list: the notification body and unrelated environment are never
+# copied into the origin record.
+FOCUS_ENV_KEYS = (
+    "HERDR_WORKSPACE_ID",
+    "HERDR_TAB_ID",
+    "HERDR_PANE_ID",
+    "TMUX_PANE",
+    "ZELLIJ_PANE_ID",
+    "TERM_PROGRAM",
+    "KITTY_WINDOW_ID",
+    "WEZTERM_PANE",
+)
+
+# ``notify.hints`` is bounded to focus-relevant keys only.  Image data and
+# arbitrary sender payloads are never retained.
+FOCUS_HINT_KEYS = (
+    "desktop-entry",
+    "urgency",
+    "sender-pid",
+    "category",
+    "type",
+    "transient",
+    "resident",
+)
+
+TERMINAL_COMMS = (
+    "foot",
+    "footclient",
+    "kitty",
+    "alacritty",
+    "ghostty",
+    "wezterm",
+    "xterm",
+    "konsole",
+    "gnome-terminal",
+)
+
+_HERDR_SOCKET_FALLBACK = os.path.join(
+    os.path.expanduser("~"), ".config", "herdr", "herdr.sock"
+)
+
+_ANCHOR_RE = re.compile(
+    r"""<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')""",
+    re.IGNORECASE,
+)
+_BARE_URL_RE = re.compile(r"\b(https?://[^\s<>\"']+)", re.IGNORECASE)
+_CGROUP_APP_RE = re.compile(r"app-(.+)-([0-9]+)\.scope")
+_PANE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+
+
+def log(message: str) -> None:
+    """Emit a bounded diagnostic without notification content."""
+    try:
+        print("workstation-notification-focus: " + str(message), file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+def to_native(value):
+    """Convert D-Bus wrapper types into plain JSON-serializable Python."""
+    try:
+        if isinstance(value, dict):
+            return {str(k): to_native(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [to_native(v) for v in value]
+    except Exception:
+        return value
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except Exception:
+            pass
+    return value
+
+
+# ---------------------------------------------------------------------------
+# /proc inspection
+# ---------------------------------------------------------------------------
+
+
+def proc_root(explicit=None):
+    if explicit:
+        return explicit
+    return os.environ.get("AURELIA_PROC_ROOT") or "/proc"
+
+
+def _read_bytes(path, limit=262144):
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(limit)
+    except Exception:
+        return b""
+
+
+def read_cmdline(pid, root=None):
+    data = _read_bytes(os.path.join(proc_root(root), str(pid), "cmdline"))
+    if not data:
+        return ""
+    return data.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+
+
+def read_comm(pid, root=None):
+    data = _read_bytes(os.path.join(proc_root(root), str(pid), "comm"), 256)
+    return data.decode("utf-8", "replace").strip()
+
+
+def read_exe(pid, root=None):
+    try:
+        return os.readlink(os.path.join(proc_root(root), str(pid), "exe"))
+    except Exception:
+        return None
+
+
+def read_ppid(pid, root=None):
+    data = _read_bytes(os.path.join(proc_root(root), str(pid), "stat"), 4096)
+    if not data:
+        return 0
+    text = data.decode("utf-8", "replace")
+    try:
+        tail = text.rsplit(")", 1)[1].split()
+        return int(tail[1])
+    except Exception:
+        return 0
+
+
+def read_uid(pid, root=None):
+    data = _read_bytes(os.path.join(proc_root(root), str(pid), "status"), 4096)
+    for line in data.decode("utf-8", "replace").splitlines():
+        if line.startswith("Uid:"):
+            fields = line.split()
+            if len(fields) >= 2:
+                try:
+                    return int(fields[1])
+                except Exception:
+                    return None
+    return None
+
+
+def read_cgroup(pid, root=None):
+    data = _read_bytes(os.path.join(proc_root(root), str(pid), "cgroup"), 16384)
+    if not data:
+        return None
+    lines = [line for line in data.decode("utf-8", "replace").splitlines() if line.strip()]
+    if not lines:
+        return None
+    return lines[-1]
+
+
+def read_focus_env(pid, root=None):
+    """Return the bounded focus-relevant environment of a live process."""
+    data = _read_bytes(os.path.join(proc_root(root), str(pid), "environ"))
+    if not data:
+        return {}
+    env = {}
+    for entry in data.split(b"\0"):
+        if b"=" not in entry:
+            continue
+        key, _, value = entry.partition(b"=")
+        try:
+            name = key.decode("utf-8", "replace")
+        except Exception:
+            continue
+        if name in FOCUS_ENV_KEYS:
+            env[name] = value.decode("utf-8", "replace")
+    return env
+
+
+def walk_ancestry(pid, root=None, limit=8):
+    """Return a bounded [{pid, comm}] chain from pid up toward the session."""
+    chain = []
+    seen = set()
+    current = pid
+    while current and current > 1 and len(chain) < limit and current not in seen:
+        seen.add(current)
+        comm = read_comm(current, root)
+        if not comm:
+            break
+        chain.append({"pid": current, "comm": comm})
+        current = read_ppid(current, root)
+    return chain
+
+
+def derive_app_id(cgroup):
+    """Derive the systemd scope app id from a cgroup path."""
+    if not cgroup:
+        return None
+    match = _CGROUP_APP_RE.search(cgroup)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def derive_flatpak_id(app_id):
+    if not app_id:
+        return None
+    if app_id.startswith("flatpak-"):
+        return app_id[len("flatpak-"):]
+    return None
+
+
+def bounded_hints(raw):
+    if not raw:
+        return {}
+    try:
+        keys = [key for key in FOCUS_HINT_KEYS if key in raw]
+    except Exception:
+        return {}
+    return {key: to_native(raw[key]) for key in keys}
+
+
+def extract_origin_url(body):
+    """Recover a conservative ``scheme://host[:port]`` origin from a body.
+
+    Chromium auto-prepends an HTML anchor carrying the page origin.  The exact
+    path and tab identity are never carried, so only the origin is recovered.
+    """
+    if not body or not isinstance(body, str):
+        return None
+    candidates = []
+    for match in _ANCHOR_RE.finditer(body):
+        candidates.append((match.group(1) or match.group(2) or "").strip())
+    for match in _BARE_URL_RE.finditer(body):
+        candidates.append(match.group(1).strip())
+    for href in candidates:
+        try:
+            parsed = urllib.parse.urlsplit(href)
+        except Exception:
+            continue
+        if parsed.scheme not in ("http", "https"):
+            continue
+        if not parsed.netloc:
+            continue
+        return "%s://%s" % (parsed.scheme, parsed.netloc)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Origin record schema
+# ---------------------------------------------------------------------------
+
+
+def empty_sender():
+    return {
+        "uniqueName": None,
+        "pid": None,
+        "pidSource": "absent",
+        "uid": None,
+        "comm": None,
+        "exe": None,
+        "cmdline": None,
+        "cgroup": None,
+        "appId": None,
+        "flatpakId": None,
+        "ancestry": [],
+        "focusEnv": {},
+    }
+
+
+def empty_compositor():
+    return {
+        "matched": False,
+        "matchConfidence": "none",
+        "address": None,
+        "stableId": None,
+        "pid": None,
+        "class": None,
+        "initialClass": None,
+        "title": None,
+        "initialTitle": None,
+        "workspaceId": None,
+        "workspaceName": None,
+        "monitor": None,
+        "focusHistoryID": None,
+        "activeAtArrival": False,
+        "candidates": [],
+    }
+
+
+def empty_tab():
+    return {"kind": None, "workspaceId": None, "tabId": None, "paneId": None}
+
+
+def new_origin(notify_id=None, captured_at=None, quality="identity", source="identity"):
+    return {
+        "originVersion": ORIGIN_VERSION,
+        "capturedAt": int(captured_at) if captured_at else int(time.time() * 1000),
+        "notifyId": int(notify_id) if notify_id is not None else None,
+        "captureQuality": quality,
+        "captureSource": source,
+        "sender": empty_sender(),
+        "notify": {
+            "appName": None,
+            "desktopEntry": None,
+            "summary": None,
+            "body": None,
+            "urgency": None,
+            "hints": {},
+        },
+        "compositor": empty_compositor(),
+        "tab": empty_tab(),
+        "originUrl": None,
+    }
+
+
+def build_identity_origin(
+    notify_id,
+    app=None,
+    summary=None,
+    body=None,
+    timestamp=None,
+    desktop_entry=None,
+    urgency=None,
+    hints=None,
+):
+    origin = new_origin(notify_id=notify_id, captured_at=timestamp)
+    origin["captureQuality"] = "identity"
+    origin["captureSource"] = "identity"
+    origin["notify"]["appName"] = app
+    origin["notify"]["desktopEntry"] = desktop_entry
+    origin["notify"]["summary"] = summary
+    origin["notify"]["body"] = body
+    origin["notify"]["urgency"] = urgency
+    origin["notify"]["hints"] = hints or {}
+    recovered = extract_origin_url(body)
+    if recovered:
+        origin["captureQuality"] = "origin"
+        origin["originUrl"] = recovered
+    return origin
+
+
+# ---------------------------------------------------------------------------
+# Deterministic correlation state machine
+# ---------------------------------------------------------------------------
+
+
+class CorrelationTable:
+    """Exact ``(sender, serial) -> id -> origin`` correlation.
+
+    A ``Notify`` call is keyed by ``(sender unique name, serial)``.  The reply is
+    keyed by ``(reply destination, reply_serial)``.  Keying by serial alone is
+    wrong because serials are per-connection and two senders can use the same
+    serial concurrently.  There is no field/body/timestamp matching.
+    """
+
+    def __init__(self, ttl_seconds=DEFAULT_TTL_SECONDS, max_entries=DEFAULT_MAX_ENTRIES, clock=None):
+        self._lock = threading.RLock()
+        self._ttl = float(ttl_seconds)
+        self._max = int(max_entries)
+        self._clock = clock or time.monotonic
+        self._pending = {}
+        self._origins = OrderedDict()
+
+    def begin_call(
+        self,
+        sender,
+        serial,
+        notify_fields=None,
+        sender_pid=None,
+        pid_source="absent",
+        capture=None,
+        captured_at=None,
+    ):
+        origin = new_origin(captured_at=captured_at)
+        origin["sender"]["uniqueName"] = str(sender)
+        origin["sender"]["pid"] = sender_pid
+        origin["sender"]["pidSource"] = pid_source
+        fields = notify_fields or {}
+        origin["notify"]["appName"] = fields.get("appName")
+        origin["notify"]["desktopEntry"] = fields.get("desktopEntry")
+        origin["notify"]["summary"] = fields.get("summary")
+        origin["notify"]["body"] = fields.get("body")
+        origin["notify"]["urgency"] = fields.get("urgency")
+        origin["notify"]["hints"] = fields.get("hints") or {}
+        if sender_pid is not None:
+            origin["captureQuality"] = "exact"
+            origin["captureSource"] = (
+                "bus-monitor" if pid_source == "dbus-getconnectionunixprocessid" else "sender-pid-hint"
+            )
+        if capture is not None:
+            try:
+                capture(origin)
+            except Exception as exc:  # noqa: BLE001 - capture must never abort
+                log("capture_failed: %s" % (exc,))
+        deadline = self._clock() + self._ttl
+        with self._lock:
+            self._pending[(str(sender), int(serial))] = (origin, deadline)
+            self._prune_locked()
+        return origin
+
+    def complete_call(self, destination, reply_serial, notify_id):
+        try:
+            key = (str(destination), int(reply_serial))
+        except Exception:
+            return None
+        with self._lock:
+            entry = self._pending.pop(key, None)
+            if entry is None and destination is None:
+                # Defensive fallback: if the bus did not expose the reply
+                # destination, only resolve when the serial is unambiguous.
+                candidates = [k for k in self._pending if k[1] == int(reply_serial)]
+                if len(candidates) == 1:
+                    entry = self._pending.pop(candidates[0], None)
+            if entry is None:
+                return None
+            origin, _ = entry
+            origin["notifyId"] = int(notify_id)
+            self._origins[int(notify_id)] = (origin, self._clock() + self._ttl)
+            self._origins.move_to_end(int(notify_id))
+            self._prune_locked()
+            return origin
+
+    def get(self, notify_id):
+        try:
+            key = int(notify_id)
+        except Exception:
+            return None
+        with self._lock:
+            self._prune_locked()
+            entry = self._origins.get(key)
+            if entry is None:
+                return None
+            return copy.deepcopy(entry[0])
+
+    def pending_count(self):
+        with self._lock:
+            self._prune_locked()
+            return len(self._pending)
+
+    def origin_count(self):
+        with self._lock:
+            self._prune_locked()
+            return len(self._origins)
+
+    def _prune_locked(self):
+        now = self._clock()
+        for key in [k for k, (_, deadline) in self._pending.items() if deadline <= now]:
+            del self._pending[key]
+        for key in [k for k, (_, deadline) in self._origins.items() if deadline <= now]:
+            del self._origins[key]
+        while len(self._origins) > self._max:
+            self._origins.popitem(last=False)
+
+
+# ---------------------------------------------------------------------------
+# Live capture (process + compositor + tab context)
+# ---------------------------------------------------------------------------
+
+
+class HyprctlSnapshot:
+    """Short-lived cache of ``hyprctl clients -j`` / ``activewindow -j``."""
+
+    def __init__(self, hyprctl_path=None, ttl_ms=150):
+        self._path = hyprctl_path
+        self._ttl = ttl_ms / 1000.0
+        self._lock = threading.Lock()
+        self._clients = None
+        self._active = None
+        self._at = 0.0
+
+    def _refresh(self):
+        now = time.monotonic()
+        if self._clients is not None and (now - self._at) < self._ttl:
+            return
+        clients = []
+        active = None
+        path = self._path or shutil.which("hyprctl")
+        if path:
+            clients = hyprctl_clients(path)
+            active = hyprctl_activewindow(path)
+        self._clients = clients
+        self._active = active
+        self._at = now
+
+    def clients(self):
+        with self._lock:
+            self._refresh()
+            return self._clients
+
+    def active_address(self):
+        with self._lock:
+            self._refresh()
+            active = self._active or {}
+            return active.get("address")
+
+
+def hyprctl_clients(path):
+    result = run_command([path, "clients", "-j"], timeout=COMMAND_TIMEOUT_SECONDS)
+    if result is None or result.returncode != 0:
+        return []
+    try:
+        data = json.loads(result.stdout or "[]")
+    except Exception:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def hyprctl_activewindow(path):
+    result = run_command([path, "activewindow", "-j"], timeout=COMMAND_TIMEOUT_SECONDS)
+    if result is None or result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout or "{}")
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def match_compositor(clients, active_address, origin):
+    """Match the origin's sender ancestry against the arrival client list."""
+    comp = origin["compositor"]
+    sender = origin["sender"]
+    notify = origin["notify"]
+    pids = []
+    if sender.get("pid"):
+        pids.append(sender["pid"])
+    for ancestor in sender.get("ancestry") or []:
+        pids.append(ancestor.get("pid"))
+    matched = None
+    confidence = "none"
+    for pid in pids:
+        for client in clients:
+            try:
+                if int(client.get("pid") or -1) == int(pid):
+                    matched = client
+                    confidence = "pid"
+                    break
+            except Exception:
+                continue
+        if matched:
+            break
+    if matched is None:
+        names = {
+            notify.get("desktopEntry"),
+            notify.get("appName"),
+            sender.get("appId"),
+        }
+        names.discard(None)
+        matches = []
+        for client in clients:
+            if (client.get("class") in names) or (client.get("initialClass") in names):
+                matches.append(client)
+        if len(matches) == 1:
+            matched = matches[0]
+            confidence = "class"
+        elif len(matches) > 1:
+            matched = pick_tie(matches, origin, active_address)
+            confidence = "class+title"
+    if matched is not None:
+        apply_client_to_compositor(comp, matched, active_address)
+        if confidence == "class" or confidence == "class+title":
+            comp["candidates"] = candidate_list(matches, active_address)
+        comp["matchConfidence"] = confidence
+        comp["matched"] = True
+    elif active_address:
+        active_client = next(
+            (c for c in clients if str(c.get("address") or "") == str(active_address)), None
+        )
+        if active_client is not None:
+            apply_client_to_compositor(comp, active_client, active_address)
+            comp["matched"] = False
+            comp["matchConfidence"] = "active"
+    return matched
+
+
+def apply_client_to_compositor(comp, client, active_address):
+    workspace = client.get("workspace") or {}
+    comp["address"] = client.get("address")
+    comp["stableId"] = client.get("stableId")
+    comp["pid"] = client.get("pid")
+    comp["class"] = client.get("class")
+    comp["initialClass"] = client.get("initialClass")
+    comp["title"] = client.get("title")
+    comp["initialTitle"] = client.get("initialTitle")
+    comp["workspaceId"] = workspace.get("id")
+    comp["workspaceName"] = workspace.get("name")
+    comp["monitor"] = client.get("monitor")
+    comp["focusHistoryID"] = client.get("focusHistoryID")
+    comp["activeAtArrival"] = bool(
+        active_address and str(client.get("address") or "") == str(active_address)
+    )
+
+
+def candidate_list(clients, active_address):
+    out = []
+    for client in clients:
+        workspace = client.get("workspace") or {}
+        out.append(
+            {
+                "address": client.get("address"),
+                "class": client.get("class"),
+                "title": client.get("title"),
+                "workspaceId": workspace.get("id"),
+                "focusHistoryID": client.get("focusHistoryID"),
+                "activeAtArrival": bool(
+                    active_address and str(client.get("address") or "") == str(active_address)
+                ),
+            }
+        )
+    return out
+
+
+def tab_from_focus_env(env):
+    tab = empty_tab()
+    if env.get("HERDR_WORKSPACE_ID") or env.get("HERDR_TAB_ID") or env.get("HERDR_PANE_ID"):
+        tab["kind"] = "herdr"
+        tab["workspaceId"] = env.get("HERDR_WORKSPACE_ID")
+        tab["tabId"] = env.get("HERDR_TAB_ID")
+        tab["paneId"] = env.get("HERDR_PANE_ID")
+        return tab
+    if env.get("TMUX_PANE"):
+        tab["kind"] = "tmux"
+        tab["paneId"] = env.get("TMUX_PANE")
+        return tab
+    if env.get("ZELLIJ_PANE_ID"):
+        tab["kind"] = "zellij"
+        tab["paneId"] = env.get("ZELLIJ_PANE_ID")
+        return tab
+    return tab
+
+
+def capture_process(
+    origin,
+    pid,
+    pid_source,
+    hyprctl_path=None,
+    root=None,
+    snapshot=None,
+):
+    sender = origin["sender"]
+    sender["pid"] = pid
+    sender["pidSource"] = pid_source
+    if pid is None:
+        return origin
+    sender["uid"] = read_uid(pid, root)
+    sender["comm"] = read_comm(pid, root) or None
+    sender["exe"] = read_exe(pid, root)
+    sender["cmdline"] = read_cmdline(pid, root) or None
+    cgroup = read_cgroup(pid, root)
+    sender["cgroup"] = cgroup
+    app_id = derive_app_id(cgroup)
+    sender["appId"] = app_id
+    sender["flatpakId"] = derive_flatpak_id(app_id)
+    sender["ancestry"] = walk_ancestry(pid, root)
+    focus_env = read_focus_env(pid, root)
+    sender["focusEnv"] = focus_env
+    origin["tab"] = tab_from_focus_env(focus_env)
+    if snapshot is not None:
+        clients = snapshot.clients()
+        active = snapshot.active_address()
+        match_compositor(clients, active, origin)
+    return origin
+
+
+# ---------------------------------------------------------------------------
+# Subprocess helpers
+# ---------------------------------------------------------------------------
+
+
+def run_command(argv, timeout=COMMAND_TIMEOUT_SECONDS, env=None, check=False):
+    try:
+        return subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        log("command_timeout: %s" % (argv[0] if argv else "?"))
+        return None
+    except FileNotFoundError:
+        return None
+    except Exception as exc:  # noqa: BLE001
+        log("command_failed: %s: %s" % (argv[0] if argv else "?", exc))
+        return None
+
+
+def hyprctl_binary():
+    return shutil.which("hyprctl")
+
+
+def hypr_dispatch_ok(lua):
+    path = hyprctl_binary()
+    if not path:
+        return False
+    result = run_command([path, "dispatch", lua], timeout=COMMAND_TIMEOUT_SECONDS)
+    if result is None:
+        return False
+    # Measured trap: hyprctl dispatch exits 0 even when stdout says
+    # "warning: ... window not found".  Only stdout beginning with "ok" is
+    # success; exit status alone is not.
+    return (result.stdout or "").strip().startswith("ok")
+
+
+def hypr_dispatch_classic_ok(args):
+    path = hyprctl_binary()
+    if not path:
+        return False
+    result = run_command([path, "dispatch"] + list(args), timeout=COMMAND_TIMEOUT_SECONDS)
+    if result is None:
+        return False
+    return (result.stdout or "").strip().startswith("ok")
+
+
+def focus_window_selector(selector):
+    lua = 'hl.dsp.focus({ window = "%s" })' % selector
+    if hypr_dispatch_ok(lua):
+        return True
+    return hypr_dispatch_classic_ok(["focuswindow", selector])
+
+
+def focus_workspace(name):
+    lua = 'hl.dsp.focus({ workspace = "%s" })' % name
+    if hypr_dispatch_ok(lua):
+        return True
+    return hypr_dispatch_classic_ok(["workspace", name])
+
+
+def herdr_focus_cli(kind, value, herdr_path):
+    """Run ``herdr <kind> focus <value>`` and judge success from the JSON."""
+    if not herdr_path or value is None:
+        return False, "herdr unavailable"
+    result = run_command(
+        [herdr_path, kind, "focus", str(value)], timeout=HERDR_COMMAND_TIMEOUT_SECONDS
+    )
+    if result is None:
+        return False, "herdr %s focus timeout" % kind
+    text = (result.stdout or "").strip()
+    if not text:
+        return (result.returncode == 0), "herdr %s focus empty output" % kind
+    try:
+        data = json.loads(text)
+    except Exception:
+        return False, "herdr %s focus unparseable output" % kind
+    if isinstance(data, dict) and "error" in data:
+        code = (data.get("error") or {}).get("code") or "unknown"
+        return False, "herdr %s error=%s" % (kind, code)
+    return True, "herdr %s focused" % kind
+
+
+def herdr_socket_path():
+    override = os.environ.get("HERDR_SOCKET")
+    if override:
+        return override
+    return _HERDR_SOCKET_FALLBACK
+
+
+def herdr_raw_request(method, params, socket_path=None, timeout=3.0):
+    """Send one newline-delimited JSON request over the herdr API socket."""
+    path = socket_path or herdr_socket_path()
+    if not path or not os.path.exists(path):
+        return None, "herdr socket unavailable"
+    request = {"id": "aurelia-origin", "method": method, "params": params}
+    payload = (json.dumps(request) + "\n").encode("utf-8")
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(path)
+        sock.sendall(payload)
+        buf = b""
+        while b"\n" not in buf and len(buf) < 1048576:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+    except Exception as exc:  # noqa: BLE001
+        return None, "herdr socket error: %s" % (exc,)
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    line = buf.split(b"\n", 1)[0]
+    if not line:
+        return None, "herdr empty response"
+    try:
+        data = json.loads(line.decode("utf-8", "replace"))
+    except Exception:
+        return None, "herdr unparseable response"
+    if isinstance(data, dict) and "error" in data:
+        code = (data.get("error") or {}).get("code") or "unknown"
+        return data, "error=%s" % code
+    return data, None
+
+
+def _schema_methods(data):
+    methods = set()
+    request = ((data.get("schemas") or {}).get("request")) or {}
+    for entry in request.get("oneOf", []) or []:
+        prop = (entry.get("properties") or {}).get("method") or {}
+        const = prop.get("const")
+        if const:
+            methods.add(const)
+    return methods
+
+
+def herdr_schema_has_pane_focus(herdr_path):
+    """Capability probe: does the bundled API schema expose ``pane.focus``?"""
+    if not herdr_path:
+        return None
+    result = run_command([herdr_path, "api", "schema", "--json"], timeout=HERDR_COMMAND_TIMEOUT_SECONDS)
+    if result is None or result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout or "{}")
+    except Exception:
+        return None
+    methods = _schema_methods(data)
+    if not methods:
+        return None
+    return "pane.focus" in methods
+
+
+def herdr_pane_focus(pane_id, herdr_path, socket_path=None):
+    """Focus an arbitrary pane via the private raw ``pane.focus`` method.
+
+    Returns ``(ok, exact, detail)``.  An unknown-method error is a genuine
+    capability absence and must degrade fail-closed rather than claim success.
+    """
+    response, error = herdr_raw_request("pane.focus", {"pane_id": pane_id}, socket_path)
+    if error is None:
+        return True, True, "herdr pane focused via raw API"
+    if error.startswith("error=method_not_found") or error.startswith("error=unknown_method"):
+        return False, False, "herdr pane.focus unavailable"
+    if error.startswith("error="):
+        return False, False, "herdr pane.focus %s" % error
+    return False, False, error
+
+
+# ---------------------------------------------------------------------------
+# Navigation resolution
+# ---------------------------------------------------------------------------
+
+
+def find_by_address(clients, address):
+    for client in clients:
+        if str(client.get("address") or "") == str(address or ""):
+            return client
+    return None
+
+
+def find_by_stable_id(clients, stable_id):
+    if stable_id is None:
+        return None
+    for client in clients:
+        if str(client.get("stableId") or "") == str(stable_id):
+            return client
+    return None
+
+
+def clients_for_pid(clients, pid):
+    out = []
+    if pid is None:
+        return out
+    for client in clients:
+        try:
+            if int(client.get("pid") or -1) == int(pid):
+                out.append(client)
+        except Exception:
+            continue
+    return out
+
+
+def score_client(client, origin):
+    comp = origin.get("compositor") or {}
+    notify = origin.get("notify") or {}
+    sender = origin.get("sender") or {}
+    names = {
+        notify.get("desktopEntry"),
+        notify.get("appName"),
+        sender.get("appId"),
+        comp.get("class"),
+        comp.get("initialClass"),
+    }
+    names.discard(None)
+    score = 0
+    if client.get("class") and client.get("class") in names:
+        score += 5
+    if client.get("initialClass") and client.get("initialClass") in names:
+        score += 5
+    if comp.get("title") and client.get("title") == comp.get("title"):
+        score += 4
+    if comp.get("initialTitle") and client.get("initialTitle") == comp.get("initialTitle"):
+        score += 2
+    # Visibility is only a tie-breaker among genuine identity matches.  An
+    # unrelated mapped window must never become a candidate just by existing.
+    if score > 0 and client.get("mapped") is not False and not client.get("hidden"):
+        score += 1
+    return score
+
+
+def _focus_rank(client):
+    focus = client.get("focusHistoryID")
+    try:
+        return int(focus)
+    except Exception:
+        return 1 << 30
+
+
+def pick_tie(clients, origin, active_address=None):
+    if not clients:
+        return None
+
+    def key(client):
+        is_active = bool(active_address and str(client.get("address") or "") == str(active_address))
+        return (_focus_rank(client), 0 if is_active else 1)
+
+    return sorted(clients, key=key)[0]
+
+
+def ranked_candidates(clients, origin, active_address=None):
+    scored = []
+    for client in clients:
+        score = score_client(client, origin)
+        if score <= 0:
+            continue
+        scored.append((score, client))
+    scored.sort(key=lambda item: (-item[0], _focus_rank(item[1])))
+    return scored
+
+
+def herdr_terminal_window(clients, root=None):
+    """Fallback: locate the compositor window hosting herdr.
+
+    Herdr's internal focus never switches the compositor, so after an internal
+    focus we raise the terminal window that owns the herdr client.
+    """
+    herdr_path = shutil.which("herdr")
+    if not herdr_path:
+        return None
+    try:
+        entries = os.listdir(proc_root(root))
+    except Exception:
+        return None
+    for pid_text in entries:
+        if not pid_text.isdigit():
+            continue
+        pid = int(pid_text)
+        cmdline = read_cmdline(pid, root)
+        if not cmdline:
+            continue
+        argv = cmdline.split()
+        if not argv or os.path.basename(argv[0]) != "herdr":
+            continue
+        if len(argv) > 1 and argv[1] == "server":
+            continue
+        for ancestor in walk_ancestry(pid, root):
+            if ancestor.get("comm") in TERMINAL_COMMS:
+                for client in clients:
+                    try:
+                        if int(client.get("pid") or -1) == int(ancestor["pid"]):
+                            return client
+                    except Exception:
+                        continue
+    return None
+
+
+def resolve_window(origin, clients, active_address, dry_run=False):
+    """Return (outcome, confidence, reason, client)."""
+    comp = origin.get("compositor") or {}
+    sender = origin.get("sender") or {}
+    quality = origin.get("captureQuality")
+    exact_confidence = "exact" if quality == "exact" else "identity"
+
+    address = comp.get("address")
+    if address:
+        client = find_by_address(clients, address)
+        if client is not None:
+            if dry_run or focus_window_selector("address:" + str(address)):
+                return "focused", exact_confidence, "live window by address", client
+            reason = "address dispatch refused"
+        else:
+            reason = "recorded window closed"
+    else:
+        reason = "no recorded address"
+
+    stable_id = comp.get("stableId")
+    if stable_id:
+        client = find_by_stable_id(clients, stable_id)
+        if client is not None:
+            if dry_run or focus_window_selector("address:" + str(client.get("address"))):
+                return "focused", "identity", "live window by stableId", client
+
+    # ``pid:`` is only an identity when exactly one client shares the pid.
+    pid = comp.get("pid")
+    if pid is None:
+        pid = sender.get("pid")
+    matches = clients_for_pid(clients, pid)
+    if len(matches) == 1:
+        client = matches[0]
+        if dry_run or focus_window_selector("pid:%s" % client.get("pid")):
+            return "focused", "identity", "unique pid window", client
+    elif len(matches) > 1:
+        reason = "shared pid is ambiguous (%d windows)" % len(matches)
+
+    scored = ranked_candidates(clients, origin, active_address)
+    if scored:
+        top_score = scored[0][0]
+        best = [client for score, client in scored if score == top_score]
+        if len(best) == 1:
+            client = best[0]
+            if dry_run or focus_window_selector("address:" + str(client.get("address"))):
+                return "focused", "identity", "scored identity match", client
+        else:
+            client = pick_tie(best, origin, active_address)
+            if dry_run or focus_window_selector("address:" + str(client.get("address"))):
+                return (
+                    "routed",
+                    "identity",
+                    "ambiguous scored match (%d candidates)" % len(best),
+                    client,
+                )
+
+    workspace = comp.get("workspaceName")
+    if workspace in (None, "", 0):
+        workspace = comp.get("workspaceId")
+    if workspace not in (None, ""):
+        if dry_run or focus_workspace(str(workspace)):
+            return "routed", "identity", "recorded workspace fallback", None
+
+    return "unavailable", "none", reason or "no live target", None
+
+
+def apply_herdr(tab, origin, ctx, dry_run=False):
+    """Return (applied, exact, detail)."""
+    herdr_path = ctx.get("herdr") or shutil.which("herdr")
+    socket_path = ctx.get("herdr_socket")
+    workspace = tab.get("workspaceId")
+    tab_id = tab.get("tabId")
+    pane_id = tab.get("paneId")
+    details = []
+    applied = False
+    requested = "pane" if pane_id else ("tab" if tab_id else ("workspace" if workspace else None))
+
+    if workspace:
+        ok, detail = herdr_focus_cli("workspace", workspace, herdr_path)
+        details.append(detail)
+        applied = applied or ok
+    if tab_id:
+        ok, detail = herdr_focus_cli("tab", tab_id, herdr_path)
+        details.append(detail)
+        applied = applied or ok
+
+    exact = False
+    if pane_id and _PANE_ID_RE.match(str(pane_id)):
+        capability = ctx.get("pane_focus_capability")
+        if capability is None:
+            capability = herdr_schema_has_pane_focus(herdr_path)
+            ctx["pane_focus_capability"] = capability
+        if capability is not False:
+            ok, pane_exact, detail = herdr_pane_focus(pane_id, herdr_path, socket_path)
+            details.append(detail)
+            if pane_exact:
+                exact = True
+                applied = True
+        if not exact:
+            ok, detail = herdr_focus_cli("agent", pane_id, herdr_path)
+            details.append(detail)
+            if ok:
+                exact = True
+                applied = True
+    elif requested == "tab":
+        exact = any("tab focused" in d for d in details)
+
+    if not dry_run:
+        raise_window(origin, ctx)
+
+    return applied, exact, "; ".join(details) or "herdr tab/pane degraded"
+
+
+def apply_tmux(tab, ctx, dry_run=False):
+    tmux_path = ctx.get("tmux") or shutil.which("tmux")
+    if not tmux_path:
+        return False, False, "tmux unavailable"
+    tab_id = tab.get("tabId")
+    pane_id = tab.get("paneId")
+    applied = False
+    exact = False
+    details = []
+    if tab_id:
+        result = run_command(
+            [tmux_path, "select-window", "-t", str(tab_id)], timeout=COMMAND_TIMEOUT_SECONDS
+        )
+        if result is not None and result.returncode == 0:
+            applied = True
+            exact = pane_id is None
+        details.append("tmux select-window rc=%s" % (None if result is None else result.returncode))
+    if pane_id:
+        result = run_command(
+            [tmux_path, "select-pane", "-t", str(pane_id)], timeout=COMMAND_TIMEOUT_SECONDS
+        )
+        if result is not None and result.returncode == 0:
+            applied = True
+            exact = True
+        details.append("tmux select-pane rc=%s" % (None if result is None else result.returncode))
+    if not dry_run:
+        raise_window(origin=None, ctx=ctx)
+    return applied, exact, "; ".join(details) or "tmux degraded"
+
+
+def apply_zellij(tab, ctx, dry_run=False):
+    zellij_path = ctx.get("zellij") or shutil.which("zellij")
+    if not zellij_path:
+        return False, False, "zellij unavailable"
+    pane_id = tab.get("paneId")
+    tab_id = tab.get("tabId")
+    details = []
+    applied = False
+    exact = False
+    if pane_id:
+        result = run_command(
+            [zellij_path, "action", "focus-pane-id", str(pane_id)], timeout=COMMAND_TIMEOUT_SECONDS
+        )
+        if result is not None and result.returncode == 0:
+            applied = True
+            exact = True
+        details.append("zellij focus-pane-id rc=%s" % (None if result is None else result.returncode))
+    if tab_id:
+        result = run_command(
+            [zellij_path, "action", "go-to-tab-name", str(tab_id)], timeout=COMMAND_TIMEOUT_SECONDS
+        )
+        if result is not None and result.returncode == 0:
+            applied = True
+        details.append("zellij go-to-tab-name rc=%s" % (None if result is None else result.returncode))
+    return applied, exact, "; ".join(details) or "zellij degraded"
+
+
+def apply_tab(origin, ctx, dry_run=False):
+    tab = origin.get("tab") or {}
+    kind = tab.get("kind")
+    if not kind:
+        return None
+    if kind == "herdr":
+        applied, exact, detail = apply_herdr(tab, origin, ctx, dry_run=dry_run)
+    elif kind == "tmux":
+        applied, exact, detail = apply_tmux(tab, ctx, dry_run=dry_run)
+    elif kind == "zellij":
+        applied, exact, detail = apply_zellij(tab, ctx, dry_run=dry_run)
+    else:
+        return {"applied": False, "exact": False, "detail": "unsupported tab kind: %s" % kind}
+    return {"applied": applied, "exact": exact, "detail": detail}
+
+
+def raise_window(origin, ctx):
+    """Raise the compositor window after an internal tab/pane focus."""
+    if ctx.get("window_focused"):
+        return
+    comp = (origin or {}).get("compositor") or {}
+    address = comp.get("address")
+    clients = ctx.get("clients") or []
+    if address and find_by_address(clients, address):
+        focus_window_selector("address:" + str(address))
+        ctx["window_focused"] = True
+        return
+    client = herdr_terminal_window(clients, ctx.get("proc_root"))
+    if client is not None:
+        focus_window_selector("address:" + str(client.get("address")))
+        ctx["window_focused"] = True
+
+
+def build_context(origin):
+    hyprctl_path = hyprctl_binary()
+    clients = hyprctl_clients(hyprctl_path) if hyprctl_path else []
+    active = hyprctl_activewindow(hyprctl_path) if hyprctl_path else None
+    return {
+        "clients": clients,
+        "active_address": (active or {}).get("address"),
+        "herdr": shutil.which("herdr"),
+        "tmux": shutil.which("tmux"),
+        "zellij": shutil.which("zellij"),
+        "herdr_socket": herdr_socket_path(),
+        "pane_focus_capability": None,
+        "window_focused": False,
+        "proc_root": proc_root(),
+    }
+
+
+def navigate(origin, dry_run=False, ctx=None):
+    """Resolve and focus.  Returns exactly one outcome dict."""
+    if not isinstance(origin, dict) or not origin:
+        return {
+            "action": "navigate",
+            "outcome": "none",
+            "confidence": "none",
+            "reason": "missing or invalid origin",
+        }
+    ctx = ctx or build_context(origin)
+    clients = ctx.get("clients") or []
+    active_address = ctx.get("active_address")
+
+    outcome, confidence, reason, client = resolve_window(
+        origin, clients, active_address, dry_run=dry_run
+    )
+    if dry_run:
+        tab_result = None
+    else:
+        tab_result = apply_tab(origin, ctx, dry_run=dry_run)
+
+    window_focused = outcome == "focused"
+    if window_focused:
+        ctx["window_focused"] = True
+
+    if tab_result is not None and tab_result.get("applied"):
+        if tab_result.get("exact"):
+            if window_focused:
+                final = "focused"
+                confidence = "exact" if confidence == "exact" else confidence
+            else:
+                final = "focused"
+                confidence = "identity"
+                reason = "tab/pane focused"
+        else:
+            final = "routed"
+            if window_focused:
+                reason = "window focused; tab/pane degraded"
+            else:
+                reason = "tab/pane degraded"
+    else:
+        final = outcome
+
+    if final == "unavailable" and tab_result is not None and tab_result.get("detail"):
+        reason = reason + "; " + tab_result["detail"]
+
+    result = {
+        "action": "navigate",
+        "outcome": final,
+        "confidence": confidence if final != "unavailable" else "none",
+        "reason": reason,
+        "window": {
+            "address": (client or {}).get("address") if client else None,
+            "workspaceId": ((client or {}).get("workspace") or {}).get("id") if client else None,
+        },
+        "tab": {
+            "kind": (origin.get("tab") or {}).get("kind"),
+            "applied": bool(tab_result and tab_result.get("applied")),
+            "exact": bool(tab_result and tab_result.get("exact")),
+            "detail": (tab_result or {}).get("detail"),
+        },
+    }
+    if dry_run:
+        result["dryRun"] = True
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Socket server and capture client
+# ---------------------------------------------------------------------------
+
+
+def default_socket_path():
+    override = os.environ.get("AURELIA_NOTIFICATION_ORIGIN_SOCKET")
+    if override:
+        return override
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+    return os.path.join(runtime, "aurelia", SOCKET_BASENAME)
+
+
+def socket_request(path, command, timeout_ms):
+    deadline = time.monotonic() + max(0.0, timeout_ms / 1000.0)
+    data = b""
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(max(0.05, timeout_ms / 1000.0))
+        sock.connect(path)
+        sock.sendall(command.encode("utf-8") + b"\n")
+        while b"\n" not in data and time.monotonic() < deadline:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    except Exception:
+        return None
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    line = data.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
+    return line or None
+
+
+def query_origin(origin_id, timeout_ms=None, path=None):
+    """Bounded query with a short retry loop until the id appears or time runs out."""
+    if timeout_ms is None:
+        timeout_ms = DEFAULT_CAPTURE_TIMEOUT_MS
+    path = path or default_socket_path()
+    if not os.path.exists(path):
+        return None
+    deadline = time.monotonic() + max(0.0, timeout_ms / 1000.0)
+    while True:
+        remaining_ms = int(max(0.0, (deadline - time.monotonic()) * 1000))
+        line = socket_request(path, "GET %s" % origin_id, min(remaining_ms + 20, timeout_ms))
+        if line and line != "null":
+            try:
+                return json.loads(line)
+            except Exception:
+                return None
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.01)
+
+
+class _SocketServer(threading.Thread):
+    def __init__(self, table, path):
+        super().__init__(daemon=True)
+        self._table = table
+        self._path = path
+        self._stop = threading.Event()
+        self._sock = None
+        self._ready = threading.Event()
+
+    def wait_ready(self, timeout=2.0):
+        self._ready.wait(timeout)
+
+    def stop(self):
+        self._stop.set()
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+
+    def run(self):
+        try:
+            os.makedirs(os.path.dirname(self._path), mode=0o700, exist_ok=True)
+            try:
+                if os.path.exists(self._path):
+                    os.unlink(self._path)
+            except Exception:
+                pass
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self._sock = server
+            server.bind(self._path)
+            try:
+                os.chmod(self._path, 0o600)
+            except Exception:
+                pass
+            server.listen(16)
+            server.settimeout(0.5)
+            self._ready.set()
+            while not self._stop.is_set():
+                try:
+                    conn, _ = server.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                self._handle(conn)
+        except Exception as exc:  # noqa: BLE001
+            log("socket_server_failed: %s" % (exc,))
+        finally:
+            try:
+                if os.path.exists(self._path):
+                    os.unlink(self._path)
+            except Exception:
+                pass
+
+    def _handle(self, conn):
+        try:
+            conn.settimeout(1.0)
+            data = b""
+            while b"\n" not in data and len(data) < 65536:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            command = data.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
+            if command == "PING":
+                response = "pong"
+            elif command.startswith("GET "):
+                origin = self._table.get(command[4:].strip())
+                response = json.dumps(origin) if origin is not None else "null"
+            elif command == "STATS":
+                response = json.dumps(
+                    {
+                        "pending": self._table.pending_count(),
+                        "origins": self._table.origin_count(),
+                    }
+                )
+            else:
+                response = "error: unknown command"
+            conn.sendall(response.encode("utf-8") + b"\n")
+        except Exception:
+            pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def run_serve(args):
+    try:
+        import dbus  # noqa: F401
+        import dbus.bus
+        import dbus.lowlevel
+        from dbus.mainloop.glib import DBusGMainLoop
+        from gi.repository import GLib
+    except Exception as exc:  # noqa: BLE001
+        log("serve_dependencies_unavailable: %s" % (exc,))
+        return 1
+
+    socket_path = args.socket or default_socket_path()
+    table = CorrelationTable(ttl_seconds=args.ttl, max_entries=args.max_entries)
+    server = _SocketServer(table, socket_path)
+    server.start()
+    server.wait_ready()
+
+    address = os.environ.get("DBUS_SESSION_BUS_ADDRESS")
+    if not address:
+        runtime = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+        address = "unix:path=%s/bus" % runtime
+    # The GLib main loop must be the default before the connections are created
+    # so incoming monitor messages are dispatched to the filter.
+    DBusGMainLoop(set_as_default=True)
+    try:
+        monitor = dbus.bus.BusConnection(address)
+        query = dbus.bus.BusConnection(address)
+    except Exception as exc:  # noqa: BLE001
+        log("session_bus_unavailable: %s" % (exc,))
+        server.stop()
+        return 1
+
+    rules = [
+        "type='method_call',interface='org.freedesktop.Notifications',member='Notify'",
+        "type='method_return',sender='org.freedesktop.Notifications'",
+    ]
+    try:
+        monitor.call_blocking(
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus.Monitoring",
+            "BecomeMonitor",
+            "asu",
+            (rules, 0),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log("become_monitor_failed: %s" % (exc,))
+        server.stop()
+        return 1
+
+    path = shutil.which("hyprctl")
+    snapshot = HyprctlSnapshot(path)
+    proc = proc_root()
+
+    def resolve_and_capture(sender_name, serial, args_list, sender_pid, pid_source):
+        fields = {
+            "appName": str(args_list[0]) if len(args_list) > 0 else None,
+            "desktopEntry": None,
+            "summary": str(args_list[3]) if len(args_list) > 3 else None,
+            "body": str(args_list[4]) if len(args_list) > 4 else None,
+            "urgency": None,
+            "hints": {},
+        }
+        if len(args_list) > 6:
+            hints = bounded_hints(args_list[6])
+            fields["hints"] = hints
+            fields["desktopEntry"] = hints.get("desktop-entry")
+            fields["urgency"] = hints.get("urgency")
+        table.begin_call(
+            sender_name,
+            serial,
+            notify_fields=fields,
+            sender_pid=sender_pid,
+            pid_source=pid_source,
+            capture=lambda origin: capture_process(
+                origin, sender_pid, pid_source, hyprctl_path=path, root=proc, snapshot=snapshot
+            ),
+        )
+
+    def resolve_pid(sender_name):
+        try:
+            return (
+                int(
+                    query.call_blocking(
+                        "org.freedesktop.DBus",
+                        "/org/freedesktop/DBus",
+                        "org.freedesktop.DBus",
+                        "GetConnectionUnixProcessID",
+                        "s",
+                        (sender_name,),
+                    )
+                ),
+                "dbus-getconnectionunixprocessid",
+            )
+        except Exception:
+            return None, "absent"
+
+    def message_filter(_bus, message):
+        try:
+            message_type = message.get_type()
+            if message_type == dbus.lowlevel.MESSAGE_TYPE_METHOD_CALL:
+                if message.get_interface() != "org.freedesktop.Notifications":
+                    return None
+                if message.get_member() != "Notify":
+                    return None
+                sender_name = str(message.get_sender())
+                serial = int(message.get_serial())
+                args_list = message.get_args_list()
+                sender_pid, pid_source = resolve_pid(sender_name)
+                resolve_and_capture(sender_name, serial, args_list, sender_pid, pid_source)
+            elif message_type == dbus.lowlevel.MESSAGE_TYPE_METHOD_RETURN:
+                reply_serial = message.get_reply_serial()
+                if reply_serial is None:
+                    return None
+                destination = message.get_destination()
+                args_list = message.get_args_list()
+                if not args_list:
+                    return None
+                table.complete_call(destination, reply_serial, int(args_list[0]))
+        except Exception as exc:  # noqa: BLE001
+            log("monitor_filter_error: %s" % (exc,))
+        return None
+
+    monitor.add_message_filter(message_filter)
+
+    loop = GLib.MainLoop()
+
+    def _signal(_signum, _frame):
+        try:
+            loop.quit()
+        except Exception:
+            pass
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(signum, _signal)
+        except Exception:
+            pass
+
+    log("serve_started socket=%s" % socket_path)
+    try:
+        loop.run()
+    finally:
+        server.stop()
+    return 0
+
+
+def run_capture(args):
+    origin_id = args.id
+    origin = query_origin(origin_id, timeout_ms=args.timeout_ms, path=args.socket)
+    if origin is None:
+        origin = build_identity_origin(
+            origin_id,
+            app=args.app,
+            summary=args.summary,
+            body=args.body,
+            timestamp=args.timestamp,
+            desktop_entry=args.desktop_entry,
+            urgency=args.urgency,
+        )
+    sys.stdout.write(json.dumps(origin) + "\n")
+    sys.stdout.flush()
+    return 0
+
+
+def run_navigate(args):
+    raw = args.origin
+    if raw == "-":
+        raw = sys.stdin.read()
+    try:
+        origin = json.loads(raw)
+    except Exception as exc:  # noqa: BLE001
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "action": "navigate",
+                    "outcome": "none",
+                    "confidence": "none",
+                    "reason": "invalid origin json: %s" % (exc,),
+                }
+            )
+            + "\n"
+        )
+        return 0
+    result = navigate(origin, dry_run=args.dry_run)
+    sys.stdout.write(json.dumps(result) + "\n")
+    sys.stdout.flush()
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="workstation-notification-focus",
+        description="Capture notification origins and navigate back to them.",
+    )
+    sub = parser.add_subparsers(dest="mode", required=True)
+
+    serve = sub.add_parser("serve", help="run the per-user origin monitor")
+    serve.add_argument("--socket", default=None)
+    serve.add_argument("--ttl", type=int, default=DEFAULT_TTL_SECONDS)
+    serve.add_argument("--max-entries", type=int, default=DEFAULT_MAX_ENTRIES)
+
+    capture = sub.add_parser("capture", help="capture the origin for a notification id")
+    capture.add_argument("--id", required=True)
+    capture.add_argument("--app", default=None)
+    capture.add_argument("--summary", default=None)
+    capture.add_argument("--body", default=None)
+    capture.add_argument("--timestamp", default=None)
+    capture.add_argument("--desktop-entry", default=None)
+    capture.add_argument("--urgency", default=None)
+    capture.add_argument("--timeout-ms", type=int, default=DEFAULT_CAPTURE_TIMEOUT_MS)
+    capture.add_argument("--socket", default=None)
+
+    navigate_cmd = sub.add_parser("navigate", help="focus the origin of a notification")
+    navigate_cmd.add_argument("--origin", required=True)
+    navigate_cmd.add_argument("--dry-run", action="store_true")
+    return parser
+
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.mode == "serve":
+        return run_serve(args)
+    if args.mode == "capture":
+        return run_capture(args)
+    if args.mode == "navigate":
+        return run_navigate(args)
+    parser.error("unknown mode")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
