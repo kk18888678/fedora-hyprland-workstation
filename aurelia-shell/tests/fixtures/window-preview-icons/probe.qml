@@ -111,7 +111,9 @@ Item {
             name: String(value.name || ""),
             symbolic: value.symbolic === true,
             source: item ? String(item.iconSource || "") : "",
-            preservesColors: item ? item.iconPreservesColors === true : false
+            preservesColors: item ? item.iconPreservesColors === true : false,
+            iconReady: item ? item.iconReady === true : false,
+            slotVisible: item ? item.iconSlotVisible === true : false
         }
     }
 

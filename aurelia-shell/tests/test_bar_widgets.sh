@@ -829,28 +829,31 @@ TASKLIST_FOOT_DESKTOP
            .fixtureApp.name == "fixture-app" and
            .fixtureApp.symbolic == false and
            .fixtureApp.preservesColors == true and
+           .fixtureApp.iconReady == true and
            (.fixtureApp.source | contains("fixture-app")) and
            .symbolic.kind == "theme" and
            .symbolic.name == "fixture-app-symbolic" and
            .symbolic.symbolic == true and
            .symbolic.preservesColors == false and
+           .symbolic.iconReady == true and
            (.symbolic.source | contains("fixture-app-symbolic")) and
            .foot.kind == "theme" and
            .foot.name == "utilities-terminal" and
            .foot.symbolic == false and
            .foot.preservesColors == true and
+           .foot.iconReady == true and
            (.foot.source | contains("utilities-terminal")) and
            .unknown.kind == "default" and
-           .unknown.name == "application-x-executable" and
+           .unknown.name == "" and
            .unknown.symbolic == false and
-           .unknown.preservesColors == true and
-           (.unknown.source | contains("application-x-executable")) and
+           .unknown.source == "" and
+           .unknown.iconReady == false and
            .rendered.fixtureApp == .readyStatus and
            .rendered.symbolic == .readyStatus and
            .rendered.foot == .readyStatus and
-           .rendered.unknown == .readyStatus
+           .rendered.unknown != .readyStatus
        ' "$tasklist_icon_result" >/dev/null; then
-        pass "[isolated-runtime] Tasklist resolves a desktop-entry theme icon, tints a -symbolic mask, preserves colours for a real logo, keeps a known-good desktop entry icon through the owner, and shows application-x-executable for an unknown window, with every resolved source rendering (Image.Ready)"
+        pass "[isolated-runtime] Tasklist resolves a desktop-entry theme icon, tints a -symbolic mask, preserves colours for a real logo, keeps a known-good desktop entry icon through the owner, and reports no drawable icon for an unknown window instead of application-x-executable"
     else
         details="$(tr '\n' ' ' <"$tasklist_icon_log")"
         if [[ -s "$tasklist_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$tasklist_icon_result")"; fi

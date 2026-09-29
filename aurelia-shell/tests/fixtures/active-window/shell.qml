@@ -496,9 +496,11 @@ ShellRoot {
             icons: {
                 fallbackName: String(title.iconName),
                 fallbackSource: String(title.iconSource),
+                fallbackHasIcon: title.hasIcon === true,
                 emptyAppIconName: String(classItem.iconName),
                 fixtureAppName: String(fixtureApp.iconName),
-                fixtureAppSource: String(fixtureApp.iconSource)
+                fixtureAppSource: String(fixtureApp.iconSource),
+                fixtureAppHasIcon: fixtureApp.hasIcon === true
             },
             render: {
                 iconInk: Number(title.iconInkSize),

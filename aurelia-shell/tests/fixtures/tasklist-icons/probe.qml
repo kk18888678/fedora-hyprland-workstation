@@ -116,7 +116,8 @@ Item {
             name: String(value.name || ""),
             symbolic: value.symbolic === true,
             source: String(value.source || ""),
-            preservesColors: probe.widget.iconPreservesColorsAt(index) === true
+            preservesColors: probe.widget.iconPreservesColorsAt(index) === true,
+            iconReady: probe.widget.iconReadyAt(index) === true
         }
     }
 

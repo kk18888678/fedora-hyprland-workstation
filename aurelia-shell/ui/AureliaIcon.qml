@@ -63,7 +63,30 @@ Item {
     readonly property real resolvedGlyphPixelSize: root.glyphPixelSize > 0
         ? root.glyphPixelSize
         : Math.max(1, Math.round(root.iconSize * 0.9))
+    // `hasSource` is the raw intent to draw something: a glyph, a source path,
+    // or a theme name. It stays true even when the image later fails to decode,
+    // so it must not be used to reserve screen space.
     readonly property bool hasSource: root.sourcePath !== "" || root.name !== "" || root.usingGlyph
+    // A caller-provided theme name is drawable only when the icon theme really
+    // provides it. Quickshell's image provider hands back a decodeable
+    // placeholder for an unknown name (so Image.status cannot be trusted on
+    // that path), so the primitive asks the host once. This is an availability
+    // probe for the single name the caller supplied, not candidate ordering or
+    // fallback policy: choosing among candidates stays the shared resolver's job.
+    readonly property bool nameUsable: root.name !== "" && !root.usingGlyph
+        && Quickshell.hasThemeIcon(root.name) === true
+    // Rendering outcome, not resolution: a glyph is always drawable because Qt
+    // lays it out directly, while an image is drawable only once Qt has decoded
+    // it to Image.Ready and there is a real source behind it. A missing file,
+    // an empty source, or a theme name the icon theme does not provide
+    // therefore reports `iconReady === false`.
+    readonly property bool iconReady: root.usingGlyph
+        || ((root.sourcePath !== "" || root.nameUsable) && iconSource.status === Image.Ready)
+    // The property callers use to collapse an icon slot. It is true only when
+    // there is something to draw; no source means no space reserved, and a
+    // failed decode collapses the slot instead of painting Qt's built-in
+    // missing-image placeholder.
+    readonly property bool hasIcon: root.hasSource && root.iconReady
 
     implicitWidth: iconSize
     implicitHeight: iconSize
@@ -93,11 +116,14 @@ Item {
     Image {
         id: iconSource
         anchors.fill: parent
-        visible: !root.usingGlyph && root.preserveColors
+        // Never visible until the artwork is actually decoded. When it is not
+        // ready (missing file, empty source, unresolvable theme name) nothing
+        // is drawn, so Qt cannot paint its missing-image placeholder.
+        visible: !root.usingGlyph && root.preserveColors && root.iconReady
         layer.enabled: !root.usingGlyph && !root.preserveColors
         source: root.usingGlyph ? "" : (root.sourcePath !== ""
             ? root.sourcePath
-            : (root.name !== "" ? Quickshell.iconPath(root.name, root.fallbackName) : ""))
+            : (root.nameUsable ? Quickshell.iconPath(root.name, root.fallbackName) : ""))
         sourceSize: Qt.size(
             Math.max(1, Math.round(root.width * root.sourcePixelRatio)),
             Math.max(1, Math.round(root.height * root.sourcePixelRatio)))
@@ -112,7 +138,7 @@ Item {
     MultiEffect {
         anchors.fill: iconSource
         source: iconSource
-        visible: !root.usingGlyph && root.hasSource && !root.preserveColors
+        visible: !root.usingGlyph && root.iconReady && !root.preserveColors
         colorization: 1.0
         colorizationColor: root.tint
     }
