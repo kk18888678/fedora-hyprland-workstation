@@ -117,6 +117,39 @@ function elevate_surface(bgr, bgg, bgb, fgr, fgg, fgb, start,
     return hexof(bgr, bgg, bgb)
 }
 
+# Semantic status roles. Status colours must clear the 4.5:1 text floor AND
+# stay recognisably different from each other (critical red vs warning amber)
+# and from the accent. enforce_min's RGB mix toward the contrast pole
+# desaturates, and on a warm/cream palette it collapses red and yellow to
+# almost the same grey. Status roles therefore re-anchor the ANSI slot to a
+# canonical, well-separated status hue in HSL (keeping the palette's own
+# saturation floor and lightness character) before enforce_min pins the
+# contrast floor. The ANSI red/yellow slots themselves are never modified.
+function status_role(base, target_hue, bgr, bgg, bgb, minimum,
+                     r, g, b, s, l, hue_base) {
+    r = pair(base, 2); g = pair(base, 4); b = pair(base, 6)
+    rgb_to_hsl(r, g, b)
+    s = ms
+    l = ml
+    # A nearly monochrome palette gives the slot no usable hue. Status roles
+    # still need to be vivid and separable, so use a saturation floor and keep
+    # the extracted lightness inside a visible band before enforcement.
+    if (s < 0.55) s = 0.55
+    if (l < 0.25) l = 0.25
+    if (l > 0.75) l = 0.75
+    hsl_to_rgb(target_hue, s, l)
+    hue_base = hexof(out_r, out_g, out_b)
+    # Pick the contrast pole that yields the higher ultimate contrast for this
+    # background rather than the nominal mode pole, so a mode/background
+    # mismatch still moves the status colour toward higher contrast. This is
+    # what keeps error and warning from collapsing to the same pure
+    # black/white when the bounded nudge cannot reach the floor.
+    if (contrast(bgr, bgg, bgb, 255, 255, 255) >= contrast(bgr, bgg, bgb, 0, 0, 0)) {
+        return enforce_min(hue_base, bgr, bgg, bgb, minimum, 255, 255, 255)
+    }
+    return enforce_min(hue_base, bgr, bgg, bgb, minimum, 0, 0, 0)
+}
+
 function brightness(rr, gg, bb) { return (rr + gg + bb) / 765 }
 function saturation(rr, gg, bb,   mx, mn) {
     mx = max3(rr, gg, bb)
@@ -447,6 +480,18 @@ function emit_roles(   i, slot_index, bright_index, target, normal, bright) {
         role[names[i]] = normal
         role["bright_" names[i]] = bright
     }
+
+    # Semantic status roles. These are the ONLY roles consumed by the shell's
+    # error/warning status surfaces (Theme.error / Theme.warning); the ANSI
+    # red/yellow slots above are deliberately left untouched so terminals and
+    # every non-status consumer keep their exact palette character. Status
+    # colors are WCAG-enforced to 4.5:1 against the emitted background and are
+    # hue-anchored so error and warning stay visibly distinct (see
+    # status_role). Without this, an unenforced dark red (e.g. #582826)
+    # silently became Theme.error and was effectively invisible at full
+    # opacity. See docs/aurelia-wallpapers.md.
+    role["error"] = status_role(role["red"], 0, bg_r, bg_g, bg_b, 4.5)
+    role["warning"] = status_role(role["yellow"], 45, bg_r, bg_g, bg_b, 4.5)
 }
 
 BEGIN {
@@ -577,6 +622,8 @@ END {
     print "lighter_background = \"" lighter_background "\""
     print "light_foreground = \"" light_foreground "\""
     print "dark_foreground = \"" dark_foreground "\""
+    print "error = \"" role["error"] "\""
+    print "warning = \"" role["warning"] "\""
     print "bright_foreground = \"" mix(fg_r, fg_g, fg_b, toward_r, toward_g, toward_b, 0.15) "\""
     for (i = 1; i <= 6; i++) print names[i] " = \"" role[names[i]] "\""
     for (i = 1; i <= 6; i++) print "bright_" names[i] " = \"" role["bright_" names[i]] "\""
