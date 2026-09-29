@@ -1168,6 +1168,69 @@ function subscriptionRows(record) {
 }
 
 // ---------------------------------------------------------------------------
+// Account details (identity + subscription billing surface)
+//
+// The record may carry an optional `account` object populated by a collector
+// from a LOCAL identity source only (Cline providers.json, Codex id_token
+// claims, Claude oauthAccount). It is display-only and private: it is never
+// written to the runtime log, a diagnostic, a tooltip or a notification.
+//
+// PRECEDENCE: this is the BILLING surface, so the user-owned `ai.conf`
+// subscription (record.subscription) is AUTHORITATIVE for plan and billing
+// date over any provider-reported value. The account HERO deliberately uses
+// the OPPOSITE precedence (it prefers the provider `tierLabel`); do not
+// "consistency-fix" one into the other.
+//
+// This projection is pure so the four normative cases are unit-testable:
+//   1. no account data             -> rows []
+//   2. subscription with a date    -> Email/Name/Subscription/Next billing
+//   3. subscription without a date -> Email/Name/Subscription/Next billing "—"
+//   4. API-billed, no subscription -> Email/Name only
+// A missing field is never rendered as "Unknown", and a quota reset is never
+// used as a billing date: a quota window is not a bill.
+function accountDetails(record) {
+    // Every identity/billing field must be a genuine non-empty string. A
+    // number, object, array or boolean is treated as absent (never coerced),
+    // so a changed provider shape cannot fabricate a displayed value.
+    function field(value) {
+        return typeof value === "string" ? value.trim() : "";
+    }
+    var rawAccount = record && record.account;
+    var account = (rawAccount && typeof rawAccount === "object" && !Array.isArray(rawAccount))
+        ? rawAccount : {};
+    var sub = (record && record.subscription &&
+        typeof record.subscription === "object" && !Array.isArray(record.subscription))
+        ? record.subscription : null;
+    var email = field(account.email);
+    var name = field(account.name);
+    var providerPlan = field(account.plan);
+    var providerDate = field(account.billingDate);
+    var userPlan = sub ? field(sub.plan) : "";
+    var userDate = sub ? field(sub.renew) : "";
+    var apiBilled = field(record && record.billingKind).toLowerCase() === "api";
+    // `ai.conf` wins for plan and date; the provider value is only a fallback.
+    var plan = userPlan !== "" ? userPlan : providerPlan;
+    var date = userDate !== "" ? userDate : providerDate;
+    // Fail closed: a subscription is only claimed when one is genuinely known
+    // (a user-owned subscription record or a provider-reported plan). A bare
+    // provider tier label is deliberately NOT enough on its own, so an account
+    // with no identity and no subscription renders the honest empty message.
+    var isSubscription = !apiBilled && (sub !== null || providerPlan !== "");
+    var rows = [];
+    if (email !== "") rows.push({ label: "Email", value: email, elide: "middle" });
+    if (name !== "") rows.push({ label: "Name", value: name, elide: "right" });
+    if (isSubscription && plan !== "") {
+        rows.push({ label: "Subscription", value: plan, elide: "right" });
+    }
+    // The established "not reported" marker, never a fabricated date and never
+    // a quota reset backfilled as a bill.
+    if (isSubscription || date !== "") {
+        rows.push({ label: "Next billing", value: date !== "" ? date : "—", elide: "right" });
+    }
+    return { rows: rows, isSubscription: isSubscription, knownCount: rows.length };
+}
+
+// ---------------------------------------------------------------------------
 // Consolidated usage dashboard projection
 //
 // The dashboard replaces the one-account-at-a-time switch with a pin-stable

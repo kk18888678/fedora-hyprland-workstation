@@ -47,6 +47,7 @@ measure() {
     local mode="${4:-remaining}"
     local select="${5:-codex}"
     local stale_ms="${6:-1800000}"
+    local expand="${7:-0}"
     local sandbox
     sandbox="$(mktemp -d)"
     local status=0
@@ -63,6 +64,7 @@ measure() {
     AGENTS_DASHBOARD_PERCENT_MODE="$mode" \
     AGENTS_DASHBOARD_SELECT="$select" \
     AGENTS_DASHBOARD_STALE_MS="$stale_ms" \
+    AGENTS_DASHBOARD_EXPAND_ACCOUNT="$expand" \
         /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
         --path "$harness" >"$log" 2>&1 || status=$?
     rm -rf -- "$sandbox" || true
@@ -327,6 +329,41 @@ else
     fail "[isolated-runtime] stale detail pane dimmed an alert row (status=$stale_status result=$(jq -c '.staleMs, .detailRows' "$stale_result" || true))"
 fi
 assert_runtime_log_clean "$stale_log" "stale detail pane"
+
+# ---------------------------------------------------------------------------
+# ACCOUNT DETAILS disclosure: collapsed by default (no rows displayed and no
+# identity in the result), and expanding the per-account map reveals the
+# identity rows. The runtime log must never carry the sentinel address even
+# when the panel is expanded -- identity is displayed, never logged.
+# ---------------------------------------------------------------------------
+closed_result="$alignment_root/account-closed.json"
+closed_log="$alignment_root/account-closed.log"
+closed_status=0
+measure 480 "$closed_result" "$closed_log" remaining "codex" 1800000 0 || closed_status=$?
+open_result="$alignment_root/account-open.json"
+open_log="$alignment_root/account-open.log"
+open_status=0
+measure 480 "$open_result" "$open_log" remaining "codex" 1800000 1 || open_status=$?
+if [[ "$closed_status" -eq 0 && -s "$closed_result" && "$open_status" -eq 0 && -s "$open_result" ]] &&
+   jq -e '
+        .accountDetails as $a
+        | ($a.expanded == false) and ($a.headerVisible == true) and
+          ($a.bodyVisible == false) and (($a.rows | length) == 0)
+   ' "$closed_result" >/dev/null &&
+   jq -e '
+        .accountDetails as $a
+        | ($a.expanded == true) and ($a.bodyVisible == true) and
+          ([ $a.rows[] | select(.label == "Email" and .value == "sentinel.codex@example.test") ] | length) == 1 and
+          ([ $a.rows[] | select(.label == "Subscription" and .value == "Plus") ] | length) == 1 and
+          ([ $a.rows[] | select(.label == "Next billing" and .value == "2026-10-05") ] | length) == 1
+   ' "$open_result" >/dev/null &&
+   ! grep -q 'sentinel\.' "$closed_log" && ! grep -q 'sentinel\.' "$open_log"; then
+    pass "[isolated-runtime] ACCOUNT DETAILS is collapsed by default, reveals the identity rows only after expansion, and never logs a sentinel"
+else
+    fail "[isolated-runtime] ACCOUNT DETAILS disclosure regressed (closed=$(jq -c '.accountDetails' "$closed_result" 2>/dev/null || echo missing) open=$(jq -c '.accountDetails' "$open_result" 2>/dev/null || echo missing))"
+fi
+assert_runtime_log_clean "$closed_log" "account details collapsed"
+assert_runtime_log_clean "$open_log" "account details expanded"
 
 # ---------------------------------------------------------------------------
 # Measured render: with a critical fixture, the alert token must survive to the

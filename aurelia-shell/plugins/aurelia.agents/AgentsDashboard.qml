@@ -157,6 +157,18 @@ Item {
     readonly property var weekBars: AgentUsage.dayChartBars(
         selectedRecord ? selectedRecord.recentDays : [], 56)
     readonly property bool hasSubscription: !!(selectedRecord && selectedRecord.subscription)
+    // ACCOUNT DETAILS disclosure state. It is held in memory per shell session,
+    // keyed by account id, and deliberately NOT persisted: an absent key means
+    // COLLAPSED, and a persisted "expanded" flag would make sensitive identity
+    // reappear after a restart without a deliberate action. It would also be
+    // the plugin's first persisted UI state for no concrete need (YAGNI).
+    property var accountDetailsExpanded: ({})
+    readonly property string accountDetailsKey: String(
+        (selectedRecord && selectedRecord.id) || "")
+    readonly property bool accountExpanded:
+        accountDetailsExpanded[accountDetailsKey] === true
+    readonly property var accountDetailState: AgentUsage.accountDetails(selectedRecord)
+    readonly property var accountDetailRows: accountDetailState.rows
     readonly property bool bannerVisible: stateInfo.key === "unknown" ||
         stateInfo.key === "error" || stateInfo.key === "rate-limited"
     // The detail pane is capped so the pinned header, matrix and action row
@@ -260,6 +272,26 @@ Item {
         detailItems = []
         if (focusRegion === "detail") focusRegion = "matrix"
         clampFocus()
+    }
+
+    // Toggle the per-account disclosure. The expanded map is replaced (never
+    // mutated in place) so QML re-evaluates the binding, and only the selected
+    // account's key is touched, so switching accounts keeps each disclosure's
+    // own state for the rest of the shell session.
+    function toggleAccountDetails() {
+        var key = accountDetailsKey
+        if (key === "") return
+        var next = {}
+        for (var existing in accountDetailsExpanded) {
+            next[existing] = accountDetailsExpanded[existing]
+        }
+        next[key] = !accountExpanded
+        accountDetailsExpanded = next
+    }
+
+    function toggleAccountDetailsByPointer() {
+        notePointerInteraction()
+        toggleAccountDetails()
     }
 
     function switchAccount(delta) {
@@ -428,6 +460,11 @@ Item {
     onStateInfoChanged: emitDiagnostics()
     onSelectedIndexChanged: {
         detailItems = []
+        // The ACCOUNT DETAILS disclosure is a persistent static child (unlike
+        // the Repeater's limit rows, which re-register when they are
+        // recreated), so re-register it after the selection reset keeps it
+        // reachable through the existing Enter/Space focus path.
+        if (accountDetailsHeader) registerDetailItem(accountDetailsHeader)
         if (!hasSelection && focusRegion === "detail") focusRegion = "matrix"
         clampFocus()
     }
@@ -1410,6 +1447,140 @@ Item {
                                 text: modelData
                                 color: Theme.textMuted
                                 font.pixelSize: Theme.fontSizeSm
+                            }
+                        }
+                    }
+
+                    // ACCOUNT DETAILS: the LAST child of the scrolling detail
+                    // column (after SUBSCRIPTION), so it can never become a
+                    // pinned region. Collapsed by default; it shows nothing
+                    // but the disclosure header until the user expands it.
+                    // Identity is private: it is displayed only here, never in
+                    // the runtime log, a diagnostic, the bar tooltip or a
+                    // notification.
+                    ColumnLayout {
+                        id: accountDetailsSection
+                        objectName: "accountDetailsSection"
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSm
+
+                        Rectangle {
+                            id: accountDetailsHeader
+                            objectName: "accountDetailsHeader"
+                            Layout.fillWidth: true
+                            implicitHeight: Math.max(Theme.spacingXxl,
+                                accountHeaderRow.implicitHeight + Theme.spacingSm)
+                            radius: Theme.radiusSm
+                            color: "transparent"
+                            border.width: dashboard.cursorActive &&
+                                dashboard.focusRegion === "detail" &&
+                                dashboard.detailItems[dashboard.focusRow] === accountDetailsHeader
+                                ? Theme.borderWidthFocus : 0
+                            border.color: Theme.controls.focusBorder
+
+                            Accessible.role: Accessible.Button
+                            // Never interpolate a value here: the accessible
+                            // name and description must stay non-sensitive.
+                            Accessible.name: "Account details"
+                            Accessible.description: "Shows account email, name and subscription information. Collapsed by default."
+                            Accessible.checkable: true
+                            Accessible.checked: dashboard.accountExpanded
+
+                            function activate() { dashboard.toggleAccountDetails() }
+
+                            Component.onCompleted: dashboard.registerDetailItem(accountDetailsHeader)
+                            Component.onDestruction: dashboard.unregisterDetailItem(accountDetailsHeader)
+
+                            RowLayout {
+                                id: accountHeaderRow
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: Theme.spacingXs
+                                anchors.rightMargin: Theme.spacingXs
+                                spacing: Theme.spacingXs
+
+                                SectionHeader { text: "ACCOUNT DETAILS" }
+
+                                // A Label, not raw Text, so the dashboard's
+                                // raw_text_count <= 1 invariant holds.
+                                Label {
+                                    objectName: "accountDetailsChevron"
+                                    text: dashboard.accountExpanded ? "⌃" : "⌄"
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontSizeSm
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: dashboard.toggleAccountDetailsByPointer()
+                            }
+                        }
+
+                        // The body renders only when expanded; while collapsed
+                        // the header is the whole section, with no value
+                        // summary that could leak the protected identity.
+                        ColumnLayout {
+                            id: accountDetailsBody
+                            objectName: "accountDetailsBody"
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXs
+                            visible: dashboard.accountExpanded
+                            opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
+
+                            Repeater {
+                                model: dashboard.accountDetailRows
+
+                                delegate: RowLayout {
+                                    required property var modelData
+                                    required property int index
+                                    objectName: "accountDetailsRow-" + index
+                                    // Exposed for the offscreen probe so the
+                                    // displayed rows can be measured without
+                                    // walking the text nodes.
+                                    property string rowLabel: modelData.label
+                                    property string rowValue: modelData.value
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spacingSm
+
+                                    Label {
+                                        text: modelData.label
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontSizeXs
+                                    }
+
+                                    // No wrap and no tooltip: a long email
+                                    // elides in the middle so the domain stays
+                                    // visible, a long name elides on the right.
+                                    // fillWidth (not a parent-width maximumWidth)
+                                    // avoids a recursive Layout rearrange.
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.value
+                                        color: Theme.text
+                                        font.pixelSize: Theme.fontSizeSm
+                                        font.weight: modelData.label === "Email" ||
+                                            modelData.label === "Name"
+                                            ? Theme.fontWeightMedium : Theme.fontWeightNormal
+                                        horizontalAlignment: Text.AlignRight
+                                        elide: modelData.elide === "middle"
+                                            ? Text.ElideMiddle : Text.ElideRight
+                                        wrapMode: Text.NoWrap
+                                    }
+                                }
+                            }
+
+                            // Partial data must not look broken: when nothing
+                            // is known we show one honest muted line, never
+                            // three rows of "Unknown".
+                            Label {
+                                objectName: "accountDetailsEmpty"
+                                Layout.fillWidth: true
+                                visible: dashboard.accountDetailRows.length === 0
+                                text: "No account details available for this provider."
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontSizeXs
                             }
                         }
                     }
