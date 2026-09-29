@@ -266,3 +266,96 @@ if grep -Fq 'class = "^org\\.aurelia\\.updates$"' "$ROOT/../dotfiles/hypr/window
 else
     fail "Updates or Package Manager floating terminal window rule is missing"
 fi
+
+# ---------------------------------------------------------------------------
+# App library icon resolution over the shared AppIconResolver owner
+# ---------------------------------------------------------------------------
+app_icon_library="$services_root/AureliaAppLibrary.qml"
+if grep -Fq 'AppIconResolver.resolve' "$app_icon_library" &&
+   ! grep -Fq 'Quickshell.iconPath' "$app_icon_library" &&
+   ! grep -Fq 'SourceUrl.fileUrl' "$app_icon_library"; then
+    pass "[static] AureliaAppLibrary delegates its iconSource bridge to the shared AppIconResolver owner"
+else
+    fail "[static] AureliaAppLibrary still owns ad-hoc file://, image:// or theme icon resolution"
+fi
+
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] app-library icon resolution fixture (qs or timeout unavailable)"
+else
+    app_icon_runtime_root="$(mktemp -d)"
+    trap 'rm -rf -- "$app_icon_runtime_root" || true' RETURN
+    mkdir -p -- "$app_icon_runtime_root/runtime" "$app_icon_runtime_root/state" \
+        "$app_icon_runtime_root/config" "$app_icon_runtime_root/cache" \
+        "$app_icon_runtime_root/home/.config" "$app_icon_runtime_root/home/.local/share" \
+        "$app_icon_runtime_root/data-home/applications" \
+        "$app_icon_runtime_root/data/icons/hicolor/16x16/apps"
+    app_icon_png="$app_icon_runtime_root/sample.png"
+    base64 -d >"$app_icon_png" <<'APP_ICON_PNG_B64'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+APP_ICON_PNG_B64
+    for app_icon_name in fixture-app fixture-app-symbolic; do
+        cp -- "$app_icon_png" "$app_icon_runtime_root/data/icons/hicolor/16x16/apps/$app_icon_name.png"
+    done
+    app_icon_result="$app_icon_runtime_root/result.json"
+    app_icon_log="$app_icon_runtime_root/runtime.log"
+    : >"$app_icon_result"
+    app_icon_status=0
+    AURELIA_APP_LIBRARY_ICON_PROBE_SOURCE="file://$ROOT/tests/fixtures/app-library-icons/probe.qml" \
+    AURELIA_APP_LIBRARY_ICON_SOURCE="file://$app_icon_library" \
+    AURELIA_APP_LIBRARY_ICON_RESULT="$app_icon_result" \
+    AURELIA_APP_LIBRARY_ICON_PNG="$app_icon_png" \
+    HOME="$app_icon_runtime_root/home" \
+    XDG_RUNTIME_DIR="$app_icon_runtime_root/runtime" \
+    XDG_STATE_HOME="$app_icon_runtime_root/state" \
+    XDG_CONFIG_HOME="$app_icon_runtime_root/config" \
+    XDG_CACHE_HOME="$app_icon_runtime_root/cache" \
+    XDG_DATA_HOME="$app_icon_runtime_root/data-home" \
+    XDG_DATA_DIRS="$app_icon_runtime_root/data:/usr/local/share:/usr/share" \
+    QT_QPA_PLATFORM=offscreen \
+    WAYLAND_DISPLAY="" \
+        /usr/bin/timeout --kill-after=1s 10s /usr/bin/qs --no-duplicate \
+        --path "$ROOT/tests/fixtures/app-library-icons/shell.qml" --no-color \
+        >"$app_icon_log" 2>&1 || app_icon_status=$?
+
+    if [[ "$app_icon_status" -eq 0 ]] && [[ -s "$app_icon_result" ]] &&
+       runtime_log_is_environment_only "$app_icon_log" &&
+       jq -e --arg png "$app_icon_png" '
+           .cases.empty.status == 1 and
+           (.cases.empty.source | contains("application-x-executable")) and
+           .cases.knownName.status == 1 and
+           (.cases.knownName.source | contains("fixture-app")) and
+           .cases.knownSymbolic.status == 1 and
+           (.cases.knownSymbolic.source | contains("fixture-app-symbolic")) and
+           .cases.themedImage.status == 1 and
+           (.cases.themedImage.source | contains("fixture-app")) and
+           .cases.fileUrl.status == 1 and
+           (.cases.fileUrl.source | startswith("file://")) and
+           (.cases.fileUrl.source | contains("sample.png")) and
+           .cases.absolute.status == 1 and
+           (.cases.absolute.source | startswith("file://")) and
+           .cases.unknown.status == 1 and
+           (.cases.unknown.source | contains("application-x-executable"))
+       ' "$app_icon_result" >/dev/null; then
+        pass "[isolated-runtime] AureliaAppLibrary resolves a themed name, a themed image://icon value, a file:// URI and an absolute path through AppIconResolver and falls back to application-x-executable for empty/unknown icons, with every resolved source rendering (Image.Ready)"
+    else
+        details="$(tr '\n' ' ' <"$app_icon_log")"
+        if [[ -s "$app_icon_result" ]]; then details="$details result=$(tr '\n' ' ' <"$app_icon_result")"; fi
+        fail "[isolated-runtime] app-library icon resolution fixture failed (status=$app_icon_status): $details"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Command Center fallback icon resolution over the shared AppIconResolver owner
+# ---------------------------------------------------------------------------
+# CommandCenterPanel is a Wlroots layer PanelWindow and cannot be instantiated
+# under the offscreen test backend ("No PanelWindow backend loaded"), so its
+# defensive safeIconSource() bridge is pinned statically. Its production render
+# path (appLibrary.iconSource) shares this exact owner and is runtime-asserted
+# by the app-library icon fixture above.
+command_icon_panel="$command_center_root/ui/CommandCenterPanel.qml"
+if grep -Fq 'AppIconResolver.resolve' "$command_icon_panel" &&
+   ! grep -Fq 'Quickshell.iconPath' "$command_icon_panel"; then
+    pass "[static] Command Center safeIconSource delegates its fallback icon resolution to the shared AppIconResolver owner"
+else
+    fail "[static] Command Center still owns ad-hoc fallback icon resolution"
+fi

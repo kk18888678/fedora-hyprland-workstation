@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import "../../../theme"
 import "../../../ui"
+import "../../../services"
 import "."
 
 // Raycast-style command surface. The panel owns presentation and keyboard
@@ -94,10 +95,12 @@ PanelWindow {
 
     function closeForPopoutSwitch() { close() }
 
+    // Icon resolution is owned by the shared AppIconResolver singleton. This
+    // defensive fallback is only reached when the host appLibrary has not been
+    // injected yet; it must not re-derive the theme validation or the honest
+    // default locally.
     function safeIconSource(iconName) {
-        var name = String(iconName || "application-x-executable")
-        if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) name = "application-x-executable"
-        return Quickshell.iconPath(name, "application-x-executable")
+        return String(AppIconResolver.resolve({ appIcon: String(iconName || "") }).source || "")
     }
 
     function selectRowFromPointer(row, rowIndex, mouse) {

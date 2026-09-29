@@ -238,6 +238,10 @@ QtObject {
         for (var i = 0; i < dataDirs.length; i++) {
             resolverRoot.pushDir(dirs, dataDirs[i] + "/metainfo")
         }
+        // XDG_DATA_HOME is an XDG data directory just like XDG_DATA_DIRS and is
+        // searched first for .desktop entries; include its AppStream metainfo
+        // root as well so a user-local AppStream-only icon is not skipped.
+        resolverRoot.pushDir(dirs, resolverRoot.xdgDataHome + "/metainfo")
         return dirs
     }
 

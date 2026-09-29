@@ -2,6 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import "../../theme"
+import "../../ui"
+import "../../services"
 
 // A bounded single-frame preview of one Hyprland toplevel. Live video is
 // deliberately avoided: opening the overview should not create a permanent
@@ -27,8 +29,36 @@ Item {
         ? String(root.hyprlandToplevel.title)
         : "Application"
     readonly property var appEntry: {
+        var scan = root.desktopEntryCount
         var id = root.appId
         return id !== "" ? DesktopEntries.heuristicLookup(id) : null
+    }
+    // The desktop-entry scan is asynchronous; referencing its count keeps the
+    // per-window lookup reactive so an icon appears once the scan completes.
+    readonly property int desktopEntryCount: DesktopEntries.applications.values.length
+    // The shared AppIconResolver owns the ordered icon chain and the
+    // symbolic-versus-logo rule. The preview supplies only the identity it
+    // holds: the desktop entry's Icon= as the app-icon hint and the compositor
+    // app id as the in-flight window origin. Resolution is recomputed from
+    // change handlers rather than a function-binding so the shared FileView
+    // probe cannot create a binding dependency on its own caches.
+    property var iconResolution: ({ source: "", name: "", symbolic: false, kind: "default", origin: "default" })
+    function refreshIconResolution() {
+        root.iconResolution = AppIconResolver.resolve({
+            appIcon: root.appEntry && root.appEntry.icon ? String(root.appEntry.icon) : "",
+            desktopEntry: root.appId,
+            appName: root.appEntry && root.appEntry.name ? String(root.appEntry.name) : root.appId,
+            origin: { appId: root.appId, className: root.appId }
+        })
+    }
+    readonly property string iconSource: String(root.iconResolution.source || "")
+    readonly property bool symbolicIcon: root.iconResolution.symbolic === true
+    readonly property bool iconPreservesColors: windowIcon.preserveColors
+    onAppIdChanged: root.refreshIconResolution()
+    onAppEntryChanged: root.refreshIconResolution()
+    Connections {
+        target: AppIconResolver
+        function onMetadataIndexRevisionChanged() { root.refreshIconResolution() }
     }
 
     // Hyprland can publish the IPC client before the foreign-toplevel object
@@ -61,12 +91,6 @@ Item {
         function onValuesChanged() {
             root.managerRevision++
         }
-    }
-
-    function iconSource() {
-        var icon = root.appEntry && root.appEntry.icon ? String(root.appEntry.icon) : ""
-        if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(icon)) icon = "application-x-executable"
-        return Quickshell.iconPath(icon, "application-x-executable")
     }
 
     function requestFrame() {
@@ -123,15 +147,16 @@ Item {
             spacing: Theme.spacingXs
             visible: !captureView.visible
 
-            Image {
+            AureliaIcon {
+                id: previewIcon
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 24
                 height: 24
-                source: root.iconSource()
-                sourceSize: Qt.size(24, 24)
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                smooth: true
+                iconSize: 24
+                name: ""
+                sourcePath: root.iconSource
+                preserveColors: !root.symbolicIcon
+                tint: Theme.text
                 opacity: 0.9
             }
 
@@ -159,15 +184,16 @@ Item {
                 anchors.rightMargin: Theme.spacingXs
                 spacing: Theme.spacingXs
 
-                Image {
+                AureliaIcon {
+                    id: windowIcon
                     anchors.verticalCenter: parent.verticalCenter
                     width: 16
                     height: 16
-                    source: root.iconSource()
-                    sourceSize: Qt.size(16, 16)
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    smooth: true
+                    iconSize: 16
+                    name: ""
+                    sourcePath: root.iconSource
+                    preserveColors: !root.symbolicIcon
+                    tint: Theme.text
                 }
 
                 Text {
@@ -190,5 +216,8 @@ Item {
         onTriggered: root.requestFrame()
     }
 
-    Component.onCompleted: root.requestFrame()
+    Component.onCompleted: {
+        root.refreshIconResolution()
+        root.requestFrame()
+    }
 }
