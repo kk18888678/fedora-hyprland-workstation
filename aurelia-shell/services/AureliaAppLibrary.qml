@@ -95,12 +95,13 @@ Item {
         return AppSearch.sortedEntries(values, query, function(entry) { return root.isHiddenEntry(entry) })
     }
 
+    // Icon resolution is owned by the shared AppIconResolver singleton. This
+    // bridge accepts the raw desktop-entry Icon= value and returns the
+    // resolved, provably-usable source. The library must not re-derive the
+    // file:// / image:// / absolute-path / theme-name rule, the themed-image
+    // extraction, or the honest fallback locally.
     function iconSource(iconName) {
-        var value = String(iconName || "")
-        if (value === "") return Quickshell.iconPath("application-x-executable", "application-x-executable")
-        if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
-        if (value.charAt(0) === "/") return SourceUrl.fileUrl(value)
-        return Quickshell.iconPath(value, "application-x-executable")
+        return String(AppIconResolver.resolve({ appIcon: String(iconName || "") }).source || "")
     }
 
     function appRows(query) {
