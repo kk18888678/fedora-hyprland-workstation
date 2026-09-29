@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Focus the Herdr terminal window that owns a pi chat.
+"""Compatibility shim: Herdr notification "Open" -> the single focus owner.
 
-Herdr is a terminal workspace manager: its workspaces are internal, so
-`herdr workspace focus <n>` alone leaves the compositor on whatever workspace
-it was on. This helper switches the Herdr workspace and then raises the
-terminal window that actually runs Herdr, which also moves the compositor to
-that window's workspace.
-
-Usage: workstation-herdr-focus [workspace-number] [--dry-run]
+The one owner of "focus the origin" is ``workstation-notification-focus``.
+This file only translates the historical ``workstation-herdr-focus [N]``
+invocation into a ``navigate --origin`` call.  It contains no focus logic of
+its own.
 """
 
 from __future__ import annotations
@@ -15,136 +12,67 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import sys
 
-TERMINALS = (
-    "foot", "footclient", "kitty", "alacritty", "ghostty",
-    "wezterm", "xterm", "konsole", "gnome-terminal", "alacritty",
-)
+HELPER_NAME = "workstation-notification-focus"
 
 
-def read_cmdline(pid: int) -> str:
-    try:
-        with open(f"/proc/{pid}/cmdline", "rb") as handle:
-            return handle.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
-    except Exception:
-        return ""
+def helper_path() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(here, HELPER_NAME)
+    if os.path.exists(candidate):
+        return candidate
+    found = shutil.which(HELPER_NAME)
+    return found or candidate
 
 
-def read_ppid(pid: int) -> int:
-    try:
-        with open(f"/proc/{pid}/stat", "r") as handle:
-            tail = handle.read().rsplit(")", 1)[1].split()
-        return int(tail[1])
-    except Exception:
-        return 0
-
-
-def herdr_client_pids() -> list[int]:
-    pids = []
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        cmdline = read_cmdline(int(entry))
-        if not cmdline:
-            continue
-        argv = cmdline.split()
-        if os.path.basename(argv[0]) != "herdr":
-            continue
-        if len(argv) > 1 and argv[1] == "server":
-            continue
-        pids.append(int(entry))
-    return pids
-
-
-def terminal_ancestor(pid: int) -> int:
-    seen = set()
-    while pid and pid > 1 and pid not in seen:
-        seen.add(pid)
-        cmdline = read_cmdline(pid)
-        base = os.path.basename(cmdline.split(" ")[0]) if cmdline else ""
-        if base in TERMINALS:
-            return pid
-        pid = read_ppid(pid)
-    return 0
-
-
-def window_info_for_pid(pid: int) -> dict:
-    hyprctl = shutil.which("hyprctl")
-    if not hyprctl or pid <= 0:
-        return {}
-    try:
-        result = subprocess.run([hyprctl, "clients", "-j"], capture_output=True, text=True, timeout=5)
-        clients = json.loads(result.stdout or "[]")
-    except Exception:
-        return {}
-    for client in clients:
-        try:
-            if int(client.get("pid") or -1) != pid:
-                continue
-        except Exception:
-            continue
-        workspace = client.get("workspace") or {}
-        return {
-            "address": str(client.get("address") or ""),
-            "workspace": str(workspace.get("name") or ""),
-        }
-    return {}
-
-
-def focus_workspace(name: str) -> bool:
-    """Switch to a workspace on both Lua and classic Hyprland configs."""
-    if not name:
-        return False
-    hyprctl = shutil.which("hyprctl")
-    if not hyprctl:
-        return False
-    # Lua configs wrap `hyprctl dispatch` in hl.dispatch(...), so the classic
-    # "workspace N" argument is parsed as Lua and fails. Try the Lua dispatcher
-    # first, then the classic syntax for non-Lua configs.
-    lua = subprocess.run(
-        [hyprctl, "dispatch", 'hl.dsp.focus({ workspace = "' + name + '" })'],
-        capture_output=True, text=True, timeout=5,
-    )
-    if "ok" in (lua.stdout or ""):
-        return True
-    classic = subprocess.run([hyprctl, "dispatch", "workspace", name],
-                             capture_output=True, text=True, timeout=5)
-    return "ok" in (classic.stdout or "")
+def build_origin(workspace: str) -> dict:
+    return {
+        "originVersion": 1,
+        "captureQuality": "identity",
+        "captureSource": "identity",
+        "notify": {"appName": "Herdr", "desktopEntry": "Herdr"},
+        "sender": {"ancestry": [], "focusEnv": {}},
+        "compositor": {"matched": False, "matchConfidence": "none", "candidates": []},
+        "tab": {
+            "kind": "herdr",
+            "workspaceId": workspace or None,
+            "tabId": None,
+            "paneId": None,
+        },
+    }
 
 
 def main() -> int:
-    args = [arg for arg in sys.argv[1:] if arg != "--dry-run"]
-    dry_run = "--dry-run" in sys.argv[1:]
-    workspace = args[0] if args else ""
-
-    herdr = shutil.which("herdr") or os.path.expanduser("~/.local/bin/herdr")
-    if workspace and os.path.exists(herdr):
-        subprocess.run([herdr, "workspace", "focus", workspace], capture_output=True, text=True, timeout=8)
-
-    address = ""
     workspace = ""
-    for pid in herdr_client_pids():
-        terminal = terminal_ancestor(pid)
-        if terminal:
-            info = window_info_for_pid(terminal)
-            if info.get("address"):
-                address = info["address"]
-                workspace = info.get("workspace", "")
-                break
+    dry_run = False
+    for arg in sys.argv[1:]:
+        if arg == "--dry-run":
+            dry_run = True
+        elif arg.startswith("-"):
+            continue
+        else:
+            workspace = arg
 
-    if not address:
-        print("no herdr terminal window found", file=sys.stderr)
-        return 1
+    helper = helper_path()
+    argv = [helper, "navigate", "--origin", json.dumps(build_origin(workspace))]
     if dry_run:
-        print(json.dumps({"address": address, "workspace": workspace}))
-        return 0
-
-    if workspace:
-        focus_workspace(workspace)
-    print("focused workspace " + (workspace or "?"))
-    return 0
+        argv.append("--dry-run")
+    try:
+        os.execv(helper, argv)
+    except Exception:
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "action": "navigate",
+                    "outcome": "unavailable",
+                    "confidence": "none",
+                    "reason": "workstation-notification-focus unavailable",
+                }
+            )
+            + "\n"
+        )
+        return 1
 
 
 if __name__ == "__main__":

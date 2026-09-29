@@ -264,6 +264,101 @@ install_crash_capture() {
     record_success "crash-capture"
 }
 
+# Notification-origin capture/navigation helper. Exactly one owner captures the
+# origin and exactly one owner focuses it. The compatibility shim delegates to
+# the helper. The monitor is an unprivileged user service; an absent or crashed
+# unit degrades capture to identity-only while window/workspace navigation
+# still works, so every failure here is deferred.
+NOTIFICATION_ORIGIN_BACKENDS=(
+    workstation-notification-focus
+    workstation-herdr-focus
+)
+
+validate_notification_origin_installation() {
+    local bin_dir="${1:-/usr/local/bin}"
+    local binary
+    local target
+
+    for binary in "${NOTIFICATION_ORIGIN_BACKENDS[@]}"; do
+        target="$bin_dir/$binary"
+        if [[ ! -f "$target" || -L "$target" || ! -x "$target" ]]; then
+            return 1
+        fi
+    done
+}
+
+validate_notification_origin_unit() {
+    local unit_file="$1"
+    local analyzer
+
+    [[ -f "$unit_file" && ! -L "$unit_file" ]] || return 1
+    analyzer="$(command -v systemd-analyze || true)"
+    [[ -n "$analyzer" ]] || return 1
+    "$analyzer" verify "$unit_file" >/dev/null
+}
+
+install_notification_origin() {
+    local binary
+    for binary in "${NOTIFICATION_ORIGIN_BACKENDS[@]}"; do
+        if ! install_root_cli_file \
+            "$SCRIPT_DIR/aurelia-shell/bin/$binary" \
+            "/usr/local/bin/$binary" \
+            "$binary" \
+            optional; then
+            return 0
+        fi
+    done
+
+    if ! validate_notification_origin_installation /usr/local/bin; then
+        record_deferred \
+            "desktop" \
+            "notification-origin" \
+            "A notification-origin backend is missing or is not an executable regular file under /usr/local/bin."
+        return 0
+    fi
+
+    local unit_source="$SCRIPT_DIR/aurelia-shell/systemd/user/workstation-notification-origin.service"
+    local config_home="$TARGET_HOME/.config"
+    local unit_dir="$config_home/systemd/user"
+    local unit_target="$unit_dir/workstation-notification-origin.service"
+    local wants_link="$unit_dir/graphical-session.target.wants/workstation-notification-origin.service"
+
+    if ! validate_notification_origin_unit "$unit_source"; then
+        record_deferred \
+            "desktop" \
+            "notification-origin-unit" \
+            "The notification-origin unit is missing or failed systemd-analyze verification."
+        return 0
+    fi
+    if declare -F safe_user_config_home >/dev/null &&
+        ! safe_user_config_home "$config_home"; then
+        record_deferred "desktop" "notification-origin-unit" "Unsafe user configuration path for the notification-origin unit."
+        return 0
+    fi
+    if ! ensure_directory "$unit_dir" ||
+        ! ensure_directory "$(dirname -- "$wants_link")"; then
+        record_deferred "desktop" "notification-origin-unit" "Could not create the user unit directory."
+        return 0
+    fi
+
+    local unit_owner="${TARGET_USER:-root}"
+    local unit_group
+    unit_group="$(id -gn "$unit_owner" || printf '%s' "$unit_owner")"
+    if ! root_managed_file_is_converged "$unit_source" "$unit_target" "$unit_owner:$unit_group:644"; then
+        if ! install_root_file_atomically "$unit_source" "$unit_target" 0644 "$unit_owner" "$unit_group"; then
+            record_deferred "desktop" "notification-origin-unit" "Could not install the notification-origin unit."
+            return 0
+        fi
+    fi
+    if ! ensure_symlink "$unit_target" "$wants_link"; then
+        record_deferred "desktop" "notification-origin-unit" "Could not enable the notification-origin monitor for the graphical session."
+        return 0
+    fi
+
+    info "Notification-origin monitor installed and enabled for the next login."
+    record_success "notification-origin"
+}
+
 # Unified `aurelia` command center CLI plus the bounded IPC client. Both are
 # self-contained scripts (no lib trees); the dispatcher resolves the remaining
 # aurelia-* backends at runtime from the shell root or installed root.
