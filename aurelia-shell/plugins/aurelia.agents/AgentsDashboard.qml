@@ -265,6 +265,18 @@ Item {
         if (panelToolTip) panelToolTip.dismiss()
     }
 
+    // Bare pointer motion drops the keyboard cursor but must NOT clear the
+    // hover state or dismiss the shared inline tooltip: those belong to the
+    // item actually under the pointer. The panel-level handler doing both was
+    // the real cause of "hovering a progress bar shows no tooltip": the cell
+    // HoverHandler set triggerItem/lines first, then this handler reset
+    // hoverColumn and stopped the reveal timer on the very same move. Motion
+    // now only clears cursorActive; the cell HoverHandler is the single source
+    // of the column hover and the tooltip, the row HoverHandler of the row.
+    function notePointerMotion() {
+        cursorActive = false
+    }
+
     function selectAccountByPointer(index) {
         notePointerInteraction()
         selectAccount(index)
@@ -1943,7 +1955,7 @@ Item {
     // is passive and does not consume events or steal hover from the children.
     HoverHandler {
         id: pointerHover
-        onPointChanged: if (pointerHover.hovered) dashboard.notePointerInteraction()
+        onPointChanged: if (pointerHover.hovered) dashboard.notePointerMotion()
     }
 
     FocusScope {
