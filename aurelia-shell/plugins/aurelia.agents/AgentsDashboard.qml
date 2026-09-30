@@ -1479,6 +1479,9 @@ Item {
                 // Key-cap renderer.
                 Row {
                     visible: dashboard.footerHint.kind === "keys"
+                    // The hint occupies the row so the fixed-width pager stays
+                    // pinned to the row's right edge regardless of hint length.
+                    Layout.fillWidth: true
                     spacing: Theme.spacingSm
 
                     Repeater {
@@ -1507,39 +1510,56 @@ Item {
                 }
 
                 // Pace legend renderer, built from the real Meter component.
+                // Each item is a RowLayout so the mini meter and its label
+                // share one vertical centre line; the Meter's pace marker
+                // overhangs the 4 px bar by 3 px above and below, so the
+                // marker's visual centre is the bar's centre.
                 Row {
                     visible: dashboard.footerHint.kind === "legend"
+                    Layout.fillWidth: true
                     spacing: Theme.spacingLg
 
-                    Row {
+                    RowLayout {
+                        objectName: "agentsFooterLegendEven"
                         spacing: Theme.spacingXs
 
                         Meter {
-                            width: 22
-                            height: 4
+                            objectName: "agentsFooterLegendEvenMeter"
+                            Layout.fillWidth: false
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 4
+                            Layout.alignment: Qt.AlignVCenter
                             value: 0.5
                             marker: 0.5
                         }
 
                         Label {
+                            objectName: "agentsFooterLegendEvenLabel"
+                            Layout.alignment: Qt.AlignVCenter
                             text: "even pace"
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontSizeXs
                         }
                     }
 
-                    Row {
+                    RowLayout {
+                        objectName: "agentsFooterLegendFast"
                         spacing: Theme.spacingXs
 
                         Meter {
-                            width: 22
-                            height: 4
+                            objectName: "agentsFooterLegendFastMeter"
+                            Layout.fillWidth: false
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 4
+                            Layout.alignment: Qt.AlignVCenter
                             value: 0.5
                             marker: 0.5
                             markerColor: Theme.warning
                         }
 
                         Label {
+                            objectName: "agentsFooterLegendFastLabel"
+                            Layout.alignment: Qt.AlignVCenter
                             text: "using faster than pace"
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontSizeXs
@@ -1549,10 +1569,17 @@ Item {
             }
 
             // Pager: three dots, the active one a 14 x 5 pill. Only the idle
-            // rotation shows it; clicking steps through the tips.
+            // rotation shows it; clicking steps through the tips. Its width is
+            // FIXED (14 + 5 + 5 plus two gaps) and it is right-aligned, so its
+            // right edge is the row's right edge in every hint state; the hint
+            // absorbs the slack instead of the pager following the text.
             Row {
                 objectName: "agentsFooterPager"
                 visible: dashboard.footerHint.priority === 5
+                Layout.preferredWidth: 14 + 5 + 5 + Theme.spacingXs * 2
+                Layout.minimumWidth: 14 + 5 + 5 + Theme.spacingXs * 2
+                Layout.maximumWidth: 14 + 5 + 5 + Theme.spacingXs * 2
+                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                 spacing: Theme.spacingXs
 
                 Repeater {
@@ -2020,18 +2047,18 @@ Item {
     // hovered. `panelShown` defaults to false, so an unwired fixture never
     // rotates. Any higher-priority hint takes over immediately.
     Timer {
-        interval: 8000
+        interval: 4000
         repeat: true
         running: dashboard.panelShown && dashboard.footerHint.priority === 5 && !footerHover.hovered
         onTriggered: footerRotateAnimation.start()
     }
 
-    // 200 ms cross-fade: out, swap, in. It always ends at opacity 1.0.
+    // 150 ms cross-fade: out, swap, in. It always ends at opacity 1.0.
     SequentialAnimation {
         id: footerRotateAnimation
-        NumberAnimation { target: footerHintRow; property: "opacity"; to: 0; duration: 100 }
+        NumberAnimation { target: footerHintRow; property: "opacity"; to: 0; duration: 75 }
         ScriptAction { script: dashboard.rotationIndex = (dashboard.rotationIndex + 1) % 3 }
-        NumberAnimation { target: footerHintRow; property: "opacity"; to: 1; duration: 100 }
+        NumberAnimation { target: footerHintRow; property: "opacity"; to: 1; duration: 75 }
     }
 
     // The ONE shared in-scene tooltip for the whole dashboard. It is the last
