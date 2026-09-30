@@ -246,15 +246,19 @@ else
     fail "package manifests contain duplicate RPM ownership: $manifest_duplicates"
 fi
 
-if grep -vE '^\s*#' "$ROOT"/packages/base.txt | grep -qw chromium; then
+# Capture the active (uncommented) manifest entries first: a trailing
+# `grep -q` in a pipeline can make the upstream producer take SIGPIPE under
+# `set -o pipefail`, which would silently invert the assertion.
+base_active_entries="$(grep -vE '^\s*#' "$ROOT"/packages/base.txt)"
+if grep -qw chromium <<<"$base_active_entries"; then
     fail "chromium belongs in the browser module, not base.txt"
 else
     pass "chromium is not in base.txt"
 fi
 
-if grep -h -vE '^\s*#' "$ROOT/packages/desktop.txt" |
-   sed 's/^[[:space:]]*//;s/[[:space:]]*$//' |
-   grep -Eq '^(bluez|bluez-tools|bluez-utils)$'; then
+desktop_active_entries="$(grep -h -vE '^\s*#' "$ROOT/packages/desktop.txt" |
+   sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+if grep -Eq '^(bluez|bluez-tools|bluez-utils)$' <<<"$desktop_active_entries"; then
     fail "Bluetooth packages must not be unconditional desktop packages"
 else
     pass "Bluetooth packages are not unconditional desktop packages"

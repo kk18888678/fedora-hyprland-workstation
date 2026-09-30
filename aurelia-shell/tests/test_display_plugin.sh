@@ -238,7 +238,7 @@ fi
 PATH="$PATH" HOME="$display_home" XDG_CONFIG_HOME="$display_tmp/config" \
     "$ROOT/bin/aurelia-display-text-size" 16 >/dev/null
 if grep -Fxq 'fontBaseSize = 16' "$display_tmp/config/aurelia/display.conf" &&
-   HOME="$display_home" XDG_CONFIG_HOME="$display_tmp/config" "$ROOT/bin/aurelia-display-text-size" | grep -Fxq 16; then
+   grep -Fxq 16 <<<"$(HOME="$display_home" XDG_CONFIG_HOME="$display_tmp/config" "$ROOT/bin/aurelia-display-text-size")"; then
     pass "text-size helper atomically persists a user-owned Aurelia setting"
 else
     fail "text-size helper did not persist or read back the expected value"

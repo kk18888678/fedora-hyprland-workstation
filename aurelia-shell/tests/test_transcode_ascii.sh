@@ -9,7 +9,7 @@ section "Aurelia Image-to-Terminal Raster"
 transcoder="$ROOT/bin/aurelia-transcode-ascii"
 
 if [[ -x "$transcoder" ]] && bash -n "$transcoder" &&
-   "$transcoder" --help | grep -q -- '--mode <braille|block|solid>' &&
+   grep -q -- '--mode <braille|block|solid>' <<<"$("$transcoder" --help)" &&
    grep -q 'Required command' "$transcoder" &&
    grep -q 'alpha extract' "$transcoder" &&
    grep -q 'P1' "$transcoder"; then

@@ -100,7 +100,7 @@ else
     fail "Native About asset or SVG-derived Fastfetch configuration is incomplete"
 fi
 
-if file "$ROOT/config/branding/aurelia-mark.png" | grep -q '1024 x 1024'; then
+if grep -q '1024 x 1024' <<<"$(file "$ROOT/config/branding/aurelia-mark.png")"; then
     pass "About uses a high-resolution 1024x1024 Aurelia image asset"
 else
     fail "Aurelia native About image is missing or not high resolution"

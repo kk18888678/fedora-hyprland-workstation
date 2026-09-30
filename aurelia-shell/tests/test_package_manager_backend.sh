@@ -200,7 +200,8 @@ fi
 
 mkdir -p "$cache/fedora-hyprland-workstation/package-manager"
 printf '%s\n' $'dnf\tfedora\tmock-dnf\tmock-dnf\tA mock package\t1\tsystem' >"$cache/fedora-hyprland-workstation/package-manager/catalog.tsv"
-if env "${test_env[@]}" "$backend" search mock-dnf | grep -Fq $'dnf\tfedora\tmock-dnf'; then
+search_mock_dnf="$(env "${test_env[@]}" "$backend" search mock-dnf)"
+if grep -Fq $'dnf\tfedora\tmock-dnf' <<<"$search_mock_dnf"; then
     pass "Search reads the normalized multi-source catalog"
 else
     fail "Search did not return a catalog row with provider and source"
@@ -216,10 +217,18 @@ else
     fail "Status JSON omitted tracked package provenance"
 fi
 
-if env "${test_env[@]}" "$backend" refresh >/dev/null &&
-   env "${test_env[@]}" "$backend" search mock-dnf | grep -Fq $'dnf\tfedora\tmock-dnf' &&
-   ! env "${test_env[@]}" "$backend" search mock-dnf-i686 | grep -Fq $'dnf\tfedora\tmock-dnf-i686' &&
-   env "${test_env[@]}" "$backend" search org.example.Catalog | grep -Fq $'flatpak\tflathub\torg.example.Catalog'; then
+# Refresh first, THEN capture the search projections: the searches must see the
+# catalog the refresh just built. Matching captured text avoids the SIGPIPE
+# that a trailing `grep -q` could cause under `set -o pipefail`.
+refresh_ok=1
+if env "${test_env[@]}" "$backend" refresh >/dev/null; then refresh_ok=0; fi
+search_live_dnf="$(env "${test_env[@]}" "$backend" search mock-dnf)"
+search_live_i686="$(env "${test_env[@]}" "$backend" search mock-dnf-i686)"
+search_live_catalog="$(env "${test_env[@]}" "$backend" search org.example.Catalog)"
+if [[ "$refresh_ok" -eq 0 ]] &&
+   grep -Fq $'dnf\tfedora\tmock-dnf' <<<"$search_live_dnf" &&
+   ! grep -Fq $'dnf\tfedora\tmock-dnf-i686' <<<"$search_live_i686" &&
+   grep -Fq $'flatpak\tflathub\torg.example.Catalog' <<<"$search_live_catalog"; then
     pass "Refresh indexes native Fedora DNF and Flatpak rows as separate searchable providers"
 else
     fail "Refresh did not make both DNF and Flatpak catalog rows searchable"
@@ -289,8 +298,16 @@ else
     fail "Dedicated catalog-row uninstall boundary did not remove the package or declaration"
 fi
 
-if env "${test_env[@]}" "$backend" open >/dev/null &&
-   tr '\0' ' ' <"$fixture/open.log" | grep -Fq 'workstation-packages-tui'; then
+# Run `open` first, then read the log it produced. Matching captured text
+# avoids the SIGPIPE a trailing `grep -q` could cause under pipefail.
+open_ok=1
+if env "${test_env[@]}" "$backend" open >/dev/null; then open_ok=0; fi
+open_log_text=""
+if [[ -f "$fixture/open.log" ]]; then
+    open_log_text="$(tr '\0' ' ' <"$fixture/open.log")"
+fi
+if [[ "$open_ok" -eq 0 ]] &&
+   grep -Fq 'workstation-packages-tui' <<<"$open_log_text"; then
     pass "Opening Package Manager enters the ready package search directly"
 else
     fail "Opening Package Manager did not launch the direct search surface"

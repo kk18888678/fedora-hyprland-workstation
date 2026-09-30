@@ -266,7 +266,11 @@ else
     fail "startup.lua missing QT_QPA_PLATFORMTHEME,qt6ct"
 fi
 
-if git -C "$ROOT" ls-files | grep -q "dotfiles/hypr/noctalia.lua"; then
+# Capture the tracked-file list first: `git ls-files | grep -q` can return 141
+# under `set -o pipefail` when grep exits before git finishes writing. The
+# assertion is about the set of tracked files, so match the captured value.
+tracked_files="$(git -C "$ROOT" ls-files)"
+if grep -q "dotfiles/hypr/noctalia.lua" <<<"$tracked_files"; then
     fail "untracked/dynamic noctalia.lua should not be tracked in git"
 else
     pass "no dynamic noctalia.lua tracked in git"

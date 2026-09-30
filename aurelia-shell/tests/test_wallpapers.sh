@@ -1364,7 +1364,10 @@ else
     fail "blueprint save failed"
 fi
 
-if run_wp blueprint list | grep -q '^forest-look' &&
+# Capture the text listing first: `grep -q` could exit before run_wp finished
+# writing and make the pipeline return 141 under `set -o pipefail`.
+blueprint_text_listing="$(run_wp blueprint list)"
+if grep -q '^forest-look' <<<"$blueprint_text_listing" &&
    run_wp blueprint list --json | jq -e '.blueprints[] | select(.slug == "forest-look")' >/dev/null; then
     pass "blueprint list exposes saved blueprints in text and JSON"
 else

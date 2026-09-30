@@ -64,31 +64,38 @@ log_list() {
         "$backend" "$@" --qslog "$sandbox/missing.qslog"
 }
 
-if [[ "$(log_list list | wc -l)" -eq 4 ]] &&
-   log_list list | grep -q '\[WARN\] aurelia.log.theme.apply: fallback palette used' &&
-   ! log_list list | grep -q '\[INFO\]'; then
+# Capture each projection once and match the captured text. Piping `log_list`
+# straight into `grep -q` let grep exit early, so log_list took SIGPIPE and the
+# pipeline returned 141 under `set -o pipefail`, inverting the assertion.
+list_output="$(log_list list)"
+if [[ "$(wc -l <<<"$list_output")" -eq 4 ]] &&
+   grep -q '\[WARN\] aurelia.log.theme.apply: fallback palette used' <<<"$list_output" &&
+   ! grep -q '\[INFO\]' <<<"$list_output"; then
     pass "[unit] list projects WARN/ERROR/FATAL and drops INFO"
 else
     fail "[unit] structured list projection diverged"
 fi
 
-if log_list list --level error | grep -q 'launch failed' &&
-   [[ "$(log_list list --level error | wc -l)" -eq 2 ]]; then
+error_output="$(log_list list --level error)"
+if grep -q 'launch failed' <<<"$error_output" &&
+   [[ "$(wc -l <<<"$error_output")" -eq 2 ]]; then
     pass "[unit] --level narrows the projection"
 else
     fail "[unit] --level filter diverged"
 fi
 
-if log_list list --since 1h | grep -q 'launch failed' &&
-   ! log_list list --since 1h | grep -q 'old failure'; then
+since_output="$(log_list list --since 1h)"
+if grep -q 'launch failed' <<<"$since_output" &&
+   ! grep -q 'old failure' <<<"$since_output"; then
     pass "[unit] --since bounds the projection by time"
 else
     fail "[unit] --since filter diverged"
 fi
 
-if log_list count | grep -q 'WARN: 1' &&
-   log_list count | grep -q 'ERROR: 2' &&
-   log_list count | grep -q 'FATAL: 1'; then
+count_output="$(log_list count)"
+if grep -q 'WARN: 1' <<<"$count_output" &&
+   grep -q 'ERROR: 2' <<<"$count_output" &&
+   grep -q 'FATAL: 1' <<<"$count_output"; then
     pass "[unit] count reports per-level totals"
 else
     fail "[unit] level counting diverged"

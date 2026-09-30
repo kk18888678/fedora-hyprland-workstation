@@ -306,12 +306,14 @@ mute_flag() {
     printf '%s' "$mute_home/.local/state/aurelia/toggles/crash-ignore/$1"
 }
 
-standalone_mute | grep -Fq "No programs muted" ||
+mute_listing="$(standalone_mute)"
+grep -Fq "No programs muted" <<<"$mute_listing" ||
     fail "an empty mute list prints nothing, so a user cannot tell it from a broken command"
 pass "the command says so when nothing is muted"
 
 standalone_mute hyprland >/dev/null
-standalone_mute | grep -Fqx hyprland ||
+mute_listing="$(standalone_mute)"
+grep -Fqx hyprland <<<"$mute_listing" ||
     fail "a muted program is missing from the list, so a mute cannot be found again"
 pass "the command lists what it muted"
 
@@ -333,7 +335,8 @@ standalone_mute hyprland >/dev/null
 pass "asking to mute twice leaves it muted"
 
 standalone_mute .hidden >/dev/null
-standalone_mute | grep -Fqx .hidden ||
+mute_listing="$(standalone_mute)"
+grep -Fqx .hidden <<<"$mute_listing" ||
     fail "a mute on a dotted name is missing from the list"
 pass "the list shows a name that begins with a dot"
 
@@ -372,7 +375,8 @@ standalone_mute toggler toggle >/dev/null
 pass "toggle flips a mute both ways"
 
 mkdir -p "$(mute_flag notactuallymuted)"
-! standalone_mute | grep -Fqx notactuallymuted ||
+mute_listing="$(standalone_mute)"
+! grep -Fqx notactuallymuted <<<"$mute_listing" ||
     fail "a directory is reported as muted while crashes keep arriving"
 pass "the listing counts only the flags the watcher honours"
 rmdir "$(mute_flag notactuallymuted)"

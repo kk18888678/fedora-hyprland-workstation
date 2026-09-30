@@ -71,7 +71,7 @@ cp -- "$ROOT/config/branding/aurelia-mark.svg" "$fixture/input.txt"
 if env "${test_env[@]}" "$branding_bin" image "$fixture/input.svg" >/dev/null &&
    [[ -s "$branding_image" ]] &&
    [[ -s "$launch_log" ]] &&
-   file "$branding_image" | grep -q 'PNG image data' &&
+   grep -q 'PNG image data' <<<"$(file "$branding_image")" &&
    [[ $(magick identify -format '%wx%h' "$branding_image") == 1024x1024 ]] &&
    cmp -s "$branding_image" "$ROOT/config/branding/aurelia-mark.png"; then
     pass "Set From Image rasterizes the SVG sharply into the managed native PNG"
