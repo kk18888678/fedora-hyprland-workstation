@@ -230,34 +230,22 @@ Item {
         if (Date.now() - root.lastLoadedMs > maxAgeMs) root.refresh(false)
     }
 
-    // Truthful tooltip: it names the unit (percentage for an authoritative
-    // window, billable tokens for a local-only provider), the provider, the
-    // window label, the reset countdown and the record freshness.
+    // Truthful tooltip model: one row per ready account in the pinned order,
+    // plus the freshness footer. The plain-text `tooltipText()` is the same
+    // model flattened for accessibility and tests.
+    readonly property var barTooltip: AgentUsage.barTooltipModel(
+        root.agents, root.nowMs, root.percentMode, root.staleMs)
+
     function tooltipText() {
         if (!root.hasAgents) return ""
-        if (root.readyAgents.length === 0) return "AI agents · waiting for usage data"
+        var model = root.barTooltip
+        if (!model || !model.list || model.list.length === 0)
+            return "AI agents · waiting for usage data"
         var lines = []
-        for (var i = 0; i < root.readyAgents.length; i++) {
-            var agent = root.readyAgents[i]
-            var name = String(agent.name || agent.id)
-            var limit = AgentUsage.bindingLimit(agent, root.nowMs)
-            if (limit) {
-                var percent = Math.round(
-                    AgentUsage.displayPercent(Number(limit.percent), root.percentMode) * 100)
-                var label = String(limit.label || "limit")
-                var unit = root.percentMode === "used" ? "used" : "remaining"
-                var line = name + " · " + label + " " + percent + "% " + unit
-                var remaining = AgentUsage.resetMsFor(limit, root.nowMs)
-                if (remaining > 0) line += " · resets in " + AgentUsage.formatDuration(remaining)
-                lines.push(line)
-            } else {
-                lines.push(name + " · " + AgentUsage.formatTokens(agent.todayBillableTokens) + " billable tokens today")
-            }
+        for (var i = 0; i < model.list.length; i++) {
+            lines.push(String(model.list[i].name) + " · " + String(model.list[i].value))
         }
-        // Freshness is across every ready account, not just the first one, and
-        // the helper already supplies the `updated …` prefix.
-        var freshness = AgentUsage.overallFreshnessPill(root.readyAgents, root.nowMs, root.staleMs)
-        if (freshness.text !== "") lines.push(freshness.text)
+        if (model.footer && model.footer.text) lines.push(String(model.footer.text))
         return lines.join("\n")
     }
 
@@ -525,5 +513,7 @@ Item {
         // while the panel is closed.
         hovered: pointerHover.hovered && !root.isVisible()
         text: root.tooltipText()
+        list: root.barTooltip.list
+        footer: root.barTooltip.footer
     }
 }

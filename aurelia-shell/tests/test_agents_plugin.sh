@@ -70,7 +70,7 @@ if grep -q 'function normalizePercentMode(value)' "$plugin_dir/AgentUsage.js" &&
    grep -q 'normalizePercentMode(mode) === "used" ? elapsed : 1 - elapsed' "$plugin_dir/AgentUsage.js" &&
    grep -q 'percentMode: AgentUsage.normalizePercentMode' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'percentMode: AgentUsage.normalizePercentMode' "$plugin_dir/AgentsDashboard.qml" &&
-   grep -q 'AgentUsage.overallFreshnessPill' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.barTooltipModel' "$plugin_dir/AgentsBarWidget.qml" &&
    ! grep -q '"Updated " + freshness.text' "$plugin_dir/AgentsBarWidget.qml"; then
     pass "[static] agents percentage mode has one normalization/inversion point and a truthful unit-aware tooltip"
 else
@@ -102,7 +102,7 @@ if grep -q 'visible: root.hasAgents' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.serializeNotificationState' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.deserializeNotificationState' "$plugin_dir/AgentsBarWidget.qml" &&
    ! grep -q 'notify-send' "$plugin_dir/AgentsBarWidget.qml" &&
-   grep -q 'AgentUsage.bindingLimit' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'AgentUsage.barTooltipModel' "$plugin_dir/AgentsBarWidget.qml" &&
    grep -q 'AgentUsage.barState' "$plugin_dir/AgentsBarWidget.qml"; then
     pass "[static] agents widget refreshes through workstation-ai and derives state from the record contract"
 else
@@ -642,7 +642,7 @@ process.exit((ok && matrixOk) ? 0 : 1);
     dashboard_test="$(mktemp --suffix=.js)"
     sed '/^\.pragma library/d' "$plugin_dir/AgentUsage.js" >"$dashboard_test"
     cat >>"$dashboard_test" <<'AGENT_DASHBOARD_EXPORTS'
-module.exports = { classifyWindow, windowDescription, windowColumnLabel, canonicalWindowOrder, supportedWindowClasses, windowIsOffered, matrixRows, matrixRow, matrixCell, matrixCellMarker, matrixCellTooltip, matrixCellAccessibility, bindingLimit, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, headlineFor, paceWord, worstLimitFor, todayUsage, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey, accountDetails, notificationPlan };
+module.exports = { classifyWindow, windowDescription, windowTooltipName, windowLowerName, windowColumnLabel, canonicalWindowOrder, supportedWindowClasses, windowIsOffered, matrixRows, matrixRow, matrixCell, matrixCellMarker, matrixCellTooltip, matrixCellAccessibility, bindingLimit, accountOrder, reconcileSelection, limitDetailRows, hasBalance, anyBalance, balanceText, balanceHeader, severityGlyph, headlineFor, paceWord, worstLimitFor, todayUsage, normalizePercentMode, displayPercent, displayMarker, newestRecord, overallFreshnessPill, diagnoseRecord, diagnoseRecords, collectorDiagnostic, diagnosticLine, diagnosticKey, accountDetails, notificationPlan, formatResetLocal, projectExhaustion, isMeaningfullyFast, PACE_ALERT_MIN_MARGIN_FRACTION, blockedCount, accountStatus, cellTooltipLines, barTooltipModel, footerHint, providerDisplayName };
 AGENT_DASHBOARD_EXPORTS
     if node -e '
 const fs = require("fs");
@@ -659,7 +659,10 @@ assert(A.classifyWindow({windowMinutes: 0}) === "unknown");
 assert(A.classifyWindow({windowMinutes: NaN}) === "unknown");
 assert(A.classifyWindow({}) === "unknown");
 assert(A.classifyWindow(null) === "unknown");
-assert(A.windowDescription("month") === "30-day rolling window");
+assert(A.windowDescription("month") === "Usage limit over a rolling 30-day window");
+assert(A.windowDescription("five_hour") === "Usage limit over a 5-hour window");
+assert(A.windowDescription("week") === "Usage limit over a 7-day window");
+assert(A.windowDescription("month").indexOf("this month") === -1, "MONTH is a rolling window, not the calendar month");
 assert(A.windowColumnLabel("five_hour") === "5H");
 // Fixed deterministic order: name ascending, id tiebreak.
 const rows = A.matrixRows(records, now);
@@ -826,18 +829,26 @@ assert(A.diagnoseRecord({id: "p", supportedWindowMinutes: [300, 10080, 43200], l
   .some(d => d.condition === "missing_window" && d.detail === "30-day"), "month added but not reported");
 assert(!A.diagnoseRecord({id: "p", supportedWindowMinutes: [300, 10080], limits: twoWindows})
   .map(d => d.condition).includes("missing_window"), "month dropped is not offered");
-// Exact markers, tooltips and accessibility text for all three states.
+// Structured cell tooltip: not offered / not reported and every state row.
+assert(A.cellTooltipLines(null, "month", true, "remaining", {id: "codex", name: "Codex"}, now, 0)[0].text === "Codex has no monthly limit");
+assert(A.cellTooltipLines(null, "week", false, "remaining", {id: "codex", name: "Codex"}, now, 0)[0].text === "Codex didn\u0027t report its weekly limit");
+assert(A.matrixCellTooltip(null, "month", true, "remaining") === "This provider has no monthly limit");
+assert(A.matrixCellTooltip(null, "week", false, "remaining") === "This provider didn\u0027t report its weekly limit");
+const cellResets = new Date(now + 3 * 3600000).toISOString();
+const bindingCell = A.matrixCell({label: "Weekly", percent: 0.95, windowMinutes: 10080, resetsAt: cellResets}, "week", now, "remaining");
+bindingCell.isBinding = true;
+const bindingLines = A.cellTooltipLines(bindingCell, "week", false, "remaining", {name: "Cline"}, now, 0);
+assert(bindingLines.length === 3);
+assert(bindingLines[0].text === "Cline · Weekly" && bindingLines[0].strong === true);
+assert(bindingLines[1].text.indexOf("95% used") === 0, "line 2 always states used");
+assert(bindingLines[1].text.indexOf("resets ") >= 0, "line 2 carries the local reset time");
+assert(bindingLines[2].text === "Blocking Cline until then" && bindingLines[2].tone === "error");
+assert(A.matrixCellAccessibility(bindingCell, "week", false, "remaining", {name: "Cline"}, now, 0)
+  === bindingLines.map(function (line) { return line.text; }).join(", "));
 assert(A.matrixCellMarker({percentText: "42%"}, false) === "42%");
 assert(A.matrixCellMarker(null, false) === "—", "not reported marker");
 assert(A.matrixCellMarker(null, true) === "–", "not offered marker is distinct");
-assert(A.matrixCellTooltip(null, "month", true, "remaining") === "30-day · not offered by this provider");
-assert(A.matrixCellTooltip(null, "week", false, "remaining") === "Weekly · not reported by this provider");
-const reportedTooltip = A.matrixCellTooltip({label: "Weekly (7-day)", percentText: "33%", absoluteReset: "2026-09-30 15:13 UTC", isBinding: false}, "week", false, "remaining");
-assert(reportedTooltip.indexOf("remaining") >= 0 && reportedTooltip.indexOf("Resets 2026-09-30 15:13 UTC") >= 0);
-assert(A.matrixCellAccessibility(null, "month", true, "remaining") === "MONTH window not offered by this provider");
-assert(A.matrixCellAccessibility(null, "week", false, "remaining") === "WEEK window not reported by this provider");
-assert(A.matrixCellAccessibility({label: "5h window", percentText: "75%", isBinding: true}, "five_hour", false, "remaining")
-  === "5H 5h window: 75% remaining, binding window for this account");
+
 // matrixRow exposes notOffered per column and never fabricates a cell.
 const offRow = A.matrixRow({id: "claude", name: "Claude Code", ready: true, limits: [],
   supportedWindowMinutes: [300, 10080]}, now);
@@ -886,6 +897,99 @@ assert(JSON.stringify(A.diagnoseRecord(sentinelRec)).indexOf("sentinel.codex@exa
 const privacyNotif = A.notificationPlan([sentinelRec], {renewals: {"id:codex": {announcedForDate: "2020-01-01", renewValue: "2030-01-01"}}}, {renewals: true}, now);
 assert(JSON.stringify(privacyNotif).indexOf("sentinel.codex@example.test") === -1, "identity never reaches a notification");
 assert(JSON.stringify(privacyNotif).indexOf("Sentinel Codex") === -1, "name never reaches a notification");
+// ---------------------------------------------------------------------
+// New display helpers: projection, local reset wording, status, tooltips,
+// bar tooltip model, footer hint, and the privacy contract of every builder.
+// ---------------------------------------------------------------------
+const fastResets = new Date(now + 279 * 60000).toISOString();
+const fastLimit = {label: "5-hour", percent: 0.11, windowMinutes: 300, resetsAt: fastResets};
+const fastRec = {id: "fast", name: "Fast", ready: true, detected: true, limits: [fastLimit]};
+const fastProjection = A.projectExhaustion(fastLimit, now);
+assert(fastProjection !== null && fastProjection.beforeReset === true);
+assert(Math.abs(fastProjection.msToEmpty / 60000 - 170) < 5, "5-hour fast window runs out in ~2h50m");
+assert(A.isMeaningfullyFast(fastLimit, now) === true);
+assert(A.projectExhaustion({percent: 0, windowMinutes: 300, resetsAt: fastResets}, now) === null, "used 0 -> null");
+assert(A.projectExhaustion({percent: 1, windowMinutes: 300, resetsAt: fastResets}, now) === null, "used 1 -> null");
+assert(A.projectExhaustion({percent: 0.2, windowMinutes: 300, resetsAt: new Date(now + 299 * 60000).toISOString()}, now) === null, "elapsed < 5% -> null");
+assert(A.projectExhaustion({percent: 0.5, windowMinutes: 300, resetsAt: new Date(now - 60000).toISOString()}, now) === null, "past reset -> null");
+assert(A.projectExhaustion({percent: NaN, windowMinutes: 300, resetsAt: fastResets}, now) === null, "NaN -> null");
+assert(A.projectExhaustion({percent: 0.5, windowMinutes: 300}, now) === null, "reset unknown -> null");
+assert(A.isMeaningfullyFast({percent: 0.07, windowMinutes: 300, resetsAt: fastResets}, now) === false, "on-pace is not fast");
+assert(A.PACE_ALERT_MIN_MARGIN_FRACTION === 0.10);
+// formatResetLocal: today, tomorrow, weekday, date, invalid, injected offsets.
+assert(A.formatResetLocal("2026-09-19T15:30:00Z", now, 0) === "today 15:30");
+assert(A.formatResetLocal("2026-09-20T09:05:00Z", now, 0) === "tomorrow 09:05");
+assert(A.formatResetLocal("2026-09-23T08:00:00Z", now, 0) === "Wed 08:00");
+assert(A.formatResetLocal("2026-09-30T08:00:00Z", now, 0) === "30 Sep");
+assert(A.formatResetLocal("nonsense", now, 0) === "");
+assert(A.formatResetLocal("", now, 0) === "");
+assert(A.formatResetLocal("2026-09-19T15:30:00Z", now, 330) === "today 21:00");
+assert(A.formatResetLocal("2026-09-19T15:30:00Z", now, -420) === "today 08:30");
+// accountStatus: every row of the state table.
+const criticalResets = new Date(now + 60 * 60000).toISOString();
+const criticalRow = A.matrixRow({id: "c", name: "C", ready: true, limits: [
+  {label: "Weekly", percent: 0.95, windowMinutes: 10080, resetsAt: criticalResets}]}, now, "remaining");
+const criticalStatus = A.accountStatus(criticalRow, now);
+assert(criticalStatus.text === "Blocked · 1h 0m" && criticalStatus.tone === "error" && criticalStatus.dotTone === "error");
+const warnRow = A.matrixRow({id: "w", name: "W", ready: true, limits: [
+  {label: "Weekly", percent: 0.8, windowMinutes: 10080, resetsAt: criticalResets}]}, now, "remaining");
+assert(A.accountStatus(warnRow, now).text === "Near limit" && A.accountStatus(warnRow, now).tone === "warning");
+const fastRow = A.matrixRow(fastRec, now, "remaining");
+assert(A.accountStatus(fastRow, now).text === "Faster than pace" && A.accountStatus(fastRow, now).dotTone === "warning");
+const okRow = A.matrixRow({id: "o", name: "O", ready: true, limits: [
+  {label: "Weekly", percent: 0.1, windowMinutes: 10080, resetsAt: criticalResets}]}, now, "remaining");
+assert(A.accountStatus(okRow, now).text === "Healthy" && A.accountStatus(okRow, now).dotTone === "success");
+const noneRow = A.matrixRow({id: "n", name: "N", ready: true, limits: []}, now, "remaining");
+assert(A.accountStatus(noneRow, now).text === "No live limits" && A.accountStatus(noneRow, now).dotTone === "neutral");
+assert(A.blockedCount(rows) === 4, "blockedCount counts critical headline rows");
+assert(A.blockedCount([]) === 0);
+// cellTooltipLines: every row of the table, both modes give the SAME used line.
+const nonBindingCell = A.matrixCell({label: "Weekly", percent: 0.0, windowMinutes: 10080, resetsAt: criticalResets}, "week", now, "remaining");
+nonBindingCell.muted = true;
+const mutedLines = A.cellTooltipLines(nonBindingCell, "week", false, "remaining", {name: "Cline"}, now, 0);
+assert(mutedLines.length === 3 && mutedLines[2].text === "Not the limit blocking Cline" && mutedLines[2].tone === "default");
+const fastLines = A.cellTooltipLines(fastRow.windows.five_hour, "five_hour", false, "remaining", fastRec, now, 0);
+assert(fastLines.length === 3 && fastLines[2].tone === "warning" && fastLines[2].text.indexOf("Runs out in ~") === 0);
+const onTrackCell = A.matrixCell({label: "5-hour", percent: 0.02, windowMinutes: 300, resetsAt: fastResets}, "five_hour", now, "remaining");
+assert(A.cellTooltipLines(onTrackCell, "five_hour", false, "remaining", {name: "Claude Code"}, now, 0).length === 2);
+const usedModeLines = A.cellTooltipLines(fastRow.windows.five_hour, "five_hour", false, "used", fastRec, now, 0);
+assert(usedModeLines[1].text === fastLines[1].text, "line 2 states used in both modes");
+// barTooltipModel: pinned order, blocked/fast/plain values, stale footer.
+const barModel = A.barTooltipModel(records, now, "remaining", 1800000);
+assert(barModel.list.length === 7, "one row per ready account");
+assert(barModel.list.map(function (row) { return row.name; }).join(",") ===
+  "Augment,Claude Code,Codex,Fireworks,OpenCode,OpenCode Blocked,OpenCode Dual", "pinned order");
+assert(barModel.list[0].value === "Rate limited" && barModel.list[0].tone === "warning");
+assert(barModel.list[1].value === "1.2k tokens today" && barModel.list[1].tone === "neutral", "no-live-limits value from todayUsage");
+assert(barModel.list[5].tone === "error" && barModel.list[5].value.indexOf("Blocked") === 0);
+const staleModel = A.barTooltipModel(records, now, "remaining", 30000);
+assert(staleModel.footer.tone === "warning" && staleModel.footer.text.indexOf("Stale ·") === 0 &&
+  staleModel.footer.text.indexOf("click for details") >= 0);
+// footerHint: every priority and a higher priority winning.
+assert(A.footerHint({stale: true, ageText: "42m"}).priority === 1 &&
+  A.footerHint({stale: true, ageText: "42m"}).text === "Usage data is 42m old · press R to refresh" &&
+  A.footerHint({stale: true, ageText: "42m"}).tone === "warning");
+assert(A.footerHint({stale: true, ageText: "42m", keyboard: true, hoverColumn: "five_hour", hoverRow: 2}).priority === 1, "stale wins");
+assert(A.footerHint({keyboard: true}).priority === 2 && A.footerHint({keyboard: true}).kind === "keys");
+assert(A.footerHint({hoverColumn: "week"}).priority === 3 && A.footerHint({hoverColumn: "week"}).kind === "legend");
+assert(A.footerHint({hoverRow: 3, hoverAccount: "Cline"}).priority === 4 &&
+  A.footerHint({hoverRow: 3, hoverAccount: "Cline"}).text === "Click for Cline limits, models and history");
+assert(A.footerHint({hoverRow: 3, hoverAccount: "Cline", rowSelected: true}).text === "Click again to collapse");
+assert(A.footerHint({idleIndex: 0}).priority === 5 && A.footerHint({idleIndex: 0}).kind === "text");
+assert(A.footerHint({idleIndex: 1}).kind === "legend" && A.footerHint({idleIndex: 2}).kind === "keys");
+assert(A.footerHint({idleIndex: 3}).kind === "text" && A.footerHint({idleIndex: 3}).priority === 5, "rotation wraps");
+// PRIVACY: every builder uses ONLY the provider display name, never account.
+const privacyCell = A.matrixCell({label: "Weekly", percent: 0.5, windowMinutes: 10080, resetsAt: criticalResets}, "week", now, "remaining");
+const privacyCellLines = JSON.stringify(A.cellTooltipLines(privacyCell, "week", false, "remaining", sentinelRec, now, 0));
+assert(privacyCellLines.indexOf("sentinel.codex@example.test") === -1 && privacyCellLines.indexOf("Sentinel Codex") === -1);
+const privacyBar = JSON.stringify(A.barTooltipModel([sentinelRec], now, "remaining", 1800000));
+assert(privacyBar.indexOf("sentinel.codex@example.test") === -1 && privacyBar.indexOf("Sentinel Codex") === -1);
+assert(privacyBar.indexOf("Codex") >= 0, "the provider display name is retained");
+const privacyStatus = JSON.stringify(A.accountStatus(A.matrixRow(sentinelRec, now, "remaining"), now));
+assert(privacyStatus.indexOf("sentinel.codex@example.test") === -1 && privacyStatus.indexOf("Sentinel Codex") === -1);
+const privacyHint = JSON.stringify(A.footerHint({hoverRow: 0, hoverAccount: A.providerDisplayName(sentinelRec)}));
+assert(privacyHint.indexOf("sentinel.codex@example.test") === -1 && privacyHint.indexOf("Sentinel Codex") === -1);
+assert(A.providerDisplayName(sentinelRec) === "Codex");
 process.exit(0);
 ' "$dashboard_test" "$ROOT/tests/fixtures/agents-dashboard/records.json" >/dev/null; then
         pass "[unit] agents dashboard projection orders accounts, classifies windows, keeps available data and names every unmet condition"

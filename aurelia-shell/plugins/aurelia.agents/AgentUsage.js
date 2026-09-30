@@ -491,6 +491,59 @@ function overallFreshnessPill(records, nowMs, staleMs) {
     return { text: stale ? "stale · " + text : text, stale: stale, known: true };
 }
 
+// The bar tooltip model: one row per READY account in the panel's pinned
+// order (never re-sorted), plus the freshness footer. The value states the
+// binding window's headroom, or the blocked/fast/error state, or the day's
+// billable tokens for a provider with no live limits. `mode` only changes the
+// headroom unit; the row order and grouping are mode-independent. Privacy: the
+// only identity used is the provider display name; `record.account` is never
+// read.
+function barTooltipModel(records, nowMs, mode, staleMs) {
+    var ready = readyAgents(records);
+    var ordered = accountOrder(ready);
+    var list = [];
+    for (var i = 0; i < ordered.length; i++) {
+        var record = ordered[i];
+        var name = providerDisplayName(record);
+        var state = providerState(record, nowMs, { staleMs: staleMs });
+        var limit = bindingLimit(record, nowMs);
+        var value = "";
+        var tone = "neutral";
+        if (state.key === "error") {
+            value = "Error";
+            tone = "error";
+        } else if (state.key === "rate-limited") {
+            value = "Rate limited";
+            tone = "warning";
+        } else if (state.severity === "critical") {
+            var countdown = limit ? cellCountdown(limit, nowMs) : "";
+            value = countdown !== "" ? "Blocked · " + countdown : "Blocked";
+            tone = "error";
+        } else if (limit && isMeaningfullyFast(limit, nowMs)) {
+            value = "Faster than pace";
+            tone = "warning";
+        } else if (limit) {
+            var percent = Math.round(displayPercent(Number(limit.percent), mode) * 100);
+            value = percent + (normalizePercentMode(mode) === "used" ? "% used" : "% left");
+            tone = "success";
+        } else {
+            value = formatTokens(todayUsage(record).billable) + " tokens today";
+            tone = "neutral";
+        }
+        list.push({ name: name, value: value, tone: tone });
+    }
+    var freshness = overallFreshnessPill(ready, nowMs, staleMs);
+    var footerText = freshness.text;
+    if (footerText !== "") {
+        footerText = footerText.charAt(0).toUpperCase() + footerText.slice(1) +
+            " · click for details";
+    }
+    return {
+        list: list,
+        footer: { text: footerText, tone: freshness.stale ? "warning" : "default" }
+    };
+}
+
 // Absolute reset time in deterministic UTC so the panel can show a fixed clock
 // time next to the relative countdown without depending on the host timezone.
 function formatResetAbsolute(resetsAt) {
@@ -502,13 +555,43 @@ function formatResetAbsolute(resetsAt) {
     return iso.slice(0, 10) + " " + iso.slice(11, 16) + " UTC";
 }
 
+var MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+var WEEKDAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Local reset wording from a fixed timezone offset in minutes EAST of UTC
+// (the dashboard passes -new Date().getTimezoneOffset()). Pure: the offset is
+// a parameter, so the tests can pin 0, +330 and -420 and never depend on the
+// host timezone. Returns "" for invalid input.
+function formatResetLocal(resetsAt, nowMs, tzOffsetMin) {
+    if (!resetsAt) return "";
+    var parsed = Date.parse(String(resetsAt));
+    if (!isFinite(parsed)) return "";
+    var now = Number(nowMs);
+    if (!isFinite(now)) return "";
+    var offset = Number(tzOffsetMin);
+    if (!isFinite(offset)) offset = 0;
+    var target = new Date(parsed + offset * 60000);
+    var nowLocal = new Date(now + offset * 60000);
+    var time = String(target.getUTCHours()).padStart(2, "0") + ":" +
+        String(target.getUTCMinutes()).padStart(2, "0");
+    var targetDay = Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate());
+    var nowDay = Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate());
+    var dayDiff = Math.round((targetDay - nowDay) / 86400000);
+    if (dayDiff === 0) return "today " + time;
+    if (dayDiff === 1) return "tomorrow " + time;
+    if (dayDiff >= 2 && dayDiff <= 6) {
+        return WEEKDAY_ABBREVIATIONS[target.getUTCDay()] + " " + time;
+    }
+    return target.getUTCDate() + " " + MONTH_ABBREVIATIONS[target.getUTCMonth()];
+}
+
 // Human pace state, including the explicit on-pace case.
 function paceLabel(pace) {
     if (!pace) return "";
     if (pace.onPace) return "on pace";
     return pace.behind ? "behind pace" : "ahead of pace";
 }
-
 // The worst window for a provider, used to label the provider switch.
 function providerWorstLabel(record, nowMs, mode) {
     var limit = bindingLimit(record, nowMs);
@@ -744,6 +827,47 @@ function paceInfo(limit, nowMs) {
         state: onPace ? "on-pace" : (delta > 0 ? "behind" : "ahead"),
         expectedUsed: elapsed
     };
+}
+
+// ---------------------------------------------------------------------------
+// Pace projection and the meaningful-fast threshold
+//
+// `projectExhaustion` linearly projects when the window would empty at the
+// current burn rate. `isMeaningfullyFast` is the only owner of the "faster
+// than pace" decision: it requires the projection to run out before the reset
+// AND to beat it by at least 10% of the window, so a 0.01% over-pace reading
+// (the raw `paceInfo().behind` epsilon is 1e-6) can never turn the marker amber.
+// ---------------------------------------------------------------------------
+
+var PACE_ALERT_MIN_MARGIN_FRACTION = 0.10;
+
+function projectExhaustion(limit, nowMs) {
+    var used = Number(limit && limit.percent);
+    if (!isFinite(used) || used <= 0 || used >= 1) return null;
+    var elapsed = elapsedFraction(limit, nowMs);
+    if (!isFinite(elapsed) || elapsed < 0.05) return null;
+    var resetMs = resetMsFor(limit, nowMs);
+    if (!isFinite(resetMs) || resetMs < 0) return null;
+    var windowMs = Number(limit && limit.windowMinutes) * 60000;
+    if (!isFinite(windowMs) || windowMs <= 0) return null;
+    var elapsedMs = elapsed * windowMs;
+    if (!(elapsedMs > 0)) return null;
+    var rate = used / elapsedMs;
+    var msToEmpty = (1 - used) / rate;
+    if (!isFinite(msToEmpty)) return null;
+    return {
+        msToEmpty: msToEmpty,
+        beforeReset: msToEmpty < resetMs,
+        marginMs: resetMs - msToEmpty
+    };
+}
+
+function isMeaningfullyFast(limit, nowMs) {
+    var projection = projectExhaustion(limit, nowMs);
+    if (!projection || projection.beforeReset !== true) return false;
+    var windowMs = Number(limit && limit.windowMinutes) * 60000;
+    if (!isFinite(windowMs) || windowMs <= 0) return false;
+    return projection.marginMs >= PACE_ALERT_MIN_MARGIN_FRACTION * windowMs;
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,10 +1438,26 @@ function defaultWindowName(windowClass) {
 // Human description used for the matrix column tooltips. MONTH is a 30-day
 // rolling window and is never described as "this month".
 function windowDescription(windowClass) {
-    if (windowClass === "five_hour") return "5-hour rolling window";
-    if (windowClass === "week") return "7-day rolling window";
-    if (windowClass === "month") return "30-day rolling window";
+    if (windowClass === "five_hour") return "Usage limit over a 5-hour window";
+    if (windowClass === "week") return "Usage limit over a 7-day window";
+    if (windowClass === "month") return "Usage limit over a rolling 30-day window";
     return "";
+}
+
+// Short window name for a cell tooltip's first line.
+function windowTooltipName(windowClass) {
+    if (windowClass === "five_hour") return "5-hour";
+    if (windowClass === "week") return "Weekly";
+    if (windowClass === "month") return "Monthly";
+    return defaultWindowName(windowClass);
+}
+
+// Lower-case window name for the not-offered / not-reported sentences.
+function windowLowerName(windowClass) {
+    if (windowClass === "five_hour") return "5-hour";
+    if (windowClass === "week") return "weekly";
+    if (windowClass === "month") return "monthly";
+    return String(defaultWindowName(windowClass)).toLowerCase();
 }
 
 // A limit entry is only renderable when it carries a finite percent. Anything
@@ -1359,9 +1499,9 @@ function severityGlyph(severity) {
     return SEVERITY_GLYPH[severity] || "";
 }
 
-// The pace word shown inside a cell, only when BOTH percent and elapsed are
-// finite. Deliberately short (`behind`/`ahead`/`on pace`) so it fits beside a
-// relative countdown in a narrow numeric column.
+// The pace word shown inside a cell's detail pane. Deliberately short
+// (`behind`/`ahead`/`on pace`) so it fits beside a relative countdown. The
+// matrix itself no longer prints pace words.
 function paceWord(limit, nowMs) {
     var pace = paceInfo(limit, nowMs);
     if (!pace) return "";
@@ -1389,6 +1529,7 @@ function matrixCell(limit, windowClass, nowMs, mode) {
     // inversion. Do NOT invert severity to match the displayed percentage.
     var severity = severityForLimit(limit);
     var pace = paceInfo(limit, nowMs);
+    var projection = projectExhaustion(limit, nowMs);
     return {
         windowClass: windowClass,
         label: String(limit.label || defaultWindowName(windowClass)),
@@ -1403,7 +1544,11 @@ function matrixCell(limit, windowClass, nowMs, mode) {
         paceWord: paceWord(limit, nowMs),
         countdown: cellCountdown(limit, nowMs),
         resetsAt: String(limit.resetsAt || ""),
-        absoluteReset: formatResetAbsolute(limit.resetsAt)
+        absoluteReset: formatResetAbsolute(limit.resetsAt),
+        // Projection-derived signals for the cell tooltip. They are computed
+        // once here so the tooltip and the amber marker agree by construction.
+        meaningfullyFast: isMeaningfullyFast(limit, nowMs),
+        msToEmpty: projection ? projection.msToEmpty : -1
     };
 }
 
@@ -1418,35 +1563,68 @@ function matrixCellMarker(cell, notOffered) {
     return notOffered ? "–" : "—";
 }
 
-// Exact tooltip for one matrix column, including the not-offered versus
-// not-reported distinction. A not-offered column says the provider does not
-// offer the window; a supported-but-missing one says it was not reported.
-function matrixCellTooltip(cell, windowClass, notOffered, mode) {
-    var name = defaultWindowName(windowClass);
-    if (cell) {
-        var unit = normalizePercentMode(mode) === "used" ? " used" : " remaining";
-        var text = String(cell.label) + " · " + cell.percentText + unit +
-            (cell.absoluteReset !== "" ? "\nResets " + cell.absoluteReset : "");
-        if (cell.isBinding === true) text += "\nBinding window · blocks this account";
-        return text;
-    }
-    if (notOffered) return name + " · not offered by this provider";
-    return name + " · not reported by this provider";
+// The provider display name used by every tooltip and status line. This is the
+// SAME `record.name || record.id` the bar tooltip uses. It deliberately never
+// reads `record.account`: identity (email, name, billing) is a private detail
+// shown only in the collapsed-by-default ACCOUNT DETAILS section.
+function providerDisplayName(record) {
+    var name = String((record && (record.name || record.id)) || "");
+    return name !== "" ? name : "This provider";
 }
 
-// Screen-reader text for one matrix column, covering all three states with the
-// same wording as the tooltip so the visual and non-visual contracts agree.
-function matrixCellAccessibility(cell, windowClass, notOffered, mode) {
-    var column = windowColumnLabel(windowClass) || defaultWindowName(windowClass);
-    if (cell) {
-        var unit = normalizePercentMode(mode) === "used" ? "used" : "remaining";
-        var text = column + " " + String(cell.label || defaultWindowName(windowClass)) +
-            ": " + cell.percentText + " " + unit;
-        if (cell.isBinding === true) text += ", binding window for this account";
-        return text;
+// Structured cell tooltip. It says only what the cell does not already show,
+// in at most three lines, per the state table. Line 2 always states USED,
+// because the cell already shows the mode-aware number.
+function cellTooltipLines(cell, windowClass, notOffered, mode, record, nowMs, tzOffsetMin) {
+    var provider = providerDisplayName(record);
+    var lines = [];
+    if (!cell) {
+        lines.push({
+            text: notOffered
+                ? provider + " has no " + windowLowerName(windowClass) + " limit"
+                : provider + " didn't report its " + windowLowerName(windowClass) + " limit",
+            tone: "default",
+            strong: true
+        });
+        return lines;
     }
-    if (notOffered) return column + " window not offered by this provider";
-    return column + " window not reported by this provider";
+    var usedPct = Math.round(Number(cell.usedPercent) * 100);
+    var resetText = formatResetLocal(cell.resetsAt, nowMs, tzOffsetMin);
+    var detail = usedPct + "% used";
+    if (resetText !== "") detail += " · resets " + resetText;
+    lines.push({ text: provider + " · " + windowTooltipName(windowClass), tone: "default", strong: true });
+    lines.push({ text: detail, tone: "default", strong: false });
+    if (cell.severity === "critical" && cell.isBinding === true) {
+        lines.push({ text: "Blocking " + provider + " until then", tone: "error", strong: false });
+    } else if (cell.muted === true) {
+        lines.push({ text: "Not the limit blocking " + provider, tone: "default", strong: false });
+    } else if (cell.meaningfullyFast === true && Number(cell.msToEmpty) > 0) {
+        lines.push({
+            text: "Runs out in ~" + formatDuration(cell.msToEmpty) + " at this rate",
+            tone: "warning",
+            strong: false
+        });
+    }
+    return lines;
+}
+
+// Exact plain-text tooltip for one matrix column. It is the "\n" join of the
+// structured cell tooltip, so the visual and plain contracts can never drift.
+// `accountName` is optional and falls back to "This provider".
+function matrixCellTooltip(cell, windowClass, notOffered, mode, accountName) {
+    var record = accountName === undefined || accountName === null || String(accountName) === ""
+        ? null : { name: String(accountName) };
+    return cellTooltipLines(cell, windowClass, notOffered, mode, record, NaN, 0)
+        .map(function (line) { return line.text; })
+        .join("\n");
+}
+
+// Screen-reader text for one matrix column: the same lines joined with ", ",
+// so the visual and non-visual wording can never diverge.
+function matrixCellAccessibility(cell, windowClass, notOffered, mode, record, nowMs, tzOffsetMin) {
+    return cellTooltipLines(cell, windowClass, notOffered, mode, record, nowMs, tzOffsetMin)
+        .map(function (line) { return line.text; })
+        .join(", ");
 }
 
 // A prepaid balance is only present when the record carries an actual
@@ -1501,6 +1679,96 @@ function headlineFor(severity, hasLimits) {
     if (severity === "critical") return "Blocked";
     if (severity === "warn") return "Near limit";
     return "";
+}
+
+// Number of accounts whose headline severity is critical. The dashboard header
+// shows this only when it is greater than zero.
+function blockedCount(rows) {
+    return (rows || []).filter(function (row) {
+        return row && row.headlineSeverity === "critical";
+    }).length;
+}
+
+// Per-account status line for the matrix ACCOUNT cell. `tone` selects the text
+// colour and `dotTone` the 8 px dot; both are role names the view maps to
+// Theme tokens. "no live limits" is a normal state with a neutral dot, never
+// a fabricated percentage.
+function accountStatus(row, nowMs) {
+    if (!row) return { text: "No live limits", tone: "neutral", dotTone: "neutral" };
+    if (row.noLiveLimits === true) {
+        return { text: "No live limits", tone: "neutral", dotTone: "neutral" };
+    }
+    var severity = String(row.headlineSeverity || "unknown");
+    if (severity === "critical") {
+        var binding = row.bindingWindowClass && row.windows
+            ? row.windows[row.bindingWindowClass] : null;
+        var countdown = binding && binding.countdown ? String(binding.countdown) : "";
+        return {
+            text: countdown !== "" ? "Blocked · " + countdown : "Blocked",
+            tone: "error",
+            dotTone: "error"
+        };
+    }
+    if (severity === "warn") {
+        return { text: "Near limit", tone: "warning", dotTone: "warning" };
+    }
+    var windows = row.windows || {};
+    for (var key in windows) {
+        if (!Object.prototype.hasOwnProperty.call(windows, key)) continue;
+        if (windows[key] && windows[key].meaningfullyFast === true) {
+            return { text: "Faster than pace", tone: "warning", dotTone: "warning" };
+        }
+    }
+    return { text: "Healthy", tone: "neutral", dotTone: "success" };
+}
+
+// The dashboard footer hint. It is the single owner of the priority order, so
+// the view only renders what this returns. `kind` selects the renderer:
+// "text" (a plain hint), "legend" (the two mini pace meters) or "keys" (the
+// key-cap row). The stale hint wins over everything and is the only warning
+// tone; the idle rotation cycles the last three entries by `idleIndex`.
+function footerHint(ctx) {
+    var c = ctx || {};
+    if (c.stale === true) {
+        var age = String(c.ageText || "").trim();
+        return {
+            priority: 1,
+            kind: "text",
+            text: "Usage data is " + (age !== "" ? age : "old") + " old · press R to refresh",
+            tone: "warning"
+        };
+    }
+    if (c.keyboard === true) {
+        return {
+            priority: 2,
+            kind: "keys",
+            text: "↑↓ select   ↵ details   R refresh   Esc close",
+            tone: "default"
+        };
+    }
+    if (String(c.hoverColumn || "") !== "") {
+        return { priority: 3, kind: "legend", text: "", tone: "default" };
+    }
+    if (Number(c.hoverRow) >= 0) {
+        var account = String(c.hoverAccount || "account");
+        return {
+            priority: 4,
+            kind: "text",
+            text: c.rowSelected === true
+                ? "Click again to collapse"
+                : "Click for " + account + " limits, models and history",
+            tone: "default"
+        };
+    }
+    var rotation = [
+        { kind: "text", text: "Click an account for limits, models and history" },
+        { kind: "legend", text: "" },
+        { kind: "keys", text: "↑↓ select   ↵ details   R refresh   Esc close" }
+    ];
+    var index = Number(c.idleIndex);
+    if (!isFinite(index)) index = 0;
+    var chosen = rotation[((Math.round(index) % rotation.length) + rotation.length) % rotation.length];
+    return { priority: 5, kind: chosen.kind, text: chosen.text, tone: "default" };
 }
 
 function matrixRow(record, nowMs, mode) {
