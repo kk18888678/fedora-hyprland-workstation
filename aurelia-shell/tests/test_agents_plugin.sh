@@ -80,9 +80,9 @@ fi
 if grep -q 'text: "AI Usage"' "$plugin_dir/AgentsDashboard.qml" &&
    ! grep -qE 'text: "Usage"' "$plugin_dir/AgentsDashboard.qml" &&
    grep -q 'agentsModeChip' "$plugin_dir/AgentsDashboard.qml" &&
-   grep -q '· % remaining' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'Quota remaining ·' "$plugin_dir/AgentsDashboard.qml" &&
    grep -q 'bindingWindowClass' "$plugin_dir/AgentUsage.js" &&
-   grep -q 'headlineText' "$plugin_dir/AgentsDashboard.qml" &&
+   grep -q 'accountStatus' "$plugin_dir/AgentsDashboard.qml" &&
    grep -q 'headlineSeverity' "$plugin_dir/AgentsDashboard.qml" &&
    grep -q 'AgentUsage.overallFreshnessPill' "$plugin_dir/AgentsDashboard.qml" &&
    grep -q 'actionTargets: hasSelection ? \["refresh", "close"\] : \["refresh"\]' "$plugin_dir/AgentsDashboard.qml" &&
@@ -233,7 +233,7 @@ else
     fail "[static] agents dashboard surface is missing"
 fi
 
-if grep -q 'popupWidth: 460' "$plugin_dir/AgentsPanel.qml" &&
+if grep -q 'popupWidth: 580' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'contentSizingItem: dashboardLoader.item' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'focusTarget: dashboardLoader.item ? dashboardLoader.item.keyTarget : null' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'source: Qt.resolvedUrl("AgentsDashboard.qml")' "$plugin_dir/AgentsPanel.qml" &&
@@ -241,7 +241,7 @@ if grep -q 'popupWidth: 460' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'minPopupHeight: 220' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'maxPopupHeight: 640' "$plugin_dir/AgentsPanel.qml" &&
    grep -q 'Math.max(30, Math.min(3600, raw))' "$plugin_dir/AgentsBarWidget.qml"; then
-    pass "[static] agents popup becomes the 460-unit dashboard and keeps the shared keyboard/placement policy"
+    pass "[static] agents popup becomes the 580-unit dashboard and keeps the shared keyboard/placement policy"
 else
     fail "[static] agents panel container contract is incomplete"
 fi
@@ -267,7 +267,8 @@ if grep -q 'AgentUsage.matrixRows' "$dashboard" &&
    grep -q 'window-close' "$dashboard" &&
    grep -q 'view-refresh' "$dashboard" &&
    grep -q 'clearSelection' "$dashboard" &&
-   grep -q 'Select an account for details' "$dashboard" &&
+   grep -q 'agentsFooterHint' "$dashboard" &&
+   grep -q 'AgentUsage.footerHint' "$dashboard" &&
    ! grep -q 'tabStrip' "$dashboard" &&
    ! grep -q '"tabs"' "$dashboard" &&
    ! grep -q 'PROVIDERS' "$plugin_dir/AgentsPanel.qml" "$dashboard" &&
@@ -298,18 +299,20 @@ else
     fail "[static] agents dashboard state banner contract is incomplete"
 fi
 
-# P1/P2 alert-dimming policy: there must be no generic stale-dim property left
-# for a caller to apply to an element whose severity is unknown. Every stale
-# de-emphasis goes through one severity-aware helper that delegates to the
-# single AgentUsage predicate, so a warn/critical element always resolves 1.0.
+# The stale-dim reversal: staleness is SIGNALLED, never dimmed. There must be
+# no stale-dim helper and no sub-1.0 opacity on text anywhere; the header
+# freshness label turns warning and the footer hint takes priority 1 instead.
 if ! grep -q 'staleContentOpacity' "$dashboard" &&
-   grep -q 'function staleOpacityFor(severity)' "$dashboard" &&
-   grep -q 'AgentUsage.presentationOpacityFor(severity' "$dashboard" &&
-   grep -q 'AgentUsage.isAlertSeverity' "$dashboard" &&
-   ! grep -qE 'opacity:[[:space:]]*0\.6' "$dashboard"; then
-    pass "[static] agents dashboard routes every stale de-emphasis through the single alert-aware predicate"
+   ! grep -q 'staleOpacityFor' "$dashboard" &&
+   ! grep -q 'presentationOpacityFor' "$dashboard" &&
+   ! grep -qE 'opacity:[[:space:]]*0\.6' "$dashboard" &&
+   grep -q 'agentsFreshnessLabel' "$dashboard" &&
+   grep -q 'overallFreshness.stale' "$dashboard" &&
+   grep -q '? Theme.warning : Theme.textSecondary' "$dashboard" &&
+   grep -q 'AgentUsage.footerHint' "$dashboard"; then
+    pass "[static] staleness is signalled by the warning freshness label and the footer hint, never by dimming text"
 else
-    fail "[static] agents dashboard still carries a generic stale dim that can reach an alert"
+    fail "[static] the dashboard still dims stale text or no longer signals staleness"
 fi
 
 # Every unmet condition logs a diagnostic through the shell's standard
@@ -369,11 +372,30 @@ if grep -q 'component Label: Text {' "$dashboard" &&
    ! grep -q 'font.bold' "$dashboard" &&
    grep -q 'Theme.fontWeightBold' "$dashboard" &&
    grep -q 'Theme.controls.normalFill' "$dashboard" &&
-   grep -q 'Math.max(3, Theme.spacingXs)' "$dashboard" &&
+   grep -q 'Math.max(6, Theme.spacingXs + 2)' "$dashboard" &&
    (( raw_text_count <= 1 )); then
     pass "[static] agents dashboard inherits the bar font through one Label primitive and uses the weight/track tokens"
 else
     fail "[static] agents dashboard typography contract is incomplete (rawText=$raw_text_count)"
+fi
+
+# Shared tooltip contract: the dashboard has NO attached ToolTip; the only
+# in-scene host is exactly one AureliaInlineToolTip; the new/changed files
+# contain no hex colour literal and no numeric font.pixelSize; the icon
+# primitive exposes the additive ink rect; and the rotation timer is
+# visibility-gated so an unwired fixture never rotates.
+ui_dir="$ROOT/ui"
+inline_tooltip_count="$(grep -c 'AureliaInlineToolTip {' "$dashboard" || true)"
+if ! grep -qE '(^|[[:space:]])ToolTip\.' "$dashboard" &&
+   [[ "$inline_tooltip_count" == "1" ]] &&
+   grep -q 'glyphInkRect' "$ui_dir/AureliaIcon.qml" &&
+   grep -q 'running: dashboard.panelShown &&' "$dashboard" &&
+   grep -q 'item.panelShown = Qt.binding' "$plugin_dir/AgentsPanel.qml" &&
+   ! grep -qE '#[0-9a-fA-F]{6}' "$dashboard" "$ui_dir/AureliaToolTipContent.qml" "$ui_dir/AureliaInlineToolTip.qml" "$ui_dir/AureliaIcon.qml" &&
+   ! grep -qE 'font\.pixelSize:[[:space:]]*[0-9]' "$dashboard" "$ui_dir/AureliaToolTipContent.qml" "$ui_dir/AureliaInlineToolTip.qml" "$ui_dir/AureliaIcon.qml"; then
+    pass "[static] exactly one in-scene tooltip, no attached ToolTip, no hex/pixelSize literals, glyphInkRect exposed and a visibility-gated rotation timer"
+else
+    fail "[static] tooltip host / literal / ink-rect / rotation-timer contract is incomplete"
 fi
 
 if grep -q 'Qt.Key_Escape' "$dashboard" &&
@@ -781,8 +803,8 @@ assert(A.severityGlyph("ok") === "");
 // Pace word only when both percent and elapsed are finite.
 const paceFuture = new Date(now + 3.5 * 86400000).toISOString();
 assert(A.paceWord({percent: 0.5, windowMinutes: 10080, resetsAt: paceFuture}, now) === "on pace");
-assert(A.paceWord({percent: 0.7, windowMinutes: 10080, resetsAt: paceFuture}, now) === "behind");
-assert(A.paceWord({percent: 0.2, windowMinutes: 10080, resetsAt: paceFuture}, now) === "ahead");
+assert(A.paceWord({percent: 0.7, windowMinutes: 10080, resetsAt: paceFuture}, now) === "faster than pace");
+assert(A.paceWord({percent: 0.2, windowMinutes: 10080, resetsAt: paceFuture}, now) === "within pace");
 assert(A.paceWord({percent: 0.5}, now) === "", "no pace word without elapsed");
 // Diagnostics name every unmet condition and the provider.
 const codexDiags = A.diagnoseRecord(records.find(r => r.id === "codex"));

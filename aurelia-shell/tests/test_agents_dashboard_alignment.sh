@@ -107,7 +107,9 @@ assert_alignment() {
                 column: $c,
                 cellsUniform: ((([$cells[].x] | unique | length) == 1) and (([$cells[].width] | unique | length) == 1)),
                 metersUniform: ((([$meters[].x] | unique | length) == 1) and (([$meters[].width] | unique | length) == 1)),
-                metersVisible: (($meters | map(select(.visible == true)) | length) == ($meters | length)),
+                metersVisible: ([$meters[] as $m
+                    | ([$cells[] | select(.row == $m.row and .column == $m.column)][0]) as $mc
+                    | ($mc != null and (($mc.notOffered == false) == ($m.visible == true))) ] | all),
                 meterMatchesCell: ($meters[0].x == $cells[0].x and $meters[0].width == $cells[0].width),
                 headerMatchesCell: ($head.x == $cells[0].x and $head.width == $cells[0].width),
                 percentUniform: (([$pcts[].right] | unique | length) == 1),
@@ -151,19 +153,45 @@ assert_runtime_log_clean() {
 alignment_root="$(mktemp -d)"
 trap 'rm -rf -- "$alignment_root" || true' RETURN
 
-# Default panel width: account column stays at its requested 108 px.
+# Default panel width: account column stays at its requested 160 px.
 wide_result="$alignment_root/wide.json"
 wide_log="$alignment_root/wide.log"
 wide_status=0
-measure 480 "$wide_result" "$wide_log" || wide_status=$?
+measure 580 "$wide_result" "$wide_log" || wide_status=$?
 if [[ "$wide_status" -eq 0 && -s "$wide_result" ]]; then
     print_measurements "$wide_result" "default width"
-    assert_alignment "$wide_result" "default width" 108
+    assert_alignment "$wide_result" "default width" 160
 else
     fail "[isolated-runtime] default-width alignment probe failed (status=$wide_status)"
     sed -n '1,40p' "$wide_log" >&2 || true
 fi
 assert_runtime_log_clean "$wide_log" "default-width"
+
+# The stale-dim reversal: no text anywhere in the resting dashboard is dimmed.
+if [[ "$wide_status" -eq 0 && -s "$wide_result" ]] &&
+   jq -e '
+        (.textNodes | length) >= 10 and
+        (.minTextOpacity >= 0.999)
+   ' "$wide_result" >/dev/null; then
+    pass "[isolated-runtime] resting dashboard: no text item has effective opacity below 0.999"
+else
+    fail "[isolated-runtime] resting dashboard dims text (min=$(jq -r '.minTextOpacity' "$wide_result" 2>/dev/null || true))"
+fi
+
+# Exactly one shared in-scene tooltip instance, and the idle footer hint is
+# not elided at 580.
+if [[ "$wide_status" -eq 0 && -s "$wide_result" ]] &&
+   [[ "$(jq -r '.inlineTooltipCount' "$wide_result")" == "1" ]]; then
+    pass "[isolated-runtime] the dashboard contains exactly one AureliaInlineToolTip"
+else
+    fail "[isolated-runtime] the dashboard does not contain exactly one AureliaInlineToolTip (count=$(jq -r '.inlineTooltipCount' "$wide_result" 2>/dev/null || true))"
+fi
+if [[ "$wide_status" -eq 0 && -s "$wide_result" ]] &&
+   jq -e '.footerHintTruncated == false and (.footerHintText | length) > 0' "$wide_result" >/dev/null; then
+    pass "[isolated-runtime] the idle footer hint is not elided at 580"
+else
+    fail "[isolated-runtime] the footer hint is elided at 580 (text=$(jq -r '.footerHintText' "$wide_result" 2>/dev/null || true) truncated=$(jq -r '.footerHintTruncated' "$wide_result" 2>/dev/null || true))"
+fi
 
 # Narrow panel: the ACCOUNT column shrinks first; the window columns stay equal.
 narrow_result="$alignment_root/narrow.json"
@@ -172,10 +200,10 @@ narrow_status=0
 measure 380 "$narrow_result" "$narrow_log" || narrow_status=$?
 if [[ "$narrow_status" -eq 0 && -s "$narrow_result" ]]; then
     print_measurements "$narrow_result" "narrow width"
-    assert_alignment "$narrow_result" "narrow width" 108
+    assert_alignment "$narrow_result" "narrow width" 160
     narrow_account="$(jq -r '.accountHeader.width' "$narrow_result")"
-    if [[ "$narrow_account" =~ ^[0-9]+$ ]] && (( narrow_account < 108 )); then
-        pass "[isolated-runtime] narrow width degrades the ACCOUNT column first (width $narrow_account < 108)"
+    if [[ "$narrow_account" =~ ^[0-9]+$ ]] && (( narrow_account < 160 )); then
+        pass "[isolated-runtime] narrow width degrades the ACCOUNT column first (width $narrow_account < 160)"
     else
         fail "[isolated-runtime] narrow width did not shrink the ACCOUNT column (width $narrow_account)"
     fi
@@ -193,7 +221,7 @@ for percent_mode in remaining used; do
     mode_result="$alignment_root/mode-$percent_mode.json"
     mode_log="$alignment_root/mode-$percent_mode.log"
     mode_status=0
-    measure 480 "$mode_result" "$mode_log" "$percent_mode" || mode_status=$?
+    measure 580 "$mode_result" "$mode_log" "$percent_mode" || mode_status=$?
     if [[ "$mode_status" -eq 0 && -s "$mode_result" ]] &&
        jq -e --arg mode "$percent_mode" '
             . as $r
@@ -297,24 +325,29 @@ assert_runtime_log_clean "$interaction_log" "close/refresh interaction"
 alert_result="$alignment_root/alert.json"
 alert_log="$alignment_root/alert.log"
 alert_status=0
-measure 480 "$alert_result" "$alert_log" remaining "opencode-dual" 1800000 || alert_status=$?
+measure 580 "$alert_result" "$alert_log" remaining "opencode-dual" 1800000 || alert_status=$?
 if [[ "$alert_status" -eq 0 && -s "$alert_result" ]] &&
    jq -e '
         . as $r
         | ([ $r.cells[] | select(.severity == "warn" or .severity == "critical") ]) as $alerts
         | ([ $r.cells[] | select((.severity == "warn" or .severity == "critical") and .isBinding == false) ] | length) as $nonBindingAlerts
+        | ([ $r.cells[] | select(.muted == true) ]) as $muted
         | ($nonBindingAlerts >= 1)
           and ([ $alerts[] | .effectiveOpacity ] | map(. >= 0.999) | all)
           and ([ $alerts[] as $a
                  | ([ $r.percentages[] | select(.row == $a.row and .column == $a.column)][0]) as $p
                  | ([ $r.meters[] | select(.row == $a.row and .column == $a.column)][0]) as $m
                  | (($p != null) and ($p.effectiveOpacity >= 0.999) and
-                    ($m != null) and ($m.effectiveOpacity >= 0.999)) ] | map(.) | all)
-          and ([ $r.cells[] | select(.severity == "ok" and .isBinding == false and .effectiveOpacity <= 0.46) ] | length) >= 1
+                    ($m != null) and ($m.effectiveOpacity >= 0.999)) ] | all)
+          and (($muted | length) >= 1)
+          and ([ $muted[] as $mc
+                 | ([ $r.percentages[] | select(.row == $mc.row and .column == $mc.column)][0]) as $mp
+                 | (($mp != null) and ($mp.effectiveOpacity >= 0.999) and
+                    ($mp.color == $r.secondaryColor)) ] | all)
    ' "$alert_result" >/dev/null; then
-    pass "[isolated-runtime] alert policy: warn/critical cells (including non-binding) keep effective opacity 1.0 while ok non-binding cells still dim"
+    pass "[isolated-runtime] alert policy: warn/critical cells (including non-binding) keep effective opacity 1.0, while muted non-binding cells are de-emphasised by token (secondary colour), never by opacity"
 else
-    fail "[isolated-runtime] alert policy: an alert matrix cell was dimmed by an ancestor (status=$alert_status result=$(jq -c '[.cells[] | select(.severity=="warn" or .severity=="critical")]' "$alert_result" || true))"
+    fail "[isolated-runtime] alert policy: an alert matrix cell was dimmed by an ancestor, or a muted cell is still faded (status=$alert_status result=$(jq -c '[.cells[] | select(.severity=="warn" or .severity=="critical"), .muted==true]' "$alert_result" || true))"
 fi
 assert_runtime_log_clean "$alert_log" "alert opacity"
 
@@ -327,36 +360,21 @@ assert_runtime_log_clean "$alert_log" "alert opacity"
 stale_result="$alignment_root/stale-detail.json"
 stale_log="$alignment_root/stale-detail.log"
 stale_status=0
-measure 480 "$stale_result" "$stale_log" remaining "opencode" 60000 || stale_status=$?
+measure 580 "$stale_result" "$stale_log" remaining "opencode" 30000 || stale_status=$?
 if [[ "$stale_status" -eq 0 && -s "$stale_result" ]] &&
    jq -e '
         . as $r
-        | def rowSeverity($id): ([ $r.detailRows[] | select(.row == $id)][0].severity);
-        ($r.staleMs == 60000)
-          and ([ $r.detailRows[] | select(.severity == "critical") ] | length) >= 1
-          and ([ $r.detailRows[] | select(.severity == "critical") | .effectiveOpacity ] | map(. >= 0.999) | all)
-          and ([ $r.detailRows[] | select(.severity == "ok") ] | length) >= 1
-          and ([ $r.detailRows[] | select(.severity == "ok") | .effectiveOpacity ] | map(. <= 0.61) | all)
-          # every inner alert element (percent text, severity glyph, alarming
-          # meter) on a critical row keeps effective opacity 1.0, so no row
-          # de-emphasis buries the alert; every element on an ok row is dimmed.
-          and ([ $r.detailElements[]
-                 | select(.kind == "percent" or .kind == "glyph" or .kind == "meter")
-                 | select(rowSeverity(.row) == "critical")
-                 | .effectiveOpacity ] | map(. >= 0.999) | all)
-          and ([ $r.detailElements[] | select(.kind == "percent" or .kind == "glyph" or .kind == "meter")
-                 | select(rowSeverity(.row) == "ok")
-                 | .effectiveOpacity ] | map(. <= 0.61) | all)
-          and ([ $r.detailElements[] | select(.kind == "percent")
-                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
-          and ([ $r.detailElements[] | select(.kind == "glyph")
-                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
-          and ([ $r.detailElements[] | select(.kind == "meter")
-                 | select(rowSeverity(.row) == "critical") ] | length) >= 1
+        | ($r.staleMs == 30000)
+          # The stale-dim reversal: NO text in the detail pane is dimmed, not
+          # even the non-alert rows. Staleness is signalled by the header
+          # freshness label in the warning colour instead.
+          and ([ $r.detailRows[] ] | length) >= 1
+          and ([ $r.detailRows[] | .effectiveOpacity ] | map(. >= 0.999) | all)
+          and ($r.freshnessLabelColor == $r.warningColor)
    ' "$stale_result" >/dev/null; then
-    pass "[isolated-runtime] stale detail pane: alert row, percent, glyph and alarm meter stay at effective opacity 1.0 while non-alert rows carry the stale dim"
+    pass "[isolated-runtime] stale detail pane: every detail row keeps effective opacity 1.0 and staleness is signalled by the warning freshness label"
 else
-    fail "[isolated-runtime] stale detail pane dimmed an alert row (status=$stale_status result=$(jq -c '.staleMs, .detailRows' "$stale_result" || true))"
+    fail "[isolated-runtime] stale detail pane still dims text (status=$stale_status result=$(jq -c '.staleMs, .detailRows, .freshnessLabelColor, .warningColor' "$stale_result" || true))"
 fi
 assert_runtime_log_clean "$stale_log" "stale detail pane"
 
@@ -369,11 +387,11 @@ assert_runtime_log_clean "$stale_log" "stale detail pane"
 closed_result="$alignment_root/account-closed.json"
 closed_log="$alignment_root/account-closed.log"
 closed_status=0
-measure 480 "$closed_result" "$closed_log" remaining "codex" 1800000 0 || closed_status=$?
+measure 580 "$closed_result" "$closed_log" remaining "codex" 1800000 0 || closed_status=$?
 open_result="$alignment_root/account-open.json"
 open_log="$alignment_root/account-open.log"
 open_status=0
-measure 480 "$open_result" "$open_log" remaining "codex" 1800000 1 || open_status=$?
+measure 580 "$open_result" "$open_log" remaining "codex" 1800000 1 || open_status=$?
 if [[ "$closed_status" -eq 0 && -s "$closed_result" && "$open_status" -eq 0 && -s "$open_result" ]] &&
    jq -e '
         .accountDetails as $a
@@ -394,6 +412,54 @@ else
 fi
 assert_runtime_log_clean "$closed_log" "account details collapsed"
 assert_runtime_log_clean "$open_log" "account details expanded"
+
+# The stale-dim reversal also holds in the EXPANDED detail state: no text in
+# the account detail (including ACCOUNT DETAILS) is dimmed.
+if [[ "$open_status" -eq 0 && -s "$open_result" ]] &&
+   jq -e '(.textNodes | length) >= 10 and (.minTextOpacity >= 0.999)' "$open_result" >/dev/null; then
+    pass "[isolated-runtime] expanded dashboard: no text item has effective opacity below 0.999"
+else
+    fail "[isolated-runtime] expanded dashboard dims text (min=$(jq -r '.minTextOpacity' "$open_result" 2>/dev/null || true))"
+fi
+
+# ---------------------------------------------------------------------------
+# Shared inline tooltip (isolated runtime): pointing the one host at a cell
+# makes it visible, inside the dashboard's own bounds, using the tooltip text
+# colour for every line and clipping nothing.
+# ---------------------------------------------------------------------------
+tooltip_result="$alignment_root/tooltip.json"
+tooltip_log="$alignment_root/tooltip.log"
+tooltip_status=0
+tooltip_sandbox="$(mktemp -d)"
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$tooltip_sandbox/runtime" \
+XDG_CONFIG_HOME="$tooltip_sandbox/config" \
+XDG_STATE_HOME="$tooltip_sandbox/state" \
+XDG_CACHE_HOME="$tooltip_sandbox/cache" \
+AGENTS_DASHBOARD_PLUGIN="$plugin_dir/AgentsDashboard.qml" \
+AGENTS_DASHBOARD_FIXTURE="$fixture" \
+AGENTS_DASHBOARD_RESULT="$tooltip_result" \
+    /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/agents-dashboard/tooltip.qml" >"$tooltip_log" 2>&1 || tooltip_status=$?
+rm -rf -- "$tooltip_sandbox" || true
+
+if [[ "$tooltip_status" -eq 0 && -s "$tooltip_result" ]] &&
+   jq -e '
+        . as $r
+        | .tooltipCount == 1 and .found == true and .visible == true and
+        (.x >= 0) and (.y >= 0) and
+        ((.x + .width) <= .dashboardWidth) and
+        ((.y + .height) <= .dashboardHeight) and
+        (.elided == false) and
+        ((.textColors | length) >= 2) and
+        ([ .textColors[] | select(. != $r.textColor) ] | length) == 0
+   ' "$tooltip_result" >/dev/null; then
+    pass "[isolated-runtime] the shared inline tooltip is visible inside the dashboard bounds, uses the tooltip text colour for every line and clips nothing"
+else
+    fail "[isolated-runtime] inline tooltip probe regressed (status=$tooltip_status result=$(cat "$tooltip_result" 2>&1 || true))"
+fi
+assert_runtime_log_clean "$tooltip_log" "inline tooltip" '(\[AGENTS\]|@tooltip\.qml)'
 
 # ---------------------------------------------------------------------------
 # Measured render: with a critical fixture, the alert token must survive to the

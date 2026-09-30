@@ -32,8 +32,8 @@ Window {
     readonly property string percentMode: Quickshell.env("AGENTS_DASHBOARD_PERCENT_MODE") || "remaining"
     // Default panel width; the test also measures a deliberately narrow width.
     readonly property int windowWidth: {
-        var raw = parseInt(Quickshell.env("AGENTS_DASHBOARD_WIDTH") || "480")
-        return isFinite(raw) && raw > 240 ? raw : 480
+        var raw = parseInt(Quickshell.env("AGENTS_DASHBOARD_WIDTH") || "580")
+        return isFinite(raw) && raw > 240 ? raw : 580
     }
     // Env-configurable staleness threshold so the stale-plus-alert combination
     // can actually be measured. Defaults to the 30 minute production value.
@@ -224,13 +224,16 @@ Window {
                 x: geo.x, width: geo.width, height: geo.height,
                 opacity: item.opacity, effectiveOpacity: root.effectiveOpacity(item),
                 severity: item.cell ? String(item.cell.severity) : "",
-                isBinding: item.isBinding === true })
+                isBinding: item.isBinding === true,
+                muted: item.muted === true,
+                notOffered: item.notOffered === true })
         })
         root.collect("matrixPercent-").forEach(function (item) {
             var rest = String(item.objectName).slice("matrixPercent-".length).split("-")
             var geo = root.geometry(item)
             percentages.push({ row: parseInt(rest[0]), column: rest.slice(1).join("-"),
                 text: String(item.text),
+                color: String(item.color),
                 opacity: item.opacity, effectiveOpacity: root.effectiveOpacity(item),
                 x: geo.x, width: geo.width, right: Math.round((geo.x + geo.width) * 100) / 100 })
         })
@@ -293,6 +296,37 @@ Window {
             rows: accountRows
         }
 
+        // Every text node's effective opacity. The redesign requires no text
+        // anywhere to render below 1.0 at rest, so the test asserts the minimum.
+        var textNodes = []
+        function walkText(node) {
+            var kids = node.children || []
+            for (var t = 0; t < kids.length; t++) {
+                var child = kids[t]
+                if (typeof child.text === "string" && child.color !== undefined &&
+                    child.font !== undefined) {
+                    textNodes.push({
+                        name: String(child.objectName || ""),
+                        text: String(child.text).slice(0, 24),
+                        effectiveOpacity: root.effectiveOpacity(child)
+                    })
+                }
+                walkText(child)
+            }
+        }
+        walkText(d)
+        var minTextOpacity = 1.0
+        for (var n = 0; n < textNodes.length; n++) {
+            if (textNodes[n].effectiveOpacity < minTextOpacity)
+                minTextOpacity = textNodes[n].effectiveOpacity
+        }
+
+        // Header freshness label colour (stale must be the warning token).
+        var freshnessLabel = root.collect("agentsFreshnessLabel")[0]
+        // Footer hint elision.
+        var footerHintLabel = root.collect("agentsFooterHint")[0]
+        var inlineTooltipCount = root.collect("panelToolTip").length
+
         var payload = {
             columns: Quickshell.env("AGENTS_DASHBOARD_COLUMNS") || "five_hour,week,month",
             windowWidth: root.windowWidth,
@@ -308,7 +342,15 @@ Window {
             staleMs: root.staleMs,
             detailRows: detailRows,
             detailElements: detailElements,
-            accountDetails: accountDetails
+            accountDetails: accountDetails,
+            textNodes: textNodes,
+            minTextOpacity: minTextOpacity,
+            freshnessLabelColor: freshnessLabel ? String(freshnessLabel.color) : "",
+            secondaryColor: String(d.tokenTextSecondary),
+            warningColor: String(d.tokenWarning),
+            footerHintText: footerHintLabel ? String(footerHintLabel.text) : "",
+            footerHintTruncated: footerHintLabel ? footerHintLabel.truncated === true : null,
+            inlineTooltipCount: inlineTooltipCount
         }
         resultFile.setText(JSON.stringify(payload) + "\n")
         root.measured = true

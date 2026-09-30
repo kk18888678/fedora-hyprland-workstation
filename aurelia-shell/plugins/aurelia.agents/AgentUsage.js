@@ -488,7 +488,7 @@ function overallFreshnessPill(records, nowMs, staleMs) {
     var stale = isRecordStale(newest, nowMs, staleMs);
     var ageText = age < 60000 ? "just now" : formatDuration(age) + " ago";
     var text = "updated " + ageText;
-    return { text: stale ? "stale · " + text : text, stale: stale, known: true };
+    return { text: stale ? "stale · " + text : text, stale: stale, known: true, ageText: ageText };
 }
 
 // The bar tooltip model: one row per READY account in the panel's pinned
@@ -1499,14 +1499,15 @@ function severityGlyph(severity) {
     return SEVERITY_GLYPH[severity] || "";
 }
 
-// The pace word shown inside a cell's detail pane. Deliberately short
-// (`behind`/`ahead`/`on pace`) so it fits beside a relative countdown. The
-// matrix itself no longer prints pace words.
+// The pace word shown inside a cell's detail pane. It speaks about the user's
+// rate, not about a direction: "faster than pace" is the alarming case, while
+// "within pace" is the healthy one. It is deliberately short so it fits beside
+// a relative countdown. The matrix itself no longer prints pace words.
 function paceWord(limit, nowMs) {
     var pace = paceInfo(limit, nowMs);
     if (!pace) return "";
     if (pace.onPace) return "on pace";
-    return pace.behind ? "behind" : "ahead";
+    return pace.behind ? "faster than pace" : "within pace";
 }
 
 function cellCountdown(limit, nowMs) {

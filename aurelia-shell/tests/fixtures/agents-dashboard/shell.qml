@@ -39,7 +39,7 @@ Window {
     readonly property string selectId: Quickshell.env("AGENTS_DASHBOARD_SELECT") || ""
 
     visible: true
-    width: 480
+    width: 580
     height: card.height + 24
     color: dashboard ? dashboard.surfaceBackdrop : "#191724"
 
@@ -61,7 +61,7 @@ Window {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         anchors.topMargin: 12
-        width: 460
+        width: 580
         height: (dashboard ? dashboard.implicitHeight : 0) +
             (dashboard ? dashboard.surfacePadding * 2 : 0)
         radius: dashboard ? dashboard.surfaceRadius : 12

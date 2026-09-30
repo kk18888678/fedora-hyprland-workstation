@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Shapes
 import "../../theme"
 import "../../ui"
 import "AgentUsage.js" as AgentUsage
@@ -46,6 +47,17 @@ Item {
     property var loggedDiagnostics: ({})
     // The panel wrapper installs a close handler here.
     property var dismissHook: null
+    // Tooltip hover state. `hoverRow`/`hoverColumn` drive both the footer hint
+    // legend and the single shared inline tooltip.
+    property int hoverRow: -1
+    property string hoverColumn: ""
+    // The panel wrapper binds this from `panelRoot.shown`. The false default
+    // makes an unwired fixture (or the offscreen preview) fail safe: the
+    // rotation timer can never run when nothing is shown.
+    property bool panelShown: false
+    // Index into the idle footer rotation. Reset to 0 whenever the panel opens.
+    property int rotationIndex: 0
+    onPanelShownChanged: if (panelShown) rotationIndex = 0
 
     // Surface tokens exposed so the offscreen preview harness can reproduce the
     // panel card without importing the Theme singleton itself.
@@ -54,6 +66,10 @@ Item {
     readonly property color surfaceBorder: Theme.popups.border
     readonly property int surfacePadding: Theme.popupPadding
     readonly property int surfaceRadius: Theme.radiusLg
+    // Role tokens exposed for the offscreen probes so they can assert a colour
+    // equality without importing the Theme singleton.
+    readonly property color tokenTextSecondary: Theme.textSecondary
+    readonly property color tokenWarning: Theme.warning
 
     anchors.fill: parent
     implicitHeight: body.implicitHeight
@@ -71,15 +87,15 @@ Item {
     // Single source of truth for the matrix column geometry. The header and
     // every account row use these exact widths, so no row can compute its own
     // column boundaries from its own (varying) cell content.
-    readonly property int matrixAccountRequestedWidth: 108
+    readonly property int matrixAccountRequestedWidth: 160
     readonly property int matrixAccountMinWidth: 56
-    readonly property int matrixTodayWidth: 52
+    readonly property int matrixTodayWidth: 56
     readonly property int matrixBalanceWidth: 66
     readonly property int matrixMinWindowWidth: 44
-    readonly property int matrixRowMargin: Theme.spacingXs
-    readonly property int matrixColumnSpacing: Theme.spacingXs
+    readonly property int matrixRowMargin: Theme.spacingSm
+    readonly property int matrixColumnSpacing: Theme.spacingSm
     readonly property int matrixWindowCount: AgentUsage.canonicalWindowOrder().length
-    readonly property real matrixContentWidth: Math.max(0, body.width - matrixRowMargin * 2)
+    readonly property real matrixContentWidth: Math.max(0, matrixBlock.width - matrixRowMargin * 2)
     // The action cluster belongs to the detail card; Refresh lives in the
     // always-present header so it is reachable in every state, while Close
     // collapses the detail and is offered only while an account is expanded.
@@ -133,24 +149,27 @@ Item {
         backendError: agentsWidget ? agentsWidget.lastError : "",
         staleMs: staleMs
     })
-    // P1/P2: staleness is additive. The only de-emphasis the detail pane may
-    // ever apply is a generic 0.6 fade, and a generic fade must never reach an
-    // alert state. This is the one owner of that question: it delegates to the
-    // shared `AgentUsage.presentationOpacityFor` predicate, so a warn/critical
-    // element always resolves to 1.0 no matter how stale the account is, while
-    // non-alert (ok/unknown/notOffered) content keeps the 0.6 de-emphasis.
-    // There is deliberately no generic stale-dim property left for a caller
-    // to apply to an element of unknown severity.
-    function staleOpacityFor(severity) {
-        return AgentUsage.presentationOpacityFor(severity, stateInfo.stale,
-            stateInfo.stale ? 0.6 : 1.0)
-    }
-    readonly property var limitDetails: AgentUsage.limitDetailRows(selectedRecord, nowMs, percentMode)
-    readonly property var today: AgentUsage.todayUsage(selectedRecord)
-    readonly property var freshness: AgentUsage.freshnessPill(selectedRecord, nowMs, staleMs)
+    // The number of accounts whose headline severity is critical. The header
+    // chip is shown only when it is greater than zero.
+    readonly property int blockedCount: AgentUsage.blockedCount(rows)
     // Header freshness spans every account, not just the selected one, so the
     // resting consolidated matrix never says "Freshness unknown".
     readonly property var overallFreshness: AgentUsage.overallFreshnessPill(accounts, nowMs, staleMs)
+    // The single footer hint. Its priority decides what the action row shows;
+    // the idle rotation is the only case the timer advances.
+    readonly property var footerHint: AgentUsage.footerHint({
+        stale: overallFreshness.stale,
+        ageText: overallFreshness.stale ? overallFreshness.ageText : "",
+        keyboard: cursorActive,
+        hoverColumn: hoverColumn,
+        hoverRow: hoverRow,
+        hoverAccount: hoverRow >= 0 && hoverRow < rows.length ? rows[hoverRow].name : "",
+        rowSelected: selectedIndex === hoverRow,
+        idleIndex: rotationIndex
+    })
+    readonly property var limitDetails: AgentUsage.limitDetailRows(selectedRecord, nowMs, percentMode)
+    readonly property var today: AgentUsage.todayUsage(selectedRecord)
+    readonly property var freshness: AgentUsage.freshnessPill(selectedRecord, nowMs, staleMs)
     readonly property var todayModelRows: AgentUsage.todayModels(selectedRecord, 4)
     readonly property var allTimeModelRows: AgentUsage.modelRows(selectedRecord, 4)
     readonly property var weekBars: AgentUsage.dayChartBars(
@@ -180,6 +199,15 @@ Item {
         if (severity === "critical") return Theme.error
         if (severity === "warn") return Theme.warning
         return Theme.text
+    }
+
+    // Map an AgentUsage status/dot tone role to a Theme token. It never invents
+    // a colour: "neutral" is the secondary text token, never a dimmed text.
+    function toneColor(tone) {
+        if (tone === "error") return Theme.error
+        if (tone === "warning") return Theme.warning
+        if (tone === "success") return Theme.success
+        return Theme.textSecondary
     }
 
     function visibleRegions() {
@@ -228,9 +256,13 @@ Item {
 
     // Pointer interaction never creates, moves or retains the keyboard cursor.
     // Every pointer entry point clears it so the focus ring disappears the
-    // moment the user reaches for the mouse; only real key handlers set it.
+    // moment the user reaches for the mouse; only real key handlers set it. It
+    // also clears the hover state and dismisses the shared inline tooltip.
     function notePointerInteraction() {
         cursorActive = false
+        hoverRow = -1
+        hoverColumn = ""
+        if (panelToolTip) panelToolTip.dismiss()
     }
 
     function selectAccountByPointer(index) {
@@ -365,6 +397,8 @@ Item {
     }
 
     function handleKey(event) {
+        // Any key hides the shared inline tooltip as well as moving the cursor.
+        if (panelToolTip) panelToolTip.dismiss()
         var key = event.key
         var text = String(event.text || "").toLowerCase()
         if (key === Qt.Key_Escape) {
@@ -490,7 +524,7 @@ Item {
     component SectionHeader: Label {
         Layout.fillWidth: true
         topPadding: Theme.spacingXs
-        color: Theme.textMuted
+        color: Theme.textSecondary
         font.pixelSize: Theme.fontSizeXs
         font.weight: Theme.fontWeightBold
         font.letterSpacing: 1
@@ -503,16 +537,18 @@ Item {
         color: Theme.border
     }
 
-    // A max(3, spacingXs) px meter on a translucent-safe track with a 1 px
-    // outline and a 2 px pace marker at the elapsed fraction.
+    // max(6, spacingXs + 2) px meter on a translucent-safe track with a 1 px
+    // outline, a full-opacity 2 px pace marker and a 4 px halo backing it.
     component Meter: Item {
         id: meter
         property real value: -1
         property real marker: -1
         property bool alarming: false
+        property bool deEmphasised: false
+        property color markerColor: Theme.text
 
         Layout.fillWidth: true
-        implicitHeight: Math.max(3, Theme.spacingXs)
+        implicitHeight: Math.max(6, Theme.spacingXs + 2)
 
         Rectangle {
             anchors.fill: parent
@@ -528,7 +564,8 @@ Item {
             height: parent.height
             radius: height / 2
             width: Math.max(0, parent.width * AgentUsage.clamp(meter.value, 0, 1))
-            color: meter.alarming ? Theme.error : Theme.accent
+            color: meter.deEmphasised ? Theme.textMuted
+                : (meter.alarming ? Theme.error : Theme.accent)
             objectName: "meterFill"
 
             Behavior on width {
@@ -536,14 +573,24 @@ Item {
             }
         }
 
+        // A 4 px halo behind the marker keeps it legible over the fill and the
+        // track. The marker itself is full opacity in every state.
+        Rectangle {
+            visible: meter.marker >= 0
+            x: Math.round(parent.width * AgentUsage.clamp(meter.marker, 0, 1)) - width / 2
+            width: 4
+            height: parent.height + 6
+            anchors.verticalCenter: parent.verticalCenter
+            color: Theme.popups.background
+        }
+
         Rectangle {
             visible: meter.marker >= 0
             x: Math.round(parent.width * AgentUsage.clamp(meter.marker, 0, 1)) - width / 2
             width: 2
-            height: parent.height + 4
+            height: parent.height + 6
             anchors.verticalCenter: parent.verticalCenter
-            color: Theme.text
-            opacity: 0.75
+            color: meter.markerColor
         }
     }
 
@@ -554,6 +601,7 @@ Item {
     component MatrixCell: ColumnLayout {
         id: matrixCell
         property var cell: null
+        property var record: null
         property string columnClass: ""
         property int rowIndex: -1
         // True when the provider declared that it does not offer this canonical
@@ -564,14 +612,18 @@ Item {
         property bool notOffered: false
         readonly property bool isBinding: cell ? cell.isBinding === true : false
         readonly property bool muted: cell ? cell.muted === true : false
-        // P1: an alert cell is never dimmed. This is belt-and-braces with the
-        // muted flag (which is only ever set on an ok cell) so a future
-        // de-emphasis rule cannot reach a warn/critical cell either.
         readonly property bool alertCell: cell
             ? AgentUsage.isAlertSeverity(cell.severity) : false
         readonly property string markerText: AgentUsage.matrixCellMarker(cell, notOffered)
-        property string tooltipText: AgentUsage.matrixCellTooltip(
-            cell, columnClass, notOffered, dashboard.percentMode)
+        // De-emphasis is a TOKEN choice, never an opacity: the percentage and
+        // meta use Theme.textSecondary and the meter fill uses Theme.textMuted.
+        readonly property bool deEmphasised: cell === null || notOffered || muted
+        readonly property string metaText: {
+            if (notOffered) return "Not offered"
+            if (cell === null) return " "
+            if (muted) return "not limiting"
+            return cell.countdown !== "" ? cell.countdown : " "
+        }
 
         objectName: "matrixCell-" + rowIndex + "-" + columnClass
         Layout.preferredWidth: dashboard.matrixWindowColumnWidth
@@ -579,52 +631,92 @@ Item {
         Layout.maximumWidth: dashboard.matrixWindowColumnWidth
         Layout.fillWidth: false
         spacing: 1
-        // A not-offered window is de-emphasised more than a dimmed non-binding
-        // one so it reads as "not applicable", not "danger elsewhere". When
-        // the account is blocked, non-binding windows dim so the eye goes to
-        // the binding window; the percentage stays legible either way.
-        opacity: matrixCell.alertCell ? 1.0
-            : (matrixCell.notOffered ? 0.4 : (matrixCell.muted ? 0.45 : 1.0))
-        // Non-visual consumers get the same three-state wording as the tooltip.
+        // Opacity is 1.0 in EVERY state: no text in the dashboard is ever
+        // dimmed. The token choice above carries the de-emphasis instead.
+        opacity: 1.0
         Accessible.role: Accessible.StaticText
         Accessible.name: AgentUsage.matrixCellAccessibility(
-            cell, columnClass, notOffered, dashboard.percentMode)
+            cell, columnClass, notOffered, dashboard.percentMode, record,
+            dashboard.nowMs, -new Date().getTimezoneOffset())
 
-        RowLayout {
+        function percentColor() {
+            if (matrixCell.deEmphasised) return Theme.textSecondary
+            return dashboard.sectionColor(matrixCell.cell.severity)
+        }
+
+        // Percentage line: the severity glyph sits immediately left of the
+        // number, right-aligned so the number's right edge is exactly the
+        // shared column boundary. A plain Row anchored right (rather than a
+        // layout-managed RowLayout) lets the row overflow to the LEFT when the
+        // glyph does not fit at a narrow width, so the number's right edge can
+        // never move and the number can never elide.
+        Item {
             Layout.fillWidth: true
-            spacing: 0
+            implicitHeight: percentRow.implicitHeight
 
-            Label {
-                text: matrixCell.cell ? matrixCell.cell.glyph : ""
-                color: dashboard.sectionColor(matrixCell.cell ? matrixCell.cell.severity : "ok")
-                font.pixelSize: Theme.fontSizeXs
-                visible: text !== ""
-            }
+            Row {
+                id: percentRow
+                anchors.right: parent.right
+                spacing: Theme.spacingXs
 
-            Item { Layout.fillWidth: true }
+                Label {
+                    text: matrixCell.cell ? matrixCell.cell.glyph : ""
+                    color: dashboard.sectionColor(matrixCell.cell ? matrixCell.cell.severity : "ok")
+                    font.pixelSize: Theme.fontSizeXs
+                    visible: text !== ""
+                }
 
-            NumericLabel {
-                objectName: "matrixPercent-" + matrixCell.rowIndex + "-" + matrixCell.columnClass
-                text: matrixCell.markerText
-                color: matrixCell.cell
-                    ? dashboard.sectionColor(matrixCell.cell.severity) : Theme.textMuted
-                font.pixelSize: Theme.fontSizeSm
+                NumericLabel {
+                    objectName: "matrixPercent-" + matrixCell.rowIndex + "-" + matrixCell.columnClass
+                    text: matrixCell.markerText
+                    color: matrixCell.percentColor()
+                    font.pixelSize: Theme.fontSizeLg
+                    font.weight: Theme.fontWeightMedium
+                }
             }
         }
 
-        // The track is always present so the reserved meter line keeps every
-        // row the same height and the track width is measurable per column. A
-        // cell with no live limit leaves the track empty (value -1): the
-        // honest `—` percent and `no live limits` tag carry the meaning, no
-        // fabricated 0% fill is drawn.
-        Meter {
-            objectName: "matrixMeter-" + matrixCell.rowIndex + "-" + matrixCell.columnClass
-            visible: true
-            value: matrixCell.cell ? matrixCell.cell.percent : -1
-            marker: matrixCell.cell ? matrixCell.cell.elapsed : -1
-            alarming: matrixCell.cell && matrixCell.cell.severity === "critical"
+        // The meter slot is always present so every row keeps the same height.
+        // A not-offered column shows a 1 px dashed border line instead of a
+        // track; a no-live-limit cell leaves the track empty (value -1) rather
+        // than fabricating a 0% fill.
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: Math.max(6, Theme.spacingXs + 2)
+
+            Meter {
+                objectName: "matrixMeter-" + matrixCell.rowIndex + "-" + matrixCell.columnClass
+                anchors.fill: parent
+                visible: !matrixCell.notOffered
+                value: matrixCell.cell ? matrixCell.cell.percent : -1
+                marker: matrixCell.cell && !matrixCell.muted ? matrixCell.cell.elapsed : -1
+                alarming: matrixCell.cell && matrixCell.cell.severity === "critical"
+                deEmphasised: matrixCell.muted
+                markerColor: matrixCell.cell && matrixCell.cell.meaningfullyFast === true
+                    ? Theme.warning : Theme.text
+            }
+
+            Shape {
+                id: notOfferedLine
+                visible: matrixCell.notOffered
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                height: 1
+
+                ShapePath {
+                    strokeColor: Theme.border
+                    strokeWidth: 1
+                    strokeStyle: ShapePath.DashLine
+                    dashPattern: [1, 3]
+                    startX: 0
+                    startY: 0.5
+                    PathLine { x: notOfferedLine.width; y: 0.5 }
+                }
+            }
         }
 
+        // Meta line: the countdown only (or `not limiting` / `Not offered`).
+        // The matrix no longer prints pace words.
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingXs
@@ -632,27 +724,35 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: matrixCell.cell && matrixCell.cell.countdown !== ""
-                    ? matrixCell.cell.countdown : " "
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
+                text: matrixCell.metaText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeSm
                 elide: Text.ElideRight
-            }
-
-            Label {
-                visible: matrixCell.cell && matrixCell.cell.paceWord !== ""
-                text: matrixCell.cell ? matrixCell.cell.paceWord : ""
-                color: matrixCell.cell && matrixCell.cell.paceWord === "behind"
-                    ? Theme.warning : Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
+                horizontalAlignment: matrixCell.notOffered ? Text.AlignRight : Text.AlignLeft
             }
         }
 
-        HoverHandler { id: cellHover }
-
-        ToolTip.visible: cellHover.hovered && matrixCell.tooltipText !== ""
-        ToolTip.text: matrixCell.tooltipText
-        ToolTip.delay: 400
+        HoverHandler {
+            id: cellHover
+            onHoveredChanged: {
+                if (hovered) {
+                    dashboard.hoverColumn = matrixCell.columnClass
+                    dashboard.hoverRow = matrixCell.rowIndex
+                    panelToolTip.triggerItem = matrixCell
+                    panelToolTip.lines = AgentUsage.cellTooltipLines(
+                        matrixCell.cell, matrixCell.columnClass, matrixCell.notOffered,
+                        dashboard.percentMode, matrixCell.record, dashboard.nowMs,
+                        -new Date().getTimezoneOffset())
+                    panelToolTip.hovered = true
+                } else {
+                    if (dashboard.hoverColumn === matrixCell.columnClass)
+                        dashboard.hoverColumn = ""
+                    panelToolTip.hovered = false
+                    panelToolTip.triggerItem = null
+                    panelToolTip.lines = []
+                }
+            }
+        }
     }
 
     // One limit row in the per-account tab. `unknown` durations render as a
@@ -694,12 +794,6 @@ Item {
             color: "transparent"
             border.width: limitRow.detailFocused ? Theme.borderWidthFocus : 0
             border.color: Theme.controls.focusBorder
-            // P1/P2: a stale account may dim its non-alert rows, but an alert
-            // row resolves to 1.0 through the single policy predicate. The dim
-            // is applied at the row, so no ancestor of an alert element is
-            // ever dimmed.
-            opacity: dashboard.staleOpacityFor(limitRow.detail
-                ? limitRow.detail.severity : "unknown")
 
             ColumnLayout {
                 id: limitContent
@@ -746,7 +840,7 @@ Item {
                         objectName: "limitDetailPercent-" + limitRow.rowIndex
                         text: limitRow.detail ? limitRow.detail.percentText : "—"
                         color: limitRow.detail
-                            ? dashboard.sectionColor(limitRow.detail.severity) : Theme.textMuted
+                            ? dashboard.sectionColor(limitRow.detail.severity) : Theme.textSecondary
                         font.pixelSize: Theme.fontSizeSm
                     }
                 }
@@ -767,7 +861,7 @@ Item {
                     Label {
                         Layout.fillWidth: true
                         text: limitRow.resetText
-                        color: Theme.textMuted
+                        color: Theme.textSecondary
                         font.pixelSize: Theme.fontSizeXs
                         elide: Text.ElideRight
                     }
@@ -775,8 +869,8 @@ Item {
                     Label {
                         visible: limitRow.detail && limitRow.detail.paceWord !== ""
                         text: limitRow.detail ? limitRow.detail.paceWord : ""
-                        color: limitRow.detail && limitRow.detail.paceWord === "behind"
-                            ? Theme.warning : Theme.textMuted
+                        color: limitRow.detail && limitRow.detail.paceWord === "faster than pace"
+                            ? Theme.warning : Theme.textSecondary
                         font.pixelSize: Theme.fontSizeXs
                     }
                 }
@@ -810,7 +904,7 @@ Item {
 
         NumericLabel {
             text: AgentUsage.formatTokens(modelRow.row ? modelRow.row.total : 0)
-            color: Theme.textMuted
+            color: Theme.textSecondary
             font.pixelSize: Theme.fontSizeSm
         }
     }
@@ -865,7 +959,7 @@ Item {
                     Label {
                         width: parent.width
                         text: AgentUsage.formatTokens(dayColumn.modelData.tokens)
-                        color: dayColumn.today ? Theme.text : Theme.textMuted
+                        color: dayColumn.today ? Theme.text : Theme.textSecondary
                         font.pixelSize: Theme.fontSizeXs
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
@@ -874,7 +968,7 @@ Item {
                     Label {
                         width: parent.width
                         text: AgentUsage.dayLabel(dayColumn.modelData.date, dayColumn.today)
-                        color: dayColumn.today ? Theme.text : Theme.textMuted
+                        color: dayColumn.today ? Theme.text : Theme.textSecondary
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: dayColumn.today ? Theme.fontWeightBold : Theme.fontWeightNormal
                         horizontalAlignment: Text.AlignHCenter
@@ -892,36 +986,99 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingSm
 
-        // HEADER (pinned): title, percentage-mode legend and account-wide
-        // freshness. Refresh lives here so it is reachable in EVERY state;
-        // Close stays in the action row below the matrix.
+        // HEADER (pinned): icon tile, title, quota legend + account-wide
+        // freshness, a blocked count chip and Refresh. Refresh lives here so it
+        // is reachable in EVERY state; Close stays in the action row below.
         RowLayout {
             id: headerRow
             Layout.fillWidth: true
             spacing: Theme.spacingSm
 
-            Label {
-                text: "AI Usage"
-                color: Theme.text
-                font.pixelSize: Theme.fontSizeMd
-                font.weight: Theme.fontWeightBold
+            // Icon tile: 32x32, never changes with usage.
+            Rectangle {
+                objectName: "agentsHeaderTile"
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                radius: Theme.radiusMd
+                color: Theme.controls.normalFill
+                border.width: Theme.borderWidthDefault
+                border.color: Theme.border
+
+                AureliaIcon {
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -1
+                    glyph: "󰚩"
+                    iconSize: Theme.fontSizeLg + 3
+                    tint: Theme.text
+                }
             }
 
-            // The single legend that makes a bare percentage unambiguous. It
-            // is driven by the same resolved mode as the numbers and meters.
-            Label {
-                objectName: "agentsModeChip"
-                text: dashboard.percentMode === "used" ? "· % used" : "· % remaining"
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
-            }
-
-            Label {
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: dashboard.overallFreshness.text
-                color: dashboard.overallFreshness.stale ? Theme.warning : Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
-                elide: Text.ElideRight
+                spacing: 0
+
+                Label {
+                    text: "AI Usage"
+                    color: Theme.text
+                    font.pixelSize: Theme.fontSizeLg
+                    font.weight: Theme.fontWeightBold
+                }
+
+                RowLayout {
+                    spacing: Theme.spacingXs
+
+                    // The single legend that makes a bare percentage unambiguous.
+                    Label {
+                        objectName: "agentsModeChip"
+                        text: dashboard.percentMode === "used"
+                            ? "Quota used ·" : "Quota remaining ·"
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeSm
+                    }
+
+                    // Freshness is signalled here, in the warning colour when
+                    // stale. It is never signalled by dimming any text.
+                    Label {
+                        objectName: "agentsFreshnessLabel"
+                        Layout.fillWidth: true
+                        text: dashboard.overallFreshness.text
+                        color: dashboard.overallFreshness.stale
+                            ? Theme.warning : Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeSm
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
+            // Blocked chip: shown only when at least one account is blocked.
+            Rectangle {
+                objectName: "agentsBlockedChip"
+                visible: dashboard.blockedCount > 0
+                Layout.preferredWidth: blockedChipRow.implicitWidth + Theme.spacingSm * 2
+                Layout.preferredHeight: blockedChipRow.implicitHeight + Theme.spacingXs
+                radius: height / 2
+                color: "transparent"
+                border.width: Theme.borderWidthDefault
+                border.color: Theme.border
+
+                RowLayout {
+                    id: blockedChipRow
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingXs
+
+                    Rectangle {
+                        Layout.preferredWidth: 8
+                        Layout.preferredHeight: 8
+                        radius: 4
+                        color: Theme.error
+                    }
+
+                    Label {
+                        text: dashboard.blockedCount + " blocked"
+                        color: Theme.text
+                        font.pixelSize: Theme.fontSizeSm
+                    }
+                }
             }
 
             Rectangle {
@@ -965,8 +1122,9 @@ Item {
                     Layout.minimumWidth: dashboard.matrixAccountWidth
                     Layout.maximumWidth: dashboard.matrixAccountWidth
                     Layout.fillWidth: false
+                    Layout.alignment: Qt.AlignBottom
                     text: "ACCOUNT"
-                    color: Theme.textMuted
+                    color: Theme.textSecondary
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightBold
                     font.letterSpacing: 1
@@ -983,8 +1141,9 @@ Item {
                         Layout.minimumWidth: dashboard.matrixWindowColumnWidth
                         Layout.maximumWidth: dashboard.matrixWindowColumnWidth
                         Layout.fillWidth: false
+                        Layout.alignment: Qt.AlignBottom
                         text: AgentUsage.windowColumnLabel(modelData)
-                        color: Theme.textMuted
+                        color: Theme.textSecondary
                         font.pixelSize: Theme.fontSizeXs
                         font.weight: Theme.fontWeightBold
                         font.letterSpacing: 1
@@ -992,24 +1151,58 @@ Item {
                         // the right end of the meter it labels.
                         horizontalAlignment: Text.AlignRight
 
-                        HoverHandler { id: headerHover }
-                        ToolTip.visible: headerHover.hovered && AgentUsage.windowDescription(columnHeader.modelData) !== ""
-                        ToolTip.text: AgentUsage.windowDescription(columnHeader.modelData)
-                        ToolTip.delay: 400
+                        HoverHandler {
+                            id: headerHover
+                            onHoveredChanged: {
+                                if (hovered) {
+                                    dashboard.hoverColumn = columnHeader.modelData
+                                    panelToolTip.triggerItem = columnHeader
+                                    panelToolTip.lines = [{
+                                        text: AgentUsage.windowDescription(columnHeader.modelData),
+                                        tone: "default",
+                                        strong: false
+                                    }]
+                                    panelToolTip.hovered = true
+                                } else {
+                                    if (dashboard.hoverColumn === columnHeader.modelData)
+                                        dashboard.hoverColumn = ""
+                                    panelToolTip.hovered = false
+                                    panelToolTip.triggerItem = null
+                                    panelToolTip.lines = []
+                                }
+                            }
+                        }
                     }
                 }
 
-                Label {
+                // TODAY becomes two lines: the label and its unit. The unit
+                // lives in the header, so no per-row cell repeats it.
+                ColumnLayout {
                     Layout.preferredWidth: dashboard.matrixTodayWidth
                     Layout.minimumWidth: dashboard.matrixTodayWidth
                     Layout.maximumWidth: dashboard.matrixTodayWidth
                     Layout.fillWidth: false
-                    text: "TODAY"
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeXs
-                    font.weight: Theme.fontWeightBold
-                    font.letterSpacing: 1
-                    horizontalAlignment: Text.AlignRight
+                    Layout.alignment: Qt.AlignBottom
+                    spacing: 0
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: "TODAY"
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeXs
+                        font.weight: Theme.fontWeightBold
+                        font.letterSpacing: 1
+                        horizontalAlignment: Text.AlignRight
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: "tokens"
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeXs
+                        font.weight: Theme.fontWeightNormal
+                        horizontalAlignment: Text.AlignRight
+                    }
                 }
 
                 Label {
@@ -1017,9 +1210,10 @@ Item {
                     Layout.minimumWidth: dashboard.matrixBalanceWidth
                     Layout.maximumWidth: dashboard.matrixBalanceWidth
                     Layout.fillWidth: false
+                    Layout.alignment: Qt.AlignBottom
                     visible: dashboard.showBalance
                     text: AgentUsage.balanceHeader(dashboard.accounts)
-                    color: Theme.textMuted
+                    color: Theme.textSecondary
                     font.pixelSize: Theme.fontSizeXs
                     font.weight: Theme.fontWeightBold
                     font.letterSpacing: 1
@@ -1038,30 +1232,60 @@ Item {
                     required property int index
 
                     Layout.fillWidth: true
+                    Layout.bottomMargin: matrixRow.index < dashboard.rows.length - 1 ? 2 : 0
                     spacing: 0
 
                     readonly property bool rowFocused: dashboard.cursorActive &&
                         dashboard.focusRegion === "matrix" && dashboard.focusRow === index
 
                     Rectangle {
+                        id: matrixRowRect
                         objectName: "matrixRowRect-" + matrixRow.index
                         Layout.fillWidth: true
-                        implicitHeight: matrixRowContent.implicitHeight + Theme.spacingSm
-                        radius: Theme.radiusSm
-                        color: index === dashboard.selectedIndex ? Theme.controls.selectedFill : "transparent"
+                        implicitHeight: matrixRowContent.implicitHeight + Theme.spacingSm * 2
+                        radius: Theme.radiusMd
+                        // Fill priority: selected, then hovered, then transparent.
+                        color: index === dashboard.selectedIndex
+                            ? Theme.controls.selectedFill
+                            : (rowHover.hovered ? Theme.controls.hoverFill : "transparent")
                         border.width: matrixRow.rowFocused ? Theme.borderWidthFocus : 0
                         border.color: Theme.controls.focusBorder
 
+                        HoverHandler {
+                            id: rowHover
+                            onHoveredChanged: {
+                                if (hovered) dashboard.hoverRow = matrixRow.index
+                                else if (dashboard.hoverRow === matrixRow.index)
+                                    dashboard.hoverRow = -1
+                            }
+                        }
+
+                        // Blocked stripe: a 3 px error bar inset from the row's
+                        // top and bottom. No background tint.
+                        Rectangle {
+                            objectName: "matrixBlockedStripe-" + matrixRow.index
+                            visible: matrixRow.modelData.headlineSeverity === "critical"
+                            width: 3
+                            radius: 1.5
+                            color: Theme.error
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.topMargin: Theme.spacingMd
+                            anchors.bottomMargin: Theme.spacingMd
+                        }
+
                         RowLayout {
                             id: matrixRowContent
-                            anchors.left: parent.left
-                            anchors.right: parent.right
+                            // Match the header's layout box exactly so the
+                            // shared column boundary is pixel-identical.
+                            x: matrixHeader.x
+                            width: matrixHeader.width
                             anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: Theme.spacingXs
-                            anchors.rightMargin: Theme.spacingXs
-                            spacing: Theme.spacingXs
+                            spacing: dashboard.matrixColumnSpacing
 
                             ColumnLayout {
+                                id: matrixAccountCell
                                 objectName: "matrixAccountCell-" + matrixRow.index
                                 Layout.preferredWidth: dashboard.matrixAccountWidth
                                 Layout.minimumWidth: dashboard.matrixAccountWidth
@@ -1069,30 +1293,42 @@ Item {
                                 Layout.fillWidth: false
                                 spacing: 0
 
-                                Label {
+                                readonly property var status: AgentUsage.accountStatus(
+                                    matrixRow.modelData, dashboard.nowMs)
+
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: matrixRow.modelData.name
-                                    color: Theme.text
-                                    font.pixelSize: Theme.fontSizeSm
-                                    font.weight: Theme.fontWeightMedium
-                                    elide: Text.ElideRight
+                                    spacing: Theme.spacingSm
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 8
+                                        Layout.preferredHeight: 8
+                                        radius: 4
+                                        Layout.alignment: Qt.AlignVCenter
+                                        color: dashboard.toneColor(matrixAccountCell.status.dotTone)
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: matrixRow.modelData.name
+                                        color: Theme.text
+                                        font.pixelSize: Theme.fontSizeSm
+                                        font.weight: Theme.fontWeightMedium
+                                        elide: Text.ElideRight
+                                    }
                                 }
 
                                 Label {
                                     Layout.fillWidth: true
+                                    // Indent the status to the name's x.
+                                    Layout.leftMargin: 8 + Theme.spacingSm
                                     objectName: "matrixHeadline-" + matrixRow.index
-                                    // Always present with a space fallback so the
-                                    // optional tag never changes the row height.
-                                    // The word is severity-derived and therefore
-                                    // mode-INDEPENDENT; the binding window's
-                                    // number carries the mode. It never claims a
-                                    // window is "available" or "usable".
-                                    text: matrixRow.modelData.headlineText !== ""
-                                        ? matrixRow.modelData.headlineText : " "
-                                    color: matrixRow.modelData.headlineText === "no live limits"
-                                        ? Theme.textMuted
-                                        : dashboard.sectionColor(matrixRow.modelData.headlineSeverity)
-                                    font.pixelSize: Theme.fontSizeXs
+                                    // Always present with a space fallback so
+                                    // the status never changes the row height.
+                                    text: matrixAccountCell.status.text !== ""
+                                        ? matrixAccountCell.status.text : " "
+                                    color: dashboard.toneColor(matrixAccountCell.status.tone)
+                                    font.pixelSize: Theme.fontSizeSm
                                     elide: Text.ElideRight
                                 }
                             }
@@ -1107,6 +1343,7 @@ Item {
                                     rowIndex: matrixRow.index
                                     cell: matrixRow.modelData.windows[modelData]
                                     notOffered: matrixRow.modelData.notOffered[modelData] === true
+                                    record: matrixRow.modelData.record
                                 }
                             }
 
@@ -1116,8 +1353,11 @@ Item {
                                 Layout.maximumWidth: dashboard.matrixTodayWidth
                                 Layout.fillWidth: false
                                 text: matrixRow.modelData.todayTokens
-                                color: Theme.textMuted
-                                font.pixelSize: Theme.fontSizeSm
+                                color: matrixRow.modelData.todayTokens === "0"
+                                    ? Theme.textSecondary : Theme.text
+                                font.pixelSize: Theme.fontSizeMd
+                                font.weight: matrixRow.modelData.todayTokens === "0"
+                                    ? Theme.fontWeightNormal : Theme.fontWeightMedium
                             }
 
                             NumericLabel {
@@ -1128,8 +1368,11 @@ Item {
                                 visible: dashboard.showBalance
                                 text: matrixRow.modelData.balance !== ""
                                     ? matrixRow.modelData.balance : "—"
-                                color: Theme.textMuted
-                                font.pixelSize: Theme.fontSizeSm
+                                color: matrixRow.modelData.balance === ""
+                                    ? Theme.textSecondary : Theme.text
+                                font.pixelSize: Theme.fontSizeMd
+                                font.weight: matrixRow.modelData.balance === ""
+                                    ? Theme.fontWeightNormal : Theme.fontWeightMedium
                             }
                         }
 
@@ -1140,10 +1383,6 @@ Item {
                             onClicked: dashboard.selectAccountByPointer(matrixRow.index)
                         }
                     }
-
-                    Hairline {
-                        visible: matrixRow.index < dashboard.rows.length - 1
-                    }
                 }
             }
 
@@ -1152,30 +1391,136 @@ Item {
                 Layout.topMargin: Theme.spacingMd
                 visible: dashboard.rows.length === 0
                 text: "No AI coding subscriptions found."
-                color: Theme.textMuted
+                color: Theme.textSecondary
                 font.pixelSize: Theme.fontSizeSm
                 horizontalAlignment: Text.AlignHCenter
             }
         }
 
-        // ACTIONS (pinned): Close sits directly below the matrix so it clearly
-        // belongs to the detail it collapses. Refresh is in the header above
-        // and is therefore always reachable. Close is offered only while an
-        // account is expanded.
+        // ACTIONS (pinned): the footer hint line, its pager and the Close
+        // control. Refresh is in the header above and is always reachable.
+        // Close is offered only while an account is expanded.
         RowLayout {
             id: actionRow
             Layout.fillWidth: true
-            spacing: Theme.spacingXs
+            spacing: Theme.spacingSm
 
-            Label {
-                visible: !dashboard.hasSelection
-                text: "Select an account for details"
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
-                elide: Text.ElideRight
+            // Hovering the footer pauses the idle rotation.
+            HoverHandler { id: footerHover }
+
+            // The hint's resting opacity is 1.0. Only the idle rotation
+            // cross-fades it (200 ms, ending at 1.0).
+            RowLayout {
+                id: footerHintRow
+                Layout.fillWidth: true
+                spacing: Theme.spacingSm
+                opacity: 1.0
+
+                Label {
+                    objectName: "agentsFooterHint"
+                    visible: dashboard.footerHint.kind === "text"
+                    Layout.fillWidth: true
+                    text: dashboard.footerHint.kind === "text" ? dashboard.footerHint.text : ""
+                    color: dashboard.footerHint.tone === "warning"
+                        ? Theme.warning : Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeSm
+                    elide: Text.ElideRight
+                }
+
+                // Key-cap renderer.
+                Row {
+                    visible: dashboard.footerHint.kind === "keys"
+                    spacing: Theme.spacingSm
+
+                    Repeater {
+                        model: ["↑↓ select", "↵ details", "R refresh", "Esc close"]
+
+                        delegate: Rectangle {
+                            required property string modelData
+                            implicitWidth: keyCap.implicitWidth + Theme.spacingSm * 2
+                            implicitHeight: keyCap.implicitHeight + 2
+                            radius: Theme.radiusSm
+                            color: "transparent"
+                            border.width: Theme.borderWidthDefault
+                            border.color: Theme.border
+
+                            Label {
+                                id: keyCap
+                                anchors.centerIn: parent
+                                text: modelData
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeXs
+                            }
+                        }
+                    }
+                }
+
+                // Pace legend renderer, built from the real Meter component.
+                Row {
+                    visible: dashboard.footerHint.kind === "legend"
+                    spacing: Theme.spacingLg
+
+                    Row {
+                        spacing: Theme.spacingXs
+
+                        Meter {
+                            width: 22
+                            height: 4
+                            value: 0.5
+                            marker: 0.5
+                        }
+
+                        Label {
+                            text: "even pace"
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeXs
+                        }
+                    }
+
+                    Row {
+                        spacing: Theme.spacingXs
+
+                        Meter {
+                            width: 22
+                            height: 4
+                            value: 0.5
+                            marker: 0.5
+                            markerColor: Theme.warning
+                        }
+
+                        Label {
+                            text: "using faster than pace"
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeXs
+                        }
+                    }
+                }
             }
 
-            Item { Layout.fillWidth: true }
+            // Pager: three dots, the active one a 14 x 5 pill. Only the idle
+            // rotation shows it; clicking steps through the tips.
+            Row {
+                objectName: "agentsFooterPager"
+                visible: dashboard.footerHint.priority === 5
+                spacing: Theme.spacingXs
+
+                Repeater {
+                    model: 3
+
+                    delegate: Rectangle {
+                        required property int index
+                        width: index === dashboard.rotationIndex ? 14 : 5
+                        height: 5
+                        radius: height / 2
+                        color: index === dashboard.rotationIndex
+                            ? Theme.textSecondary : Theme.border
+                    }
+                }
+
+                TapHandler {
+                    onTapped: dashboard.rotationIndex = (dashboard.rotationIndex + 1) % 3
+                }
+            }
 
             Rectangle {
                 Layout.preferredWidth: closeButton.implicitWidth
@@ -1281,7 +1626,7 @@ Item {
                                 Layout.fillWidth: true
                                 visible: dashboard.stateInfo.help !== ""
                                 text: dashboard.stateInfo.help
-                                color: Theme.textMuted
+                                color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeXs
                                 wrapMode: Text.WordWrap
                             }
@@ -1317,7 +1662,6 @@ Item {
                         // A stale account in an alert state keeps the whole
                         // detail pane at full strength; a stale non-alert
                         // account de-emphasises its informational sections.
-                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.today.billable + dashboard.today.cache > 0 ||
                             dashboard.today.count > 0 || dashboard.today.sessions > 0
                         Component.onCompleted: dashboard.registerDetailItem(todaySection)
@@ -1343,7 +1687,7 @@ Item {
 
                             Label {
                                 text: "Cache " + AgentUsage.formatTokens(dashboard.today.cache)
-                                color: Theme.textMuted
+                                color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeSm
                             }
 
@@ -1358,7 +1702,7 @@ Item {
                                     base += " · " + dashboard.today.sessions + " sessions"
                                 return base
                             }
-                            color: Theme.textMuted
+                            color: Theme.textSecondary
                             font.pixelSize: Theme.fontSizeXs
                         }
                     }
@@ -1368,7 +1712,6 @@ Item {
                         id: weekSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.weekBars.length > 0
 
                         SectionHeader { text: "LAST 7 DAYS" }
@@ -1384,7 +1727,6 @@ Item {
                         id: modelsTodaySection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.todayModelRows.length > 0
 
                         SectionHeader { text: "MODELS · TODAY" }
@@ -1407,7 +1749,6 @@ Item {
                         id: modelsAllSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.allTimeModelRows.length > 0
 
                         SectionHeader { text: "MODELS · ALL TIME" }
@@ -1431,7 +1772,6 @@ Item {
                         id: subscriptionSection
                         Layout.fillWidth: true
                         spacing: Theme.spacingSm
-                        opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
                         visible: dashboard.hasSubscription &&
                             AgentUsage.subscriptionRows(dashboard.selectedRecord).length > 0
 
@@ -1444,7 +1784,7 @@ Item {
                                 required property string modelData
                                 Layout.fillWidth: true
                                 text: modelData
-                                color: Theme.textMuted
+                                color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeSm
                             }
                         }
@@ -1506,7 +1846,7 @@ Item {
                                 Label {
                                     objectName: "accountDetailsChevron"
                                     text: dashboard.accountExpanded ? "⌃" : "⌄"
-                                    color: Theme.textMuted
+                                    color: Theme.textSecondary
                                     font.pixelSize: Theme.fontSizeSm
                                 }
                             }
@@ -1526,7 +1866,6 @@ Item {
                             Layout.fillWidth: true
                             spacing: Theme.spacingXs
                             visible: dashboard.accountExpanded
-                            opacity: dashboard.staleOpacityFor(dashboard.stateInfo.severity)
 
                             Repeater {
                                 model: dashboard.accountDetailRows
@@ -1545,7 +1884,7 @@ Item {
 
                                     Label {
                                         text: modelData.label
-                                        color: Theme.textMuted
+                                        color: Theme.textSecondary
                                         font.pixelSize: Theme.fontSizeXs
                                     }
 
@@ -1578,7 +1917,7 @@ Item {
                                 Layout.fillWidth: true
                                 visible: dashboard.accountDetailRows.length === 0
                                 text: "No account details available for this provider."
-                                color: Theme.textMuted
+                                color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeXs
                             }
                         }
@@ -1622,5 +1961,33 @@ Item {
         repeat: true
         running: true
         onTriggered: dashboard.nowMs = Date.now()
+    }
+
+    // Idle footer rotation. The timer runs only while the panel is actually
+    // shown (`panelShown`), the hint is idle (priority 5) and the footer is not
+    // hovered. `panelShown` defaults to false, so an unwired fixture never
+    // rotates. Any higher-priority hint takes over immediately.
+    Timer {
+        interval: 8000
+        repeat: true
+        running: dashboard.panelShown && dashboard.footerHint.priority === 5 && !footerHover.hovered
+        onTriggered: footerRotateAnimation.start()
+    }
+
+    // 200 ms cross-fade: out, swap, in. It always ends at opacity 1.0.
+    SequentialAnimation {
+        id: footerRotateAnimation
+        NumberAnimation { target: footerHintRow; property: "opacity"; to: 0; duration: 100 }
+        ScriptAction { script: dashboard.rotationIndex = (dashboard.rotationIndex + 1) % 3 }
+        NumberAnimation { target: footerHintRow; property: "opacity"; to: 1; duration: 100 }
+    }
+
+    // The ONE shared in-scene tooltip for the whole dashboard. It is the last
+    // child so it has the highest z. There is deliberately no PopupWindow and
+    // no attached ToolTip anywhere in this file.
+    AureliaInlineToolTip {
+        id: panelToolTip
+        objectName: "panelToolTip"
+        maxTextWidth: 300
     }
 }

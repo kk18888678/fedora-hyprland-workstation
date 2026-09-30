@@ -17,7 +17,7 @@ AureliaKeyboardPanel {
 
     bar: agentsWidget ? agentsWidget.bar : null
     ownerId: "aurelia.agents"
-    popupWidth: 460
+    popupWidth: 580
     popupHeight: 320
     fitHeightToContent: true
     contentSizingItem: dashboardLoader.item
@@ -68,6 +68,9 @@ AureliaKeyboardPanel {
             item.dismissHook = Qt.binding(function() {
                 return function() { panelRoot.close() }
             })
+            // The dashboard rotates its idle footer hint only when the panel is
+            // actually shown; the false default keeps an unwired fixture safe.
+            item.panelShown = Qt.binding(function() { return panelRoot.shown })
         }
         onStatusChanged: {
             if (status === Loader.Error) console.error("[AGENTS] panel_load_failed")
