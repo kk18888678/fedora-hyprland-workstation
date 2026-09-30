@@ -613,7 +613,7 @@ Item {
                 }
                 if (!retried) {
                     var fallback = Logic.persistablePopup(snapshot, imagesDir, {
-                        source: "", name: Logic.DEFAULT_ICON_NAME, symbolic: false, kind: "default"
+                        source: "", name: "", symbolic: false, kind: "default"
                     })
                     service.enqueuePersistJob(snapshot, fallback, fileName, true)
                     return
@@ -869,6 +869,13 @@ Item {
                 deletePopupFileFor(entry)
                 continue
             }
+            // A row persisted before the empty-default fix can still store the
+            // legacy generic glyph even though the resolver proved no icon.
+            // Clear it before the manual-row persist path re-resolves it, so
+            // the stale name cannot be re-selected as its own candidate. A row
+            // with no supporting icon evidence is cleared; every other row is
+            // left exactly as persisted.
+            Logic.normalizeRestoredIcon(entry, imagesDir)
             if (manualInbox) {
                 entry.deadline = 0
                 persistPopupFile(entry)

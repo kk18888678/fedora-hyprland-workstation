@@ -313,7 +313,7 @@ if grep -q 'aurelia-action' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function parseExecArgv' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function persistablePopup' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function iconResolutionInput' "$plugin_root/NotificationLogic.js" &&
-   grep -q 'DEFAULT_ICON_NAME = "application-x-executable"' "$plugin_root/NotificationLogic.js" &&
+   grep -q 'function normalizeRestoredIcon' "$plugin_root/NotificationLogic.js" &&
    ! grep -q 'output\[role\] = ""' "$plugin_root/NotificationLogic.js" &&
    grep -q 'function popupPlacement' "$plugin_root/NotificationLogic.js" &&
    grep -q 'shouldBypassDnd(notification, 2)' "$plugin_root/Service.qml" &&
@@ -485,7 +485,7 @@ if (!logic.hasPopupIdentity(popup) || logic.hasPopupIdentity({ summary: 'missing
 if (logic.popupFileName({ id: 7, originalId: 7, timestamp: 0, summary: 'zero timestamp' }) !== '') process.exit(1);
 if (logic.parsePopupFiles(JSON.stringify({ id: 7, originalId: 7, timestamp: 0, summary: 'invalid' }), 1).length !== 0) process.exit(1);
 const persistable = logic.persistablePopup(popup, '/tmp/state/images/');
-if (persistable.copies.length !== 0 || persistable.entry.appIcon !== 'application-x-executable') process.exit(1);
+if (persistable.copies.length !== 0 || persistable.entry.appIcon !== '') process.exit(1);
 
 // The persistence path consumes the shared AppIconResolver owner. Every probe
 // is a deterministic in-memory fake, exactly as the resolver node suite uses.
@@ -532,8 +532,26 @@ const danglingResolution = resolution(logic.iconResolutionInput(danglingEntry, i
 if (danglingResolution.kind !== 'default') process.exit(1);
 const danglingPersistable = logic.persistablePopup(danglingEntry, imagesDir, danglingResolution);
 if (danglingPersistable.copies.length !== 0) process.exit(1);
-if (danglingPersistable.entry.appIcon !== 'application-x-executable') process.exit(1);
+if (danglingPersistable.entry.appIcon !== '') process.exit(1);
 if (danglingPersistable.entry.appIcon.indexOf('file://') === 0) process.exit(1);
+
+// A legacy row that stored the generic glyph with no icon evidence is stale
+// and must be cleared on restore; a row with real evidence must be untouched.
+const legacyIconless = { appIcon: 'application-x-executable', image: '', desktopEntry: '', hints: {} };
+if (!logic.normalizeRestoredIcon(legacyIconless, imagesDir)) process.exit(1);
+if (legacyIconless.appIcon !== '') process.exit(1);
+const legacyWithDesktop = { appIcon: 'application-x-executable', image: '', desktopEntry: 'foot' };
+if (logic.normalizeRestoredIcon(legacyWithDesktop, imagesDir)) process.exit(1);
+if (legacyWithDesktop.appIcon !== 'application-x-executable') process.exit(1);
+const legacyWithOriginDesktop = { appIcon: 'application-x-executable', image: '', desktopEntry: '', hints: {},
+    origin: JSON.stringify({ originVersion: 1, captureQuality: 'exact', notify: { desktopEntry: 'Herdr', hints: {} } }) };
+if (logic.normalizeRestoredIcon(legacyWithOriginDesktop, imagesDir)) process.exit(1);
+const legacyWithHints = { appIcon: 'application-x-executable', image: '', desktopEntry: '', hints: { 'aurelia-glyph': 'x' } };
+if (logic.normalizeRestoredIcon(legacyWithHints, imagesDir)) process.exit(1);
+const legacyWithImage = { appIcon: 'application-x-executable', image: sourceUrl.fileUrl('/tmp/state/images/200-9-appIcon'), desktopEntry: '', hints: {} };
+if (logic.normalizeRestoredIcon(legacyWithImage, imagesDir)) process.exit(1);
+const resolvedIcon = { appIcon: 'foot', image: '', desktopEntry: 'foot', hints: {} };
+if (logic.normalizeRestoredIcon(resolvedIcon, imagesDir)) process.exit(1);
 
 // An already-durable value from a reload is used as-is and never re-copied.
 const reloadEntry = { id: 9, originalId: 9, timestamp: 200, appIcon: sourceUrl.fileUrl('/tmp/state/images/200-9-appIcon'), image: '' };
@@ -842,6 +860,57 @@ else
 fi
 rm -rf -- "$restore_root"
 
+# A reload with rows persisted before the empty-default fix normalises only the
+# evidence-free legacy glyph, rewrites only that row's own file, and leaves a
+# genuinely resolved icon exactly as it was.
+icon_normalize_fixture="$ROOT/tests/fixtures/notifications/restore-icon-normalize.qml"
+if [[ ! -f "$icon_normalize_fixture" ]]; then
+    fail "[static] legacy icon normalisation fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] legacy icon normalisation fixture (qs or timeout unavailable)"
+else
+    icon_normalize_root="$(mktemp -d)"
+    mkdir -p -- "$icon_normalize_root/runtime" "$icon_normalize_root/state" \
+        "$icon_normalize_root/config" "$icon_normalize_root/cache"
+    mkdir -p -- "$icon_normalize_root/state/aurelia"
+    : >"$icon_normalize_root/state/aurelia/notifications.json"
+    icon_normalize_result="$icon_normalize_root/result.json"
+    : >"$icon_normalize_result"
+    icon_normalize_log="$icon_normalize_root/runtime.log"
+    icon_normalize_status=0
+    AURELIA_NOTIFICATION_ICON_NORMALIZE_RESULT="$icon_normalize_result" \
+    AURELIA_NOTIFICATION_ICON_NORMALIZE_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$icon_normalize_root/runtime" \
+    XDG_STATE_HOME="$icon_normalize_root/state" \
+    XDG_CONFIG_HOME="$icon_normalize_root/config" \
+    XDG_CACHE_HOME="$icon_normalize_root/cache" \
+        /usr/bin/timeout --kill-after=1s 8s /usr/bin/qs --no-duplicate \
+        --path "$icon_normalize_fixture" --no-color >"$icon_normalize_log" 2>&1 || icon_normalize_status=$?
+    icon_normalize_completed=0
+    if [[ "$icon_normalize_status" -eq 0 ]]; then
+        icon_normalize_completed=1
+    elif [[ "$icon_normalize_status" -eq 124 && -s "$icon_normalize_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$icon_normalize_log"; then
+        icon_normalize_completed=1
+    fi
+    if [[ "$icon_normalize_completed" -eq 1 ]] && [[ -s "$icon_normalize_result" ]] &&
+       runtime_log_is_environment_only "$icon_normalize_log" &&
+       ! grep -Eq 'invalid_identity|TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error|file_job_(retry|failed)' "$icon_normalize_log" &&
+       jq -e '.serviceLoaded == true and .seeded == true and .restoredActive == 2 and
+              .staleModelAppIcon == "" and .staleDiskAppIcon == "" and
+              (.provenModelAppIcon | startswith("file://")) and
+              .provenModelAppIcon == .provenDiskAppIcon' \
+           "$icon_normalize_result" >/dev/null; then
+        pass "[isolated-runtime] legacy generic notification glyph is normalised on restore without touching a resolved icon"
+    else
+        details="$(tail -n 48 "$icon_normalize_log" || true)"
+        if [[ -s "$icon_normalize_result" ]]; then details="$details result=$(tr '\n' ' ' <"$icon_normalize_result")"; fi
+        fail "[isolated-runtime] legacy icon normalisation fixture failed (status=$icon_normalize_status): $details"
+    fi
+    rm -rf -- "$icon_normalize_root"
+fi
+
 # The Copy action projects app/summary/body through the service clipboard owner
 # for the transient toast and the Inbox.
 copy_root="$(mktemp -d)"
@@ -895,7 +964,7 @@ rm -rf -- "$copy_root"
 # runs the production Service and the production NotificationToast in a
 # disposable XDG tree; none of them touches the live shell.
 durable_icon_png_b64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
-for durable_icon_mode in embedded themed missing ghostty desktop-race screenshot; do
+for durable_icon_mode in embedded themed missing ghostty desktop-race screenshot iconless; do
     durable_icon_root="$(mktemp -d)"
     mkdir -p -- "$durable_icon_root/runtime" "$durable_icon_root/state" \
         "$durable_icon_root/config" "$durable_icon_root/cache" \
@@ -904,42 +973,53 @@ for durable_icon_mode in embedded themed missing ghostty desktop-race screenshot
     durable_icon_source=""
     durable_icon_expected='.serviceLoaded == true and .matchesExpected == true and
         .diskMatchesModel == true and .liveMatchesModel == true and
-        .noProvider == true and .noSenderPath == true and
-        .toastSlotVisible == true and .toastReady == true'
+        .noProvider == true and .noSenderPath == true'
     case "$durable_icon_mode" in
         embedded)
             durable_icon_source="$durable_icon_root/ephemeral-logo.png"
             base64 -d >"$durable_icon_source" <<<"$durable_icon_png_b64"
             durable_icon_expected="$durable_icon_expected and
                 .appIconIsFile == true and .imageCleared == true and
-                .activeActionsRetained == true and .popupActionsRetained == true"
+                .activeActionsRetained == true and .popupActionsRetained == true and
+                .toastSlotVisible == true and .toastReady == true"
             ;;
         themed)
             durable_icon_expected="$durable_icon_expected and
-                .appIconIsName == true and .activeAppIcon == \"foot\""
+                .appIconIsName == true and .activeAppIcon == \"foot\" and
+                .toastSlotVisible == true and .toastReady == true"
             ;;
         ghostty)
             durable_icon_expected="$durable_icon_expected and
-                .appIconIsName == true and .activeAppIcon == \"com.mitchellh.ghostty\""
+                .appIconIsName == true and .activeAppIcon == \"com.mitchellh.ghostty\" and
+                .toastSlotVisible == true and .toastReady == true"
             ;;
         desktop-race)
             durable_icon_expected="$durable_icon_expected and
-                .appIconIsName == true and .activeAppIcon == \"example-tool\""
+                .appIconIsName == true and .activeAppIcon == \"example-tool\" and
+                .toastSlotVisible == true and .toastReady == true"
             ;;
-        missing)
+        missing|iconless)
+            # No icon resolves: the durable value is the empty string, the card
+            # draws nothing, and the icon slot collapses instead of reserving a
+            # gap. The rendered slot being hidden is the proof.
             durable_icon_expected="$durable_icon_expected and
-                .appIconIsName == true and .appIconIsFile == false and
-                .activeAppIcon == \"application-x-executable\""
+                .appIconIsName == false and .appIconIsFile == false and
+                .activeAppIcon == \"\" and .popupAppIcon == \"\" and
+                .liveAppIcon == \"\" and .diskAppIcon == \"\" and
+                .toastSource == \"\" and .toastReady == false and
+                .toastSlotVisible == false and .toastSymbolicVisible == false and
+                .toastFallbackVisible == false"
             ;;
         screenshot)
             durable_icon_source="$durable_icon_root/screenshot.png"
             base64 -d >"$durable_icon_source" <<<"$durable_icon_png_b64"
             durable_icon_expected="$durable_icon_expected and
                 .appIconIsFile == true and .imageCleared == true and
-                .noSenderPath == true"
+                .noSenderPath == true and
+                .toastSlotVisible == true and .toastReady == true"
             ;;
     esac
-    for icon in foot com.mitchellh.ghostty example-tool application-x-executable; do
+    for icon in foot com.mitchellh.ghostty example-tool; do
         base64 -d >"$durable_icon_root/data/icons/hicolor/48x48/apps/$icon.png" <<<"$durable_icon_png_b64"
     done
     cat >"$durable_icon_root/data/applications/foot.desktop" <<'FIXTURE_FOOT_DESKTOP'

@@ -178,6 +178,14 @@ ShellRoot {
             testNotification.desktopEntry = "com.example.tool"
             testNotification.appIcon = ""
             testNotification.image = ""
+        } else if (root.mode === "iconless") {
+            // A genuinely iconless notification: no app icon, no image, no
+            // desktop entry, no hints, and no matching desktop file or theme
+            // icon in the sandbox. It must persist and render as empty.
+            testNotification.appName = "Iconless"
+            testNotification.desktopEntry = ""
+            testNotification.appIcon = ""
+            testNotification.image = ""
         } else {
             testNotification.appName = "Missing"
             testNotification.desktopEntry = "missing-app"
@@ -228,7 +236,9 @@ ShellRoot {
         if (root.mode === "themed") return "foot"
         if (root.mode === "ghostty") return "com.mitchellh.ghostty"
         if (root.mode === "desktop-race") return "example-tool"
-        if (root.mode === "missing") return "application-x-executable"
+        // An unresolved icon is persisted as the empty string and the card
+        // draws nothing; there is no generic fallback glyph any more.
+        if (root.mode === "missing" || root.mode === "iconless") return ""
         return "file://" + root.service.imagesDir + stem + "-appIcon"
     }
 
@@ -311,7 +321,8 @@ ShellRoot {
         onTriggered: {
             root.captureToast()
             if (root.toastReady || root.toastSymbolicVisible ||
-                root.toastFallbackVisible || !root.toast) {
+                root.toastFallbackVisible || root.toastSourceValue === "" ||
+                !root.toast) {
                 toastPollTimer.stop()
                 root.writeResult()
             }

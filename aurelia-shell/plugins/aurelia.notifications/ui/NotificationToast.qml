@@ -205,9 +205,10 @@ Item {
                     Layout.preferredWidth: visible ? Theme.scaleGeometry(40) : 0
                     Layout.preferredHeight: visible ? Theme.scaleGeometry(40) : 0
                     Layout.alignment: Qt.AlignVCenter
-                    // The slot stays visible whenever a resolution exists,
-                    // including the honest application-x-executable default.
-                    // It never collapses to blank on an unresolved icon.
+                    // The slot stays visible only while a drawable icon
+                    // exists. An unresolved icon is persisted as the empty
+                    // string, so the slot collapses to zero width and the
+                    // text starts at the content margin with no reserved gap.
                     visible: !root.collapseRedundantIcon && !root.compactGlyph &&
                         (root.hasSmallIcon || root.hasGlyph)
 

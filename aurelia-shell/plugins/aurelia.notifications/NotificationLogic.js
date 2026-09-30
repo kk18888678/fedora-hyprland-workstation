@@ -16,10 +16,11 @@ var ORIGIN_QUALITIES = ["exact", "origin", "identity"]
 // its own state and never contains raw notification body text.
 var MAX_REASON_LENGTH = 512
 var UNKNOWN_REASON_MESSAGE = "unknown reason (diagnostic incomplete)"
-// The shared owner's honest fallback. The persisted icon is always one of our
-// own file:// copy, this name, or another provably-usable theme name, so a
-// card can never be handed a dangling path or an empty source.
-var DEFAULT_ICON_NAME = "application-x-executable"
+// The generic glyph the notification persistence mapper used to substitute
+// when the shared resolver proved no icon. No code path produces it any more;
+// it exists only so the restore path can recognise and clean a legacy row. An
+// unresolved icon is persisted as the EMPTY string, which draws nothing.
+var LEGACY_GENERIC_ICON = "application-x-executable"
 var sharedSourceUrl = null
 
 function loadSourceUrl() {
@@ -697,8 +698,9 @@ function resolverFilePath(resolution) {
 // stem; a theme/default name is retained AS A NAME with no copy. The filename
 // the persist job must produce is declared in `copies`; the job fails closed
 // (see COPY_IMAGES_SCRIPT) rather than writing a dangling file:// path if the
-// copy cannot be verified, and Service.qml then falls back to the honest
-// default.
+// copy cannot be verified. An unresolved icon (the resolver's empty default)
+// is persisted as the EMPTY string so the card draws nothing and reserves no
+// slot, never as a generic glyph.
 function persistablePopup(entry, imagesDir, resolution) {
     var source = entry || {}
     var output = {}
@@ -723,17 +725,59 @@ function persistablePopup(entry, imagesDir, resolution) {
             durableValue = localFileUrl(to)
         } else {
             // An inline provider URL cannot be byte-copied. Fall through to a
-            // retained name (or the honest default) instead of a dangling path.
-            durableValue = name !== "" ? name : DEFAULT_ICON_NAME
+            // retained name, or the empty string when nothing resolved,
+            // instead of a dangling path or a generic glyph.
+            durableValue = name !== "" ? name : ""
         }
     } else {
-        durableValue = name !== "" ? name : DEFAULT_ICON_NAME
+        durableValue = name !== "" ? name : ""
     }
     output.appIcon = durableValue
     // The card has a single icon slot; clearing the image role guarantees the
     // resolved icon wins and no raw provider or sender path is ever persisted.
     output.image = ""
     return { entry: output, copies: copies }
+}
+
+// An empty hints object is the absence of hint-derived application identity.
+// Anything else is treated as evidence and leaves the row untouched.
+function emptyHints(hints) {
+    if (!hints || typeof hints !== "object" || Array.isArray(hints)) return true
+    for (var key in hints) {
+        if (Object.prototype.hasOwnProperty.call(hints, key)) return false
+    }
+    return true
+}
+
+// True only for a persisted row that stores the legacy generic glyph but
+// carries no real icon evidence: no copied durable image, no separate image
+// value, no desktop entry (top-level or in the captured origin), and no
+// notification hint that could have identified a real application. The name
+// alone is not enough, because an application may legitimately resolve that
+// exact theme icon; the absence of supporting evidence is what makes the
+// stored value stale.
+function isUnprovenLegacyIcon(entry, imagesDir) {
+    var value = entry || {}
+    if (boundedText(value.appIcon, MAX_IMAGE_LENGTH) !== LEGACY_GENERIC_ICON) return false
+    if (durableIconValue(value, imagesDir) !== "") return false
+    if (boundedText(value.image, MAX_IMAGE_LENGTH) !== "") return false
+    if (boundedText(value.desktopEntry, MAX_APP_LENGTH) !== "") return false
+    if (!emptyHints(value.hints)) return false
+    var origin = originFromField(value.origin)
+    if (origin && origin.notify && typeof origin.notify === "object") {
+        if (boundedText(origin.notify.desktopEntry, MAX_APP_LENGTH) !== "") return false
+        if (!emptyHints(origin.notify.hints)) return false
+    }
+    return true
+}
+
+// Clear the stale legacy glyph on a restored row in place. Returns true when
+// the row changed; a row that is not proven stale is never modified. Callers
+// that persist the row back to disk can use the return value.
+function normalizeRestoredIcon(entry, imagesDir) {
+    if (!isUnprovenLegacyIcon(entry, imagesDir)) return false
+    entry.appIcon = ""
+    return true
 }
 
 function serializePopup(entry, normalUrgency) {
@@ -913,12 +957,13 @@ if (typeof module !== "undefined") {
         popupFileName: popupFileName,
         imageStem: imageStem,
         hasPopupIdentity: hasPopupIdentity,
-        DEFAULT_ICON_NAME: DEFAULT_ICON_NAME,
         isDurableIconValue: isDurableIconValue,
         durableIconValue: durableIconValue,
         iconResolutionInput: iconResolutionInput,
         resolverFilePath: resolverFilePath,
         persistablePopup: persistablePopup,
+        isUnprovenLegacyIcon: isUnprovenLegacyIcon,
+        normalizeRestoredIcon: normalizeRestoredIcon,
         serializePopup: serializePopup,
         parsePopupFiles: parsePopupFiles,
         popupExpired: popupExpired,
