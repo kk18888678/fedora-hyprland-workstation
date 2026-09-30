@@ -535,8 +535,11 @@ function barTooltipModel(records, nowMs, mode, staleMs) {
     var freshness = overallFreshnessPill(ready, nowMs, staleMs);
     var footerText = freshness.text;
     if (footerText !== "") {
-        footerText = footerText.charAt(0).toUpperCase() + footerText.slice(1) +
-            " · click for details";
+        footerText = footerText.charAt(0).toUpperCase() + footerText.slice(1);
+        // A stale footer already reads "Stale · updated <age> ago"; the click
+        // affordance would push that fixed string past one line, so it is
+        // dropped when stale. The fresh footer keeps it.
+        if (!freshness.stale) footerText += " · click for details";
     }
     return {
         list: list,

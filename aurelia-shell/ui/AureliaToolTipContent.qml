@@ -23,7 +23,7 @@ Item {
     property var list: []
     // One line below a hairline: { text, tone }.
     property var footer: null
-    property int maxTextWidth: 300
+    property int maxTextWidth: 360
     readonly property bool hasLines: Array.isArray(lines) && lines.length > 0
     readonly property bool hasList: Array.isArray(list) && list.length > 0
     readonly property bool hasFooter: footer !== null && footer !== undefined &&
@@ -134,8 +134,7 @@ Item {
             font.pixelSize: contentRoot.bodyFontSize
             lineHeight: 1.15
             wrapMode: Text.WordWrap
-            horizontalAlignment: String(contentRoot.text).indexOf("\n") >= 0
-                ? Text.AlignLeft : Text.AlignHCenter
+            horizontalAlignment: lineCount > 1 ? Text.AlignLeft : Text.AlignHCenter
         }
 
         // Structured list: tone dot, bold name, right-aligned value.

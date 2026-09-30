@@ -985,8 +985,20 @@ assert(barModel.list[0].value === "Rate limited" && barModel.list[0].tone === "w
 assert(barModel.list[1].value === "1.2k tokens today" && barModel.list[1].tone === "neutral", "no-live-limits value from todayUsage");
 assert(barModel.list[5].tone === "error" && barModel.list[5].value.indexOf("Blocked") === 0);
 const staleModel = A.barTooltipModel(records, now, "remaining", 30000);
-assert(staleModel.footer.tone === "warning" && staleModel.footer.text.indexOf("Stale ·") === 0 &&
-  staleModel.footer.text.indexOf("click for details") >= 0);
+assert(staleModel.footer.tone === "warning" &&
+  staleModel.footer.text === "Stale · updated 1m ago",
+  "stale footer is the exact fixed string");
+assert(staleModel.footer.text.indexOf("click for details") === -1,
+  "stale footer drops the click-for-details suffix so the fixed string stays on one line");
+assert(barModel.footer.tone === "default" &&
+  barModel.footer.text === "Updated 1m ago · click for details",
+  "fresh footer keeps the click-for-details suffix");
+const justNowFooter = A.barTooltipModel(
+  [{id: "codex", name: "Codex", ready: true,
+    updatedAt: new Date(now).toISOString(), limits: []}],
+  now, "remaining", 1800000).footer;
+assert(justNowFooter.text === "Updated just now · click for details",
+  "fresh footer uses the exact 36-character fixed string");
 // footerHint: every priority and a higher priority winning.
 assert(A.footerHint({stale: true, ageText: "42m"}).priority === 1 &&
   A.footerHint({stale: true, ageText: "42m"}).text === "Usage data is 42m old · press R to refresh" &&
