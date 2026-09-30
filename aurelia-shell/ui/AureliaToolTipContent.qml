@@ -23,6 +23,13 @@ Item {
     property var list: []
     // One line below a hairline: { text, tone }.
     property var footer: null
+    // The single source of truth for the tooltip text width. Both hosts (the
+    // bar PopupWindow `AureliaToolTip` and the in-panel `AureliaInlineToolTip`)
+    // inherit this default; neither declares nor forwards its own cap, because
+    // two caps for one shared body drift, and 300 px wraps a string such as
+    // "<Provider> didn't report its monthly limit" for a long provider name.
+    // A future host override MUST state its reason inline and update the
+    // static test that guards this invariant.
     property int maxTextWidth: 360
     readonly property bool hasLines: Array.isArray(lines) && lines.length > 0
     readonly property bool hasList: Array.isArray(list) && list.length > 0

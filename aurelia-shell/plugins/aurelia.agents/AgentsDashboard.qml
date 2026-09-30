@@ -1988,6 +1988,5 @@ Item {
     AureliaInlineToolTip {
         id: panelToolTip
         objectName: "panelToolTip"
-        maxTextWidth: 300
     }
 }

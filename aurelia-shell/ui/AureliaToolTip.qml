@@ -23,7 +23,6 @@ PopupWindow {
     property bool hovered: false
     property int delay: 400
     property int margin: 6
-    property int maxTextWidth: 360
     property int horizontalPadding: Theme.spacingSm + 2
     property int verticalPadding: Theme.spacingXs + 3
     property bool revealed: false
@@ -154,7 +153,6 @@ PopupWindow {
             lines: root.lines
             list: root.list
             footer: root.footer
-            maxTextWidth: root.maxTextWidth
         }
     }
 }

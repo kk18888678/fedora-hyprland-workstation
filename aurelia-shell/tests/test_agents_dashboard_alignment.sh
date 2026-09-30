@@ -42,6 +42,33 @@ else
     fail "[unit] alignment fixture no longer exercises the awkward content cases"
 fi
 
+# ---------------------------------------------------------------------------
+# One source of truth for the tooltip width. The shared body
+# (AureliaToolTipContent.qml) owns the only maxTextWidth; the bar host and the
+# in-panel host must neither declare nor forward their own cap, because two
+# caps for one shared body drift and 300 px wraps a string such as
+# "<Provider> didn't report its monthly limit" for a long provider name.
+# A future host override MUST state its reason inline and then be listed here.
+# ---------------------------------------------------------------------------
+tooltip_width_declared_outside="$(
+    grep -rlE 'property[[:space:]]+int[[:space:]]+maxTextWidth' \
+        "$ROOT/ui" "$ROOT/plugins" |
+        grep -v '/AureliaToolTipContent\.qml$' || true
+)"
+tooltip_width_forwarded_outside="$(
+    grep -rnE '(^|[^[:alnum:]_.])maxTextWidth[[:space:]]*:' \
+        "$ROOT/ui" "$ROOT/plugins" |
+        grep -v '/AureliaToolTipContent\.qml:' || true
+)"
+if [[ -f "$ROOT/ui/AureliaToolTipContent.qml" ]] &&
+   grep -qE 'property[[:space:]]+int[[:space:]]+maxTextWidth[[:space:]]*:[[:space:]]*360' \
+       "$ROOT/ui/AureliaToolTipContent.qml" &&
+   [[ -z "$tooltip_width_declared_outside" && -z "$tooltip_width_forwarded_outside" ]]; then
+    pass "[static] tooltip width has one owner: maxTextWidth is declared and assigned only in AureliaToolTipContent.qml"
+else
+    fail "[static] tooltip width drifted (declarations=[$tooltip_width_declared_outside] forwards=[$tooltip_width_forwarded_outside])"
+fi
+
 measure() {
     local width="$1" result="$2" log="$3"
     local mode="${4:-remaining}"

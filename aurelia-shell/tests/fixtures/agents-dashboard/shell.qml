@@ -37,6 +37,11 @@ Window {
     readonly property string backendError: Quickshell.env("AGENTS_DASHBOARD_BACKEND_ERROR") || ""
     // Empty means the resting consolidated matrix (no account expanded).
     readonly property string selectId: Quickshell.env("AGENTS_DASHBOARD_SELECT") || ""
+    // Expand the selected account's ACCOUNT DETAILS disclosure before capture.
+    // Off by default: the historical resting/expanded renders are unchanged.
+    // Fixture-only; the product never reads this and it is never persisted.
+    readonly property bool expandAccount:
+        Quickshell.env("AGENTS_DASHBOARD_EXPAND_ACCOUNT") === "1"
 
     visible: true
     width: 580
@@ -107,8 +112,49 @@ Window {
         id: selectTimer
         interval: 250
         repeat: false
-        onTriggered: if (root.dashboard && root.selectId !== "")
-            root.dashboard.selectedAccountId = root.selectId
+        onTriggered: {
+            if (root.dashboard && root.selectId !== "") {
+                root.dashboard.selectedAccountId = root.selectId
+                if (root.expandAccount) {
+                    var expanded = {}
+                    expanded[root.selectId] = true
+                    root.dashboard.accountDetailsExpanded = expanded
+                    revealTimer.restart()
+                }
+            }
+        }
+    }
+
+    // Locate the dashboard's scrolling detail pane by objectName so the
+    // expand-details opt-in can scroll the ACCOUNT DETAILS disclosure into the
+    // captured frame. Fixture-only: it never mutates product state.
+    function findItem(node, name) {
+        if (!node) return null
+        if (node.objectName === name) return node
+        var kids = node.children || []
+        for (var i = 0; i < kids.length; i++) {
+            var found = findItem(kids[i], name)
+            if (found) return found
+        }
+        return null
+    }
+
+    Timer {
+        id: revealTimer
+        interval: 800
+        repeat: false
+        onTriggered: {
+            var pane = root.findItem(root.dashboard, "agentsDetailPane")
+            if (!pane) return
+            var kids = pane.children || []
+            for (var i = 0; i < kids.length; i++) {
+                var child = kids[i]
+                if (child && typeof child.contentY !== "undefined" &&
+                    typeof child.contentHeight !== "undefined") {
+                    child.contentY = Math.max(0, child.contentHeight - child.height)
+                }
+            }
+        }
     }
 
     function writeResult() {
