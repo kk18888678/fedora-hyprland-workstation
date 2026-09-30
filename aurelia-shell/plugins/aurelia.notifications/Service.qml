@@ -198,6 +198,17 @@ Item {
         if (root === "" || root.charAt(0) !== "/") return ""
         return root.replace(/\/$/, "") + "/bin/workstation-notification-focus"
     }
+    // The shell-tree root used by the deterministic external-tool resolver.
+    // The resolver is the single owner of the PATH every shell-spawned helper
+    // receives; the compositor-inherited PATH is never trusted as primary.
+    readonly property string toolShellRoot: {
+        var root = service.aureliaPath && String(service.aureliaPath).charAt(0) === "/"
+            ? String(service.aureliaPath)
+            : (Quickshell.env("AURELIA_SHELL_ROOT") || "")
+        if (root === "" || root.charAt(0) !== "/") return ""
+        return root.replace(/\/$/, "")
+    }
+    readonly property var toolEnvironment: ExternalToolResolver.environment(service.toolShellRoot)
     readonly property int originHelperTimeoutMs: {
         if (service.testMode) {
             var raw = Number(Quickshell.env("AURELIA_NOTIFICATION_TEST_HELPER_TIMEOUT_MS"))
@@ -219,6 +230,7 @@ Item {
     property var runningCaptureJob: null
     property Process captureProcess: Process {
         running: false
+        environment: service.toolEnvironment
         stdout: StdioCollector {
             id: captureStdout
             waitForEnd: true
@@ -242,6 +254,7 @@ Item {
     property var runningActionJob: null
     property Process actionProcess: Process {
         running: false
+        environment: service.toolEnvironment
         stdout: StdioCollector {
             id: actionStdout
             waitForEnd: true
@@ -294,7 +307,9 @@ Item {
     }
 
     function boundedHelperCommand(program, args) {
-        return ["/usr/bin/timeout", "--foreground", "--kill-after=1s",
+        var timeoutPath = ExternalToolResolver.resolve("timeout", service.toolShellRoot).path
+        if (timeoutPath === "") timeoutPath = "/usr/bin/timeout"
+        return [timeoutPath, "--foreground", "--kill-after=1s",
             service.helperTimeoutText, program].concat(args)
     }
 
@@ -306,6 +321,9 @@ Item {
     // ------------------------------------------------------------------
     property bool helperProbeComplete: false
     property bool helperAvailable: false
+    // The deterministic resolver owns tool availability; the health map and any
+    // UI surface read this one value rather than re-probing.
+    readonly property bool toolsProbeComplete: ExternalToolResolver.toolsProbeComplete
     property bool prerequisiteNoticePublished: false
     property var lastCapture: null
     property string lastCaptureOutcome: ""
@@ -407,6 +425,11 @@ Item {
     }
 
     function healthPayload() {
+        var tools = {}
+        var names = ["herdr", "hyprctl", "timeout"]
+        for (var index = 0; index < names.length; index++) {
+            tools[names[index]] = ExternalToolResolver.resolve(names[index], service.toolShellRoot)
+        }
         return {
             helperPath: service.originHelperPath,
             helperAvailable: service.helperIsAvailable(),
@@ -414,7 +437,8 @@ Item {
             monitorSocket: service.monitorSocketPath,
             lastCaptureOutcome: service.lastCaptureOutcome,
             lastCaptureReason: service.lastCaptureReason,
-            revision: service.shellRevision
+            revision: service.shellRevision,
+            tools: tools
         }
     }
 
@@ -1814,6 +1838,7 @@ Item {
         if (_startupStarted) return
         _startupStarted = true
         service.reportActionRegistryRejections()
+        ExternalToolResolver.beginProbe(["herdr", "hyprctl", "timeout"], service.toolShellRoot)
         if (!service.testMode) {
             probeNotificationBus()
             notificationBusHealthTimer.start()

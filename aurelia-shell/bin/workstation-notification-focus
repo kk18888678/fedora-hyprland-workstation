@@ -41,7 +41,6 @@ import copy
 import json
 import os
 import re
-import shutil
 import signal
 import socket
 import subprocess
@@ -117,6 +116,134 @@ def log(message: str) -> None:
         print("workstation-notification-focus: " + str(message), file=sys.stderr, flush=True)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Deterministic external-tool resolution
+#
+# Single owner for "which absolute binary should this helper execute?".  The
+# QML singleton ``services/ExternalToolResolver.qml`` mirrors this exact search
+# order; both forms must be changed together.  The compositor-inherited PATH is
+# only ever appended as a last-resort suffix, never used as the primary source.
+# ---------------------------------------------------------------------------
+
+TOOL_OVERRIDE_ENV_PREFIX = "AURELIA_TOOL_"
+TOOL_OVERRIDE_ENV_SUFFIX = "_BIN"
+
+
+def tool_override_env_name(tool):
+    """Return the explicit override variable name for ``tool``."""
+    return (
+        TOOL_OVERRIDE_ENV_PREFIX
+        + str(tool).upper().replace("-", "_")
+        + TOOL_OVERRIDE_ENV_SUFFIX
+    )
+
+
+def default_shell_root():
+    """Resolve the shell tree root without trusting the inherited PATH."""
+    override = os.environ.get("AURELIA_SHELL_ROOT") or ""
+    if override.startswith("/") and override != "/":
+        return override.rstrip("/")
+    return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+
+def candidate_dirs(shell_root=None, home=None):
+    """Ordered deterministic search directories, most specific first."""
+    if home is None:
+        home = os.environ.get("HOME") or os.path.expanduser("~")
+    dirs = []
+    if isinstance(shell_root, str) and shell_root.startswith("/") and shell_root != "/":
+        base = shell_root.rstrip("/")
+        dirs.append(base + "/bin")
+        dirs.append(base + "/../bin")
+    if isinstance(home, str) and home.startswith("/") and home != "/":
+        base_home = home.rstrip("/")
+        dirs.append(base_home + "/.local/bin")
+        dirs.append(base_home + "/.nix-profile/bin")
+    dirs.append("/nix/var/nix/profiles/default/bin")
+    dirs.append("/usr/local/bin")
+    dirs.append("/usr/bin")
+    dirs.append("/bin")
+    return dirs
+
+
+def resolver_path(shell_root=None, inherited_path=None, home=None):
+    """Deterministic PATH with the inherited PATH appended as a suffix only."""
+    parts = []
+    for directory in candidate_dirs(shell_root, home):
+        if directory and directory not in parts:
+            parts.append(directory)
+    if inherited_path is None:
+        inherited_path = os.environ.get("PATH") or ""
+    for directory in str(inherited_path).split(":"):
+        if directory and directory not in parts:
+            parts.append(directory)
+    return ":".join(parts)
+
+
+def resolve_tool(tool, shell_root=None, env=None):
+    """Resolve ``tool`` to a structured ``{path, available, searched}`` result.
+
+    ``available: False`` is a first-class outcome.  An explicit override
+    (``AURELIA_TOOL_<TOOL>_BIN``) is validated absolute and wins outright as
+    the documented test seam.  ``env`` is an optional mapping used by isolated
+    tests; production callers omit it.
+    """
+    name = str(tool or "")
+    result = {"path": "", "available": False, "searched": [], "failureClass": ""}
+    if name == "" or "/" in name:
+        result["failureClass"] = "tooling-unavailable"
+        return result
+    environ = os.environ if env is None else env
+    override = str(environ.get(tool_override_env_name(name)) or "")
+    if override:
+        result["searched"].append(override)
+        if (
+            override.startswith("/")
+            and override != "/"
+            and os.path.isfile(override)
+            and os.access(override, os.X_OK)
+        ):
+            result["path"] = override
+            result["available"] = True
+        else:
+            result["failureClass"] = "tooling-unavailable"
+        return result
+    home = environ.get("HOME") or os.path.expanduser("~")
+    for directory in candidate_dirs(shell_root, home):
+        candidate = os.path.join(directory, name)
+        if candidate not in result["searched"]:
+            result["searched"].append(candidate)
+    inherited = environ.get("PATH")
+    if inherited is None:
+        inherited = ""
+    for directory in str(inherited).split(":"):
+        if not directory:
+            continue
+        candidate = os.path.join(directory, name)
+        if candidate not in result["searched"]:
+            result["searched"].append(candidate)
+    for candidate in result["searched"]:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            result["path"] = candidate
+            result["available"] = True
+            break
+    if not result["available"]:
+        result["failureClass"] = "tooling-unavailable"
+    return result
+
+
+def resolve_tool_path(tool, shell_root=None, env=None):
+    """Convenience wrapper returning only the absolute path or ``None``."""
+    return resolve_tool(tool, shell_root=shell_root, env=env)["path"] or None
+
+
+def tool_environment(shell_root=None, base_env=None):
+    """Return an environment copy whose PATH is the deterministic PATH."""
+    environ = dict(os.environ if base_env is None else base_env)
+    environ["PATH"] = resolver_path(shell_root, environ.get("PATH"))
+    return environ
 
 
 def to_native(value):
@@ -527,7 +654,7 @@ class HyprctlSnapshot:
             return
         clients = []
         active = None
-        path = self._path or shutil.which("hyprctl")
+        path = self._path or resolve_tool_path("hyprctl")
         if path:
             clients = hyprctl_clients(path)
             active = hyprctl_activewindow(path)
@@ -721,6 +848,8 @@ def capture_process(
 
 
 def run_command(argv, timeout=COMMAND_TIMEOUT_SECONDS, env=None, check=False):
+    if env is None:
+        env = tool_environment()
     try:
         return subprocess.run(
             argv,
@@ -740,7 +869,7 @@ def run_command(argv, timeout=COMMAND_TIMEOUT_SECONDS, env=None, check=False):
 
 
 def hyprctl_binary():
-    return shutil.which("hyprctl")
+    return resolve_tool_path("hyprctl")
 
 
 def hypr_dispatch_ok(lua):
@@ -991,7 +1120,7 @@ def herdr_terminal_window(clients, root=None):
     Herdr's internal focus never switches the compositor, so after an internal
     focus we raise the terminal window that owns the herdr client.
     """
-    herdr_path = shutil.which("herdr")
+    herdr_path = resolve_tool_path("herdr")
     if not herdr_path:
         return None
     try:
@@ -1089,11 +1218,14 @@ def resolve_window(origin, clients, active_address, dry_run=False):
 
 def apply_herdr(tab, origin, ctx, dry_run=False):
     """Return (applied, exact, detail)."""
-    herdr_path = ctx.get("herdr") or shutil.which("herdr")
+    herdr_path = ctx.get("herdr") or resolve_tool_path("herdr")
     socket_path = ctx.get("herdr_socket")
     workspace = tab.get("workspaceId")
     tab_id = tab.get("tabId")
     pane_id = tab.get("paneId")
+    if not herdr_path:
+        # A missing tool is a NAMED, visible unavailable, never a silent no-op.
+        return False, False, "herdr unavailable"
     details = []
     applied = False
     requested = "pane" if pane_id else ("tab" if tab_id else ("workspace" if workspace else None))
@@ -1135,7 +1267,7 @@ def apply_herdr(tab, origin, ctx, dry_run=False):
 
 
 def apply_tmux(tab, ctx, dry_run=False):
-    tmux_path = ctx.get("tmux") or shutil.which("tmux")
+    tmux_path = ctx.get("tmux") or resolve_tool_path("tmux")
     if not tmux_path:
         return False, False, "tmux unavailable"
     tab_id = tab.get("tabId")
@@ -1165,7 +1297,7 @@ def apply_tmux(tab, ctx, dry_run=False):
 
 
 def apply_zellij(tab, ctx, dry_run=False):
-    zellij_path = ctx.get("zellij") or shutil.which("zellij")
+    zellij_path = ctx.get("zellij") or resolve_tool_path("zellij")
     if not zellij_path:
         return False, False, "zellij unavailable"
     pane_id = tab.get("paneId")
@@ -1225,15 +1357,16 @@ def raise_window(origin, ctx):
 
 
 def build_context(origin):
-    hyprctl_path = hyprctl_binary()
+    hyprctl_path = resolve_tool_path("hyprctl")
     clients = hyprctl_clients(hyprctl_path) if hyprctl_path else []
     active = hyprctl_activewindow(hyprctl_path) if hyprctl_path else None
     return {
         "clients": clients,
         "active_address": (active or {}).get("address"),
-        "herdr": shutil.which("herdr"),
-        "tmux": shutil.which("tmux"),
-        "zellij": shutil.which("zellij"),
+        "herdr": resolve_tool_path("herdr"),
+        "tmux": resolve_tool_path("tmux"),
+        "zellij": resolve_tool_path("zellij"),
+        "timeout": resolve_tool_path("timeout"),
         "herdr_socket": herdr_socket_path(),
         "pane_focus_capability": None,
         "window_focused": False,
@@ -1508,7 +1641,7 @@ def run_serve(args):
         server.stop()
         return 1
 
-    path = shutil.which("hyprctl")
+    path = resolve_tool_path("hyprctl")
     snapshot = HyprctlSnapshot(path)
     proc = proc_root()
 
