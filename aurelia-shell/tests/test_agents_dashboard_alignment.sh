@@ -175,7 +175,7 @@ if [[ "$wide_status" -eq 0 && -s "$wide_result" ]] &&
    ' "$wide_result" >/dev/null; then
     pass "[isolated-runtime] resting dashboard: no text item has effective opacity below 0.999"
 else
-    fail "[isolated-runtime] resting dashboard dims text (min=$(jq -r '.minTextOpacity' "$wide_result" 2>/dev/null || true))"
+    fail "[isolated-runtime] resting dashboard dims text (min=$(jq -r '.minTextOpacity' "$wide_result" || true))"
 fi
 
 # Exactly one shared in-scene tooltip instance, and the idle footer hint is
@@ -184,13 +184,13 @@ if [[ "$wide_status" -eq 0 && -s "$wide_result" ]] &&
    [[ "$(jq -r '.inlineTooltipCount' "$wide_result")" == "1" ]]; then
     pass "[isolated-runtime] the dashboard contains exactly one AureliaInlineToolTip"
 else
-    fail "[isolated-runtime] the dashboard does not contain exactly one AureliaInlineToolTip (count=$(jq -r '.inlineTooltipCount' "$wide_result" 2>/dev/null || true))"
+    fail "[isolated-runtime] the dashboard does not contain exactly one AureliaInlineToolTip (count=$(jq -r '.inlineTooltipCount' "$wide_result" || true))"
 fi
 if [[ "$wide_status" -eq 0 && -s "$wide_result" ]] &&
    jq -e '.footerHintTruncated == false and (.footerHintText | length) > 0' "$wide_result" >/dev/null; then
     pass "[isolated-runtime] the idle footer hint is not elided at 580"
 else
-    fail "[isolated-runtime] the footer hint is elided at 580 (text=$(jq -r '.footerHintText' "$wide_result" 2>/dev/null || true) truncated=$(jq -r '.footerHintTruncated' "$wide_result" 2>/dev/null || true))"
+    fail "[isolated-runtime] the footer hint is elided at 580 (text=$(jq -r '.footerHintText' "$wide_result" || true) truncated=$(jq -r '.footerHintTruncated' "$wide_result" || true))"
 fi
 
 # Narrow panel: the ACCOUNT column shrinks first; the window columns stay equal.
@@ -419,7 +419,7 @@ if [[ "$open_status" -eq 0 && -s "$open_result" ]] &&
    jq -e '(.textNodes | length) >= 10 and (.minTextOpacity >= 0.999)' "$open_result" >/dev/null; then
     pass "[isolated-runtime] expanded dashboard: no text item has effective opacity below 0.999"
 else
-    fail "[isolated-runtime] expanded dashboard dims text (min=$(jq -r '.minTextOpacity' "$open_result" 2>/dev/null || true))"
+    fail "[isolated-runtime] expanded dashboard dims text (min=$(jq -r '.minTextOpacity' "$open_result" || true))"
 fi
 
 # ---------------------------------------------------------------------------

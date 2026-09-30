@@ -2246,7 +2246,7 @@ AGENTS_BAR_DOT_RESULT="$dot_result" \
     /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
     --path "$ROOT/tests/fixtures/agents-bar-dot/shell.qml" >"$dot_log" 2>&1 || dot_status=$?
 
-dot_aspect="$(jq -r 'if .ink and .ink.height > 0 then (.ink.width / .ink.height) else "n/a" end' "$dot_result" 2>/dev/null || true)"
+dot_aspect="$(jq -r 'if .ink and .ink.height > 0 then (.ink.width / .ink.height) else "n/a" end' "$dot_result" || true)"
 if [[ "$dot_status" -eq 0 && -s "$dot_result" ]] &&
    jq -e '
         .glyphFound == true and .dotFound == true and
