@@ -264,98 +264,75 @@ install_crash_capture() {
     record_success "crash-capture"
 }
 
-# Notification-origin capture/navigation helper. Exactly one owner captures the
-# origin and exactly one owner focuses it. The compatibility shim delegates to
-# the helper. The monitor is an unprivileged user service; an absent or crashed
-# unit degrades capture to identity-only while window/workspace navigation
-# still works, so every failure here is deferred.
-NOTIFICATION_ORIGIN_BACKENDS=(
-    workstation-notification-focus
-    workstation-herdr-focus
-)
-
-validate_notification_origin_installation() {
-    local bin_dir="${1:-/usr/local/bin}"
-    local binary
-    local target
-
-    for binary in "${NOTIFICATION_ORIGIN_BACKENDS[@]}"; do
-        target="$bin_dir/$binary"
-        if [[ ! -f "$target" || -L "$target" || ! -x "$target" ]]; then
-            return 1
-        fi
-    done
-}
-
-validate_notification_origin_unit() {
-    local unit_file="$1"
-    local analyzer
-
-    [[ -f "$unit_file" && ! -L "$unit_file" ]] || return 1
-    analyzer="$(command -v systemd-analyze || true)"
-    [[ -n "$analyzer" ]] || return 1
-    "$analyzer" verify "$unit_file" >/dev/null
-}
-
-install_notification_origin() {
-    local binary
-    for binary in "${NOTIFICATION_ORIGIN_BACKENDS[@]}"; do
-        if ! install_root_cli_file \
-            "$SCRIPT_DIR/aurelia-shell/bin/$binary" \
-            "/usr/local/bin/$binary" \
-            "$binary" \
-            optional; then
-            return 0
-        fi
-    done
-
-    if ! validate_notification_origin_installation /usr/local/bin; then
-        record_deferred \
-            "desktop" \
-            "notification-origin" \
-            "A notification-origin backend is missing or is not an executable regular file under /usr/local/bin."
-        return 0
-    fi
-
-    local unit_source="$SCRIPT_DIR/aurelia-shell/systemd/user/workstation-notification-origin.service"
+# Notification-origin capture/navigation is owned entirely by the shell tree:
+# `aurelia-shell/bin/workstation-notification-focus`, spawned as a supervised
+# child of the resident shell. The systemd user monitor unit is RETIRED so the
+# shell child is the single owner of the origin monitor socket and nothing can
+# race the socket. The unit file remains in the repository as documentation
+# only.
+#
+# This step never starts, stops, enables, or disables a live systemd unit. It
+# only removes a stale unit and its graphical-session enablement left by an
+# older installer, idempotently, and reports what it did. Every failure is
+# deferred: the primary function does not depend on this step.
+retire_notification_origin_unit() {
     local config_home="$TARGET_HOME/.config"
     local unit_dir="$config_home/systemd/user"
     local unit_target="$unit_dir/workstation-notification-origin.service"
     local wants_link="$unit_dir/graphical-session.target.wants/workstation-notification-origin.service"
+    local removed=0
 
-    if ! validate_notification_origin_unit "$unit_source"; then
+    if declare -F safe_user_config_home >/dev/null &&
+        ! safe_user_config_home "$config_home"; then
         record_deferred \
             "desktop" \
             "notification-origin-unit" \
-            "The notification-origin unit is missing or failed systemd-analyze verification."
-        return 0
-    fi
-    if declare -F safe_user_config_home >/dev/null &&
-        ! safe_user_config_home "$config_home"; then
-        record_deferred "desktop" "notification-origin-unit" "Unsafe user configuration path for the notification-origin unit."
-        return 0
-    fi
-    if ! ensure_directory "$unit_dir" ||
-        ! ensure_directory "$(dirname -- "$wants_link")"; then
-        record_deferred "desktop" "notification-origin-unit" "Could not create the user unit directory."
+            "Unsafe user configuration path for the retired notification-origin unit."
         return 0
     fi
 
-    local unit_owner="${TARGET_USER:-root}"
-    local unit_group
-    unit_group="$(id -gn "$unit_owner" || printf '%s' "$unit_owner")"
-    if ! root_managed_file_is_converged "$unit_source" "$unit_target" "$unit_owner:$unit_group:644"; then
-        if ! install_root_file_atomically "$unit_source" "$unit_target" 0644 "$unit_owner" "$unit_group"; then
-            record_deferred "desktop" "notification-origin-unit" "Could not install the notification-origin unit."
+    validate_mutation_path "$(dirname -- "$wants_link")" || {
+        record_deferred \
+            "desktop" \
+            "notification-origin-unit" \
+            "Unsafe user unit path for the retired notification-origin unit."
+        return 0
+    }
+
+    if [[ -L "$wants_link" ]]; then
+        if ! rm -f -- "$wants_link"; then
+            record_deferred \
+                "desktop" \
+                "notification-origin-unit" \
+                "Could not remove the stale notification-origin enablement."
             return 0
         fi
-    fi
-    if ! ensure_symlink "$unit_target" "$wants_link"; then
-        record_deferred "desktop" "notification-origin-unit" "Could not enable the notification-origin monitor for the graphical session."
-        return 0
+        removed=1
     fi
 
-    info "Notification-origin monitor installed and enabled for the next login."
+    if [[ -e "$unit_target" || -L "$unit_target" ]]; then
+        if [[ ! -f "$unit_target" || -L "$unit_target" ]]; then
+            record_deferred \
+                "desktop" \
+                "notification-origin-unit" \
+                "Refusing to remove unexpected content at the retired notification-origin unit path."
+            return 0
+        fi
+        if ! rm -f -- "$unit_target"; then
+            record_deferred \
+                "desktop" \
+                "notification-origin-unit" \
+                "Could not remove the stale notification-origin unit."
+            return 0
+        fi
+        removed=1
+    fi
+
+    if (( removed )); then
+        info "Retired stale notification-origin systemd unit; the resident shell owns the monitor."
+    else
+        info "Notification-origin systemd unit already retired."
+    fi
     record_success "notification-origin"
 }
 

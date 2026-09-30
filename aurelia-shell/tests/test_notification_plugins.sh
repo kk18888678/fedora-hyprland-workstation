@@ -20,6 +20,9 @@ write_notification_origin_stub() {
     cat >"$target" <<'STUB'
 #!/usr/bin/env bash
 set -Eeuo pipefail
+if [[ -n "${AURELIA_STUB_PATH_SENTINEL:-}" ]]; then
+    printf '%s\n' "$PATH" >>"$AURELIA_STUB_PATH_SENTINEL"
+fi
 mode="${1:-}"
 case "$mode" in
     capture)
@@ -365,6 +368,33 @@ if grep -q 'function captureOrigin' "$plugin_root/Service.qml" &&
     pass "Notification commands run through a bounded observing guard and origins are captured, persisted, and navigated honestly"
 else
     fail "Notification origin capture or guarded command execution is incomplete"
+fi
+
+resolver_singleton="$ROOT/services/ExternalToolResolver.qml"
+if [[ -f "$resolver_singleton" ]] &&
+   grep -q 'singleton ExternalToolResolver 1.0 ExternalToolResolver.qml' "$ROOT/services/qmldir" &&
+   grep -q 'function resolve(' "$resolver_singleton" &&
+   grep -q 'function pathValue(' "$resolver_singleton" &&
+   grep -q 'function environment(' "$resolver_singleton" &&
+   grep -q 'AURELIA_TOOL_' "$resolver_singleton" &&
+   grep -q 'tooling-unavailable' "$resolver_singleton" &&
+   grep -q '"PATH": root.pathValue' "$resolver_singleton"; then
+    pass "[static] one deterministic external-tool resolver owns PATH construction and structured resolution"
+else
+    fail "[static] the deterministic external-tool resolver is missing or incomplete"
+fi
+
+if grep -q 'ExternalToolResolver.environment(service.toolShellRoot)' "$plugin_root/Service.qml" &&
+   grep -q 'ExternalToolResolver.resolve("timeout"' "$plugin_root/Service.qml" &&
+   grep -q 'environment: service.toolEnvironment' "$plugin_root/Service.qml" &&
+   grep -q 'tools: tools' "$plugin_root/Service.qml" &&
+   grep -q 'ExternalToolResolver.beginProbe' "$plugin_root/Service.qml" &&
+   grep -q 'def resolve_tool(' "$ROOT/bin/workstation-notification-focus" &&
+   ! grep -q 'shutil.which' "$ROOT/bin/workstation-notification-focus" &&
+   ! grep -Eq 'command: *\["(herdr|hyprctl)"' "$plugin_root/Service.qml"; then
+    pass "[static] shell-spawned processes receive the deterministic PATH and never resolve a binary through inherited PATH alone"
+else
+    fail "[static] a shell-spawned process can still resolve a binary through the inherited PATH"
 fi
 
 if grep -q 'shell.call("aurelia.notifications"' "$plugin_root/BarWidget.qml" &&
@@ -1638,7 +1668,8 @@ esac
 FAKE_CLASS_HYPRCTL
     chmod +x "$class_root/bin/hyprctl"
     class_origin='{"originVersion":1,"captureQuality":"identity","captureSource":"identity","notify":{"appName":"fixture-app","desktopEntry":"fixture-app"},"sender":{"ancestry":[],"focusEnv":{}},"compositor":{"matched":false,"matchConfidence":"none","candidates":[]},"tab":{"kind":null,"workspaceId":null,"tabId":null,"paneId":null}}'
-    class_out="$(PATH="$class_root/bin:$PATH" /usr/bin/timeout --kill-after=1s 5s \
+    class_out="$(PATH="$class_root/bin:$PATH" AURELIA_TOOL_HYPRCTL_BIN="$class_root/bin/hyprctl" \
+        /usr/bin/timeout --kill-after=1s 5s \
         "$ROOT/bin/workstation-notification-focus" navigate --dry-run \
         --origin "$class_origin" 2>"$class_root/stderr.log" || true)"
     if printf '%s' "$class_out" | jq -e \
@@ -1782,5 +1813,77 @@ else
         details="$(tail -n 48 "$notice_log" || true)"
         if [[ -s "$notice_result" ]]; then details="$details result=$(tr '\n' ' ' <"$notice_result")"; fi
         fail "[isolated-runtime] prerequisite-notice fixture failed (status=$notice_status): $details"
+    fi
+fi
+
+# The deterministic external-tool resolver must reach a spawned helper with a
+# PATH that contains ~/.local/bin, name a missing tool instead of silently
+# degrading, and expose the per-tool health map. The stub helper records its
+# PATH; the stub navigate reports a named unavailable reason.
+tool_fixture="$ROOT/tests/fixtures/notifications/tool-unavailable.qml"
+if [[ ! -f "$tool_fixture" ]]; then
+    fail "[static] notification tool-unavailable fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification tool-unavailable fixture (qs or timeout unavailable)"
+else
+    tool_root="$(mktemp -d)"
+    trap 'rm -rf -- "$tool_root" || true' RETURN
+    mkdir -p -- "$tool_root/runtime" "$tool_root/state" \
+        "$tool_root/config" "$tool_root/cache" "$tool_root/bin"
+    tool_result="$tool_root/result.json"
+    : >"$tool_result"
+    tool_log="$tool_root/runtime.log"
+    tool_path_sentinel="$tool_root/helper-PATH.sentinel"
+    : >"$tool_path_sentinel"
+    write_notification_origin_stub "$tool_root/bin/workstation-notification-focus"
+    printf '#!/bin/sh\nexit 0\n' >"$tool_root/bin/fake-hyprctl"
+    chmod +x "$tool_root/bin/fake-hyprctl"
+    tool_identity='{"originVersion":1,"captureQuality":"identity","captureSource":"identity","notify":{"appName":"Herdr","desktopEntry":"Herdr"},"sender":{"ancestry":[],"focusEnv":{}},"compositor":{"matched":false,"matchConfidence":"none","candidates":[]},"tab":{"kind":null,"workspaceId":null,"tabId":null,"paneId":null},"monitorAvailable":false,"monitorState":"unavailable"}'
+    tool_status=0
+    AURELIA_TOOL_RESULT="$tool_result" \
+    AURELIA_TOOL_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_TEST_HELPER="$tool_root/bin/workstation-notification-focus" \
+    AURELIA_NOTIFICATION_TEST_REGISTRY='[{"id":"fixture-app","action":"default","originFocus":true}]' \
+    AURELIA_NOTIFICATION_TEST_HELPER_TIMEOUT_MS=1000 \
+    AURELIA_STUB_CAPTURE_IDENTITY="$tool_identity" \
+    AURELIA_STUB_NAVIGATE='{"action":"navigate","outcome":"unavailable","confidence":"none","reason":"herdr unavailable"}' \
+    AURELIA_STUB_PATH_SENTINEL="$tool_path_sentinel" \
+    AURELIA_TOOL_HERDR_BIN="$tool_root/bin/missing-herdr" \
+    AURELIA_TOOL_HYPRCTL_BIN="$tool_root/bin/fake-hyprctl" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$tool_root/runtime" \
+    XDG_STATE_HOME="$tool_root/state" \
+    XDG_CONFIG_HOME="$tool_root/config" \
+    XDG_CACHE_HOME="$tool_root/cache" \
+        /usr/bin/timeout --kill-after=1s 16s /usr/bin/qs --no-duplicate \
+        --path "$tool_fixture" --no-color >"$tool_log" 2>&1 || tool_status=$?
+
+    tool_completed=0
+    if [[ "$tool_status" -eq 0 ]]; then
+        tool_completed=1
+    elif [[ "$tool_status" -eq 124 && -s "$tool_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$tool_log"; then
+        tool_completed=1
+    fi
+    if [[ "$tool_completed" -eq 1 ]] && [[ -s "$tool_result" ]] &&
+       runtime_log_is_environment_only "$tool_log" \
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$tool_log" &&
+       jq -e '
+            .serviceLoaded == true and
+            .rowRetained == true and
+            .reason == "herdr unavailable" and
+            (.helperPathEnv | contains("/.local/bin")) and
+            (.healthJson | fromjson | .tools | has("herdr") and has("hyprctl") and has("timeout")) and
+            (.healthJson | fromjson | .tools.herdr.available == false) and
+            (.healthJson | fromjson | .tools.herdr.failureClass == "tooling-unavailable") and
+            ((.healthJson | fromjson | .tools.herdr.searched | length) > 0) and
+            (.healthJson | fromjson | .tools.hyprctl.available == true)
+       ' "$tool_result" >/dev/null; then
+        pass "[isolated-runtime] a spawned helper receives the deterministic PATH and a missing tool is named in the health map and the row"
+    else
+        details="$(tail -n 48 "$tool_log" || true)"
+        if [[ -s "$tool_result" ]]; then details="$details result=$(tr '\n' ' ' <"$tool_result")"; fi
+        fail "[isolated-runtime] tool-unavailable fixture failed (status=$tool_status): $details"
     fi
 fi

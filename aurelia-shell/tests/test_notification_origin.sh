@@ -41,6 +41,16 @@ else
     fail "[static] the origin helper is missing or not executable"
 fi
 
+if grep -q 'def resolve_tool(' "$HELPER" &&
+   grep -q 'def resolve_tool_path(' "$HELPER" &&
+   grep -q 'def tool_environment(' "$HELPER" &&
+   grep -q 'AURELIA_TOOL_' "$HELPER" &&
+   ! grep -q 'shutil.which' "$HELPER"; then
+    pass "[static] the helper resolves every external tool through the deterministic resolver, never shutil.which"
+else
+    fail "[static] the helper still resolves tools through the inherited environment"
+fi
+
 if [[ -x "$SHIM" ]] &&
    grep -q 'workstation-notification-focus' "$SHIM" &&
    grep -q '"navigate"' "$SHIM" &&
@@ -79,22 +89,29 @@ else
     fail "[static] the monitor unit is missing or requests privileges"
 fi
 
-if grep -q 'install_notification_origin()' "$INSTALLER_DESKTOP" &&
-   grep -q 'validate_notification_origin_installation' "$INSTALLER_DESKTOP" &&
-   grep -q 'validate_notification_origin_unit' "$INSTALLER_DESKTOP" &&
-   grep -q 'graphical-session.target.wants' "$INSTALLER_DESKTOP" &&
-   grep -q 'install_root_cli_file' "$INSTALLER_DESKTOP" &&
+if grep -q 'retire_notification_origin_unit()' "$INSTALLER_DESKTOP" &&
+   ! grep -q 'validate_notification_origin_installation' "$INSTALLER_DESKTOP" &&
+   ! grep -q 'validate_notification_origin_unit' "$INSTALLER_DESKTOP" &&
+   grep -q 'graphical-session.target.wants/workstation-notification-origin.service' "$INSTALLER_DESKTOP" &&
+   grep -q "rm -f -- \"\$unit_target\"" "$INSTALLER_DESKTOP" &&
+   grep -q "rm -f -- \"\$wants_link\"" "$INSTALLER_DESKTOP" &&
    ! grep -q 'chown -R' "$INSTALLER_DESKTOP"; then
-    pass "[static] the installer deploys, validates, and enables the origin helper and unit"
+    pass "[static] the installer retires a stale notification-origin unit and never installs or enables it"
 else
-    fail "[static] the installer does not deploy the origin feature safely"
+    fail "[static] the installer does not retire the notification-origin unit safely"
 fi
 
-if grep -Eq 'run_classified_step optional "Installing notification origin" install_notification_origin' "$INSTALLER_ENTRY" &&
-   ! grep -Eq 'run_classified_step login .*install_notification_origin' "$INSTALLER_ENTRY"; then
-    pass "[static] notification origin is a non-blocking installer step, never login-critical"
+if grep -q 'install_notification_origin' "$INSTALLER_DESKTOP" "$INSTALLER_ENTRY"; then
+    fail "[static] the retired notification-origin install step is still referenced by the installer"
 else
-    fail "[static] notification origin is not classified as a non-blocking installer step"
+    pass "[static] the retired notification-origin install step is gone from the installer path"
+fi
+
+if grep -Eq 'run_classified_step optional "Retiring notification origin monitor unit" retire_notification_origin_unit' "$INSTALLER_ENTRY" &&
+   ! grep -Eq 'run_classified_step login .*retire_notification_origin_unit' "$INSTALLER_ENTRY"; then
+    pass "[static] notification-origin retirement is a non-blocking installer step, never login-critical"
+else
+    fail "[static] notification-origin retirement is not classified as a non-blocking installer step"
 fi
 
 # ---------------------------------------------------------------------------
@@ -510,6 +527,15 @@ base_env["PATH"] = bindir + ":" + base_env.get("PATH", "")
 base_env["FAKE_LOG"] = logpath
 base_env["AURELIA_PROC_ROOT"] = procroot
 base_env["AURELIA_NOTIFICATION_ORIGIN_SOCKET"] = os.path.join(sandbox, "absent.sock")
+# Pin the deterministic resolver to the sandbox fakes and an empty shell/home so
+# no assertion can pass because a real host tool happened to be on PATH.
+base_env["HOME"] = os.path.join(sandbox, "home")
+os.makedirs(base_env["HOME"], exist_ok=True)
+base_env["AURELIA_SHELL_ROOT"] = os.path.join(sandbox, "shell")
+os.makedirs(base_env["AURELIA_SHELL_ROOT"], exist_ok=True)
+base_env["AURELIA_TOOL_HYPRCTL_BIN"] = os.path.join(bindir, "hyprctl")
+base_env["AURELIA_TOOL_HERDR_BIN"] = os.path.join(bindir, "herdr")
+base_env["AURELIA_TOOL_TMUX_BIN"] = os.path.join(bindir, "tmux")
 
 
 def set_clients(clients):
@@ -886,3 +912,166 @@ print("CHECK DONE")
 PY_RESOLVER
 )"
 announce_checks "resolver" "$resolver_out"
+
+# ---------------------------------------------------------------------------
+# Deterministic external-tool resolver (pure, no live tool execution)
+# ---------------------------------------------------------------------------
+
+resolver_order_out="$(python3 - "$HELPER" <<'PY_TOOL_RESOLVER' || true
+import importlib.machinery
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+helper = sys.argv[1]
+loader = importlib.machinery.SourceFileLoader("wnf", helper)
+spec = importlib.util.spec_from_loader("wnf", loader)
+m = importlib.util.module_from_spec(spec)
+loader.exec_module(m)
+
+
+def check(name, condition):
+    print(("CHECK PASS " if condition else "CHECK FAIL ") + name)
+
+
+root = tempfile.mkdtemp(prefix="aurelia-tool-resolver-")
+home = os.path.join(root, "home")
+shell = os.path.join(root, "shell")
+repo_bin_dir = os.path.join(root, "bin")  # == shell/../bin
+path_dir = os.path.join(root, "path-bin")
+for directory in (
+    os.path.join(shell, "bin"),
+    repo_bin_dir,
+    os.path.join(home, ".local/bin"),
+    os.path.join(home, ".nix-profile/bin"),
+    path_dir,
+):
+    os.makedirs(directory, exist_ok=True)
+
+
+def write_exe(directory, name):
+    path = os.path.join(directory, name)
+    with open(path, "w") as handle:
+        handle.write("#!/bin/sh\nexit 0\n")
+    os.chmod(path, 0o755)
+    return path
+
+
+shell_bin = write_exe(os.path.join(shell, "bin"), "demo")
+repo_bin = write_exe(repo_bin_dir, "demo")
+local_bin = write_exe(os.path.join(home, ".local/bin"), "demo")
+path_bin = write_exe(path_dir, "demo")
+env = {"HOME": home, "PATH": path_dir}
+
+result = m.resolve_tool("demo", shell_root=shell, env=env)
+check(
+    "the shell-root bin is the first deterministic hit",
+    result["available"] is True and result["path"] == shell_bin,
+)
+
+os.rename(shell_bin, shell_bin + ".off")
+result = m.resolve_tool("demo", shell_root=shell, env=env)
+check(
+    "the repository-level bin is used when the shell bin has no hit",
+    result["available"] is True
+    and os.path.realpath(result["path"]) == os.path.realpath(repo_bin),
+)
+os.rename(shell_bin + ".off", shell_bin)
+
+os.rename(shell_bin, shell_bin + ".off")
+os.rename(repo_bin, repo_bin + ".off")
+result = m.resolve_tool("demo", shell_root=shell, env=env)
+check(
+    "~/.local/bin beats the inherited PATH",
+    result["available"] is True and result["path"] == local_bin,
+)
+os.rename(shell_bin + ".off", shell_bin)
+os.rename(repo_bin + ".off", repo_bin)
+
+path_only = write_exe(path_dir, "path-only-tool")
+result = m.resolve_tool("path-only-tool", shell_root=shell, env=env)
+check(
+    "the inherited PATH is used only as a last-resort suffix",
+    result["available"] is True and result["path"] == path_only,
+)
+
+override = write_exe(path_dir, "override-demo")
+env_override = dict(env)
+env_override[m.tool_override_env_name("demo")] = override
+result = m.resolve_tool("demo", shell_root=shell, env=env_override)
+check(
+    "an explicit override wins over every deterministic candidate",
+    result["available"] is True
+    and result["path"] == override
+    and result["searched"] == [override],
+)
+
+result = m.resolve_tool("definitely-missing-tool", shell_root=shell, env=env)
+check(
+    "a missing tool returns available=false with the searched list, never raising",
+    result["available"] is False
+    and result["path"] == ""
+    and result["failureClass"] == "tooling-unavailable"
+    and len(result["searched"]) > 0,
+)
+check(
+    "the searched list is ordered shell-root first and inherited PATH last",
+    result["searched"][0] == os.path.join(shell, "bin", "definitely-missing-tool")
+    and result["searched"][-1] == os.path.join(path_dir, "definitely-missing-tool"),
+)
+
+path_value = m.resolver_path(shell_root=shell, home=home, inherited_path=path_dir)
+check(
+    "resolver_path places ~/.local/bin before the inherited PATH",
+    path_value.split(":").index(os.path.join(home, ".local/bin"))
+    < path_value.split(":").index(path_dir),
+)
+
+env_bad = dict(env)
+env_bad[m.tool_override_env_name("demo")] = os.path.join(root, "no-such-tool")
+result = m.resolve_tool("demo", shell_root=shell, env=env_bad)
+check(
+    "a missing explicit override fails closed instead of falling through",
+    result["available"] is False and result["path"] == "",
+)
+
+# The helper must name a missing tool instead of silently degrading. The
+# resolver is forced to find nothing while the real compositor is only ever
+# queried, never dispatched to (the origin carries no compositor identity).
+herdr_origin = {
+    "originVersion": 1,
+    "captureQuality": "identity",
+    "compositor": {},
+    "tab": {"kind": "herdr", "workspaceId": "w1", "tabId": "w1:t1", "paneId": None},
+}
+empty_shell = os.path.join(root, "empty-shell")
+os.makedirs(empty_shell, exist_ok=True)
+unresolved_env = {
+    "HOME": home,
+    "PATH": "",
+    "AURELIA_SHELL_ROOT": empty_shell,
+    m.tool_override_env_name("herdr"): os.path.join(root, "absent-herdr"),
+}
+result = subprocess.run(
+    [sys.executable, helper, "navigate", "--origin", json.dumps(herdr_origin)],
+    capture_output=True,
+    text=True,
+    timeout=20,
+    env=unresolved_env,
+)
+data = json.loads(result.stdout.strip().splitlines()[-1])
+check(
+    "navigate names herdr unavailable when the resolver finds nothing",
+    data["outcome"] == "unavailable"
+    and "herdr unavailable" in data["reason"]
+    and data["tab"]["applied"] is False
+    and data["tab"]["exact"] is False,
+)
+
+print("CHECK DONE")
+PY_TOOL_RESOLVER
+)"
+announce_checks "tool-resolver" "$resolver_order_out"

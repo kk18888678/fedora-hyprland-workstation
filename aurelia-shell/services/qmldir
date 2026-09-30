@@ -23,3 +23,4 @@ BarControlRegistry 1.0 BarControlRegistry.qml
 ScreenshotService 1.0 ScreenshotService.qml
 ShellCallRouter 1.0 ShellCallRouter.qml
 singleton AppIconResolver 1.0 AppIconResolver.qml
+singleton ExternalToolResolver 1.0 ExternalToolResolver.qml
