@@ -89,8 +89,9 @@ function isUri(value) {
 //    a workspace number. The origin monitor reads HERDR_WORKSPACE_ID,
 //    HERDR_TAB_ID and HERDR_PANE_ID from the notifying process, which identify
 //    the exact workspace/tab/pane and are strictly more precise than the body
-//    number. The captured origin is preferred; the body number is used only
-//    when capture produced nothing. Navigation is delegated to the single
+//    number. The captured origin is used only when it is actionable; the body
+//    number and the stable app identity are first-class fallbacks that keep
+//    Open useful without the monitor. Navigation is delegated to the single
 //    origin owner (`workstation-notification-focus`); the `originFocus` marker
 //    exists because the origin is runtime data that must be passed as its own
 //    argv element rather than interpolated into a command string.
@@ -207,6 +208,61 @@ function herdrIdentityOrigin(number) {
     }
 }
 
+// An app/class identity origin with exactly the shape `herdrIdentityOrigin` and
+// the helper's `build_identity_origin` produce. The helper's existing
+// `score_client` matches live `hyprctl clients` against `notify.desktopEntry`
+// and `notify.appName`, so this record focuses the sender window by class with
+// no origin monitor and no new navigation mechanism. The id is always a
+// validated stable application id, never a display name.
+function appIdentityOrigin(appId) {
+    if (!isStableApplicationId(appId)) return null
+    return {
+        originVersion: 1,
+        captureQuality: "identity",
+        captureSource: "identity",
+        notify: { appName: appId, desktopEntry: appId },
+        sender: { ancestry: [], focusEnv: {} },
+        compositor: { matched: false, matchConfidence: "none", candidates: [] },
+        tab: { kind: null, workspaceId: null, tabId: null, paneId: null }
+    }
+}
+
+function hasIdentityValue(value) {
+    if (value === undefined || value === null) return false
+    if (typeof value === "number") return isFinite(value) && value > 0
+    return isNonEmptyString(value)
+}
+
+// Pure predicate: can this origin actually move the user somewhere? It has no
+// OS access and deliberately ignores the monitor-state marker; that marker is
+// diagnostic metadata, while usability is decided here.
+function actionable(origin) {
+    if (!origin || typeof origin !== "object" || Array.isArray(origin)) return false
+    if (String(origin.captureQuality || "") === "exact") return true
+    var compositor = origin.compositor || {}
+    if (compositor.matched === true) return true
+    if (isNonEmptyString(compositor.address)) return true
+    if (isNonEmptyString(compositor.stableId)) return true
+    if (isPositiveInteger(compositor.pid) || isNonEmptyString(compositor.pid)) return true
+    var tab = origin.tab || {}
+    if (tab.kind !== undefined && tab.kind !== null && String(tab.kind) !== "" &&
+        (hasIdentityValue(tab.workspaceId) || hasIdentityValue(tab.tabId) || hasIdentityValue(tab.paneId)))
+        return true
+    if (isNonEmptyString(origin.originUrl)) return true
+    return false
+}
+
+// The stable app identity the fallback may use. The captured record is not
+// consulted; only validated identifier-shaped strings are accepted, never a
+// display name.
+function stableIdentityFrom(context) {
+    var source = context || {}
+    if (isStableApplicationId(source.identity)) return source.identity
+    if (isStableApplicationId(source.desktopEntry)) return source.desktopEntry
+    if (isStableApplicationId(source.app)) return source.app
+    return ""
+}
+
 // Resolve to an executable form without ever touching the OS. Returns exactly
 // one of:
 //   { kind: "argv", argv: [...] }       a concrete argv vector
@@ -229,11 +285,16 @@ function resolveAction(registry, appId, actionId, context) {
     return null
 }
 
+// Fallback-first resolution. A captured origin is used only when it is
+// actionable, so a failed or monitor-less capture can no longer shadow the
+// body and app-identity fallbacks. Step 4 returns null so the outcome is an
+// honest `unavailable` rather than a fabricated identity.
 function resolveOrigin(context) {
     var source = context || {}
-    var captured = source.origin
-    if (captured && typeof captured === "object" && !Array.isArray(captured)) return captured
+    if (actionable(source.origin)) return source.origin
     if (isPositiveInteger(source.herdrNumber)) return herdrIdentityOrigin(source.herdrNumber)
+    var identity = stableIdentityFrom(source)
+    if (identity !== "") return appIdentityOrigin(identity)
     return null
 }
 
@@ -259,6 +320,9 @@ if (typeof module !== "undefined") {
         stableApplicationId: stableApplicationId,
         uriLaunchArgv: uriLaunchArgv,
         herdrIdentityOrigin: herdrIdentityOrigin,
+        appIdentityOrigin: appIdentityOrigin,
+        actionable: actionable,
+        stableIdentityFrom: stableIdentityFrom,
         resolveAction: resolveAction,
         resolveOrigin: resolveOrigin,
         resolveForEntry: resolveForEntry

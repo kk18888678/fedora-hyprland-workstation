@@ -11,6 +11,11 @@ var MAX_ACTIONS = 8
 // while the notification itself still displays and is retained.
 var ORIGIN_VERSION = 1
 var ORIGIN_QUALITIES = ["exact", "origin", "identity"]
+// A failure reason is shown on the card and the retained Inbox row, so it is
+// bounded and collapsed to a single line. It is produced by the helper from
+// its own state and never contains raw notification body text.
+var MAX_REASON_LENGTH = 512
+var UNKNOWN_REASON_MESSAGE = "unknown reason (diagnostic incomplete)"
 // The shared owner's honest fallback. The persisted icon is always one of our
 // own file:// copy, this name, or another provably-usable theme name, so a
 // card can never be handed a dangling path or an empty source.
@@ -45,6 +50,34 @@ function boundedText(value, limit) {
     if (!isFinite(max) || max < 1) max = MAX_TEXT_LENGTH
     if (text.length <= max) return text
     return text.slice(0, Math.max(1, max - 1)) + "…"
+}
+
+// The outcome vocabulary is a small closed set. Anything else is dropped so a
+// corrupt persisted file cannot inject arbitrary text into the card.
+function boundedOutcome(value) {
+    var text = boundedText(value, 64)
+    if (text === "") return ""
+    return /^[a-z][a-z0-9_-]*$/.test(text) ? text : ""
+}
+
+// A bounded, single-line, sanitized reason. Whitespace is collapsed so a
+// multi-line or control-character payload cannot disturb the card layout.
+function boundedReason(value) {
+    var text = boundedText(value, MAX_REASON_LENGTH)
+    return text.replace(/[\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim()
+}
+
+// The honest, user-visible message for an action outcome. Success is silent; a
+// non-success with an empty reason is a diagnostic defect and says so instead
+// of pretending the click simply did nothing.
+function actionOutcomeMessage(outcome, reason) {
+    var value = boundedOutcome(outcome)
+    if (value === "" || value === "delivered" || value === "executed") return ""
+    var why = boundedReason(reason)
+    var label = "Could not open"
+    if (value === "routed") label = "Routed to the source window"
+    else if (value === "none") label = "No target"
+    return label + ": " + (why === "" ? UNKNOWN_REASON_MESSAGE : why)
 }
 
 function finiteNumber(value, fallback) {
@@ -467,13 +500,18 @@ function normalizeHistoryEntry(value) {
         defaultActionText: boundedText(entry.defaultActionText, 256),
         urgency: urgencyValue(entry.urgency),
         expireTimeout: 0,
+        // Always a number so a materialized ListModel row can be re-persisted
+        // without handing the model an undefined role value.
+        deadline: 0,
         timestamp: timestamp,
         transient: entry.transient === true,
         origin: originFieldValue(entry.origin),
-        // Action outcomes are transient presentation state. They are re-derived
-        // on every click and must never be rehydrated as if they just happened.
-        actionOutcome: "",
-        actionOutcomeReason: ""
+        // The outcome and its bounded reason are durable so a retained Inbox
+        // row can still explain a failed click after the transient toast has
+        // expired or the shell has reloaded. Only the outcome word and a
+        // sanitized reason are stored; never raw notification body text.
+        actionOutcome: boundedOutcome(entry.actionOutcome),
+        actionOutcomeReason: boundedReason(entry.actionOutcomeReason)
     }
 }
 
@@ -848,6 +886,10 @@ function popupPlacement(barPosition, barClearance, gapsOut) {
 if (typeof module !== "undefined") {
     module.exports = {
         boundedText: boundedText,
+        boundedOutcome: boundedOutcome,
+        boundedReason: boundedReason,
+        actionOutcomeMessage: actionOutcomeMessage,
+        UNKNOWN_REASON_MESSAGE: UNKNOWN_REASON_MESSAGE,
         timestampLabel: timestampLabel,
         isChromiumDerived: isChromiumDerived,
         sanitizeBody: sanitizeBody,

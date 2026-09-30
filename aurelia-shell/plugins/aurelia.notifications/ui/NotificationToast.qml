@@ -103,16 +103,11 @@ Item {
         !root.hasGlyph && root.summaryStartsWithGlyph
     readonly property string sanitizedBody: Logic.sanitizeBody(root.body, root.app, root.appIcon)
     readonly property string styledBody: Logic.styledBody(root.body, root.app, root.appIcon)
-    // Never present a non-success as silence. The vocabulary is the same one
-    // the service returns: routed / unavailable / none.
-    readonly property string actionOutcomeMessage: {
-        var outcome = String(root.actionOutcome || "")
-        if (outcome === "" || outcome === "delivered" || outcome === "executed") return ""
-        if (outcome === "routed") return "Routed to the source window"
-        if (outcome === "unavailable") return "Could not open: unavailable"
-        if (outcome === "none") return "Could not open: no target"
-        return "Could not open: " + outcome
-    }
+    // Never present a non-success as silence, and never as a bare word. The
+    // reason from the helper is rendered too; an empty reason on a non-success
+    // is surfaced as a diagnostic defect rather than hidden.
+    readonly property string actionOutcomeMessage: Logic.actionOutcomeMessage(
+        root.actionOutcome, root.actionOutcomeReason)
     readonly property color bodyColor: Qt.darker(Theme.notifications.text, 1.15)
     readonly property color dimColor: Qt.darker(Theme.notifications.text, 1.4)
 

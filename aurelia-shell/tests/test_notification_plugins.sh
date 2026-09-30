@@ -36,6 +36,10 @@ case "$mode" in
             printf 'null\n'
             exit 0
         fi
+        if [[ "$body" == *"capture-identity"* ]]; then
+            printf '%s\n' "${AURELIA_STUB_CAPTURE_IDENTITY:-null}"
+            exit 0
+        fi
         if [[ "$body" == *"routed-capture"* ]]; then
             printf '%s\n' "${AURELIA_STUB_CAPTURE_ROUTED:-$AURELIA_STUB_CAPTURE}"
             exit 0
@@ -51,7 +55,8 @@ case "$mode" in
             printf '%s\n' '{"action":"navigate","outcome":"routed","confidence":"identity","reason":"stub routed"}'
             exit 0
         fi
-        printf '%s\n' "${AURELIA_STUB_NAVIGATE:-{\"action\":\"navigate\",\"outcome\":\"focused\",\"confidence\":\"exact\",\"reason\":\"stub focused\"}}"
+        navigate_default='{"action":"navigate","outcome":"focused","confidence":"exact","reason":"stub focused"}'
+        printf '%s\n' "${AURELIA_STUB_NAVIGATE:-$navigate_default}"
         exit "${AURELIA_STUB_NAVIGATE_EXIT:-0}"
         ;;
     *)
@@ -1513,5 +1518,269 @@ else
         details="$(tail -n 48 "$registry_log" || true)"
         if [[ -s "$registry_result" ]]; then details="$details result=$(tr '\n' ' ' <"$registry_result")"; fi
         fail "[isolated-runtime] notification action-registry fixture failed (status=$registry_status): $details"
+    fi
+fi
+
+# Fallback-first origin resolution. The captured origin is used only when it is
+# actionable, so a failed or monitor-less capture can no longer shadow the
+# body-derived workspace number or the stable app identity. The same test pins
+# the honest reason rendering, including the empty-reason defect.
+if command -v node >/dev/null; then
+    fallback_logic_test="$(mktemp --suffix=.js)"
+    sed '/^\.pragma library/d' "$plugin_root/NotificationLogic.js" >"$fallback_logic_test"
+    cat >>"$fallback_logic_test" <<'FALLBACK_EXPORTS'
+module.exports = { actionOutcomeMessage, boundedOutcome, boundedReason };
+FALLBACK_EXPORTS
+    if node -e '
+const L = require(process.argv[1]);
+const R = require(process.argv[2]);
+function eq(actual, expected, label) {
+    const a = JSON.stringify(actual);
+    const e = JSON.stringify(expected);
+    if (a !== e) { console.error("FAIL " + label + ": " + a + " !== " + e); process.exit(1); }
+}
+function ok(value, label) { if (!value) { console.error("FAIL " + label); process.exit(1); } }
+const identityCapture = { originVersion: 1, captureQuality: "identity",
+    compositor: { matched: false, address: null, stableId: null, pid: null },
+    tab: { kind: null, workspaceId: null, tabId: null, paneId: null }, originUrl: null };
+// actionable() is a pure predicate with no OS access.
+eq(R.actionable(identityCapture), false, "monitor-less identity capture is not actionable");
+eq(R.actionable({ captureQuality: "exact" }), true, "exact capture is actionable");
+eq(R.actionable({ compositor: { matched: true } }), true, "matched compositor is actionable");
+eq(R.actionable({ compositor: { address: "0xabc" } }), true, "address is actionable");
+eq(R.actionable({ compositor: { stableId: "abc" } }), true, "stableId is actionable");
+eq(R.actionable({ compositor: { pid: 4242 } }), true, "pid is actionable");
+eq(R.actionable({ tab: { kind: "herdr", workspaceId: "7", tabId: null, paneId: null } }), true, "tab workspace is actionable");
+eq(R.actionable({ tab: { kind: "herdr", workspaceId: null, tabId: null, paneId: null } }), false, "kind without an id is not actionable");
+eq(R.actionable({ originUrl: "http://127.0.0.1/" }), true, "originUrl is actionable");
+eq(R.actionable(null), false, "null is not actionable");
+// The marker is tolerated when missing; actionable() stays the authority.
+eq(R.actionable({ captureQuality: "exact" }), true, "missing marker is tolerated");
+// Step 1 -> step 2: a non-actionable capture falls through to the body number.
+const fallback = R.resolveOrigin({ origin: identityCapture, herdrNumber: 7 });
+eq(fallback.tab, { kind: "herdr", workspaceId: "7", tabId: null, paneId: null }, "non-actionable capture falls to body workspace");
+// Step 1 still wins: an actionable capture is not shadowed by the body number.
+const actionableCapture = { originVersion: 1, captureQuality: "exact",
+    tab: { kind: "herdr", workspaceId: "w1P", tabId: "w1T", paneId: "w1P:p2" } };
+eq(R.resolveOrigin({ origin: actionableCapture, herdrNumber: 7 }), actionableCapture, "actionable capture wins");
+// Step 2 wins over step 3.
+eq(R.resolveOrigin({ origin: null, herdrNumber: 2, desktopEntry: "Herdr" }).tab.kind, "herdr", "body number wins over app identity");
+// Step 3: a stable app identity becomes an app/class identity origin.
+const appOrigin = R.resolveOrigin({ origin: null, desktopEntry: "chromium" });
+eq(appOrigin.notify, { appName: "chromium", desktopEntry: "chromium" }, "app identity carries the stable id");
+eq(appOrigin.tab.kind, null, "app identity has no tab");
+eq(R.resolveOrigin({ origin: null, app: "Google Chrome" }), null, "display name is rejected");
+// Step 4: nothing usable is an honest null, not a fabricated identity.
+eq(R.resolveOrigin({ origin: null }), null, "nothing usable is null");
+// The app identity origin has exactly the shape the single origin owner reads.
+eq(Object.keys(R.appIdentityOrigin("Herdr")).sort(), Object.keys(R.herdrIdentityOrigin(1)).sort(),
+   "app identity origin shape matches the workspace identity origin");
+// Reason rendering: bounded, honest, and explicit about an empty reason.
+eq(L.actionOutcomeMessage("delivered", "whatever"), "", "delivered is silent");
+eq(L.actionOutcomeMessage("executed", "whatever"), "", "executed is silent");
+eq(L.actionOutcomeMessage("unavailable", ""), "Could not open: unknown reason (diagnostic incomplete)",
+   "empty reason is flagged");
+ok(L.actionOutcomeMessage("unavailable", "no recorded address").indexOf("no recorded address") >= 0,
+   "reason is rendered");
+ok(L.actionOutcomeMessage("routed", "tab/pane degraded").indexOf("tab/pane degraded") >= 0,
+   "routed reason is rendered");
+eq(L.boundedReason("line one\nline two"), "line one line two", "reason is collapsed to one line");
+process.exit(0);
+' "$fallback_logic_test" "$plugin_root/NotificationActionRegistry.js" >/dev/null; then
+        pass "[unit] fallback-first origin resolution and honest outcome reasons are pinned"
+    else
+        fail "[unit] fallback-first origin resolution or outcome reason contract failed"
+    fi
+    rm -f -- "$fallback_logic_test"
+else
+    skip "[unit] fallback-first origin resolution (node unavailable)"
+fi
+
+# The helper's capture record must make "no monitor" explicit instead of
+# leaving a consumer to infer it from a null tab. Capture against a guaranteed
+# absent socket is read-only and bounded.
+if [[ -x "$ROOT/bin/workstation-notification-focus" ]]; then
+    marker_socket="$ROOT/tests/fixtures/notifications/absent-$$.sock"
+    marker_err="$(mktemp)"
+    marker_out="$(AURELIA_NOTIFICATION_ORIGIN_SOCKET="$marker_socket" \
+        /usr/bin/timeout --kill-after=1s 5s \
+        "$ROOT/bin/workstation-notification-focus" capture --id 42 --app Herdr \
+        --body "sutradhar · 7 · 3" --urgency 1 2>"$marker_err" || true)"
+    if printf '%s' "$marker_out" | jq -e \
+        '.captureQuality == "identity" and .monitorAvailable == false and .monitorState == "unavailable"' \
+        >/dev/null; then
+        pass "[static] capture marks an absent origin monitor explicitly"
+    else
+        fail "[static] capture did not mark the absent monitor: $marker_out $(cat "$marker_err")"
+    fi
+    rm -f -- "$marker_err"
+else
+    skip "[static] capture monitor marker (helper unavailable)"
+fi
+
+# The app/class identity origin is enough for the helper's existing class
+# matcher to focus a matching live window. The fake hyprctl plus --dry-run make
+# this a deterministic, non-mutating proof that no new navigation mechanism is
+# needed.
+if [[ -x "$ROOT/bin/workstation-notification-focus" ]]; then
+    class_root="$(mktemp -d)"
+    trap 'rm -rf -- "$class_root" || true' RETURN
+    mkdir -p -- "$class_root/bin"
+    cat >"$class_root/bin/hyprctl" <<'FAKE_CLASS_HYPRCTL'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  clients) printf '%s\n' '[{"address":"0xfeed","class":"fixture-app","initialClass":"fixture-app","title":"Fixture","initialTitle":"Fixture","pid":4242,"mapped":true,"hidden":false,"focusHistoryID":0,"workspace":{"id":2}}]' ;;
+  activewindow) printf '%s\n' '{}' ;;
+  dispatch) printf '%s\n' 'ok' ;;
+  *) printf '{}\n' ;;
+esac
+FAKE_CLASS_HYPRCTL
+    chmod +x "$class_root/bin/hyprctl"
+    class_origin='{"originVersion":1,"captureQuality":"identity","captureSource":"identity","notify":{"appName":"fixture-app","desktopEntry":"fixture-app"},"sender":{"ancestry":[],"focusEnv":{}},"compositor":{"matched":false,"matchConfidence":"none","candidates":[]},"tab":{"kind":null,"workspaceId":null,"tabId":null,"paneId":null}}'
+    class_out="$(PATH="$class_root/bin:$PATH" /usr/bin/timeout --kill-after=1s 5s \
+        "$ROOT/bin/workstation-notification-focus" navigate --dry-run \
+        --origin "$class_origin" 2>"$class_root/stderr.log" || true)"
+    if printf '%s' "$class_out" | jq -e \
+        '.outcome == "focused" and .confidence == "identity" and (.reason | contains("scored identity match"))' \
+        >/dev/null; then
+        pass "[static] app/class identity origin focuses a matching live window under dry-run"
+    else
+        fail "[static] app/class identity origin did not match: $class_out"
+    fi
+fi
+
+# Fallback-first end to end through the real Service: a monitor-less Herdr
+# notification resolves through the body workspace number, the reason reaches
+# the model and the persisted JSON, and a restore keeps it. An app-identity-only
+# row resolves through the stable desktop entry.
+fallback_fixture="$ROOT/tests/fixtures/notifications/fallback-first.qml"
+if [[ ! -f "$fallback_fixture" ]]; then
+    fail "[static] fallback-first notification fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] fallback-first notification fixture (qs or timeout unavailable)"
+else
+    fallback_root="$(mktemp -d)"
+    trap 'rm -rf -- "$fallback_root" || true' RETURN
+    mkdir -p -- "$fallback_root/runtime" "$fallback_root/state" \
+        "$fallback_root/config" "$fallback_root/cache" "$fallback_root/bin"
+    fallback_result="$fallback_root/result.json"
+    : >"$fallback_result"
+    fallback_log="$fallback_root/runtime.log"
+    fallback_sentinel="$fallback_root/navigate.sentinel"
+    write_notification_origin_stub "$fallback_root/bin/workstation-notification-focus"
+    fallback_identity='{"originVersion":1,"captureQuality":"identity","captureSource":"identity","notify":{"appName":"Herdr","desktopEntry":"Herdr"},"sender":{"ancestry":[],"focusEnv":{}},"compositor":{"matched":false,"matchConfidence":"none","candidates":[]},"tab":{"kind":null,"workspaceId":null,"tabId":null,"paneId":null},"monitorAvailable":false,"monitorState":"unavailable"}'
+    fallback_status=0
+    AURELIA_FALLBACK_RESULT="$fallback_result" \
+    AURELIA_FALLBACK_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_TEST_HELPER="$fallback_root/bin/workstation-notification-focus" \
+    AURELIA_NOTIFICATION_TEST_REGISTRY='[{"id":"fixture-app","action":"default","originFocus":true}]' \
+    AURELIA_NOTIFICATION_TEST_HELPER_TIMEOUT_MS=1000 \
+    AURELIA_STUB_CAPTURE_IDENTITY="$fallback_identity" \
+    AURELIA_STUB_NAVIGATE='{"action":"navigate","outcome":"unavailable","confidence":"none","reason":"no origin monitor"}' \
+    AURELIA_STUB_NAVIGATE_SENTINEL="$fallback_sentinel" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$fallback_root/runtime" \
+    XDG_STATE_HOME="$fallback_root/state" \
+    XDG_CONFIG_HOME="$fallback_root/config" \
+    XDG_CACHE_HOME="$fallback_root/cache" \
+        /usr/bin/timeout --kill-after=1s 16s /usr/bin/qs --no-duplicate \
+        --path "$fallback_fixture" --no-color >"$fallback_log" 2>&1 || fallback_status=$?
+
+    fallback_completed=0
+    if [[ "$fallback_status" -eq 0 ]]; then
+        fallback_completed=1
+    elif [[ "$fallback_status" -eq 124 && -s "$fallback_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$fallback_log"; then
+        fallback_completed=1
+    fi
+    if [[ "$fallback_completed" -eq 1 ]] && [[ -s "$fallback_result" ]] &&
+       runtime_log_is_environment_only "$fallback_log" \
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$fallback_log" &&
+       jq -e '
+            .serviceLoaded == true and
+            (.capturedOrigin | contains("\"monitorAvailable\":false")) and
+            (.capturedOrigin | contains("\"monitorState\":\"unavailable\"")) and
+            .capturedActionable == false and
+            .herdrRowRetained == true and
+            .herdrOutcome == "unavailable" and
+            .herdrReason == "no origin monitor" and
+            .diskOutcome == "unavailable" and
+            .diskReason == "no origin monitor" and
+            .restoredOutcome == "unavailable" and
+            .restoredReason == "no origin monitor" and
+            .appRowRetained == true and
+            (.appOriginSentinel | contains("\"workspaceId\":\"7\"")) and
+            (.appOriginSentinel | contains("\"desktopEntry\":\"fixture-app\"")) and
+            (.healthJson | fromjson | .helperAvailable == true) and
+            (.healthJson | fromjson | .monitorState == "unavailable") and
+            (.healthJson | fromjson | .lastCaptureOutcome == "identity") and
+            (.healthJson | fromjson | .lastCaptureReason == "origin monitor unavailable") and
+            (.healthJson | fromjson | (.helperPath | length) > 0) and
+            (.healthJson | fromjson | (.monitorSocket | length) > 0) and
+            (.healthJson | fromjson | (.revision | length) > 0) and
+            .noticePublishedOnce == true
+       ' "$fallback_result" >/dev/null; then
+        pass "[isolated-runtime] fallback-first origin resolution, reason persistence, restore, and health"
+    else
+        details="$(tail -n 48 "$fallback_log" || true)"
+        if [[ -s "$fallback_result" ]]; then details="$details result=$(tr '\n' ' ' <"$fallback_result")"; fi
+        fail "[isolated-runtime] fallback-first fixture failed (status=$fallback_status): $details"
+    fi
+fi
+
+# The degraded path needs the helper; when it is absent the service publishes
+# exactly one non-blocking notice and reports the health detail. An absent
+# MONITOR must never trigger the notice.
+notice_fixture="$ROOT/tests/fixtures/notifications/prerequisite-notice.qml"
+if [[ ! -f "$notice_fixture" ]]; then
+    fail "[static] notification prerequisite-notice fixture is missing"
+elif [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] notification prerequisite-notice fixture (qs or timeout unavailable)"
+else
+    notice_root="$(mktemp -d)"
+    trap 'rm -rf -- "$notice_root" || true' RETURN
+    mkdir -p -- "$notice_root/runtime" "$notice_root/state" \
+        "$notice_root/config" "$notice_root/cache"
+    notice_result="$notice_root/result.json"
+    : >"$notice_result"
+    notice_log="$notice_root/runtime.log"
+    notice_status=0
+    AURELIA_NOTICE_RESULT="$notice_result" \
+    AURELIA_NOTICE_SERVICE_SOURCE="file://$plugin_root/Service.qml" \
+    AURELIA_NOTIFICATION_TEST_HELPER="$notice_root/missing-workstation-notification-focus" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY="" \
+    XDG_RUNTIME_DIR="$notice_root/runtime" \
+    XDG_STATE_HOME="$notice_root/state" \
+    XDG_CONFIG_HOME="$notice_root/config" \
+    XDG_CACHE_HOME="$notice_root/cache" \
+        /usr/bin/timeout --kill-after=1s 10s /usr/bin/qs --no-duplicate \
+        --path "$notice_fixture" --no-color >"$notice_log" 2>&1 || notice_status=$?
+
+    notice_completed=0
+    if [[ "$notice_status" -eq 0 ]]; then
+        notice_completed=1
+    elif [[ "$notice_status" -eq 124 && -s "$notice_result" ]] &&
+         grep -Fq 'Signal QQmlEngine::quit() emitted' "$notice_log"; then
+        notice_completed=1
+    fi
+    if [[ "$notice_completed" -eq 1 ]] && [[ -s "$notice_result" ]] &&
+       runtime_log_is_environment_only "$notice_log" \
+           'Created graphical object was not placed in the graphics scene|Unable to find hyprland socket|quickshell\.hyprland\.ipc: Error making request' &&
+       ! grep -Eq 'TypeError|ReferenceError|Binding loop detected|Cannot assign|Loader\.Error' "$notice_log" &&
+       jq -e '
+            .serviceLoaded == true and
+            .helperProbeComplete == true and
+            .noticeCountFirst == 1 and
+            .noticeCountSecond == 1 and
+            (.healthJson | fromjson | .helperAvailable == false) and
+            (.healthJson | fromjson | .monitorState == "unknown")
+       ' "$notice_result" >/dev/null; then
+        pass "[isolated-runtime] a missing helper publishes exactly one non-nagging notice and reports health"
+    else
+        details="$(tail -n 48 "$notice_log" || true)"
+        if [[ -s "$notice_result" ]]; then details="$details result=$(tr '\n' ' ' <"$notice_result")"; fi
+        fail "[isolated-runtime] prerequisite-notice fixture failed (status=$notice_status): $details"
     fi
 fi

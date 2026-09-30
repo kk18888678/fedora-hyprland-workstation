@@ -1619,6 +1619,11 @@ def run_capture(args):
             desktop_entry=args.desktop_entry,
             urgency=args.urgency,
         )
+        # Make "no monitor" explicit instead of leaving a consumer to infer it
+        # from a null tab. This is diagnostic metadata only: usability is still
+        # decided by the consumer's own actionable test, never by this marker.
+        origin["monitorAvailable"] = False
+        origin["monitorState"] = "unavailable"
     sys.stdout.write(json.dumps(origin) + "\n")
     sys.stdout.flush()
     return 0

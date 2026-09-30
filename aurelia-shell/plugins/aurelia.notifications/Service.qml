@@ -298,6 +298,130 @@ Item {
             service.helperTimeoutText, program].concat(args)
     }
 
+    // ------------------------------------------------------------------
+    // Prerequisite health. Computed in exactly one place; the IPC handler and
+    // any UI surface read this same value, so no second probe path exists.
+    // An absent origin monitor is an expected enhancement gap in this task and
+    // deliberately does NOT count as a missing degraded-path prerequisite.
+    // ------------------------------------------------------------------
+    property bool helperProbeComplete: false
+    property bool helperAvailable: false
+    property bool prerequisiteNoticePublished: false
+    property var lastCapture: null
+    property string lastCaptureOutcome: ""
+    property string lastCaptureReason: ""
+    readonly property string shellRevision: {
+        var revision = Quickshell.env("AURELIA_NOTIFICATION_REVISION") ||
+            Quickshell.env("AURELIA_SHELL_REVISION") || ""
+        if (revision !== "") return revision
+        if (service.shell && service.shell.shellVersion !== undefined)
+            return String(service.shell.shellVersion)
+        return "unknown"
+    }
+    readonly property string monitorSocketPath: {
+        var override = Quickshell.env("AURELIA_NOTIFICATION_ORIGIN_SOCKET") || ""
+        if (override !== "") return override
+        var runtime = Quickshell.env("XDG_RUNTIME_DIR") || ""
+        if (runtime === "") return ""
+        return runtime.replace(/\/$/, "") + "/aurelia/notification-origin.sock"
+    }
+    property Process helperProbeProcess: Process {
+        running: false
+        onExited: function(code) {
+            service.helperProbeComplete = true
+            service.helperAvailable = (code === 0)
+            service.maybePublishPrerequisiteNotice()
+        }
+    }
+
+    function helperIsAvailable() {
+        if (service.originHelperPath === "") return false
+        return service.helperProbeComplete && service.helperAvailable
+    }
+
+    function probeHelperAvailability() {
+        if (service.originHelperPath === "") {
+            service.helperProbeComplete = true
+            service.helperAvailable = false
+            service.maybePublishPrerequisiteNotice()
+            return
+        }
+        if (service.helperProbeProcess.running) return
+        service.helperProbeProcess.command = ["/usr/bin/test", "-x", service.originHelperPath]
+        service.helperProbeProcess.running = true
+    }
+
+    function degradedPrerequisiteMissing() {
+        return service.helperProbeComplete && !service.helperIsAvailable()
+    }
+
+    function maybePublishPrerequisiteNotice() {
+        if (service.prerequisiteNoticePublished) return "none"
+        if (!service.degradedPrerequisiteMissing()) return "none"
+        return service.publishPrerequisiteNotice()
+    }
+
+    // Exactly one non-blocking Inbox notice, never a persistent banner. The
+    // full detail always stays available through the health IPC.
+    function publishPrerequisiteNotice() {
+        if (service.prerequisiteNoticePublished) return "none"
+        service.prerequisiteNoticePublished = true
+        var timestamp = Date.now()
+        var noticeId = -Math.max(1, timestamp)
+        var snapshot = {
+            id: noticeId,
+            originalId: noticeId,
+            app: "aurelia-notifications",
+            appIcon: "dialog-warning",
+            desktopEntry: "aurelia.notifications",
+            summary: "Notification Open is running in fallback mode",
+            body: "The origin helper is missing or not executable. Open still falls back to the workspace number and the app window, but exact targeting is unavailable.",
+            image: "",
+            glyph: "",
+            execArgv: "",
+            actions: [],
+            defaultActionText: "",
+            urgency: 1,
+            expireTimeout: 0,
+            timestamp: timestamp,
+            deadline: 0,
+            transient: false,
+            origin: "",
+            actionOutcome: "",
+            actionOutcomeReason: ""
+        }
+        var key = service.identityKey(noticeId, timestamp)
+        if (key !== "") liveSnapshots[key] = snapshot
+        service.persistPopupFile(snapshot)
+        activeNotificationsModel.insert(0, snapshot)
+        console.info("[NOTIFICATIONS] prerequisite.notice helper_unavailable")
+        return "ok"
+    }
+
+    function monitorState() {
+        var capture = service.lastCapture
+        if (!capture || typeof capture !== "object") return "unknown"
+        if (capture.monitorAvailable === false) return "unavailable"
+        if (capture.monitorAvailable === true) return "available"
+        return "unknown"
+    }
+
+    function healthPayload() {
+        return {
+            helperPath: service.originHelperPath,
+            helperAvailable: service.helperIsAvailable(),
+            monitorState: service.monitorState(),
+            monitorSocket: service.monitorSocketPath,
+            lastCaptureOutcome: service.lastCaptureOutcome,
+            lastCaptureReason: service.lastCaptureReason,
+            revision: service.shellRevision
+        }
+    }
+
+    function health() {
+        return JSON.stringify(service.healthPayload())
+    }
+
     // Capture is deliberately fire-and-forget: the notification is already
     // displayed and persisted, and a failed, timed-out or null capture leaves
     // it completely intact with no origin and no unmet condition.
@@ -312,9 +436,21 @@ Item {
         args.push("--timestamp", String(snapshot.timestamp))
         service.enqueueCaptureJob(service.boundedHelperCommand(service.originHelperPath, args),
             function(code, stdout) {
-                if (code !== 0) return
+                if (code !== 0) {
+                    service.lastCaptureOutcome = "failed"
+                    service.lastCaptureReason = "helper exit " + String(code)
+                    return
+                }
                 var origin = Logic.parseOriginOutput(stdout)
-                if (!origin) return
+                if (!origin) {
+                    service.lastCaptureOutcome = "failed"
+                    service.lastCaptureReason = "no capture record"
+                    return
+                }
+                service.lastCaptureOutcome = String(origin.captureQuality || "identity")
+                service.lastCaptureReason = origin.monitorAvailable === false
+                    ? "origin monitor unavailable"
+                    : "capture record received"
                 service.applyCapturedOrigin(snapshot.originalId, snapshot.timestamp, origin)
             },
             "capture:" + snapshot.originalId)
@@ -328,6 +464,7 @@ Item {
         if (!snapshot || !service.hasUsableIdentity(snapshot.originalId, snapshot.timestamp)) return
         if (snapshot.origin) return
         snapshot.origin = Logic.originFieldValue(origin)
+        service.lastCapture = origin
         updateModelRows(activeNotificationsModel, snapshot, originalId, timestamp)
         updateModelRows(popupNotificationsModel, snapshot, originalId, timestamp)
         persistPopupFile(snapshot)
@@ -341,13 +478,23 @@ Item {
     function applyActionOutcome(originalId, timestamp, outcome, reason) {
         var key = service.identityKey(originalId, timestamp)
         if (key === "") return
+        var boundedOutcome = Logic.boundedOutcome(outcome)
+        var boundedReason = Logic.boundedReason(reason)
         var snapshot = liveSnapshots[key]
         if (snapshot) {
-            snapshot.actionOutcome = String(outcome || "")
-            snapshot.actionOutcomeReason = String(reason || "")
+            snapshot.actionOutcome = boundedOutcome
+            snapshot.actionOutcomeReason = boundedReason
         }
-        service.setModelOutcome(activeNotificationsModel, originalId, timestamp, outcome, reason)
-        service.setModelOutcome(popupNotificationsModel, originalId, timestamp, outcome, reason)
+        service.setModelOutcome(activeNotificationsModel, originalId, timestamp, boundedOutcome, boundedReason)
+        service.setModelOutcome(popupNotificationsModel, originalId, timestamp, boundedOutcome, boundedReason)
+        // Mirror the captured-origin persistence so the reason outlives the
+        // transient toast and survives a shell reload on the Inbox row.
+        var persistable = snapshot
+        if (!persistable) {
+            var row = service.snapshotForIdentity(originalId, timestamp)
+            persistable = row ? Logic.popupEntry(row, 1) : null
+        }
+        if (persistable) service.persistPopupFile(persistable)
     }
 
     function setModelOutcome(model, originalId, timestamp, outcome, reason) {
@@ -809,6 +956,11 @@ Item {
         var activeChanged = updateModelRows(activeNotificationsModel, updated, current.originalId, current.timestamp)
         var popupChanged = updateModelRows(popupNotificationsModel, updated, current.originalId, current.timestamp)
         if (activeChanged > 0 || popupChanged > 0) {
+            // A sender refresh must not erase the durable outcome the row is
+            // still displaying; the model role is untouched by updateModelRows
+            // and the persisted JSON must match.
+            updated.actionOutcome = current.actionOutcome || ""
+            updated.actionOutcomeReason = current.actionOutcomeReason || ""
             liveSnapshots[liveKey] = updated
             persistPopupFile(updated)
         }
@@ -1377,7 +1529,9 @@ Item {
         var herdr = Logic.herdrRoute({ appName: entry.app, body: entry.body })
         return ActionRegistry.resolveForEntry(service.actionRegistry, entry, identifier, {
             origin: service.originFrom(entry),
-            herdrNumber: herdr ? herdr.number : null
+            herdrNumber: herdr ? herdr.number : null,
+            desktopEntry: entry.desktopEntry,
+            app: entry.app
         })
     }
 
@@ -1623,6 +1777,7 @@ Item {
         function invokeLast(): string { return service.invokeLast() }
         function dismiss(summary: string): string { return service.dismissBySummary(summary) }
         function publishScreenshot(path: string): string { return service.publishScreenshot(path) }
+        function health(): string { return service.health() }
     }
 
     Loader {
@@ -1655,6 +1810,7 @@ Item {
         if (!service.testMode) {
             probeNotificationBus()
             notificationBusHealthTimer.start()
+            service.probeHelperAvailability()
         }
         if (stateDir === "") {
             console.error("[NOTIFICATIONS] state_directory_unavailable")
@@ -1672,6 +1828,7 @@ Item {
         notificationServerRestartTimer.stop()
         popupFileRetryTimer.stop()
         notificationBusProbe.running = false
+        helperProbeProcess.running = false
         notificationServerLoader.active = false
     }
 
