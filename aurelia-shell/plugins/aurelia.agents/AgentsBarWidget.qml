@@ -444,26 +444,23 @@ Item {
         anchors.centerIn: parent
         width: root.iconCanvas
         height: root.iconCanvas
-        layer.enabled: root.transparentBar && root.alertTint
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowColor: root.alertHaloColor
-            shadowOpacity: 0.95
-            shadowBlur: 0.55
-            shadowHorizontalOffset: 0
-            shadowVerticalOffset: 0
-            shadowScale: 1.0
-        }
 
         AureliaIcon {
             id: agentGlyph
+            objectName: "agentGlyph"
             anchors.centerIn: parent
+            // Optical nudge: the robot's visual centre of mass is y = 14.3 on
+            // the 24-unit grid against an ink centre of 12, so it looks about
+            // 11% low. This is applied to this glyph only; AureliaIcon keeps
+            // its generic centring.
+            anchors.verticalCenterOffset: -1
             width: root.iconCanvas
             height: root.iconCanvas
             iconSize: root.iconCanvas
             glyph: "󰚩"
-            tint: root.stateTint === "barForeground" ? root.barForeground : root.statusColor
-            opacity: root.stateOpacity
+            // Usage is shown ONLY by the dot; the glyph itself never takes the
+            // status colour or a dimmed opacity.
+            tint: root.barForeground
         }
 
         // A 4 px dot marks warn/critical/error only; staleness never removes
@@ -471,14 +468,35 @@ Item {
         // is not an actionable alarm and keeps no dot.
         Rectangle {
             id: stateDot
+            objectName: "stateDot"
             visible: root.stateDot
             width: 4
             height: 4
             radius: 2
             color: root.statusColor
             opacity: root.stateOpacity
-            anchors.right: agentGlyph.right
-            anchors.top: agentGlyph.top
+            // 󰚩 head top-right is a quarter circle centred at (14,14) r=7 on
+            // the 24-unit MDI grid. At the 16 px icon canvas (ink ≈ 0.584
+            // px/unit) a 4 px dot with a 1 px gap has its centre at ink-box
+            // fractions (0.98, 0.17): outside the glyph shape, tangent to the
+            // head's top-right shoulder. There is deliberately NO ring and no
+            // surface behind the dot: painting one would break the documented
+            // "transparent = no surface, opaque = themed surface" invariant.
+            x: Math.round(agentGlyph.x + agentGlyph.glyphInkRect.x + 0.98 * agentGlyph.glyphInkRect.width - width / 2)
+            y: Math.round(agentGlyph.y + agentGlyph.glyphInkRect.y + 0.17 * agentGlyph.glyphInkRect.height - height / 2)
+            // The transparent-bar alert halo now wraps ONLY the dot. The
+            // neutral glyph takes the bar's normal global halo like every
+            // other widget, and the opaque bar shows neither halo nor ring.
+            layer.enabled: root.transparentBar && root.alertTint
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: root.alertHaloColor
+                shadowOpacity: 0.95
+                shadowBlur: 0.55
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: 0
+                shadowScale: 1.0
+            }
         }
     }
 
@@ -488,6 +506,9 @@ Item {
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
         cursorShape: Qt.PointingHandCursor
+        // Dismiss the tooltip the moment the pointer presses, so after a click
+        // it never sits on top of the panel that just opened.
+        onPressed: barToolTip.dismiss()
         onClicked: function (mouse) {
             mouse.accepted = true
             if (mouse.button === Qt.RightButton) root.launch()
@@ -497,9 +518,12 @@ Item {
     }
 
     AureliaToolTip {
+        id: barToolTip
         triggerItem: root
         bar: root.bar
-        hovered: pointerHover.hovered
+        // The tooltip may reappear only after the pointer leaves and re-enters
+        // while the panel is closed.
+        hovered: pointerHover.hovered && !root.isVisible()
         text: root.tooltipText()
     }
 }

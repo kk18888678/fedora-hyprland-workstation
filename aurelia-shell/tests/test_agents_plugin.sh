@@ -154,14 +154,36 @@ else
     fail "[static] agents bar affordance is not icon-only or still carries text state"
 fi
 
-# The hover fill must never replace the severity tint (the old containsMouse
-# accent bug erased the alarm exactly when the user hovered to inspect it).
+# The bar glyph is NEUTRAL: usage is shown only by the dot. The hover fill
+# must never replace the severity tint, and the glyph must never take the
+# status colour or a dimmed opacity. The 4 px badge dot is placed from the
+# glyph's ink box with NO ring and no surface behind it (transparent = no
+# surface), and the tooltip is dismissed on press and hidden while the panel
+# is open.
+glyph_block="$(awk '
+    /AureliaIcon[[:space:]]*\{/ { inblock = 1; depth = 0 }
+    inblock {
+        print
+        line = $0
+        opens = gsub(/\{/, "{", line)
+        closes = gsub(/\}/, "}", line)
+        depth += opens - closes
+        if (depth <= 0) inblock = 0
+    }
+' "$plugin_dir/AgentsBarWidget.qml")"
 if grep -q 'root.isVisible() || pointerHover.hovered ? Theme.selection : "transparent"' "$plugin_dir/AgentsBarWidget.qml" &&
-   grep -q 'tint: root.stateTint === "barForeground" ? root.barForeground : root.statusColor' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'tint: root.barForeground' <<<"$glyph_block" &&
+   ! grep -q 'statusColor' <<<"$glyph_block" &&
+   ! grep -q 'stateOpacity' <<<"$glyph_block" &&
+   ! grep -q 'Theme.bar.background' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q '0.98 \* agentGlyph.glyphInkRect.width' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q '0.17 \* agentGlyph.glyphInkRect.height' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'hovered: pointerHover.hovered && !root.isVisible()' "$plugin_dir/AgentsBarWidget.qml" &&
+   grep -q 'onPressed: barToolTip.dismiss()' "$plugin_dir/AgentsBarWidget.qml" &&
    ! grep -q 'containsMouse ? Theme.accent' "$plugin_dir/AgentsBarWidget.qml"; then
-    pass "[static] hover paints only the selection fill and never overrides the agents severity tint"
+    pass "[static] bar glyph is neutral, the badge dot is ink-placed with no ring, and the tooltip hides while the panel is open"
 else
-    fail "[static] hover still overrides the agents severity tint"
+    fail "[static] agents bar glyph/dot/tooltip contract is incomplete"
 fi
 
 if grep -q 'function open(payloadJson)' "$plugin_dir/AgentsBarWidget.qml" &&
@@ -2061,6 +2083,62 @@ if [[ "$focus_status" -eq 0 && -s "$focus_result" ]] &&
     pass "[isolated-runtime] a pointer selection leaves no keyboard focus ring while real keyboard navigation establishes and shows one"
 else
     fail "[isolated-runtime] focus-ring policy regressed (status=$focus_status result=$(cat "$focus_result" 2>&1 || true))"
+fi
+
+# ---------------------------------------------------------------------------
+# Badge dot placement (isolated runtime)
+#
+# The spec's earlier "within 2 px of the ink box's top-right corner" wording
+# would fail the arithmetic, so the probe is three assertions instead:
+#   (a) the dot centre matches the (0.98, 0.17) ink-box fractions (+/- 1 px,
+#       the tolerance covering Math.round);
+#   (b) the dot centre lies inside glyphInkRect;
+#   (c) a sanity guard on the ink box aspect (1.05..1.15) proving glyphInkRect
+#       is the tight ink, not the line box or advance. If (c) fails, the test
+#       fails and the measured rect is printed; the fractions are NOT retuned.
+# Whether the dot LOOKS tangent to the head remains a human visual check.
+# ---------------------------------------------------------------------------
+if [[ ! -x /usr/bin/qs || ! -x /usr/bin/timeout ]]; then
+    skip "[isolated-runtime] agents badge dot placement (qs or timeout unavailable)"
+    return 0
+fi
+
+dot_root="$(mktemp -d)"
+trap 'rm -rf -- "$dot_root" || true' RETURN
+mkdir -p -- "$dot_root/runtime" "$dot_root/state" "$dot_root/config" "$dot_root/cache"
+dot_result="$dot_root/dot.json"
+dot_log="$dot_root/runtime.log"
+dot_status=0
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$dot_root/runtime" \
+XDG_CONFIG_HOME="$dot_root/config" \
+XDG_STATE_HOME="$dot_root/state" \
+XDG_CACHE_HOME="$dot_root/cache" \
+AGENTS_WIDGET_SOURCE="$plugin_dir/AgentsBarWidget.qml" \
+AGENTS_BAR_DOT_RESULT="$dot_result" \
+    /usr/bin/timeout --kill-after=1s 20s /usr/bin/qs --no-duplicate \
+    --path "$ROOT/tests/fixtures/agents-bar-dot/shell.qml" >"$dot_log" 2>&1 || dot_status=$?
+
+dot_aspect="$(jq -r 'if .ink and .ink.height > 0 then (.ink.width / .ink.height) else "n/a" end' "$dot_result" 2>/dev/null || true)"
+if [[ "$dot_status" -eq 0 && -s "$dot_result" ]] &&
+   jq -e '
+        .glyphFound == true and .dotFound == true and
+        .ink.width > 0 and .ink.height > 0 and
+        ((.ink.width / .ink.height) >= 1.05 and (.ink.width / .ink.height) <= 1.15) and
+        (((.dotCentreInGlyph.x - (.ink.x + 0.98 * .ink.width)) | fabs) <= 1) and
+        (((.dotCentreInGlyph.y - (.ink.y + 0.17 * .ink.height)) | fabs) <= 1) and
+        (.dotCentreInGlyph.x >= .ink.x and .dotCentreInGlyph.x <= (.ink.x + .ink.width)) and
+        (.dotCentreInGlyph.y >= .ink.y and .dotCentreInGlyph.y <= (.ink.y + .ink.height))
+   ' "$dot_result" >/dev/null; then
+    pass "[isolated-runtime] badge dot centre matches the (0.98, 0.17) ink-box fractions inside the true glyph ink (aspect $dot_aspect)"
+else
+    fail "[isolated-runtime] agents badge dot placement regressed (status=$dot_status aspect=$dot_aspect result=$(cat "$dot_result" 2>&1 || true))"
+fi
+if runtime_log_is_environment_only "$dot_log" '(\[AGENTS\]|@shell\.qml)' >/dev/null; then
+    pass "[isolated-runtime] badge dot probe runtime log contains only environment diagnostics"
+else
+    fail "[isolated-runtime] badge dot probe runtime log contains unexpected diagnostics: $(tr '\n' ' ' <"$dot_log")"
 fi
 
 # ---------------------------------------------------------------------------
