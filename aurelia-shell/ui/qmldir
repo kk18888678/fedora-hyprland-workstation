@@ -4,6 +4,8 @@ AureliaMark 1.0 AureliaMark.qml
 AureliaKeyboardPanel 1.0 AureliaKeyboardPanel.qml
 AureliaPopupCard 1.0 AureliaPopupCard.qml
 AureliaToolTip 1.0 AureliaToolTip.qml
+AureliaToolTipContent 1.0 AureliaToolTipContent.qml
+AureliaInlineToolTip 1.0 AureliaInlineToolTip.qml
 AureliaIconButton 1.0 AureliaIconButton.qml
 PointerMoveGate 1.0 PointerMoveGate.qml
 ScreenshotPanel 1.0 ScreenshotPanel.qml

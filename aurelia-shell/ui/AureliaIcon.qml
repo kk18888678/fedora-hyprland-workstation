@@ -60,6 +60,17 @@ Item {
 
     readonly property string resolvedGlyph: root.glyph !== "" ? root.glyph : root.glyphForName(root.name)
     readonly property bool usingGlyph: root.resolvedGlyph !== ""
+    // Ink bounds of the rendered glyph in this item's coordinates. It is the
+    // glyph's tight ink box, not its line box or advance, so callers can place
+    // decorations against the drawn shape (for example a badge dot on the
+    // robot's head shoulder). It is a zero rect for the image path, which has
+    // no comparable single-shape metric.
+    readonly property rect glyphInkRect: root.usingGlyph
+        ? Qt.rect(glyphText.x + glyphMetrics.tightBoundingRect.x,
+                  glyphText.y + glyphText.baselineOffset + glyphMetrics.tightBoundingRect.y,
+                  glyphMetrics.tightBoundingRect.width,
+                  glyphMetrics.tightBoundingRect.height)
+        : Qt.rect(0, 0, 0, 0)
     readonly property real resolvedGlyphPixelSize: root.glyphPixelSize > 0
         ? root.glyphPixelSize
         : Math.max(1, Math.round(root.iconSize * 0.9))
