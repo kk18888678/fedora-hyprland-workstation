@@ -68,3 +68,50 @@ if [[ "$events_status" -eq 0 && -s "$events_result" && "$binding_loops" -eq 0 ]]
 else
     fail "[isolated-runtime] real hover delivery regressed (status=$events_status loops=$binding_loops result=$(cat "$events_result" 2>&1))"
 fi
+
+# --- Items 5-6: real arrow/Enter keys move and expand the focused row, `C`
+# collapses, and Escape is layered (collapse first, close only when nothing is
+# expanded). These assertions only hold when the events actually reached the
+# dashboard (the earlier design called handleKey() directly and proved
+# nothing). `focusRegionAtRest` is the regression that made the arrow keys
+# operate on the action row: it must be "matrix".
+if [[ "$events_status" -eq 0 && -s "$events_result" && "$binding_loops" -eq 0 ]] &&
+   jq -e '
+        .focusRegionAtRest == "matrix" and
+        .focusRegionBeforeKey == "matrix" and
+        .keyTargetActiveFocus == true and
+        .focusRowBeforeKey == 0 and
+        .focusRowAfterDown == 1 and
+        .cursorActiveAfterDown == true and
+        .hasSelectionAfterReturn == true and
+        .keyHintTextExpanded == "\u2191\u2193 select   C collapse   R refresh   Esc close" and
+        .hasSelectionAfterCollapseC == false and
+        .hasSelectionAfterNoopC == false and
+        .hasSelectionAfterReturn2 == true and
+        .hasSelectionAfterEscape1 == false and
+        .dismissCallsAfterEscape2 == 1' \
+       "$events_result" >/dev/null; then
+    pass "[isolated-runtime] real keys move and expand the focused row, C collapses, and Escape collapses then closes"
+else
+    fail "[isolated-runtime] real keyboard delivery regressed (status=$events_status loops=$binding_loops result=$(cat "$events_result" 2>&1))"
+fi
+
+# --- Item 7: reopening the panel always restarts from the resting
+# consolidated matrix, with ACCOUNT DETAILS collapsed because identity is
+# private. In-session persistence survives only while the panel stays open.
+if [[ "$events_status" -eq 0 && -s "$events_result" && "$binding_loops" -eq 0 ]] &&
+   jq -e '
+        .hasSelectionBeforeReopen == true and
+        .accountExpandedBeforeReopen == true and
+        .hasSelectionAfterReopen == false and
+        .accountExpandedAfterReopen == false and
+        .focusRowAfterReopen == 0 and
+        .focusRegionAfterReopen == "matrix" and
+        .cursorActiveAfterReopen == false and
+        .rotationIndexAfterReopen == 0 and
+        .detailScrollAfterReopen == 0' \
+       "$events_result" >/dev/null; then
+    pass "[isolated-runtime] reopening the panel resets to the resting matrix with ACCOUNT DETAILS collapsed"
+else
+    fail "[isolated-runtime] reopen reset regressed (status=$events_status loops=$binding_loops result=$(cat "$events_result" 2>&1))"
+fi

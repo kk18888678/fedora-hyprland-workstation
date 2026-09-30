@@ -12,8 +12,9 @@ import Quickshell.Io
 //   * hovering a real matrix cell opens the shared inline tooltip with that
 //     cell's lines and switches the footer hint to the pace legend;
 //   * moving the pointer away hides the inline tooltip;
-//   * a real Qt.Key_Down moves the keyboard cursor, and Qt.Key_Return expands
-//     the focused row.
+//   * real arrow/Enter/C/Escape keys move and expand/collapse the focused row;
+//   * reopening the panel (panelShown false -> true) restarts from the resting
+//     consolidated matrix with ACCOUNT DETAILS collapsed.
 Window {
     id: root
 
@@ -33,6 +34,7 @@ Window {
 
     property var records: []
     property var result: ({})
+    property int dismissCalls: 0
     property bool written: false
 
     visible: true
@@ -75,6 +77,7 @@ Window {
                 item.agentsWidget = mockWidget
                 item.nowMs = 1789819200000
                 item.maxHeight = 620
+                item.dismissHook = function() { root.dismissCalls += 1 }
                 item.panelShown = true
             }
             onStatusChanged: {
@@ -194,13 +197,78 @@ Window {
             root.result.focusRegionBeforeKey = d ? String(d.focusRegion) : null
             root.result.keyTargetActiveFocus = d && d.keyTarget
                 ? d.keyTarget.activeFocus === true : null
-            var beforeRow = d ? d.focusRow : -1
+            root.result.focusRowBeforeKey = d ? d.focusRow : -1
             tc.keyClick(Qt.Key_Down)
-            root.result.focusRowBeforeKey = beforeRow
-            root.result.focusRowAfterKey = d ? d.focusRow : -1
-            root.result.cursorActiveAfterKey = d ? d.cursorActive === true : null
+            root.result.focusRowAfterDown = d ? d.focusRow : -1
+            root.result.cursorActiveAfterDown = d ? d.cursorActive === true : null
             tc.keyClick(Qt.Key_Return)
             root.result.hasSelectionAfterReturn = d ? d.hasSelection === true : null
+            root.result.keyHintTextExpanded = d && d.footerHint
+                ? String(d.footerHint.text) : null
+            tc.keyClick(Qt.Key_C)
+            root.result.hasSelectionAfterCollapseC = d ? d.hasSelection === true : null
+            // C with nothing expanded must be a no-op.
+            tc.keyClick(Qt.Key_C)
+            root.result.hasSelectionAfterNoopC = d ? d.hasSelection === true : null
+            // Expand again, then the first Escape collapses.
+            tc.keyClick(Qt.Key_Return)
+            root.result.hasSelectionAfterReturn2 = d ? d.hasSelection === true : null
+            tc.keyClick(Qt.Key_Escape)
+            root.result.hasSelectionAfterEscape1 = d ? d.hasSelection === true : null
+            // The second Escape closes the panel through the dismiss hook.
+            tc.keyClick(Qt.Key_Escape)
+            root.result.dismissCallsAfterEscape2 = root.dismissCalls
+            reopenTimer.restart()
+        }
+    }
+
+    Timer {
+        id: reopenTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
+            var d = root.dashboard
+            var flick = root.findByObjectName("agentsDetailFlick")
+            if (d) {
+                d.selectedAccountId = "codex"
+                d.accountDetailsExpanded = { codex: true }
+                d.rotationIndex = 2
+                d.cursorActive = true
+            }
+            if (flick) flick.contentY = 40
+            root.result.hasSelectionBeforeReopen = d ? d.hasSelection === true : null
+            root.result.accountExpandedBeforeReopen = d ? d.accountExpanded === true : null
+            if (d) d.panelShown = false
+            reopenShowTimer.restart()
+        }
+    }
+
+    Timer {
+        id: reopenShowTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
+            var d = root.dashboard
+            if (d) d.panelShown = true
+            reopenAssertTimer.restart()
+        }
+    }
+
+    Timer {
+        id: reopenAssertTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            var d = root.dashboard
+            var flick = root.findByObjectName("agentsDetailFlick")
+            root.result.hasSelectionAfterReopen = d ? d.hasSelection === true : null
+            root.result.accountExpandedAfterReopen = d ? d.accountExpanded === true : null
+            root.result.focusRowAfterReopen = d ? d.focusRow : -1
+            root.result.focusRegionAfterReopen = d ? String(d.focusRegion) : null
+            root.result.cursorActiveAfterReopen = d ? d.cursorActive === true : null
+            root.result.rotationIndexAfterReopen = d ? d.rotationIndex : -1
+            root.result.detailScrollAfterReopen = flick
+                ? Math.round(flick.contentY * 100) / 100 : null
             writeTimer.restart()
         }
     }

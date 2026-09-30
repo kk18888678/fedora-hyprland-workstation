@@ -57,7 +57,25 @@ Item {
     property bool panelShown: false
     // Index into the idle footer rotation. Reset to 0 whenever the panel opens.
     property int rotationIndex: 0
-    onPanelShownChanged: if (panelShown) rotationIndex = 0
+    // Opening the panel ALWAYS starts from the resting consolidated matrix.
+    // Every open restores the same state regardless of what was expanded when
+    // it was last closed: no selection, no keyboard cursor, focus row 0, the
+    // detail pane at the top, the idle rotation at index 0, and ACCOUNT
+    // DETAILS collapsed for every account because identity is private and a
+    // reopened panel must not show it without a deliberate action. In-session
+    // disclosure state still survives while the panel stays open.
+    onPanelShownChanged: {
+        if (!panelShown) return
+        rotationIndex = 0
+        clearSelection()
+        accountDetailsExpanded = ({})
+        cursorActive = false
+        focusRegion = "matrix"
+        focusRow = 0
+        if (detailFlick) detailFlick.contentY = 0
+        if (keyScope && typeof keyScope.forceActiveFocus === "function")
+            keyScope.forceActiveFocus()
+    }
 
     // Surface tokens exposed so the offscreen preview harness can reproduce the
     // panel card without importing the Theme singleton itself.
@@ -161,6 +179,7 @@ Item {
         stale: overallFreshness.stale,
         ageText: overallFreshness.stale ? overallFreshness.ageText : "",
         keyboard: cursorActive,
+        expanded: hasSelection,
         hoverColumn: hoverColumn,
         hoverRow: hoverRow,
         hoverAccount: hoverRow >= 0 && hoverRow < rows.length ? rows[hoverRow].name : "",
@@ -212,7 +231,15 @@ Item {
 
     function visibleRegions() {
         var regions = []
-        if (rows.length > 0) regions.push("matrix")
+        // The matrix region ALWAYS exists: even with no accounts the block
+        // renders the "No AI coding subscriptions found." message. Omitting it
+        // while `rows` was momentarily empty let clampFocus() demote the
+        // default "matrix" region to "actions", so the arrow keys then moved
+        // within the action row instead of the account rows. That was the real
+        // cause of "keyboard up/down and Enter do nothing"; the pre-redesign
+        // revision (247a3ae) has the identical logic and behaves identically,
+        // so it is pre-existing, not a regression.
+        regions.push("matrix")
         if (hasSelection) regions.push("detail")
         regions.push("actions")
         return regions
@@ -414,7 +441,10 @@ Item {
         var key = event.key
         var text = String(event.text || "").toLowerCase()
         if (key === Qt.Key_Escape) {
-            if (typeof dashboard.dismissHook === "function") dashboard.dismissHook()
+            // Layered: an expanded account collapses first, and only a panel
+            // with nothing expanded closes.
+            if (dashboard.hasSelection) clearSelection()
+            else if (typeof dashboard.dismissHook === "function") dashboard.dismissHook()
             event.accepted = true
             return
         }
@@ -430,6 +460,13 @@ Item {
         }
         if (text === "r") {
             refreshNow(true)
+            event.accepted = true
+            return
+        }
+        if (text === "c") {
+            // Collapse the expanded account. With nothing expanded this is a
+            // deliberate no-op.
+            if (dashboard.hasSelection) clearSelection()
             event.accepted = true
             return
         }
@@ -1445,7 +1482,9 @@ Item {
                     spacing: Theme.spacingSm
 
                     Repeater {
-                        model: ["↑↓ select", "↵ details", "R refresh", "Esc close"]
+                        model: ["↑↓ select",
+                            dashboard.hasSelection ? "C collapse" : "↵ details",
+                            "R refresh", "Esc close"]
 
                         delegate: Rectangle {
                             required property string modelData
@@ -1566,6 +1605,7 @@ Item {
 
             Flickable {
                 id: detailFlick
+                objectName: "agentsDetailFlick"
                 anchors.fill: parent
                 implicitHeight: Math.min(detailColumn.implicitHeight, dashboard.maxDetailHeight)
                 contentWidth: width

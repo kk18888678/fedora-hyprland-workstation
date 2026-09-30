@@ -1004,11 +1004,13 @@ assert(A.footerHint({stale: true, ageText: "42m"}).priority === 1 &&
   A.footerHint({stale: true, ageText: "42m"}).text === "Usage data is 42m old · press R to refresh" &&
   A.footerHint({stale: true, ageText: "42m"}).tone === "warning");
 assert(A.footerHint({stale: true, ageText: "42m", keyboard: true, hoverColumn: "five_hour", hoverRow: 2}).priority === 1, "stale wins");
-assert(A.footerHint({keyboard: true}).priority === 2 && A.footerHint({keyboard: true}).kind === "keys");
+assert(A.footerHint({keyboard: true}).priority === 2 && A.footerHint({keyboard: true}).kind === "keys" &&
+  A.footerHint({keyboard: true}).text === "\u2191\u2193 select   \u21b5 details   R refresh   Esc close" &&
+  A.footerHint({keyboard: true, expanded: true}).text === "\u2191\u2193 select   C collapse   R refresh   Esc close");
 assert(A.footerHint({hoverColumn: "week"}).priority === 3 && A.footerHint({hoverColumn: "week"}).kind === "legend");
 assert(A.footerHint({hoverRow: 3, hoverAccount: "Cline"}).priority === 4 &&
   A.footerHint({hoverRow: 3, hoverAccount: "Cline"}).text === "Click for Cline limits, models and history");
-assert(A.footerHint({hoverRow: 3, hoverAccount: "Cline", rowSelected: true}).text === "Click again to collapse");
+assert(A.footerHint({hoverRow: 3, hoverAccount: "Cline", rowSelected: true}).text === "Click again or press C to collapse");
 assert(A.footerHint({idleIndex: 0}).priority === 5 && A.footerHint({idleIndex: 0}).kind === "text");
 assert(A.footerHint({idleIndex: 1}).kind === "legend" && A.footerHint({idleIndex: 2}).kind === "keys");
 assert(A.footerHint({idleIndex: 3}).kind === "text" && A.footerHint({idleIndex: 3}).priority === 5, "rotation wraps");

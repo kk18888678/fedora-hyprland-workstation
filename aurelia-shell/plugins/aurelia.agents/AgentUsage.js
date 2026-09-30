@@ -1746,7 +1746,9 @@ function footerHint(ctx) {
         return {
             priority: 2,
             kind: "keys",
-            text: "↑↓ select   ↵ details   R refresh   Esc close",
+            text: c.expanded === true
+                ? "↑↓ select   C collapse   R refresh   Esc close"
+                : "↑↓ select   ↵ details   R refresh   Esc close",
             tone: "default"
         };
     }
@@ -1759,7 +1761,7 @@ function footerHint(ctx) {
             priority: 4,
             kind: "text",
             text: c.rowSelected === true
-                ? "Click again to collapse"
+                ? "Click again or press C to collapse"
                 : "Click for " + account + " limits, models and history",
             tone: "default"
         };
