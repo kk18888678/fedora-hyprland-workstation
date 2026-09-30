@@ -38,6 +38,14 @@ PopupWindow {
     visible: root.hovered && root.revealed && root.anchorWindow !== null &&
         root.triggerItem !== null && root.hasContent
     color: "transparent"
+    // The tooltip is a pure overlay: it must NEVER take pointer input. If it
+    // did, a popup that mapped under the cursor would make the trigger lose
+    // hover, which dismissed the tooltip, which let the pointer re-enter the
+    // trigger and reopen it: an open/close flicker loop. An empty input region
+    // makes the surface click-through, so hovering the icon can never be
+    // interrupted by the tooltip that is describing it. Rendering is
+    // unaffected; the input region is not a visual clip.
+    mask: Region {}
     implicitWidth: tooltipBody.implicitWidth + horizontalPadding * 2
     implicitHeight: tooltipBody.implicitHeight + verticalPadding * 2
 

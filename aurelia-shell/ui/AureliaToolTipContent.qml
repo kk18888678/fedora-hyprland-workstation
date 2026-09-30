@@ -39,6 +39,27 @@ Item {
 
     readonly property int bodyFontSize: Theme.fontSizeSm
 
+    // One-way wrap decision for the plain-text body. The alignment below must
+    // NOT read `lineCount`: lineCount is a function of the Text's own laid-out
+    // width, which is itself derived from this body's alignment-sensitive
+    // layout, so `lineCount > 1 ? AlignLeft : AlignHCenter` was a binding loop
+    // (reproduced on the live shell as:
+    //   Binding loop detected for property "horizontalAlignment" in
+    //   AureliaToolTipContent.qml). TextMetrics measures the unconstrained
+    //   advance against the same cap the layout uses, so the wrap decision
+    //   reads only `text`, the font and `maxTextWidth`.
+    readonly property bool textExceedsCap: plainTextMetrics.advanceWidth > maxTextWidth
+    readonly property bool textHasNewline: contentRoot.text.indexOf("\n") >= 0
+    readonly property bool textIsWrapped: !contentRoot.structured &&
+        (contentRoot.textExceedsCap || contentRoot.textHasNewline)
+
+    TextMetrics {
+        id: plainTextMetrics
+        font.family: Theme.fontFamilyResolved
+        font.pixelSize: contentRoot.bodyFontSize
+        text: contentRoot.text
+    }
+
     function toneGlyph(tone) {
         if (tone === "warning") return "\u25b2"
         if (tone === "error") return "\u25cf"
@@ -141,7 +162,8 @@ Item {
             font.pixelSize: contentRoot.bodyFontSize
             lineHeight: 1.15
             wrapMode: Text.WordWrap
-            horizontalAlignment: lineCount > 1 ? Text.AlignLeft : Text.AlignHCenter
+            horizontalAlignment: contentRoot.textIsWrapped
+                ? Text.AlignLeft : Text.AlignHCenter
         }
 
         // Structured list: tone dot, bold name, right-aligned value.
