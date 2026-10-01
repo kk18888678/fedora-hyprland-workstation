@@ -9,6 +9,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$ROOT/tests/test_helper.sh"
 
+run_suite "$ROOT/tests/test_harness_integrity.sh"
 run_suite "$ROOT/tests/test_syntax.sh"
 run_suite "$ROOT/tests/test_common.sh"
 run_suite "$ROOT/tests/test_execution.sh"

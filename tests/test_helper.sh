@@ -9,8 +9,13 @@ HELPER_ROOT="$ROOT"
 export ROOT
 export HELPER_ROOT
 export WORKSTATION_TEST_MODE=1
-FAILS=0
-PASSES=0
+
+# Counters must be idempotent under re-sourcing. tests/test_config_architecture.sh
+# re-sources this file while the aggregate runner is live; unconditional
+# assignment here used to erase every outcome recorded before the re-source,
+# hiding failures because print_test_summary exits on FAILS alone.
+: "${FAILS:=0}"
+: "${PASSES:=0}"
 
 pass() {
     PASSES=$((PASSES + 1))
