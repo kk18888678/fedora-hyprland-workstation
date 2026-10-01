@@ -83,7 +83,9 @@ Item {
     // is deterministic and avoids both binding loops and imperative
     // TextMetrics reads that are not available synchronously.
     implicitWidth: Math.min(maxTextWidth, Math.max(1, measureColumn.implicitWidth))
-    implicitHeight: bodyColumn.implicitHeight
+    // Floored: a model rebuild momentarily empties the visible column, and a
+    // zero intrinsic height would resize (and can unmap) a PopupWindow host.
+    implicitHeight: Math.max(1, bodyColumn.implicitHeight)
 
     Column {
         id: measureColumn

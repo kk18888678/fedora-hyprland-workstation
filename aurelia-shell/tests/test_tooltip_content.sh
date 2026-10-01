@@ -75,3 +75,79 @@ else
     details="$(tr '\n' ' ' <"$runtime_log")"
     fail "[isolated-runtime] tooltip body logged $binding_loops binding loops (status=$runtime_status): $details"
 fi
+
+section "Bar Tooltip Model Ticks"
+
+# Permanent opt-in observability must be gated on AURELIA_TOOLTIP_DEBUG=1 and a
+# complete no-op without it, and the host must not let a data refresh collapse
+# its size or drop its visibility.
+if grep -Fq 'Quickshell.env("AURELIA_TOOLTIP_DEBUG") === "1"' "$bar_tooltip_source" &&
+   grep -Fq 'if (!root.tooltipDebugEnabled) return' "$bar_tooltip_source" &&
+   grep -Fq 'backingWindowVisible=' "$bar_tooltip_source" &&
+   grep -Fq 'implicitHeight: Math.max(1, tooltipBody.implicitHeight + verticalPadding * 2)' "$bar_tooltip_source" &&
+   grep -Fq 'if (root.hovered && !root.revealed) showTimer.restart()' "$bar_tooltip_source"; then
+    pass "[static] bar tooltip observability is opt-in and content refreshes cannot reset a revealed tooltip"
+else
+    fail "[static] bar tooltip observability gate or refresh handling regressed"
+fi
+
+ticks_fixture="$ROOT/tests/fixtures/bar-tooltip/ticks.qml"
+ticks_debug_result="$runtime_root/ticks-debug.json"
+ticks_debug_log="$runtime_root/ticks-debug.log"
+ticks_noop_result="$runtime_root/ticks-noop.json"
+ticks_noop_log="$runtime_root/ticks-noop.log"
+ticks_debug_status=0
+ticks_noop_status=0
+
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+TT_SOURCE="file://$bar_tooltip_source" \
+TT_RESULT="$ticks_debug_result" \
+AURELIA_TOOLTIP_DEBUG=1 \
+XDG_RUNTIME_DIR="$runtime_root/runtime" \
+XDG_STATE_HOME="$runtime_root/state" \
+XDG_CONFIG_HOME="$runtime_root/config" \
+XDG_CACHE_HOME="$runtime_root/cache" \
+    /usr/bin/timeout --kill-after=1s 15s /usr/bin/qs --no-duplicate \
+    --path "$ticks_fixture" --no-color >"$ticks_debug_log" 2>&1 || ticks_debug_status=$?
+
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+TT_SOURCE="file://$bar_tooltip_source" \
+TT_RESULT="$ticks_noop_result" \
+XDG_RUNTIME_DIR="$runtime_root/runtime" \
+XDG_STATE_HOME="$runtime_root/state" \
+XDG_CONFIG_HOME="$runtime_root/config" \
+XDG_CACHE_HOME="$runtime_root/cache" \
+    /usr/bin/timeout --kill-after=1s 15s /usr/bin/qs --no-duplicate \
+    --path "$ticks_fixture" --no-color >"$ticks_noop_log" 2>&1 || ticks_noop_status=$?
+
+ticks_debug_loops="$(awk '/Binding loop detected/{count++} END {print count + 0}' "$ticks_debug_log")"
+tooltip_log_lines="$(grep -c '\[TOOLTIP\]' "$ticks_debug_log" || true)"
+tooltip_noop_lines="$(grep -c '\[TOOLTIP\]' "$ticks_noop_log" || true)"
+
+if [[ "$ticks_debug_status" -eq 0 && -s "$ticks_debug_result" ]] &&
+   jq -e '
+        (.samples | length) == 4 and
+        ([ .samples[].present ] | all) and
+        ([ .samples[].hovered ] | all) and
+        ([ .samples[].revealed ] | all) and
+        ([ .samples[].visible ] | all) and
+        ([ .samples[].backingWindowVisible ] | all) and
+        ([ .samples[] | select(.width <= 0 or .height <= 0) ] | length) == 0 and
+        ([ .samples[] | select(.contentWidth <= 0 or .contentHeight <= 0) ] | length) == 0 and
+        .samples[0].kind == "list" and .samples[0].length == 2' \
+       "$ticks_debug_result" >/dev/null &&
+   [[ "$ticks_debug_loops" -eq 0 ]] &&
+   [[ "$tooltip_log_lines" -gt 0 ]] &&
+   runtime_log_is_environment_only "$ticks_debug_log" '(\[TOOLTIP-FIXTURE\]|@ticks\.qml|window masks)' >/dev/null; then
+    pass "[isolated-runtime] three model ticks keep the bar tooltip visible at a non-zero size, with opt-in transition logs"
+else
+    fail "[isolated-runtime] bar tooltip model ticks regressed (status=$ticks_debug_status loops=$ticks_debug_loops logs=$tooltip_log_lines result=$(cat "$ticks_debug_result" 2>&1))"
+fi
+
+if [[ "$ticks_noop_status" -eq 0 && -s "$ticks_noop_result" && "$tooltip_noop_lines" -eq 0 ]]; then
+    pass "[isolated-runtime] without AURELIA_TOOLTIP_DEBUG=1 the bar tooltip logging is a complete no-op"
+else
+    fail "[isolated-runtime] bar tooltip logged without AURELIA_TOOLTIP_DEBUG=1 (status=$ticks_noop_status lines=$tooltip_noop_lines)"
+fi

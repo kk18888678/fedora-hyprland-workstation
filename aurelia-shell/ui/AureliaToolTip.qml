@@ -27,6 +27,43 @@ PopupWindow {
     property int verticalPadding: Theme.spacingXs + 3
     property bool revealed: false
 
+    // Opt-in, bounded observability for the bar tooltip lifecycle. Strictly
+    // gated on AURELIA_TOOLTIP_DEBUG=1 and a complete no-op without it (every
+    // helper returns immediately). The in-scene panel host cannot render offscreen
+    // against a live bar, so this is the permanent diagnosis channel for an
+    // open-then-close in the field.
+    readonly property bool tooltipDebugEnabled:
+        Quickshell.env("AURELIA_TOOLTIP_DEBUG") === "1"
+    readonly property string contentKind: {
+        if (Array.isArray(list) && list.length > 0) return "list"
+        if (Array.isArray(lines) && lines.length > 0) return "lines"
+        if (text !== "") return "text"
+        if (footer !== null && footer !== undefined &&
+            String(footer.text || "") !== "") return "footer"
+        return "none"
+    }
+    readonly property int contentLength: {
+        if (Array.isArray(list) && list.length > 0) return list.length
+        if (Array.isArray(lines) && lines.length > 0) return lines.length
+        if (text !== "") return String(text).length
+        if (footer !== null && footer !== undefined) return String(footer.text || "").length
+        return 0
+    }
+    function tooltipLog(event) {
+        if (!root.tooltipDebugEnabled) return
+        // console.info (not console.log) so the line survives Quickshell's
+        // default log level as `INFO qml: [TOOLTIP] ...`.
+        console.info("[TOOLTIP] " + event +
+            " hovered=" + root.hovered +
+            " revealed=" + root.revealed +
+            " visible=" + root.visible +
+            " backingWindowVisible=" + root.backingWindowVisible +
+            " implicitWidth=" + Math.round(root.implicitWidth) +
+            " implicitHeight=" + Math.round(root.implicitHeight) +
+            " kind=" + root.contentKind +
+            " length=" + root.contentLength)
+    }
+
     readonly property var anchorWindow: triggerItem && triggerItem.QsWindow && triggerItem.QsWindow.window
         ? triggerItem.QsWindow.window
         : null
@@ -46,8 +83,11 @@ PopupWindow {
     // interrupted by the tooltip that is describing it. Rendering is
     // unaffected; the input region is not a visual clip.
     mask: Region {}
-    implicitWidth: tooltipBody.implicitWidth + horizontalPadding * 2
-    implicitHeight: tooltipBody.implicitHeight + verticalPadding * 2
+    // Floored so a transiently-degenerate content measurement can never hand
+    // Quickshell a zero-sized popup (ProxyPopupWindow deletes its backing
+    // window whenever it becomes momentarily non-visible).
+    implicitWidth: Math.max(1, tooltipBody.implicitWidth + horizontalPadding * 2)
+    implicitHeight: Math.max(1, tooltipBody.implicitHeight + verticalPadding * 2)
 
     function dismiss() {
         revealed = false
@@ -62,18 +102,27 @@ PopupWindow {
     onHoveredChanged: {
         if (hovered) showTimer.restart()
         else dismiss()
+        root.tooltipLog("hovered")
     }
 
+    onRevealedChanged: root.tooltipLog("revealed")
+    onVisibleChanged: root.tooltipLog("visible")
+    onImplicitWidthChanged: root.tooltipLog("implicitWidth")
+    onImplicitHeightChanged: root.tooltipLog("implicitHeight")
+    onBackingWindowVisibleChanged: root.tooltipLog("backingWindowVisible")
+
     onTextChanged: {
-        if (root.hovered) showTimer.restart()
+        if (root.hovered && !root.revealed) showTimer.restart()
     }
 
     onLinesChanged: {
-        if (root.hovered) showTimer.restart()
+        if (root.hovered && !root.revealed) showTimer.restart()
     }
 
     onListChanged: {
-        if (root.hovered) showTimer.restart()
+        // A visible tooltip must not be perturbed by a data refresh: the
+        // reveal timer is only meaningful before the first reveal.
+        if (root.hovered && !root.revealed) showTimer.restart()
     }
 
     Component.onCompleted: {
@@ -136,6 +185,9 @@ PopupWindow {
             }
             tooltipAnchor.rect.x = Math.round(point.x)
             tooltipAnchor.rect.y = Math.round(point.y)
+            root.tooltipLog("anchoring rect=" + tooltipAnchor.rect.x + "," +
+                tooltipAnchor.rect.y + "," + tooltipAnchor.rect.width + "x" +
+                tooltipAnchor.rect.height)
         }
     }
 

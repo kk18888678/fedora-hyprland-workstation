@@ -507,6 +507,7 @@ Item {
 
     AureliaToolTip {
         id: barToolTip
+        objectName: "agentsBarToolTip"
         triggerItem: root
         bar: root.bar
         // The tooltip may reappear only after the pointer leaves and re-enters
