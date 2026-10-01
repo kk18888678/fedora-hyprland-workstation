@@ -52,19 +52,19 @@ echo "after-podman-exit=$(installer_exit_code)"
 EOS
 )"
 
-if printf '%s\n' "$orch_output" | grep -q 'after-unexpected-blocked=0'; then
+if grep -q 'after-unexpected-blocked=0' <<<"$orch_output"; then
     pass "uncaught Podman failure does not set ACTIVATION_BLOCKED"
 else
     fail "uncaught Podman blocked activation: $orch_output"
 fi
 
-if printf '%s\n' "$orch_output" | grep -q 'after-unexpected-exit=1'; then
+if grep -q 'after-unexpected-exit=1' <<<"$orch_output"; then
     pass "uncaught required non-login failure produces exit code 1"
 else
     fail "uncaught non-login exit code: $orch_output"
 fi
 
-if printf '%s\n' "$orch_output" | grep -q 'after-podman-activation=completed'; then
+if grep -q 'after-podman-activation=completed' <<<"$orch_output"; then
     pass "required non-login failure still permits activate_graphical_session"
 else
     fail "activation skipped after Podman failure: $orch_output"
@@ -96,13 +96,13 @@ echo "greeter-exit=$(installer_exit_code)"
 EOS
 )"
 
-if printf '%s\n' "$greeter_output" | grep -q 'greeter-blocked=1'; then
+if grep -q 'greeter-blocked=1' <<<"$greeter_output"; then
     pass "greetd/Noctalia greeter validation failure sets ACTIVATION_BLOCKED=1"
 else
     fail "greeter must block activation: $greeter_output"
 fi
 
-if printf '%s\n' "$greeter_output" | grep -q 'greeter-activation=skipped'; then
+if grep -q 'greeter-activation=skipped' <<<"$greeter_output"; then
     pass "activation is skipped when ACTIVATION_BLOCKED=1"
 else
     fail "activation not skipped: $greeter_output"
@@ -132,8 +132,8 @@ echo "skip-state=$GRAPHICAL_ACTIVATION_STATE"
 EOS
 )"
 
-if printf '%s\n' "$skip_output" | grep -q 'skip-enable=0' &&
-    printf '%s\n' "$skip_output" | grep -q 'skip-state=skipped'; then
+if grep -q 'skip-enable=0' <<<"$skip_output" &&
+    grep -q 'skip-state=skipped' <<<"$skip_output"; then
     pass "blocked activation does not enable greetd"
 else
     fail "blocked activation still enabled greetd: $skip_output"
@@ -164,13 +164,13 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$chatgpt_resilience_output" | grep -q 'chatgpt-blocked=0'; then
+if grep -q 'chatgpt-blocked=0' <<<"$chatgpt_resilience_output"; then
     pass "ChatGPT bootstrap failure does not set ACTIVATION_BLOCKED"
 else
     fail "ChatGPT bootstrap failure set ACTIVATION_BLOCKED: $chatgpt_resilience_output"
 fi
 
-if printf '%s\n' "$chatgpt_resilience_output" | grep -q 'chatgpt-exit=2'; then
+if grep -q 'chatgpt-exit=2' <<<"$chatgpt_resilience_output"; then
     pass "ChatGPT failure produces deferred exit code 2"
 else
     fail "ChatGPT failure did not produce exit code 2: $chatgpt_resilience_output"
@@ -198,13 +198,13 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$media_resilience_output" | grep -q 'media-blocked=0'; then
+if grep -q 'media-blocked=0' <<<"$media_resilience_output"; then
     pass "Media applications failure does not set ACTIVATION_BLOCKED"
 else
     fail "Media applications failure set ACTIVATION_BLOCKED: $media_resilience_output"
 fi
 
-if printf '%s\n' "$media_resilience_output" | grep -q 'media-exit=2'; then
+if grep -q 'media-exit=2' <<<"$media_resilience_output"; then
     pass "Media applications failure produces deferred exit code 2"
 else
     fail "Media applications failure did not produce exit code 2: $media_resilience_output"
@@ -252,13 +252,13 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$media_cli_decoupling_output" | grep -q 'cli-ran-when-gui-disabled=1'; then
+if grep -q 'cli-ran-when-gui-disabled=1' <<<"$media_cli_decoupling_output"; then
     pass "MEDIA_APPLICATIONS=false does not suppress install_media_utilities"
 else
     fail "MEDIA_APPLICATIONS=false suppressed install_media_utilities: $media_cli_decoupling_output"
 fi
 
-if printf '%s\n' "$media_cli_decoupling_output" | grep -q 'cli-ran-after-gui-fail=1'; then
+if grep -q 'cli-ran-after-gui-fail=1' <<<"$media_cli_decoupling_output"; then
     pass "GUI media app failure does not prevent install_media_utilities"
 else
     fail "GUI media app failure prevented install_media_utilities: $media_cli_decoupling_output"
@@ -288,13 +288,13 @@ rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR"
 EOS
 )"
 
-if printf '%s\n' "$media_cli_failure_resilience" | grep -q 'cli-fail-blocked=0'; then
+if grep -q 'cli-fail-blocked=0' <<<"$media_cli_failure_resilience"; then
     pass "Media CLI failure does not set ACTIVATION_BLOCKED"
 else
     fail "Media CLI failure set ACTIVATION_BLOCKED: $media_cli_failure_resilience"
 fi
 
-if printf '%s\n' "$media_cli_failure_resilience" | grep -q 'cli-fail-exit=2'; then
+if grep -q 'cli-fail-exit=2' <<<"$media_cli_failure_resilience"; then
     pass "Media CLI failure produces deferred exit code 2"
 else
     fail "Media CLI failure did not produce exit code 2: $media_cli_failure_resilience"
@@ -327,7 +327,7 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$media_validation_decoupling" | grep -qE 'validation-def-count=[1-9]'; then
+if grep -qE 'validation-def-count=[1-9]' <<<"$media_validation_decoupling"; then
     pass "Media CLI validation runs independently of MEDIA_APPLICATIONS=false"
 else
     fail "Media CLI validation did not run when MEDIA_APPLICATIONS=false: $media_validation_decoupling"
@@ -356,7 +356,7 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$clean_exit_output" | grep -q 'clean-exit-code=0'; then
+if grep -q 'clean-exit-code=0' <<<"$clean_exit_output"; then
     pass "Clean successful run returns exit code 0"
 else
     fail "Clean exit code failed: $clean_exit_output"
@@ -385,7 +385,7 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$deferred_exit_output" | grep -q 'deferred-exit-code=2'; then
+if grep -q 'deferred-exit-code=2' <<<"$deferred_exit_output"; then
     pass "Deferred-only completion returns exit code 2 on clean completion"
 else
     fail "Deferred exit code failed: $deferred_exit_output"
@@ -414,7 +414,7 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$required_exit_output" | grep -q 'required-exit-code=1'; then
+if grep -q 'required-exit-code=1' <<<"$required_exit_output"; then
     pass "Classified required failure returns exit code 1"
 else
     fail "Required failure did not return 1: $required_exit_output"
@@ -464,10 +464,10 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$external_sig_output" | grep -q 'sigint-exit-code=130' &&
-   printf '%s\n' "$external_sig_output" | grep -q 'sigterm-exit-code=143' &&
-   printf '%s\n' "$external_sig_output" | grep -q 'sighup-exit-code=129' &&
-   printf '%s\n' "$external_sig_output" | grep -q 'sigquit-exit-code=131'; then
+if grep -q 'sigint-exit-code=130' <<<"$external_sig_output" &&
+   grep -q 'sigterm-exit-code=143' <<<"$external_sig_output" &&
+   grep -q 'sighup-exit-code=129' <<<"$external_sig_output" &&
+   grep -q 'sigquit-exit-code=131' <<<"$external_sig_output"; then
     pass "Explicitly trapped external signals (130, 143, 129, 131) preserve signal exit codes"
 else
     fail "External signals not handled correctly: $external_sig_output"
@@ -616,23 +616,23 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_code=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_failures=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_141_blocked=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_137_code=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'unexpected_137_failures=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'unclassified_nonzero_code=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'unclassified_failures=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'subshell_caller_lost_failures=0' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'subshell_caller_lost_blocked=0'; then
+if grep -q 'unexpected_141_code=1' <<<"$unexpected_status_output" &&
+   grep -q 'unexpected_141_failures=1' <<<"$unexpected_status_output" &&
+   grep -q 'unexpected_141_blocked=1' <<<"$unexpected_status_output" &&
+   grep -q 'unexpected_137_code=1' <<<"$unexpected_status_output" &&
+   grep -q 'unexpected_137_failures=1' <<<"$unexpected_status_output" &&
+   grep -q 'unclassified_nonzero_code=1' <<<"$unexpected_status_output" &&
+   grep -q 'unclassified_failures=1' <<<"$unexpected_status_output" &&
+   grep -q 'subshell_caller_lost_failures=0' <<<"$unexpected_status_output" &&
+   grep -q 'subshell_caller_lost_blocked=0' <<<"$unexpected_status_output"; then
     pass "Unexpected fatal status (141, 137, unclassified nonzero) fails closed with persistent caller shell mutations"
 else
     fail "Unexpected status did not fail closed or persist mutations: $unexpected_status_output"
 fi
 
-if printf '%s\n' "$unexpected_status_output" | grep -q 'real_pipe_rc=2' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'real_pipe_has_summary=1' &&
-   printf '%s\n' "$unexpected_status_output" | grep -q 'real_pipe_last_run_status=status=2'; then
+if grep -q 'real_pipe_rc=2' <<<"$unexpected_status_output" &&
+   grep -q 'real_pipe_has_summary=1' <<<"$unexpected_status_output" &&
+   grep -q 'real_pipe_last_run_status=status=2' <<<"$unexpected_status_output"; then
     pass "Production logging pipeline and exit trap complete with deferred exit code 2 without SIGPIPE (141)"
 else
     fail "Production logging pipeline failed: $unexpected_status_output"

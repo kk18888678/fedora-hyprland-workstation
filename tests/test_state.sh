@@ -161,77 +161,77 @@ rm -rf "$test_lock_dir" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$lock_test_output" | grep -q 'lock1_acquired=1' &&
-   printf '%s\n' "$lock_test_output" | grep -q 'lock_fd_dynamic=1' &&
-   printf '%s\n' "$lock_test_output" | grep -qE 'concurrent_rejected=[1-9]' &&
-   printf '%s\n' "$lock_test_output" | grep -q 'reacquire_ok=1'; then
+if grep -q 'lock1_acquired=1' <<<"$lock_test_output" &&
+   grep -q 'lock_fd_dynamic=1' <<<"$lock_test_output" &&
+   grep -qE 'concurrent_rejected=[1-9]' <<<"$lock_test_output" &&
+   grep -q 'reacquire_ok=1' <<<"$lock_test_output"; then
     pass "installer concurrency lock prevents simultaneous runs and releases cleanly"
 else
     fail "installer concurrency lock failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -qE 'missing_flock_status=[1-9]' &&
-   printf '%s\n' "$lock_test_output" | grep -q 'installer_proceeded=0'; then
+if grep -qE 'missing_flock_status=[1-9]' <<<"$lock_test_output" &&
+   grep -q 'installer_proceeded=0' <<<"$lock_test_output"; then
     pass "missing flock utility fails closed and prevents installer execution from proceeding"
 else
     fail "missing flock fail-closed verification failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -qE 'missing_stat_status=[1-9]'; then
+if grep -qE 'missing_stat_status=[1-9]' <<<"$lock_test_output"; then
     pass "missing stat utility fails closed and prevents lock path determination"
 else
     fail "missing stat fail-closed verification failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'foreign_owned_rejected=1'; then
+if grep -q 'foreign_owned_rejected=1' <<<"$lock_test_output"; then
     pass "validate_lock_directory rejects foreign-owned directory candidates"
 else
     fail "foreign-owned directory rejection failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'unsafe_perm_rejected=1'; then
+if grep -q 'unsafe_perm_rejected=1' <<<"$lock_test_output"; then
     pass "validate_lock_directory rejects candidates with unsafe group/world write permissions"
 else
     fail "unsafe permissions rejection failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'symlink_candidate_rejected=1'; then
+if grep -q 'symlink_candidate_rejected=1' <<<"$lock_test_output"; then
     pass "validate_lock_directory rejects symlink candidate directories"
 else
     fail "symlink candidate rejection failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'relative_xdg_rejected=1'; then
+if grep -q 'relative_xdg_rejected=1' <<<"$lock_test_output"; then
     pass "validate_lock_directory rejects relative path candidates"
 else
     fail "relative path candidate rejection failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'run_user_ok=1'; then
+if grep -q 'run_user_ok=1' <<<"$lock_test_output"; then
     pass "validate_lock_directory verifies valid /run/user/\$UID directory when available"
 else
     fail "/run/user/\$UID validation failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'fallback_uses_private_dir=1'; then
+if grep -q 'fallback_uses_private_dir=1' <<<"$lock_test_output"; then
     pass "locking safely falls back to a private per-user directory when runtime directory is missing"
 else
     fail "lock fallback resolution failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'hostile_fallback_symlink_rejected=1'; then
+if grep -q 'hostile_fallback_symlink_rejected=1' <<<"$lock_test_output"; then
     pass "lock path resolution rejects pre-existing hostile symlinks in fallback directory"
 else
     fail "hostile fallback symlink rejection failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'hostile_foreign_fallback_rejected=1'; then
+if grep -q 'hostile_foreign_fallback_rejected=1' <<<"$lock_test_output"; then
     pass "lock path resolution rejects foreign-owned fallback directory without modifying it"
 else
     fail "hostile foreign fallback rejection failed: $lock_test_output"
 fi
 
-if printf '%s\n' "$lock_test_output" | grep -q 'production_override_ignored=1'; then
+if grep -q 'production_override_ignored=1' <<<"$lock_test_output"; then
     pass "production lock-path resolution ignores test UID overrides"
 else
     fail "production lock-path resolution honored a test UID override: $lock_test_output"

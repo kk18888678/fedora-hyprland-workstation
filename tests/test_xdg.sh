@@ -147,41 +147,41 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$xdg_semantics_test_output" | grep -q 'all-eight-exist=1'; then
+if grep -q 'all-eight-exist=1' <<<"$xdg_semantics_test_output"; then
     pass "all 8 standard XDG user directories initialized for fresh user"
 else
     fail "fresh XDG user directory initialization missing directories: $xdg_semantics_test_output"
 fi
 
-if printf '%s\n' "$xdg_semantics_test_output" | grep -q 'config-file-exists=1'; then
+if grep -q 'config-file-exists=1' <<<"$xdg_semantics_test_output"; then
     pass "user-dirs.dirs configuration file generated"
 else
     fail "user-dirs.dirs configuration file missing: $xdg_semantics_test_output"
 fi
 
-if printf '%s\n' "$xdg_semantics_test_output" | grep -q 'myaudio-preserved=1' &&
-   printf '%s\n' "$xdg_semantics_test_output" | grep -q 'mydesktop-preserved=1' &&
-   printf '%s\n' "$xdg_semantics_test_output" | grep -q 'mydownloads-preserved=1' &&
-   printf '%s\n' "$xdg_semantics_test_output" | grep -q 'no-reset-count=0'; then
+if grep -q 'myaudio-preserved=1' <<<"$xdg_semantics_test_output" &&
+   grep -q 'mydesktop-preserved=1' <<<"$xdg_semantics_test_output" &&
+   grep -q 'mydownloads-preserved=1' <<<"$xdg_semantics_test_output" &&
+   grep -q 'no-reset-count=0' <<<"$xdg_semantics_test_output"; then
     pass "missing custom directories created as TARGET_USER and preserved without reset to HOME"
 else
     fail "custom directory preservation failed: $xdg_semantics_test_output"
 fi
 
-if printf '%s\n' "$xdg_semantics_test_output" | grep -q 'user-file-preserved=1'; then
+if grep -q 'user-file-preserved=1' <<<"$xdg_semantics_test_output"; then
     pass "existing user files are never deleted or mutated"
 else
     fail "existing user files were not preserved: $xdg_semantics_test_output"
 fi
 
-if printf '%s\n' "$xdg_semantics_test_output" | grep -q 'no-cmd-sub-file=1' &&
-   printf '%s\n' "$xdg_semantics_test_output" | grep -q 'no-backtick-file=1'; then
+if grep -q 'no-cmd-sub-file=1' <<<"$xdg_semantics_test_output" &&
+   grep -q 'no-backtick-file=1' <<<"$xdg_semantics_test_output"; then
     pass "malformed and malicious user-dirs.dirs values are never executed"
 else
     fail "malicious command substitution was executed: $xdg_semantics_test_output"
 fi
 
-if printf '%s\n' "$xdg_semantics_test_output" | grep -q 'idempotent-blocked=0'; then
+if grep -q 'idempotent-blocked=0' <<<"$xdg_semantics_test_output"; then
     pass "rerunning XDG user directory initialization never blocks graphical activation"
 else
     fail "rerunning XDG user directory initialization blocked activation: $xdg_semantics_test_output"
@@ -237,7 +237,7 @@ rm -rf "$TARGET_HOME"
 EOS
     )"
 
-    if printf '%s\n' "$real_binary_test_output" | grep -q 'realaudio-ok=1'; then
+    if grep -q 'realaudio-ok=1' <<<"$real_binary_test_output"; then
         pass "real xdg-user-dirs-update binary test preserves non-existing custom directory"
     else
         fail "real binary failed custom directory preservation: $real_binary_test_output"
@@ -285,13 +285,13 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$xdg_failure_test_output" | grep -q 'fail-blocked=0'; then
+if grep -q 'fail-blocked=0' <<<"$xdg_failure_test_output"; then
     pass "XDG user directory failure does not set ACTIVATION_BLOCKED"
 else
     fail "XDG user directory failure set ACTIVATION_BLOCKED: $xdg_failure_test_output"
 fi
 
-if printf '%s\n' "$xdg_failure_test_output" | grep -q 'fail-exit=2'; then
+if grep -q 'fail-exit=2' <<<"$xdg_failure_test_output"; then
     pass "XDG user directory failure produces deferred exit code 2"
 else
     fail "XDG user directory failure did not produce exit code 2: $xdg_failure_test_output"
@@ -429,35 +429,35 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'fresh-exists=1' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-downloads=1' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-documents=1' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-music=1' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-pictures=1' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-videos=1'; then
+if grep -q 'fresh-exists=1' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'has-downloads=1' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'has-documents=1' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'has-music=1' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'has-pictures=1' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'has-videos=1' <<<"$gtk_bookmarks_test_output"; then
     pass "fresh user creates all 5 standard bookmarks"
 else
     fail "fresh user bookmarks creation failed: $gtk_bookmarks_test_output"
 fi
 
-if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-desktop=0' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-templates=0' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'has-public=0'; then
+if grep -q 'has-desktop=0' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'has-templates=0' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'has-public=0' <<<"$gtk_bookmarks_test_output"; then
     pass "Desktop, Templates, and Public are never bookmarked automatically"
 else
     fail "unwanted directories were bookmarked: $gtk_bookmarks_test_output"
 fi
 
-if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'rerun-total-lines=5'; then
+if grep -q 'rerun-total-lines=5' <<<"$gtk_bookmarks_test_output"; then
     pass "repeated bookmark configuration is strictly idempotent"
 else
     fail "bookmark configuration is not idempotent: $gtk_bookmarks_test_output"
 fi
 
-if printf '%s\n' "$gtk_bookmarks_test_output" | grep -q "first-line=${custom_bookmark_uri} My Work" &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'pictures-count=1' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'custom-dl-count=1' &&
-   printf '%s\n' "$gtk_bookmarks_test_output" | grep -q 'merged-total-lines=6'; then
+if grep -q "first-line=${custom_bookmark_uri} My Work" <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'pictures-count=1' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'custom-dl-count=1' <<<"$gtk_bookmarks_test_output" &&
+   grep -q 'merged-total-lines=6' <<<"$gtk_bookmarks_test_output"; then
     pass "existing custom bookmarks and order are preserved without duplicate standard entries"
 else
     fail "bookmark merge failed: $gtk_bookmarks_test_output"

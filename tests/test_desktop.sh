@@ -229,22 +229,22 @@ echo "passthrough_has_scale_1=$passthrough_has_scale_1"
 EOS
 )"
 
-if printf '%s\n' "$greeter_matrix_test" | grep -q 'bare_has_wlr_env=0' &&
-   printf '%s\n' "$greeter_matrix_test" | grep -q 'bare_has_scale_1=0'; then
+if grep -q 'bare_has_wlr_env=0' <<<"$greeter_matrix_test" &&
+   grep -q 'bare_has_scale_1=0' <<<"$greeter_matrix_test"; then
     pass "bare-metal path preserves default hardware cursors and native auto-scaling"
 else
     fail "bare-metal path incorrectly mutated: $greeter_matrix_test"
 fi
 
-if printf '%s\n' "$greeter_matrix_test" | grep -q 'vm_has_wlr_env=1' &&
-   printf '%s\n' "$greeter_matrix_test" | grep -q 'vm_has_scale_1=1'; then
+if grep -q 'vm_has_wlr_env=1' <<<"$greeter_matrix_test" &&
+   grep -q 'vm_has_scale_1=1' <<<"$greeter_matrix_test"; then
     pass "virtio/VM path safely configures WLR_NO_HARDWARE_CURSORS and integer scale 1.0"
 else
     fail "virtio/VM path failed to configure software cursor or scale: $greeter_matrix_test"
 fi
 
-if printf '%s\n' "$greeter_matrix_test" | grep -q 'passthrough_has_wlr_env=0' &&
-   printf '%s\n' "$greeter_matrix_test" | grep -q 'passthrough_has_scale_1=0'; then
+if grep -q 'passthrough_has_wlr_env=0' <<<"$greeter_matrix_test" &&
+   grep -q 'passthrough_has_scale_1=0' <<<"$greeter_matrix_test"; then
     pass "passed-through physical GPU in VM preserves default hardware cursors and auto-scaling"
 else
     fail "passed-through physical GPU in VM incorrectly received workaround: $greeter_matrix_test"
@@ -316,10 +316,10 @@ echo "noctalia_value=$(<"$selector")"
 EOS
 )"
 
-if printf '%s\n' "$session_shell_deploy_test" | grep -q 'aurelia_link=1' &&
-    printf '%s\n' "$session_shell_deploy_test" | grep -q 'aurelia_value=aurelia' &&
-    printf '%s\n' "$session_shell_deploy_test" | grep -q 'noctalia_link=1' &&
-    printf '%s\n' "$session_shell_deploy_test" | grep -q 'noctalia_value=noctalia'; then
+if grep -q 'aurelia_link=1' <<<"$session_shell_deploy_test" &&
+    grep -q 'aurelia_value=aurelia' <<<"$session_shell_deploy_test" &&
+    grep -q 'noctalia_link=1' <<<"$session_shell_deploy_test" &&
+    grep -q 'noctalia_value=noctalia' <<<"$session_shell_deploy_test"; then
     pass "profile-selected shell selector deployment is atomic-by-symlink and idempotent"
 else
     fail "profile-selected shell selector deployment failed: $session_shell_deploy_test"
@@ -354,8 +354,8 @@ echo "blocked=$ACTIVATION_BLOCKED"
 EOS
 )"
 
-if printf '%s\n' "$session_shell_validation_test" | grep -q 'required=1' &&
-    printf '%s\n' "$session_shell_validation_test" | grep -q 'blocked=0'; then
+if grep -q 'required=1' <<<"$session_shell_validation_test" &&
+    grep -q 'blocked=0' <<<"$session_shell_validation_test"; then
     pass "post-login shell selector mismatch is reported without blocking graphical login"
 else
     fail "post-login shell selector mismatch classification is incorrect: $session_shell_validation_test"
@@ -583,9 +583,9 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$foot_deploy_test" | grep -q 'client_deployed=1' &&
-   printf '%s\n' "$foot_deploy_test" | grep -q 'server_deployed=1' &&
-   printf '%s\n' "$foot_deploy_test" | grep -q 'normal_foot_visible=1'; then
+if grep -q 'client_deployed=1' <<<"$foot_deploy_test" &&
+   grep -q 'server_deployed=1' <<<"$foot_deploy_test" &&
+   grep -q 'normal_foot_visible=1' <<<"$foot_deploy_test"; then
     pass "deploy_foot_config deploys client/server NoDisplay overrides while keeping normal Foot visible"
 else
     fail "deploy_foot_config desktop override deployment failed: $foot_deploy_test"
@@ -750,43 +750,43 @@ rm -rf "$TARGET_HOME" "$FONTS_INSTALL_DIR"
 EOS
 )"
 
-if printf '%s\n' "$desktop_theme_test_output" | grep -q 'font-skip-ok=1'; then
+if grep -q 'font-skip-ok=1' <<<"$desktop_theme_test_output"; then
     pass "install_hack_nerd_font detects existing font installation idempotently"
 else
     fail "install_hack_nerd_font idempotency failed: $desktop_theme_test_output"
 fi
 
-if printf '%s\n' "$desktop_theme_test_output" | grep -q 'jetbrains-font-skip-ok=1'; then
+if grep -q 'jetbrains-font-skip-ok=1' <<<"$desktop_theme_test_output"; then
     pass "install_jetbrains_mono_nerd_font detects existing font installation idempotently"
 else
     fail "install_jetbrains_mono_nerd_font idempotency failed: $desktop_theme_test_output"
 fi
 
-if printf '%s\n' "$desktop_theme_test_output" | grep -q 'gtk-skip-ok=1'; then
+if grep -q 'gtk-skip-ok=1' <<<"$desktop_theme_test_output"; then
     pass "install_rose_pine_gtk_theme detects existing theme installation idempotently"
 else
     fail "install_rose_pine_gtk_theme idempotency failed: $desktop_theme_test_output"
 fi
 
-if printf '%s\n' "$desktop_theme_test_output" | grep -q 'symlink-escape-rejected=1'; then
+if grep -q 'symlink-escape-rejected=1' <<<"$desktop_theme_test_output"; then
     pass "install_rose_pine_gtk_theme rejects archives with escaping symlinks before extraction"
 else
     fail "install_rose_pine_gtk_theme did not reject escaping symlink: $desktop_theme_test_output"
 fi
 
-if printf '%s\n' "$desktop_theme_test_output" | grep -q 'hardlink-rejected=1'; then
+if grep -q 'hardlink-rejected=1' <<<"$desktop_theme_test_output"; then
     pass "install_rose_pine_gtk_theme rejects archives with hardlink entries"
 else
     fail "install_rose_pine_gtk_theme did not reject hardlink: $desktop_theme_test_output"
 fi
 
-if printf '%s\n' "$desktop_theme_test_output" | grep -q 'missing-payload-rejected=1'; then
+if grep -q 'missing-payload-rejected=1' <<<"$desktop_theme_test_output"; then
     pass "install_rose_pine_gtk_theme defers cleanly when required Moon theme payload is missing"
 else
     fail "install_rose_pine_gtk_theme did not reject missing Moon payload: $desktop_theme_test_output"
 fi
 
-if printf '%s\n' "$desktop_theme_test_output" | grep -q 'valid-installed=1'; then
+if grep -q 'valid-installed=1' <<<"$desktop_theme_test_output"; then
     pass "install_rose_pine_gtk_theme successfully verifies and installs valid GTK theme payload"
 else
     fail "install_rose_pine_gtk_theme failed on valid payload: $desktop_theme_test_output"
@@ -989,61 +989,61 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'empty-init-ok=1'; then
+if grep -q 'empty-init-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks initializes baseline GTK3 and GTK4 bookmarks in exact desired order"
 else
     fail "converge_gtk_bookmarks empty init failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'only-managed-ok=1'; then
+if grep -q 'only-managed-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks reorders out-of-order managed bookmarks into canonical order"
 else
     fail "converge_gtk_bookmarks only-managed reordering failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'only-pers-ok=1'; then
+if grep -q 'only-pers-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks preserves only-personal bookmarks at top and appends managed block"
 else
     fail "converge_gtk_bookmarks only-personal preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'pers-before-ok=1'; then
+if grep -q 'pers-before-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks preserves personal bookmarks situated before managed block"
 else
     fail "converge_gtk_bookmarks personal-before preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'pers-after-ok=1'; then
+if grep -q 'pers-after-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks preserves personal bookmarks situated after managed block"
 else
     fail "converge_gtk_bookmarks personal-after preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'interleaved-ok=1'; then
+if grep -q 'interleaved-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks preserves interleaved personal bookmarks while converging managed block"
 else
     fail "converge_gtk_bookmarks interleaved preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'dedup-ok=1'; then
+if grep -q 'dedup-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks de-duplicates multiple occurrences of standard bookmarks"
 else
     fail "converge_gtk_bookmarks de-duplication failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'labels-ok=1'; then
+if grep -q 'labels-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks preserves custom bookmark labels intact"
 else
     fail "converge_gtk_bookmarks label preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'remote-ok=1'; then
+if grep -q 'remote-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks preserves non-file remote protocol URIs intact"
 else
     fail "converge_gtk_bookmarks remote URI preservation failed: $bookmarks_test_output"
 fi
 
-if printf '%s\n' "$bookmarks_test_output" | grep -q 'idempotent-c-ok=1'; then
+if grep -q 'idempotent-c-ok=1' <<<"$bookmarks_test_output"; then
     pass "converge_gtk_bookmarks satisfies strict byte idempotency on subsequent runs"
 else
     fail "converge_gtk_bookmarks byte idempotency failed: $bookmarks_test_output"

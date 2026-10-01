@@ -159,34 +159,34 @@ echo "prefix_confusion_rejected=$prefix_confusion_rejected"
 EOS
 )"
 
-if printf '%s\n' "$path_prim_output" | grep -q 'val_parent1=1' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'val_parent2=1' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'val_parent3=1' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'val_parent4=1'; then
+if grep -q 'val_parent1=1' <<<"$path_prim_output" &&
+   grep -q 'val_parent2=1' <<<"$path_prim_output" &&
+   grep -q 'val_parent3=1' <<<"$path_prim_output" &&
+   grep -q 'val_parent4=1' <<<"$path_prim_output"; then
     pass "validate_path_components rejects real '..' path components"
 else
     fail "validate_path_components failed to reject '..' components: $path_prim_output"
 fi
 
-if printf '%s\n' "$path_prim_output" | grep -q 'val_dotdot_name1=0' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'val_dotdot_name2=0' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'val_dotdot_name3=0'; then
+if grep -q 'val_dotdot_name1=0' <<<"$path_prim_output" &&
+   grep -q 'val_dotdot_name2=0' <<<"$path_prim_output" &&
+   grep -q 'val_dotdot_name3=0' <<<"$path_prim_output"; then
     pass "validate_path_components accepts harmless '..' inside filenames"
 else
     fail "validate_path_components rejected harmless '..' inside filename: $path_prim_output"
 fi
 
-if printf '%s\n' "$path_prim_output" | grep -q 'norm_safe1=foo/bar' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'norm_safe2=foo' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'norm_esc1=1' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'norm_esc2=1' &&
-   printf '%s\n' "$path_prim_output" | grep -q 'norm_abs=1'; then
+if grep -q 'norm_safe1=foo/bar' <<<"$path_prim_output" &&
+   grep -q 'norm_safe2=foo' <<<"$path_prim_output" &&
+   grep -q 'norm_esc1=1' <<<"$path_prim_output" &&
+   grep -q 'norm_esc2=1' <<<"$path_prim_output" &&
+   grep -q 'norm_abs=1' <<<"$path_prim_output"; then
     pass "normalize_archive_path accurately computes relative containment and rejects escapes"
 else
     fail "normalize_archive_path containment test failed: $path_prim_output"
 fi
 
-if printf '%s\n' "$path_prim_output" | grep -q 'prefix_confusion_rejected=1'; then
+if grep -q 'prefix_confusion_rejected=1' <<<"$path_prim_output"; then
     pass "boundary-aware containment rejects prefix collision (/tmp/example vs /tmp/example-evil)"
 else
     fail "prefix collision boundary check failed: $path_prim_output"
@@ -275,31 +275,31 @@ rm -rf "$test_sandbox" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$artifact_prov_output" | grep -q 'prov_ok=1'; then
+if grep -q 'prov_ok=1' <<<"$artifact_prov_output"; then
     pass "provision_verified_binary successfully verifies and deploys executable"
 else
     fail "provision_verified_binary failed successful deploy: $artifact_prov_output"
 fi
 
-if printf '%s\n' "$artifact_prov_output" | grep -q 'mismatch_rejected=1'; then
+if grep -q 'mismatch_rejected=1' <<<"$artifact_prov_output"; then
     pass "provision_verified_binary rejects checksum mismatch and does not install"
 else
     fail "provision_verified_binary failed to reject checksum mismatch: $artifact_prov_output"
 fi
 
-if printf '%s\n' "$artifact_prov_output" | grep -q 'insecure_rejected=1'; then
+if grep -q 'insecure_rejected=1' <<<"$artifact_prov_output"; then
     pass "provision_verified_binary rejects insecure non-HTTPS download URLs"
 else
     fail "provision_verified_binary accepted non-HTTPS URL: $artifact_prov_output"
 fi
 
-if printf '%s\n' "$artifact_prov_output" | grep -q 'destination_symlink_rejected=1'; then
+if grep -q 'destination_symlink_rejected=1' <<<"$artifact_prov_output"; then
     pass "provision_verified_binary refuses to follow an existing destination symlink"
 else
     fail "provision_verified_binary followed an existing destination symlink: $artifact_prov_output"
 fi
 
-if printf '%s\n' "$artifact_prov_output" | grep -q 'provenance_recorded=1'; then
+if grep -q 'provenance_recorded=1' <<<"$artifact_prov_output"; then
     pass "pinned artifact provenance detects post-install binary tampering"
 else
     fail "pinned artifact provenance did not detect binary tampering: $artifact_prov_output"
@@ -658,91 +658,91 @@ rm -rf "$fixture_dir" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test1_valid_archive_ok=1'; then
+if grep -q 'test1_valid_archive_ok=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive successfully verifies and installs valid declared binary"
 else
     fail "provision_verified_archive failed on valid archive: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test2_tar_symlink_plain_rejected=1'; then
+if grep -q 'test2_tar_symlink_plain_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rejects ordinary TAR symlinks before extraction"
 else
     fail "provision_verified_archive failed to reject ordinary TAR symlink: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test3_tar_symlink_arrow_name_rejected=1'; then
+if grep -q 'test3_tar_symlink_arrow_name_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rejects TAR symlink whose filename contains ' -> ' before extraction"
 else
     fail "provision_verified_archive failed to reject TAR symlink with ' -> ': $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test4_tar_hardlink_plain_rejected=1'; then
+if grep -q 'test4_tar_hardlink_plain_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rejects ordinary TAR hardlinks before extraction"
 else
     fail "provision_verified_archive failed to reject ordinary TAR hardlink: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test5_tar_hardlink_linkto_name_rejected=1'; then
+if grep -q 'test5_tar_hardlink_linkto_name_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rejects TAR hardlink whose filename contains ' link to ' before extraction"
 else
     fail "provision_verified_archive failed to reject TAR hardlink with ' link to ': $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test6_zip_symlink_rejected=1'; then
+if grep -q 'test6_zip_symlink_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rejects ZIP symlinks before extraction"
 else
     fail "provision_verified_archive failed to reject ZIP symlink: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test7_member_traversal_rejected_before_extraction=1'; then
+if grep -q 'test7_member_traversal_rejected_before_extraction=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rejects member traversal (../) before tar extraction"
 else
     fail "provision_verified_archive failed to reject member traversal: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test8_dotdot_in_name_ok=1'; then
+if grep -q 'test8_dotdot_in_name_ok=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive accepts harmless '..' within member filenames"
 else
     fail "provision_verified_archive rejected harmless '..' within filename: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test9_real_dotdot_component_rejected=1'; then
+if grep -q 'test9_real_dotdot_component_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rejects declared members with real '..' path components"
 else
     fail "provision_verified_archive accepted declared member with '..' component: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test10_corrupt_listing_rejected=1'; then
+if grep -q 'test10_corrupt_listing_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive fails closed on corrupt or uninspectable archive metadata"
 else
     fail "provision_verified_archive failed to reject corrupt listing: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test11_valid_zip_ok=1'; then
+if grep -q 'test11_valid_zip_ok=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive accepts safe regular-file ZIP archives"
 else
     fail "provision_verified_archive failed on safe regular-file ZIP archive: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test12_ambiguous_rejected=1'; then
+if grep -q 'test12_ambiguous_rejected=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive fails closed on ambiguous duplicate member basenames"
 else
     fail "provision_verified_archive failed to reject ambiguous member: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test13_multi_all_present_ok=1'; then
+if grep -q 'test13_multi_all_present_ok=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive validates and installs all members of a multi-binary set"
 else
     fail "provision_verified_archive failed on multi-binary set: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test14_partial_set_rejected_cleanly=1'; then
+if grep -q 'test14_partial_set_rejected_cleanly=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive fails closed before installation if any member of a multi-binary set is missing"
 else
     fail "provision_verified_archive partially installed incomplete multi-binary set: $archive_safety_output"
 fi
 
-if printf '%s\n' "$archive_safety_output" | grep -q 'test15_mid_install_rollback=1'; then
+if grep -q 'test15_mid_install_rollback=1' <<<"$archive_safety_output"; then
     pass "provision_verified_archive rolls back earlier members after a later installation failure"
 else
     fail "provision_verified_archive left a partial member set after installation failure: $archive_safety_output"

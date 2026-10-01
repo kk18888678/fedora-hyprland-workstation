@@ -103,3 +103,31 @@ if git -C "$ROOT" ls-files | grep -E '(^|/)(\.auth|\.token|jetski_state|settings
 else
     pass "no authentication or secret files tracked in git"
 fi
+
+section "SIGPIPE-safe grep producers"
+
+# A producer piped into a quiet grep is unsafe under `set -o pipefail`: the
+# consumer exits on its first match, the producer can take SIGPIPE (exit 141),
+# and the pipeline result inverts. Producers must use a here-string instead.
+# Assemble the tokens at runtime so this guard does not contain the forbidden
+# source text it is required to detect.
+sigpipe_producer='printf'
+sigpipe_consumer='grep -q'
+sigpipe_chain_pattern="${sigpipe_producer} .*\\|[[:space:]]*${sigpipe_consumer}"
+
+sigpipe_scan_status=0
+sigpipe_offenders="$(
+    grep -rnE "$sigpipe_chain_pattern" \
+        "$ROOT/tests" "$ROOT/aurelia-shell/tests" \
+        --include='*.sh'
+)" || sigpipe_scan_status=$?
+
+if (( sigpipe_scan_status > 1 )); then
+    fail "SIGPIPE guard scan failed with status $sigpipe_scan_status"
+elif [[ -n "$sigpipe_offenders" ]]; then
+    while IFS= read -r offender; do
+        fail "SIGPIPE-unsafe quiet-grep pipeline: $offender"
+    done <<<"$sigpipe_offenders"
+else
+    pass "no SIGPIPE-unsafe quiet-grep pipelines in tests or aurelia-shell tests"
+fi

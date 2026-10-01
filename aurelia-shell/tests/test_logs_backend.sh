@@ -118,10 +118,10 @@ chmod 0755 "$sandbox/bin/qs"
 
 runtime_out="$(PATH="$sandbox/bin:$PATH" AURELIA_LOG_PATH="$sandbox/aurelia.log" XDG_RUNTIME_DIR="$sandbox/runtime" \
     "$backend" list --qslog "$sandbox/runtime.qslog" || true)"
-if printf '%s\n' "$runtime_out" | grep -q '\[WARN\] quickshell.scene: Unable to assign' &&
-   printf '%s\n' "$runtime_out" | grep -q '\[ERROR\] quickshell.qml: plugin load failed' &&
-   printf '%s\n' "$runtime_out" | grep -q '\[FATAL\] quickshell.qml: fatal boot error' &&
-   ! printf '%s\n' "$runtime_out" | grep -q '\[INFO\]'; then
+if grep -q '\[WARN\] quickshell.scene: Unable to assign' <<<"$runtime_out" &&
+   grep -q '\[ERROR\] quickshell.qml: plugin load failed' <<<"$runtime_out" &&
+   grep -q '\[FATAL\] quickshell.qml: fatal boot error' <<<"$runtime_out" &&
+   ! grep -q '\[INFO\]' <<<"$runtime_out"; then
     pass "[unit] Quickshell log is read through qs log and keeps its severity"
 else
     fail "[unit] Quickshell runtime projection diverged: $runtime_out"

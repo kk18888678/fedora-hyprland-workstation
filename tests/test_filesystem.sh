@@ -147,85 +147,85 @@ rm -rf "$sandbox" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$path_safety_output" | grep -qE 'empty_dir_status=[1-9]' &&
-   printf '%s\n' "$path_safety_output" | grep -qE 'empty_sym_src_status=[1-9]' &&
-   printf '%s\n' "$path_safety_output" | grep -qE 'empty_sym_dst_status=[1-9]'; then
+if grep -qE 'empty_dir_status=[1-9]' <<<"$path_safety_output" &&
+   grep -qE 'empty_sym_src_status=[1-9]' <<<"$path_safety_output" &&
+   grep -qE 'empty_sym_dst_status=[1-9]' <<<"$path_safety_output"; then
     pass "empty path parameters fail closed across directory and symlink helpers"
 else
     fail "empty path parameter validation failed: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -qE 'root_dst_status=[1-9]'; then
+if grep -qE 'root_dst_status=[1-9]' <<<"$path_safety_output"; then
     pass "ensure_symlink refuses destination as root directory '/'"
 else
     fail "ensure_symlink accepted root destination: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -qE 'dot_dir_status=[1-9]' &&
-   printf '%s\n' "$path_safety_output" | grep -qE 'dot_sym_status=[1-9]'; then
+if grep -qE 'dot_dir_status=[1-9]' <<<"$path_safety_output" &&
+   grep -qE 'dot_sym_status=[1-9]' <<<"$path_safety_output"; then
     pass "path helpers refuse relative '.' and '..' destinations"
 else
     fail "path helpers accepted relative dot destinations: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -qE 'file_as_dir_status=[1-9]'; then
+if grep -qE 'file_as_dir_status=[1-9]' <<<"$path_safety_output"; then
     pass "ensure_directory fails closed when target already exists as a non-directory file"
 else
     fail "ensure_directory did not fail on existing regular file: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'source_symlink_rejected=1'; then
+if grep -q 'source_symlink_rejected=1' <<<"$path_safety_output"; then
     pass "ensure_symlink rejects a repository source that is itself a symlink"
 else
     fail "ensure_symlink accepted a symlinked source path: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'sym_created=1' &&
-   printf '%s\n' "$path_safety_output" | grep -q 'backup_count_after_rerun=0'; then
+if grep -q 'sym_created=1' <<<"$path_safety_output" &&
+   grep -q 'backup_count_after_rerun=0' <<<"$path_safety_output"; then
     pass "ensure_symlink creates valid symlink and is idempotent on repeat runs without backup pollution"
 else
     fail "ensure_symlink creation or idempotency failed: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'sym_retargeted=1' &&
-   printf '%s\n' "$path_safety_output" | grep -qE 'backup_count_after_retarget=[1-9][0-9]*'; then
+if grep -q 'sym_retargeted=1' <<<"$path_safety_output" &&
+   grep -qE 'backup_count_after_retarget=[1-9][0-9]*' <<<"$path_safety_output"; then
     pass "existing symlink is retargeted only after preserving its previous target"
 else
     fail "symlink retargeting did not preserve the previous target: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'foreign_symlink_backed_up=1'; then
+if grep -q 'foreign_symlink_backed_up=1' <<<"$path_safety_output"; then
     pass "unknown existing symlink is preserved as a recoverable backup"
 else
     fail "unknown symlink was replaced without a recoverable backup: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'symlink_parent_rejected=1'; then
+if grep -q 'symlink_parent_rejected=1' <<<"$path_safety_output"; then
     pass "filesystem helpers reject mutations through symlinked parent directories"
 else
     fail "filesystem helper followed a symlinked parent directory: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'file_backed_up=1'; then
+if grep -q 'file_backed_up=1' <<<"$path_safety_output"; then
     pass "existing regular user file is safely backed up before symlink creation"
 else
     fail "existing regular file backup failed: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'collision_resolved=1'; then
+if grep -q 'collision_resolved=1' <<<"$path_safety_output"; then
     pass "backup collision resolution handles duplicate timestamps without data loss"
 else
     fail "backup collision resolution failed: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'dir_backed_up=1'; then
+if grep -q 'dir_backed_up=1' <<<"$path_safety_output"; then
     pass "existing user directory is safely moved to backup before symlink creation"
 else
     fail "existing directory backup failed: $path_safety_output"
 fi
 
-if printf '%s\n' "$path_safety_output" | grep -q 'ns_ok=0' &&
-   printf '%s\n' "$path_safety_output" | grep -qE 'ns_escape_status=[1-9]'; then
+if grep -q 'ns_ok=0' <<<"$path_safety_output" &&
+   grep -qE 'ns_escape_status=[1-9]' <<<"$path_safety_output"; then
     pass "domain-specific namespace validation protects against out-of-namespace targets"
 else
     fail "domain-specific namespace validation failed: $path_safety_output"

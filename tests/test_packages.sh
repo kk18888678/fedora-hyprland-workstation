@@ -534,8 +534,8 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$dnf_lock_holder_output" | grep -q 'has_27719=1' &&
-   printf '%s\n' "$dnf_lock_holder_output" | grep -q 'has_28071=1'; then
+if grep -q 'has_27719=1' <<<"$dnf_lock_holder_output" &&
+   grep -q 'has_28071=1' <<<"$dnf_lock_holder_output"; then
     pass "detect_dnf_lock_holders extracts active lock-holder PIDs and commands from DNF output"
 else
     fail "detect_dnf_lock_holders failed to parse lock output: $dnf_lock_holder_output"
@@ -562,7 +562,7 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$dnf_release_test_output" | grep -q 'release-status=0'; then
+if grep -q 'release-status=0' <<<"$dnf_release_test_output"; then
     pass "DNF command that acquires lock before timeout completes successfully"
 else
     fail "DNF lock release test failed: $dnf_release_test_output"
@@ -590,8 +590,8 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$dnf_unreleased_test_output" | grep -q 'timeout-status=124' &&
-   printf '%s\n' "$dnf_unreleased_test_output" | grep -q 'has_holder_diag=1'; then
+if grep -q 'timeout-status=124' <<<"$dnf_unreleased_test_output" &&
+   grep -q 'has_holder_diag=1' <<<"$dnf_unreleased_test_output"; then
     pass "Unreleased lock contention fails in bounded time (status 124) with holder diagnostics"
 else
     fail "Unreleased lock contention test failed: $dnf_unreleased_test_output"
@@ -646,8 +646,8 @@ rm -rf "$mock_bin" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$dnf_distinguish_test_output" | grep -q 'timeout-query-status=2' &&
-   printf '%s\n' "$dnf_distinguish_test_output" | grep -q 'empty-query-status=1'; then
+if grep -q 'timeout-query-status=2' <<<"$dnf_distinguish_test_output" &&
+   grep -q 'empty-query-status=1' <<<"$dnf_distinguish_test_output"; then
     pass "package_available distinguishes timeout/contention (status 2) from package unavailable (status 1)"
 else
     fail "package_available failed to distinguish contention from unavailable: $dnf_distinguish_test_output"
@@ -682,8 +682,8 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$dnf_proc_fallback_output" | grep -q 'header=CONCURRENT_PROCS' &&
-   printf '%s\n' "$dnf_proc_fallback_output" | grep -q 'has_pid=1'; then
+if grep -q 'header=CONCURRENT_PROCS' <<<"$dnf_proc_fallback_output" &&
+   grep -q 'has_pid=1' <<<"$dnf_proc_fallback_output"; then
     pass "Process-table fallback is accurately categorized as concurrent processes (not assumed lock holders)"
 else
     fail "Process table fallback diagnostic failed: $dnf_proc_fallback_output"

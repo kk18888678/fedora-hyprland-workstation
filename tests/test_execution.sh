@@ -96,41 +96,41 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'test1_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser echo root-switch'; then
+if grep -q 'test1_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser echo root-switch' <<<"$target_user_test_output"; then
     pass "root -> TARGET_USER invokes real sudo user switching with target HOME and USER (without global LC_ALL=C)"
 else
     fail "root -> TARGET_USER did not invoke sudo: $target_user_test_output"
 fi
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'test2_sudo_count=0' &&
-   printf '%s\n' "$target_user_test_output" | grep -q 'test2_executed=1' &&
-   printf '%s\n' "$target_user_test_output" | grep -q 'test2_locale=en_US.UTF-8'; then
+if grep -q 'test2_sudo_count=0' <<<"$target_user_test_output" &&
+   grep -q 'test2_executed=1' <<<"$target_user_test_output" &&
+   grep -q 'test2_locale=en_US.UTF-8' <<<"$target_user_test_output"; then
     pass "already TARGET_USER executes directly and preserves inherited locale"
 else
     fail "already TARGET_USER failed direct execution or locale inheritance: $target_user_test_output"
 fi
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'test3_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser other_cmd' &&
-   printf '%s\n' "$target_user_test_output" | grep -q 'test3_executed=1'; then
+if grep -q 'test3_sudo=SUDO: -u mockuser env HOME=.* USER=mockuser other_cmd' <<<"$target_user_test_output" &&
+   grep -q 'test3_executed=1' <<<"$target_user_test_output"; then
     pass "different non-root user + sudo performs real user switching (without global LC_ALL=C)"
 else
     fail "different non-root user + sudo failed: $target_user_test_output"
 fi
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'test4_executed=0'; then
+if grep -q 'test4_executed=0' <<<"$target_user_test_output"; then
     pass "different non-root user without sudo DOES NOT execute command"
 else
     fail "different non-root user without sudo executed command: $target_user_test_output"
 fi
 
-if printf '%s\n' "$target_user_test_output" | grep -qE 'test5_status=[1-9]'; then
+if grep -qE 'test5_status=[1-9]' <<<"$target_user_test_output"; then
     pass "different non-root user without sudo returns nonzero failure"
 else
     fail "different non-root user without sudo returned zero: $target_user_test_output"
 fi
 
-if printf '%s\n' "$target_user_test_output" | grep -q 'test6_executed=0' &&
-   printf '%s\n' "$target_user_test_output" | grep -qE 'test6_status=[1-9]'; then
+if grep -q 'test6_executed=0' <<<"$target_user_test_output" &&
+   grep -qE 'test6_status=[1-9]' <<<"$target_user_test_output"; then
     pass "USER environment spoofing cannot trick helper into treating caller as TARGET_USER"
 else
     fail "USER environment spoofing bypassed user verification: $target_user_test_output"
@@ -260,19 +260,19 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'executed-user=xdgtester'; then
+if grep -q 'executed-user=xdgtester' <<<"$xdg_privilege_switch_test"; then
     pass "configure_user_directories switches process user to TARGET_USER"
 else
     fail "configure_user_directories did not switch to TARGET_USER: $xdg_privilege_switch_test"
 fi
 
-if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'cmds=.*env LC_ALL=C xdg-user-dirs-update'; then
+if grep -q 'cmds=.*env LC_ALL=C xdg-user-dirs-update' <<<"$xdg_privilege_switch_test"; then
     pass "xdg-user-dirs-update is explicitly invoked with LC_ALL=C at call site"
 else
     fail "xdg-user-dirs-update missing LC_ALL=C at call site: $xdg_privilege_switch_test"
 fi
 
-if printf '%s\n' "$xdg_privilege_switch_test" | grep -q 'all-eight-exist=1'; then
+if grep -q 'all-eight-exist=1' <<<"$xdg_privilege_switch_test"; then
     pass "all 8 standard XDG user directories created via TARGET_USER execution"
 else
     fail "XDG user directories missing after target user execution: $xdg_privilege_switch_test"
@@ -537,85 +537,85 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$timeout_output" | grep -q 'timeout-terminated-ok'; then
+if grep -q 'timeout-terminated-ok' <<<"$timeout_output"; then
     pass "run_with_timeout terminates hung command and returns exit code 124"
 else
     fail "run_with_timeout termination failed: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'timeout-tracked-child-dead-ok'; then
+if grep -q 'timeout-tracked-child-dead-ok' <<<"$timeout_output"; then
     pass "no orphan processes remain after timeout (tracked child PID terminated)"
 else
     fail "orphan process detected after timeout: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'retry-on-timeout-ok'; then
+if grep -q 'retry-on-timeout-ok' <<<"$timeout_output"; then
     pass "run_with_retry retries timed-out operations"
 else
     fail "run_with_retry did not retry on timeout: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'timeout-missing-fail-closed-ok'; then
+if grep -q 'timeout-missing-fail-closed-ok' <<<"$timeout_output"; then
     pass "run_with_timeout fails closed when timeout utility is missing (127)"
 else
     fail "run_with_timeout did not fail closed on missing timeout: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'timeout-invalid-fail-closed-ok'; then
+if grep -q 'timeout-invalid-fail-closed-ok' <<<"$timeout_output"; then
     pass "run_with_timeout fails closed on non-positive timeout values"
 else
     fail "run_with_timeout did not fail closed on invalid timeout: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'pkg-avail-status-0-ok'; then
+if grep -q 'pkg-avail-status-0-ok' <<<"$timeout_output"; then
     pass "package_available returns 0 for available packages"
 else
     fail "package_available status 0 failed: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'pkg-unavail-status-1-ok'; then
+if grep -q 'pkg-unavail-status-1-ok' <<<"$timeout_output"; then
     pass "package_available returns 1 for cleanly absent packages"
 else
     fail "package_available status 1 failed: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'pkg-timeout-status-2-ok'; then
+if grep -q 'pkg-timeout-status-2-ok' <<<"$timeout_output"; then
     pass "package_available returns 2 on repository timeout/failure"
 else
     fail "package_available status 2 failed: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'workstation-timeout-blocked=0'; then
+if grep -q 'workstation-timeout-blocked=0' <<<"$timeout_output"; then
     pass "workstation operation timeout does not block graphical activation"
 else
     fail "workstation operation timeout blocked graphical activation: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'workstation-timeout-exit=1'; then
+if grep -q 'workstation-timeout-exit=1' <<<"$timeout_output"; then
     pass "workstation operation timeout produces exit code 1"
 else
     fail "workstation operation timeout exit code: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'login-timeout-blocked=1'; then
+if grep -q 'login-timeout-blocked=1' <<<"$timeout_output"; then
     pass "login-critical operation timeout blocks graphical activation"
 else
     fail "login-critical operation timeout did not block activation: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'login-timeout-exit=1'; then
+if grep -q 'login-timeout-exit=1' <<<"$timeout_output"; then
     pass "login-critical operation timeout produces exit code 1"
 else
     fail "login-critical operation timeout exit code: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'sigint-exit-130-ok'; then
+if grep -q 'sigint-exit-130-ok' <<<"$timeout_output"; then
     pass "SIGINT preserves final exit status 130 through EXIT trap finalization"
 else
     fail "SIGINT final exit status 130 failed: $timeout_output"
 fi
 
-if printf '%s\n' "$timeout_output" | grep -q 'sigint-tracked-worker-dead-ok'; then
+if grep -q 'sigint-tracked-worker-dead-ok' <<<"$timeout_output"; then
     pass "SIGINT cleans tracked child process without killing parent test shell"
 else
     fail "SIGINT child process cleanup failed: $timeout_output"

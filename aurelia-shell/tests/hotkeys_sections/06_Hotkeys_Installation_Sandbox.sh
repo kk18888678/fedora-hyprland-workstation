@@ -92,14 +92,14 @@ rm -rf "$TARGET_HOME" "$HOTKEYS_BIN_DIR" "$HOTKEYS_APPS_DIR"
 EOS
 )"
 
-if printf '%s\n' "$hotkeys_install_output" | grep -q 'bin-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'cap-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'shell-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'launcher-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'plugin-cli-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'desktop-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'manifest-installed=1' &&
-   printf '%s\n' "$hotkeys_install_output" | grep -q 'host-manifest-installed=1'; then
+if grep -q 'bin-installed=1' <<<"$hotkeys_install_output" &&
+   grep -q 'cap-installed=1' <<<"$hotkeys_install_output" &&
+   grep -q 'shell-installed=1' <<<"$hotkeys_install_output" &&
+   grep -q 'launcher-installed=1' <<<"$hotkeys_install_output" &&
+   grep -q 'plugin-cli-installed=1' <<<"$hotkeys_install_output" &&
+   grep -q 'desktop-installed=1' <<<"$hotkeys_install_output" &&
+   grep -q 'manifest-installed=1' <<<"$hotkeys_install_output" &&
+   grep -q 'host-manifest-installed=1' <<<"$hotkeys_install_output"; then
     pass "install_workstation_hotkeys deploys binaries, desktop entry, and verified provenance manifest in isolation"
 else
     fail "install_workstation_hotkeys failed in sandbox: $hotkeys_install_output"

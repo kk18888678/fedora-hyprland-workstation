@@ -171,7 +171,7 @@ printf 'installed=1\n'
 EOS
 )"
 
-if printf '%s\n' "$authorization_runtime" | grep -q '^installed=1$'; then
+if grep -q '^installed=1$' <<<"$authorization_runtime"; then
     pass "installer deploys both DNS helpers and validates the installed policy in an isolated root"
 else
     fail "isolated installer deployment fixture failed: $authorization_runtime"

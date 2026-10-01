@@ -284,7 +284,7 @@ echo "modularity_ok=1"
 EOS
 )"
 
-if printf '%s\n' "$modularity_output" | grep -q 'modularity_ok=1'; then
+if grep -q 'modularity_ok=1' <<<"$modularity_output"; then
     pass "all modules/lib/ components source cleanly and are side-effect free"
 else
     fail "modules/lib/ components sourcing failed: $modularity_output"
@@ -319,7 +319,7 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$arch_guard_output" | grep -q 'arch_rejected=1'; then
+if grep -q 'arch_rejected=1' <<<"$arch_guard_output"; then
     pass "validate_fedora fails closed on unsupported 32-bit architecture"
 else
     fail "validate_fedora accepted unsupported architecture: $arch_guard_output"

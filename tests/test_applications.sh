@@ -147,32 +147,32 @@ echo "valid_dnf_invoked=$([[ $dnf_called_on_valid -eq 1 ]] && echo 1 || echo 0)"
 EOS
 )"
 
-if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'disabled_no_mutation=1'; then
+if grep -q 'disabled_no_mutation=1' <<<"$chatgpt_behavior_output"; then
     pass "install_chatgpt performs no mutations when CHATGPT=false"
 else
     fail "install_chatgpt mutated system when CHATGPT=false: $chatgpt_behavior_output"
 fi
 
-if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'chatgpt_symlink_rejected=1 chatgpt_symlink_gated=1'; then
+if grep -q 'chatgpt_symlink_rejected=1 chatgpt_symlink_gated=1' <<<"$chatgpt_behavior_output"; then
     pass "symlinked ChatGPT repository configuration fails closed before DNF"
 else
     fail "symlinked ChatGPT repository configuration escaped trust gating: $chatgpt_behavior_output"
 fi
 
-if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'idempotent_when_installed=1'; then
+if grep -q 'idempotent_when_installed=1' <<<"$chatgpt_behavior_output"; then
     pass "install_chatgpt is idempotent and avoids redundant downloads when already installed"
 else
     fail "install_chatgpt attempted redundant installation when already installed: $chatgpt_behavior_output"
 fi
 
-if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'mismatch_dnf_prevented=1' &&
-   printf '%s\n' "$chatgpt_behavior_output" | grep -q 'mismatch_deferred=1'; then
+if grep -q 'mismatch_dnf_prevented=1' <<<"$chatgpt_behavior_output" &&
+   grep -q 'mismatch_deferred=1' <<<"$chatgpt_behavior_output"; then
     pass "install_chatgpt prevents DNF invocation and records deferred on checksum mismatch"
 else
     fail "install_chatgpt did not isolate checksum mismatch from DNF: $chatgpt_behavior_output"
 fi
 
-if printf '%s\n' "$chatgpt_behavior_output" | grep -q 'valid_dnf_invoked=1'; then
+if grep -q 'valid_dnf_invoked=1' <<<"$chatgpt_behavior_output"; then
     pass "install_chatgpt verifies checksum before invoking DNF for official RPM installation"
 else
     fail "install_chatgpt failed valid bootstrap execution: $chatgpt_behavior_output"
@@ -421,79 +421,79 @@ rm -rf "$mock_repos" "$empty_pki" "$staging_pki" "$wrong_pki" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'full_match_status=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'suffix_mismatch_status=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'unrelated_key_status=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'malformed_key_status=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'absent_key_status=1'; then
+if grep -q 'full_match_status=0' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'suffix_mismatch_status=1' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'unrelated_key_status=1' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'malformed_key_status=1' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'absent_key_status=1' <<<"$chatgpt_gpg_test_output"; then
     pass "is_rpm_gpg_key_imported validates exact full fingerprint from OpenPGP blocks and rejects mismatches/malformed data"
 else
     fail "is_rpm_gpg_key_imported full-fingerprint test failed: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'unconfigured_status=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'unconfigured_imported=0'; then
+if grep -q 'unconfigured_status=0' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'unconfigured_imported=0' <<<"$chatgpt_gpg_test_output"; then
     pass "converge_chatgpt_gpg_key is safe no-op when ChatGPT repository is not configured"
 else
     fail "converge_chatgpt_gpg_key failed unconfigured repo no-op: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_key_status=1'; then
+if grep -q 'missing_key_status=1' <<<"$chatgpt_gpg_test_output"; then
     pass "converge_chatgpt_gpg_key fails closed when configured repo is missing GPG key file"
 else
     fail "converge_chatgpt_gpg_key did not fail on missing key file: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'missing_gpg_status=1'; then
+if grep -q 'missing_gpg_status=1' <<<"$chatgpt_gpg_test_output"; then
     pass "converge_chatgpt_gpg_key fails closed when gpg verifier command is genuinely unavailable"
 else
     fail "converge_chatgpt_gpg_key did not fail on missing gpg: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'wrong_key_status=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'wrong_key_imported=0'; then
+if grep -q 'wrong_key_status=1' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'wrong_key_imported=0' <<<"$chatgpt_gpg_test_output"; then
     pass "converge_chatgpt_gpg_key rejects key with mismatched fingerprint without importing"
 else
     fail "converge_chatgpt_gpg_key did not reject wrong fingerprint: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'import_fail_status=1'; then
+if grep -q 'import_fail_status=1' <<<"$chatgpt_gpg_test_output"; then
     pass "converge_chatgpt_gpg_key fails closed when rpm --import fails"
 else
     fail "converge_chatgpt_gpg_key did not fail on import error: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_status=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_imported=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'valid_key_target=1'; then
+if grep -q 'valid_key_status=0' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'valid_key_imported=1' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'valid_key_target=1' <<<"$chatgpt_gpg_test_output"; then
     pass "converge_chatgpt_gpg_key imports verified official OpenAI GPG key on first run"
 else
     fail "converge_chatgpt_gpg_key failed valid key import: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_status=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'second_run_imported=0'; then
+if grep -q 'second_run_status=0' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'second_run_imported=0' <<<"$chatgpt_gpg_test_output"; then
     pass "converge_chatgpt_gpg_key avoids redundant import when key is already trusted in RPM keyring"
 else
     fail "converge_chatgpt_gpg_key failed already-imported idempotency: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_res=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_makecache_called=0' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_has_required_fail=1' &&
-   printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'repo_stage_success_recorded=0'; then
+if grep -q 'repo_stage_res=1' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'repo_stage_makecache_called=0' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'repo_stage_has_required_fail=1' <<<"$chatgpt_gpg_test_output" &&
+   grep -q 'repo_stage_success_recorded=0' <<<"$chatgpt_gpg_test_output"; then
     pass "configure_repositories stops and skips metadata refresh when ChatGPT GPG convergence fails"
 else
     fail "configure_repositories did not skip metadata refresh on GPG failure: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'first_operation=converge_chatgpt'; then
+if grep -q 'first_operation=converge_chatgpt' <<<"$chatgpt_gpg_test_output"; then
     pass "configure_repositories establishes ChatGPT GPG trust BEFORE package installations and metadata refresh"
 else
     fail "configure_repositories did not run ChatGPT GPG convergence first: $chatgpt_gpg_test_output"
 fi
 
-if printf '%s\n' "$chatgpt_gpg_test_output" | grep -q 'prep_makecache_called=0'; then
+if grep -q 'prep_makecache_called=0' <<<"$chatgpt_gpg_test_output"; then
     pass "prepare_system does not perform premature global DNF metadata refresh"
 else
     fail "prepare_system invoked premature dnf_makecache: $chatgpt_gpg_test_output"
@@ -626,37 +626,37 @@ rm -rf "$mock_repos" "$mock_pki" "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's1_trust=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_chatgpt_rc=1' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_has_required_fail=1' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_has_deferred_fail=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_dnf_rc=1' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_dnf_ran=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's4_pkg_avail_rc=2'; then
+if grep -q 's1_trust=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's4_chatgpt_rc=1' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's4_has_required_fail=1' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's4_has_deferred_fail=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's4_dnf_rc=1' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's4_dnf_ran=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's4_pkg_avail_rc=2' <<<"$post_bootstrap_gate_output"; then
     pass "Post-bootstrap trust convergence failure records required failure and strictly blocks subsequent DNF operations"
 else
     fail "Post-bootstrap trust failure did not fail closed or gate DNF: $post_bootstrap_gate_output"
 fi
 
-if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's3_trust=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's3_dnf_rc=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's3_dnf_ran=1'; then
+if grep -q 's3_trust=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's3_dnf_rc=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's3_dnf_ran=1' <<<"$post_bootstrap_gate_output"; then
     pass "Successful post-bootstrap trust convergence establishes trust and permits subsequent DNF operations"
 else
     fail "Successful post-bootstrap trust convergence failed: $post_bootstrap_gate_output"
 fi
 
-if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's5_trust=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's6_trust=1'; then
+if grep -q 's5_trust=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's6_trust=1' <<<"$post_bootstrap_gate_output"; then
     pass "check_repository_trust validates converged keyring state (permits trusted, rejects unconverged)"
 else
     fail "check_repository_trust state evaluation failed: $post_bootstrap_gate_output"
 fi
 
-if printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_chatgpt_rc=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_has_required_fail=0' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_has_deferred_fail=1' &&
-   printf '%s\n' "$post_bootstrap_gate_output" | grep -q 's2_trust=0'; then
+if grep -q 's2_chatgpt_rc=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's2_has_required_fail=0' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's2_has_deferred_fail=1' <<<"$post_bootstrap_gate_output" &&
+   grep -q 's2_trust=0' <<<"$post_bootstrap_gate_output"; then
     pass "Bootstrap download/checksum failure before repo creation correctly records deferred without blocking general DNF"
 else
     fail "Pre-repo bootstrap failure handling failed: $post_bootstrap_gate_output"
@@ -702,9 +702,9 @@ rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR"
 EOS
 )"
 
-if printf '%s\n' "$n_m3u8dl_approved_output" | grep -q 'n_m3u8dl_ran=1' &&
-   printf '%s\n' "$n_m3u8dl_approved_output" | grep -q 'success_recorded=1' &&
-   printf '%s\n' "$n_m3u8dl_approved_output" | grep -q 'activation_blocked=0'; then
+if grep -q 'n_m3u8dl_ran=1' <<<"$n_m3u8dl_approved_output" &&
+   grep -q 'success_recorded=1' <<<"$n_m3u8dl_approved_output" &&
+   grep -q 'activation_blocked=0' <<<"$n_m3u8dl_approved_output"; then
     pass "declarative prerelease exception permits N_m3u8DL-RE beta artifact and provisions verified archive"
 else
     fail "declarative exception failed to provision N_m3u8DL-RE beta: $n_m3u8dl_approved_output"
@@ -756,10 +756,10 @@ rm -rf "$TARGET_HOME" "$MEDIA_TOOLS_DIR" "$empty_exceptions"
 EOS
 )"
 
-if printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'dovi_ran=1' &&
-   printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'deferred_recorded=1' &&
-   printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'activation_blocked=0' &&
-   printf '%s\n' "$n_m3u8dl_policy_output" | grep -q 'exit_code=2'; then
+if grep -q 'dovi_ran=1' <<<"$n_m3u8dl_policy_output" &&
+   grep -q 'deferred_recorded=1' <<<"$n_m3u8dl_policy_output" &&
+   grep -q 'activation_blocked=0' <<<"$n_m3u8dl_policy_output" &&
+   grep -q 'exit_code=2' <<<"$n_m3u8dl_policy_output"; then
     pass "without exception installer skips N_m3u8DL-RE beta artifact and records deferred notice without blocking activation"
 else
     fail "installer without exception did not handle N_m3u8DL-RE prerelease correctly: $n_m3u8dl_policy_output"
@@ -937,38 +937,38 @@ echo "r_express=$r_express"
 EOS
 )"
 
-if printf '%s\n' "$prerelease_check_output" | grep -q 'p_alpha=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_beta1=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_beta2=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_rc1=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_rc2=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_preview=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_pre1=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_pre2=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_dev=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_nightly=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'p_snapshot=0'; then
+if grep -q 'p_alpha=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_beta1=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_beta2=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_rc1=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_rc2=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_preview=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_pre1=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_pre2=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_dev=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_nightly=0' <<<"$prerelease_check_output" &&
+   grep -q 'p_snapshot=0' <<<"$prerelease_check_output"; then
     pass "is_prerelease_tag correctly rejects alpha, beta, rc, preview, pre, dev, nightly, and snapshot tokens"
 else
     fail "is_prerelease_tag failed to reject prerelease token: $prerelease_check_output"
 fi
 
-if printf '%s\n' "$prerelease_check_output" | grep -q 's_v1=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 's_v2=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 's_v3=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 's_v4=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 's_v5=0'; then
+if grep -q 's_v1=0' <<<"$prerelease_check_output" &&
+   grep -q 's_v2=0' <<<"$prerelease_check_output" &&
+   grep -q 's_v3=0' <<<"$prerelease_check_output" &&
+   grep -q 's_v4=0' <<<"$prerelease_check_output" &&
+   grep -q 's_v5=0' <<<"$prerelease_check_output"; then
     pass "is_prerelease_tag correctly accepts standard stable version tags"
 else
     fail "is_prerelease_tag rejected valid stable tag: $prerelease_check_output"
 fi
 
-if printf '%s\n' "$prerelease_check_output" | grep -q 'r_precise=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'r_compress=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'r_develop=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'r_device=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'r_predict=0' &&
-   printf '%s\n' "$prerelease_check_output" | grep -q 'r_express=0'; then
+if grep -q 'r_precise=0' <<<"$prerelease_check_output" &&
+   grep -q 'r_compress=0' <<<"$prerelease_check_output" &&
+   grep -q 'r_develop=0' <<<"$prerelease_check_output" &&
+   grep -q 'r_device=0' <<<"$prerelease_check_output" &&
+   grep -q 'r_predict=0' <<<"$prerelease_check_output" &&
+   grep -q 'r_express=0' <<<"$prerelease_check_output"; then
     pass "is_prerelease_tag avoids false positives on words containing 'pre' or 'dev' substrings (precise, develop, device, etc.)"
 else
     fail "is_prerelease_tag false positive on boundary regression word: $prerelease_check_output"
@@ -1092,13 +1092,13 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$agy_arch_output" | grep -q 'agy-arch-blocked=0'; then
+if grep -q 'agy-arch-blocked=0' <<<"$agy_arch_output"; then
     pass "unsupported arch does not set ACTIVATION_BLOCKED"
 else
     fail "unsupported arch set ACTIVATION_BLOCKED: $agy_arch_output"
 fi
 
-if printf '%s\n' "$agy_arch_output" | grep -q 'agy-arch-exit=2'; then
+if grep -q 'agy-arch-exit=2' <<<"$agy_arch_output"; then
     pass "unsupported arch produces deferred exit code 2"
 else
     fail "unsupported arch exit code: $agy_arch_output"
@@ -1166,12 +1166,12 @@ rm -rf "$TARGET_HOME"
 EOS
 )"
 
-if printf '%s\n' "$nix_conf_output" | grep -q 'user_custom_ok=1' &&
-   printf '%s\n' "$nix_conf_output" | grep -q 'features_added=1' &&
-   printf '%s\n' "$nix_conf_output" | grep -q 'warn_dirty_added=1' &&
-   printf '%s\n' "$nix_conf_output" | grep -q 'merged_features_ok=1' &&
-   printf '%s\n' "$nix_conf_output" | grep -q 'custom_warn_dirty_preserved=1' &&
-   printf '%s\n' "$nix_conf_output" | grep -q 'fresh_write_failure_safe=1'; then
+if grep -q 'user_custom_ok=1' <<<"$nix_conf_output" &&
+   grep -q 'features_added=1' <<<"$nix_conf_output" &&
+   grep -q 'warn_dirty_added=1' <<<"$nix_conf_output" &&
+   grep -q 'merged_features_ok=1' <<<"$nix_conf_output" &&
+   grep -q 'custom_warn_dirty_preserved=1' <<<"$nix_conf_output" &&
+   grep -q 'fresh_write_failure_safe=1' <<<"$nix_conf_output"; then
     pass "configure_nix_features preserves user settings and merges missing required feature tokens"
 else
     fail "configure_nix_features mutated or wiped user nix.conf: $nix_conf_output"

@@ -912,9 +912,9 @@ assert not not_installed, not_installed
     check_path="$(PATH="/usr/local/bin:/usr/bin:/bin:/opt/caller-tools" "$ai_backend" check | sed -n 's/^agent_path: //p')"
     local_bin_count="$(printf '%s\n' "$check_path" | tr ':' '\n' | grep -cx -- "$HOME/.local/bin" || true)"
     if [[ "$local_bin_count" -eq 1 ]] &&
-        printf '%s\n' "$check_path" | tr ':' '\n' | grep -qx -- "/opt/caller-tools" &&
-        printf '%s\n' "$check_path" | tr ':' '\n' | grep -qx -- "/usr/bin" &&
-        printf '%s\n' "$check_path" | tr ':' '\n' | grep -qx -- "/bin"; then
+        grep -qx -- "/opt/caller-tools" <<<"$(tr ':' '\n' <<<"$check_path")" &&
+        grep -qx -- "/usr/bin" <<<"$(tr ':' '\n' <<<"$check_path")" &&
+        grep -qx -- "/bin" <<<"$(tr ':' '\n' <<<"$check_path")"; then
         pass "[sandbox] deterministic agent PATH is duplicate-free and preserves caller/system entries"
     else
         fail "[sandbox] deterministic agent PATH is malformed: $check_path"
