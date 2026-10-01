@@ -1731,6 +1731,8 @@ function accountStatus(row, nowMs) {
 // "text" (a plain hint), "legend" (the two mini pace meters) or "keys" (the
 // key-cap row). The stale hint wins over everything and is the only warning
 // tone; the idle rotation cycles the last three entries by `idleIndex`.
+// `keyboard` is the bounded "a key was handled recently" flag, NOT the
+// persistent keyboard cursor, so no priority can latch the footer forever.
 function footerHint(ctx) {
     var c = ctx || {};
     if (c.stale === true) {

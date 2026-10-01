@@ -20,11 +20,18 @@ fixture="$ROOT/tests/fixtures/agents-dashboard/records.json"
 harness="$ROOT/tests/fixtures/agents-dashboard/footer-geometry.qml"
 
 # Static pins for the rotation timing. The interval gate keeps the other
-# rotation rules (idle only, pause on hover, stop while hidden) intact.
-if grep -Fq 'interval: 4000' "$dashboard" &&
+# rotation rules (idle only, pause on hover, stop while hidden) intact. The
+# rotation and key-hint intervals are properties so the event fixture can
+# shorten them instead of waiting a real four seconds.
+if grep -Fq 'property int rotationIntervalMs: 4000' "$dashboard" &&
+   grep -Fq 'property int keyHintIntervalMs: 4000' "$dashboard" &&
+   grep -Fq 'interval: dashboard.rotationIntervalMs' "$dashboard" &&
+   grep -Fq 'interval: dashboard.keyHintIntervalMs' "$dashboard" &&
+   grep -Fq 'keyboard: keyHintVisible' "$dashboard" &&
    grep -Fq 'running: dashboard.panelShown && dashboard.footerHint.priority === 5 && !footerHover.hovered' "$dashboard" &&
    grep -Fq 'property: "opacity"; to: 0; duration: 75' "$dashboard" &&
    grep -Fq 'property: "opacity"; to: 1; duration: 75' "$dashboard" &&
+   ! grep -Fq 'keyboard: cursorActive' "$dashboard" &&
    ! grep -Fq 'interval: 8000' "$dashboard" &&
    ! grep -Fq 'duration: 100' "$dashboard"; then
     pass "[static] idle rotation is 4000 ms with a 150 ms cross-fade and the idle/hover/shown gates"
@@ -88,4 +95,52 @@ if [[ "$footer_status" -eq 0 && -s "$footer_result" && "$binding_loops" -eq 0 ]]
     pass "[isolated-runtime] each legend meter and label share one vertical centre line within 1 px"
 else
     fail "[isolated-runtime] legend centre-line alignment regressed (status=$footer_status loops=$binding_loops result=$(cat "$footer_result" 2>&1))"
+fi
+
+# --- Item 1 (round 2): the bounded key-caps hint must not latch. A real
+# arrow key shows the key-caps hint, the shortened key-hint interval decays it
+# back to the idle rotation at index 0, and one shortened rotation interval
+# advances the rotation. The hover (3/4) and stale (1) hint priorities are
+# audited at the same time: none may latch when its condition clears.
+latch_fixture="$ROOT/tests/fixtures/agents-dashboard/footer-latch.qml"
+latch_result="$footer_root/footer-latch.json"
+latch_log="$footer_root/footer-latch.log"
+latch_status=0
+
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$footer_root/runtime" \
+XDG_CONFIG_HOME="$footer_root/config" \
+XDG_STATE_HOME="$footer_root/state" \
+XDG_CACHE_HOME="$footer_root/cache" \
+AGENTS_DASHBOARD_PLUGIN="$dashboard" \
+AGENTS_DASHBOARD_FIXTURE="$fixture" \
+AGENTS_DASHBOARD_RESULT="$latch_result" \
+    /usr/bin/timeout --kill-after=1s 25s /usr/bin/qs --no-duplicate \
+    --path "$latch_fixture" >"$latch_log" 2>&1 || latch_status=$?
+
+latch_loops="$(awk '/Binding loop detected/{count++} END {print count + 0}' "$latch_log")"
+
+if [[ "$latch_status" -eq 0 && -s "$latch_result" && "$latch_loops" -eq 0 ]] &&
+   jq -e '
+        .keyTargetActiveFocus == true and
+        .beforeKey.priority == 5 and .beforeKey.kind == "text" and
+        .beforeKey.rotationIndex == 0 and .beforeKey.keyHintVisible == false and
+        .afterKey.priority == 2 and .afterKey.kind == "keys" and
+        .afterKey.keyHintVisible == true and .afterKey.cursorActive == true and
+        .afterKeyExpiry.priority == 5 and .afterKeyExpiry.kind == "text" and
+        .afterKeyExpiry.rotationIndex == 0 and
+        .afterKeyExpiry.keyHintVisible == false and
+        .afterKeyExpiry.cursorActive == true and
+        .afterRotation.priority == 5 and
+        (.afterRotation.rotationIndex > .afterKeyExpiry.rotationIndex) and
+        (.afterRotation.kind != .afterKeyExpiry.kind) and
+        .priorityLegend == 3 and .priorityAfterLegendExit == 5 and
+        .priorityRow == 4 and .priorityAfterRowExit == 5 and
+        .priorityStale == 1 and .priorityAfterFresh == 5' \
+       "$latch_result" >/dev/null &&
+   runtime_log_is_environment_only "$latch_log" '(\[AGENTS\]|agents-dashboard|@footer-latch\.qml)' >/dev/null; then
+    pass "[isolated-runtime] a real arrow key shows the key-caps hint, the hint decays back to the idle rotation, and the rotation advances"
+else
+    fail "[isolated-runtime] bounded key-caps hint regressed (status=$latch_status loops=$latch_loops result=$(cat "$latch_result" 2>&1))"
 fi

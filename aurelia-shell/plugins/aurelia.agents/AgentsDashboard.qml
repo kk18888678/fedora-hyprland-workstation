@@ -57,6 +57,17 @@ Item {
     property bool panelShown: false
     // Index into the idle footer rotation. Reset to 0 whenever the panel opens.
     property int rotationIndex: 0
+    // The key-caps hint (footer hint priority 2) is shown for a bounded window
+    // after the most recent handled key, NOT for as long as the keyboard cursor
+    // exists. `cursorActive` is the keyboard focus ring and stays true until
+    // the next pointer interaction; reusing it for the hint pinned the
+    // key-caps tip and starved the idle rotation. `keyHintVisible` decays on
+    // its own, so the rotation resumes when the user stops using the keys.
+    property bool keyHintVisible: false
+    // Bounded key-hint window. Production is 4000 ms; the event fixtures
+    // shorten these properties so the decay is proven without a real wait.
+    property int keyHintIntervalMs: 4000
+    property int rotationIntervalMs: 4000
     // Opening the panel ALWAYS starts from the resting consolidated matrix.
     // Every open restores the same state regardless of what was expanded when
     // it was last closed: no selection, no keyboard cursor, focus row 0, the
@@ -67,6 +78,8 @@ Item {
     onPanelShownChanged: {
         if (!panelShown) return
         rotationIndex = 0
+        keyHintVisible = false
+        keyHintTimer.stop()
         clearSelection()
         accountDetailsExpanded = ({})
         cursorActive = false
@@ -178,7 +191,7 @@ Item {
     readonly property var footerHint: AgentUsage.footerHint({
         stale: overallFreshness.stale,
         ageText: overallFreshness.stale ? overallFreshness.ageText : "",
-        keyboard: cursorActive,
+        keyboard: keyHintVisible,
         expanded: hasSelection,
         hoverColumn: hoverColumn,
         hoverRow: hoverRow,
@@ -302,6 +315,14 @@ Item {
     // of the column hover and the tooltip, the row HoverHandler of the row.
     function notePointerMotion() {
         cursorActive = false
+    }
+
+    // A handled key establishes the bounded key-caps hint and restarts its
+    // decay window. It deliberately does not touch `cursorActive`: the focus
+    // ring keeps its own (pointer-cleared) lifetime.
+    function noteKeyInteraction() {
+        keyHintVisible = true
+        keyHintTimer.restart()
     }
 
     function selectAccountByPointer(index) {
@@ -438,6 +459,8 @@ Item {
     function handleKey(event) {
         // Any key hides the shared inline tooltip as well as moving the cursor.
         if (panelToolTip) panelToolTip.dismiss()
+        // Every handled key restarts the bounded key-caps hint.
+        noteKeyInteraction()
         var key = event.key
         var text = String(event.text || "").toLowerCase()
         if (key === Qt.Key_Escape) {
@@ -2045,12 +2068,28 @@ Item {
     // Idle footer rotation. The timer runs only while the panel is actually
     // shown (`panelShown`), the hint is idle (priority 5) and the footer is not
     // hovered. `panelShown` defaults to false, so an unwired fixture never
-    // rotates. Any higher-priority hint takes over immediately.
+    // rotates. Any higher-priority hint takes over immediately; because the
+    // key-caps hint is time-bounded, the rotation resumes on its own after a
+    // keypress instead of latching forever.
     Timer {
-        interval: 4000
+        interval: dashboard.rotationIntervalMs
         repeat: true
         running: dashboard.panelShown && dashboard.footerHint.priority === 5 && !footerHover.hovered
         onTriggered: footerRotateAnimation.start()
+    }
+
+    // Bounded key-caps hint. Every handled key restarts it; when it expires
+    // with no hover-driven hint owning the footer, it returns the idle
+    // rotation to index 0 so the rotation restarts from the default tip.
+    Timer {
+        id: keyHintTimer
+        interval: dashboard.keyHintIntervalMs
+        repeat: false
+        onTriggered: {
+            dashboard.keyHintVisible = false
+            if (dashboard.hoverRow < 0 && dashboard.hoverColumn === "")
+                dashboard.rotationIndex = 0
+        }
     }
 
     // 150 ms cross-fade: out, swap, in. It always ends at opacity 1.0.
