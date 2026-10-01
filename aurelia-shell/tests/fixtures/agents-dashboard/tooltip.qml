@@ -156,7 +156,8 @@ Window {
             var child = kids[i]
             if (typeof child.text === "string" && child.color !== undefined &&
                 child.font !== undefined && child.visible !== false &&
-                String(child.text) !== "▲" && String(child.text) !== "●") {
+                String(child.text).replace(/\s+$/, "") !== "▲" &&
+                String(child.text).replace(/\s+$/, "") !== "●") {
                 out.push(String(child.color))
             }
             collectTextColors(child, out)

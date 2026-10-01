@@ -552,3 +552,51 @@ CONTRAST_PY
     fi
     assert_runtime_log_clean "$render_log" "measured alert render" '(\[AGENTS\]|result\.json|@shell\.qml)'
 fi
+
+# ---------------------------------------------------------------------------
+# Item 3 (round 2): the panel tooltip width is content-only. For every spec
+# 6.3 cell-tooltip state (blocking, meaningfully fast, on track, non-binding,
+# not offered, not reported, column header) the rendered width must equal the
+# widest measured line + the host padding, every line must be a single
+# left-aligned line, and no line may be elided. The cases also cover all three
+# columns, including the rightmost month column near the panel edge.
+# ---------------------------------------------------------------------------
+states_fixture="$ROOT/tests/fixtures/agents-dashboard/tooltip-states.qml"
+states_result="$alignment_root/tooltip-states.json"
+states_log="$alignment_root/tooltip-states.log"
+states_status=0
+
+QT_QPA_PLATFORM=offscreen \
+WAYLAND_DISPLAY="" \
+XDG_RUNTIME_DIR="$alignment_root/states-runtime" \
+XDG_CONFIG_HOME="$alignment_root/states-config" \
+XDG_STATE_HOME="$alignment_root/states-state" \
+XDG_CACHE_HOME="$alignment_root/states-cache" \
+AGENTS_DASHBOARD_PLUGIN="$plugin_dir/AgentsDashboard.qml" \
+AGENTS_DASHBOARD_FIXTURE="$fixture" \
+AGENTS_DASHBOARD_RESULT="$states_result" \
+    /usr/bin/timeout --kill-after=1s 40s /usr/bin/qs --no-duplicate \
+    --path "$states_fixture" >"$states_log" 2>&1 || states_status=$?
+
+states_loops="$(awk '/Binding loop detected/{count++} END {print count + 0}' "$states_log")"
+
+if [[ "$states_status" -eq 0 && -s "$states_result" && "$states_loops" -eq 0 ]] &&
+   jq -e '
+        .count == 9 and
+        ([ .measurements[].name ] | unique | length) == 9 and
+        ([ .measurements[].column ] | unique | sort) == ["five_hour","month","week"] and
+        ([ .measurements[] | select(.column == "month" and (.name | contains("rightmost"))) ] | length) >= 1 and
+        ([ .measurements[] | select(.triggerIsCell != true) ] | length) == 0 and
+        ([ .measurements[] | select(.tooltipWidth <= .triggerWidth) ] | length) == 0 and
+        ([ .measurements[] | select(((.tooltipWidth - .expectedWidth) | fabs) > 1) ] | length) == 0 and
+        ([ .measurements[] | select((.lines | length) != .measureLineCount) ] | length) == 0 and
+        ([ .measurements[] | select(([.lines[].lineCount] | max) != 1) ] | length) == 0 and
+        ([ .measurements[] | select(([.lines[].truncated] | any) == true) ] | length) == 0 and
+        ([ .measurements[] | select(([.lines[].alignment] | unique) != [1]) ] | length) == 0 and
+        ([ .measurements[] | select(.lines[0].weight != 700) ] | length) == 0' \
+       "$states_result" >/dev/null &&
+   runtime_log_is_environment_only "$states_log" '(\[AGENTS\]|@tooltip-states\.qml)' >/dev/null; then
+    pass "[isolated-runtime] every spec 6.3 tooltip state is content-width, single-line, unelided and left-aligned across all three columns"
+else
+    fail "[isolated-runtime] panel tooltip readability regressed (status=$states_status loops=$states_loops result=$(cat "$states_result" 2>&1))"
+fi

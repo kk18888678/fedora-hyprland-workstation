@@ -78,6 +78,13 @@ Item {
         return (glyph !== "" ? glyph + " " : "") + String((line && line.text) || "")
     }
 
+    // The body text of a line does NOT include the tone glyph: the glyph is a
+    // separate Text so its colour applies to the glyph only, and the exactly
+    // one space after it comes from that Text, never duplicated here.
+    function lineBodyText(line) {
+        return String((line && line.text) || "")
+    }
+
     // The intrinsic width comes from a hidden, never-width-constrained
     // measurement column that mirrors the visible one with NoWrap text. This
     // is deterministic and avoids both binding loops and imperative
@@ -130,11 +137,13 @@ Item {
             model: contentRoot.hasLines ? contentRoot.lines : []
 
             delegate: Text {
+                objectName: "tooltipMeasureLine"
                 required property var modelData
+                required property int index
                 text: contentRoot.lineText(modelData)
                 font.family: Theme.fontFamilyResolved
                 font.pixelSize: contentRoot.bodyFontSize
-                font.weight: modelData.strong === true
+                font.weight: (index === 0 || modelData.strong === true)
                     ? Theme.fontWeightBold : Theme.fontWeightNormal
                 wrapMode: Text.NoWrap
             }
@@ -152,7 +161,10 @@ Item {
     ColumnLayout {
         id: bodyColumn
         width: contentRoot.implicitWidth
-        spacing: Theme.spacingXs
+        // Lines mode uses the tighter line spacing; the list/footer modes keep
+        // the established spacing.
+        spacing: contentRoot.hasLines && !contentRoot.hasList && !contentRoot.hasFooter
+            ? Theme.spacingXs / 2 : Theme.spacingXs
 
         // Plain text: centred when it is a single line, left aligned otherwise.
         Text {
@@ -206,18 +218,24 @@ Item {
             }
         }
 
-        // Structured lines: optional leading tone glyph, wrapping text.
+        // Structured lines: optional leading tone glyph, single-line text. The
+        // width comes from the content only (never the trigger or the available
+        // space), so every line stays on one line and a line past the 360 cap
+        // elides rather than wrapping mid-phrase.
         Repeater {
             model: contentRoot.hasLines ? contentRoot.lines : []
 
             delegate: RowLayout {
                 required property var modelData
+                required property int index
                 Layout.fillWidth: true
                 spacing: 0
 
                 Text {
+                    objectName: "tooltipLineGlyph"
                     visible: contentRoot.toneGlyph(modelData.tone) !== ""
-                    text: contentRoot.toneGlyph(modelData.tone)
+                    text: contentRoot.toneGlyph(modelData.tone) !== ""
+                        ? contentRoot.toneGlyph(modelData.tone) + " " : ""
                     color: contentRoot.toneColor(modelData.tone)
                     font.family: Theme.fontFamilyResolved
                     font.pixelSize: contentRoot.bodyFontSize
@@ -225,15 +243,22 @@ Item {
                 }
 
                 Text {
+                    objectName: "tooltipLineBody"
                     Layout.fillWidth: true
-                    text: contentRoot.lineText(modelData)
+                    text: contentRoot.lineBodyText(modelData)
                     color: Theme.tooltip.text
                     font.family: Theme.fontFamilyResolved
                     font.pixelSize: contentRoot.bodyFontSize
-                    font.weight: modelData.strong === true
+                    font.weight: (index === 0 || modelData.strong === true)
                         ? Theme.fontWeightBold : Theme.fontWeightNormal
                     lineHeight: 1.15
-                    wrapMode: Text.WordWrap
+                    wrapMode: Text.NoWrap
+                    horizontalAlignment: Text.AlignLeft
+                    // Only a line past the 360 cap is elided; every one of the
+                    // spec strings stays whole (and sub-pixel layout rounding
+                    // must never turn a fitting line into an ellipsis).
+                    elide: implicitWidth > contentRoot.maxTextWidth
+                        ? Text.ElideRight : Text.ElideNone
                 }
             }
         }
@@ -252,8 +277,10 @@ Item {
             spacing: 0
 
             Text {
+                objectName: "tooltipFooterGlyph"
                 visible: contentRoot.toneGlyph(contentRoot.footer ? contentRoot.footer.tone : "") !== ""
-                text: contentRoot.toneGlyph(contentRoot.footer ? contentRoot.footer.tone : "")
+                text: contentRoot.toneGlyph(contentRoot.footer ? contentRoot.footer.tone : "") !== ""
+                    ? contentRoot.toneGlyph(contentRoot.footer ? contentRoot.footer.tone : "") + " " : ""
                 color: contentRoot.toneColor(contentRoot.footer ? contentRoot.footer.tone : "")
                 font.family: Theme.fontFamilyResolved
                 font.pixelSize: contentRoot.bodyFontSize
@@ -261,13 +288,17 @@ Item {
             }
 
             Text {
+                objectName: "tooltipFooterBody"
                 Layout.fillWidth: true
-                text: contentRoot.footer ? contentRoot.lineText(contentRoot.footer) : ""
+                text: contentRoot.footer ? contentRoot.lineBodyText(contentRoot.footer) : ""
                 color: Theme.tooltip.text
                 font.family: Theme.fontFamilyResolved
                 font.pixelSize: contentRoot.bodyFontSize
                 lineHeight: 1.15
-                wrapMode: Text.WordWrap
+                wrapMode: Text.NoWrap
+                horizontalAlignment: Text.AlignLeft
+                elide: implicitWidth > contentRoot.maxTextWidth
+                    ? Text.ElideRight : Text.ElideNone
             }
         }
     }

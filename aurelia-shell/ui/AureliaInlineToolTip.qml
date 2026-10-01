@@ -49,8 +49,11 @@ Item {
         root.revealed = true
     }
 
-    // Place inside the parent's own bounds: below the trigger by default,
-    // flipped above when that would overflow, then clamped on both axes.
+    // Place inside the parent's own bounds. The WIDTH is already the content's
+    // own intrinsic width plus padding and is NEVER derived from the trigger or
+    // the available space; near an edge this only MOVES the tooltip. It flips
+    // above when it does not fit below, then clamps both axes, so an edge can
+    // never shrink or wrap the text.
     function reposition() {
         if (!root.triggerItem || !root.parent) return
         var origin = root.triggerItem.mapToItem(root.parent, 0, 0)
